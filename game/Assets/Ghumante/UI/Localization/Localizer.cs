@@ -101,11 +101,13 @@ namespace Ghumante.UI.Localization
             RaiseChanged();
         }
 
-        /// <summary>Picks Nepali for devices set to Nepali or Hindi, English otherwise.</summary>
-        public static string LocaleForSystemLanguage(SystemLanguage language)
+        /// <summary>
+        /// Locale for an ISO 639-1 device language code (see Ghumante.Platform.DeviceLocale): Nepali for
+        /// "ne", English for everything else. The player can switch at any time.
+        /// </summary>
+        public static string LocaleForLanguageCode(string isoLanguageCode)
         {
-            // Unity has no SystemLanguage.Nepali; Hindi-language devices read Devanagari too.
-            return language == SystemLanguage.Hindi ? Nepali : English;
+            return string.Equals(isoLanguageCode, "ne", StringComparison.OrdinalIgnoreCase) ? Nepali : English;
         }
 
         public bool Has(string key)

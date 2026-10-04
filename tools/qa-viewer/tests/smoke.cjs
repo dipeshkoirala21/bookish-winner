@@ -200,11 +200,12 @@ im.save(p, optimize=True)
       // vertex registration: pixel centre (0.5, 0.5) must land exactly on the NW corner
       const img = [...document.querySelectorAll('.qa-raster-hillshade img')].find((im) => im._tile.id === '10/516/162');
       const [a, b, c, d, e, f] = img._m;
-      const p = QA.map.latLngToLayerPoint([t.corners_lonlat[3][1], t.corners_lonlat[3][0]]);
+      const lp = (ll) => QA.map.project(ll).subtract(QA.map.getPixelOrigin()); // unrounded, as the viewer places rasters
+      const p = lp([t.corners_lonlat[3][1], t.corners_lonlat[3][0]]);
       const q = { x: a * 0.5 + c * 0.5 + e, y: b * 0.5 + d * 0.5 + f };
       // SE corner: pixel centre (w-0.5, h-0.5)
       const w = img.naturalWidth; const h = img.naturalHeight;
-      const pse = QA.map.latLngToLayerPoint([t.corners_lonlat[1][1], t.corners_lonlat[1][0]]);
+      const pse = lp([t.corners_lonlat[1][1], t.corners_lonlat[1][0]]);
       const qse = { x: a * (w - 0.5) + c * (h - 0.5) + e, y: b * (w - 0.5) + d * (h - 0.5) + f };
       return { cornerErr, nwErr: Math.hypot(p.x - q.x, p.y - q.y), seErr: Math.hypot(pse.x - qse.x, pse.y - qse.y),
         rotDeg: Math.atan2(t.corners_lonlat[3][0] - t.corners_lonlat[0][0], 1) };
@@ -248,8 +249,6 @@ im.save(p, optimize=True)
           const want = mode === 'source' ? P.SOURCE_COLORS[n.source] : mode === 'surface' ? P.SURFACE_COLORS[n.surface]
             : mode === 'class' ? P.CLASS_COLORS[n.cls] : (n.sac === 'UNKNOWN' ? '#9aa0a6' : P.SAC_COLORS[n.sac]);
           if (st.color !== want) bad++;
-          const drawn = roads.rendered.get(i);
-          if (drawn && drawn.options.color !== want) bad++;
         }
         out[mode] = { bad, legendRows: document.querySelectorAll('#legend .lg-row[data-key^="road:"]').length, hash: location.hash.includes(`road=${mode}`) };
       }
@@ -266,8 +265,7 @@ im.save(p, optimize=True)
           const n = b.norm[i];
           const want = mode === 'archetype' ? P.ARCHETYPE_COLORS[n.arche] : mode === 'levels_source'
             ? (n.levelsInferred ? '#fd8d3c' : '#1a9850') : P.LEVEL_COLORS[n.levels >= 8 ? '8+' : String(n.levels)];
-          const drawn = b.rendered.get(i);
-          if (drawn && drawn.options.fillColor !== want) bad++;
+          if (b.rendered.has(i) && QA.styleOf('buildings', i).fillColor !== want) bad++;
         }
         out['b_' + mode] = { bad, legendRows: document.querySelectorAll('#legend .lg-row[data-key^="bldg:"]').length };
       }

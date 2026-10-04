@@ -1,0 +1,11 @@
+<Project>
+  <!-- UnityEngine reference assemblies from NuGet: UnityEngine.Modules 2021.3.33 (the newest published;
+       Unity does not publish Unity 6 reference assemblies). Referenced as plain files so the net45
+       binaries can be used from a netstandard2.1 project. -->
+  <ItemGroup>
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" GeneratePathProperty="true" ExcludeAssets="all" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PkgUnityEngine_Modules)' != ''">
+    <Reference Include="$(PkgUnityEngine_Modules)/lib/net45/*.dll" Private="false" />
+  </ItemGroup>
+</Project>

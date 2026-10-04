@@ -568,10 +568,141 @@
 
   // ===========================================================================
   // 5. VectorLayer: one GeoJSON layer (single file, or per-tile files), indexed
-  //    once on load, rendered as non-interactive L.canvas paths for the features
-  //    in view only (diffed on every move), hit-tested through the index.
+  //    once on load. On every view change the grid index yields the features
+  //    under the (padded) canvas; they are drawn in style-batched Path2D calls
+  //    by a FastCanvas (an L.Canvas subclass, so positioning, padding and zoom
+  //    animation are Leaflet's). No Leaflet object is created per feature:
+  //    clicks are hit-tested through the index instead.
   // ===========================================================================
   const LABEL_CAP = 250;
+  const D2R = Math.PI / 180;
+  const TAU = 2 * Math.PI;
+
+  /** L.Canvas whose paths are drawn by an owner (VectorLayer or TileGrid) in one pass. */
+  const FastCanvas = L.Canvas.extend({
+    initialize(owner, options) {
+      this._owner = owner;
+      L.Canvas.prototype.initialize.call(this, options);
+    },
+    // Leaflet calls this after every canvas reset/move (the canvas was just resized and cleared).
+    _updatePaths() {
+      if (this._postponeUpdatePaths) return;
+      this._owner.update(true);
+    },
+    _redraw() {
+      this._redrawRequest = null;
+      this._redrawBounds = null;
+      if (!this._map || !this._ctx) return;
+      this._clear();
+      this._draw();
+    },
+    _draw() {
+      if (!this._map || !this._ctx) return;
+      this._ctx.save();
+      try { this._owner.draw(this._ctx); } finally { this._ctx.restore(); }
+    },
+    /** Pixel bounds (layer points) the canvas covers, as lat/lng bounds. */
+    latLngBounds() {
+      const b = this._bounds;
+      if (!b || !this._map) return null;
+      return L.latLngBounds(this._map.layerPointToLatLng(b.min), this._map.layerPointToLatLng(b.max));
+    },
+  });
+
+  /** Unrounded Web Mercator (EPSG:3857, as Leaflet) lon/lat -> layer point helpers for the current view. */
+  function projector(map) {
+    const S = 256 * Math.pow(2, map.getZoom());
+    const o = map.getPixelOrigin();
+    return {
+      x: (lon) => (lon / 360 + 0.5) * S - o.x,
+      y: (lat) => (0.5 - Math.atanh(Math.sin(Math.max(-85.0511287798, Math.min(85.0511287798, lat)) * D2R)) / TAU) * S - o.y,
+    };
+  }
+  function parseDash(d) {
+    if (!d) return [];
+    if (Array.isArray(d)) return d;
+    return String(d).split(/[ ,]+/).map(Number).filter((v) => Number.isFinite(v));
+  }
+  function styleKey(st) {
+    return `${st.fill === false ? 0 : 1}|${st.fillColor}|${st.fillOpacity}|${st.stroke === false ? 0 : 1}|${st.color}|` +
+      `${st.weight}|${st.opacity}|${st.dashArray || ''}|${st.lineCap || ''}`;
+  }
+  /** Append a GeoJSON geometry to a batch Path2D; polygons with holes go to `holed` (drawn even-odd). */
+  function addGeometry(path, holed, g, P, radius) {
+    switch (g.type) {
+      case 'Point': {
+        const x = P.x(g.coordinates[0]); const y = P.y(g.coordinates[1]);
+        path.moveTo(x + radius, y);
+        path.arc(x, y, radius, 0, TAU);
+        break;
+      }
+      case 'MultiPoint':
+        for (const c of g.coordinates) addGeometry(path, holed, { type: 'Point', coordinates: c }, P, radius);
+        break;
+      case 'LineString': case 'MultiLineString': {
+        const parts = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
+        for (const part of parts) {
+          for (let k = 0; k < part.length; k++) {
+            const x = P.x(part[k][0]); const y = P.y(part[k][1]);
+            if (k) path.lineTo(x, y); else path.moveTo(x, y);
+          }
+        }
+        break;
+      }
+      case 'Polygon': case 'MultiPolygon': {
+        const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+        for (const rings of polys) {
+          const target = rings.length > 1 ? new Path2D() : path;
+          for (const ring of rings) {
+            for (let k = 0; k < ring.length; k++) {
+              const x = P.x(ring[k][0]); const y = P.y(ring[k][1]);
+              if (k) target.lineTo(x, y); else target.moveTo(x, y);
+            }
+            target.closePath();
+          }
+          if (target !== path) holed.push(target);
+        }
+        break;
+      }
+      case 'GeometryCollection':
+        for (const gg of g.geometries || []) addGeometry(path, holed, gg, P, radius);
+        break;
+      default: break;
+    }
+  }
+  /** Draw features grouped by style: one fill + one stroke per style (holed polygons separately, even-odd). */
+  function drawBatched(ctx, map, items, geomOf, styleOf) {
+    const P = projector(map);
+    const groups = new Map();
+    for (const i of items) {
+      const st = styleOf(i);
+      const key = styleKey(st);
+      let g = groups.get(key);
+      if (!g) { g = { st, path: new Path2D(), holed: [] }; groups.set(key, g); }
+      addGeometry(g.path, g.holed, geomOf(i), P, st.radius || 4);
+    }
+    for (const { st, path, holed } of groups.values()) {
+      if (st.fill !== false && st.fill !== undefined) {
+        ctx.globalAlpha = st.fillOpacity ?? 0.2;
+        ctx.fillStyle = st.fillColor || st.color;
+        ctx.fill(path, 'nonzero');
+        for (const h of holed) ctx.fill(h, 'evenodd');
+      }
+      if (st.stroke !== false && (st.weight ?? 1) > 0) {
+        ctx.globalAlpha = st.opacity ?? 1;
+        ctx.strokeStyle = st.color;
+        ctx.lineWidth = st.weight ?? 1;
+        ctx.lineCap = st.lineCap || 'round';
+        ctx.lineJoin = st.lineJoin || 'round';
+        ctx.setLineDash(parseDash(st.dashArray));
+        ctx.stroke(path);
+        for (const h of holed) ctx.stroke(h);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    return groups.size;
+  }
 
   class VectorLayer {
     constructor(app, def) {
@@ -582,7 +713,8 @@
       this.norm = [];
       this.lengths = [];
       this.index = null;
-      this.rendered = new Map();
+      this.drawList = [];
+      this.rendered = new Set(); // feature ids currently drawn
       this.labels = new Map();
       this.state = 'idle'; // idle | loading | ready | missing | error | absent
       this.visible = !!def.defaultOn;
@@ -595,12 +727,16 @@
       this.renderer = null;
       this.bytes = 0;
       this.loadMs = 0;
+      this.epoch = 0; // bumped when styles, filters or data change
+      this._key = '';
+      this.lastDraw = { ms: 0, groups: 0, n: 0 };
     }
     get map() { return this.app.map; }
     get count() { return this.features.length; }
     minZoom() { return this.def.minZoom ?? 0; }
     attach() {
-      this.renderer = L.canvas({ pane: this.def.pane, padding: 0.25, tolerance: 0 });
+      this.renderer = new FastCanvas(this, { pane: this.def.pane, padding: 0.25 });
+      this.renderer.addTo(this.app.map);
     }
     setSource(src) {
       this.source = src;
@@ -621,10 +757,10 @@
       const t0 = performance.now();
       try {
         const fc = await this.app.fetchJSON(this.app.dataUrl(this.source.path), `${this.id}`, (n) => { this.bytes = n; });
-        this.loadMs = performance.now() - t0;
         const feats = Array.isArray(fc) ? fc : (fc.features || []);
         const own = this.def.split ? this.def.split(this, feats) : feats;
         this.addFeatures(own, true);
+        this.loadMs = performance.now() - t0;
         this.state = 'ready';
         this.message = '';
       } catch (err) {
@@ -674,13 +810,14 @@
         if (isLine) this.lengths.push(lineLength(it.f.geometry));
         this.index.insert(i, bbs[4 * k], bbs[4 * k + 1], bbs[4 * k + 2], bbs[4 * k + 3]);
       });
+      this.epoch++;
       this.app.invalidateStats();
     }
 
     /** Per-tile sources: fetch the tile files under the view that are not loaded yet. */
-    loadTilesInView() {
+    loadTilesInView(bounds) {
       const level = this.source.level ?? this.app.leafLevel;
-      const tiles = this.app.tilesInView(level, this.map.getBounds().pad(0.1), 400);
+      const tiles = this.app.tilesInView(level, bounds, 400);
       for (const t of tiles) {
         const id = `${t.level}/${t.tx}/${t.ty}`;
         if (this.tilesLoaded.has(id) || this.tilesPending.has(id)) continue;
@@ -712,47 +849,60 @@
       return this.def.style(this.norm[i], this.features[i], this.app.styleCtx);
     }
 
-    makeLeaflet(i) {
-      const f = this.features[i];
-      const st = { ...this.style(i), renderer: this.renderer, interactive: false, pane: this.def.pane };
-      return geometryToLeaflet(f.geometry, st);
+    _empty(message, force) {
+      this.message = message;
+      this.inView = 0;
+      if (this.drawList.length || this.labels.size || force) {
+        this.drawList = [];
+        this.rendered = new Set();
+        this._key = '';
+        for (const m of this.labels.values()) m.remove();
+        this.labels.clear();
+        if (this.renderer) this.renderer._redraw();
+      }
     }
 
-    update() {
+    /** Recompute what is under the canvas and redraw. force: the canvas was reset by Leaflet (always redraw). */
+    update(force) {
       const map = this.map;
-      if (!map) return;
-      if (!this.visible) { this.clear(); this.message = ''; return; }
+      if (!map || !this.renderer || !this.renderer._map) return;
+      if (!this.visible) return this._empty('', force);
       const z = map.getZoom();
       if (z < this.minZoom()) {
-        this.clear();
-        this.message = this.state === 'idle' && this.def.lazy ? `loads at zoom ≥ ${this.minZoom()}`
-          : `zoom ≥ ${this.minZoom()}`;
-        return;
+        return this._empty(this.state === 'idle' && this.def.lazy ? `loads at zoom ≥ ${this.minZoom()}` : `zoom ≥ ${this.minZoom()}`, force);
       }
-      if (this.state === 'idle') { this.ensureLoaded(); return; }
-      if (this.state !== 'ready') return;
-      if (this.source && this.source.tiles) this.loadTilesInView();
+      if (this.state === 'idle') { this.ensureLoaded(); return this._empty('loading…', force); }
+      if (this.state !== 'ready') return this._empty(this.message, force);
+      const b = this.renderer.latLngBounds() || map.getBounds().pad(0.25);
+      if (this.source && this.source.tiles) this.loadTilesInView(b);
+      const key = `${z}|${b.toBBoxString()}|${this.epoch}|${this.count}|${this.app.filterEpoch}`;
+      if (!force && key === this._key) return;
+      this._key = key;
 
-      const b = map.getBounds().pad(0.2);
       const cand = this.index.query(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
       let keep = [];
       for (const i of cand) if (this.eligible(i, z)) keep.push(i);
-      keep.sort((a, c) => a - c); // arrays are pre-sorted by importance: truncation keeps the important ones
+      keep = Uint32Array.from(keep).sort(); // arrays are pre-sorted by importance: truncation keeps the important ones
       this.inView = keep.length;
       const cap = this.def.cap ?? 50000;
       this.capped = keep.length > cap;
-      if (this.capped) keep = keep.slice(0, cap);
-      const want = new Set(keep);
-      for (const [i, lyr] of this.rendered) {
-        if (!want.has(i)) { lyr.remove(); this.rendered.delete(i); }
-      }
-      for (const i of keep) {
-        if (this.rendered.has(i)) continue;
-        const lyr = this.makeLeaflet(i);
-        if (lyr) { lyr.addTo(map); this.rendered.set(i, lyr); }
-      }
+      if (this.capped) keep = keep.subarray(0, cap);
+      this.drawList = keep;
+      this.rendered = new Set(keep);
       this.updateLabels(keep, z);
       this.message = this.capped ? `${cap.toLocaleString()} of ${this.inView.toLocaleString()} in view (zoom in)` : '';
+      this.renderer._redraw();
+    }
+
+    /** Called by FastCanvas with a context already translated to layer points. */
+    draw(ctx) {
+      const list = this.drawList;
+      if (!list || !list.length) return;
+      const t0 = performance.now();
+      // Major roads / important POIs are first in the arrays: draw them last so they end up on top.
+      const items = this.def.drawReverse ? Array.from(list).reverse() : list;
+      const groups = drawBatched(ctx, this.map, items, (i) => this.features[i].geometry, (i) => this.style(i));
+      this.lastDraw = { ms: performance.now() - t0, groups, n: list.length };
     }
 
     updateLabels(keep, z) {
@@ -771,10 +921,9 @@
       for (const [i, m] of this.labels) if (!want.has(i)) { m.remove(); this.labels.delete(i); }
       for (const [i, text] of want) {
         if (this.labels.has(i)) continue;
-        const c = this.features[i].geometry.coordinates;
-        const ll = this.features[i].geometry.type === 'Point' ? [c[1], c[0]] : null;
-        if (!ll) continue;
-        const m = L.marker(ll, {
+        const g = this.features[i].geometry;
+        if (g.type !== 'Point') continue;
+        const m = L.marker([g.coordinates[1], g.coordinates[0]], {
           pane: 'qa-labels', interactive: false, keyboard: false,
           icon: L.divIcon({ className: 'qa-label', html: `<span>${escapeHtml(text)}</span>`, iconSize: null }),
         }).addTo(this.map);
@@ -783,18 +932,13 @@
     }
 
     restyle() {
-      for (const [i, lyr] of this.rendered) applyStyle(lyr, this.style(i));
+      this.epoch++;
+      this.update();
     }
 
-    clear() {
-      for (const lyr of this.rendered.values()) lyr.remove();
-      this.rendered.clear();
-      for (const m of this.labels.values()) m.remove();
-      this.labels.clear();
-      this.inView = 0;
-    }
+    clear() { this._empty('', true); }
 
-    /** Nearest rendered feature to a click: {layer, i, d (px, 0 = inside polygon), area}. */
+    /** Nearest drawn feature to a click: {layer, i, d (px, 0 = inside polygon), area}. */
     hitTest(latlng, tolPx) {
       if (!this.visible || !this.rendered.size) return null;
       const map = this.map;
@@ -804,10 +948,9 @@
       const cand = this.index.query(latlng.lng - dLon, latlng.lat - dLat, latlng.lng + dLon, latlng.lat + dLat);
       let best = null;
       for (const i of cand) {
-        const lyr = this.rendered.get(i);
-        if (!lyr) continue;
+        if (!this.rendered.has(i)) continue;
         const g = this.features[i].geometry;
-        const radius = lyr.getRadius ? lyr.getRadius() : 0;
+        const radius = (g.type === 'Point' || g.type === 'MultiPoint') ? (this.style(i).radius || 0) : 0;
         const d = geomDistancePx(map, g, latlng, p, radius);
         if (d > tolPx) continue;
         const bb = this.index.bbox;
@@ -815,27 +958,6 @@
         if (!best || d < best.d - 1e-9 || (Math.abs(d - best.d) < 1e-9 && area < best.area)) best = { layer: this, i, d, area };
       }
       return best;
-    }
-  }
-
-  function applyStyle(lyr, st) {
-    if (lyr.eachLayer && !lyr.setStyle) { lyr.eachLayer((l) => applyStyle(l, st)); return; }
-    if (lyr.setStyle) lyr.setStyle(st);
-    if (lyr.setRadius && st.radius) lyr.setRadius(st.radius);
-  }
-
-  function geometryToLeaflet(g, st) {
-    if (!g) return null;
-    const C = L.GeoJSON.coordsToLatLngs;
-    switch (g.type) {
-      case 'Point': return L.circleMarker([g.coordinates[1], g.coordinates[0]], st);
-      case 'MultiPoint': return L.featureGroup(g.coordinates.map((c) => L.circleMarker([c[1], c[0]], st)));
-      case 'LineString': return L.polyline(C(g.coordinates, 0), st);
-      case 'MultiLineString': return L.polyline(C(g.coordinates, 1), st);
-      case 'Polygon': return L.polygon(C(g.coordinates, 1), st);
-      case 'MultiPolygon': return L.polygon(C(g.coordinates, 2), st);
-      case 'GeometryCollection': return L.featureGroup((g.geometries || []).map((gg) => geometryToLeaflet(gg, st)).filter(Boolean));
-      default: return null;
     }
   }
 
@@ -955,7 +1077,7 @@
       if (!map) return;
       const t = el._tile;
       const w = el.naturalWidth; const h = el.naturalHeight;
-      const lp = (c) => map.latLngToLayerPoint([c[1], c[0]]);
+      const lp = (c) => map.project([c[1], c[0]]).subtract(map.getPixelOrigin()); // unrounded, like the vector canvas
       const [sw, se, ne, nw] = t.corners.map(lp);
       const north = this.options.row0 !== 'south';
       const o = north ? nw : sw; const u = north ? ne : se; const v = north ? sw : nw;
@@ -976,7 +1098,7 @@
     /** Pixel under a lat/lng from the tiles in the DOM: {tile, px, py, rgba} or null. */
     sample(latlng) {
       if (!this._map) return null;
-      const p = this._map.latLngToLayerPoint(latlng);
+      const p = this._map.project(latlng).subtract(this._map.getPixelOrigin());
       for (const el of this._els.values()) {
         if (!el.isConnected || !el._m || el._missing) continue;
         const [a, b, c, d, e, f] = el._m;
@@ -1016,39 +1138,41 @@
       this.visible = false;
       this.level = null;
       this.renderer = null;
-      this.rendered = new Map();
+      this.tiles = [];
       this.labels = new Map();
       this.inView = 0;
       this.message = '';
+      this._key = '';
     }
-    attach() { this.renderer = L.canvas({ pane: 'qa-grid', padding: 0.25 }); }
-    update() {
+    get rendered() { return { size: this.tiles.length }; }
+    attach() {
+      this.renderer = new FastCanvas(this, { pane: 'qa-grid', padding: 0.25 });
+      this.renderer.addTo(this.app.map);
+    }
+    update(force) {
       const map = this.app.map;
+      if (!this.renderer || !this.renderer._map) return;
       if (!this.visible || this.level === null) { this.clear(); return; }
-      const tiles = this.app.tilesInView(this.level, map.getBounds().pad(0.1), 3000);
+      const b = this.renderer.latLngBounds() || map.getBounds().pad(0.25);
+      const key = `${map.getZoom()}|${b.toBBoxString()}|${this.level}`;
+      if (!force && key === this._key) return;
+      this._key = key;
+      const tiles = this.app.tilesInView(this.level, b, 3000);
+      this.tiles = tiles;
       this.inView = tiles.length;
-      const want = new Map(tiles.map((t) => [`${t.level}/${t.tx}/${t.ty}`, t]));
-      for (const [id, l] of this.rendered) if (!want.has(id)) { l.remove(); this.rendered.delete(id); }
-      for (const [id, t] of want) {
-        if (this.rendered.has(id)) continue;
-        const ll = t.corners.map((c) => [c[1], c[0]]);
-        const l = L.polygon(ll, { renderer: this.renderer, pane: 'qa-grid', interactive: false, fill: false,
-          color: t.listed ? '#0b57d0' : '#7f8c8d', weight: t.listed ? 1.6 : 1, opacity: 0.85,
-          dashArray: t.listed ? null : '4 4' });
-        l.addTo(map);
-        this.rendered.set(id, l);
-      }
+      this.message = !tiles.length && !this.app.tilesByLevel.has(this.level) ? 'too many tiles: zoom in' : '';
+      this.renderer._redraw();
       // labels when a tile is at least ~110 px wide
-      const t0 = tiles[0];
       let showLabels = false;
+      const t0 = tiles[0];
       if (t0) {
         const a = map.latLngToContainerPoint([t0.corners[0][1], t0.corners[0][0]]);
-        const b = map.latLngToContainerPoint([t0.corners[1][1], t0.corners[1][0]]);
-        showLabels = a.distanceTo(b) >= 110 && tiles.length <= 300;
+        const c = map.latLngToContainerPoint([t0.corners[1][1], t0.corners[1][0]]);
+        showLabels = a.distanceTo(c) >= 110 && tiles.length <= 300;
       }
-      const wantLabels = showLabels ? want : new Map();
-      for (const [id, m] of this.labels) if (!wantLabels.has(id)) { m.remove(); this.labels.delete(id); }
-      for (const [id, t] of wantLabels) {
+      const want = showLabels ? new Map(tiles.map((t) => [`${t.level}/${t.tx}/${t.ty}`, t])) : new Map();
+      for (const [id, m] of this.labels) if (!want.has(id)) { m.remove(); this.labels.delete(id); }
+      for (const [id, t] of want) {
         if (this.labels.has(id)) continue;
         const nw = t.corners[3];
         const m = L.marker([nw[1], nw[0]], { pane: 'qa-labels', interactive: false, keyboard: false,
@@ -1056,11 +1180,20 @@
             iconSize: null }) }).addTo(map);
         this.labels.set(id, m);
       }
-      this.message = tiles.length >= 3000 ? 'too many tiles: zoom in' : '';
+    }
+    draw(ctx) {
+      if (!this.tiles.length) return;
+      const quad = (i) => ({ type: 'Polygon', coordinates: [[...this.tiles[i].corners, this.tiles[i].corners[0]]] });
+      const style = (i) => (this.tiles[i].listed
+        ? { fill: false, color: '#0b57d0', weight: 1.6, opacity: 0.85 }
+        : { fill: false, color: '#7f8c8d', weight: 1, opacity: 0.85, dashArray: '4 4' });
+      drawBatched(ctx, this.app.map, this.tiles.map((t, i) => i), quad, style);
     }
     clear() {
-      for (const l of this.rendered.values()) l.remove();
-      this.rendered.clear();
+      this.tiles = [];
+      this.inView = 0;
+      this._key = '';
+      if (this.renderer && this.renderer._map) this.renderer._redraw();
       for (const m of this.labels.values()) m.remove();
       this.labels.clear();
     }
@@ -1154,21 +1287,21 @@
   }
 
   const LAYER_DEFS = [
-    { id: 'roads', label: 'Roads', pane: 'qa-roads', defaultOn: true, cap: 60000, lengths: true,
+    { id: 'roads', label: 'Roads', pane: 'qa-roads', defaultOn: true, cap: 60000, lengths: true, drawReverse: true,
       normalize: normRoad, style: roadStyle, sortKey: (n) => CLASS_RANK[n.cls] ?? 99,
       minZoomFor: (n) => CLASS_MINZOOM[n.cls] ?? 13, split: splitTrails },
-    { id: 'trails', label: 'Trails', pane: 'qa-trails', defaultOn: true, cap: 40000, minZoom: 12, lengths: true,
+    { id: 'trails', label: 'Trails', pane: 'qa-trails', defaultOn: true, cap: 40000, minZoom: 12, lengths: true, drawReverse: true,
       normalize: normRoad, style: roadStyle, sortKey: (n) => CLASS_RANK[n.cls] ?? 99 },
     { id: 'buildings', label: 'Buildings', pane: 'qa-buildings', defaultOn: true, cap: 40000, minZoom: 15, lazy: true,
       normalize: normBuilding, style: buildingStyle },
     { id: 'areas', label: 'Areas', pane: 'qa-areas', defaultOn: true, cap: 20000, normalize: normArea, style: areaStyle },
     { id: 'lines', label: 'Lines (water, rail, walls)', pane: 'qa-lines', defaultOn: true, cap: 20000, lengths: true,
       normalize: normLine, style: lineStyle },
-    { id: 'pois', label: 'POIs', pane: 'qa-pois', defaultOn: true, cap: 6000, normalize: normPoi, style: poiStyle,
+    { id: 'pois', label: 'POIs', pane: 'qa-pois', defaultOn: true, cap: 6000, drawReverse: true, normalize: normPoi, style: poiStyle,
       sortKey: (n) => -n.importance, labelMinZoom: 16,
       minZoomFor: (n) => (hasFlag(n, 'LANDMARK') || n.importance >= 180 ? 0 : n.importance >= 100 ? 13 : 14),
       labelFn: (n, f, z) => ((z >= 17 || n.importance >= 60 || hasFlag(n, 'LANDMARK')) ? displayName(f) : null) },
-    { id: 'places', label: 'Places', pane: 'qa-places', defaultOn: true, optional: true, cap: 3000,
+    { id: 'places', label: 'Places', pane: 'qa-places', defaultOn: true, optional: true, cap: 3000, drawReverse: true,
       normalize: normPlace, style: placeStyle, sortKey: (n) => -n.importance, labelMinZoom: 12,
       labelFn: (n, f) => displayName(f) },
   ];
@@ -1234,6 +1367,7 @@
       this.rasterOpacity = { hillshade: 0.6, biome: 0.55 };
       this.rasterVisible = { hillshade: false, biome: false };
       this.hidden = {};
+      this.filterEpoch = 0;
       this.pending = 0;
       this.pendingLabels = new Map();
       this.idleWaiters = [];
@@ -1629,13 +1763,10 @@
       this.highlightRenderer = L.svg({ pane: 'qa-highlight' });
 
       map.on('moveend', () => { this.scheduleUpdate(); this.writeHash(); });
+      // Styles read styleCtx at draw time; the canvases redraw on the 'moveend' that follows.
       map.on('zoomend', () => {
-        const z = map.getZoom();
-        const zs = zoomScale(z);
-        const changed = zs !== this.styleCtx.zs;
-        this.styleCtx.z = z;
-        this.styleCtx.zs = zs;
-        if (changed) for (const id of ['roads', 'trails', 'lines']) if (this.layers[id]) this.layers[id].restyle();
+        this.styleCtx.z = map.getZoom();
+        this.styleCtx.zs = zoomScale(this.styleCtx.z);
       });
       map.on('click', (e) => this.onMapClick(e));
       let raf = 0;
@@ -1721,7 +1852,7 @@
       this.roadMode = m;
       this.styleCtx.roadMode = m;
       document.getElementById('road-mode').value = m;
-      for (const id of ['roads', 'trails']) if (this.layers[id]) { this.layers[id].restyle(); this.layers[id].update(); }
+      for (const id of ['roads', 'trails']) if (this.layers[id]) this.layers[id].restyle();
       this.renderLegend();
       this.writeHash();
     }
@@ -1730,7 +1861,7 @@
       this.buildingMode = m;
       this.styleCtx.buildingMode = m;
       document.getElementById('building-mode').value = m;
-      if (this.layers.buildings) { this.layers.buildings.restyle(); this.layers.buildings.update(); }
+      if (this.layers.buildings) this.layers.buildings.restyle();
       this.renderLegend();
       this.writeHash();
     }
@@ -1766,6 +1897,7 @@
     toggleCategory(key, cat) {
       const s = this.hidden[key] || (this.hidden[key] = new Set());
       if (s.has(cat)) s.delete(cat); else s.add(cat);
+      this.filterEpoch++;
       for (const l of Object.values(this.layers)) if (this.legendKey(l.id) === key) l.update();
       this.renderLegend();
       this.refreshLayerList();

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Unity.RenderPipelines.Universal.Runtime</AssemblyName>
+  </PropertyGroup>
+  <Import Project="../../UnityEngine.props" />
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+</Project>

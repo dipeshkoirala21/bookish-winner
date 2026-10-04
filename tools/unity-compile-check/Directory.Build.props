@@ -1,0 +1,21 @@
+<Project>
+  <!-- Shared settings for the Unity compile check (see README.md). Mirrors Unity 6.3's script compiler:
+       C# 9, .NET Standard 2.1 API surface. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS0618/CS0619: using an [Obsolete] Unity API is an error here (task rule: no deprecated APIs).
+         CS0649: Unity suppresses "field is never assigned" for [SerializeField] fields; so do we.
+         NU1701: UnityEngine.Modules ships net35/net45 reference assemblies; we reference them directly. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS0618;CS0619</WarningsAsErrors>
+    <NoWarn>$(NoWarn);CS0649;CS1591;NU1701</NoWarn>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

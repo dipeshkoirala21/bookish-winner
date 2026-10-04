@@ -149,7 +149,7 @@ namespace Ghumante.App
                 Debug.LogException(e);
             }
             // TODO(M1): read the player's choice from the save's settings section first.
-            localizer.SetLocale(Localizer.LocaleForSystemLanguage(Application.systemLanguage));
+            localizer.SetLocale(Localizer.LocaleForLanguageCode(DeviceLocale.LanguageCode()));
             return localizer;
         }
 
