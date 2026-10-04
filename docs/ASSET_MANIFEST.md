@@ -1103,6 +1103,8 @@ Spawn tables are keyed by `Biome` and region (ARCHITECTURE §7.7: rhino only in 
 ---
 ## 12. UI (UI Toolkit)
 
+> **Orientation (ADR-017): the game is fully playable in portrait and in landscape**, and it rotates live. Every screen, HUD and panel needs **both compositions**. Reference resolutions are 1170×2532 (portrait) and 2532×1170 (landscape), checked at 1080×2400, an iPad at 1640×2360 and a foldable at 2208×1768. In portrait, primary controls sit in the bottom third (the thumb zone) and counters along the top. All full-bleed art (loading screens, splash, backgrounds) is composed so that a centre-safe crop works at both 9:19.5 and 19.5:9, or it ships as two crops.
+
 All UI is UI Toolkit with the Advanced Text Generator (ARCHITECTURE §7.9, ADR-007). Shapes, borders, radii and colours are **USS first**, with the colour tokens from §1.9. Sprites are used only for what USS cannot draw: glossy highlights, ribbon tails, paper textures and icons. Gradient fills need a sprite or an SVG VectorImage (verify what UI Toolkit in 6.3 can do natively). Reference layout is landscape 1920×1080 with safe areas (verify against the reference image). Touch targets are ≥ 44 pt / 48 dp. UI textures are ASTC 4×4 with no mipmaps, in sprite atlases. Motion: bouncy tweens (overshoot 1.1, 180–250 ms) and squash on press, with a **reduced-motion** setting (M6). Colour is never the only signal: every pill colour also has an icon or label (colour-blind safety, M6).
 
 ### 12.1 Components
@@ -1200,12 +1202,12 @@ Pin = group-coloured teardrop (ink outline, glossy top) + the white POI icon. St
 
 | id | Asset | M | P | Spec | Notes | Status |
 |---|---|---|---|---|---|---|
-| `ghm_ui_loading_kathmandu_valley` | Loading illustration: Kathmandu Valley | M1 | **P0** | 2048×1024, ASTC 6×6; tip text area; safe-area aware | Key art: stupa, scooter, pigeons, Himalaya behind | needs-art |
+| `ghm_ui_loading_kathmandu_valley_{land,port}` | Loading illustration: Kathmandu Valley | M1 | **P0** | landscape 2048×1024 and portrait 1024×2048, ASTC 6×6; tip text area; safe-area aware | Key art: stupa, scooter, pigeons, Himalaya behind | needs-art |
 | `ghm_ui_loading_{pokhara,annapurna,khumbu,terai,mustang_farwest,east}` | Regional loading illustrations | M2 | P1 | as above | One per milestone region: M2 Pokhara, M3a Annapurna, M3b Khumbu, M4 Terai, M5 the others | needs-art |
 | `ghm_ui_app_icon` | App icon | M1 | **P0** | iOS 1024² master; Android adaptive foreground and background layers (432² each) + monochrome layer | Generic character or scooter with a peak; no flag misuse | needs-art |
 | `ghm_ui_splash` | Splash / startup credit | M1 | **P0** | Logo + **"Map data © OpenStreetMap contributors"**, legible for ≥ 5 s or until dismissed | LICENSES §1 (ODbL 4.3 notice) | needs-art |
 | `ghm_ui_logo_ghumante_{en,ne}` | Game logo, Latin and Devanagari | M1 | **P0** | Vector, Baloo 2-based custom lettering | Devanagari lettering checked by a native designer (review) | needs-art |
-| `ghm_ui_store_assets` | Store screenshots and feature graphic (EN/NE) | M6 | **P0** | Per store spec | Localised UI captures | needs-art |
+| `ghm_ui_store_assets` | Store screenshots and feature graphic (EN/NE) | M6 | **P0** | Per store spec, **portrait and landscape sets** | Localised UI captures | needs-art |
 
 ### 12.7 Nepal flag (generated, never hand-drawn)
 
@@ -1424,4 +1426,4 @@ Every `(review)` tag above falls into one of these groups. Sign-off is needed pe
 2. Palette: the saturated tokens in §1.9 or a more pastel lean (Q8)?
 3. Where the art source store lives (Git LFS or external) (§1.3).
 4. Whether glTF is accepted for static meshes (glTFast) or FBX only (§1.3).
-5. The UI reference resolution and orientation (§12), confirmed against the reference image.
+5. ~~UI orientation~~: **decided**, portrait and landscape both supported (ADR-017). Confirm the reference resolutions in §12 against the reference image.

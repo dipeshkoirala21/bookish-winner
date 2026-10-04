@@ -6,7 +6,7 @@
 Changes from the brief, with reasons in [ARCHITECTURE §2](ARCHITECTURE.md#2-where-this-brief-needs-pushback):
 
 * M3 is split into **M3a** (Annapurna and trekking) and **M3b** (Everest and air).
-* **Gates** are added: technical go/no-go checkpoints where we stop and decide.
+* The world is **true 1:1** (product-owner decision, ARCHITECTURE §5.3). There is no scale warp, so the warp gate originally planned before M2 is gone.
 * M1 adds a **device text-shaping spike** (Devanagari) in its first week.
 
 ```mermaid
@@ -17,7 +17,6 @@ gantt
   M0 Foundations            :m0, 0, 3
   section Vertical slice
   M1 Kathmandu Valley       :m1, after m0, 8
-  Gate G1 scale warp        :milestone, g1, after m1, 0
   section Expansion
   M2 Kathmandu–Pokhara      :m2, after m1, 8
   M3a Annapurna & trekking  :m3a, after m2, 6
@@ -62,39 +61,24 @@ gantt
 | 1.4 | Roads: ribbons, junction caps, surface materials, bridges; trails and steps | M | 1.2 |
 | 1.5 | Buildings: Newar and Modern Urban grammars, kit LOD0, merged LOD1/2, landmark replacement | L | 1.2, art kit |
 | 1.6 | Hero placeholders, then art: Boudhanath, Swayambhunath (monkeys), Kathmandu Durbar Square | M | ASSET_MANIFEST |
-| 1.7 | Player: walk and run, motorbike, taxi; arcade physics; surface grip groups; stuck recovery | M | 1.4 |
+| 1.7 | Player: walk and run, motorbike, taxi; arcade physics; surface grip groups; stuck recovery; **touch controls for landscape (two-thumb) and portrait (one-thumb)**; orientation-aware camera rigs | M | 1.4 |
 | 1.8 | Traffic: lane graph, cars, bikes, buses on the real bus routes, **cows** (stop and steer, never harm), honking | M | 1.4 |
-| 1.9 | Day/night cycle and sky; Himalayan skyline impostor ring; valley fog | M | 1.3 |
+| 1.9 | Day/night cycle and sky; Himalayan skyline impostor ring with **earth curvature** (1:1 world, 50–160 km sight lines); valley fog | M | 1.3 |
 | 1.10 | Map: vector map of the valley, search (C# port, already golden-tested), route line, minimap, fast travel to discovered places | M | 1.2 |
-| 1.11 | UI: main menu and HUD in the reference style (UI Toolkit), EN/NE localisation, settings, quality presets with auto-detect | M | 1.1 |
+| 1.11 | UI: main menu and HUD in the reference style (UI Toolkit), **portrait and landscape layouts with live rotation**, EN/NE localisation, settings, quality presets with auto-detect | M | 1.1 |
 | 1.12 | Save system v1 (local), Story Mode hooks (no-op services) | S | Core |
 | 1.13 | Debug tools: teleport, OSM inspector, overlays, perf HUD | S | 1.2 |
 | 1.14 | Performance pass on iPhone 12 / Snapdragon 7-series and a 3 GB Android device | M | all |
 | 1.15 | Cultural review of the M1 landmarks and depictions | S | consultant |
 
-**Acceptance:** 60 fps median and 1% low ≥ 45 on Mid tier; 30 fps on Low; memory within budget (ARCHITECTURE §10); "Boudha" search → route → ride → arrive works; EN/NE complete.
-
-### Gate G1: scale warp quality gate (end of M1, runs in parallel with M1 from week 4)
-
-The scale model is **decided**: Option 3, towns at 1:1, the country compressed, and the map in true 1:1 geography (ARCHITECTURE ADR-004/016). G1 tunes the country compression ratio (default 1:6) and decides whether the road-generalisation quality is good enough to ship. It does not reopen the choice of model.
-
-A prototype of `warp.py` on the Kathmandu–Pokhara corridor must meet all of these:
-
-* No road self-overlaps after generalisation.
-* Every hairpin is at least 12 m radius.
-* Grades stay within vehicle limits.
-* Building distortion in transition zones is under 5% (scale) and under 3° (rotation).
-* The ride takes about 15–20 min.
-* Testers prefer it to 1:1 + journey mode.
-
-**If quality falls short:** soften the compression (for example 1:4) on the affected corridors, and use journey mode (auto-ride with stops) on the longest ones, rather than leaving road artefacts in.
+**Acceptance:** everything below works in **both portrait and landscape**, including rotating mid-ride; 60 fps median and 1% low ≥ 45 on the High tier (30 fps on Mid by default); 30 fps on Low; memory within budget (ARCHITECTURE §10); "Boudha" search → route → ride → arrive works; EN/NE complete.
 
 ---
 
 ## M2: Kathmandu → Pokhara (size L)
 
-* The Prithvi Highway corridor with the scale warp live (towns 1:1, country compressed), Mugling, Bandipur, Manakamana cable car.
-* The full-screen map in true 1:1 geography (canonical map layer, inverse-warped player marker and route).
+* The full Prithvi Highway corridor at 1:1 (~200 km, 2–4 h of riding): Naubise, Malekhu, Mugling, Bandipur, Damauli, the Manakamana cable car. Procedural roadside life fills it: dhabas, tea stalls, fruit sellers, villages, landslide-repair zones, river views.
+* **Long-journey comfort:** ride-along buses with rest stops and a skip-to-next-stop button, cruise assist on highways, save-anywhere and resume-on-launch.
 * The middle-hills biome and **terraces**, chautari resting spots, rhododendron forests.
 * Buses and painted trucks (the hero vehicle art), the long-distance bus experience, tempos.
 * Pokhara: Phewa Lake, Tal Barahi, boating, Lakeside; the **Sarangkot paragliding** activity (thermals, eagles).
@@ -102,7 +86,7 @@ A prototype of `warp.py` on the Kathmandu–Pokhara corridor must meet all of th
 * Region pack downloads (`CdnSource` + PAD) and offline verification.
 * The generalised country map layer.
 
-**Acceptance:** download Pokhara on demand, ride there from Thamel without a loading screen, paraglide off Sarangkot, and stamp the passport in Kaski district.
+**Acceptance:** download Pokhara on demand; ride (or take the bus) there from Thamel along the real 1:1 highway without a loading screen; quit mid-journey and resume; paraglide off Sarangkot; stamp the passport in Kaski district.
 
 ## M3a: Annapurna and trekking (size M–L)
 

@@ -11,9 +11,8 @@ docs/ARCHITECTURE.md section "Coordinates"):
    Saves and the search index store positions in this frame (or in lon/lat)
    so they survive changes to the game's scale model.
 3. **Game world**: metres in the Unity scene, ``X`` east, ``Z`` north, ``Y`` up.
-   ``game = warp(canonical) - WORLD_ORIGIN``. Milestones M0 and M1 use the identity
-   warp; the variable-scale warp arrives with M2 (see ARCHITECTURE.md
-   "World scale").
+   ``game = canonical - WORLD_ORIGIN``. The world is true 1:1 (ARCHITECTURE.md
+   ADR-004), so there is no warp between the canonical frame and the game.
 
 Quadtree: the root tile covers game ``[0, 2^20) x [0, 2^20)`` metres. A tile at
 level ``L`` is ``2^(20-L)`` metres on a side. Tile ``(L, tx, ty)`` covers
@@ -40,7 +39,7 @@ TM84_FALSE_EASTING = 500_000.0
 TM84_FALSE_NORTHING = 0.0
 
 # --- game world frame -------------------------------------------------------
-# Subtracted from canonical (post-warp) coordinates so that all of Nepal has
+# Subtracted from canonical coordinates so that all of Nepal has
 # positive game coordinates well inside the quadtree root.
 WORLD_ORIGIN_E = 100_000.0
 WORLD_ORIGIN_N = 2_900_000.0
@@ -77,7 +76,7 @@ def tm84_to_lonlat(e, n):
 
 
 def tm84_to_game(e, n):
-    """Canonical -> game XZ (identity warp; see module docstring)."""
+    """Canonical -> game XZ (a pure translation; the world is 1:1)."""
     return np.asarray(e) - WORLD_ORIGIN_E, np.asarray(n) - WORLD_ORIGIN_N
 
 

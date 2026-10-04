@@ -30,7 +30,8 @@
 * Wrote the data contract: `model.py` enums (exported to `shared/enums.json`), [DATA_FORMATS.md](DATA_FORMATS.md) (GHT1 tiles, GHPK packs, GHSI search, GHRG routing), and the NPL-TM84 projection plus quadtree with tests.
 
 ### Decisions (see ARCHITECTURE §13)
-* **ADR-004 / ADR-016, decided by the product owner: Option 3.** Towns at 1:1, country between them compressed (~1:6, tuned at gate G1). **The full-screen Nepal map is drawn at true 1:1 geography.** Nothing changes for M0/M1, which already use the identity warp.
+* **ADR-004, decided by the product owner: the whole playable world is true 1:1**, horizontally and vertically. 2–4 h journeys are fine. Consequences: no warp or road generalisation; earth curvature is rendered for correct skylines; long trips get ride-along transport, cruise assist and save-anywhere; data size becomes the main engineering cost (sized from the valley build). An earlier recommendation of variable scale (towns 1:1, country ~1:6) was superseded the same day.
+* **ADR-017, product-owner requirement: playable in portrait mode.** Both portrait and landscape are fully supported, with live rotation. Layouts are driven by aspect ratio. In portrait: a one-thumb control scheme, a minimum horizontal FOV per camera rig, and map bottom sheets. The Unity setup is being switched from landscape-only (see Next).
 * ADR-001 **Unity 6.3 LTS**, not 6.0 LTS. 6.0 support ends this month; 6.3 is supported to Dec 2027.
 * ADR-007 all UI in UI Toolkit, for Devanagari shaping. A device spike is the first task in M1.
 * ADR-013 / 014 / 015: layer separation for ODbL; no HydroSHEDS; base install ≤ 150 MB with the CDN as the baseline (ODR is deprecated in iOS 27).
@@ -38,7 +39,7 @@
 ### Known issues / risks
 * Unity can't run in this cloud environment, so engine code is compile-checked against reference assemblies only. The first real Unity open happens on your machine or in CI once secrets are added (`docs/CI_SECRETS.md`).
 * The mirror's OSM file contains contributor metadata. Our outputs never include it, but stripping it at ingest is still TODO.
-* The scale warp (G1 gate) is the biggest technical risk after M1.
+* With a 1:1 world, **all-Nepal data size** (~141 k leaf tiles) and **content density between landmarks** are the main risks. Both are sized from the M0 valley build.
 
 ### Next
 * See the end-of-session summary below.
