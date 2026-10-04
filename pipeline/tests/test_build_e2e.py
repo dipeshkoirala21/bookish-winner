@@ -297,3 +297,20 @@ def test_load_landmarks(tmp_path) -> None:
     ids, refs = build.load_landmarks(p)
     assert ids == {12: "a", 7: "b"} and refs == {("w", 12), ("n", 7)}
     assert build.load_landmarks(tmp_path / "missing.json") == ({}, set())
+
+
+def test_apply_landmark_kinds(tmp_path) -> None:
+    from ghumante_pipeline.model import Extract, PoiFeature, PoiKind
+
+    p = tmp_path / "lm.json"
+    p.write_text(json.dumps([{"id": "boudhanath", "kind": "stupa", "osm": "w56688296"},
+                             {"id": "x", "kind": "temple_pagoda", "osm": "n5"},
+                             {"id": "y", "kind": "stupa", "osm": "n6"}]), encoding="utf-8")
+    ex = Extract(region="t")
+    ex.pois = [PoiFeature("w", 56688296, PoiKind.GOMPA, 85.36, 27.72),
+               PoiFeature("n", 56688296, PoiKind.GOMPA, 85.36, 27.72),  # same id, other type: untouched
+               PoiFeature("n", 5, PoiKind.GOMPA, 85.30, 27.70),  # kind not mapped: untouched
+               PoiFeature("n", 6, PoiKind.STUPA, 85.30, 27.70)]  # already right
+    assert build.apply_landmark_kinds(ex, p) == 1
+    assert [q.kind for q in ex.pois] == [PoiKind.STUPA, PoiKind.GOMPA, PoiKind.GOMPA, PoiKind.STUPA]
+    assert build.apply_landmark_kinds(ex, tmp_path / "missing.json") == 0

@@ -13,7 +13,7 @@ import pytest
 
 from ghumante_pipeline import projection, routing, search_index
 from ghumante_pipeline.config import BUILD_DIR
-from ghumante_pipeline.model import Travel
+from ghumante_pipeline.model import PoiKind, Travel
 from ghumante_pipeline.pack import PackReader, read_manifest
 from ghumante_pipeline.tile_format import decode_tile
 from test_seams import check_seams, neighbour_pairs
@@ -56,13 +56,19 @@ def graph():
 
 
 def test_search_boudha(index) -> None:
+    """"Boudha" lands on Boudhanath. The top hit may be the Baudha neighbourhood
+    (an exact name match on a place, ~100 m from the stupa: the ranking of
+    DATA_FORMATS section 3 prefers it to the stupa's prefix match); the stupa
+    itself must be in the top 3 as a STUPA landmark within 300 m."""
     res = index.search("Boudha")
     assert res, "no results"
-    score, e = res[0]
-    name = " ".join([e.name.default, e.name.en, e.name.ne]).lower()
-    assert "boudha" in name or "baudha" in name or "बौद्ध" in name
-    assert e.kind == 101  # PoiKind.STUPA
-    assert _dist_m(e.lon, e.lat, *BOUDHA) < 300.0
+    top = res[0][1]
+    assert _dist_m(top.lon, top.lat, *BOUDHA) < 300.0, top
+    stupas = [e for _, e in res[:3] if e.kind == PoiKind.STUPA and e.flags & search_index.FLAG_LANDMARK]
+    assert stupas, [e.name for _, e in res[:3]]
+    assert "boudha" in stupas[0].name.default.lower() and _dist_m(stupas[0].lon, stupas[0].lat, *BOUDHA) < 300.0
+    best = index.search("Boudhanath")[0][1]
+    assert best.kind == PoiKind.STUPA and _dist_m(best.lon, best.lat, *BOUDHA) < 300.0
 
 
 def test_search_kathmandu_devanagari(index) -> None:
@@ -80,6 +86,7 @@ def test_motorbike_route_thamel_boudha(graph) -> None:
     assert src is not None and dst is not None
     r = routing.route(graph, src, dst, Travel.MOTORBIKE)
     assert r is not None
+    print(f"motorbike Thamel -> Boudhanath: {r.length_m / 1000:.2f} km, {r.time_s / 60:.1f} min")
     assert 4_500.0 <= r.length_m <= 9_000.0, r.length_m
     assert r.time_s < 20 * 60, r.time_s
 

@@ -46,12 +46,12 @@ from typing import Sequence
 import numpy as np
 import shapely
 
-from . import __version__, config, contexts, osm_extract, projection, qa_export, routing, search_index, tiling
+from . import __version__, config, contexts, osm_extract, projection, routing, search_index, tiling
 from .biomes import BiomeZones, load_zones
 from .buildings import infer_buildings, load_archetype_zones
 from .dem import DemSampler
 from .landcover import LandcoverSampler
-from .model import AreaKind, Extract
+from .model import AreaKind, Extract, PoiKind
 from .pack import file_entry, write_manifest, write_pack
 from .surface import assign_surfaces
 from .trails import assign_trail_difficulty
@@ -159,21 +159,60 @@ def find_landcover_files(raw_dir: Path, bbox_lonlat) -> tuple[list[Path], list[s
     return found, missing
 
 
+# Curated landmark kinds (config/landmarks.yaml) that override the kind tags.poi_kind
+# derived for the same OSM object. OSM often tags a stupa only as a Buddhist
+# place of worship (Boudhanath: amenity=place_of_worship + religion=buddhist ->
+# GOMPA); the hand-checked landmark kind is better evidence.
+LANDMARK_POI_KINDS: dict[str, PoiKind] = {
+    "stupa": PoiKind.STUPA, "monastery": PoiKind.GOMPA, "heritage_square": PoiKind.HERITAGE_SQUARE, "palace": PoiKind.PALACE, "waterfall": PoiKind.WATERFALL,
+    "cave": PoiKind.CAVE, "viewpoint": PoiKind.VIEWPOINT, "airport": PoiKind.AIRPORT,
+    "cable_car": PoiKind.CABLE_CAR_STATION, "pass": PoiKind.PASS,
+}
+
+
+def _landmark_entries(path: Path | None) -> list[dict]:
+    if not path or not Path(path).exists():
+        return []
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return list(data if isinstance(data, list) else data.get("landmarks", []))
+
+
+def _landmark_osm(e: dict) -> tuple[str, int] | None:
+    osm = str(e.get("osm") or "")
+    if len(osm) < 2 or osm[0] not in "nwr" or not osm[1:].isdigit():
+        return None
+    return osm[0], int(osm[1:])
+
+
 def load_landmarks(path: Path) -> tuple[dict[int, str], set[tuple[str, int]]]:
     """``landmarks.resolved.json`` -> (raw osm id -> landmark id, {(osm_type, osm_id)})."""
-    if not path or not Path(path).exists():
-        return {}, set()
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
     ids: dict[int, str] = {}
     refs: set[tuple[str, int]] = set()
-    for e in data if isinstance(data, list) else data.get("landmarks", []):
-        osm = str(e.get("osm") or "")
-        if len(osm) < 2 or osm[0] not in "nwr" or not osm[1:].isdigit():
+    for e in _landmark_entries(path):
+        ref = _landmark_osm(e)
+        if ref is None:
             continue
-        oid = int(osm[1:])
-        ids.setdefault(oid, str(e.get("id", "")))
-        refs.add((osm[0], oid))
+        ids.setdefault(ref[1], str(e.get("id", "")))
+        refs.add(ref)
     return ids, refs
+
+
+def apply_landmark_kinds(extract: Extract, path: Path | None) -> int:
+    """Set ``kind`` of POIs that are curated landmarks to ``LANDMARK_POI_KINDS``
+    of the landmark's kind (in place). Returns the number of POIs changed."""
+    kinds: dict[tuple[str, int], PoiKind] = {}
+    for e in _landmark_entries(path):
+        ref = _landmark_osm(e)
+        k = LANDMARK_POI_KINDS.get(str(e.get("kind") or ""))
+        if ref is not None and k is not None:
+            kinds.setdefault(ref, k)
+    changed = 0
+    for p in extract.pois:
+        k = kinds.get((p.osm_type, int(p.osm_id)))
+        if k is not None and p.kind != k:
+            p.kind = k
+            changed += 1
+    return changed
 
 
 def _code_hash(names: Sequence[str]) -> str:
@@ -364,6 +403,7 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
 
         # --- search ------------------------------------------------------------------
         landmark_ids, landmark_refs = load_landmarks(landmarks_path)
+        stats["landmark_kinds_applied"] = apply_landmark_kinds(extract, landmarks_path)
         entries = timer.run("search_entries", search_index.build_entries, extract.places, extract.pois,
                             extract.admin, landmark_ids)
         sids = search_index.search_ids(entries)
@@ -410,6 +450,7 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
     if "qa" in stages:
         if not pack_path.exists():
             raise FileNotFoundError(f"{pack_path} missing; run the tiles stage first")
+        from . import qa_export  # needs pillow (a dev dependency); only for --qa
         qa_sum = timer.run("qa", qa_export.export_qa, pack_path, reg_dir / "qa",
                            leaf_level=region.leaf_level, region_meta=manifest)
         stats["qa"] = qa_sum
@@ -485,7 +526,8 @@ def build_report(manifest: dict, stats: dict, warnings: list[str]) -> str:
              f"(data_version {manifest.get('data_version')}).",
              f"* bbox {manifest.get('bbox_lonlat')}, horizon {manifest.get('horizon_bbox_lonlat')}; "
              f"detail levels {manifest.get('detail_levels')}, horizon levels {manifest.get('horizon_levels')}.",
-             f"* Extract {'from cache' if stats.get('extract_cached') else 'read from the PBF'}.", ""]
+             f"* Extract {'from cache' if stats.get('extract_cached') else 'read from the PBF'}; "
+             f"{stats.get('landmark_kinds_applied', 0)} POI kinds set from curated landmarks.", ""]
     lines += ["## Files", "", "| File | Bytes | MB | SHA-256 |", "|---|---:|---:|---|"]
     for f in manifest.get("files", []):
         lines.append(f"| {f['path']} | {f['bytes']:,} | {f['bytes'] / 1e6:.2f} | `{f['sha256'][:16]}…` |")
