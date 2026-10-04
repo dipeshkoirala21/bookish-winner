@@ -1,0 +1,47 @@
+# Pipeline data (downloaded sources and build outputs are reproducible; never commit)
+pipeline/data/
+pipeline/build/
+pipeline/.cache/
+*.osm.pbf
+!pipeline/tests/fixtures/*.osm.pbf
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.mypy_cache/
+.ruff_cache/
+
+# .NET
+bin/
+obj/
+*.user
+TestResults/
+
+# Unity (game/)
+game/[Ll]ibrary/
+game/[Tt]emp/
+game/[Oo]bj/
+game/[Bb]uild/
+game/[Bb]uilds/
+game/[Ll]ogs/
+game/[Uu]ser[Ss]ettings/
+game/[Mm]emoryCaptures/
+game/[Rr]ecordings/
+game/*.csproj
+game/*.sln
+game/*.slnx
+game/.vs/
+game/.idea/
+game/Assets/StreamingAssets/aa/
+game/Assets/StreamingAssets/Regions/
+game/ServerData/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/

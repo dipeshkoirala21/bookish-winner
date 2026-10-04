@@ -1,0 +1,1616 @@
+[
+ {
+  "id": "boudhanath",
+  "region": "kathmandu_valley",
+  "kind": "stupa",
+  "status": "found",
+  "osm": "w56688296",
+  "lon": 85.362039,
+  "lat": 27.721493,
+  "name": "Boudhanāth Stupa",
+  "name_en": null,
+  "name_ne": "बौद्धनाथ स्तूप",
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "barrier": "wall",
+   "building:colour": "white",
+   "check_date": "2025-10-29",
+   "email": "lotusbazra@boudhanathstupa.org",
+   "height": "2",
+   "heritage": "1",
+   "heritage:operator": "whc",
+   "phone": "+977 01 4471908",
+   "religion": "buddhist",
+   "roof:colour": "white",
+   "tourism": "attraction",
+   "website": "http://boudhanathstupa.org/#_home",
+   "whc:criteria": "iii,iv,vi",
+   "wheelchair": "yes",
+   "width": "0.6"
+  },
+  "alternatives": [
+   "n5075026795 श्री बौद्ध ध्यान गुठी (0.12 km)",
+   "n4908895021 बौद्ध पिपलबोट (0.31 km)",
+   "n3481359219 अन्तर्राष्ट्रिय बौद्ध एकेडेमी (1.08 km)",
+   "w56688295 Baudhanath (0.05 km)"
+  ]
+ },
+ {
+  "id": "swayambhunath",
+  "region": "kathmandu_valley",
+  "kind": "stupa",
+  "status": "found",
+  "osm": "w201223707",
+  "lon": 85.290396,
+  "lat": 27.714929,
+  "name": "Swayambhunath",
+  "name_en": null,
+  "name_ne": "स्वयंभुनाथ",
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "building": "yes",
+   "building:colour": "#fcecc0",
+   "building:levels": "1",
+   "height": "12",
+   "historic": "yes",
+   "man_made": "tower",
+   "note": "tourists may call it monkey temple, but that's not a name.",
+   "religion": "buddhist",
+   "roof:colour": "white",
+   "roof:height": "11",
+   "roof:shape": "dome",
+   "tower:type": "stupa",
+   "wikipedia": "en:Swayambhunath"
+  },
+  "alternatives": [
+   "w115379177 Swayambhunath (0.05 km)",
+   "w256548640 Swayambhunath (0.09 km)",
+   "w255881416 Swayambhu Buddhist Museum (0.02 km)",
+   "w180834315 स्वयम्भू परिकारामा (0.24 km)"
+  ]
+ },
+ {
+  "id": "pashupatinath",
+  "region": "kathmandu_valley",
+  "kind": "temple_pagoda",
+  "status": "found",
+  "osm": "w913170315",
+  "lon": 85.34863,
+  "lat": 27.710471,
+  "name": "पशुपतीनाथ",
+  "name_en": "Pashupatinath Temple",
+  "name_ne": null,
+  "key_tags": {
+   "building": "temple",
+   "height": "6",
+   "tourism": "attraction"
+  },
+  "alternatives": [
+   "n3074580748 Pashupati Bhandareshore (0.92 km)",
+   "n5656895033 None (0.26 km)",
+   "w125634570 Pashupatinath (0.04 km)",
+   "w1154468930 Pashupati Sadak (0.13 km)"
+  ]
+ },
+ {
+  "id": "kathmandu_durbar_square",
+  "region": "kathmandu_valley",
+  "kind": "heritage_square",
+  "status": "found",
+  "osm": "r21291455",
+  "lon": 85.307315,
+  "lat": 27.704362,
+  "name": "वसन्तपुर दरबार क्षेत्र",
+  "name_en": "Basantapur Durbar Square",
+  "name_ne": null,
+  "key_tags": {
+   "access": "customers",
+   "area:highway": "pedestrian",
+   "fee": "yes",
+   "heritage": "1",
+   "heritage:operator": "whc",
+   "highway": "pedestrian",
+   "layer": "-1",
+   "place": "square",
+   "surface": "sett",
+   "tourism": "attraction",
+   "type": "multipolygon",
+   "whc:criteria": "iii,iv,vi",
+   "wheelchair": "no",
+   "wikidata": "Q6122177",
+   "wikipedia": "en:Kathmandu Durbar Square"
+  },
+  "alternatives": [
+   "n11365076769 None (0.05 km)",
+   "w248965182 Basantpur Plaza (0.11 km)",
+   "n10006872418 None (0.07 km)",
+   "n13278125833 वसन्तपुर दरबार (0.07 km)"
+  ]
+ },
+ {
+  "id": "patan_durbar_square",
+  "region": "kathmandu_valley",
+  "kind": "heritage_square",
+  "status": "found",
+  "osm": "n2066253623",
+  "lon": 85.324795,
+  "lat": 27.673148,
+  "name": "DUBAR SQUARE PATAN",
+  "name_en": "Patan Durbar Square",
+  "name_ne": null,
+  "key_tags": {
+   "historic": "monument"
+  },
+  "alternatives": [
+   "n2230569085 पाटन दरवार क्षेत्र (0.04 km)",
+   "n6851227787 None (0.02 km)",
+   "n6851230785 None (0.04 km)",
+   "r4557971 Patan Durbar Square (0.03 km)"
+  ]
+ },
+ {
+  "id": "bhaktapur_durbar_square",
+  "region": "kathmandu_valley",
+  "kind": "heritage_square",
+  "status": "found",
+  "osm": "w1192827651",
+  "lon": 85.428086,
+  "lat": 27.6721,
+  "name": "Bhaktapur Durbar Square",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "place": "square"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "nyatapola",
+  "region": "kathmandu_valley",
+  "kind": "temple_pagoda",
+  "status": "found",
+  "osm": "w85470341",
+  "lon": 85.429361,
+  "lat": 27.671439,
+  "name": "Nyatapola Temple",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "building": "temple",
+   "building:material": "brick",
+   "height": "2",
+   "historic": "monument",
+   "religion": "hindu",
+   "wikidata": "Q1513892",
+   "wikipedia": "en:Nyatapola Temple"
+  },
+  "alternatives": [
+   "n11933629087 Nyatapola Kitchen (0.08 km)"
+  ]
+ },
+ {
+  "id": "changu_narayan",
+  "region": "kathmandu_valley",
+  "kind": "temple_pagoda",
+  "status": "found",
+  "osm": "w186264410",
+  "lon": 85.427886,
+  "lat": 27.716363,
+  "name": "Changu Narayan Temple",
+  "name_en": null,
+  "name_ne": "चाँगुनारायण मन्दिर",
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "building": "temple",
+   "denomination": "hindu",
+   "heritage": "1",
+   "heritage:operator": "whc",
+   "historic": "monument",
+   "ref:whc": "121-007",
+   "religion": "hindu",
+   "tourism": "attraction",
+   "whc:criteria": "(iii)(iv)(vi)",
+   "whc:inscription_date": "1979",
+   "wikidata": "Q1062150",
+   "wikipedia": "en:Changu Narayan"
+  },
+  "alternatives": [
+   "w341783433 Changunarayan Tol Sudhar Samiti, Balambu Paati (0.07 km)",
+   "w706922152 Changunarayan (0.05 km)",
+   "r7715042 Changunarayan-04 (0.31 km)",
+   "w341776778 Changunarayan Ward no 4 Office (0.43 km)"
+  ]
+ },
+ {
+  "id": "dharahara",
+  "region": "kathmandu_valley",
+  "kind": "tower",
+  "status": "found",
+  "osm": "n11622074774",
+  "lon": 85.312169,
+  "lat": 27.700545,
+  "name": "Dharahara (Bhimsen Isthamba)",
+  "name_en": null,
+  "name_ne": "भीमसेन स्तम्भ",
+  "key_tags": {
+   "access": "yes",
+   "fee": "yes",
+   "height": "0",
+   "man_made": "tower",
+   "material": "concrete",
+   "tower:construction": "building",
+   "tower:type": "observation"
+  },
+  "alternatives": [
+   "n3498367331 Old Dharahara Remains (0.07 km)",
+   "w341772537 Dharahara (0.07 km)",
+   "w1363556903 Dharahara (0.08 km)",
+   "w205183188 Dharahara Guest House & Restaurant (0.15 km)"
+  ]
+ },
+ {
+  "id": "garden_of_dreams",
+  "region": "kathmandu_valley",
+  "kind": "garden",
+  "status": "found",
+  "osm": "w85650618",
+  "lon": 85.314802,
+  "lat": 27.714068,
+  "name": "Garden of Dreams",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "charge": "400 NPR",
+   "fee": "yes",
+   "leisure": "park",
+   "toilets:wheelchair": "no",
+   "tourism": "attraction",
+   "website": "https://gardenofdreams.org.np/",
+   "wheelchair": "no",
+   "wikidata": "Q5522383"
+  },
+  "alternatives": [
+   "n1857049442 गार्डेन अफ ड्रिम्स पार्किङ् (0.03 km)"
+  ]
+ },
+ {
+  "id": "thamel",
+  "region": "kathmandu_valley",
+  "kind": "district",
+  "status": "found",
+  "osm": "n1349697740",
+  "lon": 85.312702,
+  "lat": 27.716658,
+  "name": "ठमेल",
+  "name_en": "Thamel",
+  "name_ne": "ठमेल",
+  "key_tags": {
+   "place": "neighbourhood",
+   "wikidata": "Q2467967",
+   "wikipedia": "en:Thamel"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "chandragiri_cable_car",
+  "region": "kathmandu_valley",
+  "kind": "cable_car",
+  "status": "found",
+  "osm": "w638657930",
+  "lon": 85.210633,
+  "lat": 27.677647,
+  "name": "चन्द्रागिरि केबलकार",
+  "name_en": "Chandragiri Cable Car",
+  "name_ne": "चन्द्रागिरि केबलकार",
+  "key_tags": {
+   "aerialway": "gondola"
+  },
+  "alternatives": [
+   "n6018817255 चन्द्रागिरि केबलकार (1.86 km)",
+   "n6333301847 चन्द्रागिरि हिल्स (0.63 km)",
+   "r16112955 Chandragiri-06 (1.38 km)",
+   "r16112954 Chandragiri-07 (1.6 km)"
+  ]
+ },
+ {
+  "id": "nagarkot_viewpoint",
+  "region": "kathmandu_valley",
+  "kind": "viewpoint",
+  "status": "found",
+  "osm": "n4430216290",
+  "lon": 85.528521,
+  "lat": 27.720198,
+  "name": null,
+  "name_en": "End of Nagarkot Panoramic hiking trail",
+  "name_ne": null,
+  "key_tags": {
+   "tourism": "viewpoint"
+  },
+  "alternatives": [
+   "n1398437048 Nagarkot Tower (2.54 km)",
+   "n316984476 नगरकोट (0.39 km)",
+   "w568645056 Way to Nagarkot (0.37 km)",
+   "w758626442 Nagarkot Buddha Peace Garden Hiking Trail (0.35 km)"
+  ]
+ },
+ {
+  "id": "tribhuvan_airport",
+  "region": "kathmandu_valley",
+  "kind": "airport",
+  "status": "found",
+  "osm": "w118505122",
+  "lon": 85.359718,
+  "lat": 27.696551,
+  "name": "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल",
+  "name_en": "Tribhuvan International Airport",
+  "name_ne": "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल",
+  "key_tags": {
+   "aerodrome": "international",
+   "aerodrome:type": "public",
+   "aeroway": "aerodrome",
+   "ele": "1339.5",
+   "iata": "KTM",
+   "icao": "VNKT",
+   "operator": "Civil Aviation Authority of Nepal (CAAN)",
+   "passengers": "3405015",
+   "ref": "KTM",
+   "short_name:zh": "特里布万",
+   "website": "https://www.tiairport.com.np/",
+   "wikidata": "Q61066",
+   "wikipedia": "en:Tribhuvan International Airport"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "phewa_lake",
+  "region": "pokhara",
+  "kind": "lake",
+  "status": "found",
+  "osm": "r8202581",
+  "lon": 83.942473,
+  "lat": 28.216102,
+  "name": "फेवा ताल",
+  "name_en": "Phewa Lake",
+  "name_ne": "फेवा ताल",
+  "key_tags": {
+   "boat": "yes",
+   "natural": "water",
+   "opening_hours": "08:00-18:00",
+   "type": "multipolygon",
+   "water": "lake",
+   "wikidata": "Q1192928",
+   "wikipedia": "en:Phewa Lake"
+  },
+  "alternatives": [
+   "w44847345 Fewa Lakeside Foot Path (0.57 km)",
+   "w44790125 Fewa Lakeside Foot Path (0.62 km)",
+   "w198565131 Hotel Fewa (0.63 km)",
+   "w44790126 Fewa Lakeside Foot Path (0.8 km)"
+  ]
+ },
+ {
+  "id": "tal_barahi",
+  "region": "pokhara",
+  "kind": "temple_pagoda",
+  "status": "found",
+  "osm": "w44843317",
+  "lon": 83.953601,
+  "lat": 28.207397,
+  "name": "Taal Barahi Mandir",
+  "name_en": null,
+  "name_ne": "ताल बराही मन्दिर",
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "check_date": "2025-12-20",
+   "layer": "2",
+   "place": "islet",
+   "religion": "hindu",
+   "wheelchair": "no",
+   "wikidata": "Q16172918"
+  },
+  "alternatives": [
+   "w418261030 Taal Barahi Mandir (0.28 km)",
+   "w24622137 13 (0.72 km)",
+   "w120638652 Hotel Barahi (0.75 km)",
+   "w450936500 Barahi Mini Market Pvt Ltd (0.96 km)"
+  ]
+ },
+ {
+  "id": "sarangkot",
+  "region": "pokhara",
+  "kind": "viewpoint",
+  "status": "found",
+  "osm": "n520698757",
+  "lon": 83.957498,
+  "lat": 28.243695,
+  "name": "Sarangkot Viewpoint",
+  "name_en": null,
+  "name_ne": "सराङ्गकोट भ्यु प्वाइन्ट",
+  "key_tags": {
+   "tourism": "viewpoint",
+   "wikidata": "Q906285",
+   "wikipedia": "en:Sarankot"
+  },
+  "alternatives": [
+   "n7259604786 None (1.08 km)",
+   "n3485963579 Sarangkot View Point (1.11 km)",
+   "n3485963129 सराङ्गकोट (0.9 km)",
+   "n570126093 Sarangkot Tower (1.1 km)"
+  ]
+ },
+ {
+  "id": "world_peace_pagoda",
+  "region": "pokhara",
+  "kind": "stupa",
+  "status": "found",
+  "osm": "w596603713",
+  "lon": 83.944742,
+  "lat": 28.20103,
+  "name": "World Peace Pagoda",
+  "name_en": null,
+  "name_ne": "विश्व शान्ति स्तुपा",
+  "key_tags": {
+   "alt_name:ne": "पोखरा शान्ति स्तुपा",
+   "amenity": "place_of_worship",
+   "building": "pagoda",
+   "denomination": "zen",
+   "ele": "1115",
+   "historic": "monument",
+   "religion": "buddhist"
+  },
+  "alternatives": [
+   "w1547140495 Peace Stupa - Dhungepani Foot Path (0.09 km)",
+   "w1526648513 Peace Stupa - Dhungepani Foot Path (0.14 km)",
+   "w239279341 World Peace Stupa Hiking Trail (0.23 km)",
+   "w117380660 Peace Pagoda Road (0.43 km)"
+  ]
+ },
+ {
+  "id": "davis_falls",
+  "region": "pokhara",
+  "kind": "waterfall",
+  "status": "found",
+  "osm": "n713296203",
+  "lon": 83.959439,
+  "lat": 28.190359,
+  "name": "Patale Chhango",
+  "name_en": "Devi's Falls",
+  "name_ne": "पाताले छाँगो",
+  "key_tags": {
+   "waterway": "waterfall"
+  },
+  "alternatives": [
+   "n4213348389 Patale Chhango (Devi's Falls) (0.09 km)",
+   "w567061364 Devi's Fall Driving School & Pre-test Center Pvt.Ltd (0.37 km)",
+   "w24623929 Davis Falls (0.63 km)",
+   "n4805411467 Devi's Fall Medical Hall (0.04 km)"
+  ]
+ },
+ {
+  "id": "gupteshwor_cave",
+  "region": "pokhara",
+  "kind": "cave",
+  "status": "found",
+  "osm": "n4213348390",
+  "lon": 83.957726,
+  "lat": 28.189194,
+  "name": "Gupteshwar Mahadev",
+  "name_en": null,
+  "name_ne": "गुप्तेस्वर माहादेव",
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "natural": "cave",
+   "religion": "hindu"
+  },
+  "alternatives": [
+   "w425277051 Gupteshwar Mahadev Multiple Campus (0.15 km)",
+   "w566711569 Gupteshwar Mahadev Multiple Campus (0.37 km)",
+   "n4375196023 Gupteshwar Mahadev Bed Bigyan Pathsala (0.09 km)",
+   "n9791595156 Gupteshwor Puja Samagrhi Bhandar (0.09 km)"
+  ]
+ },
+ {
+  "id": "bat_cave",
+  "region": "pokhara",
+  "kind": "cave",
+  "status": "found",
+  "osm": "n3678974492",
+  "lon": 83.975702,
+  "lat": 28.267581,
+  "name": "Bat Cave",
+  "name_en": null,
+  "name_ne": "ब्याट गुफा",
+  "key_tags": {
+   "fee": "Rs 20",
+   "natural": "cave_entrance",
+   "opening_hours": "06:00-18:00",
+   "wikidata": "Q31209926"
+  },
+  "alternatives": [
+   "w568646426 Bat Cave (0.97 km)",
+   "w418108667 Way to Bat Cave (0.73 km)",
+   "w418108669 Way to Bat Cave (0.71 km)",
+   "w670034956 Way to Bat Cave (0.82 km)"
+  ]
+ },
+ {
+  "id": "begnas_lake",
+  "region": "pokhara",
+  "kind": "lake",
+  "status": "found",
+  "osm": "w102128260",
+  "lon": 84.097689,
+  "lat": 28.17568,
+  "name": "बेगनास ताल",
+  "name_en": "Begnas Tal",
+  "name_ne": "बेगनास ताल",
+  "key_tags": {
+   "fishing": "yes",
+   "natural": "water",
+   "salt": "no",
+   "tidal": "no",
+   "water": "lake",
+   "wikidata": "Q3451677"
+  },
+  "alternatives": [
+   "w112655060 Buspark - Begnastal Road (0.96 km)",
+   "w485299683 Begnas Youth Club (1.06 km)",
+   "w342721624 Talchowk Begnastal Road (1.15 km)",
+   "w331636423 Talchowk Begnastal Road (1.26 km)"
+  ]
+ },
+ {
+  "id": "pokhara_international_airport",
+  "region": "pokhara",
+  "kind": "airport",
+  "status": "found",
+  "osm": "w364334224",
+  "lon": 84.011102,
+  "lat": 28.187874,
+  "name": "Pokhara International Airport",
+  "name_en": null,
+  "name_ne": "पोखरा अन्तराष्ट्रिय विमानस्थल",
+  "key_tags": {
+   "aeroway": "aerodrome",
+   "barrier": "fence",
+   "construction:aeroway": "aerodrome",
+   "ele": "803.89",
+   "iata": "PHH",
+   "icao": "VNPR",
+   "internet_access": "yes",
+   "internet_access:fee": "no",
+   "operator": "CAAN",
+   "operator:type": "government",
+   "phone": "061-550530",
+   "wikidata": "Q55630162",
+   "wikipedia": "en:Pokhara International Airport"
+  },
+  "alternatives": [
+   "w126708147 Pokhara Airport (4.85 km)",
+   "n5489250723 Pokhara International Pvt. Ltd (5.4 km)",
+   "n5474681806 Hotel Pokhara International (7.11 km)"
+  ]
+ },
+ {
+  "id": "machhapuchhre",
+  "region": "pokhara",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n727108156",
+  "lon": 83.945876,
+  "lat": 28.49798,
+  "name": "Machapuchare",
+  "name_en": null,
+  "name_ne": "माछापुच्छ्रे",
+  "key_tags": {
+   "ele": "6993",
+   "natural": "peak",
+   "prominence": "1293",
+   "wikidata": "Q1051394",
+   "wikimedia_commons": "File:Peak of Mount Machhapuchhre of Nepal.jpg",
+   "wikipedia": "en:Machapuchare"
+  },
+  "alternatives": [
+   "w620058338 Machhapuchhare Base Camp (5.79 km)",
+   "n4193320690 Machhapuchhare Guest House and Restaurant (5.77 km)"
+  ]
+ },
+ {
+  "id": "annapurna_i",
+  "region": "annapurna",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n289923681",
+  "lon": 83.81992,
+  "lat": 28.595806,
+  "name": "अन्नपूर्ण",
+  "name_en": "Annapurna I",
+  "name_ne": "अन्नपूर्णा I",
+  "key_tags": {
+   "ele": "8091",
+   "natural": "peak",
+   "note": "This is Annapurna's Main summit according to recent discussion. https://explorersweb.com/annapurna-shishapangma-trackers/",
+   "prominence": "2984",
+   "wikidata": "Q159621",
+   "wikipedia": "en:Annapurna"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "poon_hill",
+  "region": "annapurna",
+  "kind": "viewpoint",
+  "status": "found",
+  "osm": "w366056404",
+  "lon": 83.689503,
+  "lat": 28.400108,
+  "name": "Poon Hill Observation Tower",
+  "name_en": "Poonhill tower",
+  "name_ne": null,
+  "key_tags": {
+   "building": "yes",
+   "ele": "3217",
+   "man_made": "tower",
+   "note": "Tower elevation based on empiric estimation and GPS data.",
+   "tourism": "viewpoint",
+   "tower:type": "observation"
+  },
+  "alternatives": [
+   "n316997699 Pun Danda (0.05 km)",
+   "w544151580 घोरेपानी-पूनहिल (0.21 km)",
+   "w340898704 घोरेपानी-पूनहिल (0.47 km)",
+   "w335030467 Poon Hill Guest House (0.98 km)"
+  ]
+ },
+ {
+  "id": "ghandruk",
+  "region": "annapurna",
+  "kind": "village",
+  "status": "found",
+  "osm": "n388572114",
+  "lon": 83.807793,
+  "lat": 28.376865,
+  "name": "Ghandruk",
+  "name_en": "Ghandruk",
+  "name_ne": "घान्द्रुक",
+  "key_tags": {
+   "ele": "2050",
+   "is_in": "Nepal",
+   "is_in:country": "Nepal",
+   "place": "village",
+   "wikidata": "Q3412040",
+   "wikipedia": "en:Ghandruk"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "bandipur",
+  "region": "prithvi_corridor",
+  "kind": "village",
+  "status": "found",
+  "osm": "n316985037",
+  "lon": 84.406696,
+  "lat": 27.938022,
+  "name": "Bandipur",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "elevation": "971m",
+   "place": "village",
+   "wikidata": "Q806327",
+   "wikipedia": "en:Bandipur"
+  },
+  "alternatives": [
+   "r12405037 Bandipur (4.15 km)",
+   "n6411689877 Bandipur (0.44 km)"
+  ]
+ },
+ {
+  "id": "manakamana",
+  "region": "prithvi_corridor",
+  "kind": "temple_pagoda",
+  "status": "found",
+  "osm": "n1727432206",
+  "lon": 84.583992,
+  "lat": 27.904224,
+  "name": "Shree Manakamana Temple",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "religion": "hindu",
+   "wikidata": "Q2385286",
+   "wikipedia": "en:Manakamana"
+  },
+  "alternatives": [
+   "n12019692755 Manakamana (3.28 km)",
+   "w341403715 Manakamana cable car (1.68 km)",
+   "n1726693455 Manakamana cable car hill station (0.57 km)",
+   "n1726693459 Manakamana Cable Car Station (3.12 km)"
+  ]
+ },
+ {
+  "id": "gorkha_durbar",
+  "region": "prithvi_corridor",
+  "kind": "palace",
+  "status": "weak",
+  "osm": "n9796531519",
+  "lon": 84.62728,
+  "lat": 27.992201,
+  "name": "होटल गोरखा प्यालेस",
+  "name_en": "Hotel Gorkha Palace",
+  "name_ne": null,
+  "key_tags": {
+   "amenity": "restaurant"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "kushma_bungee",
+  "region": "pokhara",
+  "kind": "bungee",
+  "status": "weak",
+  "osm": "w230721093",
+  "lon": 83.678481,
+  "lat": 28.209531,
+  "name": "Kushma-Gyandi Suspension Bridge",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "bicycle": "yes",
+   "bridge": "yes",
+   "foot": "yes",
+   "height": "117.0432",
+   "highway": "footway",
+   "horse": "no",
+   "layer": "1",
+   "length": "343.8144",
+   "motor_vehicle": "no"
+  },
+  "alternatives": [
+   "w870647006 Kusma-Balewa Bridge (Kushma Bungee Footbridge) (1.75 km)",
+   "n9044782738 Kushma Bungee Jump (1.73 km)"
+  ]
+ },
+ {
+  "id": "everest",
+  "region": "khumbu",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n164979149",
+  "lon": 86.92521,
+  "lat": 27.988061,
+  "name": "珠穆朗玛峰 ཇོ་མོ་གླང་མ། सगरमाथा",
+  "name_en": "Mount Everest",
+  "name_ne": "सगरमाथा चुचुरो",
+  "key_tags": {
+   "alt_name:be": "гара Эверэст",
+   "alt_name:ja": "聖母峰",
+   "alt_name:ko": "주무랑마봉;성모봉",
+   "alt_name:pl": "Czomolungma",
+   "alt_name:ru": "гора Эверест",
+   "alt_name:uk": "гора Еверест",
+   "alt_name:vi": "Thánh Mẫu Phong",
+   "alt_name:zh": "圣母峰",
+   "alt_name:zh-Hans": "圣母峰",
+   "alt_name:zh-Hant": "聖母峰",
+   "alt_name:zh-Latn-pinyin": "Shèngmǔfēng",
+   "check_date": "2024-10-16",
+   "ele": "8848.86",
+   "importance": "international",
+   "isolation": "20000",
+   "landmark": "1",
+   "loc_name": "珠峰",
+   "loc_name:be": "гара Сагарматха",
+   "loc_name:en": "Chomolungma",
+   "loc_name:ru": "гора Сагарматха",
+   "loc_name:uk": "гора Саґарматха",
+   "loc_name:zh": "珠峰",
+   "loc_name:zh-Hans": "珠峰",
+   "loc_name:zh-Hant": "珠峰",
+   "natural": "peak",
+   "note:ele": "2020-12-08 Height recently recalculated as 8848.86 meters. Rounded up to 8849.",
+   "note:position": "Location based on the average value of the 1992 and 2004 surveys carried out by Ev-K2-CNR. Accuracy is limited by the flatness of the summit and the fact that it is snow.",
+   "prominence": "8848.86",
+   "sorting_name:ru": "Джомолунгма (Сагарматха) гора",
+   "summit:cross": "no",
+   "wikidata": "Q513",
+   "wikipedia": "zh:珠穆朗瑪峰",
+   "wikipedia:es": "Monte Everest",
+   "wikipedia:fr": "Everest"
+  },
+  "alternatives": [
+   "n1326607409 珠穆朗玛南峰 (0.33 km)"
+  ]
+ },
+ {
+  "id": "lhotse",
+  "region": "khumbu",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n335376854",
+  "lon": 86.932504,
+  "lat": 27.961986,
+  "name": "洛子峰 ལྷོ་རྩེ ल्होत्से",
+  "name_en": "Lhotse",
+  "name_ne": "ल्होत्से",
+  "key_tags": {
+   "alt_name:de": "Lhozê",
+   "ele": "8516",
+   "natural": "peak",
+   "prominence": "609",
+   "sorting_name:ru": "Лхоцзе гора",
+   "wikidata": "Q168702",
+   "wikipedia": "en:Lhotse"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "ama_dablam",
+  "region": "khumbu",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n477904058",
+  "lon": 86.860429,
+  "lat": 27.8621,
+  "name": "Ama Dablam",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "ele": "6814",
+   "image": "http://www.flickr.com/photos/zolashine/6969195644/sizes/l/in/photostream/",
+   "natural": "peak",
+   "prominence": "1074",
+   "wikidata": "Q451697",
+   "wikipedia": "en:Ama Dablam"
+  },
+  "alternatives": [
+   "w30386589 Ama Dablam Glacier (2.33 km)",
+   "w36479489 Base Camp Amadablam (3.52 km)"
+  ]
+ },
+ {
+  "id": "kangchenjunga",
+  "region": "east",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n4462458037",
+  "lon": 88.147477,
+  "lat": 27.703011,
+  "name": "Kangchenjunga",
+  "name_en": "Kangchenjunga",
+  "name_ne": "कञ्चनजङ्घा",
+  "key_tags": {
+   "alt_name:cs": "Káčaňdžunga;Zlatá Ganga",
+   "ele": "8586",
+   "natural": "peak",
+   "prominence": "3922",
+   "tourism": "viewpoint",
+   "wikidata": "Q82019",
+   "wikipedia": "en:Kangchenjunga"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "dhaulagiri",
+  "region": "annapurna",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n530579647",
+  "lon": 83.489488,
+  "lat": 28.697609,
+  "name": "Dhaulagiri",
+  "name_en": "Dhaulagiri",
+  "name_ne": "धौलागिरी",
+  "key_tags": {
+   "alt_name:cs": "Bílá hora",
+   "ele": "8167",
+   "natural": "peak",
+   "prominence": "3357",
+   "tourism": "viewpoint",
+   "westra_ref": "10005",
+   "wikidata": "Q165440",
+   "wikimedia_commons": "File:Dhaulagiri_-_view_from_aircraft.jpg",
+   "wikipedia": "en:Dhaulagiri"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "manaslu",
+  "region": "manaslu",
+  "kind": "peak",
+  "status": "found",
+  "osm": "n565159949",
+  "lon": 84.559728,
+  "lat": 28.549983,
+  "name": "मनास्लु",
+  "name_en": "Manaslu",
+  "name_ne": "मनास्लु",
+  "key_tags": {
+   "ele": "8163",
+   "natural": "peak",
+   "prominence": "3092",
+   "westra_ref": "10006",
+   "wikidata": "Q170070",
+   "wikipedia": "en:Manaslu"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "lukla_airport",
+  "region": "khumbu",
+  "kind": "airport",
+  "status": "found",
+  "osm": "w377662838",
+  "lon": 86.730296,
+  "lat": 27.68707,
+  "name": "तेन्जिङ हिलारी विमानस्थल",
+  "name_en": "Tenzing-Hillary Airport",
+  "name_ne": "तेन्जिङ हिलारी विमानस्थल",
+  "key_tags": {
+   "aeroway": "aerodrome",
+   "alt_name:ja": "ルクラ空港",
+   "ele": "2774",
+   "iata": "LUA",
+   "icao": "VNLK",
+   "wikidata": "Q1043277",
+   "wikipedia": "en:Tenzing–Hillary Airport"
+  },
+  "alternatives": [
+   "w1257098603 None (0.1 km)",
+   "n303021945 नेपाल (0.27 km)",
+   "w249739223 Lukla Numbur Hotel (0.2 km)",
+   "w249739311 Everest Mountain Home Lukla Airport (0.25 km)"
+  ]
+ },
+ {
+  "id": "namche_bazaar",
+  "region": "khumbu",
+  "kind": "village",
+  "status": "found",
+  "osm": "n274016404",
+  "lon": 86.709796,
+  "lat": 27.804166,
+  "name": "नाम्चे बजार",
+  "name_en": "Namche Bazaar",
+  "name_ne": "नाम्चे बजार",
+  "key_tags": {
+   "ele": "3440",
+   "place": "village",
+   "wikidata": "Q376123",
+   "wikipedia": "en:Namche Bazaar"
+  },
+  "alternatives": [
+   "w344633041 Namche Sagarmatha Murrphy helipad (0.13 km)",
+   "w312775939 नाम्चे स्वास्थ्य चौकी (0.38 km)",
+   "w312775915 Namche Gompa (0.52 km)",
+   "w539956612 Namche Bazar Helipad (0.77 km)"
+  ]
+ },
+ {
+  "id": "tengboche_monastery",
+  "region": "khumbu",
+  "kind": "monastery",
+  "status": "found",
+  "osm": "r13050800",
+  "lon": 86.763844,
+  "lat": 27.836126,
+  "name": "Tengboche Monastery",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "amenity": "monastery",
+   "building": "yes",
+   "religion": "buddhist",
+   "type": "multipolygon",
+   "wikidata": "Q7699760",
+   "wikipedia": "en:Tengboche Monastery"
+  },
+  "alternatives": [
+   "n274018195 Tengboche (0.06 km)",
+   "n4441512089 None (0.07 km)",
+   "n4515354492 None (0.12 km)"
+  ]
+ },
+ {
+  "id": "everest_base_camp",
+  "region": "khumbu",
+  "kind": "base_camp",
+  "status": "found",
+  "osm": "n5225912921",
+  "lon": 86.848795,
+  "lat": 27.999665,
+  "name": "Everest Base Camp",
+  "name_en": "Everest Base Camp",
+  "name_ne": null,
+  "key_tags": {
+   "ele": "5364",
+   "tourism": "camp_site",
+   "wikidata": "Q99671286"
+  },
+  "alternatives": [
+   "n11730385960 Everest Base Camp Monument (0.93 km)"
+  ]
+ },
+ {
+  "id": "kala_patthar",
+  "region": "khumbu",
+  "kind": "viewpoint",
+  "status": "found",
+  "osm": "n564117511",
+  "lon": 86.828441,
+  "lat": 27.9958,
+  "name": "Kala Patthar",
+  "name_en": "Kala Patthar",
+  "name_ne": null,
+  "key_tags": {
+   "ele": "5645",
+   "natural": "peak",
+   "wikidata": "Q1511454",
+   "wikipedia": "en:Kala Patthar"
+  },
+  "alternatives": [
+   "n12794895934 Kalapathar Lodge & Restaurant (1.7 km)"
+  ]
+ },
+ {
+  "id": "gokyo_lakes",
+  "region": "khumbu",
+  "kind": "lake",
+  "status": "found",
+  "osm": "w40200994",
+  "lon": 86.69083,
+  "lat": 27.950679,
+  "name": "दूध पोखारी",
+  "name_en": "Doodh Pokhari",
+  "name_ne": null,
+  "key_tags": {
+   "ele": "4758",
+   "intermittent": "no",
+   "natural": "water",
+   "salt": "no",
+   "tidal": "no",
+   "water": "lake"
+  },
+  "alternatives": [
+   "n419103128 Gokyo (0.64 km)",
+   "n425189343 Gokyo Ri (1.45 km)",
+   "w1123104488 Gokyo Lake side (0.52 km)",
+   "w344731668 None (0.63 km)"
+  ]
+ },
+ {
+  "id": "langtang_valley",
+  "region": "langtang",
+  "kind": "village",
+  "status": "found",
+  "osm": "n976471702",
+  "lon": 85.508976,
+  "lat": 28.215756,
+  "name": "लांगटांग",
+  "name_en": "Langtang",
+  "name_ne": "लाङटाङ",
+  "key_tags": {
+   "ele": "3500",
+   "place": "suburb",
+   "wikidata": "Q6486551",
+   "wikipedia": "en:Langtang, Rasuwa"
+  },
+  "alternatives": [
+   "n3421443519 क्याङजिन गोँपा (0.7 km)",
+   "w342366766 Kyāṅjiṅ (0.8 km)",
+   "n632389897 Lower Kyāṅjiṅ Ri (1.35 km)",
+   "n632390009 Kyāṅjiṅ Ri (2.16 km)"
+  ]
+ },
+ {
+  "id": "gosaikunda",
+  "region": "langtang",
+  "kind": "lake",
+  "status": "found",
+  "osm": "w24719058",
+  "lon": 85.413292,
+  "lat": 28.082764,
+  "name": "गोसाइँकुण्ड",
+  "name_en": "Gosaikunda",
+  "name_ne": "गोसाइँकुण्ड",
+  "key_tags": {
+   "natural": "water",
+   "water": "lake",
+   "wikidata": "Q2565308"
+  },
+  "alternatives": [
+   "w47203446 GosainKunda Trek (2.19 km)",
+   "r4867746 GosainKunda Trek (2.38 km)",
+   "n601521345 गोसाइँकुण्ड (0.52 km)"
+  ]
+ },
+ {
+  "id": "tilicho_lake",
+  "region": "annapurna",
+  "kind": "lake",
+  "status": "found",
+  "osm": "w26772994",
+  "lon": 83.853029,
+  "lat": 28.690126,
+  "name": "Tilicho Lake",
+  "name_en": null,
+  "name_ne": "तिलिचो ताल",
+  "key_tags": {
+   "description": "Lake at the world's highest elevation.",
+   "elevation": "4910",
+   "natural": "water",
+   "water": "lake",
+   "wikidata": "Q619766",
+   "wikipedia": "en:Tilicho Lake"
+  },
+  "alternatives": [
+   "n727440357 Tilicho Peak (3.77 km)",
+   "w346967612 Tilicho Tea Shop (1.43 km)",
+   "r11077478 Tilicho Trek (5.0 km)",
+   "w1088769962 New Tilicho Lake Base Camp Hotel (5.59 km)"
+  ]
+ },
+ {
+  "id": "thorong_la",
+  "region": "annapurna",
+  "kind": "pass",
+  "status": "found",
+  "osm": "n1345507422",
+  "lon": 83.938758,
+  "lat": 28.793529,
+  "name": "Thorong La",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "description": "Annapurna Circuit trek, highest point on the route.",
+   "ele": "5416",
+   "mountain_pass": "yes",
+   "natural": "saddle",
+   "westra_ref": "10588",
+   "wikidata": "Q764344"
+  },
+  "alternatives": [
+   "n1967080904 Thorong top tea shop (0.94 km)",
+   "n4593919691 None (0.95 km)"
+  ]
+ },
+ {
+  "id": "muktinath",
+  "region": "mustang",
+  "kind": "temple_pagoda",
+  "status": "found",
+  "osm": "n10173284131",
+  "lon": 83.863829,
+  "lat": 28.820796,
+  "name": "Muktinath Pond",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "check_date": "2025-08-29",
+   "religion": "buddhist",
+   "wheelchair": "limited"
+  },
+  "alternatives": [
+   "w72224120 Muktinath (0.11 km)",
+   "n1431996477 मुक्तिनाथ (0.14 km)",
+   "n295283304 Ranipauwa (0.53 km)",
+   "w1164625779 Holy Pond of Muktinath (0.16 km)"
+  ]
+ },
+ {
+  "id": "rara_lake",
+  "region": "far_west",
+  "kind": "lake",
+  "status": "found",
+  "osm": "w329747447",
+  "lon": 82.089672,
+  "lat": 29.529937,
+  "name": "रारा ताल",
+  "name_en": "Rara Lake",
+  "name_ne": "रारा ताल",
+  "key_tags": {
+   "ele": "2990",
+   "natural": "water",
+   "water": "lake",
+   "wikidata": "Q2120180"
+  },
+  "alternatives": [
+   "r4467188 रारा राष्ट्रिय निकुञ्‍ज (4.21 km)",
+   "w303630931 Rara Ring Track (1.1 km)",
+   "w687891249 Rara Ring Track (1.61 km)",
+   "w941192898 Rara lake road (2.08 km)"
+  ]
+ },
+ {
+  "id": "shey_phoksundo",
+  "region": "far_west",
+  "kind": "lake",
+  "status": "found",
+  "osm": "w189103271",
+  "lon": 82.948881,
+  "lat": 29.196979,
+  "name": "Phoksundo Lake",
+  "name_en": null,
+  "name_ne": "शे-फोक्सुन्डो ताल",
+  "key_tags": {
+   "alt_name1": "Shey Phoksundo Lake",
+   "depth": "145",
+   "ele": "3612",
+   "intermittent": "no",
+   "natural": "water",
+   "salt": "no",
+   "tidal": "no",
+   "water": "lake",
+   "wikidata": "Q3215132",
+   "wikipedia": "en:Phoksundo Lake"
+  },
+  "alternatives": [
+   "w684435292 Shey Phoksundo Gaunpalika Office (3.37 km)",
+   "w295702373 Phoksundo Khola (6.13 km)",
+   "r16068344 Shey Phoksundo-09 (6.31 km)",
+   "w736586766 Phoksundo Hotel (7.08 km)"
+  ]
+ },
+ {
+  "id": "lo_manthang",
+  "region": "mustang",
+  "kind": "walled_town",
+  "status": "found",
+  "osm": "n973481984",
+  "lon": 83.956304,
+  "lat": 29.182835,
+  "name": "Lo Manthang",
+  "name_en": "Lo Manthang",
+  "name_ne": "लो मन्थाङ",
+  "key_tags": {
+   "alt_name_1": "Mushtang",
+   "alt_name_2": "Lo Mantang",
+   "alt_name_3": "Lho Mantang",
+   "alt_name_4": "Loh Mantung",
+   "gns:ufi": "-1022361",
+   "note": "Do not make this a village: it is the most important place in 200 km and former seat of a kingdom.",
+   "place": "town",
+   "wikidata": "Q2603964",
+   "wikipedia": "en:Lo Manthang"
+  },
+  "alternatives": [
+   "r10497177 लोमान्थाङ (5.8 km)",
+   "w1254822597 Jeep Road Beni-Lo Manthang (0.08 km)",
+   "w1254822596 Jeep Road Beni-Lo Manthang (0.16 km)",
+   "r16078784 Lomanthang-03 (4.16 km)"
+  ]
+ },
+ {
+  "id": "khaptad",
+  "region": "far_west",
+  "kind": "plateau",
+  "status": "found",
+  "osm": "w294497219",
+  "lon": 81.114026,
+  "lat": 29.377994,
+  "name": "खप्तड राष्ट्रिय निकुञ्‍ज",
+  "name_en": null,
+  "name_ne": "खप्तड राष्ट्रिय निकुन्ज",
+  "key_tags": {
+   "boundary": "national_park",
+   "start_date": "1984",
+   "wikidata": "Q2625399",
+   "wikipedia": "en:Khaptad National Park"
+  },
+  "alternatives": [
+   "w480999251 Khaptad Restaurant 2 (0.82 km)",
+   "w480999247 Khaptad Hotel (1.02 km)",
+   "w480999248 Khaptad Hotel (1.03 km)",
+   "w480999249 Khaptad Hotel (1.05 km)"
+  ]
+ },
+ {
+  "id": "maya_devi_temple",
+  "region": "lumbini",
+  "kind": "temple_monument",
+  "status": "found",
+  "osm": "w343151593",
+  "lon": 83.27581,
+  "lat": 27.469596,
+  "name": "Mayadevi Temple",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "building": "yes",
+   "religion": "buddhist",
+   "wikidata": "Q15238480"
+  },
+  "alternatives": [
+   "n2253944909 Maya Devi Guest House (0.85 km)",
+   "n9780881645 Mayadevi Primary School (2.6 km)",
+   "n9814735279 Mayadevi Arts (2.77 km)"
+  ]
+ },
+ {
+  "id": "lumbini_monastic_zone",
+  "region": "lumbini",
+  "kind": "heritage_zone",
+  "status": "weak",
+  "osm": "w456385566",
+  "lon": 83.275261,
+  "lat": 27.489659,
+  "name": "Lumbini monastic zone",
+  "name_en": null,
+  "name_ne": "लुम्बिनी साँस्कृतिक",
+  "key_tags": {
+   "heritage": "1",
+   "heritage:operator": "whc",
+   "leisure": "park",
+   "ref:whc": "666",
+   "whc:criteria": "iii, vi (cultural)"
+  },
+  "alternatives": [
+   "n5577702821 None (1.36 km)"
+  ]
+ },
+ {
+  "id": "chitwan_np",
+  "region": "chitwan",
+  "kind": "national_park",
+  "status": "found",
+  "osm": "r6083166",
+  "lon": 84.290877,
+  "lat": 27.520185,
+  "name": "चितवन राष्ट्रिय निकुञ्‍ज",
+  "name_en": "Chitwan National Park",
+  "name_ne": "चितवन राष्ट्रिय निकुञ्‍ज",
+  "key_tags": {
+   "boundary": "national_park",
+   "description": "Nawalparasi part",
+   "heritage": "1",
+   "heritage:operator": "whc",
+   "protect_class": "2",
+   "ref:whc": "284",
+   "sorting_name:cs": "Čitvan",
+   "type": "boundary",
+   "whc:criteria": "vii, ix, x (natural)",
+   "wikidata": "Q1075023",
+   "wikipedia": "en:Chitwan National Park"
+  },
+  "alternatives": [
+   "w1343672494 Chitwan National Park Sauraha Safari Tour Booking (17.17 km)",
+   "n6909860485 None (14.14 km)",
+   "n567142502 Chitwan National Park Info Office (16.4 km)",
+   "n4796270233 None (16.56 km)"
+  ]
+ },
+ {
+  "id": "bardiya_np",
+  "region": "bardiya",
+  "kind": "national_park",
+  "status": "found",
+  "osm": "w294497796",
+  "lon": 81.51154,
+  "lat": 28.409808,
+  "name": "बर्दिया राष्ट्रिय निकुञ्‍ज",
+  "name_en": "Bardiya National Park",
+  "name_ne": "बर्दिया राष्ट्रिय निकुञ्‍ज",
+  "key_tags": {
+   "boundary": "national_park",
+   "protect_class": "2",
+   "start_date": "1988"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "koshi_tappu",
+  "region": "east",
+  "kind": "wildlife_reserve",
+  "status": "found",
+  "osm": "r7569314",
+  "lon": 86.985259,
+  "lat": 26.66114,
+  "name": "कोशी टप्पु वन्यजन्तु आरक्ष",
+  "name_en": "Koshi Tappu Wildlife Reserve",
+  "name_ne": "कोशी टप्पु वन्यजन्तु आरक्ष",
+  "key_tags": {
+   "boundary": "protected_area",
+   "protect_class": "4",
+   "protection_title": "nature_reserve",
+   "type": "boundary",
+   "wikidata": "Q6433109",
+   "wikipedia": "en:Koshi Tappu Wildlife Reserve"
+  },
+  "alternatives": [
+   "w406825521 Koshi Tappu Wildlife Reserve (8.44 km)",
+   "w1055994080 Koshi Tappu Wildlife Reserve (11.72 km)",
+   "w1378864163 Koshi Tappu wildlife reserve (12.13 km)",
+   "w374844892 Koshi Tappu Waildlife camp (12.84 km)"
+  ]
+ },
+ {
+  "id": "janaki_mandir",
+  "region": "janakpur",
+  "kind": "temple_palace",
+  "status": "found",
+  "osm": "n3595105449",
+  "lon": 85.92566,
+  "lat": 26.730411,
+  "name": "Janaki Mandir",
+  "name_en": "JANKI MANDIR",
+  "name_ne": "जनकपुरधाम",
+  "key_tags": {
+   "amenity": "place_of_worship",
+   "opening_hours": "24/7",
+   "religion": "hindu",
+   "wikidata": "Q3161830"
+  },
+  "alternatives": [
+   "r7081539 Janaki Mandir Area (0.1 km)",
+   "w353717394 Janaki Mandir Park (0.16 km)"
+  ]
+ },
+ {
+  "id": "ilam_tea_gardens",
+  "region": "east",
+  "kind": "tea_garden",
+  "status": "found",
+  "osm": "w503694961",
+  "lon": 87.921372,
+  "lat": 26.909969,
+  "name": "Ilam Tea Estate",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "crop": "tea",
+   "landuse": "farmland"
+  },
+  "alternatives": [
+   "w482975094 Kanyam Tea Estate (15.47 km)",
+   "n3385957280 Kanyam (15.87 km)",
+   "n5012149922 Kanyam inn (16.81 km)"
+  ]
+ },
+ {
+  "id": "kalinchowk",
+  "region": "kalinchowk",
+  "kind": "temple_peak",
+  "status": "weak",
+  "osm": "r6742520",
+  "lon": 86.14954,
+  "lat": 27.739186,
+  "name": "Kalinchok-03",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "admin_level": "9",
+   "boundary": "administrative",
+   "type": "boundary",
+   "ward": "3"
+  },
+  "alternatives": [
+   "r6743304 Kalinchok-02 (5.52 km)",
+   "r6742499 Kalinchok-04 (7.59 km)",
+   "r16118719 Kalinchok-05 (8.16 km)",
+   "r10430164 कालिन्चोक गाउँपालिका (9.11 km)"
+  ]
+ },
+ {
+  "id": "hyatung_falls",
+  "region": "east",
+  "kind": "waterfall",
+  "status": "found",
+  "osm": "n9502459570",
+  "lon": 87.593916,
+  "lat": 27.222445,
+  "name": "Hyatung Waterfall",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "height": "365",
+   "waterway": "waterfall"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "bhote_koshi_bungee",
+  "region": "bhote_koshi",
+  "kind": "bungee",
+  "status": "missing",
+  "osm": null,
+  "lon": null,
+  "lat": null,
+  "name": null,
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {},
+  "alternatives": []
+ },
+ {
+  "id": "sarangkot_paragliding",
+  "region": "pokhara",
+  "kind": "paragliding",
+  "status": "found",
+  "osm": "w514455075",
+  "lon": 83.951163,
+  "lat": 28.241685,
+  "name": "पुरानो प्याराग्लाइडिङ टेकऑफ",
+  "name_en": "Old Paragliding Takeoff @ Sarangkot",
+  "name_ne": "पुरानो प्याराग्लाइडिङ टेकऑफ",
+  "key_tags": {
+   "free_flying:site": "takeoff",
+   "leisure": "pitch",
+   "sport": "free_flying"
+  },
+  "alternatives": [
+   "w341399497 पुरानो प्याराग्लाइडिङ टेकऑफ (1.2 km)",
+   "w197338918 Old Paragliding Landing (2.34 km)",
+   "w1156893063 प्याराग्लाइडिङ टेकऑफ (3.83 km)",
+   "n5491406004 Old Paragliding Landing Zone (1.56 km)"
+  ]
+ },
+ {
+  "id": "pokhara_zipline",
+  "region": "pokhara",
+  "kind": "zipline",
+  "status": "weak",
+  "osm": "w119054966",
+  "lon": 83.943929,
+  "lat": 28.248079,
+  "name": "Way To Zipline",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "highway": "residential",
+   "surface": "dirt"
+  },
+  "alternatives": []
+ },
+ {
+  "id": "trishuli_river",
+  "region": "prithvi_corridor",
+  "kind": "river",
+  "status": "found",
+  "osm": "r4839538",
+  "lon": 84.928404,
+  "lat": 27.920086,
+  "name": "त्रिशुली नदी",
+  "name_en": "Trishuli River",
+  "name_ne": "त्रिशुली नदी",
+  "key_tags": {
+   "type": "waterway",
+   "waterway": "river",
+   "wikidata": "Q4463211"
+  },
+  "alternatives": [
+   "w1553053155 Trishuli Ganga River (19.31 km)",
+   "w915399519 Trishuli Ganga River (19.93 km)",
+   "w302864211 Trishuli Ganga River (20.9 km)",
+   "w915399518 Trishuli Ganga River (20.8 km)"
+  ]
+ },
+ {
+  "id": "seti_river",
+  "region": "pokhara",
+  "kind": "river",
+  "status": "found",
+  "osm": "r12455804",
+  "lon": 84.087464,
+  "lat": 28.156976,
+  "name": "Seti Gandaki",
+  "name_en": null,
+  "name_ne": null,
+  "key_tags": {
+   "destination": "Trishuli River",
+   "type": "waterway",
+   "waterway": "river",
+   "wikidata": "Q17018531",
+   "wikipedia": "en:Seti Gandaki River"
+  },
+  "alternatives": [
+   "w407691772 Seti Gandaki River (1.76 km)",
+   "w1396732401 Seti Gandaki River (2.01 km)",
+   "w407693769 Seti River (2.63 km)",
+   "w404671139 Seti Gandaki River (5.86 km)"
+  ]
+ }
+]

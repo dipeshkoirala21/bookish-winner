@@ -1,0 +1,54 @@
+# Delivery regions. A region is the unit of download (one region pack) and of
+# pipeline builds. Bounding boxes are lon/lat (WGS84):
+# [lon_min, lat_min, lon_max, lat_max].
+#
+# Each region builds:
+#   detail_levels   tiles with full content (heightmap, biome map, roads,
+#                   buildings, POIs, areas) covering `bbox`
+#   horizon_levels  heightmap + biome only, covering `horizon_bbox`, so that
+#                   distant mountains (the Himalayan skyline) render from inside
+#                   the region
+#
+# Level L tiles are 2^(20-L) m on a side: 10 -> 1024 m, 8 -> 4096 m,
+# 6 -> 16384 m, 5 -> 32768 m.
+
+defaults:
+  detail_levels: [8, 9, 10]
+  horizon_levels: [5, 6, 7]
+  height_grid: 129     # samples per tile edge (2^k + 1)
+  biome_grid: 65
+  bbox_buffer_m: 1500  # extra OSM data read around bbox so clipped features stay intact
+
+regions:
+  kathmandu_valley:
+    name_en: Kathmandu Valley
+    name_ne: काठमाडौं उपत्यका
+    milestone: M0
+    bbox: [85.18, 27.55, 85.58, 27.83]
+    horizon_bbox: [84.60, 27.20, 86.40, 28.60]
+    base_install: true
+
+  # Tiny region used by CI and fast local iteration (Thamel + Durbar Square).
+  thamel_test:
+    name_en: Thamel (test)
+    name_ne: ठमेल (परीक्षण)
+    milestone: M0
+    bbox: [85.300, 27.700, 85.320, 27.720]
+    horizon_bbox: [85.20, 27.60, 85.42, 27.82]
+    detail_levels: [9, 10]
+    horizon_levels: [7, 8]
+    base_install: false
+
+  # Planned, not yet built (M2+). Kept here so ids are stable.
+  prithvi_corridor:
+    name_en: Prithvi Highway
+    name_ne: पृथ्वी राजमार्ग
+    milestone: M2
+    bbox: [84.08, 27.70, 85.18, 28.05]
+    horizon_bbox: [83.60, 27.30, 85.60, 28.90]
+  pokhara:
+    name_en: Pokhara
+    name_ne: पोखरा
+    milestone: M2
+    bbox: [83.85, 28.10, 84.15, 28.32]
+    horizon_bbox: [83.30, 27.80, 84.60, 29.00]

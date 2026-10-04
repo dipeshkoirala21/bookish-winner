@@ -1,0 +1,38 @@
+# Source datasets. `fetch.py` downloads what a region needs, verifies checksums
+# and records exact versions in data/raw/SOURCES.lock.json.
+#
+# Licences and attribution are summarised in docs/LICENSES.md and must stay in
+# sync with this file.
+
+osm:
+  id: osm_nepal
+  license: ODbL-1.0
+  attribution: "© OpenStreetMap contributors"
+  dest: osm/nepal.osm.pbf
+  # Tried in order. Geofabrik is canonical; the OSMToday mirror is a fallback
+  # because Geofabrik refuses connections from some cloud egress IPs (observed
+  # from the Claude cloud dev environment, 2026-10-04).
+  mirrors:
+    - name: geofabrik
+      url: https://download.geofabrik.de/asia/nepal-latest.osm.pbf
+      md5_url: https://download.geofabrik.de/asia/nepal-latest.osm.pbf.md5
+    - name: osmtoday
+      url: https://geo2day.com/asia/nepal.pbf
+      md5_url: https://geo2day.com/asia/nepal.pbf.md5
+
+dem:
+  id: copernicus_glo30
+  license: Copernicus DEM licence (GLO-30 public)
+  attribution: "Copernicus DEM GLO-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved"
+  tile_deg: 1
+  # {ns}{lat:02d} / {ew}{lon:03d} use the tile's south-west corner.
+  url_template: "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_{ns}{lat:02d}_00_{ew}{lon:03d}_00_DEM/Copernicus_DSM_COG_10_{ns}{lat:02d}_00_{ew}{lon:03d}_00_DEM.tif"
+  dest_dir: dem/copernicus
+
+landcover:
+  id: esa_worldcover_2021_v200
+  license: CC-BY-4.0
+  attribution: "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium"
+  tile_deg: 3
+  url_template: "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{ns}{lat:02d}{ew}{lon:03d}_Map.tif"
+  dest_dir: worldcover

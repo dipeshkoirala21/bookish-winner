@@ -1,0 +1,88 @@
+# Hero landmarks from the project brief (section 4.4).
+#
+# `near: [lon, lat, radius_km]` (approximate, hand-entered) restricts candidates
+# so that common names like "Barahi" resolve to the right object.
+# `match` is a case-insensitive regex tested against name, name:en, name:ne,
+# alt_name, int_name, old_name and official_name. `prefer` lists tag filters
+# ("key=value", "key=*") that rank candidates. Run
+#   python -m ghumante_pipeline.landmarks --pbf data/raw/osm/nepal.osm.pbf
+# to resolve each entry to concrete OSM objects. The result is written to
+# docs/reports/landmarks.md and config/landmarks.resolved.json.
+#
+# region: the delivery region the landmark ships in (see config/regions.yaml).
+# kind: drives the hero-asset spec in docs/ASSET_MANIFEST.md.
+
+landmarks:
+  # ---------------------------------------------------------------- Kathmandu Valley
+  - {id: boudhanath, region: kathmandu_valley, kind: stupa, match: "bou?d+h?a(nath)?|baudha|bouddha|बौद्ध", prefer: ["man_made=stupa", "building=stupa", "amenity=place_of_worship", "historic=*"], near: [85.362, 27.721, 3]}
+  - {id: swayambhunath, region: kathmandu_valley, kind: stupa, match: "swa?yambhu|स्वयम्भू", prefer: ["man_made=stupa", "amenity=place_of_worship", "historic=*", "tourism=attraction"], near: [85.29, 27.715, 3]}
+  - {id: pashupatinath, region: kathmandu_valley, kind: temple_pagoda, match: "pashupati|पशुपति", prefer: ["amenity=place_of_worship", "building=temple", "historic=*", "tourism=attraction"], near: [85.348, 27.711, 3]}
+  - {id: kathmandu_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "kathmandu durbar|basantapur|hanuman ?dhoka|काठमाडौं दरबार|हनुमानढोका", prefer: ["place=square", "historic=*", "tourism=attraction", "highway=pedestrian"], near: [85.307, 27.704, 2]}
+  - {id: patan_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "patan durbar|पाटन दरबार|mangal bazaar", prefer: ["place=square", "historic=*", "tourism=attraction"], near: [85.325, 27.673, 2]}
+  - {id: bhaktapur_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "bhaktapur durbar|भक्तपुर दरबार", prefer: ["place=square", "historic=*", "tourism=attraction"], near: [85.428, 27.672, 2]}
+  - {id: nyatapola, region: kathmandu_valley, kind: temple_pagoda, match: "nyatapola|nyatapol|न्यातपोल", prefer: ["amenity=place_of_worship", "building=temple", "historic=*"], near: [85.429, 27.671, 2]}
+  - {id: changu_narayan, region: kathmandu_valley, kind: temple_pagoda, match: "changu ?narayan|चाँगुनारायण|चाँगु नारायण", prefer: ["amenity=place_of_worship", "building=temple", "historic=*"], near: [85.428, 27.716, 3]}
+  - {id: dharahara, region: kathmandu_valley, kind: tower, match: "dharahara|bhimsen tower|धरहरा", prefer: ["man_made=tower", "tourism=attraction", "historic=*"], near: [85.312, 27.7, 2]}
+  - {id: garden_of_dreams, region: kathmandu_valley, kind: garden, match: "garden of dreams|swapna bagaicha|स्वप्न बगैंचा", prefer: ["leisure=garden", "leisure=park", "tourism=attraction"], near: [85.315, 27.714, 2]}
+  - {id: thamel, region: kathmandu_valley, kind: district, match: "^thamel$|^ठमेल$", prefer: ["place=neighbourhood", "place=suburb", "place=quarter"], near: [85.31, 27.715, 2]}
+  - {id: chandragiri_cable_car, region: kathmandu_valley, kind: cable_car, match: "chandragiri", prefer: ["aerialway=*", "tourism=attraction", "natural=peak"], near: [85.21, 27.67, 8]}
+  - {id: nagarkot_viewpoint, region: kathmandu_valley, kind: viewpoint, match: "nagarkot", prefer: ["tourism=viewpoint", "man_made=tower", "place=*"], near: [85.52, 27.715, 6]}
+  - {id: tribhuvan_airport, region: kathmandu_valley, kind: airport, match: "tribhuvan international|त्रिभुवन अन्तर्राष्ट्रिय", prefer: ["aeroway=aerodrome"], near: [85.359, 27.697, 4]}
+  # ---------------------------------------------------------------- Pokhara & Gandaki
+  - {id: phewa_lake, region: pokhara, kind: lake, match: "phewa|fewa|फेवा", prefer: ["natural=water", "water=lake"], near: [83.95, 28.215, 5]}
+  - {id: tal_barahi, region: pokhara, kind: temple_pagoda, match: "barahi|वाराही|बाराही", prefer: ["amenity=place_of_worship", "building=temple"], near: [83.951, 28.209, 2]}
+  - {id: sarangkot, region: pokhara, kind: viewpoint, match: "sarangkot|सराङकोट", prefer: ["tourism=viewpoint", "place=*", "natural=peak"], near: [83.94, 28.24, 4]}
+  - {id: world_peace_pagoda, region: pokhara, kind: stupa, match: "world peace pagoda|shanti stupa|peace pagoda|शान्ति स्तुप", prefer: ["man_made=stupa", "amenity=place_of_worship", "tourism=attraction"], near: [83.945, 28.201, 3]}
+  - {id: davis_falls, region: pokhara, kind: waterfall, match: "davi'?s fall|devi'?s fall|patale chhango|पातले छाँगो", prefer: ["waterway=waterfall", "tourism=attraction", "natural=*"], near: [83.958, 28.19, 3]}
+  - {id: gupteshwor_cave, region: pokhara, kind: cave, match: "gupteshw[ao]r|गुप्तेश्वर", prefer: ["natural=cave_entrance", "tourism=attraction", "amenity=place_of_worship"], near: [83.957, 28.19, 3]}
+  - {id: bat_cave, region: pokhara, kind: cave, match: "bat cave|chamero gufa|चमेरो गुफा", prefer: ["natural=cave_entrance", "tourism=attraction"], near: [83.98, 28.26, 6]}
+  - {id: begnas_lake, region: pokhara, kind: lake, match: "begnas|बेगनास", prefer: ["natural=water", "water=lake"], near: [84.1, 28.17, 6]}
+  - {id: pokhara_international_airport, region: pokhara, kind: airport, match: "pokhara (international|regional)? ?airport|pokhara international|पोखरा अन्तर्राष्ट्रिय", prefer: ["aeroway=aerodrome"], near: [84.03, 28.19, 8]}
+  - {id: machhapuchhre, region: pokhara, kind: peak, match: "machh?apuchh?(re|are)|माछापुच्छ्रे", prefer: ["natural=peak"], near: [83.95, 28.49, 8]}
+  - {id: annapurna_i, region: annapurna, kind: peak, match: "^annapurna( i| 1)?$|अन्नपूर्णा i", prefer: ["natural=peak"], near: [83.82, 28.596, 8]}
+  - {id: poon_hill, region: annapurna, kind: viewpoint, match: "poon ?hill|पुन हिल", prefer: ["tourism=viewpoint", "natural=peak"], near: [83.69, 28.4, 6]}
+  - {id: ghandruk, region: annapurna, kind: village, match: "^ghandruk$|^घान्द्रुक$", prefer: ["place=village", "place=*"], near: [83.81, 28.375, 6]}
+  - {id: bandipur, region: prithvi_corridor, kind: village, match: "^bandipur$|^बन्दीपुर$", prefer: ["place=town", "place=village", "place=*"], near: [84.41, 27.94, 6]}
+  - {id: manakamana, region: prithvi_corridor, kind: temple_pagoda, match: "manakamana|मनकामना", prefer: ["amenity=place_of_worship", "aerialway=*", "building=temple"], near: [84.58, 27.905, 8]}
+  - {id: gorkha_durbar, region: prithvi_corridor, kind: palace, match: "gorkha (durbar|darbar|palace)|गोरखा दरबार", prefer: ["historic=*", "tourism=attraction"], near: [84.63, 28.005, 6]}
+  - {id: kushma_bungee, region: pokhara, kind: bungee, match: "kushma.*(bridge|bungee)|bungee", prefer: ["sport=*", "tourism=attraction", "man_made=bridge"], near: [83.69, 28.22, 10]}
+  # ---------------------------------------------------------------- Himalaya
+  - {id: everest, region: khumbu, kind: peak, match: "^mount everest$|^sagarmatha$|^सगरमाथा", prefer: ["natural=peak"], near: [86.925, 27.988, 3]}
+  - {id: lhotse, region: khumbu, kind: peak, match: "^lhotse$", prefer: ["natural=peak"], near: [86.933, 27.962, 3]}
+  - {id: ama_dablam, region: khumbu, kind: peak, match: "ama dablam|अमा दब्लम", prefer: ["natural=peak"], near: [86.861, 27.861, 4]}
+  - {id: kangchenjunga, region: east, kind: peak, match: "^kangchenjunga$|^kanchenjunga$", prefer: ["natural=peak"], near: [88.147, 27.703, 4]}
+  - {id: dhaulagiri, region: annapurna, kind: peak, match: "^dhaulagiri( i)?$", prefer: ["natural=peak"], near: [83.493, 28.697, 5]}
+  - {id: manaslu, region: manaslu, kind: peak, match: "^manaslu$", prefer: ["natural=peak"], near: [84.56, 28.55, 5]}
+  - {id: lukla_airport, region: khumbu, kind: airport, match: "tenzing.?hillary|lukla", prefer: ["aeroway=aerodrome", "aeroway=runway"], near: [86.729, 27.687, 3]}
+  - {id: namche_bazaar, region: khumbu, kind: village, match: "namche|नाम्चे", prefer: ["place=village", "place=town", "place=*"], near: [86.714, 27.805, 4]}
+  - {id: tengboche_monastery, region: khumbu, kind: monastery, match: "tengboche|thyangboche|tyangboche|टेङबोचे", prefer: ["amenity=place_of_worship", "building=monastery", "amenity=monastery"], near: [86.764, 27.836, 4]}
+  - {id: everest_base_camp, region: khumbu, kind: base_camp, match: "everest base camp|^ebc$", prefer: ["tourism=camp_site", "tourism=attraction", "place=*"], near: [86.853, 28.004, 5]}
+  - {id: kala_patthar, region: khumbu, kind: viewpoint, match: "kala ?patt?h?ar|काला पत्थर", prefer: ["natural=peak", "tourism=viewpoint"], near: [86.828, 27.996, 4]}
+  - {id: gokyo_lakes, region: khumbu, kind: lake, match: "gokyo|dudh pokhari|गोक्यो", prefer: ["natural=water", "water=lake", "place=*"], near: [86.69, 27.95, 8]}
+  - {id: langtang_valley, region: langtang, kind: village, match: "kyanjin|^langtang$|langtang village", prefer: ["place=village", "amenity=place_of_worship", "place=*"], near: [85.56, 28.21, 12]}
+  - {id: gosaikunda, region: langtang, kind: lake, match: "gosai ?kunda|gosainkunda|गोसाईंकुण्ड|गोसाइँकुण्ड", prefer: ["natural=water", "water=lake"], near: [85.415, 28.083, 5]}
+  - {id: tilicho_lake, region: annapurna, kind: lake, match: "tilicho|तिलिचो", prefer: ["natural=water", "water=lake"], near: [83.85, 28.68, 6]}
+  - {id: thorong_la, region: annapurna, kind: pass, match: "thorong ?la|thorung ?la|थोरोङ", prefer: ["mountain_pass=yes", "natural=saddle", "natural=peak"], near: [83.93, 28.79, 6]}
+  - {id: muktinath, region: mustang, kind: temple_pagoda, match: "muktinath|मुक्तिनाथ", prefer: ["building=temple", "historic=*", "amenity=place_of_worship"], near: [83.87, 28.817, 5]}
+  # ---------------------------------------------------------------- Far west / remote
+  - {id: rara_lake, region: far_west, kind: lake, match: "^rara|रारा", prefer: ["natural=water", "water=lake"], near: [82.09, 29.53, 8]}
+  - {id: shey_phoksundo, region: far_west, kind: lake, match: "phoksundo|फोक्सुण्डो", prefer: ["natural=water", "water=lake"], near: [82.94, 29.2, 8]}
+  - {id: lo_manthang, region: mustang, kind: walled_town, match: "lo ?manthang|लोमान्थाङ", prefer: ["place=*", "historic=*"], near: [83.955, 29.18, 6]}
+  - {id: khaptad, region: far_west, kind: plateau, match: "khaptad|खप्तड", prefer: ["boundary=national_park", "boundary=protected_area", "place=*"], near: [81.15, 29.38, 25]}
+  # ---------------------------------------------------------------- Terai
+  - {id: maya_devi_temple, region: lumbini, kind: temple_monument, match: "maya ?devi|मायादेवी", prefer: ["amenity=place_of_worship", "historic=*", "tourism=attraction"], near: [83.276, 27.469, 3]}
+  - {id: lumbini_monastic_zone, region: lumbini, kind: heritage_zone, match: "lumbini (development|monastic|sacred)|world peace pagoda.*lumbini", prefer: ["tourism=attraction", "historic=*", "landuse=religious"], near: [83.276, 27.48, 5]}
+  - {id: chitwan_np, region: chitwan, kind: national_park, match: "chitwan national park", prefer: ["boundary=national_park", "boundary=protected_area"], near: [84.35, 27.5, 60]}
+  - {id: bardiya_np, region: bardiya, kind: national_park, match: "bardiy?a national park", prefer: ["boundary=national_park", "boundary=protected_area"], near: [81.4, 28.4, 60]}
+  - {id: koshi_tappu, region: east, kind: wildlife_reserve, match: "koshi tappu", prefer: ["boundary=protected_area", "leisure=nature_reserve"], near: [86.96, 26.65, 30]}
+  - {id: janaki_mandir, region: janakpur, kind: temple_palace, match: "janaki mandir|जानकी मन्दिर", prefer: ["amenity=place_of_worship", "building=temple"], near: [85.925, 26.73, 3]}
+  # ---------------------------------------------------------------- East
+  - {id: ilam_tea_gardens, region: east, kind: tea_garden, match: "ilam tea|kanyam|tea garden|tea estate", prefer: ["landuse=*", "tourism=attraction"], near: [87.93, 26.91, 25]}
+  - {id: kalinchowk, region: kalinchowk, kind: temple_peak, match: "kalinch(o|ow)k|kalinchowk bhagwati|कालिञ्चोक", prefer: ["amenity=place_of_worship", "aerialway=*", "natural=peak", "tourism=*"], near: [86.18, 27.78, 10]}
+  - {id: hyatung_falls, region: east, kind: waterfall, match: "hyatung|ह्याताङ", prefer: ["waterway=waterfall", "tourism=attraction"], near: [87.5, 27.1, 45]}
+  # ---------------------------------------------------------------- Adventure sites
+  - {id: bhote_koshi_bungee, region: bhote_koshi, kind: bungee, match: "last resort|bungee|bhote ?koshi.*bridge", prefer: ["tourism=*", "sport=*", "man_made=bridge"], near: [85.95, 27.89, 10]}
+  - {id: sarangkot_paragliding, region: pokhara, kind: paragliding, match: "paraglid", prefer: ["sport=free_flying", "aeroway=*", "tourism=*"], near: [83.94, 28.24, 8]}
+  - {id: pokhara_zipline, region: pokhara, kind: zipline, match: "zip ?line|zip-flyer|zipflyer", prefer: ["aerialway=zip_line", "tourism=*"], near: [83.94, 28.24, 10]}
+  - {id: trishuli_river, region: prithvi_corridor, kind: river, match: "^trishuli|त्रिशूली", prefer: ["waterway=river", "type=waterway"], near: [84.9, 27.85, 50]}
+  - {id: seti_river, region: pokhara, kind: river, match: "^seti( gandaki| river| nadi)?$|सेती", prefer: ["waterway=river", "type=waterway"], near: [83.98, 28.23, 15]}
