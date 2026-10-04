@@ -6,6 +6,7 @@
         "Ghumante.UI",
         "Ghumante.Platform",
         "Ghumante.App",
+        "Ghumante.World",
         "Ghumante.EditorTools",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"

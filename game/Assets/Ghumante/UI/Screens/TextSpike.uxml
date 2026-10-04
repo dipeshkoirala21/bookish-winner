@@ -15,20 +15,8 @@
                 <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
                 <ui:Label class="gh-ribbon__title" binding-path="spike.title" text="Devanagari text test" picking-mode="Ignore" />
             </ui:VisualElement>
-            <ui:VisualElement class="gh-row spike-toolbar">
-                <ui:Button name="toggle-language" class="gh-pill gh-pill--small gh-pill--cyan">
-                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label name="toggle-language-label" class="gh-pill__label" text="नेपाली" picking-mode="Ignore" />
-                </ui:Button>
-                <ui:Button name="toggle-generator" class="gh-pill gh-pill--small gh-pill--yellow">
-                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label name="toggle-generator-label" class="gh-pill__label" text="Shaping: Advanced" picking-mode="Ignore" />
-                </ui:Button>
-                <ui:Button name="toggle-numerals" class="gh-pill gh-pill--small gh-pill--green">
-                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label name="toggle-numerals-label" class="gh-pill__label" text="Numerals: ०१२" picking-mode="Ignore" />
-                </ui:Button>
-            </ui:VisualElement>
+            <!-- Keeps the ribbon centred between the back button and the right edge. -->
+            <ui:VisualElement class="spike-topbar-spacer" picking-mode="Ignore" />
         </ui:VisualElement>
         <ui:VisualElement class="gh-panel spike-panel">
             <ui:Label name="device-info" class="spike-device-info" text="device info" />
@@ -364,6 +352,21 @@
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:ScrollView>
+        </ui:VisualElement>
+        <!-- Toggles live in a bottom bar so they sit in the thumb zone in portrait (ADR-017). -->
+        <ui:VisualElement name="spike-toolbar" class="gh-bottombar spike-toolbar">
+            <ui:Button name="toggle-language" class="gh-pill gh-pill--small gh-pill--cyan">
+                <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                <ui:Label name="toggle-language-label" class="gh-pill__label" text="नेपाली" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="toggle-generator" class="gh-pill gh-pill--small gh-pill--yellow">
+                <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                <ui:Label name="toggle-generator-label" class="gh-pill__label" text="Shaping: Advanced" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="toggle-numerals" class="gh-pill gh-pill--small gh-pill--green">
+                <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                <ui:Label name="toggle-numerals-label" class="gh-pill__label" text="Numerals: ०१२" picking-mode="Ignore" />
+            </ui:Button>
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

@@ -20,7 +20,7 @@ Batch mode equivalent of step 3: `Unity -batchmode -quit -projectPath game -exec
 | Application id | `GHUMANTE_BUNDLE_ID` env or `-ghumanteBundleId` flag, default `com.ghumante.game` (placeholder) |
 | Android | min API 29 (Android 10), target API 36 (Google Play requirement since 2026-08-31), IL2CPP, ARM64 only, Vulkan then OpenGL ES 3, ASTC, GameActivity, frame pacing |
 | iOS | target iOS 16.0, Metal, IL2CPP, device SDK; signing is done by fastlane |
-| Both | Linear colour space, incremental GC, managed stripping Medium, engine code stripping, .NET Standard API level, landscape only |
+| Both | Linear colour space, incremental GC, managed stripping Medium, engine code stripping, .NET Standard API level; auto-rotation to portrait, landscape left and landscape right (not upside-down), default orientation AutoRotation (ADR-017) |
 | Quality levels | Low / Medium / High, each with its own URP asset and renderer (budgets from ARCHITECTURE.md 10); Bootstrap picks one from the device tier |
 | Editor | Force Text serialization, visible meta files |
 

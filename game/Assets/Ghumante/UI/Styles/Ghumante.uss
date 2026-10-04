@@ -647,3 +647,105 @@
 .gh-toast--visible {
     opacity: 1;
 }
+
+/* ----- Orientation (ARCHITECTURE.md 7.10a, ADR-017) ----------------------------------------------
+ * OrientationWatcher puts .orient-portrait or .orient-landscape on every screen's .gh-root, from the
+ * aspect ratio of the safe area, and updates it live when the device rotates. One UXML per screen;
+ * the rules below re-flow it. Panel units: the PanelSettings scale is orientation-neutral, so a 20:9
+ * phone is about 2069 x 931 units in landscape and 931 x 2069 in portrait (ProjectSetup).
+ *   Landscape: classic two-sided layout, hero on the left, menu on the right.
+ *   Portrait: counters along the top, hero in the upper half, primary buttons in the bottom third.
+ */
+
+.gh-hero {
+    align-items: center;
+}
+
+/* Landscape */
+
+.orient-landscape .gh-menu-body {
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.orient-landscape .gh-menu-panel {
+    margin-top: 0;
+}
+
+/* Portrait */
+
+.orient-portrait .gh-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--gh-space-2) var(--gh-space-2) 0 var(--gh-space-2);
+}
+
+.orient-portrait .gh-counters {
+    justify-content: center;
+}
+
+.orient-portrait .gh-counter {
+    min-width: 130px;
+    margin: 8px 6px 8px 30px;
+}
+
+.orient-portrait .gh-topbar__actions {
+    align-self: flex-end;
+}
+
+.orient-portrait .gh-menu-body {
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--gh-space-3) var(--gh-space-2) 0 var(--gh-space-2);
+}
+
+.orient-portrait .gh-hero .gh-ribbon {
+    min-height: 96px;
+    padding: 4px 40px 12px 40px;
+    margin: 0 40px;
+}
+
+.orient-portrait .gh-hero .gh-ribbon .gh-ribbon__tail {
+    top: 24px;
+    width: 64px;
+    height: 80px;
+}
+
+.orient-portrait .gh-hero .gh-ribbon .gh-ribbon__tail--left {
+    left: -40px;
+}
+
+.orient-portrait .gh-hero .gh-ribbon .gh-ribbon__tail--right {
+    right: -40px;
+}
+
+.orient-portrait .gh-hero .gh-ribbon__title {
+    font-size: 56px;
+}
+
+.orient-portrait .gh-hero .gh-ribbon__separator {
+    font-size: 40px;
+}
+
+/* The menu panel fills most of the width and sits at the bottom of the body, i.e. in the thumb zone. */
+.orient-portrait .gh-menu-panel {
+    width: 88%;
+    max-width: 760px;
+    min-width: 0;
+    margin: 0 0 var(--gh-space-2) 0;
+}
+
+.orient-portrait .gh-pill--large {
+    min-width: 0;
+}
+
+.orient-portrait .gh-bottombar {
+    padding: var(--gh-space-1) var(--gh-space-2) var(--gh-space-2) var(--gh-space-2);
+    flex-wrap: wrap;
+}
+
+.orient-portrait .gh-toast {
+    bottom: 120px;
+}

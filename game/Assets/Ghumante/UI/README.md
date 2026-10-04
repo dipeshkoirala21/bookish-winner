@@ -21,10 +21,32 @@ ATG limits worth knowing (Unity manual, *Enable and use Advanced Text Generator*
 | `Screens/TextSpike.uxml` + `TextSpikeScreen.cs` | The P3 shaping test (generated, see below) |
 | `TextSpike/` | Its layout USS, generated reference USS and the HarfBuzz reference images |
 | `Localization/strings.{en,ne}.json`, `Localizer.cs` | Flat string tables and the M0 dictionary localizer (replaced by the Unity Localization package in M1, same keys) |
+| `OrientationWatcher.cs`, `SafeArea.cs` | Portrait/landscape classification from the safe area (orient-* classes, `OrientationChanged`) and safe-area padding |
 | `Fonts/` | Baloo 2 (display; static Bold/ExtraBold instances cut from the variable font) and Mukta (body), SIL OFL 1.1, licence files alongside |
 | `Icons/` | Placeholder icons and menu background, drawn by `game/Tools/make_ui_art.py` |
 
 Text elements carry their localisation key in `binding-path` (temporary convention; `binding-path` only drives editor SerializedObject binding, so it is inert at runtime). `Localizer.Apply(root)` fills them and puts `gh-lang-en`/`gh-lang-ne` on the screen root.
+
+## Portrait and landscape (ADR-017, ARCHITECTURE.md 7.10a)
+
+The game rotates live between portrait and both landscapes (ProjectSetup enables AutoRotation; upside-down
+portrait is off). Every screen is one UXML; `ScreenBase` hands its `.gh-root` to `OrientationWatcher`, which
+classifies the **safe area** (taller than wide = portrait, else landscape), toggles `.orient-portrait` /
+`.orient-landscape` and raises `OrientationWatcher.OrientationChanged`. The USS re-flows on those classes
+("Orientation" section at the end of `Styles/Ghumante.uss`, and of `TextSpike/TextSpike.uss`):
+
+| Screen | Landscape | Portrait |
+|---|---|---|
+| Main menu | counters + icon buttons in one top row; hero (ribbon, subtitle) left, menu panel right | counters centred along the top, icon buttons below them on the right; hero in the upper half; menu panel (Explore, Map, ...) at the bottom of the body, i.e. in the bottom third |
+| TextSpike | case / live / reference in three columns | one block per case, live above reference, column headings hidden; toggles in the bottom bar in both orientations |
+
+PanelSettings uses an orientation-neutral scale (square 1500x1500 reference, match 0.5), so a 20:9 phone is
+about 2069x931 panel units in landscape and 931x2069 in portrait and elements keep their physical size
+when the device turns. Camera rigs use `Ghumante.World.Cameras.CameraFov.VerticalFromHorizontal` to keep a
+minimum horizontal FOV (vertical FOV = 2*atan(tan(h/2)/aspect), clamped to 100 degrees).
+
+Unverified without Unity: the actual layout at each reference resolution. Check in the UI Builder or on
+device at 1080x2400 and 2400x1080 (and an iPad, both ways) before M0 sign-off.
 
 ## The TextSpike (week-1 device test, ARCHITECTURE.md P3)
 

@@ -37,7 +37,7 @@
                     </ui:Button>
                 </ui:VisualElement>
             </ui:VisualElement>
-            <ui:VisualElement class="gh-row">
+            <ui:VisualElement name="topbar-actions" class="gh-row gh-topbar__actions">
                 <ui:Button name="language-button" class="gh-icon-btn" tooltip="Language">
                     <ui:VisualElement class="gh-icon gh-icon--globe" picking-mode="Ignore" />
                 </ui:Button>
@@ -47,16 +47,20 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
-        <ui:VisualElement class="gh-center">
-            <ui:VisualElement name="title-ribbon" class="gh-ribbon" picking-mode="Ignore">
-                <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--left" picking-mode="Ignore" />
-                <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
-                <!-- The bilingual brand name is the same in both locales, so it is not a localisation key. -->
-                <ui:Label name="title-latin" class="gh-ribbon__title" text="Ghumante" picking-mode="Ignore" />
-                <ui:Label class="gh-ribbon__separator" text="/" picking-mode="Ignore" />
-                <ui:Label name="title-devanagari" class="gh-ribbon__title" text="घुमन्ते" picking-mode="Ignore" />
+        <!-- Landscape: hero and menu centred together. Portrait (ADR-017): hero in the upper half, the menu
+             panel pushed into the bottom third (thumb zone). See "Orientation" in Ghumante.uss. -->
+        <ui:VisualElement name="menu-body" class="gh-center gh-menu-body">
+            <ui:VisualElement name="hero" class="gh-hero" picking-mode="Ignore">
+                <ui:VisualElement name="title-ribbon" class="gh-ribbon" picking-mode="Ignore">
+                    <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--left" picking-mode="Ignore" />
+                    <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
+                    <!-- The bilingual brand name is the same in both locales, so it is not a localisation key. -->
+                    <ui:Label name="title-latin" class="gh-ribbon__title" text="Ghumante" picking-mode="Ignore" />
+                    <ui:Label class="gh-ribbon__separator" text="/" picking-mode="Ignore" />
+                    <ui:Label name="title-devanagari" class="gh-ribbon__title" text="घुमन्ते" picking-mode="Ignore" />
+                </ui:VisualElement>
+                <ui:Label name="subtitle" class="gh-subtitle" binding-path="app.subtitle" text="Explore the real Nepal" />
             </ui:VisualElement>
-            <ui:Label name="subtitle" class="gh-subtitle" binding-path="app.subtitle" text="Explore the real Nepal" />
             <ui:VisualElement class="gh-panel gh-menu-panel">
                 <ui:Button name="explore-button" class="gh-pill gh-pill--large gh-pill--yellow">
                     <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />

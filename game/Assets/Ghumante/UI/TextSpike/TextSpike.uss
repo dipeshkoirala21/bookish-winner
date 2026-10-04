@@ -1,13 +1,27 @@
 /* Layout of the Devanagari TextSpike screen (Screens/TextSpike.uxml). Rows: case | live | reference. */
 
+/* Back button | ribbon | spacer of the back button's width, so the ribbon stays centred. */
+.spike-topbar-spacer {
+    width: var(--gh-icon-button-small);
+    margin: 6px;
+}
+
+/* Bottom bar with the three toggles; wraps onto two lines on narrow portrait screens. */
 .spike-toolbar {
-    flex-shrink: 1;
-    justify-content: flex-end;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    padding-top: 0;
+}
+
+.spike-toolbar .gh-pill {
+    margin: 6px;
 }
 
 .spike-panel {
     flex-grow: 1;
-    margin: 0 var(--gh-space-3) var(--gh-space-3) var(--gh-space-3);
+    flex-shrink: 1;
+    margin: 0 var(--gh-space-3) 0 var(--gh-space-3);
     padding: var(--gh-space-2) var(--gh-space-3);
 }
 
@@ -57,7 +71,8 @@
 
 .spike-meta {
     width: 360px;
-    flex-shrink: 0;
+    min-width: 200px;
+    flex-shrink: 1;
     padding-right: 16px;
 }
 
@@ -114,4 +129,46 @@
 /* "Standard" toggle: same strings through the legacy generator, to show what breaks without shaping. */
 .spike--standard .spike-sample {
     -unity-text-generator: standard;
+}
+
+/* ----- Orientation (ADR-017; classes set by OrientationWatcher) ---------------------------------- */
+
+/* Portrait (931 panel units wide on a 20:9 phone): one case per block, live text above its reference.
+   The live and reference cells keep their 660 px width so both still wrap at the same 632 px. */
+.orient-portrait .spike-row {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px 0;
+}
+
+.orient-portrait .spike-meta {
+    width: auto;
+    padding-right: 0;
+}
+
+/* Narrow windows (split screen) may squeeze the cells below 660 px; the reference then no longer wraps
+   at the same width, which only matters for the paragraph case. */
+.orient-portrait .spike-live,
+.orient-portrait .spike-ref-col {
+    max-width: 100%;
+}
+
+.orient-portrait .spike-ref-col {
+    border-left-width: 4px;
+    border-color: var(--gh-cream-edge);
+    margin-top: 4px;
+}
+
+/* The three column headings make no sense once the columns are stacked. */
+.orient-portrait .spike-row--header {
+    display: none;
+}
+
+.orient-portrait .spike-panel {
+    margin: 0 var(--gh-space-2);
+    padding: var(--gh-space-2);
+}
+
+.orient-portrait .gh-ribbon--small .gh-ribbon__title {
+    font-size: 36px;
 }
