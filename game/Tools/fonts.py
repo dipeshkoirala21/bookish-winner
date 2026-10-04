@@ -157,8 +157,39 @@ def cmd_verify(_: argparse.Namespace) -> int:
                 if not ok:
                     failures += 1
                 print(f"     {'ok  ' if ok else 'FAIL'} shape {label}: {text} -> {glyphs}")
+    failures += check_ui_text_coverage(fonts)
     print("PASS" if failures == 0 else f"{failures} failure(s)")
     return 0 if failures == 0 else 1
+
+
+def check_ui_text_coverage(fonts: list[Path]) -> int:
+    """Every character of the string tables and the UXML text must exist in every UI font."""
+    import json
+    import re
+    from fontTools.ttLib import TTFont
+
+    ui = FONT_DIR.parent
+    chars: set[str] = set()
+    for table in sorted((ui / "Localization").glob("strings.*.json")):
+        for value in json.loads(table.read_text(encoding="utf-8")).values():
+            chars |= set(value)
+    for uxml in sorted(ui.rglob("*.uxml")):
+        for text in re.findall(r'text="([^"]*)"', uxml.read_text(encoding="utf-8")):
+            text = re.sub(r"&#x([0-9A-Fa-f]+);", lambda m: chr(int(m.group(1), 16)), text)
+            chars |= set(text.replace("&amp;", "&").replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">"))
+    chars -= {"\n", "\u200c", "\u200d"}  # joiners are default-ignorable; HarfBuzz handles them without glyphs
+    failures = 0
+    for path in fonts:
+        if path.name == "Baloo2-Variable.ttf":
+            continue  # source of the static instances; not referenced by the UI
+        cmap = TTFont(path).getBestCmap()
+        missing = sorted(f"U+{ord(c):04X}" for c in chars if ord(c) not in cmap)
+        if missing:
+            failures += 1
+            print(f"FAIL {path.name}: UI text uses characters the font lacks: {missing}")
+    if failures == 0:
+        print(f"ok   all {len(chars)} characters used by the string tables and UXML are in every UI font")
+    return failures
 
 
 def main() -> int:

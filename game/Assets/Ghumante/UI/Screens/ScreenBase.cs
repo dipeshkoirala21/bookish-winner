@@ -16,10 +16,12 @@ namespace Ghumante.UI.Screens
             if (localizer == null) throw new ArgumentNullException(nameof(localizer));
             Root = root;
             // Our UXML puts the Ghumante stylesheet on a .gh-root element under the document root. Classes
-            // that USS selectors key on (gh-lang-*, spike--standard) go there, inside the sheet's scope.
+            // that USS selectors key on (gh-lang-*, orient-*, spike--standard) go there, inside the sheet's scope.
             StyledRoot = root.Q(className: "gh-root") ?? root;
             Localizer = localizer;
             Localizer.Changed += OnLocaleChanged;
+            // Portrait and landscape layouts are USS rules keyed on orient-* classes (ADR-017).
+            OrientationWatcher.Track(StyledRoot);
         }
 
         /// <summary>The UIDocument root the screen was cloned into.</summary>

@@ -48,10 +48,10 @@ namespace Ghumante.EditorTools
         public const AndroidSdkVersions AndroidTargetSdk = AndroidSdkVersions.AndroidApiLevel36;
 
         /// <summary>
-        /// M0 is landscape-only: the UI layouts (PanelSettings reference 1920x1080, matched on height) are
-        /// designed for it. Flip this once the screens have portrait layouts (portrait play is planned).
+        /// Portrait and landscape are both fully supported, with live rotation (ADR-017). Upside-down
+        /// portrait is not. Layouts switch on OrientationWatcher's orient-* classes.
         /// </summary>
-        public const bool AllowPortrait = false;
+        public const bool AllowPortrait = true;
 
         /// <summary>iOS deployment target (ARCHITECTURE.md; Unity 6.3 supports iOS 15+).</summary>
         public const string IosMinimumVersion = "16.0";
@@ -194,7 +194,7 @@ namespace Ghumante.EditorTools
             PlayerSettings.gcIncremental = true;
             PlayerSettings.stripEngineCode = true;
 
-            // Landscape either way up; portrait follows AllowPortrait.
+            // Both landscapes and (with AllowPortrait) upright portrait; the device rotates the game live.
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
@@ -395,11 +395,15 @@ namespace Ghumante.EditorTools
                 Debug.LogWarning("ProjectSetup: runtime theme missing at " + ThemePath);
             }
             panel.themeStyleSheet = theme;
-            // Landscape phones: keep the vertical layout stable and let wider screens gain width.
+            // Orientation-neutral scaling (ADR-017). UI Toolkit's MatchWidthOrHeight divides by a LINEAR blend
+            // of width/refWidth and height/refHeight (PanelSettings.ResolveScale in Unity 6.3), so with a
+            // square reference and match 0.5 the scale is (w + h) / 3000: identical in portrait and landscape.
+            // A 1920x1080 screen maps to exactly 1920x1080 panel units; a 1080x2400 phone to 931x2069 or
+            // 2069x931, so elements keep their physical size when the device rotates.
             panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-            panel.referenceResolution = new Vector2Int(1920, 1080);
+            panel.referenceResolution = new Vector2Int(1500, 1500);
             panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-            panel.match = 1f;
+            panel.match = 0.5f;
             panel.sortingOrder = 0;
             EditorUtility.SetDirty(panel);
             return panel;

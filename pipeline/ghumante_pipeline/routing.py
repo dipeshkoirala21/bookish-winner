@@ -844,7 +844,10 @@ def decode_graph(data: bytes | memoryview) -> RoutingGraph:
     pos += e * EDGE_SIZE
     geometry = data[pos:pos + gb]
     r = Reader(data, pos + gb)
-    names = [NameRec(r.str(), r.str(), r.str()) for _ in range(nc)]
+    try:
+        names = [NameRec(r.str(), r.str(), r.str()) for _ in range(nc)]
+    except (EOFError, UnicodeDecodeError) as exc:
+        raise ValueError(f"bad GHRG names section: {exc}") from None
     if r.remaining():
         raise ValueError(f"{r.remaining()} trailing bytes after the names section")
     g = RoutingGraph(
