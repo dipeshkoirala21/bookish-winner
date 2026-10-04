@@ -35,9 +35,8 @@ fi
 status=0
 for platform in UNITY_ANDROID UNITY_IOS; do
   echo "== compile check: $platform"
-  # -m:1 keeps analyzer output ordered; the projects are tiny.
-  if ! "$DOTNET" build CompileCheck.sln -nologo -v q -m:1 -p:UnityPlatformDefine=$platform "${EXTRA[@]}" \
-       -p:BaseOutputPath="$HERE/generated/bin/$platform/"; then
+  # --no-incremental: the two passes differ only in defines, so never reuse the previous pass's output.
+  if ! "$DOTNET" build CompileCheck.sln -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform "${EXTRA[@]}"; then
     status=1
   fi
 done
