@@ -30,8 +30,8 @@
 * Wrote the data contract: `model.py` enums (exported to `shared/enums.json`), [DATA_FORMATS.md](DATA_FORMATS.md) (GHT1 tiles, GHPK packs, GHSI search, GHRG routing), and the NPL-TM84 projection plus quadtree with tests.
 
 ### Decisions (see ARCHITECTURE §13)
+* **ADR-004 / ADR-016, decided by the product owner: Option 3.** Towns at 1:1, country between them compressed (~1:6, tuned at gate G1). **The full-screen Nepal map is drawn at true 1:1 geography.** Nothing changes for M0/M1, which already use the identity warp.
 * ADR-001 **Unity 6.3 LTS**, not 6.0 LTS. 6.0 support ends this month; 6.3 is supported to Dec 2027.
-* ADR-004 world scale: **proposed** variable scale (real towns at 1:1, country ~1:6). It needs your sign-off. M0/M1 use the identity warp.
 * ADR-007 all UI in UI Toolkit, for Devanagari shaping. A device spike is the first task in M1.
 * ADR-013 / 014 / 015: layer separation for ODbL; no HydroSHEDS; base install ≤ 150 MB with the CDN as the baseline (ODR is deprecated in iOS 27).
 

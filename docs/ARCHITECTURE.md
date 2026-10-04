@@ -23,7 +23,7 @@ The brief is strong. Twelve points need a change, a decision from you, or a cave
 
 | # | Topic | What the brief says | Concern | Recommendation |
 |---|---|---|---|---|
-| P1 | **World scale** | Evaluate 1:1 vs uniform compression | At 1:1, Kathmandu to Pokhara is about 200 km of road, roughly 2 h of real-time riding, and Lukla to EBC is about 65 km of trail. Uniform compression (1:4 to 1:10) breaks towns: real building footprints and 5 m roads cannot shrink, so Thamel stops fitting. | **Variable scale, "Euro Truck Simulator style"** (§5): towns stay at 1:1, open country is compressed about 1:6, and slopes and view angles are preserved. M0/M1 build the valley at 1:1 (identity warp). The warp is a separate pipeline stage, with a go/no-go gate before M2. **Decision**: target travel times. |
+| P1 | **World scale** | Evaluate 1:1 vs uniform compression | At 1:1, Kathmandu to Pokhara is about 200 km of road, roughly 2 h of real-time riding, and Lukla to EBC is about 65 km of trail. Uniform compression (1:4 to 1:10) breaks towns: real building footprints and 5 m roads cannot shrink, so Thamel stops fitting. | **Decided: variable scale (Option 3)**. Towns at 1:1, open country about 1:6, slopes and view angles preserved (§5.3). **The full-screen map shows Nepal at true 1:1 geography** (§5.4). M0/M1 build the valley at 1:1 (identity warp). The warp stage gets a quality gate (G1) before M2. |
 | P2 | Memory budget and frame rate | "~1.5 GB on low-end (3–4 GB RAM)"; "60 fps on iPhone 12 and Snapdragon 7-series" | On a 3 GB phone, 1.5 GB is half of physical RAM, and more than half of what is actually usable. Android 17's new Memory Limiter gives even **4 GB** phones only a 2 GB visible-app cap, and Play vitals starts enforcing memory thresholds in Feb 2027. iPhone 12 apps are killed at about 2.1 GB. Snapdragon 7 Gen 1 and 7s Gen 2 have **less than half** the iPhone 12's GPU throughput (3DMark Wild Life ~3 000 vs ~7 500). | **Peak budgets: 3 GB Android ≤ 1.0 GB, 4 GB Android ≤ 1.5 GB, 4 GB iPhone ≤ 1.4 GB, 6 GB+ ≤ 2.0 GB** (§10). **60 fps** on iPhone 12 / A14+ and Snapdragon 7 Gen 3+. **30 fps by default, with a 60 fps option**, on SD 7 Gen 1 / 7s Gen 2, until device profiling proves 60 is sustainable. |
 | P3 | Nepali text | "Full UI localization in English and Nepali from day one" | Devanagari needs OpenType shaping (conjuncts, reordered vowel signs, reph). Unity's TextMeshPro/uGUI does not shape Indic scripts. Shaping exists only in UI Toolkit's Advanced Text Generator (§7.9). | Build all UI in **UI Toolkit with the Advanced Text Generator**. A week-1 spike checks Devanagari on real devices. If the spike fails, fall back to a HarfBuzz-based shaping plugin. |
 | P4 | OSM reality | Real surfaces, real buildings | The [coverage report](reports/tag_coverage.md) shows that **85% of road length has no `surface`**, **99.6% of 8.3 M buildings have no `building:levels`**, 97.5% are plain `building=yes`, `sac_scale` covers 2% of trails, and `name:ne` is on only 14–29% of villages and hamlets. | Treat **inference as the main path**: surface, levels, archetype, trail difficulty and Nepali names are all modelled, and every inferred value is flagged. "Accurate" becomes "true where OSM knows, plausible and consistent where it doesn't". The QA viewer shows which is which. |
@@ -119,9 +119,11 @@ flowchart LR
 
 ### 5.3 World scale (ADR-004)
 
+> **Decided 2026-10-04 (product owner): Option 3.** Towns are 1:1; open country between them is compressed. **The in-game map of Nepal is drawn at true 1:1 geography** (unwarped, §5.4). Options 1, 2 and 4 below are kept for the record.
+
 Some numbers to frame the decision (real-world figures are in Appendix A):
 
-| Journey | Real distance | 1:1 (arcade speeds) | **Option 3 (recommended)**: towns 1:1, country ~1:6 | Option 4: "compact", places 1:4, corridors 1:20 |
+| Journey | Real distance | 1:1 (arcade speeds) | **Option 3 (chosen)**: towns 1:1, country ~1:6 | Option 4: "compact", places 1:4, corridors 1:20 |
 |---|---|---|---|---|
 | Thamel → Boudhanath | 4.9 km straight, ~6 km road | ~5 min by motorbike | ~5 min (urban, 1:1) | ~1.2 km, about 1 min |
 | Kathmandu → Pokhara (Naubise–Pokhara is 174 km of Prithvi Hwy) | ~200–210 km | ~2 h | **~15–20 min** | ~10 km, about 7 min |
@@ -135,8 +137,8 @@ Precedents (Appendix A): Euro Truck Simulator 2 and American Truck Simulator use
 
 1. **1:1 everywhere.** This is the simplest and the most faithful, and the map is exact. But long journeys are tedious, and the game would lean almost entirely on fast travel. That works against the vision of going anywhere, any way. It also gives the largest world to fill and the biggest download.
 2. **Uniform compression (1:4–1:10).** Rejected. Real footprints, 5 m roads and human-sized props cannot shrink, so towns become unreadable and roads overlap.
-3. **Variable scale (recommended).** Settlement cores stay at 1:1, peri-urban areas and valley floors run at about 1:2, and open country at **about 1:6** (tunable per region between 1:4 and 1:8). Smooth transitions connect them. **Real streets and building footprints survive in towns**, which is the brief's core promise ("everything is where it really is"), while the road trips between towns shrink to a fun length.
-4. **Compact, ETS-style** (proposed by our scale research): places at 1:4, corridors at 1:20, a separate vertical of about 1:6–1:8 (slopes exaggerated 2.5–3×). This makes a dense Forza-like world and the smallest downloads. But towns can no longer use real footprints and street grids. They become *typified*: a recognisable layout with selected landmarks and generated streets. That gives up "real roads, real villages", and makes searching for an arbitrary village much less meaningful. **Not recommended**, but it is the right choice if the priority is pacing over fidelity. **This trade-off is your call (§14 Q1).**
+3. **Variable scale (chosen).** Settlement cores stay at 1:1, peri-urban areas and valley floors run at about 1:2, and open country at **about 1:6** (tunable per region between 1:4 and 1:8). Smooth transitions connect them. **Real streets and building footprints survive in towns**, which is the brief's core promise ("everything is where it really is"), while the road trips between towns shrink to a fun length.
+4. **Compact, ETS-style** (proposed by our scale research): places at 1:4, corridors at 1:20, a separate vertical of about 1:6–1:8 (slopes exaggerated 2.5–3×). This makes a dense Forza-like world and the smallest downloads. But towns can no longer use real footprints and street grids. They become *typified*: a recognisable layout with selected landmarks and generated streets. That gives up "real roads, real villages", and makes searching for an arbitrary village much less meaningful. Not chosen.
 
 **How the variable scale works (pipeline stage `warp.py`, M2)**
 
@@ -148,6 +150,21 @@ Precedents (Appendix A): Euro Truck Simulator 2 and American Truck Simulator use
 * **Fallback** if the gate fails: stay 1:1, and add *journey mode* (auto-drive along the real route with points of interest to stop at) plus generous fast travel.
 
 Saves, discoveries and the search index store canonical coordinates, so changing the scale model never invalidates player progress (ADR-002).
+
+### 5.4 The map shows true geography (ADR-016)
+
+The world the player moves through is warped (towns 1:1, country compressed). The **full-screen Nepal map is not**: it is drawn in canonical NPL-TM84 coordinates, so its shape, distances and relative positions are those of the real country. Two frames are therefore in play, and the runtime converts between them with the shipped warp grid (§5.3):
+
+| Element | Frame | How |
+|---|---|---|
+| Full-screen map: country, province, district and town zooms | **Canonical (1:1)** | Rendered from a canonical-coordinate map layer that the pipeline builds next to the game tiles (M2). In M0/M1 the two frames are identical (identity warp). |
+| Player marker, pins, discovered-area fog, route line on the full map | Canonical | Game position → `warp⁻¹` → canonical. Route geometry is inverse-warped point by point. |
+| Minimap and in-world route ribbon | **Game** (warped) | It must match what is around the player. Inside 1:1 towns the two frames coincide. |
+| Search results, fast-travel targets, saved positions | Canonical (stored) → game (on use) | Already the rule under ADR-002. |
+| Distances and ETAs in the "how to get there" panel | **Game** time and distance | Computed on the warped routing graph, because that is what the player experiences. The real-world distance appears as a secondary fact ("real road: ~200 km"). |
+
+Consequence for M2: in compressed country, the map shows the real road (with every hairpin), while the world has the generalised road. The player marker is snapped to the route on the map so it never appears to drift off the road.
+
 
 ---
 
@@ -269,7 +286,7 @@ The vehicle model is an arcade raycast-wheel controller. Grip, top speed, drag a
 
 ### 7.8 Map, search and navigation
 
-* **Map.** The map renders vectors from `ROAD`/`AREA`/`LINE`/`POIS` at the zooms that need detail. For country and province zoom it uses a precomputed generalised map layer (M2). The style is cartoon: thick outlines and a paper texture. Undiscovered areas use a sketch style through a fog-of-discovery mask texture, which is updated as the player explores and saved as a compressed bitmap.
+* **Map.** The full-screen map is in **true 1:1 geography** (§5.4, ADR-016), and the minimap is in game space. The map renders vectors from `ROAD`/`AREA`/`LINE`/`POIS` at the zooms that need detail. For country and province zoom it uses a precomputed generalised map layer (M2). The style is cartoon: thick outlines and a paper texture. Undiscovered areas use a sketch style through a fog-of-discovery mask texture, which is updated as the player explores and saved as a compressed bitmap.
 * **Search.** The C# search port matches the Python reference (`search_index.py`). Golden tests run the same query list in both languages and compare the ranked results.
 * **Routing.** A* over `GHRG` per travel profile gives an ETA per mode. *Go there yourself* draws a route ribbon in the world and on the minimap, with turn hints from the edge geometry. *Fast travel* is allowed to discovered places and transport hubs, with a cartoon transition.
 
@@ -391,7 +408,7 @@ Tiers are detected at first launch from total RAM, GPU name and graphics API, an
 | 001 | Unity 6.3 LTS + URP (Forward), engine-agnostic C# core | Accepted (§3) |
 | 002 | Canonical CRS NPL-TM84; persistent data in canonical/lon-lat only | Accepted |
 | 003 | Floating origin, rebase at 2 km; doubles in core | Accepted |
-| 004 | Variable-scale world (towns 1:1, country ~1:6) via an ASAP warp; identity in M0/M1; go/no-go before M2 | **Proposed: needs your sign-off on target travel times** |
+| 004 | Variable-scale world (Option 3: towns 1:1, country ~1:6) via an ASAP warp; identity in M0/M1; go/no-go gate G1 before M2 is about *how* (road generalisation quality), not *whether* | **Accepted 2026-10-04 (product owner)** |
 | 005 | Inference-first data model with per-field provenance flags | Accepted |
 | 006 | Own binary formats (GHT1/GHPK/GHSI/GHRG), DEFLATE, deterministic builds | Accepted |
 | 007 | UI Toolkit for all UI (Devanagari shaping); TMP not used for text | Accepted, pending the device spike |
@@ -403,12 +420,13 @@ Tiers are detected at first launch from total RAM, GPU name and graphics API, an
 | 013 | Layer separation: OSM features, DEM-derived and WorldCover-derived data are kept in separate chunks; curated content in a separate DB (ODbL collective-database posture) | Accepted, pending lawyer review |
 | 014 | No HydroSHEDS/HydroRIVERS (licence conflict); rivers from OSM | Accepted |
 | 015 | Base install ≤ 150 MB; CDN as the baseline delivery path; PAD and Apple-hosted packs optional; no ODR | Accepted |
+| 016 | Full-screen map drawn in true 1:1 geography (canonical frame); minimap and in-world guidance in game frame | **Accepted 2026-10-04 (product owner)** |
 
 ---
 
 ## 14. Open questions for you
 
-1. **World scale** (ADR-004, §5.3): Option 3 (real towns at 1:1, country ~1:6; Kathmandu → Pokhara ≈ 15–20 min) or Option 4 (compact 1:4 / 1:20; ≈ 7 min, but typified rather than real towns)? Or what target travel times would you like?
+1. ~~World scale~~: **decided**, Option 3, with the map at true 1:1 geography (ADR-004, ADR-016). Still open within that: the exact country compression (default 1:6, tunable 1:4–1:8 per region) will be set by playtesting at gate G1.
 2. **Unity licence tier and accounts**: Personal (≤ $200k revenue + funding) or Pro? Who owns the Apple Developer and Play Console accounts that CI will sign with?
 3. **ODbL approach** (P6): are you OK publishing the pipeline source (or at least the transformation method) and offering the derived database? Do you have a lawyer for the review in LICENSES §6?
 4. **Disputed border** (P15): which map of Nepal does the game show, and does that change per store region?

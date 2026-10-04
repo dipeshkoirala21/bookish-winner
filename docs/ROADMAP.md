@@ -74,7 +74,9 @@ gantt
 
 **Acceptance:** 60 fps median and 1% low ≥ 45 on Mid tier; 30 fps on Low; memory within budget (ARCHITECTURE §10); "Boudha" search → route → ride → arrive works; EN/NE complete.
 
-### Gate G1: scale warp go/no-go (end of M1, runs in parallel with M1 from week 4)
+### Gate G1: scale warp quality gate (end of M1, runs in parallel with M1 from week 4)
+
+The scale model is **decided**: Option 3, towns at 1:1, the country compressed, and the map in true 1:1 geography (ARCHITECTURE ADR-004/016). G1 tunes the country compression ratio (default 1:6) and decides whether the road-generalisation quality is good enough to ship. It does not reopen the choice of model.
 
 A prototype of `warp.py` on the Kathmandu–Pokhara corridor must meet all of these:
 
@@ -85,13 +87,14 @@ A prototype of `warp.py` on the Kathmandu–Pokhara corridor must meet all of th
 * The ride takes about 15–20 min.
 * Testers prefer it to 1:1 + journey mode.
 
-**If no-go:** use the fallback in ARCHITECTURE §5.3 (1:1 + journey mode + more fast travel).
+**If quality falls short:** soften the compression (for example 1:4) on the affected corridors, and use journey mode (auto-ride with stops) on the longest ones, rather than leaving road artefacts in.
 
 ---
 
 ## M2: Kathmandu → Pokhara (size L)
 
-* The Prithvi Highway corridor (scale warp live, if G1 passes), Mugling, Bandipur, Manakamana cable car.
+* The Prithvi Highway corridor with the scale warp live (towns 1:1, country compressed), Mugling, Bandipur, Manakamana cable car.
+* The full-screen map in true 1:1 geography (canonical map layer, inverse-warped player marker and route).
 * The middle-hills biome and **terraces**, chautari resting spots, rhododendron forests.
 * Buses and painted trucks (the hero vehicle art), the long-distance bus experience, tempos.
 * Pokhara: Phewa Lake, Tal Barahi, boating, Lakeside; the **Sarangkot paragliding** activity (thermals, eagles).
