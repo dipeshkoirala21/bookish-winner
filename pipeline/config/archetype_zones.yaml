@@ -1,0 +1,85 @@
+# Building archetype zones: coarse, hand-drawn lon/lat (WGS84) polygons used by
+# ghumante_pipeline/buildings.py to pick a building archetype (ARCHITECTURE.md
+# section 6.2). They are APPROXIMATE. They were drawn from general geography and
+# known town centres, not surveyed, and are checked only against the known
+# points in tests/test_buildings.py. Edit freely; nothing else depends on their
+# exact shape.
+#
+# Each zone `id` is one of: newar_core, sherpa, trans_himalaya, terai. Anything
+# outside every polygon is "default". Polygons are rings of [lon, lat] (they
+# need not be closed). Where zones overlap, the later entry in this file wins.
+#
+# Elevation backs the polygons up in buildings.py: anything below 300 m gets
+# Terai rules whatever its zone.
+version: 1
+zones:
+  # Southern lowland belt (Terai/Madhesh) north to the foot of the Chure hills.
+  # Same outline as the terai zone in biome_zones.yaml. The inner-Terai valleys
+  # (Chitwan, Dang) are left out; the < 300 m elevation rule covers Chitwan.
+  - id: terai
+    polygons:
+      - [[79.90, 29.10], [80.30, 29.06], [80.60, 28.90], [81.00, 28.74], [81.25, 28.63],
+         [81.50, 28.48], [81.75, 28.27], [82.05, 28.08], [82.30, 27.88], [82.75, 27.72],
+         [83.10, 27.68], [83.45, 27.69], [83.80, 27.60], [84.10, 27.48], [84.60, 27.31],
+         [85.00, 27.27], [85.20, 27.22], [85.40, 27.17], [85.60, 27.12], [85.80, 27.07],
+         [86.00, 26.97], [86.40, 26.85], [86.80, 26.83], [87.15, 26.82], [87.30, 26.80],
+         [87.70, 26.73], [88.30, 26.72], [88.30, 26.00], [84.00, 26.00], [79.90, 28.30]]
+
+  # Rain-shadow country north of the main Himalayan crest: flat-roofed stone and
+  # mud houses with firewood stacked on the roof edge.
+  - id: trans_himalaya
+    polygons:
+      # Upper Mustang (Kagbeni and Muktinath northwards, Lo Manthang), upper
+      # Manang (Manang, Braga, Khangsar) and Nar-Phu. Jomsom and Marpha excluded.
+      - [[83.60, 28.86], [83.70, 28.82], [83.90, 28.80], [83.93, 28.70], [83.88, 28.67],
+         [83.93, 28.645], [84.10, 28.645], [84.20, 28.67], [84.40, 28.75], [84.50, 29.00],
+         [84.40, 29.60], [83.50, 29.60], [83.50, 28.95]]
+      # Upper Dolpo (north of Phoksundo, Tarap, Saldang, Shey) and upper Mugu.
+      - [[82.80, 29.28], [82.98, 29.24], [83.00, 28.95], [83.30, 28.90], [83.55, 28.88],
+         [83.55, 29.60], [82.60, 30.00], [82.45, 29.80]]
+      # Upper Humla and the Limi valley north of Simikot.
+      - [[81.00, 30.15], [81.70, 30.05], [82.20, 30.02], [82.60, 30.00], [82.60, 31.00],
+         [81.00, 31.00]]
+
+  # Sherpa country above about 2 500 m: stone houses with painted window frames
+  # and coloured tin roofs, lodges along the trekking trails.
+  - id: sherpa
+    polygons:
+      # Khumbu and Pharak: the Dudh Koshi valleys from Lukla north (Phakding,
+      # Namche, Thame, Khumjung, Tengboche, Dingboche, Gokyo, Gorak Shep).
+      - [[86.60, 27.67], [86.80, 27.67], [86.95, 27.80], [87.00, 27.98], [86.92, 28.06],
+         [86.60, 28.10], [86.52, 27.90], [86.58, 27.75]]
+      # Rolwaling (Beding, Na).
+      - [[86.33, 27.84], [86.50, 27.84], [86.52, 27.92], [86.35, 27.92]]
+      # Upper Solu (Junbesi, Ringmu, Taksindu).
+      - [[86.48, 27.54], [86.58, 27.54], [86.60, 27.60], [86.50, 27.62]]
+
+  # Newar old-town cores: dense brick houses with carved wooden windows and
+  # tiled roofs around courtyards (bahal) and squares. Kept tight around the
+  # historic cores; the modern sprawl around them is not Newar style.
+  - id: newar_core
+    polygons:
+      # Kathmandu: Durbar Square, Indra Chowk, Asan, Kilagal, Jaisi Dewal, Wotu.
+      # Ends south of Thamel.
+      - [[85.3020, 27.6990], [85.3090, 27.6975], [85.3140, 27.6990], [85.3155, 27.7050],
+         [85.3150, 27.7105], [85.3090, 27.7115], [85.3040, 27.7105], [85.3015, 27.7050]]
+      # Patan (Lalitpur): Durbar Square, Mangal Bazaar, Kwa Bahal, Nag Bahal.
+      - [[85.3180, 27.6650], [85.3320, 27.6650], [85.3320, 27.6800], [85.3180, 27.6800]]
+      # Bhaktapur: Durbar Square, Taumadhi, Dattatreya.
+      - [[85.4190, 27.6690], [85.4400, 27.6690], [85.4400, 27.6760], [85.4190, 27.6760]]
+      # Kirtipur hilltop town.
+      - [[85.2720, 27.6740], [85.2840, 27.6740], [85.2840, 27.6820], [85.2720, 27.6820]]
+      # Madhyapur Thimi.
+      - [[85.3810, 27.6760], [85.3920, 27.6760], [85.3920, 27.6860], [85.3810, 27.6860]]
+      # Bungamati.
+      - [[85.2960, 27.6220], [85.3050, 27.6220], [85.3050, 27.6300], [85.2960, 27.6300]]
+      # Khokana.
+      - [[85.2910, 27.6330], [85.2990, 27.6330], [85.2990, 27.6410], [85.2910, 27.6410]]
+      # Sankhu.
+      - [[85.4620, 27.7220], [85.4760, 27.7220], [85.4760, 27.7340], [85.4620, 27.7340]]
+      # Panauti.
+      - [[85.5090, 27.5780], [85.5230, 27.5780], [85.5230, 27.5900], [85.5090, 27.5900]]
+      # Dhulikhel old bazaar.
+      - [[85.5510, 27.6160], [85.5610, 27.6160], [85.5610, 27.6260], [85.5510, 27.6260]]
+      # Bandipur bazaar.
+      - [[84.4040, 27.9340], [84.4140, 27.9340], [84.4140, 27.9410], [84.4040, 27.9410]]

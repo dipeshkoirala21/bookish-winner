@@ -1,0 +1,2763 @@
+{
+ "entries": [
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 1,
+   "importance": 110,
+   "kind": 100,
+   "lat": 27.705,
+   "lon": 85.308,
+   "name": [
+    "Kasthamandap",
+    "Kasthamandap",
+    "काष्ठमण्डप"
+   ],
+   "osm_ref": 192,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 528960.8,
+   "z": 165208.9
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 1,
+   "importance": 110,
+   "kind": 100,
+   "lat": 27.7105,
+   "lon": 85.3485,
+   "name": [
+    "पशुपतिनाथ",
+    "Pashupatinath Temple",
+    ""
+   ],
+   "osm_ref": 3652681261,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 532947.6,
+   "z": 165861.2
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 3,
+   "importance": 210,
+   "kind": 101,
+   "lat": 27.721493,
+   "lon": 85.362039,
+   "name": [
+    "Boudhanāth Stupa",
+    "Boudhanath",
+    "बौद्धनाथ स्तूप"
+   ],
+   "osm_ref": 226753185,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 534269.1,
+   "z": 167093.8
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 3,
+   "importance": 190,
+   "kind": 101,
+   "lat": 27.714929,
+   "lon": 85.290396,
+   "name": [
+    "Swayambhunath",
+    "",
+    "स्वयम्भू"
+   ],
+   "osm_ref": 804894829,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 527213.5,
+   "z": 166290.6
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 1,
+   "importance": 120,
+   "kind": 102,
+   "lat": 27.743,
+   "lon": 85.363,
+   "name": [
+    "Kopan Monastery",
+    "",
+    ""
+   ],
+   "osm_ref": 172,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 534337.4,
+   "z": 169477.6
+  },
+  {
+   "district": null,
+   "flags": 1,
+   "importance": 190,
+   "kind": 120,
+   "lat": 27.672,
+   "lon": 85.428,
+   "name": [
+    "Bhaktapur Durbar Square",
+    "",
+    ""
+   ],
+   "osm_ref": 133,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 540835.8,
+   "z": 161684.2
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 3,
+   "importance": 230,
+   "kind": 120,
+   "lat": 27.7045,
+   "lon": 85.307,
+   "name": [
+    "Kathmandu Durbar Square",
+    "Kathmandu Durbar Square",
+    "काठमाडौं दरबार क्षेत्र"
+   ],
+   "osm_ref": 125,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 528862.8,
+   "z": 165152.4
+  },
+  {
+   "district": null,
+   "flags": 1,
+   "importance": 190,
+   "kind": 120,
+   "lat": 27.673,
+   "lon": 85.325,
+   "name": [
+    "Patan Durbar Square",
+    "",
+    ""
+   ],
+   "osm_ref": 129,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 530675.2,
+   "z": 161681.6
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 1,
+   "importance": 130,
+   "kind": 126,
+   "lat": 27.715,
+   "lon": 85.318,
+   "name": [
+    "Narayanhiti Palace Museum",
+    "",
+    ""
+   ],
+   "osm_ref": 164,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 529935.0,
+   "z": 166327.2
+  },
+  {
+   "district": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "flags": 1,
+   "importance": 206,
+   "kind": 200,
+   "lat": 28.596,
+   "lon": 83.82,
+   "name": [
+    "Annapurna I",
+    "",
+    "अन्नपूर्ण"
+   ],
+   "osm_ref": 148,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 382400.3,
+   "z": 263240.5
+  },
+  {
+   "district": null,
+   "flags": 1,
+   "importance": 189,
+   "kind": 200,
+   "lat": 28.2,
+   "lon": 85.5,
+   "name": [
+    "Langtang Lirung",
+    "",
+    ""
+   ],
+   "osm_ref": 152,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 547220.0,
+   "z": 220268.5
+  },
+  {
+   "district": null,
+   "flags": 1,
+   "importance": 220,
+   "kind": 200,
+   "lat": 27.988,
+   "lon": 86.925,
+   "name": [
+    "Mount Everest",
+    "",
+    "सगरमाथा"
+   ],
+   "osm_ref": 144,
+   "province": null,
+   "x": 687695.7,
+   "z": 199321.2
+  },
+  {
+   "district": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "flags": 1,
+   "importance": 110,
+   "kind": 201,
+   "lat": 28.244,
+   "lon": 83.947,
+   "name": [
+    "Sarangkot",
+    "",
+    ""
+   ],
+   "osm_ref": 140,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 394800.7,
+   "z": 224233.1
+  },
+  {
+   "district": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "flags": 3,
+   "importance": 170,
+   "kind": 202,
+   "lat": 28.19,
+   "lon": 83.96,
+   "name": [
+    "Devi's Falls",
+    "Devi's Falls",
+    ""
+   ],
+   "osm_ref": 180,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 396074.0,
+   "z": 218250.6
+  },
+  {
+   "district": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "flags": 1,
+   "importance": 140,
+   "kind": 204,
+   "lat": 28.215,
+   "lon": 83.956,
+   "name": [
+    "फेवा ताल",
+    "Phewa Lake",
+    "फेवा ताल"
+   ],
+   "osm_ref": 137,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 395682.4,
+   "z": 221020.2
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 1,
+   "importance": 140,
+   "kind": 204,
+   "lat": 27.708,
+   "lon": 85.3155,
+   "name": [
+    "रानी पोखरी",
+    "Rani Pokhari",
+    "रानी पोखरी"
+   ],
+   "osm_ref": 168,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 529696.8,
+   "z": 165549.1
+  },
+  {
+   "district": null,
+   "flags": 1,
+   "importance": 130,
+   "kind": 205,
+   "lat": 28.48,
+   "lon": 83.68,
+   "name": [
+    "Tatopani",
+    "",
+    ""
+   ],
+   "osm_ref": 188,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 368677.2,
+   "z": 250418.0
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 1,
+   "importance": 100,
+   "kind": 210,
+   "lat": 27.714,
+   "lon": 85.315,
+   "name": [
+    "Garden of Dreams",
+    "Garden of Dreams",
+    "सपनाको बगैंचा"
+   ],
+   "osm_ref": 160,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 529640.4,
+   "z": 166213.3
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 4,
+   "importance": 200,
+   "kind": 300,
+   "lat": 27.6966,
+   "lon": 85.3591,
+   "name": [
+    "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल",
+    "Tribhuvan International Airport",
+    "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल"
+   ],
+   "osm_ref": 474020489,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 534009.7,
+   "z": 164332.8
+  },
+  {
+   "district": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "flags": 4,
+   "importance": 140,
+   "kind": 302,
+   "lat": 28.218,
+   "lon": 83.989,
+   "name": [
+    "Pokhara Bus Park",
+    "",
+    ""
+   ],
+   "osm_ref": 156,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 398920.6,
+   "z": 221351.8
+  },
+  {
+   "district": null,
+   "flags": 4,
+   "importance": 140,
+   "kind": 304,
+   "lat": 27.667,
+   "lon": 85.21,
+   "name": [
+    "Chandragiri Cable Car",
+    "",
+    ""
+   ],
+   "osm_ref": 176,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 519339.1,
+   "z": 160900.3
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 240,
+   "kind": 1002,
+   "lat": 27.85,
+   "lon": 85.5,
+   "name": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "osm_ref": 18332042,
+   "province": null,
+   "x": 547697.1,
+   "z": 181489.6
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 240,
+   "kind": 1002,
+   "lat": 28.4,
+   "lon": 83.65,
+   "name": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "osm_ref": 18332046,
+   "province": null,
+   "x": 365714.9,
+   "z": 241563.5
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 255,
+   "kind": 1003,
+   "lat": 27.671,
+   "lon": 85.4298,
+   "name": [
+    "भक्तपुर",
+    "Bhaktapur",
+    "भक्तपुर"
+   ],
+   "osm_ref": 96,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 541014.6,
+   "z": 161575.4
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 0,
+   "importance": 255,
+   "kind": 1003,
+   "lat": 27.708317,
+   "lon": 85.3205817,
+   "name": [
+    "काठमाडौं",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "osm_ref": 268628232,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 530197.5,
+   "z": 165589.6
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 255,
+   "kind": 1003,
+   "lat": 27.6765635,
+   "lon": 85.3166069,
+   "name": [
+    "ललितपुर",
+    "Lalitpur",
+    "ललितपुर"
+   ],
+   "osm_ref": 2895522796,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 529843.1,
+   "z": 162067.5
+  },
+  {
+   "district": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "flags": 0,
+   "importance": 255,
+   "kind": 1003,
+   "lat": 28.2096,
+   "lon": 83.9856,
+   "name": [
+    "Pokhara",
+    "Pokhara",
+    "पोखरा"
+   ],
+   "osm_ref": 84,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 398586.9,
+   "z": 220421.3
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 218,
+   "kind": 1004,
+   "lat": 27.6787,
+   "lon": 85.2775,
+   "name": [
+    "Kirtipur",
+    "Kirtipur",
+    "कीर्तिपुर"
+   ],
+   "osm_ref": 104,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 525983.6,
+   "z": 162263.6
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 110,
+   "kind": 1005,
+   "lat": 27.687,
+   "lon": 86.729,
+   "name": [
+    "Lukla",
+    "Lukla",
+    "लुक्ला"
+   ],
+   "osm_ref": 112,
+   "province": null,
+   "x": 669151.7,
+   "z": 165510.3
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 0,
+   "importance": 110,
+   "kind": 1005,
+   "lat": 27.715,
+   "lon": 85.52,
+   "name": [
+    "Nagarkot",
+    "Nagarkot",
+    "नगरकोट"
+   ],
+   "osm_ref": 100,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 549851.6,
+   "z": 166556.7
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 110,
+   "kind": 1005,
+   "lat": 27.805,
+   "lon": 86.714,
+   "name": [
+    "नाम्चे बजार",
+    "Namche Bazaar",
+    "नाम्चे बजार"
+   ],
+   "osm_ref": 108,
+   "province": null,
+   "x": 667383.0,
+   "z": 178557.0
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 110,
+   "kind": 1005,
+   "lat": 27.577,
+   "lon": 84.492,
+   "name": [
+    "Sauraha",
+    "Sauraha",
+    "सौराहा"
+   ],
+   "osm_ref": 116,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 448562.6,
+   "z": 150442.5
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 60,
+   "kind": 1006,
+   "lat": 28.3,
+   "lon": 84.6,
+   "name": [
+    "Kathmandu",
+    "Kathmandu",
+    ""
+   ],
+   "osm_ref": 120,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 458829.9,
+   "z": 230581.7
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 0,
+   "importance": 150,
+   "kind": 1008,
+   "lat": 27.7205626,
+   "lon": 85.3617188,
+   "name": [
+    "बौद्ध",
+    "Baudha",
+    "बौद्ध"
+   ],
+   "osm_ref": 388111672,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 534238.6,
+   "z": 166990.4
+  },
+  {
+   "district": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "flags": 2,
+   "importance": 160,
+   "kind": 1009,
+   "lat": 27.7166578,
+   "lon": 85.3127015,
+   "name": [
+    "Thamel",
+    "Thamel",
+    "ठमेल"
+   ],
+   "osm_ref": 1103823664,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 529410.6,
+   "z": 166505.3
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 220,
+   "kind": 1015,
+   "lat": 28.3,
+   "lon": 83.95,
+   "name": [
+    "Kaski",
+    "Kaski",
+    "कास्की"
+   ],
+   "osm_ref": 18333202,
+   "province": [
+    "Gandaki Province",
+    "Gandaki Province",
+    "गण्डकी प्रदेश"
+   ],
+   "x": 395097.6,
+   "z": 230436.6
+  },
+  {
+   "district": null,
+   "flags": 0,
+   "importance": 220,
+   "kind": 1015,
+   "lat": 27.755,
+   "lon": 85.38,
+   "name": [
+    "Kathmandu",
+    "Kathmandu",
+    "काठमाडौं"
+   ],
+   "osm_ref": 18332986,
+   "province": [
+    "Bagmati Province",
+    "Bagmati Province",
+    "बागमती प्रदेश"
+   ],
+   "x": 535998.2,
+   "z": 170825.8
+  }
+ ],
+ "entry_count": 37,
+ "fold_cases": [
+  {
+   "clean": "kathmandu",
+   "fold": "katmandu",
+   "romanize": "kathmandu",
+   "text": "Kathmandu"
+  },
+  {
+   "clean": "kathmandoo",
+   "fold": "katmandu",
+   "romanize": "kathmandoo",
+   "text": "Kathmandoo"
+  },
+  {
+   "clean": "kaathamaadaun",
+   "fold": "katamadaun",
+   "romanize": "kaathamaadaun",
+   "text": "काठमाडौं"
+  },
+  {
+   "clean": "boudha",
+   "fold": "bauda",
+   "romanize": "boudha",
+   "text": "Boudha"
+  },
+  {
+   "clean": "bouddha",
+   "fold": "bauda",
+   "romanize": "bouddha",
+   "text": "Bouddha"
+  },
+  {
+   "clean": "baudha",
+   "fold": "bauda",
+   "romanize": "baudha",
+   "text": "Baudha"
+  },
+  {
+   "clean": "bauddha",
+   "fold": "bauda",
+   "romanize": "bauddha",
+   "text": "बौद्ध"
+  },
+  {
+   "clean": "swayambhu",
+   "fold": "sbayambu",
+   "romanize": "swayambhu",
+   "text": "Swayambhu"
+  },
+  {
+   "clean": "swoyambhu",
+   "fold": "sbayambu",
+   "romanize": "swoyambhu",
+   "text": "Swoyambhu"
+  },
+  {
+   "clean": "swayambhoo",
+   "fold": "sbayambu",
+   "romanize": "swayambhoo",
+   "text": "स्वयम्भू"
+  },
+  {
+   "clean": "thamel",
+   "fold": "tamel",
+   "romanize": "thamel",
+   "text": "Thamel"
+  },
+  {
+   "clean": "thamel",
+   "fold": "tamel",
+   "romanize": "thamel",
+   "text": "ठमेल"
+  },
+  {
+   "clean": "pokhara",
+   "fold": "pokara",
+   "romanize": "pokhara",
+   "text": "Pokhara"
+  },
+  {
+   "clean": "pokharaa",
+   "fold": "pokara",
+   "romanize": "pokharaa",
+   "text": "पोखरा"
+  },
+  {
+   "clean": "nepaal",
+   "fold": "nepal",
+   "romanize": "nepaal",
+   "text": "नेपाल"
+  },
+  {
+   "clean": "ra",
+   "fold": "ra",
+   "romanize": "ra",
+   "text": "र"
+  },
+  {
+   "clean": "kshetra",
+   "fold": "ksetra",
+   "romanize": "kshetra",
+   "text": "क्षेत्र"
+  },
+  {
+   "clean": "lalitapur",
+   "fold": "lalitapur",
+   "romanize": "lalitapur",
+   "text": "ललितपुर"
+  },
+  {
+   "clean": "gyaan",
+   "fold": "gyan",
+   "romanize": "gyaan",
+   "text": "ज्ञान"
+  },
+  {
+   "clean": "chowk",
+   "fold": "chok",
+   "romanize": "chowk",
+   "text": "Chowk"
+  },
+  {
+   "clean": "chowka",
+   "fold": "choka",
+   "romanize": "chowka",
+   "text": "Chowka"
+  },
+  {
+   "clean": "fewa",
+   "fold": "peba",
+   "romanize": "fewa",
+   "text": "Fewa"
+  },
+  {
+   "clean": "vishnu",
+   "fold": "bisnu",
+   "romanize": "vishnu",
+   "text": "Vishnu"
+  },
+  {
+   "clean": "wishnu",
+   "fold": "bisnu",
+   "romanize": "wishnu",
+   "text": "विष्णु"
+  },
+  {
+   "clean": "zoo",
+   "fold": "ju",
+   "romanize": "zoo",
+   "text": "Zoo"
+  },
+  {
+   "clean": "ward 11",
+   "fold": "bard 11",
+   "romanize": "ward 11",
+   "text": "Ward 11"
+  },
+  {
+   "clean": "ward 1",
+   "fold": "bard 1",
+   "romanize": "ward 1",
+   "text": "ward 1"
+  },
+  {
+   "clean": "devis falls",
+   "fold": "debis pals",
+   "romanize": "devi's falls",
+   "text": "Devi's Falls"
+  },
+  {
+   "clean": "its",
+   "fold": "its",
+   "romanize": "it’s",
+   "text": "it’s"
+  },
+  {
+   "clean": "ok",
+   "fold": "ok",
+   "romanize": "ʼok",
+   "text": "ʼok"
+  },
+  {
+   "clean": "boudhanath stupa",
+   "fold": "baudanat stupa",
+   "romanize": "boudhanāth stupa",
+   "text": "Boudhanāth Stupa"
+  },
+  {
+   "clean": "thamel",
+   "fold": "tamel",
+   "romanize": "ṭhamel",
+   "text": "Ṭhamel"
+  },
+  {
+   "clean": "om mani padme hun",
+   "fold": "om mani padme hun",
+   "romanize": "om mani padme hun",
+   "text": "ॐ मणि पद्मे हुं"
+  },
+  {
+   "clean": "sansaar",
+   "fold": "sansar",
+   "romanize": "sansaar",
+   "text": "संसार"
+  },
+  {
+   "clean": "sinh",
+   "fold": "sinh",
+   "romanize": "sinh",
+   "text": "सिंह"
+  },
+  {
+   "clean": "kan",
+   "fold": "kan",
+   "romanize": "kan",
+   "text": "कँ"
+  },
+  {
+   "clean": "duhkh",
+   "fold": "duhk",
+   "romanize": "duhkh",
+   "text": "दुःख"
+  },
+  {
+   "clean": "0123456789",
+   "fold": "0123456789",
+   "romanize": "0123456789",
+   "text": "०१२३४५६७८९"
+  },
+  {
+   "clean": "ka kha ga gha",
+   "fold": "ka ka ga ga",
+   "romanize": "ka kha ga gha",
+   "text": "क।ख॥ग॰घ"
+  },
+  {
+   "clean": "ka kha ga ja da dha pha ya",
+   "fold": "ka ka ga ja da da pa ya",
+   "romanize": "ka kha ga ja da dha pha ya",
+   "text": "क़ ख़ ग़ ज़ ड़ ढ़ फ़ य़"
+  },
+  {
+   "clean": "rishi",
+   "fold": "risi",
+   "romanize": "rishi",
+   "text": "ऋषि"
+  },
+  {
+   "clean": "ai au aa ee oo",
+   "fold": "ai au a i u",
+   "romanize": "ai au aa ee oo",
+   "text": "ऐ औ आ ई ऊ"
+  },
+  {
+   "clean": "ksha",
+   "fold": "ksa",
+   "romanize": "ksha",
+   "text": "क्‍ष"
+  },
+  {
+   "clean": "ksha",
+   "fold": "ksa",
+   "romanize": "ksha",
+   "text": "क्‌ष"
+  },
+  {
+   "clean": "abc def ghi",
+   "fold": "abc dep gi",
+   "romanize": "abc def ghi",
+   "text": "abc DEF ghi"
+  },
+  {
+   "clean": "multiple spaces",
+   "fold": "multiple spaces",
+   "romanize": "  multiple   spaces  ",
+   "text": "  multiple   spaces  "
+  },
+  {
+   "clean": "",
+   "fold": "",
+   "romanize": "",
+   "text": ""
+  },
+  {
+   "clean": "nn",
+   "fold": "n",
+   "romanize": "ññ",
+   "text": "ññ"
+  },
+  {
+   "clean": "r",
+   "fold": "r",
+   "romanize": "ærø",
+   "text": "Ærø"
+  },
+  {
+   "clean": "fish",
+   "fold": "pis",
+   "romanize": "ﬁsh",
+   "text": "ﬁsh"
+  },
+  {
+   "clean": "stra e",
+   "fold": "stra e",
+   "romanize": "straße",
+   "text": "Straße"
+  },
+  {
+   "clean": "",
+   "fold": "",
+   "romanize": "日本",
+   "text": "日本"
+  },
+  {
+   "clean": "kkkhhh",
+   "fold": "k",
+   "romanize": "kkkhhh",
+   "text": "kkkhhh"
+  },
+  {
+   "clean": "shh",
+   "fold": "s",
+   "romanize": "shh",
+   "text": "shh"
+  },
+  {
+   "clean": "wwoo",
+   "fold": "bao",
+   "romanize": "wwoo",
+   "text": "wwoo"
+  },
+  {
+   "clean": "ooww",
+   "fold": "ub",
+   "romanize": "ooww",
+   "text": "ooww"
+  },
+  {
+   "clean": "owl",
+   "fold": "ol",
+   "romanize": "owl",
+   "text": "owl"
+  },
+  {
+   "clean": "bowa",
+   "fold": "boba",
+   "romanize": "bowa",
+   "text": "bowa"
+  },
+  {
+   "clean": "owo",
+   "fold": "oba",
+   "romanize": "owo",
+   "text": "owo"
+  },
+  {
+   "clean": "zzf",
+   "fold": "jp",
+   "romanize": "zzf",
+   "text": "zzf"
+  },
+  {
+   "clean": "mixed kaathamaadaun city",
+   "fold": "mixed katamadaun city",
+   "romanize": "mixed kaathamaadaun city",
+   "text": "Mixed काठमाडौं City"
+  },
+  {
+   "clean": "",
+   "fold": "",
+   "romanize": "",
+   "text": "ऽ"
+  },
+  {
+   "clean": "a",
+   "fold": "a",
+   "romanize": "a",
+   "text": "ॲ"
+  },
+  {
+   "clean": "a",
+   "fold": "a",
+   "romanize": "a",
+   "text": "ॽ"
+  },
+  {
+   "clean": "ka",
+   "fold": "ka",
+   "romanize": "ka",
+   "text": "᳐क"
+  },
+  {
+   "clean": "kaa",
+   "fold": "ka",
+   "romanize": "kaa",
+   "text": "क꣠ा"
+  }
+ ],
+ "format": "ghumante-golden-search",
+ "key_count": 86,
+ "keys": [
+  [
+   "airport",
+   18
+  ],
+  [
+   "anapurna",
+   9
+  ],
+  [
+   "anapurna i",
+   9
+  ],
+  [
+   "antarastriy bimanastal",
+   18
+  ],
+  [
+   "bagaincha",
+   17
+  ],
+  [
+   "bagamati prades",
+   21
+  ],
+  [
+   "bagmati probince",
+   21
+  ],
+  [
+   "baktapur",
+   23
+  ],
+  [
+   "baktapur durbar square",
+   5
+  ],
+  [
+   "basantapur durbar square",
+   6
+  ],
+  [
+   "bauda",
+   33
+  ],
+  [
+   "bauda stupa",
+   2
+  ],
+  [
+   "baudanat",
+   2
+  ],
+  [
+   "baudanat stup",
+   2
+  ],
+  [
+   "baudanat stupa",
+   2
+  ],
+  [
+   "bimanastal",
+   18
+  ],
+  [
+   "bus park",
+   19
+  ],
+  [
+   "cable car",
+   20
+  ],
+  [
+   "car",
+   20
+  ],
+  [
+   "chandragiri cable car",
+   20
+  ],
+  [
+   "chomolungma",
+   11
+  ],
+  [
+   "darabar ksetra",
+   6
+  ],
+  [
+   "debis pals",
+   13
+  ],
+  [
+   "dreams",
+   17
+  ],
+  [
+   "durbar square",
+   5
+  ],
+  [
+   "durbar square",
+   6
+  ],
+  [
+   "durbar square",
+   7
+  ],
+  [
+   "eberest",
+   11
+  ],
+  [
+   "gandaki prades",
+   22
+  ],
+  [
+   "gandaki probince",
+   22
+  ],
+  [
+   "garden op dreams",
+   17
+  ],
+  [
+   "international airport",
+   18
+  ],
+  [
+   "kaski",
+   35
+  ],
+  [
+   "kastamandap",
+   0
+  ],
+  [
+   "katamadaun",
+   24
+  ],
+  [
+   "katamadaun",
+   36
+  ],
+  [
+   "katamadaun darabar ksetra",
+   6
+  ],
+  [
+   "katamandau",
+   24
+  ],
+  [
+   "katmandu",
+   24
+  ],
+  [
+   "katmandu",
+   32
+  ],
+  [
+   "katmandu",
+   36
+  ],
+  [
+   "katmandu durbar square",
+   6
+  ],
+  [
+   "kirtipur",
+   27
+  ],
+  [
+   "kopan monastery",
+   4
+  ],
+  [
+   "ksetra",
+   6
+  ],
+  [
+   "lalitapur",
+   25
+  ],
+  [
+   "lalitpur",
+   25
+  ],
+  [
+   "langtang lirung",
+   10
+  ],
+  [
+   "lirung",
+   10
+  ],
+  [
+   "lukla",
+   28
+  ],
+  [
+   "maunt eberest",
+   11
+  ],
+  [
+   "monastery",
+   4
+  ],
+  [
+   "museum",
+   8
+  ],
+  [
+   "nagarakot",
+   29
+  ],
+  [
+   "nagarkot",
+   29
+  ],
+  [
+   "namche bajar",
+   30
+  ],
+  [
+   "narayanhiti palace museum",
+   8
+  ],
+  [
+   "palace museum",
+   8
+  ],
+  [
+   "pals",
+   13
+  ],
+  [
+   "pasupatinat",
+   1
+  ],
+  [
+   "pasupatinat temple",
+   1
+  ],
+  [
+   "patan",
+   25
+  ],
+  [
+   "patan durbar square",
+   7
+  ],
+  [
+   "peba lake",
+   14
+  ],
+  [
+   "peba tal",
+   14
+  ],
+  [
+   "pokara",
+   26
+  ],
+  [
+   "pokara bus park",
+   19
+  ],
+  [
+   "prades",
+   21
+  ],
+  [
+   "prades",
+   22
+  ],
+  [
+   "rani pokari",
+   15
+  ],
+  [
+   "sagaramata",
+   11
+  ],
+  [
+   "sagarmata",
+   11
+  ],
+  [
+   "sapanako bagaincha",
+   17
+  ],
+  [
+   "sarangkot",
+   12
+  ],
+  [
+   "sauraha",
+   31
+  ],
+  [
+   "sbayambu",
+   3
+  ],
+  [
+   "sbayambunat",
+   3
+  ],
+  [
+   "square",
+   5
+  ],
+  [
+   "square",
+   6
+  ],
+  [
+   "square",
+   7
+  ],
+  [
+   "stup",
+   2
+  ],
+  [
+   "stupa",
+   2
+  ],
+  [
+   "tamel",
+   34
+  ],
+  [
+   "tatopani",
+   16
+  ],
+  [
+   "tribuban antarastriy bimanastal",
+   18
+  ],
+  [
+   "tribuban international airport",
+   18
+  ]
+ ],
+ "names": [
+  [
+   "Kathmandu",
+   "Kathmandu",
+   "काठमाडौं"
+  ],
+  [
+   "Bagmati Province",
+   "Bagmati Province",
+   "बागमती प्रदेश"
+  ],
+  [
+   "Kaski",
+   "Kaski",
+   "कास्की"
+  ],
+  [
+   "Gandaki Province",
+   "Gandaki Province",
+   "गण्डकी प्रदेश"
+  ],
+  [
+   "Kasthamandap",
+   "Kasthamandap",
+   "काष्ठमण्डप"
+  ],
+  [
+   "पशुपतिनाथ",
+   "Pashupatinath Temple",
+   ""
+  ],
+  [
+   "Boudhanāth Stupa",
+   "Boudhanath",
+   "बौद्धनाथ स्तूप"
+  ],
+  [
+   "Swayambhunath",
+   "",
+   "स्वयम्भू"
+  ],
+  [
+   "Kopan Monastery",
+   "",
+   ""
+  ],
+  [
+   "Bhaktapur Durbar Square",
+   "",
+   ""
+  ],
+  [
+   "Kathmandu Durbar Square",
+   "Kathmandu Durbar Square",
+   "काठमाडौं दरबार क्षेत्र"
+  ],
+  [
+   "Patan Durbar Square",
+   "",
+   ""
+  ],
+  [
+   "Narayanhiti Palace Museum",
+   "",
+   ""
+  ],
+  [
+   "Annapurna I",
+   "",
+   "अन्नपूर्ण"
+  ],
+  [
+   "Langtang Lirung",
+   "",
+   ""
+  ],
+  [
+   "Mount Everest",
+   "",
+   "सगरमाथा"
+  ],
+  [
+   "Sarangkot",
+   "",
+   ""
+  ],
+  [
+   "Devi's Falls",
+   "Devi's Falls",
+   ""
+  ],
+  [
+   "फेवा ताल",
+   "Phewa Lake",
+   "फेवा ताल"
+  ],
+  [
+   "रानी पोखरी",
+   "Rani Pokhari",
+   "रानी पोखरी"
+  ],
+  [
+   "Tatopani",
+   "",
+   ""
+  ],
+  [
+   "Garden of Dreams",
+   "Garden of Dreams",
+   "सपनाको बगैंचा"
+  ],
+  [
+   "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल",
+   "Tribhuvan International Airport",
+   "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल"
+  ],
+  [
+   "Pokhara Bus Park",
+   "",
+   ""
+  ],
+  [
+   "Chandragiri Cable Car",
+   "",
+   ""
+  ],
+  [
+   "भक्तपुर",
+   "Bhaktapur",
+   "भक्तपुर"
+  ],
+  [
+   "काठमाडौं",
+   "Kathmandu",
+   "काठमाडौं"
+  ],
+  [
+   "ललितपुर",
+   "Lalitpur",
+   "ललितपुर"
+  ],
+  [
+   "Pokhara",
+   "Pokhara",
+   "पोखरा"
+  ],
+  [
+   "Kirtipur",
+   "Kirtipur",
+   "कीर्तिपुर"
+  ],
+  [
+   "Lukla",
+   "Lukla",
+   "लुक्ला"
+  ],
+  [
+   "Nagarkot",
+   "Nagarkot",
+   "नगरकोट"
+  ],
+  [
+   "नाम्चे बजार",
+   "Namche Bazaar",
+   "नाम्चे बजार"
+  ],
+  [
+   "Sauraha",
+   "Sauraha",
+   "सौराहा"
+  ],
+  [
+   "Kathmandu",
+   "Kathmandu",
+   ""
+  ],
+  [
+   "बौद्ध",
+   "Baudha",
+   "बौद्ध"
+  ],
+  [
+   "Thamel",
+   "Thamel",
+   "ठमेल"
+  ]
+ ],
+ "osa_cases": [
+  {
+   "a": "katmandu",
+   "b": "katamandu",
+   "d": 1,
+   "max_d": 2
+  },
+  {
+   "a": "tamel",
+   "b": "tamle",
+   "d": 1,
+   "max_d": 1
+  },
+  {
+   "a": "abcdef",
+   "b": "badcfe",
+   "d": 3,
+   "max_d": 3
+  },
+  {
+   "a": "ca",
+   "b": "abc",
+   "d": 3,
+   "max_d": 3
+  },
+  {
+   "a": "pokara",
+   "b": "pokra",
+   "d": 1,
+   "max_d": 1
+  },
+  {
+   "a": "everest",
+   "b": "evrest",
+   "d": 1,
+   "max_d": 1
+  },
+  {
+   "a": "a",
+   "b": "",
+   "d": 1,
+   "max_d": 1
+  },
+  {
+   "a": "abcdefgh",
+   "b": "hgfedcba",
+   "d": 3,
+   "max_d": 2
+  },
+  {
+   "a": "sbayambu",
+   "b": "sbayambunat",
+   "d": 3,
+   "max_d": 3
+  }
+ ],
+ "queries": [
+  {
+   "folded": "katmandu",
+   "limit": 10,
+   "query": "kathmandu",
+   "results": [
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 36,
+     "osm_ref": 18332986,
+     "score": 0.9588235294117647,
+     "score_int": 2445000
+    },
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.8025882352941176,
+     "score_int": 2046600
+    },
+    {
+     "entry": 32,
+     "osm_ref": 120,
+     "score": 0.7705882352941177,
+     "score_int": 1965000
+    }
+   ]
+  },
+  {
+   "folded": "katmandu",
+   "limit": 10,
+   "query": "Kathmandoo",
+   "results": [
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 36,
+     "osm_ref": 18332986,
+     "score": 0.9588235294117647,
+     "score_int": 2445000
+    },
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.8025882352941176,
+     "score_int": 2046600
+    },
+    {
+     "entry": 32,
+     "osm_ref": 120,
+     "score": 0.7705882352941177,
+     "score_int": 1965000
+    }
+   ]
+  },
+  {
+   "folded": "katamadaun",
+   "limit": 10,
+   "query": "काठमाडौं",
+   "results": [
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 36,
+     "osm_ref": 18332986,
+     "score": 0.9588235294117647,
+     "score_int": 2445000
+    },
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.7955882352941176,
+     "score_int": 2028750
+    }
+   ]
+  },
+  {
+   "folded": "bauda",
+   "limit": 10,
+   "query": "boudha",
+   "results": [
+    {
+     "entry": 33,
+     "osm_ref": 388111672,
+     "score": 0.8764705882352941,
+     "score_int": 2235000
+    },
+    {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.8560588235294118,
+     "score_int": 2182950
+    }
+   ]
+  },
+  {
+   "folded": "bauda",
+   "limit": 10,
+   "query": "Bouddha",
+   "results": [
+    {
+     "entry": 33,
+     "osm_ref": 388111672,
+     "score": 0.8764705882352941,
+     "score_int": 2235000
+    },
+    {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.8560588235294118,
+     "score_int": 2182950
+    }
+   ]
+  },
+  {
+   "folded": "bauda",
+   "limit": 10,
+   "query": "बौद्ध",
+   "results": [
+    {
+     "entry": 33,
+     "osm_ref": 388111672,
+     "score": 0.8764705882352941,
+     "score_int": 2235000
+    },
+    {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.8560588235294118,
+     "score_int": 2182950
+    }
+   ]
+  },
+  {
+   "folded": "baudanat",
+   "limit": 5,
+   "query": "Boudhanath",
+   "results": [
+    {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.9470588235294117,
+     "score_int": 2415000
+    }
+   ]
+  },
+  {
+   "folded": "tamel",
+   "limit": 10,
+   "query": "thamel",
+   "results": [
+    {
+     "entry": 34,
+     "osm_ref": 1103823664,
+     "score": 0.888235294117647,
+     "score_int": 2265000
+    }
+   ]
+  },
+  {
+   "folded": "tamel",
+   "limit": 10,
+   "query": "ठमेल",
+   "results": [
+    {
+     "entry": 34,
+     "osm_ref": 1103823664,
+     "score": 0.888235294117647,
+     "score_int": 2265000
+    }
+   ]
+  },
+  {
+   "folded": "pokara",
+   "limit": 10,
+   "query": "pokhara",
+   "results": [
+    {
+     "entry": 26,
+     "osm_ref": 84,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 19,
+     "osm_ref": 156,
+     "score": 0.7317058823529412,
+     "score_int": 1865850
+    }
+   ]
+  },
+  {
+   "folded": "pokara",
+   "limit": 10,
+   "query": "पोखरा",
+   "results": [
+    {
+     "entry": 26,
+     "osm_ref": 84,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 19,
+     "osm_ref": 156,
+     "score": 0.7317058823529412,
+     "score_int": 1865850
+    }
+   ]
+  },
+  {
+   "folded": "pokara",
+   "limit": 10,
+   "query": "pokara",
+   "results": [
+    {
+     "entry": 26,
+     "osm_ref": 84,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 19,
+     "osm_ref": 156,
+     "score": 0.7317058823529412,
+     "score_int": 1865850
+    }
+   ]
+  },
+  {
+   "folded": "durbar",
+   "limit": 10,
+   "query": "durbar",
+   "results": [
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.8515882352941176,
+     "score_int": 2171550
+    },
+    {
+     "entry": 5,
+     "osm_ref": 133,
+     "score": 0.8045294117647059,
+     "score_int": 2051550
+    },
+    {
+     "entry": 7,
+     "osm_ref": 129,
+     "score": 0.8045294117647059,
+     "score_int": 2051550
+    }
+   ]
+  },
+  {
+   "folded": "durbar square",
+   "limit": 10,
+   "query": "durbar square",
+   "results": [
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.9705882352941176,
+     "score_int": 2475000
+    },
+    {
+     "entry": 5,
+     "osm_ref": 133,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    },
+    {
+     "entry": 7,
+     "osm_ref": 129,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    }
+   ]
+  },
+  {
+   "folded": "square",
+   "limit": 10,
+   "query": "square",
+   "results": [
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.9705882352941176,
+     "score_int": 2475000
+    },
+    {
+     "entry": 5,
+     "osm_ref": 133,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    },
+    {
+     "entry": 7,
+     "osm_ref": 129,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    }
+   ]
+  },
+  {
+   "folded": "sbayambu",
+   "limit": 10,
+   "query": "swayambhu",
+   "results": [
+    {
+     "entry": 3,
+     "osm_ref": 804894829,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    }
+   ]
+  },
+  {
+   "folded": "sbayambu",
+   "limit": 10,
+   "query": "swoyambhu",
+   "results": [
+    {
+     "entry": 3,
+     "osm_ref": 804894829,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    }
+   ]
+  },
+  {
+   "folded": "sbayambu",
+   "limit": 10,
+   "query": "स्वयम्भू",
+   "results": [
+    {
+     "entry": 3,
+     "osm_ref": 804894829,
+     "score": 0.9235294117647059,
+     "score_int": 2355000
+    }
+   ]
+  },
+  {
+   "folded": "eberest",
+   "limit": 10,
+   "query": "everest",
+   "results": [
+    {
+     "entry": 11,
+     "osm_ref": 144,
+     "score": 0.9588235294117647,
+     "score_int": 2445000
+    }
+   ]
+  },
+  {
+   "folded": "ebrest",
+   "limit": 10,
+   "query": "evrest",
+   "results": [
+    {
+     "entry": 11,
+     "osm_ref": 144,
+     "score": 0.7138235294117647,
+     "score_int": 1820250
+    }
+   ]
+  },
+  {
+   "folded": "sagarmata",
+   "limit": 10,
+   "query": "sagarmatha",
+   "results": [
+    {
+     "entry": 11,
+     "osm_ref": 144,
+     "score": 0.9588235294117647,
+     "score_int": 2445000
+    }
+   ]
+  },
+  {
+   "folded": "peba",
+   "limit": 10,
+   "query": "phewa",
+   "results": [
+    {
+     "entry": 14,
+     "osm_ref": 137,
+     "score": 0.7667058823529411,
+     "score_int": 1955100
+    }
+   ]
+  },
+  {
+   "folded": "peba tal",
+   "limit": 10,
+   "query": "fewa tal",
+   "results": [
+    {
+     "entry": 14,
+     "osm_ref": 137,
+     "score": 0.8647058823529412,
+     "score_int": 2205000
+    }
+   ]
+  },
+  {
+   "folded": "lake",
+   "limit": 10,
+   "query": "lake",
+   "results": []
+  },
+  {
+   "folded": "airport",
+   "limit": 10,
+   "query": "airport",
+   "results": [
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.9352941176470588,
+     "score_int": 2385000
+    }
+   ]
+  },
+  {
+   "folded": "pasupati",
+   "limit": 10,
+   "query": "pashupati",
+   "results": [
+    {
+     "entry": 1,
+     "osm_ref": 3652681261,
+     "score": 0.7384117647058823,
+     "score_int": 1882950
+    }
+   ]
+  },
+  {
+   "folded": "pasupatinat",
+   "limit": 10,
+   "query": "pasupatinath",
+   "results": [
+    {
+     "entry": 1,
+     "osm_ref": 3652681261,
+     "score": 0.8294117647058824,
+     "score_int": 2115000
+    }
+   ]
+  },
+  {
+   "folded": "nam",
+   "limit": 10,
+   "query": "nam",
+   "results": [
+    {
+     "entry": 30,
+     "osm_ref": 108,
+     "score": 0.6964117647058824,
+     "score_int": 1775850
+    }
+   ]
+  },
+  {
+   "folded": "k",
+   "limit": 10,
+   "query": "k",
+   "results": [
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 0.881,
+     "score_int": 2246550
+    },
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.8655882352941177,
+     "score_int": 2207250
+    },
+    {
+     "entry": 35,
+     "osm_ref": 18333202,
+     "score": 0.8608235294117647,
+     "score_int": 2195100
+    },
+    {
+     "entry": 36,
+     "osm_ref": 18332986,
+     "score": 0.8398235294117647,
+     "score_int": 2141550
+    },
+    {
+     "entry": 27,
+     "osm_ref": 104,
+     "score": 0.8374705882352941,
+     "score_int": 2135550
+    },
+    {
+     "entry": 0,
+     "osm_ref": 192,
+     "score": 0.6894117647058824,
+     "score_int": 1758000
+    },
+    {
+     "entry": 4,
+     "osm_ref": 172,
+     "score": 0.6731764705882353,
+     "score_int": 1716600
+    },
+    {
+     "entry": 32,
+     "osm_ref": 120,
+     "score": 0.6515882352941177,
+     "score_int": 1661550
+    }
+   ]
+  },
+  {
+   "folded": "k",
+   "limit": 3,
+   "query": "k",
+   "results": [
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 0.881,
+     "score_int": 2246550
+    },
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.8655882352941177,
+     "score_int": 2207250
+    },
+    {
+     "entry": 35,
+     "osm_ref": 18333202,
+     "score": 0.8608235294117647,
+     "score_int": 2195100
+    }
+   ]
+  },
+  {
+   "folded": "",
+   "limit": 10,
+   "query": "",
+   "results": []
+  },
+  {
+   "folded": "",
+   "limit": 10,
+   "query": "   ",
+   "results": []
+  },
+  {
+   "folded": "xyj",
+   "limit": 10,
+   "query": "xyz",
+   "results": []
+  },
+  {
+   "folded": "anapurna",
+   "limit": 10,
+   "query": "annapurna",
+   "results": [
+    {
+     "entry": 9,
+     "osm_ref": 148,
+     "score": 0.9423529411764706,
+     "score_int": 2403000
+    }
+   ]
+  },
+  {
+   "folded": "anapurna",
+   "limit": 10,
+   "query": "anapurna",
+   "results": [
+    {
+     "entry": 9,
+     "osm_ref": 148,
+     "score": 0.9423529411764706,
+     "score_int": 2403000
+    }
+   ]
+  },
+  {
+   "folded": "baktapur",
+   "limit": 10,
+   "query": "bhaktapur",
+   "results": [
+    {
+     "entry": 23,
+     "osm_ref": 96,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 5,
+     "osm_ref": 133,
+     "score": 0.7555294117647059,
+     "score_int": 1926600
+    }
+   ]
+  },
+  {
+   "folded": "baktpur",
+   "limit": 10,
+   "query": "bhaktpur",
+   "results": [
+    {
+     "entry": 23,
+     "osm_ref": 96,
+     "score": 0.755,
+     "score_int": 1925250
+    }
+   ]
+  },
+  {
+   "folded": "tribuban",
+   "limit": 10,
+   "query": "tribhuvan",
+   "results": [
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.7112941176470589,
+     "score_int": 1813800
+    }
+   ]
+  },
+  {
+   "folded": "kat",
+   "limit": 10,
+   "query": "kat",
+   "results": [
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 0.895,
+     "score_int": 2282250
+    },
+    {
+     "entry": 36,
+     "osm_ref": 18332986,
+     "score": 0.8538235294117648,
+     "score_int": 2177250
+    },
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.7675882352941177,
+     "score_int": 1957350
+    },
+    {
+     "entry": 32,
+     "osm_ref": 120,
+     "score": 0.6655882352941176,
+     "score_int": 1697250
+    }
+   ]
+  },
+  {
+   "folded": "katmandu",
+   "limit": 0,
+   "query": "katmandu",
+   "results": []
+  },
+  {
+   "folded": "debis pals",
+   "limit": 10,
+   "query": "devis falls",
+   "results": [
+    {
+     "entry": 13,
+     "osm_ref": 180,
+     "score": 0.9,
+     "score_int": 2295000
+    }
+   ]
+  },
+  {
+   "folded": "debis",
+   "limit": 10,
+   "query": "Devi’s",
+   "results": [
+    {
+     "entry": 13,
+     "osm_ref": 180,
+     "score": 0.795,
+     "score_int": 2027250
+    }
+   ]
+  },
+  {
+   "folded": "lalitpur",
+   "limit": 10,
+   "query": "lalitpur",
+   "results": [
+    {
+     "entry": 25,
+     "osm_ref": 2895522796,
+     "score": 1.0,
+     "score_int": 2550000
+    }
+   ]
+  },
+  {
+   "folded": "patan",
+   "limit": 10,
+   "query": "patan",
+   "results": [
+    {
+     "entry": 25,
+     "osm_ref": 2895522796,
+     "score": 1.0,
+     "score_int": 2550000
+    },
+    {
+     "entry": 7,
+     "osm_ref": 129,
+     "score": 0.7555294117647059,
+     "score_int": 1926600
+    }
+   ]
+  },
+  {
+   "folded": "kirtipur",
+   "limit": 10,
+   "query": "kirtipur",
+   "results": [
+    {
+     "entry": 27,
+     "osm_ref": 104,
+     "score": 0.9564705882352941,
+     "score_int": 2439000
+    }
+   ]
+  },
+  {
+   "folded": "namche",
+   "limit": 10,
+   "query": "namche",
+   "results": [
+    {
+     "entry": 30,
+     "osm_ref": 108,
+     "score": 0.7174117647058823,
+     "score_int": 1829400
+    }
+   ]
+  },
+  {
+   "folded": "garden",
+   "limit": 10,
+   "query": "garden",
+   "results": [
+    {
+     "entry": 17,
+     "osm_ref": 160,
+     "score": 0.6776470588235294,
+     "score_int": 1728000
+    }
+   ]
+  },
+  {
+   "folded": "pokari",
+   "limit": 10,
+   "query": "pokhari",
+   "results": [
+    {
+     "entry": 26,
+     "osm_ref": 84,
+     "score": 0.755,
+     "score_int": 1925250
+    }
+   ]
+  },
+  {
+   "folded": "kastamandap",
+   "limit": 10,
+   "query": "kasthamandap",
+   "results": [
+    {
+     "entry": 0,
+     "osm_ref": 192,
+     "score": 0.8294117647058824,
+     "score_int": 2115000
+    },
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 0.685,
+     "score_int": 1746750
+    }
+   ]
+  },
+  {
+   "folded": "kastamandap",
+   "limit": 10,
+   "query": "काष्ठमण्डप",
+   "results": [
+    {
+     "entry": 0,
+     "osm_ref": 192,
+     "score": 0.8294117647058824,
+     "score_int": 2115000
+    },
+    {
+     "entry": 24,
+     "osm_ref": 268628232,
+     "score": 0.685,
+     "score_int": 1746750
+    }
+   ]
+  },
+  {
+   "folded": "tatopani",
+   "limit": 10,
+   "query": "tatopani",
+   "results": [
+    {
+     "entry": 16,
+     "osm_ref": 188,
+     "score": 0.8529411764705882,
+     "score_int": 2175000
+    }
+   ]
+  },
+  {
+   "folded": "chandragiri",
+   "limit": 10,
+   "query": "chandragiri",
+   "results": [
+    {
+     "entry": 20,
+     "osm_ref": 176,
+     "score": 0.7247058823529412,
+     "score_int": 1848000
+    }
+   ]
+  },
+  {
+   "folded": "j",
+   "limit": 10,
+   "query": "ZZZZZZZZ",
+   "results": []
+  },
+  {
+   "folded": "tamel",
+   "limit": 10,
+   "query": "Ṭhamel",
+   "results": [
+    {
+     "entry": 34,
+     "osm_ref": 1103823664,
+     "score": 0.888235294117647,
+     "score_int": 2265000
+    }
+   ]
+  },
+  {
+   "folded": "tamel",
+   "limit": 10,
+   "query": "THAMEL!!",
+   "results": [
+    {
+     "entry": 34,
+     "osm_ref": 1103823664,
+     "score": 0.888235294117647,
+     "score_int": 2265000
+    }
+   ]
+  },
+  {
+   "folded": "lukla",
+   "limit": 1,
+   "query": "lukla",
+   "results": [
+    {
+     "entry": 28,
+     "osm_ref": 112,
+     "score": 0.8294117647058824,
+     "score_int": 2115000
+    }
+   ]
+  },
+  {
+   "folded": "sauraha",
+   "limit": 10,
+   "query": "sauraha",
+   "results": [
+    {
+     "entry": 31,
+     "osm_ref": 116,
+     "score": 0.8294117647058824,
+     "score_int": 2115000
+    }
+   ]
+  },
+  {
+   "folded": "bagmati",
+   "limit": 10,
+   "query": "bagmati",
+   "results": [
+    {
+     "entry": 21,
+     "osm_ref": 18332042,
+     "score": 0.8493529411764705,
+     "score_int": 2165850
+    }
+   ]
+  }
+ ],
+ "score_scale": 2550000,
+ "version": 1
+}

@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-made test fixture for osm_extract (see tests/test_osm_extract.py).
+     Region bbox under test: 85.300,27.700 .. 85.320,27.720; features at lon 85.40+ are outside. -->
+<osm version="0.6" generator="ghumante-test">
+  <node id="1" version="1" lat="27.7020000" lon="85.3020000"/>
+  <node id="2" version="1" lat="27.7020000" lon="85.3050000"/>
+  <node id="3" version="1" lat="27.7020000" lon="85.3080000"/>
+  <node id="4" version="1" lat="27.7050000" lon="85.3080000"/>
+  <node id="5" version="1" lat="27.7100000" lon="85.3010000"/>
+  <node id="6" version="1" lat="27.7100000" lon="85.3100000"/>
+  <node id="7" version="1" lat="27.7100000" lon="85.3120000"/>
+  <node id="8" version="1" lat="27.7150000" lon="85.3150000"/>
+  <node id="9" version="1" lat="27.7160000" lon="85.3160000"/>
+  <node id="10" version="1" lat="27.7150000" lon="85.3030000"/>
+  <node id="11" version="1" lat="27.7160000" lon="85.3040000"/>
+  <node id="20" version="1" lat="27.7060000" lon="85.3060000"/>
+  <node id="21" version="1" lat="27.7061000" lon="85.3060000"/>
+  <node id="22" version="1" lat="27.7061000" lon="85.3061000"/>
+  <node id="23" version="1" lat="27.7060000" lon="85.3061000"/>
+  <node id="24" version="1" lat="27.7060000" lon="85.3065000"/>
+  <node id="25" version="1" lat="27.7060000" lon="85.3066000"/>
+  <node id="26" version="1" lat="27.7061000" lon="85.3066000"/>
+  <node id="27" version="1" lat="27.7061000" lon="85.3065000"/>
+  <node id="30" version="1" lat="27.7070000" lon="85.3070000"/>
+  <node id="31" version="1" lat="27.7070000" lon="85.3075000"/>
+  <node id="32" version="1" lat="27.7075000" lon="85.3075000"/>
+  <node id="33" version="1" lat="27.7075000" lon="85.3070000"/>
+  <node id="34" version="1" lat="27.7072000" lon="85.3072000"/>
+  <node id="35" version="1" lat="27.7073000" lon="85.3072000"/>
+  <node id="36" version="1" lat="27.7073000" lon="85.3073000"/>
+  <node id="37" version="1" lat="27.7072000" lon="85.3073000"/>
+  <node id="40" version="1" lat="27.7030000" lon="85.3130000"/>
+  <node id="41" version="1" lat="27.7030000" lon="85.3170000"/>
+  <node id="42" version="1" lat="27.7070000" lon="85.3170000"/>
+  <node id="43" version="1" lat="27.7070000" lon="85.3130000"/>
+  <node id="44" version="1" lat="27.7045000" lon="85.3145000"/>
+  <node id="45" version="1" lat="27.7045000" lon="85.3155000"/>
+  <node id="46" version="1" lat="27.7055000" lon="85.3155000"/>
+  <node id="47" version="1" lat="27.7055000" lon="85.3145000"/>
+  <node id="50" version="1" lat="27.7045000" lon="85.3050000"/>
+  <node id="51" version="1" lat="27.7045000" lon="85.3052000"/>
+  <node id="52" version="1" lat="27.7047000" lon="85.3052000"/>
+  <node id="53" version="1" lat="27.7047000" lon="85.3050000"/>
+  <node id="60" version="1" lat="27.7120000" lon="85.3090000">
+    <tag k="man_made" v="stupa"/>
+    <tag k="religion" v="buddhist"/>
+    <tag k="name" v="Kathesimbhu Stupa"/>
+  </node>
+  <node id="61" version="1" lat="27.7180000" lon="85.3180000">
+    <tag k="natural" v="peak"/>
+    <tag k="ele" v="8,848 m"/>
+    <tag k="name" v="Test Peak"/>
+  </node>
+  <node id="62" version="1" lat="27.7080000" lon="85.3100000">
+    <tag k="place" v="city"/>
+    <tag k="name" v="Kathmandu"/>
+    <tag k="name:ne" v="काठमाडौं"/>
+    <tag k="population" v="1003285"/>
+  </node>
+  <node id="63" version="1" lat="27.7010000" lon="85.3190000">
+    <tag k="place" v="village"/>
+    <tag k="name" v="Thamel Gaun"/>
+  </node>
+  <node id="64" version="1" lat="27.7190000" lon="85.3010000"/>
+  <node id="65" version="1" lat="27.7195000" lon="85.3100000"/>
+  <node id="66" version="1" lat="27.7300000" lon="85.4500000"/>
+  <node id="70" version="1" lat="27.7500000" lon="85.4000000"/>
+  <node id="71" version="1" lat="27.7500000" lon="85.4100000"/>
+  <node id="72" version="1" lat="27.7700000" lon="85.4000000">
+    <tag k="natural" v="peak"/>
+    <tag k="ele" v="3000"/>
+    <tag k="name" v="Outside Peak"/>
+  </node>
+  <node id="73" version="1" lat="27.7700000" lon="85.4200000">
+    <tag k="place" v="village"/>
+    <tag k="name" v="Faraway"/>
+  </node>
+  <node id="74" version="1" lat="27.7600000" lon="85.4000000"/>
+  <node id="75" version="1" lat="27.7600000" lon="85.4001000"/>
+  <node id="76" version="1" lat="27.7601000" lon="85.4001000"/>
+  <node id="77" version="1" lat="27.7601000" lon="85.4000000"/>
+  <node id="80" version="1" lat="27.6500000" lon="85.2500000"/>
+  <node id="81" version="1" lat="27.6500000" lon="85.4000000"/>
+  <node id="82" version="1" lat="27.7800000" lon="85.4000000"/>
+  <node id="83" version="1" lat="27.7800000" lon="85.2500000"/>
+  <node id="84" version="1" lat="27.6500000" lon="85.5000000"/>
+  <node id="85" version="1" lat="27.6500000" lon="85.5500000"/>
+  <node id="86" version="1" lat="27.7000000" lon="85.5500000"/>
+  <node id="87" version="1" lat="27.7000000" lon="85.5000000"/>
+  <node id="90" version="1" lat="27.6000000" lon="85.4500000"/>
+  <node id="91" version="1" lat="27.6000000" lon="85.4600000"/>
+  <node id="92" version="1" lat="27.6100000" lon="85.4600000"/>
+  <node id="93" version="1" lat="27.6100000" lon="85.4500000"/>
+  <node id="94" version="1" lat="27.7100000" lon="85.3250000"/>
+  <node id="95" version="1" lat="27.7100000" lon="85.4500000"/>
+  <node id="96" version="1" lat="27.7100000" lon="85.3300000"/>
+  <node id="97" version="1" lat="27.7100000" lon="85.3301000"/>
+  <node id="98" version="1" lat="27.7101000" lon="85.3301000"/>
+  <node id="99" version="1" lat="27.7101000" lon="85.3300000"/>
+  <node id="100" version="1" lat="27.7062000" lon="85.3067000"/>
+  <node id="101" version="1" lat="27.7062000" lon="85.3068000"/>
+  <node id="102" version="1" lat="27.7063000" lon="85.3068000"/>
+  <node id="103" version="1" lat="27.7063000" lon="85.3067000"/>
+  <node id="104" version="1" lat="27.7111000" lon="85.3111000"/>
+  <node id="105" version="1" lat="27.7175000" lon="85.3005000"/>
+  <node id="106" version="1" lat="27.7175000" lon="85.3025000"/>
+  <node id="107" version="1" lat="27.7195000" lon="85.3025000"/>
+  <node id="108" version="1" lat="27.7195000" lon="85.3005000"/>
+  <way id="100" version="1">
+    <nd ref="1"/>
+    <nd ref="2"/>
+    <nd ref="3"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Thamel Marg"/>
+    <tag k="name:ne" v="ठमेल मार्ग"/>
+    <tag k="surface" v="paving_stones"/>
+    <tag k="width" v="5 m"/>
+    <tag k="lanes" v="2"/>
+  </way>
+  <way id="101" version="1">
+    <nd ref="3"/>
+    <nd ref="4"/>
+    <tag k="highway" v="residential"/>
+  </way>
+  <way id="102" version="1">
+    <nd ref="5"/>
+    <nd ref="6"/>
+    <tag k="highway" v="primary"/>
+    <tag k="oneway" v="yes"/>
+    <tag k="ref" v="H02"/>
+    <tag k="surface" v="asphalt"/>
+    <tag k="lanes" v="4"/>
+  </way>
+  <way id="103" version="1">
+    <nd ref="6"/>
+    <nd ref="7"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="bridge" v="yes"/>
+    <tag k="layer" v="1"/>
+    <tag k="name" v="Bishnumati Bridge"/>
+  </way>
+  <way id="104" version="1">
+    <nd ref="8"/>
+    <nd ref="9"/>
+    <tag k="highway" v="path"/>
+    <tag k="sac_scale" v="mountain_hiking"/>
+    <tag k="trail_visibility" v="good"/>
+  </way>
+  <way id="105" version="1">
+    <nd ref="10"/>
+    <nd ref="11"/>
+    <tag k="highway" v="track"/>
+    <tag k="tracktype" v="grade3"/>
+    <tag k="smoothness" v="bad"/>
+    <tag k="ford" v="yes"/>
+  </way>
+  <way id="150" version="1">
+    <nd ref="70"/>
+    <nd ref="71"/>
+    <tag k="highway" v="primary"/>
+    <tag k="name" v="Outside Road"/>
+  </way>
+  <way id="151" version="1">
+    <nd ref="94"/>
+    <nd ref="95"/>
+    <tag k="highway" v="tertiary"/>
+    <tag k="name" v="Buffer Road"/>
+  </way>
+  <way id="153" version="1">
+    <nd ref="2"/>
+    <nd ref="999"/>
+    <nd ref="4"/>
+    <tag k="highway" v="footway"/>
+  </way>
+  <way id="200" version="1">
+    <nd ref="20"/>
+    <nd ref="21"/>
+    <nd ref="22"/>
+    <nd ref="23"/>
+    <nd ref="20"/>
+    <tag k="building" v="house"/>
+    <tag k="building:levels" v="G+2"/>
+    <tag k="roof:shape" v="hipped"/>
+    <tag k="roof:material" v="tin"/>
+    <tag k="building:material" v="brick"/>
+    <tag k="height" v="9 m"/>
+  </way>
+  <way id="201" version="1">
+    <nd ref="24"/>
+    <nd ref="25"/>
+    <nd ref="26"/>
+    <nd ref="27"/>
+    <nd ref="24"/>
+    <tag k="building" v="yes"/>
+  </way>
+  <way id="210" version="1">
+    <nd ref="30"/>
+    <nd ref="31"/>
+    <nd ref="32"/>
+    <nd ref="33"/>
+    <nd ref="30"/>
+  </way>
+  <way id="211" version="1">
+    <nd ref="34"/>
+    <nd ref="35"/>
+    <nd ref="36"/>
+    <nd ref="37"/>
+    <nd ref="34"/>
+  </way>
+  <way id="220" version="1">
+    <nd ref="40"/>
+    <nd ref="41"/>
+    <nd ref="42"/>
+  </way>
+  <way id="221" version="1">
+    <nd ref="42"/>
+    <nd ref="43"/>
+    <nd ref="40"/>
+  </way>
+  <way id="222" version="1">
+    <nd ref="44"/>
+    <nd ref="45"/>
+    <nd ref="46"/>
+    <nd ref="47"/>
+    <nd ref="44"/>
+  </way>
+  <way id="223" version="1">
+    <nd ref="90"/>
+    <nd ref="91"/>
+    <nd ref="92"/>
+    <nd ref="93"/>
+    <nd ref="90"/>
+  </way>
+  <way id="230" version="1">
+    <nd ref="50"/>
+    <nd ref="51"/>
+    <nd ref="52"/>
+    <nd ref="53"/>
+    <nd ref="50"/>
+    <tag k="building" v="temple"/>
+    <tag k="amenity" v="place_of_worship"/>
+    <tag k="religion" v="hindu"/>
+    <tag k="name" v="Kasthamandap"/>
+    <tag k="name:ne" v="काष्ठमण्डप"/>
+    <tag k="building:levels" v="3"/>
+  </way>
+  <way id="240" version="1">
+    <nd ref="64"/>
+    <nd ref="65"/>
+    <nd ref="66"/>
+    <tag k="waterway" v="river"/>
+    <tag k="name" v="Bishnumati"/>
+  </way>
+  <way id="250" version="1">
+    <nd ref="74"/>
+    <nd ref="75"/>
+    <nd ref="76"/>
+    <nd ref="77"/>
+    <nd ref="74"/>
+    <tag k="building" v="yes"/>
+  </way>
+  <way id="251" version="1">
+    <nd ref="96"/>
+    <nd ref="97"/>
+    <nd ref="98"/>
+    <nd ref="99"/>
+    <nd ref="96"/>
+    <tag k="building" v="yes"/>
+  </way>
+  <way id="252" version="1">
+    <nd ref="100"/>
+    <nd ref="101"/>
+    <nd ref="102"/>
+    <nd ref="103"/>
+    <nd ref="100"/>
+    <tag k="building:part" v="yes"/>
+  </way>
+  <way id="260" version="1">
+    <nd ref="105"/>
+    <nd ref="106"/>
+    <nd ref="107"/>
+    <nd ref="108"/>
+    <nd ref="105"/>
+    <tag k="leisure" v="park"/>
+    <tag k="name" v="Garden of Dreams"/>
+  </way>
+  <way id="410" version="1">
+    <nd ref="80"/>
+    <nd ref="81"/>
+    <nd ref="82"/>
+    <tag k="boundary" v="administrative"/>
+  </way>
+  <way id="411" version="1">
+    <nd ref="82"/>
+    <nd ref="83"/>
+    <nd ref="80"/>
+    <tag k="boundary" v="administrative"/>
+  </way>
+  <way id="412" version="1">
+    <nd ref="84"/>
+    <nd ref="85"/>
+    <nd ref="86"/>
+    <nd ref="87"/>
+    <nd ref="84"/>
+    <tag k="boundary" v="administrative"/>
+  </way>
+  <relation id="300" version="1">
+    <member type="way" ref="210" role="outer"/>
+    <member type="way" ref="211" role="inner"/>
+    <tag k="type" v="multipolygon"/>
+    <tag k="building" v="commercial"/>
+    <tag k="name" v="Courtyard Mall"/>
+    <tag k="building:levels" v="4"/>
+  </relation>
+  <relation id="301" version="1">
+    <member type="way" ref="220" role="outer"/>
+    <member type="way" ref="221" role="outer"/>
+    <member type="way" ref="222" role="inner"/>
+    <tag k="type" v="multipolygon"/>
+    <tag k="natural" v="water"/>
+    <tag k="water" v="lake"/>
+    <tag k="name" v="Rani Pokhari"/>
+    <tag k="name:ne" v="रानी पोखरी"/>
+  </relation>
+  <relation id="302" version="1">
+    <member type="way" ref="223" role="outer"/>
+    <tag k="type" v="multipolygon"/>
+    <tag k="natural" v="water"/>
+    <tag k="name" v="Far Lake"/>
+  </relation>
+  <relation id="400" version="1">
+    <member type="way" ref="410" role="outer"/>
+    <member type="way" ref="411" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="6"/>
+    <tag k="name" v="Kathmandu"/>
+    <tag k="name:ne" v="काठमाडौं"/>
+  </relation>
+  <relation id="401" version="1">
+    <member type="way" ref="412" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="6"/>
+    <tag k="name" v="Bhaktapur"/>
+  </relation>
+  <relation id="402" version="1">
+    <member type="way" ref="410" role="outer"/>
+    <member type="way" ref="411" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="9"/>
+    <tag k="name" v="Ward 1"/>
+  </relation>
+  <relation id="403" version="1">
+    <member type="way" ref="410" role="outer"/>
+    <member type="way" ref="411" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="4"/>
+    <tag k="name" v="Bagmati Province"/>
+  </relation>
+</osm>

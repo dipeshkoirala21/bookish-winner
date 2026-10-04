@@ -1,0 +1,246 @@
+{
+ "alpine_sac": 4,
+ "format": "ghumante-travel-profiles",
+ "profiles": {
+  "BICYCLE": {
+   "alpine_speed_kmh": null,
+   "bit": 2,
+   "climb_k": 8.0,
+   "max_sac": 2,
+   "max_speed_kmh": 20.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 8.0,
+    "CYCLEWAY": 20.0,
+    "FOOTWAY": 10.0,
+    "LIVING_STREET": 10.0,
+    "MOTORWAY": 20.0,
+    "PATH": 10.0,
+    "PEDESTRIAN": 8.0,
+    "PRIMARY": 18.0,
+    "RESIDENTIAL": 15.0,
+    "ROAD": 16.0,
+    "SECONDARY": 18.0,
+    "SERVICE": 14.0,
+    "STEPS": 3.0,
+    "TERTIARY": 18.0,
+    "TRACK": 12.0,
+    "TRUNK": 20.0,
+    "UNCLASSIFIED": 16.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 0.6,
+    "GRAVEL": 0.75,
+    "MUD": 0.35,
+    "PAVED": 1.0
+   }
+  },
+  "BUS": {
+   "alpine_speed_kmh": null,
+   "bit": 32,
+   "climb_k": 1.0,
+   "max_sac": 0,
+   "max_speed_kmh": 70.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 0.0,
+    "CYCLEWAY": 0.0,
+    "FOOTWAY": 0.0,
+    "LIVING_STREET": 10.0,
+    "MOTORWAY": 70.0,
+    "PATH": 0.0,
+    "PEDESTRIAN": 0.0,
+    "PRIMARY": 50.0,
+    "RESIDENTIAL": 25.0,
+    "ROAD": 30.0,
+    "SECONDARY": 45.0,
+    "SERVICE": 15.0,
+    "STEPS": 0.0,
+    "TERTIARY": 40.0,
+    "TRACK": 15.0,
+    "TRUNK": 60.0,
+    "UNCLASSIFIED": 30.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 0.6,
+    "GRAVEL": 0.75,
+    "MUD": 0.35,
+    "PAVED": 1.0
+   }
+  },
+  "CAR": {
+   "alpine_speed_kmh": null,
+   "bit": 8,
+   "climb_k": 1.0,
+   "max_sac": 0,
+   "max_speed_kmh": 90.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 0.0,
+    "CYCLEWAY": 0.0,
+    "FOOTWAY": 0.0,
+    "LIVING_STREET": 15.0,
+    "MOTORWAY": 90.0,
+    "PATH": 0.0,
+    "PEDESTRIAN": 0.0,
+    "PRIMARY": 70.0,
+    "RESIDENTIAL": 30.0,
+    "ROAD": 35.0,
+    "SECONDARY": 60.0,
+    "SERVICE": 20.0,
+    "STEPS": 0.0,
+    "TERTIARY": 50.0,
+    "TRACK": 20.0,
+    "TRUNK": 80.0,
+    "UNCLASSIFIED": 40.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 0.6,
+    "GRAVEL": 0.75,
+    "MUD": 0.35,
+    "PAVED": 1.0
+   }
+  },
+  "FOOT": {
+   "alpine_speed_kmh": 3.5,
+   "bit": 1,
+   "climb_k": 6.0,
+   "max_sac": 6,
+   "max_speed_kmh": 5.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 5.0,
+    "CYCLEWAY": 5.0,
+    "FOOTWAY": 5.0,
+    "LIVING_STREET": 5.0,
+    "MOTORWAY": 5.0,
+    "PATH": 5.0,
+    "PEDESTRIAN": 5.0,
+    "PRIMARY": 5.0,
+    "RESIDENTIAL": 5.0,
+    "ROAD": 5.0,
+    "SECONDARY": 5.0,
+    "SERVICE": 5.0,
+    "STEPS": 4.0,
+    "TERTIARY": 5.0,
+    "TRACK": 5.0,
+    "TRUNK": 5.0,
+    "UNCLASSIFIED": 5.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 1.0,
+    "GRAVEL": 1.0,
+    "MUD": 0.8,
+    "PAVED": 1.0
+   }
+  },
+  "HORSE": {
+   "alpine_speed_kmh": null,
+   "bit": 64,
+   "climb_k": 4.0,
+   "max_sac": 3,
+   "max_speed_kmh": 8.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 8.0,
+    "CYCLEWAY": 6.0,
+    "FOOTWAY": 6.0,
+    "LIVING_STREET": 6.0,
+    "MOTORWAY": 7.0,
+    "PATH": 7.0,
+    "PEDESTRIAN": 5.0,
+    "PRIMARY": 7.0,
+    "RESIDENTIAL": 7.0,
+    "ROAD": 7.0,
+    "SECONDARY": 7.0,
+    "SERVICE": 7.0,
+    "STEPS": 0.0,
+    "TERTIARY": 7.0,
+    "TRACK": 7.0,
+    "TRUNK": 7.0,
+    "UNCLASSIFIED": 7.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 1.0,
+    "GRAVEL": 1.0,
+    "MUD": 0.8,
+    "PAVED": 1.0
+   }
+  },
+  "JEEP": {
+   "alpine_speed_kmh": null,
+   "bit": 16,
+   "climb_k": 1.0,
+   "max_sac": 0,
+   "max_speed_kmh": 85.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 0.0,
+    "CYCLEWAY": 0.0,
+    "FOOTWAY": 0.0,
+    "LIVING_STREET": 15.0,
+    "MOTORWAY": 85.0,
+    "PATH": 0.0,
+    "PEDESTRIAN": 0.0,
+    "PRIMARY": 65.0,
+    "RESIDENTIAL": 30.0,
+    "ROAD": 35.0,
+    "SECONDARY": 55.0,
+    "SERVICE": 20.0,
+    "STEPS": 0.0,
+    "TERTIARY": 50.0,
+    "TRACK": 30.0,
+    "TRUNK": 75.0,
+    "UNCLASSIFIED": 40.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 0.85,
+    "GRAVEL": 0.9,
+    "MUD": 0.6,
+    "PAVED": 1.0
+   }
+  },
+  "MOTORBIKE": {
+   "alpine_speed_kmh": null,
+   "bit": 4,
+   "climb_k": 1.0,
+   "max_sac": 1,
+   "max_speed_kmh": 80.0,
+   "speed_kmh": {
+    "BRIDLEWAY": 10.0,
+    "CYCLEWAY": 15.0,
+    "FOOTWAY": 10.0,
+    "LIVING_STREET": 15.0,
+    "MOTORWAY": 80.0,
+    "PATH": 12.0,
+    "PEDESTRIAN": 10.0,
+    "PRIMARY": 70.0,
+    "RESIDENTIAL": 30.0,
+    "ROAD": 35.0,
+    "SECONDARY": 60.0,
+    "SERVICE": 20.0,
+    "STEPS": 0.0,
+    "TERTIARY": 50.0,
+    "TRACK": 25.0,
+    "TRUNK": 80.0,
+    "UNCLASSIFIED": 40.0,
+    "UNKNOWN": 0.0
+   },
+   "surface_factor": {
+    "DIRT": 0.6,
+    "GRAVEL": 0.75,
+    "MUD": 0.35,
+    "PAVED": 1.0
+   }
+  }
+ },
+ "trail_classes": [
+  "BRIDLEWAY",
+  "CYCLEWAY",
+  "FOOTWAY",
+  "PATH",
+  "PEDESTRIAN",
+  "STEPS"
+ ],
+ "version": 1
+}
