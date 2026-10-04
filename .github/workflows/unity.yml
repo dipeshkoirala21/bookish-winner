@@ -240,12 +240,13 @@ jobs:
           versioning: Semantic
           androidExportType: androidAppBundle
           androidSymbolType: public
-          # Only name a keystore when one exists; otherwise BuildScript signs with the debug key.
+          # All four keystore secrets or none: a partial set falls back to the debug key, as announced by
+          # check-secrets, instead of failing half-way through signing.
           androidKeystoreName: ${{ needs.check-secrets.outputs.android-keystore == 'true' && 'upload.keystore' || '' }}
-          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
-          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
-          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+          androidKeystoreBase64: ${{ needs.check-secrets.outputs.android-keystore == 'true' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          androidKeystorePass: ${{ needs.check-secrets.outputs.android-keystore == 'true' && secrets.ANDROID_KEYSTORE_PASS || '' }}
+          androidKeyaliasName: ${{ needs.check-secrets.outputs.android-keystore == 'true' && secrets.ANDROID_KEYALIAS_NAME || '' }}
+          androidKeyaliasPass: ${{ needs.check-secrets.outputs.android-keystore == 'true' && secrets.ANDROID_KEYALIAS_PASS || '' }}
 
       - name: Build summary
         if: always()

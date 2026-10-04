@@ -1,0 +1,16 @@
+# fastlane run outputs
+fastlane/report.xml
+fastlane/README.md
+fastlane/test_output/
+*.ipa
+*.dSYM.zip
+*.mobileprovision
+# Bundler
+.bundle/
+vendor/bundle/
+# Signing material must never be committed (docs/CI_SECRETS.md)
+*.keystore
+*.jks
+*.p8
+*.p12
+AuthKey_*.p8

@@ -43,6 +43,7 @@ KNOWN_UNAVAILABLE = {
     "Unity.Burst", "Unity.Collections", "Unity.Mathematics", "Unity.InputSystem", "Unity.Addressables",
     "Unity.ResourceManager", "Unity.Localization", "Unity.AdaptivePerformance",
     "Unity.RenderPipelines.Core.Runtime",  # its few types we touch live in UnityEngine.CoreModule
+    "Unity.RenderPipelines.GPUDriven.Runtime",  # declares interfaces URP's asset implements; we call none
 }
 TEST_RUNNER = {"UnityEngine.TestRunner", "UnityEditor.TestRunner"}
 

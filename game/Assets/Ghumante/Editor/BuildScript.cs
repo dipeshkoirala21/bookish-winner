@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace Ghumante.EditorTools
@@ -36,12 +37,14 @@ namespace Ghumante.EditorTools
         [MenuItem("Ghumante/Build/Android App Bundle", priority = 100)]
         public static void BuildAndroidFromMenu()
         {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Build(BuildTarget.Android, DefaultAndroidPath, new Dictionary<string, string>(), exitWhenDone: false);
         }
 
         [MenuItem("Ghumante/Build/iOS Xcode Project", priority = 101)]
         public static void BuildIosFromMenu()
         {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Build(BuildTarget.iOS, DefaultIosPath, new Dictionary<string, string>(), exitWhenDone: false);
         }
 

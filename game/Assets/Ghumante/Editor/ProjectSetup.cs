@@ -47,6 +47,12 @@ namespace Ghumante.EditorTools
         /// </summary>
         public const AndroidSdkVersions AndroidTargetSdk = AndroidSdkVersions.AndroidApiLevel36;
 
+        /// <summary>
+        /// M0 is landscape-only: the UI layouts (PanelSettings reference 1920x1080, matched on height) are
+        /// designed for it. Flip this once the screens have portrait layouts (portrait play is planned).
+        /// </summary>
+        public const bool AllowPortrait = false;
+
         /// <summary>iOS deployment target (ARCHITECTURE.md; Unity 6.3 supports iOS 15+).</summary>
         public const string IosMinimumVersion = "16.0";
 
@@ -188,11 +194,11 @@ namespace Ghumante.EditorTools
             PlayerSettings.gcIncremental = true;
             PlayerSettings.stripEngineCode = true;
 
-            // Landscape only, either way up.
+            // Landscape either way up; portrait follows AllowPortrait.
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
-            PlayerSettings.allowedAutorotateToPortrait = false;
+            PlayerSettings.allowedAutorotateToPortrait = AllowPortrait;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
 
             foreach (NamedBuildTarget target in new[] { NamedBuildTarget.Android, NamedBuildTarget.iOS })

@@ -6,7 +6,6 @@
 #                                               # 6000.3 C# reference source (clones it, ~100 MB, cached)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
 DOTNET="${DOTNET:-$(command -v dotnet || echo /root/.dotnet/dotnet)}"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
@@ -22,7 +21,7 @@ python3 "$HERE/generate.py"
 cd "$HERE/generated"
 "$DOTNET" new sln -n CompileCheck --force >/dev/null
 "$DOTNET" sln CompileCheck.sln add ./*/*.csproj >/dev/null
-expected=$(ls ./*/*.csproj | wc -l)
+expected=$(find . -mindepth 2 -maxdepth 2 -name "*.csproj" | wc -l)
 actual=$("$DOTNET" sln CompileCheck.sln list | grep -c '\.csproj$' || true)
 if [[ "$expected" -ne "$actual" ]]; then
   echo "compile check: only $actual of $expected generated projects could be loaded" >&2
@@ -43,7 +42,7 @@ status=0
 for platform in UNITY_ANDROID UNITY_IOS; do
   echo "== compile check: $platform"
   # --no-incremental: the two passes differ only in defines, so never reuse the previous pass's output.
-  if ! "$DOTNET" build CompileCheck.sln -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform "${EXTRA[@]}"; then
+  if ! "$DOTNET" build CompileCheck.sln -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform ${EXTRA[@]+"${EXTRA[@]}"}; then
     status=1
   fi
 done
