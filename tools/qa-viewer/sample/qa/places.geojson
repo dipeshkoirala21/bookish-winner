@@ -1,0 +1,5 @@
+{"type":"FeatureCollection","name":"places","features":[
+{"type":"Feature","properties":{"osm_ref":4003624,"kind":"NEIGHBOURHOOD","importance":200,"name":"Thamel","name_en":"Thamel","name_ne":"ठमेल"},"geometry":{"type":"Point","coordinates":[85.3101,27.7153]}},
+{"type":"Feature","properties":{"osm_ref":4003628,"kind":"NEIGHBOURHOOD","importance":120,"name":"Jyatha","name_en":"Jyatha","name_ne":"ज्याठा"},"geometry":{"type":"Point","coordinates":[85.3112,27.7122]}},
+{"type":"Feature","properties":{"osm_ref":4003632,"kind":"NEIGHBOURHOOD","importance":110,"name":"Lainchaur","name_en":"Lainchaur","name_ne":"लैनचौर"},"geometry":{"type":"Point","coordinates":[85.315,27.7172]}}
+]}

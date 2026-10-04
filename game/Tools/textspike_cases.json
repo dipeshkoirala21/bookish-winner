@@ -1,0 +1,170 @@
+{
+  "font_size_px": {
+    "body": 40,
+    "display": 48
+  },
+  "cases": [
+    {
+      "id": "conj-ksha",
+      "font": "body",
+      "text": "क्ष",
+      "note": "क + ् + ष: one conjunct glyph, no visible halant"
+    },
+    {
+      "id": "conj-tra",
+      "font": "body",
+      "text": "त्र",
+      "note": "त + ् + र: rakar conjunct"
+    },
+    {
+      "id": "conj-gya",
+      "font": "body",
+      "text": "ज्ञ",
+      "note": "ज + ् + ञ: one conjunct glyph"
+    },
+    {
+      "id": "conj-shra",
+      "font": "body",
+      "text": "श्र",
+      "note": "श + ् + र"
+    },
+    {
+      "id": "conj-ddha",
+      "font": "body",
+      "text": "द्ध",
+      "note": "द + ् + ध: stacked or ligated, never दध with halant"
+    },
+    {
+      "id": "conj-dva",
+      "font": "body",
+      "text": "द्व",
+      "note": "द + ् + व"
+    },
+    {
+      "id": "conj-row-display",
+      "font": "display",
+      "text": "क्ष त्र ज्ञ श्र द्ध द्व",
+      "note": "all six conjuncts in the display font"
+    },
+    {
+      "id": "reph",
+      "font": "body",
+      "text": "र्क कर्म धर्म सूर्य",
+      "note": "र + ् before a consonant becomes a reph mark above the next letter"
+    },
+    {
+      "id": "eyelash-ra",
+      "font": "body",
+      "text": "गर्‍यो भर्‍याङ",
+      "note": "र + ् + ZWJ: eyelash ra, common in Nepali"
+    },
+    {
+      "id": "i-matra",
+      "font": "body",
+      "text": "कि किताब दिन",
+      "note": "ि is typed after the consonant but drawn before it"
+    },
+    {
+      "id": "i-matra-conjunct",
+      "font": "body",
+      "text": "क्षितिज स्थिति शिक्षा",
+      "note": "ि must move before the whole conjunct (क्षि, स्थि)"
+    },
+    {
+      "id": "rakar-half",
+      "font": "body",
+      "text": "प्र क्र ट्र ह्र प्यार स्कूल",
+      "note": "subscript ra and half forms"
+    },
+    {
+      "id": "complex",
+      "font": "body",
+      "text": "राष्ट्र स्त्री द्ध्य",
+      "note": "three-consonant clusters"
+    },
+    {
+      "id": "nukta",
+      "font": "body",
+      "text": "क़ ख़ ग़ ज़ फ़ ड़ ढ़",
+      "note": "consonant + ़ (nukta), stored decomposed after NFC"
+    },
+    {
+      "id": "chandrabindu",
+      "font": "body",
+      "text": "चाँद आँप गाउँ हाँस",
+      "note": "ँ sits above the headline, centred on its letter"
+    },
+    {
+      "id": "anusvara-visarga",
+      "font": "body",
+      "text": "संसार दुःख",
+      "note": "ं and ः"
+    },
+    {
+      "id": "halant-final",
+      "font": "body",
+      "text": "भगवान् सम्राट्",
+      "note": "a word-final halant stays visible"
+    },
+    {
+      "id": "zwj-zwnj",
+      "font": "body",
+      "text": "क्‍ष क्‌ष",
+      "note": "ZWJ forces the half form, ZWNJ forces a visible halant"
+    },
+    {
+      "id": "numerals",
+      "font": "body",
+      "text": "०१२३४५६७८९ · २०८३ साल · १२,३४,५६७",
+      "note": "Devanagari digits and lakh grouping"
+    },
+    {
+      "id": "punctuation",
+      "font": "body",
+      "text": "ॐ नमः। राम॥ सोऽहम्",
+      "note": "om, danda, double danda, avagraha"
+    },
+    {
+      "id": "places-body",
+      "font": "body",
+      "text": "काठमाडौं स्वयम्भूनाथ बौद्धनाथ पशुपतिनाथ सगरमाथा",
+      "note": "place names in the body font"
+    },
+    {
+      "id": "places-display",
+      "font": "display",
+      "text": "काठमाडौं स्वयम्भूनाथ बौद्धनाथ",
+      "note": "place names in the display font"
+    },
+    {
+      "id": "places-display-2",
+      "font": "display",
+      "text": "पशुपतिनाथ सगरमाथा",
+      "note": "place names in the display font"
+    },
+    {
+      "id": "mixed-script",
+      "font": "body",
+      "text": "Thamel ठमेल · Patan पाटन · Everest सगरमाथा",
+      "note": "Latin and Devanagari in one line"
+    },
+    {
+      "id": "latin",
+      "font": "body",
+      "text": "The quick brown fox jumps over the lazy dog 0123456789",
+      "note": "Latin baseline"
+    },
+    {
+      "id": "latin-display",
+      "font": "display",
+      "text": "Ghumante Explore Map 1,250",
+      "note": "Latin in the display font"
+    },
+    {
+      "id": "paragraph",
+      "font": "body",
+      "text": "नेपालको राजधानी काठमाडौं उपत्यकामा छ। यहाँ स्वयम्भूनाथ, बौद्धनाथ र पशुपतिनाथ जस्ता विश्व सम्पदा सूचीमा परेका स्थल छन्।",
+      "note": "line wrapping keeps clusters together"
+    }
+  ]
+}

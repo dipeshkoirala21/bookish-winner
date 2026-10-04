@@ -1,0 +1,117 @@
+/* Layout of the Devanagari TextSpike screen (Screens/TextSpike.uxml). Rows: case | live | reference. */
+
+.spike-toolbar {
+    flex-shrink: 1;
+    justify-content: flex-end;
+}
+
+.spike-panel {
+    flex-grow: 1;
+    margin: 0 var(--gh-space-3) var(--gh-space-3) var(--gh-space-3);
+    padding: var(--gh-space-2) var(--gh-space-3);
+}
+
+.spike-device-info,
+.gh-root .spike-device-info {
+    -unity-font-definition: url("../Fonts/Mukta-Medium.ttf");
+    font-size: 22px;
+    color: var(--gh-ink-soft);
+    white-space: normal;
+    margin: 0 0 4px 0;
+}
+
+.spike-instructions,
+.gh-root .spike-instructions {
+    font-size: 24px;
+    color: var(--gh-ink);
+    white-space: normal;
+    margin: 0 0 8px 0;
+}
+
+.spike-list {
+    flex-grow: 1;
+}
+
+.spike-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 64px;
+    padding: 6px 0;
+    border-bottom-width: 2px;
+    border-color: var(--gh-cream-shade);
+}
+
+.spike-row--header {
+    min-height: 40px;
+    border-bottom-width: 3px;
+    border-color: var(--gh-cream-edge);
+}
+
+.spike-header,
+.gh-root .spike-header {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 24px;
+    color: var(--gh-ink-soft);
+    margin: 0;
+}
+
+.spike-meta {
+    width: 360px;
+    flex-shrink: 0;
+    padding-right: 16px;
+}
+
+.spike-id,
+.gh-root .spike-id {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 22px;
+    color: var(--gh-ink);
+    margin: 0;
+}
+
+.spike-note,
+.gh-root .spike-note {
+    font-size: 18px;
+    color: var(--gh-ink-soft);
+    white-space: normal;
+    margin: 0;
+}
+
+/* Live text wraps at 660 - 2*10 - 2*4 = 632 px, the reference renderer wrap width (WRAP_WIDTH_PX in game/Tools/textspike.py). */
+.spike-live,
+.spike-ref-col {
+    width: 660px;
+    flex-shrink: 0;
+    padding: 0 10px;
+}
+
+.spike-sample,
+.gh-root .spike-sample {
+    white-space: normal;
+    color: var(--gh-ink);
+    margin: 0;
+    padding: 4px;
+}
+
+.spike-sample--body,
+.gh-root .spike-sample--body {
+    -unity-font-definition: url("../Fonts/Mukta-Regular.ttf");
+    font-size: 40px;
+}
+
+.spike-sample--display,
+.gh-root .spike-sample--display {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 48px;
+}
+
+.spike-ref {
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: left center;
+}
+
+/* "Standard" toggle: same strings through the legacy generator, to show what breaks without shaping. */
+.spike--standard .spike-sample {
+    -unity-text-generator: standard;
+}

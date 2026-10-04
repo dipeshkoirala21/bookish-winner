@@ -1,0 +1,8 @@
+/*
+ * Runtime theme for Ghumante's PanelSettings (Assets/Ghumante/Settings/UI/GhumantePanelSettings.asset,
+ * created by Ghumante.EditorTools.ProjectSetup). It only pulls in Unity's default runtime theme, which
+ * the built-in controls (ScrollView scrollers, Button states) need for their base layout. Project styles
+ * (UI/Styles/Ghumante.uss) are attached by each screen's UXML <Style> element, so UI Builder previews
+ * and the running game resolve exactly the same rules.
+ */
+@import url("unity-theme://default");

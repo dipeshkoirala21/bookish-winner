@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Main menu mock in the reference style (ARCHITECTURE.md 7.9).
+     Text elements carry their localisation key in binding-path (see UI/Localization/Localizer.cs);
+     the English text attribute is only the UI Builder preview. Decorative children use
+     picking-mode="Ignore" so the Button itself receives the click. -->
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="../Styles/Ghumante.uss" />
+    <ui:VisualElement name="main-menu" class="gh-root gh-screen">
+        <ui:VisualElement class="gh-topbar">
+            <ui:VisualElement name="counters" class="gh-counters">
+                <ui:VisualElement name="counter-hearts" class="gh-counter">
+                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--heart" picking-mode="Ignore" />
+                    <ui:Label name="counter-hearts-value" class="gh-counter__value" text="5" />
+                    <ui:Button name="counter-hearts-add" class="gh-counter__plus" tooltip="Add">
+                        <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
+                    </ui:Button>
+                </ui:VisualElement>
+                <ui:VisualElement name="counter-stars" class="gh-counter">
+                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--star" picking-mode="Ignore" />
+                    <ui:Label name="counter-stars-value" class="gh-counter__value" text="12" />
+                    <ui:Button name="counter-stars-add" class="gh-counter__plus" tooltip="Add">
+                        <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
+                    </ui:Button>
+                </ui:VisualElement>
+                <ui:VisualElement name="counter-coins" class="gh-counter">
+                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--coin" picking-mode="Ignore" />
+                    <ui:Label name="counter-coins-value" class="gh-counter__value" text="1,250" />
+                    <ui:Button name="counter-coins-add" class="gh-counter__plus" tooltip="Add">
+                        <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
+                    </ui:Button>
+                </ui:VisualElement>
+                <ui:VisualElement name="counter-energy" class="gh-counter">
+                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--energy" picking-mode="Ignore" />
+                    <ui:Label name="counter-energy-value" class="gh-counter__value" text="80" />
+                    <ui:Button name="counter-energy-add" class="gh-counter__plus" tooltip="Add">
+                        <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
+                    </ui:Button>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="gh-row">
+                <ui:Button name="language-button" class="gh-icon-btn" tooltip="Language">
+                    <ui:VisualElement class="gh-icon gh-icon--globe" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="settings-button" class="gh-icon-btn" tooltip="Settings">
+                    <ui:VisualElement class="gh-icon gh-icon--gear" picking-mode="Ignore" />
+                </ui:Button>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="gh-center">
+            <ui:VisualElement name="title-ribbon" class="gh-ribbon" picking-mode="Ignore">
+                <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--left" picking-mode="Ignore" />
+                <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
+                <!-- The bilingual brand name is the same in both locales, so it is not a localisation key. -->
+                <ui:Label name="title-latin" class="gh-ribbon__title" text="Ghumante" picking-mode="Ignore" />
+                <ui:Label class="gh-ribbon__separator" text="/" picking-mode="Ignore" />
+                <ui:Label name="title-devanagari" class="gh-ribbon__title" text="घुमन्ते" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:Label name="subtitle" class="gh-subtitle" binding-path="app.subtitle" text="Explore the real Nepal" />
+            <ui:VisualElement class="gh-panel gh-menu-panel">
+                <ui:Button name="explore-button" class="gh-pill gh-pill--large gh-pill--yellow">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="menu.explore" text="Explore" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="map-button" class="gh-pill gh-pill--cyan">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="menu.map" text="Map" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="collections-button" class="gh-pill gh-pill--green">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="menu.collections" text="Collections" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="settings-pill" class="gh-pill gh-pill--white">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="menu.settings" text="Settings" picking-mode="Ignore" />
+                </ui:Button>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="gh-bottombar">
+            <ui:Button name="text-test-button" class="gh-pill gh-pill--small gh-pill--red">
+                <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                <ui:Label class="gh-pill__label" binding-path="menu.text_test" text="Text test" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Label class="gh-attribution" binding-path="attribution.osm" text="Map data © OpenStreetMap contributors" />
+        </ui:VisualElement>
+
+        <ui:Label name="toast" class="gh-toast" text="" picking-mode="Ignore" />
+    </ui:VisualElement>
+</ui:UXML>

@@ -1,0 +1,256 @@
+{
+ "format": "ghumante-qa-index",
+ "version": 1,
+ "region": "sample_thamel",
+ "name": {
+  "en": "Thamel (synthetic sample)",
+  "ne": "ठमेल (नमूना)"
+ },
+ "synthetic": true,
+ "note": "Synthetic sample for the QA viewer: invented features near Thamel, fake OSM ids. Variant: buildings are listed per tile (optional per-tile layer files).",
+ "data_version": 1,
+ "pipeline_version": "sample",
+ "scale_model": "identity",
+ "bbox_lonlat": [
+  85.3022238,
+  27.7109877,
+  85.3231041,
+  27.7204266
+ ],
+ "detail_levels": [
+  9,
+  10
+ ],
+ "horizon_levels": [],
+ "leaf_level": 10,
+ "tiles": [
+  {
+   "level": 9,
+   "tx": 258,
+   "ty": 81,
+   "key": "2594073385365479942",
+   "bounds_lonlat": [
+    85.3022238,
+    27.7109877,
+    85.3232158,
+    27.7296685
+   ],
+   "corners_lonlat": [
+    [
+     85.3022238,
+     27.7111846
+    ],
+    [
+     85.3229926,
+     27.7109877
+    ],
+    [
+     85.3232158,
+     27.7294714
+    ],
+    [
+     85.3024435,
+     27.7296685
+    ]
+   ],
+   "detail": true
+  },
+  {
+   "level": 10,
+   "tx": 516,
+   "ty": 162,
+   "key": "2882303761517414424",
+   "bounds_lonlat": [
+    85.3022238,
+    27.7110866,
+    85.3127189,
+    27.7204266
+   ],
+   "corners_lonlat": [
+    [
+     85.3022238,
+     27.7111846
+    ],
+    [
+     85.3126082,
+     27.7110866
+    ],
+    [
+     85.3127189,
+     27.7203285
+    ],
+    [
+     85.3023336,
+     27.7204266
+    ]
+   ],
+   "detail": true,
+   "hillshade": "hillshade/10/516_162.png",
+   "biome": "biome/10/516_162.png",
+   "counts": {
+    "roads": 17,
+    "trails": 3,
+    "buildings": 731,
+    "areas": 7,
+    "lines": 2,
+    "pois": 28
+   }
+  },
+  {
+   "level": 10,
+   "tx": 517,
+   "ty": 162,
+   "key": "2882303761517414425",
+   "bounds_lonlat": [
+    85.3126082,
+    27.7109877,
+    85.3231041,
+    27.7203285
+   ],
+   "corners_lonlat": [
+    [
+     85.3126082,
+     27.7110866
+    ],
+    [
+     85.3229926,
+     27.7109877
+    ],
+    [
+     85.3231041,
+     27.7202296
+    ],
+    [
+     85.3127189,
+     27.7203285
+    ]
+   ],
+   "detail": true,
+   "hillshade": "hillshade/10/517_162.png",
+   "biome": "biome/10/517_162.png",
+   "counts": {
+    "roads": 16,
+    "trails": 11,
+    "buildings": 64,
+    "areas": 6,
+    "lines": 4,
+    "pois": 20
+   }
+  }
+ ],
+ "layers": {
+  "roads": {
+   "path": "roads.geojson",
+   "count": 33
+  },
+  "trails": {
+   "path": "trails.geojson",
+   "count": 14
+  },
+  "buildings": {
+   "tiles": "buildings/{L}/{tx}_{ty}.geojson",
+   "level": 10,
+   "count": 795
+  },
+  "areas": {
+   "path": "areas.geojson",
+   "count": 13
+  },
+  "lines": {
+   "path": "lines.geojson",
+   "count": 6
+  },
+  "pois": {
+   "path": "pois.geojson",
+   "count": 48
+  },
+  "places": {
+   "path": "places.geojson",
+   "count": 3
+  }
+ },
+ "raster": {
+  "hillshade": {
+   "size": 129,
+   "registration": "vertex",
+   "row0": "north"
+  },
+  "biome": {
+   "size": 65,
+   "registration": "vertex",
+   "row0": "north"
+  }
+ },
+ "biome_palette": {
+  "NONE": "#000000",
+  "WATER": "#4a90d9",
+  "URBAN_DENSE": "#b0a397",
+  "URBAN_GREEN": "#a9c79a",
+  "TERAI_PADDY": "#c8e07a",
+  "TERAI_CROPLAND": "#e2d886",
+  "TERAI_SAL_FOREST": "#3f7f3a",
+  "TERAI_GRASSLAND": "#cfe39a",
+  "RIVERBED_GRAVEL": "#d8cfc0",
+  "CHURE_FOREST": "#5b8f4a",
+  "HILL_TERRACES": "#d9c46a",
+  "HILL_FOREST": "#2f6b3a",
+  "HILL_SCRUB": "#8fae6b",
+  "HILL_GRASSLAND": "#b9d48a",
+  "SUBALPINE_FOREST": "#2c5a4a",
+  "ALPINE_MEADOW": "#a7c98f",
+  "ALPINE_SCRUB": "#8a9f75",
+  "SCREE_ROCK": "#9a9590",
+  "MORAINE": "#b7aea2",
+  "GLACIER": "#d6eef8",
+  "SNOW": "#ffffff",
+  "TRANS_HIMALAYAN_STEPPE": "#d9b98c",
+  "TRANS_HIMALAYAN_CROPLAND": "#c9a86a",
+  "ORCHARD": "#9cc56b",
+  "TEA_GARDEN": "#4f9a4f",
+  "WETLAND": "#7fc6a4",
+  "VALLEY_CROPLAND": "#e6d77a",
+  "BARE_SOIL": "#c9a27e"
+ },
+ "stats": {
+  "roads": 33,
+  "trails": 14,
+  "buildings": 795,
+  "areas": 13,
+  "lines": 6,
+  "pois": 48,
+  "road_km": 17.15,
+  "surface_tagged_pct": 35.7,
+  "surface_source_pct": {
+   "TAGGED": 35.7,
+   "DERIVED": 4.9,
+   "INFERRED": 41.8,
+   "DEFAULT": 17.7
+  },
+  "levels_inferred_pct": 94.3,
+  "archetypes": {
+   "CHORTEN": 1,
+   "CHURCH": 1,
+   "GENERIC": 186,
+   "GOMPA": 1,
+   "GREENHOUSE": 1,
+   "HILL_VILLAGE": 15,
+   "HUT": 1,
+   "INDUSTRIAL": 1,
+   "INSTITUTIONAL": 2,
+   "MODERN_URBAN": 448,
+   "MOSQUE": 1,
+   "NEWAR": 129,
+   "SHERPA_HIMALAYAN": 1,
+   "SHRINE": 1,
+   "STUPA": 1,
+   "TEAHOUSE": 1,
+   "TEMPLE_PAGODA": 1,
+   "TEMPLE_SHIKHARA": 1,
+   "TERAI": 1,
+   "TRANS_HIMALAYAN": 1
+  }
+ },
+ "attribution": [
+  "Synthetic sample data (not OpenStreetMap)"
+ ]
+}

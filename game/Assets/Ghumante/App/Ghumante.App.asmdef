@@ -1,0 +1,27 @@
+{
+    "name": "Ghumante.App",
+    "rootNamespace": "Ghumante.App",
+    "references": [
+        "Ghumante.Core",
+        "Ghumante.World",
+        "Ghumante.Vehicles",
+        "Ghumante.Characters",
+        "Ghumante.Traffic",
+        "Ghumante.Wildlife",
+        "Ghumante.Activities",
+        "Ghumante.Map",
+        "Ghumante.UI",
+        "Ghumante.Save",
+        "Ghumante.Audio",
+        "Ghumante.Platform"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

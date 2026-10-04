@@ -1,0 +1,23 @@
+{
+    "name": "Ghumante.EditorTools",
+    "rootNamespace": "Ghumante.EditorTools",
+    "references": [
+        "Ghumante.Core",
+        "Ghumante.App",
+        "Ghumante.UI",
+        "Ghumante.Platform",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

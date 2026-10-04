@@ -1,0 +1,28 @@
+{
+    "name": "Ghumante.Tests.EditMode",
+    "rootNamespace": "Ghumante.Tests.EditMode",
+    "references": [
+        "Ghumante.Core",
+        "Ghumante.UI",
+        "Ghumante.Platform",
+        "Ghumante.App",
+        "Ghumante.EditorTools",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

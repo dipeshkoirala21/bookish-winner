@@ -1,0 +1,19 @@
+{
+    "name": "Ghumante.Traffic",
+    "rootNamespace": "Ghumante.Traffic",
+    "references": [
+        "Ghumante.Core",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

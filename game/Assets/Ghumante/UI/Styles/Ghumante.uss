@@ -1,0 +1,649 @@
+/*
+ * Ghumante UI style (ARCHITECTURE.md 7.9): cream panels with soft borders, ribbon headers, glossy pill
+ * buttons with a darker bottom edge, round icon buttons and counter pills with a "+".
+ *
+ * Conventions
+ *   - Design tokens are USS custom properties (--gh-*) declared on :root and on .gh-root, so a
+ *     screen cloned into any panel picks them up.
+ *   - Every class is prefixed gh-; BEM-style elements (gh-pill__label) and modifiers (gh-pill--cyan).
+ *   - Text uses UI Toolkit's Advanced Text Generator (-unity-text-generator: advanced) because
+ *     Devanagari needs OpenType shaping (ARCHITECTURE.md P3). "Enable Advanced Text Generator" must also
+ *     be ticked in Project Settings > UI Toolkit; ProjectSetup does that (see UI/README.md).
+ *   - Fonts are referenced as TTF files; UI Toolkit creates dynamic font assets from them, which is what
+ *     the Advanced Text Generator requires (it does not support static font assets).
+ *   - The default runtime theme styles .unity-button / .unity-label with pseudo-state rules such as
+ *     .unity-button:hover:active. Our variants repeat the states so they win on specificity ties
+ *     (this sheet is attached closer to the elements than the theme, so it wins equal-specificity ties).
+ */
+
+:root,
+.gh-root {
+    /* Palette */
+    --gh-cream: #FFF6E3;
+    --gh-cream-shade: #F6E6C4;
+    --gh-cream-edge: #E3C58F;
+    --gh-ink: #5B3714;
+    --gh-ink-soft: #8C6741;
+    --gh-outline: #6A3D10;
+    --gh-sky-top: #7FD3F7;
+    --gh-sky-bottom: #D9F3FF;
+
+    --gh-yellow: #FFCB2E;
+    --gh-yellow-hover: #FFD95C;
+    --gh-yellow-dark: #DB8D12;
+    --gh-cyan: #35C2F1;
+    --gh-cyan-hover: #62D2F6;
+    --gh-cyan-dark: #1781BF;
+    --gh-green: #7BD23E;
+    --gh-green-hover: #97DE66;
+    --gh-green-dark: #4A9620;
+    --gh-white: #FFFFFF;
+    --gh-white-hover: #FFFBF2;
+    --gh-white-dark: #CBBEA6;
+    --gh-red: #FF5B4D;
+    --gh-red-hover: #FF7B6F;
+    --gh-red-dark: #BE3224;
+
+    --gh-ribbon: #E8473C;
+    --gh-ribbon-dark: #A82B22;
+    --gh-counter-bg: rgba(62, 36, 12, 0.55);
+    --gh-gloss: rgba(255, 255, 255, 0.40);
+    --gh-shadow: rgba(70, 35, 0, 0.28);
+
+    /* Shape */
+    --gh-radius-panel: 36px;
+    --gh-radius-pill: 44px;
+    --gh-radius-pill-small: 30px;
+    --gh-pill-height: 88px;
+    --gh-pill-height-small: 60px;
+    --gh-pill-edge: 7px;
+    --gh-icon-button: 96px;
+    --gh-icon-button-small: 72px;
+
+    /* Spacing */
+    --gh-space-1: 8px;
+    --gh-space-2: 16px;
+    --gh-space-3: 24px;
+    --gh-space-4: 32px;
+
+    /* Type */
+    --gh-font-size-small: 22px;
+    --gh-font-size-body: 30px;
+    --gh-font-size-button: 38px;
+    --gh-font-size-button-small: 28px;
+    --gh-font-size-title: 76px;
+}
+
+/* ----- Root and type ---------------------------------------------------------------------------- */
+
+.gh-root {
+    flex-grow: 1;
+    -unity-text-generator: advanced;
+    -unity-font-definition: url("../Fonts/Mukta-Regular.ttf");
+    font-size: var(--gh-font-size-body);
+    color: var(--gh-ink);
+}
+
+/* Theme labels and buttons set their own colour and font; re-assert ours inside a Ghumante tree. */
+.gh-root .unity-label,
+.gh-root .unity-button {
+    -unity-font-definition: url("../Fonts/Mukta-Regular.ttf");
+    color: var(--gh-ink);
+}
+
+.gh-font-display {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+}
+
+.gh-font-display-bold {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+}
+
+.gh-font-body {
+    -unity-font-definition: url("../Fonts/Mukta-Regular.ttf");
+}
+
+.gh-font-body-bold {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+}
+
+.gh-text-small {
+    font-size: var(--gh-font-size-small);
+}
+
+.gh-text-soft {
+    color: var(--gh-ink-soft);
+}
+
+/* Devanagari has tall matras and a headline; it reads better slightly smaller at the same em size. */
+.gh-lang-ne .gh-pill__label {
+    font-size: 34px;
+}
+
+.gh-lang-ne .gh-pill--small .gh-pill__label {
+    font-size: 25px;
+}
+
+/* ----- Screen backgrounds ----------------------------------------------------------------------- */
+
+.gh-screen {
+    flex-grow: 1;
+    background-color: var(--gh-sky-top);
+    background-image: url("../Icons/background-himalaya.png");
+    background-size: cover;
+    background-position: center bottom;
+}
+
+/* ----- Panels ----------------------------------------------------------------------------------- */
+
+.gh-panel {
+    background-color: var(--gh-cream);
+    border-radius: var(--gh-radius-panel);
+    border-width: 4px;
+    border-color: var(--gh-cream-edge);
+    border-bottom-width: 9px;
+    padding: var(--gh-space-4);
+}
+
+.gh-panel--inset {
+    background-color: var(--gh-cream-shade);
+    border-width: 2px;
+    border-bottom-width: 2px;
+    border-radius: 24px;
+    padding: var(--gh-space-2);
+}
+
+/* ----- Ribbon header ---------------------------------------------------------------------------- */
+
+.gh-ribbon {
+    flex-direction: row;
+    align-self: center;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    padding: 6px 72px 14px 72px;
+    margin: 0 64px;
+    background-color: var(--gh-ribbon);
+    border-radius: 18px;
+    border-bottom-width: 10px;
+    border-color: var(--gh-ribbon-dark);
+}
+
+/* Folded tails behind the band, drawn as darker rounded blocks offset down and outwards. */
+.gh-ribbon__tail {
+    position: absolute;
+    top: 30px;
+    width: 96px;
+    height: 100px;
+    background-color: var(--gh-ribbon-dark);
+    border-radius: 14px;
+}
+
+.gh-ribbon__tail--left {
+    left: -64px;
+    rotate: -8deg;
+}
+
+.gh-ribbon__tail--right {
+    right: -64px;
+    rotate: 8deg;
+}
+
+.gh-ribbon__title {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: var(--gh-font-size-title);
+    color: var(--gh-white);
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: var(--gh-ribbon-dark);
+    text-shadow: 0 5px 0 var(--gh-ribbon-dark);
+    margin: 0;
+    padding: 0 10px;
+}
+
+.gh-ribbon__separator {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 54px;
+    color: var(--gh-yellow-dark);
+    margin: 0 4px;
+}
+
+.gh-ribbon--small {
+    min-height: 84px;
+    padding: 4px 48px 10px 48px;
+    margin: 0 40px;
+}
+
+.gh-ribbon--small .gh-ribbon__title {
+    font-size: 44px;
+}
+
+.gh-ribbon--small .gh-ribbon__tail {
+    top: 20px;
+    height: 70px;
+    width: 64px;
+}
+
+.gh-ribbon--small .gh-ribbon__tail--left {
+    left: -40px;
+}
+
+.gh-ribbon--small .gh-ribbon__tail--right {
+    right: -40px;
+}
+
+/* ----- Glossy pill buttons ---------------------------------------------------------------------- */
+
+.gh-pill {
+    height: var(--gh-pill-height);
+    min-width: 300px;
+    margin: 10px 0;
+    padding: 0 44px;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    border-radius: var(--gh-radius-pill);
+    border-width: 3px;
+    border-bottom-width: var(--gh-pill-edge);
+    background-color: var(--gh-yellow);
+    border-color: var(--gh-yellow-dark);
+    transition-property: translate, scale;
+    transition-duration: 0.08s, 0.08s;
+    transition-timing-function: ease-out, ease-out;
+}
+
+/* Pressed: the button sinks onto its darker edge. */
+.gh-pill:active,
+.gh-pill:hover:active {
+    translate: 0 4px;
+    border-bottom-width: 3px;
+}
+
+.gh-pill:disabled {
+    opacity: 0.55;
+}
+
+/* Highlight across the top half; decorative, never receives input (picking-mode="Ignore"). */
+.gh-pill__gloss {
+    position: absolute;
+    top: 6px;
+    left: 18px;
+    right: 18px;
+    height: 38%;
+    border-radius: 30px;
+    background-color: var(--gh-gloss);
+}
+
+.gh-pill__label,
+.gh-root .gh-pill__label {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: var(--gh-font-size-button);
+    color: var(--gh-white);
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1.5px;
+    -unity-text-outline-color: var(--gh-outline);
+    text-shadow: 0 3px 0 var(--gh-shadow);
+    white-space: nowrap;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-pill--large {
+    height: 110px;
+    min-width: 420px;
+    border-radius: 55px;
+    border-bottom-width: 9px;
+}
+
+.gh-pill--large .gh-pill__label {
+    font-size: 48px;
+}
+
+.gh-pill--small {
+    height: var(--gh-pill-height-small);
+    min-width: 160px;
+    padding: 0 26px;
+    margin: 0 6px;
+    border-radius: var(--gh-radius-pill-small);
+    border-bottom-width: 5px;
+}
+
+.gh-pill--small .gh-pill__gloss {
+    top: 4px;
+    left: 12px;
+    right: 12px;
+    border-radius: 20px;
+}
+
+.gh-pill--small .gh-pill__label {
+    font-size: var(--gh-font-size-button-small);
+}
+
+/* Colour variants (states repeated to beat the runtime theme's .unity-button:hover:active). */
+.gh-pill--yellow,
+.gh-pill--yellow:focus,
+.gh-pill--yellow:active,
+.gh-pill--yellow:hover:active {
+    background-color: var(--gh-yellow);
+    border-color: var(--gh-yellow-dark);
+}
+
+.gh-pill--yellow:hover {
+    background-color: var(--gh-yellow-hover);
+    border-color: var(--gh-yellow-dark);
+}
+
+.gh-pill--cyan,
+.gh-pill--cyan:focus,
+.gh-pill--cyan:active,
+.gh-pill--cyan:hover:active {
+    background-color: var(--gh-cyan);
+    border-color: var(--gh-cyan-dark);
+}
+
+.gh-pill--cyan:hover {
+    background-color: var(--gh-cyan-hover);
+    border-color: var(--gh-cyan-dark);
+}
+
+.gh-pill--green,
+.gh-pill--green:focus,
+.gh-pill--green:active,
+.gh-pill--green:hover:active {
+    background-color: var(--gh-green);
+    border-color: var(--gh-green-dark);
+}
+
+.gh-pill--green:hover {
+    background-color: var(--gh-green-hover);
+    border-color: var(--gh-green-dark);
+}
+
+.gh-pill--red,
+.gh-pill--red:focus,
+.gh-pill--red:active,
+.gh-pill--red:hover:active {
+    background-color: var(--gh-red);
+    border-color: var(--gh-red-dark);
+}
+
+.gh-pill--red:hover {
+    background-color: var(--gh-red-hover);
+    border-color: var(--gh-red-dark);
+}
+
+.gh-pill--white,
+.gh-pill--white:focus,
+.gh-pill--white:active,
+.gh-pill--white:hover:active {
+    background-color: var(--gh-white);
+    border-color: var(--gh-white-dark);
+}
+
+.gh-pill--white:hover {
+    background-color: var(--gh-white-hover);
+    border-color: var(--gh-white-dark);
+}
+
+/* White pills carry dark text. */
+.gh-pill--white .gh-pill__label {
+    color: var(--gh-ink);
+    -unity-text-outline-width: 0;
+    text-shadow: 0 2px 0 var(--gh-cream-edge);
+}
+
+/* ----- Round icon buttons ----------------------------------------------------------------------- */
+
+.gh-icon-btn,
+.gh-icon-btn:focus,
+.gh-icon-btn:active,
+.gh-icon-btn:hover:active {
+    width: var(--gh-icon-button);
+    height: var(--gh-icon-button);
+    min-width: var(--gh-icon-button);
+    border-radius: 48px;
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-white-dark);
+    background-color: var(--gh-white);
+    margin: 6px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-icon-btn:hover {
+    background-color: var(--gh-white-hover);
+    border-color: var(--gh-white-dark);
+}
+
+.gh-icon-btn:active,
+.gh-icon-btn:hover:active {
+    translate: 0 4px;
+    border-bottom-width: 3px;
+}
+
+.gh-icon-btn--small,
+.gh-icon-btn--small:focus,
+.gh-icon-btn--small:active,
+.gh-icon-btn--small:hover:active {
+    width: var(--gh-icon-button-small);
+    height: var(--gh-icon-button-small);
+    min-width: var(--gh-icon-button-small);
+    border-radius: 36px;
+    border-bottom-width: 6px;
+}
+
+.gh-icon-btn__glyph {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 40px;
+    color: var(--gh-ink);
+    -unity-text-align: middle-center;
+    margin: 0;
+    padding: 0;
+}
+
+/* ----- Icons (PNG, generated by game/Tools/make_ui_art.py) -------------------------------------- */
+
+.gh-icon {
+    width: 64px;
+    height: 64px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    flex-shrink: 0;
+}
+
+.gh-icon--small {
+    width: 44px;
+    height: 44px;
+}
+
+.gh-icon--heart {
+    background-image: url("../Icons/heart.png");
+}
+
+.gh-icon--star {
+    background-image: url("../Icons/star.png");
+}
+
+.gh-icon--coin {
+    background-image: url("../Icons/coin.png");
+}
+
+.gh-icon--energy {
+    background-image: url("../Icons/energy.png");
+}
+
+.gh-icon--gear {
+    background-image: url("../Icons/gear.png");
+}
+
+.gh-icon--globe {
+    background-image: url("../Icons/globe.png");
+}
+
+.gh-icon--back {
+    background-image: url("../Icons/back.png");
+}
+
+.gh-icon--map {
+    background-image: url("../Icons/map.png");
+}
+
+/* ----- Counter pills (hearts, stars, coins, energy) --------------------------------------------- */
+
+.gh-counters {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.gh-counter {
+    flex-direction: row;
+    align-items: center;
+    height: 60px;
+    min-width: 190px;
+    margin: 8px 18px 8px 34px;
+    padding: 0 6px 0 48px;
+    border-radius: 30px;
+    background-color: var(--gh-counter-bg);
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* The icon overhangs the pill on the left, like the reference. */
+.gh-counter__icon {
+    position: absolute;
+    left: -34px;
+    top: -8px;
+    width: 72px;
+    height: 72px;
+}
+
+.gh-counter__value,
+.gh-root .gh-counter__value {
+    flex-grow: 1;
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 34px;
+    color: var(--gh-white);
+    -unity-text-align: middle-left;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: var(--gh-outline);
+    margin: 0 10px 0 0;
+    padding: 0;
+}
+
+.gh-counter__plus,
+.gh-counter__plus:focus,
+.gh-counter__plus:active,
+.gh-counter__plus:hover:active {
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    margin: 0;
+    padding: 0;
+    border-radius: 23px;
+    border-width: 2px;
+    border-bottom-width: 4px;
+    background-color: var(--gh-green);
+    border-color: var(--gh-green-dark);
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-counter__plus:hover {
+    background-color: var(--gh-green-hover);
+    border-color: var(--gh-green-dark);
+}
+
+.gh-counter__plus-label,
+.gh-root .gh-counter__plus-label {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 36px;
+    color: var(--gh-white);
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: var(--gh-green-dark);
+    margin: -4px 0 0 0;
+    padding: 0;
+}
+
+/* ----- Layout helpers --------------------------------------------------------------------------- */
+
+.gh-topbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--gh-space-2) var(--gh-space-3);
+}
+
+.gh-bottombar {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: var(--gh-space-2) var(--gh-space-3);
+}
+
+.gh-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.gh-grow {
+    flex-grow: 1;
+}
+
+.gh-center {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-subtitle,
+.gh-root .gh-subtitle {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 40px;
+    color: var(--gh-white);
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1.5px;
+    -unity-text-outline-color: var(--gh-cyan-dark);
+    margin: 22px 0 18px 0;
+}
+
+.gh-attribution,
+.gh-root .gh-attribution {
+    font-size: 20px;
+    color: var(--gh-ink);
+    background-color: rgba(255, 246, 227, 0.75);
+    border-radius: 10px;
+    padding: 2px 10px;
+}
+
+/* ----- Main menu -------------------------------------------------------------------------------- */
+
+.gh-menu-panel {
+    margin-top: 12px;
+    min-width: 520px;
+    align-items: stretch;
+}
+
+/* ----- Toast (short notices such as "coming in M1") --------------------------------------------- */
+
+.gh-toast,
+.gh-root .gh-toast {
+    position: absolute;
+    bottom: 140px;
+    align-self: center;
+    padding: 10px 28px;
+    border-radius: 26px;
+    background-color: rgba(62, 36, 12, 0.85);
+    color: var(--gh-white);
+    font-size: 28px;
+    opacity: 0;
+    transition-property: opacity;
+    transition-duration: 0.25s;
+}
+
+.gh-toast--visible {
+    opacity: 1;
+}

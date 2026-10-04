@@ -1,0 +1,17 @@
+{
+    "name": "Ghumante.Vehicles",
+    "rootNamespace": "Ghumante.Vehicles",
+    "references": [
+        "Ghumante.Core",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ghumante QA viewer</title>
+  <meta name="description" content="Developer-only QA viewer for Ghumante region pack exports (docs/ARCHITECTURE.md 6.5).">
+  <!-- Leaflet 1.9.4 from cdnjs. These files are byte-identical to the official
+       unpkg dist (the sha256 values Leaflet publishes match). SRI sha384 computed from the files. -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+        crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar" aria-label="QA viewer controls">
+    <header class="sb-header">
+      <div class="title-row">
+        <h1>Ghumante QA</h1>
+        <button id="sidebar-collapse" class="icon-btn" type="button" title="Hide panel" aria-label="Hide panel">&#x2039;</button>
+      </div>
+      <div id="dataset-line">
+        <span id="dataset-name">loading…</span>
+        <select id="dataset-select" hidden aria-label="Dataset"></select>
+      </div>
+      <div id="banner" hidden></div>
+    </header>
+
+    <section class="sb-section" id="search-section">
+      <div class="search-wrap">
+        <input id="search" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Search names, OSM id, 10/516/162, lat,lon" aria-label="Search">
+        <ul id="search-results" role="listbox" hidden></ul>
+      </div>
+    </section>
+
+    <section class="sb-section">
+      <h2>Basemap</h2>
+      <div class="row" id="basemap-choices" role="radiogroup" aria-label="Basemap"></div>
+      <label class="row slider">opacity <input id="basemap-opacity" type="range" min="0" max="100" value="80"><output id="basemap-opacity-out">80%</output></label>
+    </section>
+
+    <section class="sb-section">
+      <h2>Layers</h2>
+      <ul id="layer-list" class="layer-list"></ul>
+    </section>
+
+    <section class="sb-section">
+      <h2>Styling</h2>
+      <label class="row">Roads &amp; trails
+        <select id="road-mode">
+          <option value="source">by surface_source</option>
+          <option value="surface">by surface</option>
+          <option value="class">by class</option>
+          <option value="sac">by sac_scale (trails)</option>
+        </select>
+      </label>
+      <label class="row">Buildings
+        <select id="building-mode">
+          <option value="archetype">by archetype</option>
+          <option value="levels">by levels</option>
+          <option value="levels_source">levels tagged / inferred</option>
+        </select>
+      </label>
+      <label class="row slider">hillshade <input id="hillshade-opacity" type="range" min="0" max="100" value="60"><output id="hillshade-opacity-out">60%</output></label>
+      <label class="row slider">biome <input id="biome-opacity" type="range" min="0" max="100" value="55"><output id="biome-opacity-out">55%</output></label>
+      <label class="row">Tile grid level <select id="grid-level"></select></label>
+    </section>
+
+    <section class="sb-section">
+      <h2>Legend <span class="hint">click an entry to hide/show it</span></h2>
+      <div id="legend"></div>
+    </section>
+
+    <section class="sb-section">
+      <h2>Stats</h2>
+      <div id="stats"></div>
+    </section>
+  </aside>
+
+  <main id="map-wrap">
+    <button id="sidebar-expand" class="icon-btn" type="button" title="Show panel" aria-label="Show panel" hidden>&#x203A;</button>
+    <div id="map" aria-label="Map"></div>
+    <aside id="inspector" hidden aria-label="Inspector">
+      <header>
+        <h2 id="inspector-title">Inspector</h2>
+        <button id="inspector-close" class="icon-btn" type="button" title="Close" aria-label="Close">&#x2715;</button>
+      </header>
+      <div id="inspector-body"></div>
+    </aside>
+    <footer id="statusbar">
+      <span id="cursor">&nbsp;</span>
+      <span id="status"></span>
+    </footer>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="app.js"></script>
+</body>
+</html>
