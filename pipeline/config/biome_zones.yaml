@@ -1,0 +1,80 @@
+# Biome zones: coarse, hand-drawn lon/lat (WGS84) polygons that switch biome
+# rules on or off (ghumante_pipeline/biomes.py). They are APPROXIMATE: drawn
+# from general geography and checked against known places (see
+# tests/test_biomes.py) and, where noted, against the Copernicus DEM. They are
+# not survey boundaries. Edges may run into India or Tibet where the same
+# landscape continues. Elevation rules in classify() back them up; for example
+# everything below 300 m gets Terai rules whatever its zone.
+#
+# Each zone `id` must be a member of biomes.Zone (lower case), and `code` its
+# value. Polygons are rings of [lon, lat] (they need not be closed). Where
+# zones overlap, the later entry in this file wins.
+version: 1
+zones:
+  # Southern lowland belt (Terai/Madhesh) north to the foot of the Chure
+  # (Siwalik) hills. The north edge between 85 and 86 E follows the 300 m
+  # contour of the DEM; elsewhere it follows the mountain front through
+  # Mahendranagar, Chisapani (Karnali), Kohalpur, Butwal, Amlekhganj, Bardibas
+  # and Dharan. The inner-Terai valleys (Chitwan, Dang, Deukhuri) lie north of
+  # the Chure and are left out; the elevation rule covers Chitwan.
+  - id: terai
+    code: 1
+    polygons:
+      - [[79.90, 29.10], [80.30, 29.06], [80.60, 28.90], [81.00, 28.74], [81.25, 28.63],
+         [81.50, 28.48], [81.75, 28.27], [82.05, 28.08], [82.30, 27.88], [82.75, 27.72],
+         [83.10, 27.68], [83.45, 27.69], [83.80, 27.60], [84.10, 27.48], [84.60, 27.31],
+         [85.00, 27.27], [85.20, 27.22], [85.40, 27.17], [85.60, 27.12], [85.80, 27.07],
+         [86.00, 26.97], [86.40, 26.85], [86.80, 26.83], [87.15, 26.82], [87.30, 26.80],
+         [87.70, 26.73], [88.30, 26.72], [88.30, 26.00], [84.00, 26.00], [79.90, 28.30]]
+
+  # Rain-shadow country north of the main Himalayan crest: steppe, bare
+  # hillsides, irrigated barley fields, flat-roofed villages.
+  - id: trans_himalaya
+    code: 2
+    polygons:
+      # Upper Mustang (from Kagbeni and Muktinath north; Jomsom and Marpha
+      # excluded), the Thorong La, upper Manang (Manang, Braga, Khangsar; Pisang
+      # excluded) and Nar-Phu.
+      - [[83.60, 28.86], [83.70, 28.82], [83.90, 28.80], [83.93, 28.70], [83.88, 28.67],
+         [83.93, 28.645], [84.10, 28.645], [84.20, 28.67], [84.40, 28.75], [84.50, 29.00],
+         [84.40, 29.60], [83.50, 29.60], [83.50, 28.95]]
+      # Upper Dolpo (north of Phoksundo lake, Tarap, Saldang, Shey) and upper Mugu.
+      # Lower Dolpo (Dunai) is excluded.
+      - [[82.80, 29.28], [82.98, 29.24], [83.00, 28.95], [83.30, 28.90], [83.55, 28.88],
+         [83.55, 29.60], [82.60, 30.00], [82.45, 29.80]]
+      # Upper Humla and the Limi valley north of Simikot, plus adjacent Tibet.
+      - [[81.00, 30.15], [81.70, 30.05], [82.20, 30.02], [82.60, 30.00], [82.60, 31.00],
+         [81.00, 31.00]]
+      # Tibetan plateau north of the border from Mustang to Kangchenjunga, so
+      # horizon tiles that look into Tibet get steppe. Kept north of the deep,
+      # forested gorges (Kyirong, Zhangmu); Rongbuk is inside.
+      - [[84.40, 29.00], [85.00, 28.75], [85.90, 28.50], [85.98, 28.15], [86.50, 28.15],
+         [87.50, 28.15], [88.40, 28.10], [88.40, 30.00], [84.40, 30.00]]
+
+  # Kathmandu valley floor, about 1250-1430 m. Traced from the Copernicus DEM:
+  # the 1430 m contour of the smoothed DEM, cut at 27.615 N where the Bagmati
+  # gorge leaves the valley, opened to drop narrow fingers, then simplified to
+  # about 0.5 km. Includes Kathmandu, Patan, Bhaktapur, Kirtipur, Thimi and
+  # Tokha; excludes Budhanilkantha, Godawari, Pharping and the valley rim.
+  - id: kathmandu_valley_floor
+    code: 3
+    polygons:
+      - [[85.21, 27.7], [85.213, 27.706], [85.232, 27.708], [85.255, 27.701], [85.236, 27.731],
+         [85.247, 27.732], [85.266, 27.721], [85.278, 27.73], [85.28, 27.742], [85.293, 27.742],
+         [85.274, 27.756], [85.279, 27.777], [85.326, 27.799], [85.343, 27.778], [85.37, 27.776],
+         [85.369, 27.766], [85.379, 27.761], [85.378, 27.749], [85.39, 27.767], [85.413, 27.758],
+         [85.426, 27.764], [85.45, 27.751], [85.456, 27.739], [85.473, 27.74], [85.475, 27.726],
+         [85.485, 27.721], [85.481, 27.714], [85.431, 27.717], [85.427, 27.717], [85.427, 27.715],
+         [85.452, 27.706], [85.477, 27.707], [85.489, 27.661], [85.467, 27.642], [85.44, 27.647],
+         [85.431, 27.642], [85.422, 27.653], [85.417, 27.656], [85.421, 27.644], [85.396, 27.636],
+         [85.393, 27.626], [85.369, 27.626], [85.371, 27.618], [85.365, 27.613], [85.32, 27.618],
+         [85.315, 27.613], [85.283, 27.613], [85.279, 27.618], [85.285, 27.627], [85.268, 27.652]]
+
+  # Sherpa Khumbu and Pharak: the upper Dudh Koshi valleys from Lukla north to
+  # Everest Base Camp, Gokyo and Thame. Stone-walled potato terraces and
+  # Sherpa villages.
+  - id: khumbu_sherpa
+    code: 4
+    polygons:
+      - [[86.55, 27.62], [86.82, 27.62], [86.98, 27.80], [87.02, 27.98], [86.92, 28.05],
+         [86.60, 28.10], [86.50, 27.90]]
