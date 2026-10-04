@@ -2,7 +2,7 @@
 """Generate the Devanagari TextSpike screen and its HarfBuzz reference images (ARCHITECTURE.md P3).
 
     python game/Tools/textspike.py           # regenerate
-    python game/Tools/textspike.py --check   # exit 1 if the committed files are out of date
+    python game/Tools/textspike.py --check   # exit 1 if the UXML is stale or a reference image is missing
 
 Source of truth: game/Tools/textspike_cases.json (id, font, text, note).
 Outputs (all under game/Assets/Ghumante/UI/):
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import re
 import sys
 import tempfile
 import unicodedata
@@ -120,7 +121,7 @@ def build(out_root: Path) -> dict[Path, bytes]:
     <Style src="../Styles/Ghumante.uss" />
     <Style src="../TextSpike/TextSpike.uss" />
     <Style src="../TextSpike/TextSpikeReference.uss" />
-    <ui:VisualElement name="text-spike" class="gh-root gh-screen spike">
+    <ui:VisualElement name="text-spike" class="gh-root gh-screen">
         <ui:VisualElement class="gh-topbar">
             <ui:Button name="back-button" class="gh-icon-btn gh-icon-btn--small">
                 <ui:VisualElement class="gh-icon gh-icon--small gh-icon--back" picking-mode="Ignore" />
@@ -173,7 +174,18 @@ def main() -> int:
         return 2
     files = build(UI)
     if args.check:
-        stale = [p for p, data in files.items() if not p.exists() or p.read_bytes() != data]
+        # The UXML must match byte for byte. PNG pixels (and the sizes in the generated USS) depend on the
+        # FreeType/HarfBuzz build inside Pillow, so for those only presence is checked.
+        def stale_file(p: Path, data: bytes) -> bool:
+            if not p.exists():
+                return True
+            if p.suffix == ".uxml":
+                return p.read_bytes() != data
+            if p.suffix == ".uss":
+                current = p.read_text(encoding="utf-8")
+                return any(f".spike-ref--{c} {{" not in current for c in re.findall(r"\.spike-ref--([\w-]+) \{", data.decode()))
+            return False
+        stale = [p for p, data in files.items() if stale_file(p, data)]
         refs = UI / "TextSpike" / "Reference"
         extra = [p for p in refs.glob("*.png") if p not in files] if refs.exists() else []
         for p in stale:

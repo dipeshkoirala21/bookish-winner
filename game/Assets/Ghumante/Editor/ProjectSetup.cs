@@ -26,9 +26,10 @@ namespace Ghumante.EditorTools
     ///   batch     Unity -batchmode -quit -projectPath game -executeMethod Ghumante.EditorTools.ProjectSetup.ApplyFromCommandLine
     ///   builds    BuildScript runs <see cref="Apply"/> before every build.
     ///
-    /// Environment:
-    ///   GHUMANTE_BUNDLE_ID   application id for Android and iOS (default com.ghumante.game, a placeholder)
-    ///   APPLE_TEAM_ID        optional; written to the iOS player settings when present
+    /// Environment (or the equivalent command-line flag, for GameCI, which does not forward environment):
+    ///   GHUMANTE_BUNDLE_ID / -ghumanteBundleId   application id for Android and iOS (default
+    ///                                            com.ghumante.game, a placeholder)
+    ///   APPLE_TEAM_ID / -appleTeamId             optional; written to the iOS player settings
     /// </summary>
     public static class ProjectSetup
     {
@@ -165,13 +166,10 @@ namespace Ghumante.EditorTools
             AssetDatabase.SaveAssets();
         }
 
+        /// <summary>GHUMANTE_BUNDLE_ID, else -ghumanteBundleId (GameCI customParameters), else the placeholder.</summary>
         public static string BundleId
         {
-            get
-            {
-                string fromEnv = Environment.GetEnvironmentVariable(BundleIdEnvironmentVariable);
-                return string.IsNullOrWhiteSpace(fromEnv) ? DefaultBundleId : fromEnv.Trim();
-            }
+            get { return CommandLineArgs.FromEnvironmentOrArgs(BundleIdEnvironmentVariable, "ghumanteBundleId", DefaultBundleId); }
         }
 
         // ----- Player settings ---------------------------------------------------------------------
@@ -230,7 +228,7 @@ namespace Ghumante.EditorTools
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.iOS, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.iOS, new[] { GraphicsDeviceType.Metal });
 
-            string teamId = Environment.GetEnvironmentVariable("APPLE_TEAM_ID");
+            string teamId = CommandLineArgs.FromEnvironmentOrArgs("APPLE_TEAM_ID", "appleTeamId", null);
             if (!string.IsNullOrWhiteSpace(teamId))
             {
                 PlayerSettings.iOS.appleDeveloperTeamID = teamId.Trim();

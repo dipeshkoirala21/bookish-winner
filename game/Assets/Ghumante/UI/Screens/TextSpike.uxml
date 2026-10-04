@@ -5,7 +5,7 @@
     <Style src="../Styles/Ghumante.uss" />
     <Style src="../TextSpike/TextSpike.uss" />
     <Style src="../TextSpike/TextSpikeReference.uss" />
-    <ui:VisualElement name="text-spike" class="gh-root gh-screen spike">
+    <ui:VisualElement name="text-spike" class="gh-root gh-screen">
         <ui:VisualElement class="gh-topbar">
             <ui:Button name="back-button" class="gh-icon-btn gh-icon-btn--small">
                 <ui:VisualElement class="gh-icon gh-icon--small gh-icon--back" picking-mode="Ignore" />

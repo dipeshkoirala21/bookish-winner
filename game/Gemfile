@@ -1,0 +1,4 @@
+# fastlane for store uploads (game/fastlane/Fastfile). CI: ruby/setup-ruby with bundler-cache, run from game/.
+source "https://rubygems.org"
+
+gem "fastlane", "~> 2.240"

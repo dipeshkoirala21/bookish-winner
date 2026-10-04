@@ -22,13 +22,20 @@ python3 "$HERE/generate.py"
 cd "$HERE/generated"
 "$DOTNET" new sln -n CompileCheck --force >/dev/null
 "$DOTNET" sln CompileCheck.sln add ./*/*.csproj >/dev/null
+expected=$(ls ./*/*.csproj | wc -l)
+actual=$("$DOTNET" sln CompileCheck.sln list | grep -c '\.csproj$' || true)
+if [[ "$expected" -ne "$actual" ]]; then
+  echo "compile check: only $actual of $expected generated projects could be loaded" >&2
+  exit 1
+fi
 
 EXTRA=()
 if [[ $AUDIT -eq 1 ]]; then
-  INDEX="$HERE/.cache/unity-api-index.json"
+  INDEX="$HERE/.cache/unity-api-index.tsv"
   "$HERE/audit/fetch_reference_sources.sh" "$HERE/.cache"
   "$DOTNET" run --project "$HERE/audit/Indexer/Indexer.csproj" -c Release -- \
       "$INDEX" "$HERE/.cache/UnityCsReference" "$HERE/.cache/Graphics/Packages"
+  "$DOTNET" build "$HERE/audit/Analyzer/Analyzer.csproj" -c Release -nologo -v q
   EXTRA=(-p:UnityApiIndex="$INDEX")
 fi
 
@@ -41,5 +48,5 @@ for platform in UNITY_ANDROID UNITY_IOS; do
   fi
 done
 
-python3 "$HERE/check_uss.py" || status=1
+python3 "$HERE/check_ui.py" || status=1
 exit $status

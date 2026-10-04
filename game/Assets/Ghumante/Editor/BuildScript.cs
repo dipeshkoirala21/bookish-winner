@@ -33,11 +33,6 @@ namespace Ghumante.EditorTools
         public const string DefaultIosPath = "Builds/iOS";
         private const string KeystoreFromEnvPath = "Temp/ghumante-upload.keystore";
 
-        private static readonly HashSet<string> SecretArgs = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "androidKeystorePass", "androidKeyaliasName", "androidKeyaliasPass",
-        };
-
         [MenuItem("Ghumante/Build/Android App Bundle", priority = 100)]
         public static void BuildAndroidFromMenu()
         {
@@ -273,23 +268,10 @@ namespace Ghumante.EditorTools
 
         // ----- Arguments -------------------------------------------------------------------------------
 
-        /// <summary>
-        /// Parses "-flag value" pairs. A flag followed by another flag (or nothing) gets an empty value.
-        /// Values may legitimately start with '-' only if quoted by the caller; GameCI never does that.
-        /// </summary>
+        /// <summary>Parses "-flag value" pairs (see <see cref="CommandLineArgs.Parse"/>), logging them with secrets masked.</summary>
         public static Dictionary<string, string> ParseArgs(string[] argv)
         {
-            var result = new Dictionary<string, string>(StringComparer.Ordinal);
-            for (int i = 0; i < argv.Length; i++)
-            {
-                string a = argv[i];
-                if (a.Length < 2 || a[0] != '-') continue;
-                string key = a.TrimStart('-');
-                string value = i + 1 < argv.Length && (argv[i + 1].Length == 0 || argv[i + 1][0] != '-') ? argv[++i] : "";
-                result[key] = value;
-                Console.WriteLine("BuildScript: -" + key + " " + (SecretArgs.Contains(key) ? "*****" : "\"" + value + "\""));
-            }
-            return result;
+            return CommandLineArgs.Parse(argv, log: true);
         }
 
         private static string Get(Dictionary<string, string> args, string key)

@@ -1,0 +1,176 @@
+# Nightly data build (ARCHITECTURE.md 6.4): re-fetch the sources, publish the OSM tag coverage report
+# and the landmark check, build the region pack, and keep everything as artifacts for 14 days.
+# Uploading to the staging CDN is a later step (needs CDN credentials; see docs/CI_SECRETS.md).
+name: nightly-data
+
+on:
+  schedule:
+    - cron: "15 2 * * *" # 02:15 UTC (08:00 in Nepal)
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Region id from pipeline/config/regions.yaml"
+        type: string
+        default: kathmandu_valley
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-data
+  cancel-in-progress: false
+
+env:
+  REGION: ${{ inputs.region || 'kathmandu_valley' }}
+  RAW: pipeline/data/raw
+  OUT: nightly
+
+jobs:
+  build:
+    name: Fetch, report, build ${{ inputs.region || 'kathmandu_valley' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/pyproject.toml
+
+      - name: Install pipeline
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "pipeline[dev]"
+          mkdir -p "$OUT/reports" "$OUT/pack"
+
+      # Elevation and land cover change rarely (and are large); OSM is re-fetched every night.
+      - name: Cache DEM and WorldCover tiles
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.RAW }}/dem
+            ${{ env.RAW }}/worldcover
+          key: rasters-v1-${{ hashFiles('pipeline/config/sources.yaml', 'pipeline/config/regions.yaml') }}
+
+      - name: Fetch sources
+        run: |
+          if [ ! -f pipeline/fetch.py ]; then
+            echo "::error title=Missing CLI::pipeline/fetch.py does not exist yet (ARCHITECTURE.md 12)."
+            exit 1
+          fi
+          python pipeline/fetch.py --region "$REGION"
+          ls -la "$RAW" "$RAW/osm" || true
+
+      - name: OSM tag coverage report
+        run: |
+          python -m ghumante_pipeline.coverage \
+            --pbf "$RAW/osm/nepal.osm.pbf" \
+            --out "$OUT/reports" \
+            --source-label "nightly ${GITHUB_RUN_ID} $(date -u +%Y-%m-%d)"
+
+      - name: Landmark check
+        run: |
+          python -m ghumante_pipeline.landmarks \
+            --pbf "$RAW/osm/nepal.osm.pbf" \
+            --json "$OUT/reports/landmarks.resolved.json" \
+            --md "$OUT/reports/landmarks.md" > /dev/null
+
+      - name: Build region pack
+        run: |
+          if [ ! -f pipeline/build.py ]; then
+            echo "::error title=Missing CLI::pipeline/build.py does not exist yet (ARCHITECTURE.md 12)."
+            exit 1
+          fi
+          python pipeline/build.py --region "$REGION"
+
+      - name: Collect pack, manifest and lock file
+        run: |
+          find pipeline/build -type f \( -name "${REGION}*.ghpk" -o -name "${REGION}*.ghsi" \
+               -o -name "${REGION}*.ghrg" -o -name "${REGION}*.manifest.json" \) -exec cp -v {} "$OUT/pack/" \;
+          if [ -f "$RAW/SOURCES.lock.json" ]; then cp -v "$RAW/SOURCES.lock.json" "$OUT/reports/"; fi
+          if ! ls "$OUT/pack/"*.ghpk > /dev/null 2>&1; then
+            echo "::error title=No region pack::build.py finished but no ${REGION}*.ghpk was found under pipeline/build"
+            exit 1
+          fi
+
+      - name: Upload region pack
+        uses: actions/upload-artifact@v7
+        with:
+          name: region-pack-${{ env.REGION }}-${{ github.run_number }}
+          path: ${{ env.OUT }}/pack
+          retention-days: 14
+          compression-level: 0 # tiles are already DEFLATE-compressed
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: data-reports-${{ github.run_number }}
+          path: ${{ env.OUT }}/reports
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Job summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          from pathlib import Path
+
+          out, region = Path(os.environ["OUT"]), os.environ["REGION"]
+
+          def load(path):
+              try:
+                  return json.loads(Path(path).read_text(encoding="utf-8"))
+              except (OSError, ValueError):
+                  return None
+
+          print(f"## Nightly data: `{region}`\n")
+          manifests = sorted((out / "pack").glob("*.manifest.json"))
+          m = load(manifests[0]) if manifests else None
+          if m:
+              print("### Region pack\n")
+              print("| | |\n|---|---|")
+              for k in ("data_version", "pipeline_version", "built_at", "scale_model"):
+                  print(f"| {k} | {m.get(k, '')} |")
+              osm = (m.get("sources") or {}).get("osm") or {}
+              print(f"| OSM snapshot | {osm.get('timestamp', '?')} (md5 {str(osm.get('md5', '?'))[:12]}) |")
+              for f in m.get("files", []):
+                  print(f"| {f.get('path')} | {f.get('bytes', 0) / 1048576:.1f} MB |")
+              tiles = m.get("tile_counts") or {}
+              print(f"| tiles | {sum(tiles.values())} ({', '.join(f'L{k}: {v}' for k, v in sorted(tiles.items(), key=lambda kv: int(kv[0])))}) |")
+              for k, v in (m.get("stats") or {}).items():
+                  print(f"| {k} | {v} |")
+              print()
+          else:
+              print("_No manifest: the build did not finish._\n")
+
+          cov = load(out / "reports" / "tag_coverage.json")
+          prev = load("docs/reports/tag_coverage.json")
+          if cov:
+              print("### OSM tag coverage (Nepal) vs committed report\n")
+              print("| metric | tonight | committed | change |\n|---|---|---|---|")
+              def roads(c, tag):
+                  try:
+                      return c["scopes"]["nepal"]["roads"]["_all"]["tag_pct_by_count"][tag]
+                  except (KeyError, TypeError):
+                      return None
+              rows = [(f"roads with {t} (%)", roads(cov, t), roads(prev, t)) for t in ("surface", "name", "name:ne", "lanes")]
+              rows += [(f"{k}", (cov.get("totals") or {}).get(k), ((prev or {}).get("totals") or {}).get(k))
+                       for k in ("tagged_ways", "tagged_nodes", "tagged_relations")]
+              for name, now, before in rows:
+                  delta = f"{now - before:+.2f}" if isinstance(now, (int, float)) and isinstance(before, (int, float)) else ""
+                  print(f"| {name} | {now} | {before} | {delta} |")
+              print(f"\nOSM data up to {cov.get('data_max_timestamp', '?')}; scan took {cov.get('scan_seconds', 0):.0f} s.\n")
+
+          lms = load(out / "reports" / "landmarks.resolved.json")
+          if isinstance(lms, list):
+              found = [l for l in lms if l.get("status") == "found"]
+              other = [l for l in lms if l.get("status") != "found"]
+              print(f"### Landmarks\n\n{len(found)} of {len(lms)} resolved in OSM.")
+              if other:
+                  print("\nNot resolved: " + ", ".join(f"`{l.get('id')}` ({l.get('status')})" for l in other))
+              print()
+          PY

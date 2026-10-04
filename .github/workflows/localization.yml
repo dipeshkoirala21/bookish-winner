@@ -1,0 +1,57 @@
+# UI text: string tables (en/ne) complete and consistent, fonts cover Devanagari and shape it,
+# TextSpike screen in sync with its cases, UXML/USS valid for Unity 6.3. No Unity licence needed.
+name: localization
+
+on:
+  push:
+    paths:
+      - "game/Assets/Ghumante/**"
+      - "game/Tools/**"
+      - "tools/check_localization.py"
+      - "tools/unity-compile-check/check_ui.py"
+      - ".github/workflows/localization.yml"
+  pull_request:
+    paths:
+      - "game/Assets/Ghumante/**"
+      - "game/Tools/**"
+      - "tools/check_localization.py"
+      - "tools/unity-compile-check/check_ui.py"
+      - ".github/workflows/localization.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localization-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: string tables, fonts, UI assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: String tables (keys missing in either language fail)
+        run: python tools/check_localization.py
+
+      - name: Install font and shaping tools
+        run: |
+          # Pillow's wheel bundles HarfBuzz/FreeType and loads FriBiDi from the system for libraqm.
+          sudo apt-get install -y --no-install-recommends libfribidi0 || true
+          python -m pip install "fonttools==4.66.1" "uharfbuzz==0.56.2" "pillow==12.3.0"
+
+      - name: Fonts are valid, OFL-licensed and shape Devanagari
+        run: python game/Tools/fonts.py verify
+
+      - name: TextSpike screen matches its cases
+        run: python game/Tools/textspike.py --check
+
+      - name: UXML/USS valid for Unity 6.3
+        run: python tools/unity-compile-check/check_ui.py

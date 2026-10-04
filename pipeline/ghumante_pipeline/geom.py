@@ -9,17 +9,23 @@ crosses a tile border is clipped in *both* tiles, and the two meshes must meet
 exactly (docs/DATA_FORMATS.md section 1.4). Three rules make that hold:
 
 * **Closed boxes.** A vertex lying exactly on a border is inside both tiles.
-* **Exact decisions.** Whether a segment enters, leaves or misses a box, and
-  through which border line, is decided with exact rational arithmetic on the
-  float64 inputs (``fractions.Fraction``). Two tiles therefore never disagree
-  on topology, even for a segment passing within an ulp of a tile corner.
+* **Shared decisions.** The parameter at which segment ``a -> b`` crosses a
+  border line ``x = L`` is always computed as ``(L - ax) / (bx - ax)`` (and
+  likewise for z), so every tile that has ``L`` as a border gets the same
+  float. Liang-Barsky's entry/exit choices are min/max over these shared
+  values, so two tiles never disagree on which border a segment crosses
+  first, even for a segment passing within an ulp of a tile corner (a float
+  tie between an x and a z border is a corner hit). ``t == 0`` exactly when
+  ``a`` is inside the closed box and ``t == 1`` exactly when ``b`` is, so the
+  run bookkeeping agrees with a plain point-in-box test.
 * **Canonical cut points.** The cut point on a vertical border ``x = X`` is
   ``(X, az + (X - ax) / (bx - ax) * (bz - az))``, evaluated in float64 from the
   original segment ``a -> b`` (never from a previous cut), with the border
   coordinate snapped to the border value and the other coordinate clamped to
   the border's extent. Horizontal borders are symmetric. Both tiles that share
   the border evaluate the very same expression, so the cut point is
-  bit-identical on both sides. An exact corner hit yields the corner itself.
+  bit-identical on both sides. A corner hit (the x and z crossing parameters
+  tie) yields the corner itself.
 
 A segment that runs exactly along a border line lies in both closed boxes, so
 it appears in the pieces of both tiles. The runtime renders such a road twice
@@ -31,7 +37,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from fractions import Fraction
 
 import numpy as np
 import shapely
@@ -154,74 +159,69 @@ def _cut_z(ax: float, az: float, bx: float, bz: float, z_line: float, x_lo: floa
 
 
 def _clip_segment(a: tuple[float, float], b: tuple[float, float], box: Box):
-    """Exact Liang-Barsky against the closed box.
+    """Liang-Barsky against the closed box.
 
     Returns ``None`` when the segment misses the box, else the entry and exit
     points as float tuples (``a``/``b`` themselves when the segment starts or
-    ends inside).
+    ends inside). The crossing parameter of border line ``L`` is always
+    ``(L - ax) / dx`` (or the z analogue), so every tile sharing that line
+    computes the same float and makes the same min/max decisions; ``t == 0``
+    happens exactly when ``a`` is inside and ``t == 1`` when ``b`` is.
     """
     ax, az = a
     bx, bz = b
     x0, z0, x1, z1 = box
-    fax, faz = Fraction(ax), Fraction(az)
-    dx = Fraction(bx) - fax
-    dz = Fraction(bz) - faz
-    t0, t1 = Fraction(0), Fraction(1)
-    entry: list[tuple[str, float]] = []
-    exit_: list[tuple[str, float]] = []
-    for p, q, line in (
-        (-dx, fax - Fraction(x0), ("x", x0)),
-        (dx, Fraction(x1) - fax, ("x", x1)),
-        (-dz, faz - Fraction(z0), ("z", z0)),
-        (dz, Fraction(z1) - faz, ("z", z1)),
-    ):
-        if p == 0:
-            if q < 0:
-                return None
-            continue
-        r = q / p
-        if p < 0:
-            if r > t0:
-                t0, entry = r, [line]
-            elif r == t0 and r > 0:
-                entry.append(line)
-        else:
-            if r < t1:
-                t1, exit_ = r, [line]
-            elif r == t1 and r < 1:
-                exit_.append(line)
+    dx = bx - ax
+    dz = bz - az
+    inf = float("inf")
+    if dx > 0.0:
+        lx_in, lx_out = x0, x1
+    elif dx < 0.0:
+        lx_in, lx_out = x1, x0
+    elif x0 <= ax <= x1:
+        lx_in = lx_out = ax  # parallel and inside: never binding (t = +-inf)
+    else:
+        return None
+    if dz > 0.0:
+        lz_in, lz_out = z0, z1
+    elif dz < 0.0:
+        lz_in, lz_out = z1, z0
+    elif z0 <= az <= z1:
+        lz_in = lz_out = az
+    else:
+        return None
+    tx_in, tx_out = ((lx_in - ax) / dx, (lx_out - ax) / dx) if dx != 0.0 else (-inf, inf)
+    tz_in, tz_out = ((lz_in - az) / dz, (lz_out - az) / dz) if dz != 0.0 else (-inf, inf)
+    t0 = max(0.0, tx_in, tz_in)
+    t1 = min(1.0, tx_out, tz_out)
     if t0 > t1:
         return None
 
-    def point(t: Fraction, lines: list[tuple[str, float]]) -> tuple[float, float]:
-        if t == 0:
+    def point(t: float, tx: float, tz: float, lx: float, lz: float) -> tuple[float, float]:
+        if t == 0.0:
             return ax, az
-        if t == 1:
+        if t == 1.0:
             return bx, bz
-        xs = [v for k, v in lines if k == "x"]
-        zs = [v for k, v in lines if k == "z"]
-        if xs and zs:  # exact corner hit
-            return xs[0], zs[0]
-        if xs:
-            return _cut_x(ax, az, bx, bz, xs[0], z0, z1)
-        return _cut_z(ax, az, bx, bz, zs[0], x0, x1)
+        if tx == t and tz == t:  # corner hit
+            return lx, lz
+        if tx == t:
+            return _cut_x(ax, az, bx, bz, lx, z0, z1)
+        return _cut_z(ax, az, bx, bz, lz, x0, x1)
 
-    return point(t0, entry), point(t1, exit_)
+    return point(t0, tx_in, tz_in, lx_in, lz_in), point(t1, tx_out, tz_out, lx_out, lz_out)
 
 
 def _make_piece(run: list[tuple[float, float]], prev_ctx: bool, next_ctx: bool) -> Piece | None:
     lo = 1 if prev_ctx else 0
     hi = len(run) - (1 if next_ctx else 0)
-    inner = _dedupe_consecutive(np.asarray(run[lo:hi], dtype=np.float64).reshape(-1, 2))
+    inner: list[tuple[float, float]] = []
+    for p in run[lo:hi]:
+        if not inner or p != inner[-1]:
+            inner.append(p)
     if len(inner) < 2:  # zero length inside the box
         return None
-    parts = []
-    if prev_ctx:
-        parts.append(np.asarray([run[0]], dtype=np.float64))
-    parts.append(inner)
-    if next_ctx:
-        parts.append(np.asarray([run[-1]], dtype=np.float64))
-    return Piece(np.concatenate(parts), prev_ctx, next_ctx)
+    pts = ([run[0]] if prev_ctx else []) + inner + ([run[-1]] if next_ctx else [])
+    return Piece(np.array(pts, dtype=np.float64), prev_ctx, next_ctx)
 
 
 def clip_polyline(points, box: Box) -> list[Piece]:

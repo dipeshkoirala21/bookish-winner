@@ -1,0 +1,5 @@
+# Identifiers come from the environment so CI secrets/variables stay the single source of truth
+# (docs/CI_SECRETS.md). The defaults are placeholders that match ProjectSetup's default bundle id.
+app_identifier(ENV["IOS_BUNDLE_ID"] || ENV["GHUMANTE_BUNDLE_ID"] || "com.ghumante.game")
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"].to_s != ""
+package_name(ENV["ANDROID_PACKAGE_NAME"] || ENV["GHUMANTE_BUNDLE_ID"] || "com.ghumante.game")

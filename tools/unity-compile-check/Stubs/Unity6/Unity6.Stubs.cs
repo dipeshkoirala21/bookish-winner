@@ -4,7 +4,7 @@
 // cannot add members to existing UnityEngine types from outside), and the API audit verifies it.
 //
 // Currently empty: the M0 runtime code needs no Unity-6-only API. The Unity-6-only USS property
-// -unity-text-generator is used from USS, not C#, and is checked by check_uss.py.
+// -unity-text-generator is used from USS, not C#, and is checked by check_ui.py.
 namespace Ghumante.CompileCheck.Unity6
 {
     internal static class Placeholder

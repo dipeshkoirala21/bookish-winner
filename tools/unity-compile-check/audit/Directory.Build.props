@@ -1,0 +1,10 @@
+<Project>
+  <!-- The audit tools are ordinary .NET projects; this file stops the parent Directory.Build.props
+       (Unity script settings) from applying to them. -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

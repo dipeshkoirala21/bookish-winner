@@ -1,0 +1,149 @@
+# Store uploads for Ghumante. Run from game/:  bundle exec fastlane <platform> <lane>
+#
+#   ios beta        Xcode project (from Unity) -> signed .ipa -> TestFlight
+#   android internal  AAB (from Unity) -> Google Play internal testing track (optional)
+#
+# Everything comes from environment variables, set by .github/workflows/unity.yml from repository
+# secrets/variables. docs/CI_SECRETS.md explains how to create each one.
+#
+# iOS
+#   IOS_BUILD_PATH        folder holding the Unity export: <IOS_BUILD_PATH>/iOS/Unity-iPhone.xcodeproj
+#                         (GameCI's layout: build/iOS + buildName iOS)
+#   IOS_BUNDLE_ID         application identifier (defaults via Appfile)
+#   APPLE_TEAM_ID         10-character Apple Developer team id
+#   APPSTORE_KEY_ID, APPSTORE_ISSUER_ID, APPSTORE_P8
+#                         App Store Connect API key (.p8 contents; set APPSTORE_P8_BASE64=true if base64)
+#   Signing, one of:
+#     match (recommended): MATCH_REPOSITORY (owner/repo of the private certificates repo) or
+#                          MATCH_GIT_URL, plus MATCH_PASSWORD; MATCH_DEPLOY_KEY is loaded into
+#                          ssh-agent by the workflow. MATCH_READONLY=false lets CI create certificates.
+#     cloud signing:       no MATCH_* set; xcodebuild signs with the API key (-allowProvisioningUpdates).
+#                          Needs an API key with the Admin role (cloud-managed distribution certificate).
+#
+# Android
+#   ANDROID_AAB_PATH            the .aab built by Unity
+#   ANDROID_PACKAGE_NAME        application id (defaults via Appfile)
+#   PLAY_SERVICE_ACCOUNT_JSON   Google Cloud service-account key JSON with Play Console access
+
+require "base64"
+require "tmpdir"
+
+default_platform(:ios)
+
+def require_env(*names)
+  missing = names.reject { |n| ENV[n].to_s.strip != "" }
+  UI.user_error!("Missing environment: #{missing.join(', ')} (see docs/CI_SECRETS.md)") unless missing.empty?
+end
+
+platform :ios do
+  desc "Sign the Unity Xcode export and upload it to TestFlight"
+  lane :beta do
+    require_env("IOS_BUILD_PATH", "APPLE_TEAM_ID", "APPSTORE_KEY_ID", "APPSTORE_ISSUER_ID", "APPSTORE_P8")
+    bundle_id = CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier)
+    team_id = ENV["APPLE_TEAM_ID"]
+    export_dir = File.join(ENV["IOS_BUILD_PATH"], "iOS")
+    project = File.join(export_dir, "Unity-iPhone.xcodeproj")
+    plist = File.join(export_dir, "Info.plist")
+    UI.user_error!("No Xcode project at #{project}") unless File.directory?(project)
+
+    setup_ci # temporary keychain on CI runners; no-op locally
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["APPSTORE_KEY_ID"],
+      issuer_id: ENV["APPSTORE_ISSUER_ID"],
+      key_content: ENV["APPSTORE_P8"],
+      is_key_content_base64: ENV["APPSTORE_P8_BASE64"] == "true",
+      in_house: false
+    )
+
+    # TestFlight needs a strictly increasing CFBundleVersion for each marketing version. Unity writes
+    # PlayerSettings.iOS.buildNumber literally into Info.plist (agvtool is not set up in Unity exports).
+    marketing_version = get_info_plist_value(path: plist, key: "CFBundleShortVersionString")
+    latest = latest_testflight_build_number(
+      api_key: api_key, app_identifier: bundle_id, version: marketing_version, initial_build_number: 0
+    )
+    unity_build = get_info_plist_value(path: plist, key: "CFBundleVersion").to_i
+    build_number = [latest.to_i + 1, unity_build].max
+    set_info_plist_value(path: plist, key: "CFBundleVersion", value: build_number.to_s)
+    # No non-exempt encryption (standard HTTPS only): skips the export-compliance question per build.
+    set_info_plist_value(path: plist, key: "ITSAppUsesNonExemptEncryption", value: false)
+
+    xcargs = "-allowProvisioningUpdates"
+    # gym 2.240 still keys its profile handling on "app-store" (Xcode 26 accepts it as an alias).
+    export_options = { method: "app-store" }
+
+    if ENV["MATCH_REPOSITORY"].to_s != "" || ENV["MATCH_GIT_URL"].to_s != ""
+      git_url = ENV["MATCH_GIT_URL"].to_s != "" ? ENV["MATCH_GIT_URL"] : "git@github.com:#{ENV['MATCH_REPOSITORY']}.git"
+      match(
+        type: "appstore",
+        storage_mode: "git",
+        git_url: git_url,
+        app_identifier: bundle_id,
+        team_id: team_id,
+        api_key: api_key,
+        readonly: ENV["MATCH_READONLY"] != "false"
+      )
+      profile_name = ENV["sigh_#{bundle_id}_appstore_profile-name"]
+      # Unity exports two targets. Following GameCI's recipe: automatic signing everywhere first, then
+      # the app target switched to the match profile (UnityFramework stays automatic, unsigned until embed).
+      update_code_signing_settings(use_automatic_signing: true, path: project, team_id: team_id)
+      update_code_signing_settings(
+        use_automatic_signing: false,
+        path: project,
+        team_id: team_id,
+        targets: ["Unity-iPhone"],
+        code_sign_identity: "Apple Distribution",
+        profile_name: profile_name,
+        bundle_identifier: bundle_id
+      )
+      export_options[:provisioningProfiles] = { bundle_id => profile_name }
+    else
+      # Cloud signing: xcodebuild authenticates with the API key and manages certificates/profiles.
+      key_path = File.join(Dir.tmpdir, "AuthKey_#{ENV['APPSTORE_KEY_ID']}.p8")
+      p8 = ENV["APPSTORE_P8_BASE64"] == "true" ? Base64.decode64(ENV["APPSTORE_P8"]) : ENV["APPSTORE_P8"]
+      File.write(key_path, p8)
+      update_code_signing_settings(use_automatic_signing: true, path: project, team_id: team_id)
+      xcargs += " -authenticationKeyPath #{key_path} -authenticationKeyID #{ENV['APPSTORE_KEY_ID']}" \
+                " -authenticationKeyIssuerID #{ENV['APPSTORE_ISSUER_ID']}"
+      export_options[:signingStyle] = "automatic"
+      export_options[:teamID] = team_id
+    end
+
+    ipa = build_app(
+      project: project,
+      scheme: "Unity-iPhone",
+      configuration: "Release",
+      xcargs: xcargs,
+      export_options: export_options,
+      output_directory: File.join(ENV["IOS_BUILD_PATH"], "ipa"),
+      output_name: "Ghumante.ipa"
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ipa,
+      skip_waiting_for_build_processing: true,
+      changelog: ENV["TESTFLIGHT_CHANGELOG"].to_s != "" ? ENV["TESTFLIGHT_CHANGELOG"] : nil
+    )
+    UI.success("Uploaded #{bundle_id} #{marketing_version} (#{build_number}) to TestFlight")
+  end
+end
+
+platform :android do
+  desc "Upload the AAB to the Google Play internal testing track"
+  lane :internal do
+    require_env("ANDROID_AAB_PATH", "PLAY_SERVICE_ACCOUNT_JSON")
+    upload_to_play_store(
+      track: "internal",
+      aab: ENV["ANDROID_AAB_PATH"],
+      package_name: CredentialsManager::AppfileConfig.try_fetch_value(:package_name),
+      json_key_data: ENV["PLAY_SERVICE_ACCOUNT_JSON"],
+      # Apps that have never been reviewed only accept draft releases on any track.
+      release_status: ENV["PLAY_RELEASE_STATUS"].to_s != "" ? ENV["PLAY_RELEASE_STATUS"] : "draft",
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

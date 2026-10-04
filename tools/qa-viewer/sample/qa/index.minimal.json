@@ -1,0 +1,21 @@
+{
+ "region": "sample_thamel_minimal",
+ "bbox": {
+  "west": 85.3022238,
+  "south": 27.7109877,
+  "east": 85.3231041,
+  "north": 27.7204266
+ },
+ "leaf_level": 10,
+ "tiles": [
+  "10/516/162",
+  "10/517/162"
+ ],
+ "layers": [
+  "pois",
+  {
+   "name": "roads",
+   "file": "roads_with_trails.geojson"
+  }
+ ]
+}

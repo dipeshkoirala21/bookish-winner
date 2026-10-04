@@ -28,7 +28,7 @@ const { spawn, spawnSync } = require('child_process');
 let chromium;
 try {
   ({ chromium } = require('playwright'));
-} catch (e) {
+} catch {
   console.error('playwright is not installed for node (set NODE_PATH to the global node_modules).');
   process.exit(2);
 }
@@ -76,7 +76,7 @@ async function newContext(browser, opts = {}) {
         const resp = await route.fetch({ timeout: 20000 });
         if (isOsm) external.osm++; else external.cdn++;
         await route.fulfill({ response: resp });
-      } catch (err) {
+      } catch {
         if (isOsm) external.osmFailed++;
         await route.abort().catch(() => {});
       }
@@ -133,11 +133,12 @@ async function shot(page, name) {
   const raw = path.join(SHOTS, name);
   await page.screenshot({ path: raw });
   // Keep committed screenshots small: quantise to a 256-colour PNG when Pillow is available.
+  // MAXCOVERAGE keeps small-but-saturated legend colours (median cut turned purple POIs grey).
   const py = spawnSync('python3', ['-c', `
 import sys
 from PIL import Image
 p = sys.argv[1]
-im = Image.open(p).convert('RGB').quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+im = Image.open(p).convert('RGB').quantize(colors=256, method=Image.Quantize.MAXCOVERAGE)
 im.save(p, optimize=True)
 `, raw]);
   const size = fs.statSync(raw).size;
@@ -232,6 +233,37 @@ im.save(p, optimize=True)
     } else {
       console.log('SKIP  projection vs pyproj (pyproj not available)');
     }
+
+    // context points (ROAD/LINE pieces cut at a tile edge) must be detected and not drawn
+    const ctxr = await page.evaluate(() => {
+      const QA = window.QA;
+      const out = { stripped: {}, bad: 0, checked: 0 };
+      for (const id of ['roads', 'trails', 'lines']) {
+        const l = QA.layers[id];
+        out.stripped[id] = l.ctxStripped;
+        for (let i = 0; i < l.count; i++) {
+          const f = l.features[i];
+          const n = l.norm[i];
+          const [L_, tx, ty] = f.properties.tile.split('/').map(Number);
+          const S = QA.proj.tileSize(L_);
+          const c = f.geometry.coordinates;
+          const ends = [];
+          if (n.flags.includes('HAS_PREV_CTX')) ends.push(c[0]);
+          if (n.flags.includes('HAS_NEXT_CTX')) ends.push(c[c.length - 1]);
+          for (const p of ends) {
+            out.checked++;
+            const [x, z] = QA.proj.lonLatToGame(p[0], p[1]);
+            const dx = Math.min(Math.abs(x - tx * S), Math.abs(x - (tx + 1) * S));
+            const dz = Math.min(Math.abs(z - ty * S), Math.abs(z - (ty + 1) * S));
+            if (Math.min(dx, dz) > 0.05) out.bad++; // the drawn end must lie on the tile border
+          }
+          if (ends.length && !f._ctx) out.bad++;
+        }
+      }
+      return out;
+    });
+    check('context points stripped: drawn ends lie on the tile border', ctxr.checked >= 10 && ctxr.bad === 0 &&
+      ctxr.stripped.roads > 0 && ctxr.stripped.lines > 0, ctxr);
 
     // ------------------------------------------------------------ 3. styling modes
     const modes = await page.evaluate(() => {
@@ -379,7 +411,15 @@ im.save(p, optimize=True)
     // ------------------------------------------------------------ 7. lazy buildings
     const page2 = await context.newPage();
     const log2 = watch(page2);
-    await open(page2, base, 'data=sample/qa', '14/27.71550/85.31300/roads,buildings,pois/base=none');
+    await page2.goto(`${base}tools/qa-viewer/?data=sample/qa&_nav=${++navCounter}#14/27.71550/85.31300/roads,buildings,pois/base=none`);
+    await page2.waitForFunction(() => window.QA && window.QA.app, null, { timeout: 20000 });
+    const atReady = await page2.evaluate(async () => {
+      await window.QA.ready;
+      return Object.fromEntries(Object.entries(window.QA.layers).map(([k, l]) => [k, l.state]));
+    });
+    check('QA.ready resolves once the non-lazy layers are loaded', atReady.roads === 'ready' && atReady.trails === 'ready' &&
+      atReady.pois === 'ready' && atReady.areas === 'ready' && atReady.buildings === 'idle', atReady);
+    await settle(page2);
     const lazy = await page2.evaluate(() => ({ state: window.QA.layers.buildings.state, msg: window.QA.layers.buildings.message }));
     check('buildings not fetched below zoom 15', lazy.state === 'idle' && !log2.requests.some((u) => u.endsWith('/buildings.geojson')), lazy);
     await page2.evaluate(() => { window.QA.map.setZoom(16, { animate: false }); });
@@ -400,6 +440,25 @@ im.save(p, optimize=True)
       log3.requests.some((u) => /buildings\/10\/516_162\.geojson$/.test(u)) && !log3.requests.some((u) => u.endsWith('/buildings.geojson')), tiled);
     check('no console errors (tiled page)', realErrors(log3).length === 0, realErrors(log3));
     await page3.close();
+
+    // ------------------------------------------------------------ 8b. minimal index: the viewer's fallbacks
+    const page5 = await context.newPage();
+    const log5 = watch(page5);
+    await open(page5, base, 'data=sample/qa&index=index.minimal.json', '16/27.71550/85.31300/roads,trails,buildings,pois,hillshade,biome,grid/base=none');
+    const mini = await page5.evaluate(() => ({ roads: window.QA.layers.roads.count, trails: window.QA.layers.trails.count,
+      trailsState: window.QA.layers.trails.state, trailsDrawn: window.QA.layers.trails.rendered.size, bstate: window.QA.layers.buildings.state,
+      pois: window.QA.layers.pois.count, hs: window.QA.rasters.hillshade.countInDom(), bio: window.QA.rasters.biome.countInDom(), grid: window.QA.grid.rendered.size,
+      legend: document.getElementById('legend').innerText, corner: window.QA.app.indexTiles[0].corners[3],
+      listText: document.getElementById('layer-list').innerText, errors: window.QA.errors }));
+    check('minimal index: trails split out of a mixed roads file', mini.roads === 33 && mini.trails === 14 &&
+      mini.trailsState === 'ready' && mini.trailsDrawn > 0, { roads: mini.roads, trails: mini.trails });
+    check('minimal index: unlisted layers shown as "not in index" and never fetched', mini.bstate === 'absent' &&
+      /not in index/.test(mini.listText) && !log5.requests.some((u) => /\/(buildings|areas|lines|trails)\.geojson$/.test(u)));
+    check('minimal index: default PNG paths + tile corners from the projection', mini.hs === 2 && mini.bio === 2 &&
+      mini.grid === 2 && Math.abs(mini.corner[0] - 85.3023336) < 2e-7 && Math.abs(mini.corner[1] - 27.7204266) < 2e-7, mini.corner);
+    check('minimal index: missing biome palette is explained in the legend', /no biome palette/.test(mini.legend));
+    check('no console errors (minimal index)', realErrors(log5).length === 0 && mini.errors.length === 0, realErrors(log5));
+    await page5.close();
 
     // ------------------------------------------------------------ 9. tolerant parsing (unit checks in the page)
     const tol = await page.evaluate(() => {
@@ -454,9 +513,17 @@ im.save(p, optimize=True)
     const miss = await page4.evaluate(() => ({ banner: document.getElementById('banner').hidden ? '' : document.getElementById('banner').textContent,
       errors: window.QA.errors.length }));
     check('missing dataset -> banner with a hint', /does\/not\/exist\/index\.json/.test(miss.banner) && /sample\/qa/.test(miss.banner) && miss.errors === 1, miss.banner);
-    check('missing dataset: only the expected 404 + viewer error are logged',
-      log4.errors.every((e) => /404|Could not load/.test(e)), log4.errors);
+    check('missing dataset: only the expected 404 + viewer error, base=none honoured',
+      realErrors(log4).every((e) => /404|Could not load/.test(e)) && !log4.requests.some((u) => /tile\.openstreetmap\.org/.test(u)), log4.errors);
     await page4.close();
+
+    const page6 = await context.newPage();
+    await page6.goto(`${base}tools/qa-viewer/?region=nope#13/27.7/85.3/roads/base=none`, { waitUntil: 'load' });
+    await page6.waitForFunction(() => window.QA && window.QA.app, null, { timeout: 20000 });
+    await page6.evaluate(() => window.QA.ready);
+    const reg = await page6.evaluate(() => document.getElementById('banner').textContent);
+    check('?region=<id> resolves to pipeline/build/regions/<id>/qa', /\/pipeline\/build\/regions\/nope\/qa\/index\.json/.test(reg), reg.slice(0, 120));
+    await page6.close();
 
     check('no console errors (main page)', realErrors(log).length === 0, realErrors(log));
     check('Leaflet loaded from cdnjs with SRI', await page.evaluate(() => !!window.L && window.L.version === '1.9.4'));

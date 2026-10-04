@@ -15,18 +15,25 @@ namespace Ghumante.UI.Screens
             if (root == null) throw new ArgumentNullException(nameof(root));
             if (localizer == null) throw new ArgumentNullException(nameof(localizer));
             Root = root;
+            // Our UXML puts the Ghumante stylesheet on a .gh-root element under the document root. Classes
+            // that USS selectors key on (gh-lang-*, spike--standard) go there, inside the sheet's scope.
+            StyledRoot = root.Q(className: "gh-root") ?? root;
             Localizer = localizer;
             Localizer.Changed += OnLocaleChanged;
         }
 
+        /// <summary>The UIDocument root the screen was cloned into.</summary>
         public VisualElement Root { get; private set; }
+
+        /// <summary>The screen's .gh-root element (falls back to <see cref="Root"/>).</summary>
+        public VisualElement StyledRoot { get; private set; }
 
         protected Localizer Localizer { get; private set; }
 
         /// <summary>Re-applies all localised and computed text.</summary>
         public void Refresh()
         {
-            Localizer.Apply(Root);
+            Localizer.Apply(StyledRoot);
             OnRefresh();
         }
 

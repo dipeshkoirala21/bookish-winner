@@ -69,7 +69,7 @@ namespace Ghumante.UI.Screens
         private void ToggleGenerator()
         {
             _standardGenerator = !_standardGenerator;
-            Root.EnableInClassList(StandardGeneratorClass, _standardGenerator);
+            StyledRoot.EnableInClassList(StandardGeneratorClass, _standardGenerator);
             OnRefresh();
         }
 

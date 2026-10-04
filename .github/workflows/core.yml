@@ -1,0 +1,78 @@
+# Engine-agnostic C# core (game/Assets/Ghumante/Core) tested with plain `dotnet test`, against golden
+# files that the Python pipeline writes. The golden files are committed; CI regenerates them and fails
+# if they differ, so the C# readers and the Python writers can never drift apart silently.
+name: core
+
+on:
+  push:
+    paths:
+      - "game/Assets/Ghumante/Core/**"
+      - "core-tests/**"
+      - "shared/**"
+      - "pipeline/**"
+      - ".github/workflows/core.yml"
+  pull_request:
+    paths:
+      - "game/Assets/Ghumante/Core/**"
+      - "core-tests/**"
+      - "shared/**"
+      - "pipeline/**"
+      - ".github/workflows/core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: golden files + dotnet test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/pyproject.toml
+
+      - name: Install pipeline
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e pipeline
+
+      - name: Regenerate golden files
+        run: python shared/golden/make_golden.py
+
+      - name: Golden files must be committed and up to date
+        run: |
+          if [ -n "$(git status --porcelain -- shared/golden)" ]; then
+            git status --short -- shared/golden
+            git --no-pager diff --stat -- shared/golden
+            echo "::error title=Golden files out of date::Run 'python shared/golden/make_golden.py' and commit shared/golden."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: dotnet test
+        run: dotnet test core-tests -c Release --logger "trx;LogFileName=core-tests.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-test-results
+          path: TestResults
+          retention-days: 14
+          if-no-files-found: ignore

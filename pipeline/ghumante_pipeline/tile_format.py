@@ -374,16 +374,20 @@ def _svarints_bytes(values: np.ndarray) -> bytes:
     if n == 0:
         return b""
     if n < _SMALL:
-        out = bytearray()
-        for s in v.tolist():
-            zz = ((s << 1) ^ (s >> 63)) & 0xFFFFFFFFFFFFFFFF
-            while zz >= 0x80:
-                out.append((zz & 0x7F) | 0x80)
-                zz >>= 7
-            out.append(zz)
-        return bytes(out)
+        return _svarints_list_bytes(v.tolist())
     z = (v.view(np.uint64) << np.uint64(1)) ^ (v >> np.int64(63)).view(np.uint64)
     return _varints_bytes(z)
+
+
+def _svarints_list_bytes(vals: list[int]) -> bytes:
+    out = bytearray()
+    for s in vals:
+        zz = ((s << 1) ^ (s >> 63)) & 0xFFFFFFFFFFFFFFFF
+        while zz >= 0x80:
+            out.append((zz & 0x7F) | 0x80)
+            zz >>= 7
+        out.append(zz)
+    return bytes(out)
 
 
 def _varints_bytes(z: np.ndarray) -> bytes:
@@ -409,6 +413,27 @@ def _read_varints(r: Reader, count: int) -> np.ndarray:
         return np.zeros(0, dtype=np.uint64)
     if count > r.remaining():
         raise ValueError(f"{count} varints cannot fit in {r.remaining()} bytes")
+    if count < _SMALL:
+        data, pos, end = r.data, r.pos, r.end
+        vals = []
+        for _ in range(count):
+            v = shift = 0
+            while True:
+                if pos >= end:
+                    raise ValueError("truncated varint array")
+                b = data[pos]
+                pos += 1
+                v |= (b & 0x7F) << shift
+                if b < 0x80:
+                    break
+                shift += 7
+                if shift >= 70:
+                    raise ValueError("varint longer than 10 bytes")
+            if v >> 64:
+                raise ValueError("varint overflow")
+            vals.append(v)
+        r.pos = pos
+        return np.array(vals, dtype=np.uint64)
     hi = min(r.end, r.pos + 10 * count)
     buf = np.frombuffer(r.data[r.pos:hi], dtype=np.uint8)
     ends = np.flatnonzero(buf < 0x80)[:count]
@@ -438,6 +463,10 @@ def _read_svarints(r: Reader, count: int) -> np.ndarray:
 
 def _write_points(w: Writer, pts: np.ndarray) -> None:
     """``{svarint dx, svarint dz}`` per point; the first relative to the tile origin."""
+    if 2 * len(pts) < _SMALL:
+        flat = pts.reshape(-1).tolist()
+        w.raw(_svarints_list_bytes([flat[0], flat[1]] + [flat[i] - flat[i - 2] for i in range(2, len(flat))]))
+        return
     d = np.diff(pts, axis=0, prepend=np.zeros((1, 2), dtype=np.int64))
     w.raw(_svarints_bytes(d))
 
@@ -522,6 +551,24 @@ def _tiebreak(rec, name_fields: tuple[str, ...], resolve: Callable[[int], tuple]
     return tuple(out)
 
 
+def _sorted(recs: list, primary: Callable, name_fields: tuple[str, ...], resolve: Callable) -> list:
+    """Sort by the spec's primary key; records sharing a primary key are
+    ordered by their full content (computed only for those groups)."""
+    keyed = sorted(((primary(r), i) for i, r in enumerate(recs)), key=lambda t: t[0])
+    out: list = []
+    i = 0
+    while i < len(keyed):
+        j = i + 1
+        while j < len(keyed) and keyed[j][0] == keyed[i][0]:
+            j += 1
+        group = [recs[k] for _, k in keyed[i:j]]
+        if len(group) > 1:
+            group.sort(key=lambda r: _tiebreak(r, name_fields, resolve))
+        out.extend(group)
+        i = j
+    return out
+
+
 def _first_point(pts: np.ndarray) -> tuple[int, int]:
     return (int(pts[0, 0]), int(pts[0, 1])) if len(pts) else (I32_MIN - 1, I32_MIN - 1)
 
@@ -567,11 +614,11 @@ def canonicalize(td: TileData) -> TileData:
         areas.append(dataclasses.replace(a, vertices=verts, indices=_ccw_triangles(verts, idx), rings=rings))
     pois = [dataclasses.replace(p) for p in td.pois]
 
-    roads.sort(key=lambda r: (r.osm_way_id, *_first_point(r.points), _tiebreak(r, ("name_ref", "ref_ref"), resolve)))
-    lines.sort(key=lambda r: (r.osm_way_id, *_first_point(r.points), _tiebreak(r, ("name_ref",), resolve)))
-    buildings.sort(key=lambda r: (r.osm_ref, _tiebreak(r, ("name_ref",), resolve)))
-    areas.sort(key=lambda r: (r.osm_ref, *_first_point(r.vertices), _tiebreak(r, ("name_ref",), resolve)))
-    pois.sort(key=lambda r: (r.osm_ref, r.kind, _tiebreak(r, ("name_ref",), resolve)))
+    roads = _sorted(roads, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref", "ref_ref"), resolve)
+    lines = _sorted(lines, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref",), resolve)
+    buildings = _sorted(buildings, lambda r: (r.osm_ref,), ("name_ref",), resolve)
+    areas = _sorted(areas, lambda r: (r.osm_ref, *_first_point(r.vertices)), ("name_ref",), resolve)
+    pois = _sorted(pois, lambda r: (r.osm_ref, r.kind), ("name_ref",), resolve)
 
     table = NameTable()
 
@@ -594,7 +641,9 @@ def canonicalize(td: TileData) -> TileData:
     heights = None if td.heights_q is None else _check_grid(td.heights_q, np.uint16, 65535, "heights_q")
     biomes = None if td.biomes is None else _check_grid(td.biomes, np.uint8, 255, "biomes")
     seed = None if td.seed is None else (int(td.seed[0]), int(td.seed[1]))
-    meta = None if td.meta is None else json.loads(_meta_json(td.meta))
+    if td.meta is not None and not isinstance(td.meta, dict):
+        raise TypeError("meta must be a dict")
+    meta = None if td.meta is None else json.loads(_nfc(_meta_json(td.meta)))
     return TileData(tile=td.tile, data_version=int(td.data_version), heights_q=heights, biomes=biomes,
                     names=table.entries(), roads=roads, lines=lines, buildings=buildings, areas=areas, pois=pois,
                     seed=seed, meta=meta, has_detail=bool(td.has_detail))
@@ -630,9 +679,16 @@ def _enc_hght(q: np.ndarray) -> bytes:
     return w.raw(r.astype("<u2").tobytes()).bytes()
 
 
-def _dec_hght(r: Reader) -> np.ndarray:
+def _grid_size(r: Reader) -> int:
     n = r.u16()
     r.u16()
+    if n < 2 or (n - 1) & (n - 2):
+        raise ValueError(f"grid size {n} is not 2^k + 1")
+    return n
+
+
+def _dec_hght(r: Reader) -> np.ndarray:
+    n = _grid_size(r)
     h_min, h_step = r.f32(), r.f32()
     if h_min != _H_MIN_F32 or h_step != _H_STEP_F32:
         raise ValueError(f"unsupported height quantisation ({h_min}, {h_step})")
@@ -646,8 +702,7 @@ def _enc_biom(b: np.ndarray) -> bytes:
 
 
 def _dec_biom(r: Reader) -> np.ndarray:
-    n = r.u16()
-    r.u16()
+    n = _grid_size(r)
     return np.frombuffer(r.raw(n * n), dtype=np.uint8).reshape(n, n).copy()
 
 
@@ -807,6 +862,13 @@ def _dec_pois(r: Reader, n_names: int) -> list[PoiRec]:
     return [PoiRec(osm_ref=r.varint(), kind=r.u16(), flags=r.u8(), importance=r.u8(), x_cm=r.svarint(),
                    z_cm=r.svarint(), ele_dm=r.svarint(), name_ref=_name_ref(r, n_names), search_id=r.varint())
             for _ in range(_count(r))]
+
+
+def _dec_meta(r: Reader) -> dict:
+    meta = json.loads(r.str())
+    if not isinstance(meta, dict):
+        raise ValueError("META is not a JSON object")
+    return meta
 
 
 def _enc_seed(seed: tuple[int, int]) -> bytes:
@@ -995,5 +1057,5 @@ def decode_tile(blob: bytes) -> TileData:
     td.areas = parse(FOURCC_AREA, lambda r: _dec_area(r, nn)) or []
     td.pois = parse(FOURCC_POIS, lambda r: _dec_pois(r, nn)) or []
     td.seed = parse(FOURCC_SEED, _dec_seed)
-    td.meta = parse(FOURCC_META, lambda r: json.loads(r.str()))
+    td.meta = parse(FOURCC_META, _dec_meta)
     return td

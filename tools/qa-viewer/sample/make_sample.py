@@ -23,6 +23,7 @@ shapely (both pipeline dependencies); PNGs are written with the stdlib only.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
@@ -32,11 +33,11 @@ import zlib
 from pathlib import Path
 
 from pyproj import Transformer
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "qa"
+OUT = HERE / "qa"  # overridden by --out
 
 # --- frames (mirror pipeline/ghumante_pipeline/projection.py) ---------------
 TM84 = "+proj=tmerc +lat_0=0 +lon_0=84 +k=0.9996 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs"
@@ -255,9 +256,15 @@ def poly_geom(g) -> dict:
     raise TypeError(g)
 
 
-def clip_lines(coords_local, props: dict, out: list) -> None:
-    """Clip a polyline to the region and per leaf tile (one feature per piece)."""
-    ls = LineString([L(x, z) for x, z in coords_local])
+def clip_lines(coords_local, props: dict, out: list, ctx_flags: tuple[int, int] = (8, 16)) -> None:
+    """Clip a polyline per leaf tile (one feature per piece), like the ROAD/LINE writer: a piece cut
+    at its start (end) gets the original vertex just outside the tile as a context point and the
+    HAS_PREV_CTX (HAS_NEXT_CTX) flag. The viewer must not draw context points."""
+    pts = [L(x, z) for x, z in coords_local]
+    ls = LineString(pts)
+    cum = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        cum.append(cum[-1] + math.dist(a, b))
     for tx, ty in LEAF_TILES:
         piece = ls.intersection(tile_box(tx, ty))
         if piece.is_empty:
@@ -266,8 +273,19 @@ def clip_lines(coords_local, props: dict, out: list) -> None:
         for p in parts:
             if not isinstance(p, LineString) or p.length < 0.5:
                 continue
-            out.append({"type": "Feature", "properties": {**props, "tile": tile_str(tx, ty)},
-                        "geometry": line_geom(p)})
+            coords = list(p.coords)
+            flags = props.get("flags", 0)
+            d0, d1 = ls.project(Point(coords[0])), ls.project(Point(coords[-1]))
+            if d0 > 1e-6:  # cut at its start: previous original vertex is the context point
+                k = max(i for i, c in enumerate(cum) if c < d0 - 1e-6)
+                coords.insert(0, pts[k])
+                flags |= ctx_flags[0]
+            if d1 < ls.length - 1e-6:  # cut at its end
+                k = min(i for i, c in enumerate(cum) if c > d1 + 1e-6)
+                coords.append(pts[k])
+                flags |= ctx_flags[1]
+            out.append({"type": "Feature", "properties": {**props, "flags": flags, "tile": tile_str(tx, ty)},
+                        "geometry": line_geom(LineString(coords))})
 
 
 def road(cls: str, pts, surface: str, source: str, name=None, ne=None, ref=None, flags=0, lanes=0,
@@ -506,7 +524,7 @@ def build_areas() -> None:
 
 def line(kind: str, pts, name=None, ne=None, width_cm=0, flags=0):
     props = {"osm_way_id": fake_id(), "kind": kind, "flags": flags, "width_cm": width_cm, **names(name, ne)}
-    clip_lines(pts, props, lines)
+    clip_lines(pts, props, lines, ctx_flags=(1, 2))  # LINE flags: bit0 HAS_PREV_CTX, bit1 HAS_NEXT_CTX
 
 
 def build_lines() -> None:
@@ -601,8 +619,10 @@ def write_geojson(path: Path, features: list[dict], layer: str) -> None:
 
 
 def length_m(feature: dict) -> float:
-    # haversine over the lon/lat line (good enough for stats)
+    # haversine over the lon/lat line (good enough for stats), context points excluded
     c = feature["geometry"]["coordinates"]
+    fl = feature["properties"].get("flags", 0)
+    c = c[(1 if fl & 8 else 0):(len(c) - 1 if fl & 16 else len(c))]
     tot = 0.0
     for (lo1, la1), (lo2, la2) in zip(c, c[1:]):
         p1, p2 = math.radians(la1), math.radians(la2)
@@ -630,8 +650,14 @@ def tile_entry(level: int, tx: int, ty: int, leaf: bool) -> dict:
     return e
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    global OUT
+    ap = argparse.ArgumentParser(description="Write the synthetic QA sample (see module docstring).")
+    ap.add_argument("--out", type=Path, default=OUT, help=f"output directory (default {OUT})")
+    OUT = ap.parse_args(argv).out.resolve()
     if OUT.exists():
+        if any(OUT.iterdir()) and not (OUT / "index.json").is_file():
+            raise SystemExit(f"refusing to replace {OUT}: not empty and not a QA export")
         shutil.rmtree(OUT)
     build_roads()
     build_trails()
@@ -702,6 +728,19 @@ def main() -> None:
                                     "count": len(buildings)}
     tiled["note"] += " Variant: buildings are listed per tile (optional per-tile layer files)."
     (OUT / "index.tiled.json").write_text(json.dumps(tiled, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+    # Minimal variant: only what a terse exporter might write. Exercises the viewer's fallbacks:
+    # string tile ids without corners (computed from NPL-TM84), a plain layer list, trails mixed
+    # into the roads file (split client-side), no biome palette, no raster block (default PNG paths).
+    write_geojson(OUT / "roads_with_trails.geojson", roads + trails, "roads")
+    minimal = {
+        "region": REGION + "_minimal",
+        "bbox": {"west": w, "south": s, "east": e, "north": n},
+        "leaf_level": LEAF,
+        "tiles": [tile_str(tx, ty) for tx, ty in LEAF_TILES],
+        "layers": ["pois", {"name": "roads", "file": "roads_with_trails.geojson"}],
+    }
+    (OUT / "index.minimal.json").write_text(json.dumps(minimal, indent=1) + "\n", encoding="utf-8")
 
     print(f"wrote {OUT}: " + ", ".join(f"{k}={len(v)}" for k, v in layers.items()))
 

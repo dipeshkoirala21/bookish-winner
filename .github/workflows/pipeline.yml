@@ -1,0 +1,46 @@
+# Data pipeline: unit tests and the fixture end-to-end tests (which include the build-twice
+# determinism check) on every change to the pipeline or the shared contracts. Real-data tests
+# (marker "realdata") need the downloaded sources and run in nightly-data.yml instead.
+name: pipeline
+
+on:
+  push:
+    paths:
+      - "pipeline/**"
+      - "shared/**"
+      - ".github/workflows/pipeline.yml"
+  pull_request:
+    paths:
+      - "pipeline/**"
+      - "shared/**"
+      - ".github/workflows/pipeline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (fixtures, no real data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/pyproject.toml
+
+      - name: Install pipeline with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "pipeline[dev]"
+
+      - name: Run tests
+        run: pytest -q pipeline/tests -m "not realdata"

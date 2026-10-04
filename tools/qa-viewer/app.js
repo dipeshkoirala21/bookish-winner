@@ -670,7 +670,31 @@
       default: break;
     }
   }
-  /** Draw features grouped by style: one fill + one stroke per style (holed polygons separately, even-odd). */
+  // Chromium rasterises one huge path super-linearly (40k polygons in one path: ~10 s), while
+  // per-feature fills pay a call overhead each: small same-style chunks are fastest (measured
+  // in headless Chromium 141: 64 polygons per path, ~0.3 s for 40k filled + stroked buildings).
+  const CHUNK_POLY = 64;
+  const CHUNK_OTHER = 512;
+  function paintGroup(ctx, g) {
+    const st = g.st;
+    if (st.fill !== false && st.fill !== undefined) {
+      ctx.globalAlpha = st.fillOpacity ?? 0.2;
+      ctx.fillStyle = st.fillColor || st.color;
+      ctx.fill(g.path, 'nonzero');
+      for (const h of g.holed) ctx.fill(h, 'evenodd');
+    }
+    if (st.stroke !== false && (st.weight ?? 1) > 0) {
+      ctx.globalAlpha = st.opacity ?? 1;
+      ctx.strokeStyle = st.color;
+      ctx.lineWidth = st.weight ?? 1;
+      ctx.lineCap = st.lineCap || 'round';
+      ctx.lineJoin = st.lineJoin || 'round';
+      ctx.setLineDash(parseDash(st.dashArray));
+      ctx.stroke(g.path);
+      for (const h of g.holed) ctx.stroke(h);
+    }
+  }
+  /** Draw features grouped by style, flushing each style's path every few dozen features. */
   function drawBatched(ctx, map, items, geomOf, styleOf) {
     const P = projector(map);
     const groups = new Map();
@@ -678,30 +702,59 @@
       const st = styleOf(i);
       const key = styleKey(st);
       let g = groups.get(key);
-      if (!g) { g = { st, path: new Path2D(), holed: [] }; groups.set(key, g); }
-      addGeometry(g.path, g.holed, geomOf(i), P, st.radius || 4);
-    }
-    for (const { st, path, holed } of groups.values()) {
-      if (st.fill !== false && st.fill !== undefined) {
-        ctx.globalAlpha = st.fillOpacity ?? 0.2;
-        ctx.fillStyle = st.fillColor || st.color;
-        ctx.fill(path, 'nonzero');
-        for (const h of holed) ctx.fill(h, 'evenodd');
-      }
-      if (st.stroke !== false && (st.weight ?? 1) > 0) {
-        ctx.globalAlpha = st.opacity ?? 1;
-        ctx.strokeStyle = st.color;
-        ctx.lineWidth = st.weight ?? 1;
-        ctx.lineCap = st.lineCap || 'round';
-        ctx.lineJoin = st.lineJoin || 'round';
-        ctx.setLineDash(parseDash(st.dashArray));
-        ctx.stroke(path);
-        for (const h of holed) ctx.stroke(h);
+      if (!g) { g = { st, path: new Path2D(), holed: [], n: 0 }; groups.set(key, g); }
+      const geom = geomOf(i);
+      addGeometry(g.path, g.holed, geom, P, st.radius || 4);
+      g.n++;
+      if (g.n >= (geom.type === 'Polygon' || geom.type === 'MultiPolygon' ? CHUNK_POLY : CHUNK_OTHER)) {
+        paintGroup(ctx, g);
+        g.path = new Path2D();
+        g.holed = [];
+        g.n = 0;
       }
     }
+    for (const g of groups.values()) if (g.n) paintGroup(ctx, g);
     ctx.globalAlpha = 1;
     ctx.setLineDash([]);
     return groups.size;
+  }
+
+  /**
+   * ROAD/LINE pieces may carry context points (DATA_FORMATS 1.4): the original vertex just outside
+   * the tile, flagged HAS_PREV_CTX / HAS_NEXT_CTX. They are never drawn. Exporters may or may not
+   * strip them, so detect geometrically: a flagged end vertex outside the piece's tile square (in
+   * NPL-TM84, 5 cm tolerance) is a context point; an already-stripped piece ends on the border.
+   */
+  function stripContextPoints(f, n, leafLevel) {
+    const g = f.geometry;
+    if (!g || g.type !== 'LineString' || g.coordinates.length < 3) return 0;
+    const prev = n.flags.includes('HAS_PREV_CTX');
+    const next = n.flags.includes('HAS_NEXT_CTX');
+    if (!prev && !next) return 0;
+    const c = g.coordinates;
+    let tile = null;
+    const m = typeof f.properties.tile === 'string' && f.properties.tile.match(/^(\d+)\/(\d+)\/(\d+)$/);
+    if (m) tile = { level: +m[1], tx: +m[2], ty: +m[3] };
+    else {
+      const a = c[prev ? 1 : 0]; const b = c[prev ? 2 : 1];
+      const [x, z] = proj.lonLatToGame((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+      tile = proj.tileAt(leafLevel, x, z);
+    }
+    const S = proj.tileSize(tile.level);
+    const x0 = tile.tx * S; const z0 = tile.ty * S; const eps = 0.05;
+    const outside = (pt) => {
+      const [x, z] = proj.lonLatToGame(pt[0], pt[1]);
+      return x < x0 - eps || x > x0 + S + eps || z < z0 - eps || z > z0 + S + eps;
+    };
+    const ctx = {};
+    if (prev && outside(c[0])) ctx.prev = c[0];
+    if (next && c.length - (ctx.prev ? 1 : 0) > 2 && outside(c[c.length - 1])) ctx.next = c[c.length - 1];
+    const k = (ctx.prev ? 1 : 0) + (ctx.next ? 1 : 0);
+    if (k) {
+      g.coordinates = c.slice(ctx.prev ? 1 : 0, ctx.next ? c.length - 1 : c.length);
+      Object.defineProperty(f, '_ctx', { value: ctx, enumerable: false }); // not part of "Copy GeoJSON"
+    }
+    return k;
   }
 
   class VectorLayer {
@@ -728,6 +781,7 @@
       this.bytes = 0;
       this.loadMs = 0;
       this.epoch = 0; // bumped when styles, filters or data change
+      this.ctxStripped = 0; // context points removed from ROAD/LINE pieces
       this._key = '';
       this.lastDraw = { ms: 0, groups: 0, n: 0 };
     }
@@ -735,7 +789,7 @@
     get count() { return this.features.length; }
     minZoom() { return this.def.minZoom ?? 0; }
     attach() {
-      this.renderer = new FastCanvas(this, { pane: this.def.pane, padding: 0.25 });
+      this.renderer = new FastCanvas(this, { pane: this.def.pane, padding: 0.15 });
       this.renderer.addTo(this.app.map);
     }
     setSource(src) {
@@ -743,8 +797,16 @@
       if (!src) this.state = 'absent';
     }
 
-    async ensureLoaded() {
-      if (this.state !== 'idle' || !this.source) return;
+    /** Start loading once; returns the same promise to every caller (start() awaits in-flight loads). */
+    ensureLoaded() {
+      if (!this._loadPromise) {
+        if (this.state !== 'idle' || !this.source) return Promise.resolve();
+        this._loadPromise = this._load();
+      }
+      return this._loadPromise;
+    }
+
+    async _load() {
       if (this.source.tiles) {
         this.state = 'ready';
         this.index = new GridIndex(0.005);
@@ -778,7 +840,9 @@
       for (const f of feats) {
         if (!f || !f.geometry) continue;
         const p = f.properties || (f.properties = {});
-        items.push({ f, n: def.normalize(p, f) });
+        const n = def.normalize(p, f);
+        if (def.stripCtx) this.ctxStripped += stripContextPoints(f, n, this.app.leafLevel);
+        items.push({ f, n });
       }
       if (bulk && def.sortKey) {
         items = items.map((it, k) => ({ ...it, k, s: def.sortKey(it.n) }))
@@ -838,13 +902,6 @@
       }
     }
 
-    eligible(i, z) {
-      const n = this.norm[i];
-      if (this.def.minZoomFor && z < this.def.minZoomFor(n, this.app)) return false;
-      const cat = this.app.categoryOf(this.id, n);
-      return !(cat !== null && this.app.isHidden(this.id, cat));
-    }
-
     style(i) {
       return this.def.style(this.norm[i], this.features[i], this.app.styleCtx);
     }
@@ -873,24 +930,52 @@
       }
       if (this.state === 'idle') { this.ensureLoaded(); return this._empty('loading…', force); }
       if (this.state !== 'ready') return this._empty(this.message, force);
-      const b = this.renderer.latLngBounds() || map.getBounds().pad(0.25);
+      const b = this.renderer.latLngBounds() || map.getBounds().pad(0.15);
       if (this.source && this.source.tiles) this.loadTilesInView(b);
       const key = `${z}|${b.toBBoxString()}|${this.epoch}|${this.count}|${this.app.filterEpoch}`;
       if (!force && key === this._key) return;
       this._key = key;
 
       const cand = this.index.query(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
-      let keep = [];
-      for (const i of cand) if (this.eligible(i, z)) keep.push(i);
-      keep = Uint32Array.from(keep).sort(); // arrays are pre-sorted by importance: truncation keeps the important ones
+      const hidden = this.app.hidden[this.app.legendKey(this.id)];
+      const filterCats = hidden && hidden.size > 0;
+      const mzf = this.def.minZoomFor;
+      let keep = cand;
+      if (filterCats || mzf) {
+        keep = [];
+        for (const i of cand) {
+          const n = this.norm[i];
+          if (mzf && z < mzf(n, this.app)) continue;
+          if (filterCats && hidden.has(this.app.categoryOf(this.id, n))) continue;
+          keep.push(i);
+        }
+      }
       this.inView = keep.length;
       const cap = this.def.cap ?? 50000;
       this.capped = keep.length > cap;
-      if (this.capped) keep = keep.subarray(0, cap);
+      if (this.def.sortKey) {
+        // arrays are pre-sorted by importance: id order draws/truncates the important ones first
+        keep = Uint32Array.from(keep).sort();
+        if (this.capped) keep = keep.subarray(0, cap);
+      } else if (this.capped) {
+        // no importance order (buildings, areas): keep the features nearest the view centre
+        const c = map.getCenter();
+        const bb = this.index.bbox;
+        const kx = Math.cos(c.lat * D2R);
+        const dist = new Float64Array(keep.length);
+        keep.forEach((i, k) => {
+          const dx = ((bb[4 * i] + bb[4 * i + 2]) / 2 - c.lng) * kx; const dy = (bb[4 * i + 1] + bb[4 * i + 3]) / 2 - c.lat;
+          dist[k] = dx * dx + dy * dy;
+        });
+        const order = Uint32Array.from(keep.keys()).sort((a, d) => dist[a] - dist[d]).subarray(0, cap);
+        keep = Uint32Array.from(order, (k) => keep[k]).sort(); // id order is spatially coherent (tile order) for drawing
+      }
+      // otherwise keep the index's cell order: spatially compact chunks rasterise fastest
       this.drawList = keep;
       this.rendered = new Set(keep);
       this.updateLabels(keep, z);
-      this.message = this.capped ? `${cap.toLocaleString()} of ${this.inView.toLocaleString()} in view (zoom in)` : '';
+      this.message = this.capped ? `${cap.toLocaleString()} of ${this.inView.toLocaleString()} ` +
+        `(${this.def.sortKey ? 'most important' : 'nearest the centre'}; zoom in)` : '';
       this.renderer._redraw();
     }
 
@@ -1146,14 +1231,14 @@
     }
     get rendered() { return { size: this.tiles.length }; }
     attach() {
-      this.renderer = new FastCanvas(this, { pane: 'qa-grid', padding: 0.25 });
+      this.renderer = new FastCanvas(this, { pane: 'qa-grid', padding: 0.15 });
       this.renderer.addTo(this.app.map);
     }
     update(force) {
       const map = this.app.map;
       if (!this.renderer || !this.renderer._map) return;
       if (!this.visible || this.level === null) { this.clear(); return; }
-      const b = this.renderer.latLngBounds() || map.getBounds().pad(0.25);
+      const b = this.renderer.latLngBounds() || map.getBounds().pad(0.15);
       const key = `${map.getZoom()}|${b.toBBoxString()}|${this.level}`;
       if (!force && key === this._key) return;
       this._key = key;
@@ -1241,8 +1326,9 @@
     const pal = ctx.buildingMode === 'levels' ? LEVEL_COLORS
       : ctx.buildingMode === 'levels_source' ? LEVELS_SOURCE_COLORS : ARCHETYPE_COLORS;
     const landmark = hasFlag(n, 'LANDMARK');
+    // outlines below z16 would be sub-pixel: skip them (halves raster work in dense towns)
     return { fillColor: pal[cat] || UNKNOWN_COLOR, fillOpacity: 0.8, fill: true, color: landmark ? '#000' : '#2b2b2b',
-      weight: landmark ? 2 : 0.6, opacity: landmark ? 1 : 0.55 };
+      weight: landmark ? 2 : ctx.z >= 16 ? 0.6 : 0, opacity: landmark ? 1 : 0.55 };
   }
   function areaStyle(n) {
     const c = AREA_COLORS[n.kind] || UNKNOWN_COLOR;
@@ -1287,15 +1373,16 @@
   }
 
   const LAYER_DEFS = [
-    { id: 'roads', label: 'Roads', pane: 'qa-roads', defaultOn: true, cap: 60000, lengths: true, drawReverse: true,
+    { id: 'roads', label: 'Roads', pane: 'qa-roads', defaultOn: true, cap: 60000, lengths: true, drawReverse: true, stripCtx: true,
       normalize: normRoad, style: roadStyle, sortKey: (n) => CLASS_RANK[n.cls] ?? 99,
       minZoomFor: (n) => CLASS_MINZOOM[n.cls] ?? 13, split: splitTrails },
     { id: 'trails', label: 'Trails', pane: 'qa-trails', defaultOn: true, cap: 40000, minZoom: 12, lengths: true, drawReverse: true,
+      stripCtx: true,
       normalize: normRoad, style: roadStyle, sortKey: (n) => CLASS_RANK[n.cls] ?? 99 },
-    { id: 'buildings', label: 'Buildings', pane: 'qa-buildings', defaultOn: true, cap: 40000, minZoom: 15, lazy: true,
+    { id: 'buildings', label: 'Buildings', pane: 'qa-buildings', defaultOn: true, cap: 30000, minZoom: 15, lazy: true,
       normalize: normBuilding, style: buildingStyle },
     { id: 'areas', label: 'Areas', pane: 'qa-areas', defaultOn: true, cap: 20000, normalize: normArea, style: areaStyle },
-    { id: 'lines', label: 'Lines (water, rail, walls)', pane: 'qa-lines', defaultOn: true, cap: 20000, lengths: true,
+    { id: 'lines', label: 'Lines (water, rail, walls)', pane: 'qa-lines', defaultOn: true, cap: 20000, lengths: true, stripCtx: true,
       normalize: normLine, style: lineStyle },
     { id: 'pois', label: 'POIs', pane: 'qa-pois', defaultOn: true, cap: 6000, drawReverse: true, normalize: normPoi, style: poiStyle,
       sortKey: (n) => -n.importance, labelMinZoom: 16,
@@ -1479,7 +1566,8 @@
         this.fail(`Could not load ${this.dataUrl(this.indexName)} (${err.message || err}). ` +
           'Build a QA export (pipeline build.py --qa writes pipeline/build/regions/<region>/qa/) ' +
           'or try ?data=sample/qa.');
-        this.setBase(this.base);
+        this.applyHash(this.parseHash(location.hash), true); // still honour the view and base=… of the link
+        if (!this.baseLayer && this.base !== 'none') this.setBase(this.base);
         this.readyResolve();
         return;
       }
@@ -1494,7 +1582,7 @@
       this.renderLegend();
       this.renderStats();
       const loads = [];
-      for (const l of Object.values(this.layers)) if (!l.def.lazy && l.state === 'idle') loads.push(l.ensureLoaded());
+      for (const l of Object.values(this.layers)) if (!l.def.lazy) loads.push(l.ensureLoaded());
       await Promise.all(loads);
       this.updateAll();
       this.writeHash();
@@ -1551,7 +1639,9 @@
       const map = this.map;
       for (const def of LAYER_DEFS) {
         const l = new VectorLayer(this, def);
-        if (def.id === 'buildings') l.def = { ...def, minZoom: num(this.params.get('bmin')) ?? def.minZoom };
+        if (def.id === 'buildings') {
+          l.def = { ...def, minZoom: num(this.params.get('bmin')) ?? def.minZoom, cap: num(this.params.get('bcap')) ?? def.cap };
+        }
         l.attach();
         l.setSource(this.layerSources.get(def.id) || null);
         this.layers[def.id] = l;
@@ -1890,10 +1980,6 @@
         default: return null;
       }
     }
-    isHidden(layerId, cat) {
-      const s = this.hidden[this.legendKey(layerId)];
-      return !!(s && s.has(cat));
-    }
     toggleCategory(key, cat) {
       const s = this.hidden[key] || (this.hidden[key] = new Set());
       if (s.has(cat)) s.delete(cat); else s.add(cat);
@@ -2189,6 +2275,7 @@
         if (l.state === 'ready') {
           s += fmtNum(l.count);
           if (l.def.lengths && l.count) s += ` · ${fmtLen(l.lengths.reduce((a, c) => a + c, 0))}`;
+          if (l.ctxStripped) s += ` · ${fmtNum(l.ctxStripped)} context pts hidden`;
           if (l.bytes) s += ` · ${fmtBytes(l.bytes)} in ${fmtNum(l.loadMs / 1000, 1)} s`;
           if (l.source && l.source.count !== null && l.source.count !== undefined && l.source.count !== l.count && !l.source.tiles) {
             s += ` <span class="warn">index says ${fmtNum(l.source.count)}</span>`;
@@ -2425,8 +2512,14 @@
         html += `<table class="kv">${tr(this.keyFields(layerId, n, f))}</table>`;
         html += `<details open><summary>All properties (${Object.keys(p).length})</summary><table class="kv raw">${this.rawRows(layerId, p)}</table></details>`;
         const g = f.geometry;
-        html += `<details><summary>Geometry</summary><table class="kv">${tr([['type', escapeHtml(g.type)], ['vertices', fmtNum(vertexCount(g))],
-          ['bbox', geomBBox(g).map((v) => v.toFixed(7)).join(', ')]])}</table></details>`;
+        const geoRows = [['type', escapeHtml(g.type)], ['vertices', fmtNum(vertexCount(g))],
+          ['bbox', geomBBox(g).map((v) => v.toFixed(7)).join(', ')]];
+        if (f._ctx) {
+          geoRows.push(['context pts', ['prev', 'next'].filter((k) => f._ctx[k])
+            .map((k) => `${k}: ${f._ctx[k][1].toFixed(7)}, ${f._ctx[k][0].toFixed(7)}`).join('<br>') +
+            ' <span class="muted">(outside the tile, not drawn)</span>']);
+        }
+        html += `<details${f._ctx ? ' open' : ''}><summary>Geometry</summary><table class="kv">${tr(geoRows)}</table></details>`;
         html += '<div class="insp-actions"><button type="button" data-act="zoom">Zoom to</button>' +
           '<button type="button" data-act="copy">Copy GeoJSON</button></div>';
       } else {

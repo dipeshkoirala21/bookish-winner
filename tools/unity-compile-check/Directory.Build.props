@@ -18,4 +18,9 @@
     <NoWarn>$(NoWarn);CS0649;CS1591;NU1701</NoWarn>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+  <!-- API audit (run.sh with the audit flag): the analyzer checks every Unity symbol we use against the Unity 6.3 API. -->
+  <ItemGroup Condition="'$(UnityApiIndex)' != ''">
+    <AdditionalFiles Include="$(UnityApiIndex)" />
+    <Analyzer Include="$(MSBuildThisFileDirectory)audit/Analyzer/bin/Release/netstandard2.0/Ghumante.UnityApiAudit.dll" />
+  </ItemGroup>
 </Project>
