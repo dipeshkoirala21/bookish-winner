@@ -24,23 +24,26 @@ The brief is strong. Twelve points need a change, a decision from you, or a cave
 | # | Topic | What the brief says | Concern | Recommendation |
 |---|---|---|---|---|
 | P1 | **World scale** | Evaluate 1:1 vs uniform compression | At 1:1, Kathmandu to Pokhara is about 200 km of road, roughly 2 h of real-time riding, and Lukla to EBC is about 65 km of trail. Uniform compression (1:4 to 1:10) breaks towns: real building footprints and 5 m roads cannot shrink, so Thamel stops fitting. | **Variable scale, "Euro Truck Simulator style"** (§5): towns stay at 1:1, open country is compressed about 1:6, and slopes and view angles are preserved. M0/M1 build the valley at 1:1 (identity warp). The warp is a separate pipeline stage, with a go/no-go gate before M2. **Decision**: target travel times. |
-| P2 | Memory budget | "~1.5 GB on low-end (3–4 GB RAM)" | Android's low-memory killer and iOS jetsam end apps well before total RAM is used. 1.5 GB on a 3 GB phone is unsafe (§10). | Tiered budgets: **Low ≤ 1.0 GB, Mid ≤ 1.5 GB, High ≤ 2.0 GB** resident, with streaming radius and density scaled per tier. |
+| P2 | Memory budget and frame rate | "~1.5 GB on low-end (3–4 GB RAM)"; "60 fps on iPhone 12 and Snapdragon 7-series" | 1.5 GB equals the *lowest* cap of Android 17's new Memory Limiter on a 3 GB phone (½ of RAM), and Play vitals starts enforcing memory thresholds in Feb 2027. iPhone 12 apps are killed at about 2.1 GB. Snapdragon 7 Gen 1 and 7s Gen 2 have **less than half** the iPhone 12's GPU throughput (3DMark Wild Life ~3 000 vs ~7 500). | **Peak budgets: 3 GB Android ≤ 1.0 GB, 4 GB Android ≤ 1.5 GB, 4 GB iPhone ≤ 1.4 GB, 6 GB+ ≤ 2.0 GB** (§10). **60 fps** on iPhone 12 / A14+ and Snapdragon 7 Gen 3+. **30 fps by default, with a 60 fps option**, on SD 7 Gen 1 / 7s Gen 2, until device profiling proves 60 is sustainable. |
 | P3 | Nepali text | "Full UI localization in English and Nepali from day one" | Devanagari needs OpenType shaping (conjuncts, reordered vowel signs, reph). Unity's TextMeshPro/uGUI does not shape Indic scripts. Shaping exists only in UI Toolkit's Advanced Text Generator (§7.9). | Build all UI in **UI Toolkit with the Advanced Text Generator**. A week-1 spike checks Devanagari on real devices. If the spike fails, fall back to a HarfBuzz-based shaping plugin. |
 | P4 | OSM reality | Real surfaces, real buildings | The [coverage report](reports/tag_coverage.md) shows that **85% of road length has no `surface`**, **99.6% of 8.3 M buildings have no `building:levels`**, 97.5% are plain `building=yes`, `sac_scale` covers 2% of trails, and `name:ne` is on only 14–29% of villages and hamlets. | Treat **inference as the main path**: surface, levels, archetype, trail difficulty and Nepali names are all modelled, and every inferred value is flagged. "Accurate" becomes "true where OSM knows, plausible and consistent where it doesn't". The QA viewer shows which is which. |
-| P5 | Install size and delivery | PAD + On-Demand Resources | On-Demand Resources is legacy on Apple's side, and Apple-hosted Background Assets need a newer iOS than our iOS 16 floor (§9). Most of our region data is our own binary format, not Unity assets. | **Region packs are plain files behind one `IRegionPackSource` interface**, with backends for Play Asset Delivery (Android), our CDN (iOS 16+, and the fallback everywhere), and Apple-hosted Background Assets later. The base install ships the Kathmandu Valley pack. |
+| P5 | Install size and delivery | PAD + On-Demand Resources | **ODR is deprecated as of iOS 27.** Apple-hosted Background Assets need iOS 26+, and about 21% of iPhones were not on iOS 26 in June 2026. Most of our region data is our own random-access binary format, not Unity assets. | **Region packs are plain files behind one `IRegionPackSource` interface.** The **CDN is the baseline on both platforms**: Cloudflare R2 has no egress fees. PAD (Android) and Apple-hosted Background Assets (iOS 26+) are optional backends that save hosting cost. The base install, including the Kathmandu Valley pack, stays **≤ 150 MB** so it is under the 200 MB cellular prompts. |
 | P6 | Licensing (ODbL) | Attribution in credits and on the map | Our tiles are a *Derivative Database* that we distribute inside the app. ODbL 4.4/4.6 then requires us to offer the derived database **or the method used to make it**. | Publish the pipeline (at least the transformation method) under an open licence, keep hand-curated content (fun facts, curated gems) in a separate database, and attribute on every map screen and in the credits. **Lawyer review needed** (see LICENSES.md). **Decision**. |
 | P7 | Real business names | Real POIs, generic shopfronts | OSM `shop`/`amenity` names are real businesses, some with trademarks. Painting them on signs or listing them in search invites trademark and endorsement problems. | Shopfronts use generic Nepali-style signage. Search covers public places (temples, peaks, lakes, squares, transport hubs, viewpoints) and hotels and teahouses only where they are trek landmarks. |
 | P8 | M3 scope | Annapurna + Everest, trekking, Lukla flight, helicopter, glaciers, yaks and horses, bungee | That is three milestones of work: two new biomes, two new movement systems, an aircraft system, and a mini-game. | Split it into **M3a** (Annapurna, trekking, stamina, horses) and **M3b** (Everest, the Lukla flight, helicopter, glaciers, bungee). See ROADMAP. |
 | P9 | "Every milestone installable on a phone" | — | Unity cannot run in this cloud dev environment, and CI builds need a **Unity licence seat**, an **Apple Developer account** with signing assets, and a **Play Console** account. | The CI is wired up with GameCI and fastlane. You add the secrets listed in `docs/CI_SECRETS.md`. Until then, milestone builds come from your machine. **Decision**: Unity tier. |
 | P10 | Cultural accuracy | Respectful depiction | Some sites have real access rules: non-Hindus may not enter Pashupatinath's main temple, and photography rules vary. | Model the real access rules (the inner sanctum is not enterable; the player watches aarti from the east bank) and add them to the cultural review list. |
 | P11 | Kid-appropriate + analytics | Opt-in where required | A game that appeals to children brings COPPA, GDPR-K and the Play Families policy. Ad and analytics SDKs are the usual problem. | Collect no analytics by default, leave out ad SDKs, use a privacy-first crash reporter, and target a 9+ / PEGI 7 rating. |
-| P12 | Engine | Unity 6 LTS default | Godot 4 has better text shaping and no licence cost, but Unity is stronger where this project is hardest: mobile open-world rendering, asset delivery, profiling and the asset ecosystem. | **Stay on Unity 6 LTS** (§3), with the engine-agnostic core kept portable. |
+| P12 | Engine | Unity 6 LTS default | "Unity 6 LTS" is now two lines. 6.0 LTS reaches end of support **this month (Oct 2026)**. **6.3 LTS (6000.3.x)** is supported to Dec 2027. 6.7 LTS (the last Mono-based release) is in beta, and Unity 7 (CoreCLR) follows in 2027. Godot 4.7 still marks C# on Android and iOS as experimental. | **Unity 6.3 LTS** (§3). Keep core C# free of Mono-specific APIs so the 6.7 and Unity 7 migrations stay cheap. |
+| P13 | Rivers from HydroSHEDS | Optional data source | The HydroSHEDS v1 / HydroRIVERS licence (WWF EULA: flow-down, anti-decompile, termination at will) conflicts with publishing our database under ODbL. | **Drop it.** Rivers come from OSM waterways, plus DEM flow accumulation if needed (LICENSES §1.4). |
+| P14 | Mirror data has personal metadata | — | The working OSM mirror (geo2day) includes contributor names, uids and changesets. Geofabrik's public extract strips them. | Strip metadata at ingest, and never emit it (LICENSES §1.1). |
+| P15 | Disputed border | — | Nepal's official 2020 map includes Kalapani–Lipulekh–Limpiyadhura, which India disputes. The in-game map's border is a legal and market decision. | **Decision** (LICENSES §4). |
 
 ---
 
 ## 3. Engine decision (ADR-001)
 
-**Decision: Unity 6 LTS with URP**, for the reasons below. The facts and their sources are in the [research appendix](#appendix-a-verified-platform-facts).
+**Decision: Unity 6.3 LTS (6000.3.x, latest patch 6000.3.25f1, supported to Dec 2027) with URP, Forward renderer**, for the reasons below. We re-evaluate a move to 6.7 LTS a few patches after it ships, and Unity 7 (CoreCLR) is a 2027+ migration. The facts and their sources are in the [research appendix](#appendix-a-verified-platform-facts).
 
 | Criterion | Unity 6 LTS | Godot 4.x | Weight |
 |---|---|---|---|
@@ -48,6 +51,8 @@ The brief is strong. Twelve points need a change, a decision from you, or a cave
 | Procedural generation throughput | Burst + Jobs + Collections on a worker pool, with near-native speed from C# | GDScript/C# are slower; C++ GDExtension adds a second toolchain | High |
 | Delivery (PAD/ODR/CDN) | First-party Play Asset Delivery support; Addressables with remote catalogs | Community plugins only | Medium |
 | Devanagari shaping | UI Toolkit Advanced Text Generator only; TextMeshPro cannot shape it | HarfBuzz text server built in | Medium. Mitigated by building the UI in UI Toolkit (P3) |
+| C# on mobile | Production (IL2CPP) | **Experimental** on Android and iOS in Godot 4.7; iOS export only from macOS | High |
+| Large worlds | Double-precision core data, floating origin (ours) | Double precision requires custom-compiled editor and export templates | Medium |
 | Profiling and device tooling | Profiler, Memory Profiler, Frame Debugger, Adaptive Performance | Profiler, plus RenderDoc and Xcode/AGI externally | Medium |
 | Cost and licence | Personal is free below the revenue/funding threshold; Pro seat above it | MIT, free | Medium. **Your decision on tier** |
 | CI headless builds | Needs licence activation (GameCI), and macOS for iOS | No licence; runs anywhere | Low |
@@ -116,18 +121,22 @@ flowchart LR
 
 Some numbers to frame the decision (real-world figures are in Appendix A):
 
-| Journey | Real distance | Time at 1:1 (arcade speeds) | Time with recommended model |
-|---|---|---|---|
-| Thamel → Boudhanath | ~6 km by road | ~5 min by motorbike | same (urban, 1:1) |
-| Kathmandu → Pokhara (Prithvi Hwy) | ~200 km | ~2 h | **~15–20 min** |
-| Lukla → Everest Base Camp | ~65 km trail | ~6–8 h walking | **~60–80 min** in stages |
-| Kathmandu → Sauraha (Chitwan) | ~160 km | ~1.5 h | ~15 min |
+| Journey | Real distance | 1:1 (arcade speeds) | **Option 3 (recommended)**: towns 1:1, country ~1:6 | Option 4: "compact", places 1:4, corridors 1:20 |
+|---|---|---|---|---|
+| Thamel → Boudhanath | 4.9 km straight, ~6 km road | ~5 min by motorbike | ~5 min (urban, 1:1) | ~1.2 km, about 1 min |
+| Kathmandu → Pokhara (Naubise–Pokhara is 174 km of Prithvi Hwy) | ~200–210 km | ~2 h | **~15–20 min** | ~10 km, about 7 min |
+| Lukla → Everest Base Camp | ~65 km trail (36.7 km straight) | ~6–8 h walking | **~60–80 min**, in stages | ~3.3 km, about 25 min walking |
+| Kathmandu → Sauraha (Chitwan) | ~165 km | ~1.5 h | ~15 min | ~8 km |
+| Kathmandu Valley area | ~650 km² | 650 km² | ~250–400 km² | ~40 km² (about half of Forza Horizon 4) |
+
+Precedents (Appendix A): Euro Truck Simulator 2 and American Truck Simulator use **1:20** outside cities (primary source; ATS was rescaled from 1:35 in 2016) and about **1:3** in cities (secondary source). The Crew squeezed the USA into about 5 000 km² for a ~90 min coast-to-coast drive. Forza Horizon 4 and 5 maps are about 72 and 107 km². Microsoft Flight Simulator is 1:1 because it flies.
 
 **Options considered**
 
 1. **1:1 everywhere.** This is the simplest and the most faithful, and the map is exact. But long journeys are tedious, and the game would lean almost entirely on fast travel. That works against the vision of going anywhere, any way. It also gives the largest world to fill and the biggest download.
 2. **Uniform compression (1:4–1:10).** Rejected. Real footprints, 5 m roads and human-sized props cannot shrink, so towns become unreadable and roads overlap.
-3. **Variable scale (recommended).** Settlement cores stay at 1:1, peri-urban areas and valley floors run at about 1:2, and open country at **about 1:6** (tunable per region between 1:4 and 1:8). Smooth transitions connect them. This is how Euro Truck Simulator 2 keeps cities recognisable while making country-length drives fun.
+3. **Variable scale (recommended).** Settlement cores stay at 1:1, peri-urban areas and valley floors run at about 1:2, and open country at **about 1:6** (tunable per region between 1:4 and 1:8). Smooth transitions connect them. **Real streets and building footprints survive in towns**, which is the brief's core promise ("everything is where it really is"), while the road trips between towns shrink to a fun length.
+4. **Compact, ETS-style** (proposed by our scale research): places at 1:4, corridors at 1:20, a separate vertical of about 1:6–1:8 (slopes exaggerated 2.5–3×). This makes a dense Forza-like world and the smallest downloads. But towns can no longer use real footprints and street grids. They become *typified*: a recognisable layout with selected landmarks and generated streets. That gives up "real roads, real villages", and makes searching for an arbitrary village much less meaningful. **Not recommended**, but it is the right choice if the priority is pacing over fidelity. **This trade-off is your call (§14 Q1).**
 
 **How the variable scale works (pipeline stage `warp.py`, M2)**
 
@@ -221,12 +230,12 @@ Dependencies only point downward toward `Core`. Gameplay assemblies talk to each
 
   | Ring | Tile level | Content | Low | Mid | High |
   |---|---|---|---|---|---|
-  | Near | 10 (1 km) | full: terrain 2 m, roads, buildings kit LOD0–1, scatter, traffic | 1 km | 1.5 km | 2 km |
-  | Mid | 9 (2 km) | terrain 8 m, roads simplified, buildings as merged extrusions, impostor trees | 3 km | 5 km | 7 km |
-  | Far | 8 (4 km) | terrain 32 m, major roads, building blocks | 8 km | 12 km | 16 km |
-  | Horizon | 5–7 | terrain only, skyline impostor ring beyond | to 60 km | to 100 km | to 150 km |
+  | Near | 10 (1 km) | full: terrain 8 m data refined to 2 m near the camera, roads, buildings kit LOD0–1, scatter, traffic | 0.75 km | 1.25 km | 1.75 km |
+  | Mid | 9 (2 km) | terrain 16 m, simplified roads, buildings as merged extrusions, impostor trees | 2.5 km | 4 km | 6 km |
+  | Far | 8 (4 km) | terrain 32 m, major roads, building blocks | 6 km | 10 km | 14 km |
+  | Horizon | 5–7 | terrain only; skyline impostor ring beyond | to 50 km | to 80 km | to 120 km |
 
-* **Pipeline:** `TileRequest → IO thread (read pack range) → decode job (Core readers) → mesh-build jobs (Burst) → main-thread upload (budgeted)`. Main-thread work is capped at **2 ms per frame** on Mid, spread over a queue ordered by distance and view direction.
+* **Pipeline:** `TileRequest → IO thread (read pack range) → decode job (Core readers) → mesh-build jobs (Burst) → main-thread upload (budgeted)`. Main-thread work is capped at **2 ms per frame** (1.5 ms at 60 fps), spread over a queue ordered by distance and view direction.
 * **Caches:** decoded tiles go in an LRU sized per tier, and meshes are pooled and reused.
 * **Determinism:** all procedural variation comes from `SEED` and per-building `seed`, so the world is identical on every visit and on every device.
 
@@ -297,41 +306,44 @@ Debug tools ship in development builds only. They include: teleport to coordinat
 
 ---
 
-## 9. Delivery and install size
+## 9. Delivery and install size (ADR-008)
 
-* **Base install:** the app, shared art kits, and the `kathmandu_valley` pack (target ≤ 60 MB for the pack). The whole base download must stay **under the Google Play base-module and iOS cellular limits** (Appendix A).
-* **Region packs** are plain binary files plus per-region Addressables bundles for hero assets. One `IRegionPackSource` interface has these backends:
-  * `BuiltInSource`: StreamingAssets, for the base region.
-  * `PlayAssetDeliverySource`: Android on-demand asset packs, one per region (within PAD per-pack and total limits).
-  * `CdnSource`: HTTPS download with resume, SHA-256 verification against the manifest, storage in the app's persistent data path (excluded from iCloud backup). This is used on iOS 16+, and it is the fallback everywhere.
-  * `AppleBackgroundAssetsSource`: Apple-hosted asset packs, once the iOS minimum allows (see Appendix A).
-* Downloaded regions **work fully offline**. Manifests and packs are validated on launch, and a corrupt pack is re-downloaded.
-* Store policy: region packs are data, not executable code, so downloading them is permitted under App Store Review Guideline 2.5.2 and Google Play's policies (Appendix A).
+* **Base install ≤ 150 MB on both stores.** That keeps it below the 200 MB thresholds where Play shows a mobile-data warning and iOS asks for cellular permission. It is well inside Play's current 500 MB base-module and 4 GB install-time limits, and Apple's 4 GB app limit. It contains: the code, UI, shared art kits, a coarse whole-Nepal overview (map layer plus the national search index), and the **Kathmandu Valley pack** (target ≤ 60 MB).
+* **Region packs** are plain binary files (`.ghpk`, `.ghsi`, `.ghrg` plus a manifest), read with random access. Per-region **Addressables bundles** carry the hero art (landmarks, region-specific kits). Both sit behind one `IRegionPackSource`:
+  * `BuiltInSource`: the base region in StreamingAssets. On Android, StreamingAssets live inside the compressed APK and cannot be seeked, so the pack is copied once to persistent storage on first launch and verified by SHA-256.
+  * `CdnSource` (**baseline on both platforms**): HTTPS with resume, a SHA-256 manifest, content-hashed immutable URLs with long cache headers, and versioned catalogs that keep N−1 live. Before downloading, the app shows the size and recommends Wi-Fi with an explicit cellular opt-in (App Store guideline 4.2.3(ii)). It supports pause, resume and **delete region**. Hosting is Cloudflare R2, which has no egress fees, or Unity CCD.
+  * `PlayAssetDeliverySource` (optional, Android): an on-demand pack per region (≤ 1.5 GB each; up to 100 packs; 30 GB total on demand). Hosting is free, but packs over 200 MB on mobile data need the consent dialog (`showConfirmationDialog`).
+  * `AppleHostedAssetsSource` (optional, iOS 26+): Apple-hosted Background Assets through Apple's official Unity plug-in (WWDC26). It is free (200 GB, 200 packs), but every pack version goes through App Review. It is not usable as the only path while iOS 16–25 devices matter. **On-Demand Resources are not used**, because they are deprecated as of iOS 27.
+* Downloaded regions **work fully offline**. Packs are validated on launch, and a corrupt or evicted pack is re-downloaded.
+* **Store policy:** packs contain only data, with no native code, managed assemblies or scripts. That is allowed under App Store Review Guideline 2.5.2 and Play's Device and Network Abuse policy (Appendix A).
 
 ---
 
 ## 10. Performance and memory budgets
 
-Device tiers are detected at first launch from RAM, GPU family and a 3-second benchmark scene. The player can override the tier. Adaptive Performance adjusts it at runtime when the device runs hot.
+Tiers are detected at first launch from total RAM, GPU name and graphics API, and refined by a 10-second frame-time probe. The player can override the tier. Adaptive Performance (built into the engine since Unity 6.3) uses Android ADPF and iOS `ProcessInfo.thermalState` to step down resolution and frame rate when the device gets hot. 60 fps modes are designed for about 10–11 ms of GPU time, because phones throttle to about 75% of peak in sustained play.
 
-| Budget | Low (3–4 GB Android, e.g. Helio G85/G99) | Mid (iPhone 12, Snapdragon 7-series) | High |
+| Budget | **Low**: 3–4 GB Android (Helio G85/G99, Unisoc T606; Mali-G52/G57) | **Mid**: Snapdragon 7 Gen 1 / 7s Gen 2 (Adreno 644/710), 6–8 GB | **High**: iPhone 12 / A14+, Snapdragon 7 Gen 3+ and 8-series |
 |---|---|---|---|
-| Target frame rate | 30 fps (33.3 ms) | 60 fps (16.6 ms) | 60 fps |
-| CPU main thread | ≤ 20 ms | ≤ 10 ms | ≤ 10 ms |
-| Draw calls (SRP batches) | ≤ 250 | ≤ 500 | ≤ 800 |
-| Triangles on screen | ≤ 300 k | ≤ 800 k | ≤ 1.5 M |
-| Resident memory (total) | **≤ 1.0 GB** | ≤ 1.5 GB | ≤ 2.0 GB |
-| — textures | 250 MB | 450 MB | 700 MB |
-| — meshes | 120 MB | 220 MB | 350 MB |
-| — tile data cache | 40 MB | 80 MB | 120 MB |
-| — managed heap | 120 MB | 160 MB | 200 MB |
-| — audio | 30 MB | 50 MB | 60 MB |
-| Near ring radius | 1.0 km | 1.5 km | 2.0 km |
-| NPCs / vehicles nearby | 30 / 15 | 80 / 35 | 140 / 60 |
-| Shadows | blob + 1 cascade, 512 | 2 cascades, 1024 | 2 cascades, 2048 |
+| Target frame rate | 30 fps, render scale 0.7 | 30 fps default, 60 fps option | **60 fps**, dynamic resolution, 30 when thermal is serious |
+| CPU main thread | ≤ 22 ms | ≤ 14 ms (30) / 9 ms (60) | ≤ 9 ms |
+| SRP batches (estimate; validate on device) | ≤ 120 | ≤ 200 | ≤ 300 |
+| Visible triangles (estimate) | ≤ 150 k | ≤ 400 k | ≤ 700 k |
+| **Peak memory footprint** | **≤ 1.0 GB** (3 GB phone), ≤ 1.3 GB (4 GB phone) | ≤ 1.5 GB | ≤ 1.4 GB (4 GB iPhone; jetsam kills at about 2.1 GB), ≤ 2.0 GB (6 GB+) |
+| — textures (mipmap streaming budget) | 200 MB | 350 MB | 450 MB |
+| — meshes | 100 MB | 180 MB | 250 MB |
+| — decoded tile cache | 30 MB | 60 MB | 90 MB |
+| — managed heap | 100 MB | 140 MB | 180 MB |
+| — audio | 25 MB | 40 MB | 50 MB |
+| Near ring radius | 0.75 km | 1.25 km | 1.75 km |
+| NPCs / vehicles nearby | 25 / 12 | 60 / 30 | 120 / 50 |
+| Shadows | blob + 1 cascade, 512 | 1 cascade, 1024 | 2 cascades, 1024 |
 | Outlines | landmarks only | characters, vehicles, landmarks | + props |
 
-Texture compression is ASTC everywhere (6×6 for terrain and props, 4×4 for UI). Graphics APIs are Vulkan with a GLES3 fallback on Android, and Metal on iOS.
+* **Renderer:** URP **Forward**, not Forward+, which is markedly slower on Android Vulkan (Unity issue UUM-40387). SRP Batcher on. Static batching for building chunks. GPU instancing or a custom BatchRendererGroup for vegetation and props; both work on GLES. **GPU Resident Drawer** and GPU occlusion culling need Forward+ and do not run on GLES, so they are an opt-in experiment on High only, adopted only if device profiling shows a net gain.
+* **Graphics APIs:** Vulkan with GLES 3.x fallback on Android (about 11% of handhelds lack Vulkan 1.1+), Metal on iOS. Textures are ASTC only: 6×6 for terrain and building albedo, 8×8 far or Low, 4×4 for UI and faces. Mipmaps are disabled on UI. Read/Write is never enabled.
+* **Memory discipline:** Unity keeps grown native and managed heaps, so peaks during tile transitions are what trigger kills. Resident tiles are hard-capped per tier, tiles are evicted *before* loading new ones, and meshes are pooled. iOS polls `os_proc_available_memory()` and drops a tier below 400 MB free. Android records `ApplicationExitInfo` (`MemoryLimiter:AnonSwap`).
+* **Release gates:** user-perceived LMK rate < 1%; P90 foreground memory ≤ 75% of the Play vitals threshold (games on 4 GB: 2.25 GB); a 20-minute soak on one reference device per tier.
 
 ---
 
@@ -339,9 +351,10 @@ Texture compression is ASTC everywhere (6×6 for terrain and props, 4×4 for UI)
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `pipeline.yml` | push, PR | Lint, run `pytest`, build the `thamel_test` fixture region twice, and check determinism. |
-| `core.yml` | push, PR | `dotnet test` for `Ghumante.Core`, including golden files written by the pipeline. |
-| `unity-build.yml` | push to main, manual | GameCI: EditMode tests, Android AAB (IL2CPP, ARM64), iOS Xcode project, then macOS + fastlane → TestFlight. Needs secrets (`docs/CI_SECRETS.md`). |
+| `pipeline.yml` | push, PR | Run `pytest`, including a synthetic end-to-end build done twice to check byte-determinism and seams. |
+| `core.yml` | push, PR | Regenerate golden files from the Python reference and check they are committed unchanged, then `dotnet test` for `Ghumante.Core` against them. |
+| `unity.yml` | push to main, manual | GameCI (`unityci/editor` 6000.3.x images): EditMode tests, Android AAB (IL2CPP, ARM64, **targetSdk 36**, minSdk 29, 16 KB page support), iOS Xcode project, then macOS + fastlane → TestFlight. It skips cleanly without secrets (`docs/CI_SECRETS.md`). |
+| `localization.yml` | push, PR | Fails when a string key is missing in EN or NE. |
 | `nightly-data.yml` | cron 02:15 UTC | Fetch, coverage report, landmark check, build all active regions, upload artifacts and the staging CDN, and post a diff summary. |
 
 `ProjectSettings` are applied by an editor script (`Ghumante.EditorTools.ProjectSetup`), not edited by hand. That covers the bundle id, API levels, IL2CPP, ARM64, graphics APIs and the URP asset. The script is idempotent, so CI and every developer get identical settings.
@@ -371,7 +384,7 @@ Texture compression is ASTC everywhere (6×6 for terrain and props, 4×4 for UI)
 
 | ADR | Decision | Status |
 |---|---|---|
-| 001 | Unity 6 LTS + URP, engine-agnostic C# core | Accepted (§3) |
+| 001 | Unity 6.3 LTS + URP (Forward), engine-agnostic C# core | Accepted (§3) |
 | 002 | Canonical CRS NPL-TM84; persistent data in canonical/lon-lat only | Accepted |
 | 003 | Floating origin, rebase at 2 km; doubles in core | Accepted |
 | 004 | Variable-scale world (towns 1:1, country ~1:6) via an ASAP warp; identity in M0/M1; go/no-go before M2 | **Proposed: needs your sign-off on target travel times** |
@@ -382,24 +395,53 @@ Texture compression is ASTC everywhere (6×6 for terrain and props, 4×4 for UI)
 | 009 | No analytics by default; no ad SDKs | Proposed |
 | 010 | OSM shop/brand names not rendered in-world, not searchable | Proposed |
 | 011 | Quadtree root 2^20 m, leaf level 10 (1 024 m), heights 129² at 15 cm quantisation | Accepted |
-| 012 | Overpass/Geofabrik independence: mirrors list in `sources.yaml` | Accepted |
+| 012 | Source independence: mirror list in `sources.yaml`, MD5 + SHA-256 lock file | Accepted |
+| 013 | Layer separation: OSM features, DEM-derived and WorldCover-derived data are kept in separate chunks; curated content in a separate DB (ODbL collective-database posture) | Accepted, pending lawyer review |
+| 014 | No HydroSHEDS/HydroRIVERS (licence conflict); rivers from OSM | Accepted |
+| 015 | Base install ≤ 150 MB; CDN as the baseline delivery path; PAD and Apple-hosted packs optional; no ODR | Accepted |
 
 ---
 
 ## 14. Open questions for you
 
-1. **Travel-time targets** (ADR-004): is "Kathmandu → Pokhara in about 15–20 minutes of riding" the right feel? Shorter means more compression and more road generalisation.
-2. **Unity licence tier and accounts**: Personal or Pro? Who owns the Apple Developer and Play Console accounts that CI will sign with?
-3. **ODbL approach** (P6): are you OK publishing the pipeline source (or at least the transformation method) and offering the derived database? Do you have a lawyer for the review?
-4. **Economy mapping**: Coins (rentals, tickets, cosmetics), Stars (discoveries and medals; unlock badges and regions?), Hearts/Energy as in-world stamina only. Should Stars gate regions at all, or only badges?
-5. **Monetisation direction** (later): cosmetics and/or region packs? This affects whether region downloads are free.
-6. **Art direction**: should landmark outlines be on everywhere or only on hero objects? Is the palette tuned toward the reference image or something more pastel?
-7. **Cultural consultant**: do you have someone in mind? We need them before M1 hero landmarks are final.
+1. **World scale** (ADR-004, §5.3): Option 3 (real towns at 1:1, country ~1:6; Kathmandu → Pokhara ≈ 15–20 min) or Option 4 (compact 1:4 / 1:20; ≈ 7 min, but typified rather than real towns)? Or what target travel times would you like?
+2. **Unity licence tier and accounts**: Personal (≤ $200k revenue + funding) or Pro? Who owns the Apple Developer and Play Console accounts that CI will sign with?
+3. **ODbL approach** (P6): are you OK publishing the pipeline source (or at least the transformation method) and offering the derived database? Do you have a lawyer for the review in LICENSES §6?
+4. **Disputed border** (P15): which map of Nepal does the game show, and does that change per store region?
+5. **Frame-rate promise** (P2): do you accept 30 fps by default on Snapdragon 7 Gen 1 / 7s Gen 2-class phones (with a 60 fps option), and 60 fps on iPhone 12 / SD 7 Gen 3+?
+6. **Economy mapping**: Coins (rentals, tickets, cosmetics), Stars (discoveries and medals), Hearts/Energy as in-world stamina only. Should Stars unlock regions at all, or only badges and cosmetics?
+7. **Monetisation direction** (later): cosmetics and/or region packs? This affects whether region downloads are free and which delivery backend pays for hosting.
+8. **Art direction**: should outlines be on everything or only on hero objects? Should the palette follow the reference image exactly or lean more pastel?
+9. **Cultural consultant**: do you have someone in mind? We need them before the M1 hero landmarks are final.
+10. **Minimum iOS**: keep iOS 16, or raise it to 17 if A11 devices (iPhone 8/X) can't hold the Low budget?
 
 ---
 
-## Appendix A: verified platform facts
+## Appendix A: verified platform facts (research pass 2026-10-04)
 
-*Filled from the research pass of 2026-10-04 (sources inline). See §15 of PROGRESS.md for anything still unverified.*
+Each line is a checked fact with its source. The full research notes, including medium- and low-confidence items, are in `docs/reports/research_2026-10-04.md`.
 
-(see below)
+**Engine**
+* Unity 6.3 LTS (6000.3) is supported until Dec 2027. The latest patch is 6000.3.25f1 (2026-09-24). Unity 6.0 LTS support ends Oct 2026. — [unity.com/releases/unity-6/support](https://unity.com/releases/unity-6/support)
+* Unity Personal is free up to $200k revenue + funding. Pro costs $2 310 per seat per year from 2026-01-12. The Runtime Fee was cancelled 2024-09-12. Personal may disable the splash screen in Unity 6. — [unity.com/en/products/pricing-updates](https://unity.com/en/products/pricing-updates), [unity.com/blog/unity-is-canceling-the-runtime-fee](https://unity.com/blog/unity-is-canceling-the-runtime-fee)
+* Godot 4.7.2 is the latest stable release. Godot docs still describe C# on Android and iOS as experimental, and double precision needs custom-built templates. — [godot-docs c_sharp](https://raw.githubusercontent.com/godotengine/godot-docs/4.7/tutorials/scripting/c_sharp/index.rst)
+* The URP GPU Resident Drawer needs Forward+ and does not run on OpenGL ES. — [docs.unity3d.com 6000.3 GPU Resident Drawer](https://docs.unity3d.com/6000.3/Documentation/Manual/urp/gpu-resident-drawer.html)
+* GameCI publishes `unityci/editor` images for 6000.3.25f1 (android and ios). Building iOS needs macOS for Xcode and signing. — [game.ci iOS](https://game.ci/docs/github/deployment/ios)
+
+**Stores and delivery**
+* Google Play limits: base module 500 MB; asset pack 1.5 GB; 4 GB for base plus install-time; 30 GB for on-demand and fast-follow; a 200 MB mobile-data warning. — [support.google.com/googleplay/android-developer/answer/9859372](https://support.google.com/googleplay/android-developer/answer/9859372)
+* New apps and updates must **target API 36** from 2026-08-31. 16 KB page support is required for updates from 2027-02-01. — [developer.android.com target-sdk](https://developer.android.com/google/play/requirements/target-sdk)
+* On-Demand Resources are deprecated in iOS 27. Managed and Apple-hosted Background Assets need iOS 26+, with 200 GB and 200 packs, and every pack goes through App Review. — [ODR limits](https://developer.apple.com/help/app-store-connect/reference/app-uploads/on-demand-resources-size-limits), [AssetPackManager](https://developer.apple.com/documentation/backgroundassets/assetpackmanager), [Apple-hosted limits](https://developer.apple.com/help/app-store-connect/reference/app-uploads/apple-hosted-asset-pack-size-limits)
+* iOS 26 was on 79% of active iPhones (June 2026). — [developer.apple.com/support/app-store](https://developer.apple.com/support/app-store/)
+* App Store 2.5.2 bans downloading code that changes features. 4.2.3(ii) requires disclosing the size of a required download. Play bans downloading executable code from outside Play. — [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/), [Play policy](https://support.google.com/googleplay/android-developer/answer/9888379)
+
+**Performance and memory**
+* Android 17's Memory Limiter caps visible apps at ½–⅔ of RAM. Play vitals memory thresholds for games on 4 GB devices are 2.25 GB foreground and 2.00 GB background, and they affect store visibility from Feb 2027. — [source.android.com memory-limiter](https://source.android.com/docs/core/perf/memory-limiter), [Android vitals](https://developer.android.com/topic/performance/vitals)
+* iPhone 12 (4 GB) jetsam kills reported at "ActiveHard 2098 MB". This is a community report, not a figure Apple publishes. — [Apple forums 688973](https://developer.apple.com/forums/thread/688973)
+* 3DMark Wild Life medians: iPhone 12 about 7 545; SD 7 Gen 1 about 3 110; 7s Gen 2 about 3 014; 7 Gen 3 about 5 372; Helio G99 about 1 231; G85 about 720. — [benchmarks.ul.com](https://benchmarks.ul.com)
+* Forward+ was markedly slower than Forward on Android Vulkan for screen-filling objects (UUM-40387, Won't Fix). — [issuetracker.unity.com](https://issuetracker.unity.com/issues/2480/gpu-frame-time-is-bad-on-android-vulkan-when-object-covers-a-lot-of-screen-pixels)
+
+**Scale and geography**
+* American Truck Simulator was rescaled from 1:35 to 1:20 in 2016, "equivalent to Euro Truck Simulator 2". — [blog.scssoft.com 2016/06](https://blog.scssoft.com/2016/06/)
+* Prithvi Highway (NH17): Naubise–Pokhara is 174 km. Kathmandu–Sauraha is about 165 km. Lukla–EBC is about 65 km one way. Nepal's area is 147 516 km² (2020 map). Everest is 8 848.86 m. Nepal has 7 provinces, 77 districts, 753 local levels and 6 743 wards. — see the research notes for sources.
+* OSM admin levels for Nepal: 4 = province, 6 = district, 7 = local level, 9 = ward. — [OSM wiki Template:Admin level](https://wiki.openstreetmap.org/wiki/Template:Admin_level)

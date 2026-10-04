@@ -349,7 +349,7 @@ def render_markdown(d: dict) -> str:
         "see `TAG_COVERAGE_FINDINGS.md` for interpretation.\n"
     )
     md.append(f"- Source: `{d['source']}`")
-    md.append(f"- Newest object timestamp in extract: `{d['data_max_timestamp']}`")
+    md.append(f"- Newest timestamp among tagged objects: `{d['data_max_timestamp']}`")
     md.append(f"- Generated: `{d['generated_at']}` (scan took {d['scan_seconds']} s)")
     md.append(f"- Tagged objects scanned: {d['totals']}\n")
     md.append("Percentages are of objects in that row; *by length* weights roads by kilometres. "

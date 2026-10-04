@@ -1,6 +1,6 @@
 # OSM tag coverage: findings and consequences
 
-Source: Nepal extract from 2026-10-02 (newest object 2026-10-02 19:34 UTC), 468 MB PBF. Full numbers are in [tag_coverage.md](tag_coverage.md) and [tag_coverage.json](tag_coverage.json). The scan takes about 5 minutes on 4 cores.
+Source: Nepal extract from 2026-10-02 (newest tagged object 2026-10-02 19:34 UTC), 468 MB PBF. Full numbers are in [tag_coverage.md](tag_coverage.md) and [tag_coverage.json](tag_coverage.json). The scan takes about 5 minutes on 4 cores.
 
 > **Data source note.** The brief names Geofabrik as the source. From this cloud environment, `download.geofabrik.de` resets every connection, which is consistent with Geofabrik blocking cloud egress. The same daily extract came from the OSMToday mirror (`geo2day.com/asia/nepal.pbf`, ODbL, MD5 verified). `fetch.py` tries Geofabrik first and falls back to the mirror.
 
