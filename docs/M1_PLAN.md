@@ -1,7 +1,7 @@
 # M1 plan: Kathmandu Valley vertical slice
 
-> Working plan for [ROADMAP M1](ROADMAP.md#m1-vertical-slice-kathmandu-valley-size-l-about-8-weeks). It complements ARCHITECTURE.md §5–§10, which says *what* the runtime is; this file says *in which order we build it*, *who owns which files*, and the *code contracts* parallel work is built against.
-> **M1 acceptance (unchanged):** on a mid-range phone, search "Boudha", ride a motorbike there along real roads, in portrait and landscape; frame rate and memory within ARCHITECTURE §10.
+> Working plan for [ROADMAP M1](ROADMAP.md#m1-vertical-slice-kathmandu-valley-size-lxl-about-1112-weeks). It complements ARCHITECTURE.md §5–§10, which says *what* the runtime is; this file says *in which order we build it*, *who owns which files*, and the *code contracts* parallel work is built against.
+> **M1 acceptance:** on a mid-range phone, search "Boudha", ride a motorbike there along real roads, in portrait and landscape; frame rate and memory within ARCHITECTURE §10; and the valley's real content in its real places, measured by the coverage checks in [CONTENT_COVERAGE §5.3](CONTENT_COVERAGE.md#53-coverage-acceptance-for-m1-123).
 
 ## Principles
 
@@ -14,8 +14,8 @@
 | Wave | Goal | Work items (ROADMAP ids) | Status |
 |---|---|---|---|
 | **W1: Explore works** | Real 1:1 Kathmandu streamed around a motorbike or a walker. Search places, teleport, see a route line, back to menu. Both orientations, keyboard/gamepad on Mac, touch on phones. | 1.2 pack loading + LOD rings + floating origin; 1.3 terrain (skirts, biome toon colours); 1.4 roads (ribbons, surfaces, bridges); 1.5 buildings as extruded blocks with roof shapes; 1.7 walk + motorbike, arcade surface grip, stuck recovery, orientation-aware camera, touch controls; 1.9 sky gradient + day/night + valley haze + earth curvature; 1.10 search → teleport + route line; 1.13 debug HUD + teleport | **next** |
-| **W2: Kathmandu comes alive** | Traffic and cows, landmarks, a real map. | 1.8 lane graph, cars, bikes, buses on OSM bus routes, cows (stop and steer, never harm); 1.6 hero landmark placeholders (stupa, pagoda, square), placed from `landmarks.resolved.json`; 1.5 Newar and Modern Urban facade details (LOD0 kit-lite); 1.10 full-screen map (true 1:1), minimap, fast travel to discovered places; 1.12 save of position and discoveries; taxi | later |
-| **W3: Ship quality** | Performance and polish. | 1.14 instancing and batching, memory caps per tier, Adaptive Performance; 1.11 HUD and settings polish; 1.15 cultural review list; device test pass (iPhone 12, SD 7-series, 3 GB Android) | later |
+| **W2: Kathmandu comes alive** | Traffic and cows, landmarks, a real map, and the valley's real content in its real places. | 1.8 lane graph, cars, bikes, buses on OSM bus routes, cows (stop and steer, never harm); 1.6 hero placeholders on corrected anchors with hide zones; 1.5 Newar and Modern Urban facade details (LOD0 kit-lite), building parts, shopfronts; 1.3 near-field conformance (roads, lakes, rivers, runway); 1.4 hairpin arcs, bridge decks, suspension greybox, steps; 1.9 skyline impostor ring + peak labels; 1.10 full-screen map (true 1:1), minimap, fast travel to discovered places; 1.12 save of position and discoveries; taxi; 1.16 water; 1.17 forests and trees (placement); 1.18 POI-anchored structures; 1.19 OSM props; 1.20 place presence; 1.21 Chandragiri cable car + TIA runway; 1.22 named routes; 1.23 first coverage checks | later |
+| **W3: Ship quality** | Performance, polish, and the rest of the valley's look. | 1.14 instancing and batching (vegetation, props, buildings by distance band), memory caps per tier, Adaptive Performance; 1.5 L9 city blocks; 1.4 L9/L8 road LOD; 1.16 waterfalls; 1.17 paddy and terrace look; 1.18 hiti stamp; 1.19 procedural dressing, kilns, markets, campuses, stadium, restricted compounds; 1.6 landmark-lite greybox; 1.21 cable-car ride (stretch); 1.11 HUD and settings polish; 1.15 cultural review sign-off; 1.23 coverage gate green; device test pass (iPhone 12, SD 7-series, 3 GB Android) | later |
 
 ## W1 work split
 
@@ -27,6 +27,28 @@ Agents never edit the same files at the same time. Arrows show dependencies.
 | **B: Core driving** | `Core/Driving/**`, `core-tests/Driving*.cs` | — |
 | **C: World runtime** | `World/**` (streamer, tile views, floating origin, shaders, materials, sky/time), `Platform/Regions/**` (built-in region source), `Editor/RegionImport*.cs` (+ the Project Setup hook), `shared/sample-regions/**` | A |
 | **D: Explore gameplay** | `Characters/**`, `Vehicles/**`, `UI/Screens/Explore*`, `UI/Hud/**`, `App/**` (Explore flow), input | A, B, C |
+
+## Data track (pipeline, starts when W1 lands)
+
+Nothing under `pipeline/`, `shared/` or `core-tests/` changes while W1 is in flight. After W1 lands, a data track (**E: Data pipeline**, owns `pipeline/**`, `shared/enums.json` and the golden-file generators) runs the work in [CONTENT_COVERAGE §3.2](CONTENT_COVERAGE.md#32-pipeline-and-format-work-data-track). Format changes come in batches, so the C# readers change a few times, not continuously:
+
+| Batch | When | Contents | C# impact |
+|---|---|---|---|
+| F1 | First days of W2 | Enum/flag appends; `SEED` = FNV(tile_key, ruleset); classifier, search and landmark fixes (D1, D5, D6 entries, D10, D14 sacred routing) | Regenerate enums + golden files; no layout change |
+| F2 | W2 | New chunks `PROP`, `ADMN`, `RTES`, `RPRF`, `BRDG`, `FALL`, `AATR`, `BFNT`; region files `.ghrt`, `.ghcd`, `.ghsk` (D2–D9, D12) | Additive (readers skip unknown fourccs). Each chunk lands with its reader in `Core/Data` (Track A) and a golden test |
+| F3 | W3 | `BLKS`, display-only L9/L8 road and line LOD, `STEP` (D7, D11); pack-size rebalance (O8) | Additive; ADR-011 change if L10 heights are dropped |
+
+W2 order inside the data track: D10 and D1 first (they unblock scatter and classification), then D5 before the 1.6 placeholders, D2 before 1.8 buses, D7 before 1.3/1.4 conformance, D8 before 1.16, D3 before 1.17–1.19, D6 before 1.20, D12 and D13 alongside.
+
+### W2 work split
+
+| Track | W2 ownership |
+|---|---|
+| A: Core streaming + meshing | Conformance (roads, lakes, rivers, runway), WaterConformance, hairpin arcs, bridge decks, part meshing, distance bands, vegetation and prop placement rules (pure C#), aerialway geometry, readers for the new chunks |
+| B: Core driving | Ground queries over benched profiles and bridge decks; trail slope test; tunnel guard |
+| C: World runtime | Water, vegetation, prop and structure rendering; skyline ring; hero placeholders; traffic and buses |
+| D: Explore gameplay | Map labels and hierarchy, area banners, discovery, fast travel, named routes UI, provenance in the inspector |
+| E: Data pipeline | D1–D14 per the batches above |
 
 ## Contracts (namespaces, names, semantics)
 
@@ -104,4 +126,5 @@ public sealed class ArcadeVehicle {                 // kinematic bicycle model, 
 * `dotnet test core-tests` passes, including the real-pack tests on `shared/sample-regions/kathmandu_core`: meshing every tile without exceptions, seam checks on terrain edges, selection covering exactly once.
 * `tools/unity-compile-check/run.sh --audit` and `check_ui.py` pass, as do the localisation check and the pipeline tests.
 * An adversarial review pass covers runtime correctness, shaders, UX in both orientations and data correctness, followed by fixes.
+* From W2: the pipeline coverage report (D13) shows no category regression, and the [CONTENT_COVERAGE §5.3](CONTENT_COVERAGE.md#53-coverage-acceptance-for-m1-123) checks run in `core-tests` against the full `kathmandu_valley` pack (W3: all green).
 * The product owner plays it in the Mac editor (PROGRESS.md lists exactly what to try).

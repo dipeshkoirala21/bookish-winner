@@ -197,7 +197,7 @@ u64 tile_seed   = FNV-1a 64 over the bytes of (u64 tile_key, u32 data_version)
 u16 ruleset     scatter ruleset id (1 in M0)
 ```
 
-The runtime generates vegetation and props from `tile_seed`, the `BIOM` map and the masks it rasterises from `ROAD`, `BLDG` and `AREA`. Individual prop instances are never stored.
+The runtime generates vegetation and props from `tile_seed`, the `BIOM` map and the masks it rasterises from `ROAD`, `BLDG` and `AREA`. Procedural instances are never stored. Real OSM point objects (single trees, pylons, lamps, bus stops, taps and so on) will be stored in a `PROP` chunk (planned, [CONTENT_COVERAGE](CONTENT_COVERAGE.md) D3), because they are real features at real positions, not decoration.
 
 ### 1.10 `META`
 

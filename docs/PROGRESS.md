@@ -40,8 +40,38 @@
 ### Verification
 `dotnet test core-tests` 174/174; `run.sh --audit` PASS (Android + iOS); `check_ui.py` PASS; localisation OK; TextSpike up to date. An adversarial review found 14 issues and rejected 3 more; all 14 were fixed. Nothing has run on a phone yet.
 
+* **Product-owner vision restated:** *"a GTA style open world explore game in cartoonish theme ... every place, object, landmark, monument, scenery, winding road, waterfall, building, trekking route, forest and adventure spot in their actual places."* "GTA style" is read as the open-world format (seamless roaming, hop on and off vehicles, living streets, minimap, discovery, side activities), still non-violent at 9+ / PEGI 7.
+* **Content coverage audit** → [CONTENT_COVERAGE.md](CONTENT_COVERAGE.md); evidence in [reports/content_census/](reports/content_census/README.md).
+  * **What's already right:** positions. Nothing is lost between OSM and the packs: buildings to ≤ 1 cm and every road vertex kept, so hairpins survive.
+  * **Gaps found:**
+    * Rivers, cable cars and runways are in the data but never drawn.
+    * About 1,250 point-only temples, shrines, hitis and monuments in the valley have nothing drawn.
+    * Forests are only a tint.
+    * About 15 k real street objects are dropped.
+    * Route relations are dropped, so there are no named treks and no real bus lines.
+    * Plinth heights are read as building heights, and `building:part` is dropped (Nyatapola 2 m, Dharahara a floating disc).
+    * Some landmark anchors point at the wrong object (Boudha, Patan, Muktinath).
+    * Rivers run uphill on the 30 m DSM.
+    * Roads are draped on the DSM.
+    * Places can't be discovered.
+    * Some search results land off the map.
+    * The far peaks (Everest from Nagarkot) are beyond the far clip.
+  * **Gaps in OSM itself:** about 335 waterfalls tagged, 0 mani walls, and adventure spots barely mapped. These get fixed in OSM with the local community, or added from a curated, licence-clean DB, never invented.
+* **Plan changes** (ROADMAP, M1_PLAN):
+  * M1 grows by 1.16–1.23: water, forests and trees, POI-anchored structures, props, place presence, aerialways and airfields, named routes, and a coverage gate. That is about 11–12 weeks instead of 8.
+  * A data track (D1–D14, format batches F1–F3) starts when Wave 1 lands.
+  * Later milestones gain the content items listed in CONTENT_COVERAGE §3.4.
+  * Errata applied to ARCHITECTURE, DATA_FORMATS and TAG_COVERAGE_FINDINGS.
+* **Owner decisions O1–O15** (CONTENT_COVERAGE §6): defaults adopted so work proceeds; the product owner can override. Key ones:
+  * "Every" means OSM plus curated, never invented.
+  * Procedural decoration is generic only: never temples, shrines or named places.
+  * Sacred-access rules apply.
+  * Keep the 60 MB valley pack by dropping L10 heights.
+  * Accept the longer M1.
+
 ### Next
 * M1 Wave 1, "Explore works" (in progress).
+* Then W2 with the data track: F1 classifier, landmark and search fixes first, then the new chunks.
 * A native Nepali speaker should review the new menu and settings strings (listed in UI/README.md).
 
 ---

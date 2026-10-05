@@ -17,7 +17,7 @@ Source: Nepal extract from 2026-10-02 (newest tagged object 2026-10-02 19:34 UTC
 | Road `name` / `name:ne` | 7.9% / 1.5% | 19.4% / 5.6% | Most roads are unnamed. Turn hints use landmarks ("past the stupa") more than street names. |
 | Trail length (`path`, `footway`, `steps`...) | **110 074 km** | — | A huge trail network: trekking has real geometry everywhere. |
 | Trails with `sac_scale` | **2.2%** | — | Trail difficulty must be **inferred** from slope and altitude. |
-| Hiking route relations | 122 (Annapurna Circuit, Annapurna Base Camp, Chisapani–Nagarkot, Dhorpatan, ...) | — | Named trek routes are available for the trekking activity. |
+| Hiking route relations | 122 (Annapurna Circuit, Annapurna Base Camp, Chisapani–Nagarkot, Dhorpatan, ...) | — | Named trek routes exist in OSM for the trekking activity. The pipeline does not keep route relations yet; that is CONTENT_COVERAGE D2. |
 | Bus / microbus / tempo route relations | 55 / 11 / 9 (Kathmandu and Pokhara) | most | Real public-transport lines for city traffic AI and "ride the bus" in M1–M2. |
 | Buildings | **8 297 952** | **515 790** | The valley alone needs aggressive LOD and instancing (ARCHITECTURE §7.5). |
 | `building=yes` share | 97.5% | 94.6% | **Use must be inferred.** POIs inside a footprint and land use help. |
