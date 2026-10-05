@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Explore HUD (M1 track D; ARCHITECTURE.md 7.9, 7.10a), driven by ExploreScreen (UI/Screens/ExploreScreen.cs) and laid out by
+     UI/Hud/Hud.uss for both orientations. Text elements carry their localisation key in binding-path; the English text
+     attribute is only the UI Builder preview. Decorative children use picking-mode="Ignore" so their parent receives input.
+     Order is back to front: world pad, touch controls, HUD, toast, particles, search, pause, settings, loading. -->
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="../Styles/Ghumante.uss" />
+    <Style src="../Hud/Hud.uss" />
+    <ui:VisualElement name="explore" class="gh-root gh-hud gh-hud--ride" picking-mode="Ignore">
+        <!-- The world behind the HUD: one finger turns the camera, two fingers pinch to zoom (TouchControls). -->
+        <ui:VisualElement name="hud-pad" class="gh-hud__pad" />
+
+        <!-- Touch controls (hidden while a keyboard or gamepad drives). -->
+        <ui:VisualElement name="hud-controls" class="gh-hud__controls" picking-mode="Ignore">
+            <ui:VisualElement name="hud-stick-zone" class="gh-hud__stick-zone">
+                <ui:VisualElement name="hud-stick" class="gh-stick" picking-mode="Ignore">
+                    <ui:VisualElement name="hud-stick-knob" class="gh-stick__knob" picking-mode="Ignore" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="hud-drive-zone" class="gh-hud__drive-zone">
+                <ui:Label class="gh-hud__drive-hint" binding-path="hud.drive_hint" text="Hold to go, slide to steer" picking-mode="Ignore" />
+                <ui:VisualElement name="hud-drive-marker" class="gh-drive-marker" picking-mode="Ignore">
+                    <ui:VisualElement class="gh-drive-marker__arrow" picking-mode="Ignore" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="hud-pedals" class="gh-hud__pedals" picking-mode="Ignore">
+                <ui:Button name="hud-brake" class="gh-pedal gh-pedal--brake" tooltip="Brake / reverse">
+                    <ui:Label class="gh-pedal__label" binding-path="hud.brake" text="Brake" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="hud-throttle" class="gh-pedal gh-pedal--go" tooltip="Go">
+                    <ui:Label class="gh-pedal__label" binding-path="hud.throttle" text="Go" picking-mode="Ignore" />
+                </ui:Button>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Speedometer and the surface under the wheels. -->
+        <ui:VisualElement name="hud-speedo" class="gh-hud__speedo" picking-mode="Ignore">
+            <ui:VisualElement class="gh-hud__speed-row" picking-mode="Ignore">
+                <ui:Label name="hud-speed" class="gh-hud__speed" text="0" picking-mode="Ignore" />
+                <ui:Label name="hud-speed-unit" class="gh-hud__speed-unit" binding-path="hud.kmh" text="km/h" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement name="hud-surface" class="gh-hud__surface gh-hud__surface--paved" picking-mode="Ignore">
+                <ui:Label name="hud-surface-label" class="gh-hud__surface-label" text="Asphalt" picking-mode="Ignore" />
+                <ui:VisualElement name="hud-surface-inferred" class="gh-hud__inferred" tooltip="Surface guessed" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Top bar: where you are, the compass, Search, Walk/Ride, Menu. -->
+        <ui:VisualElement name="hud-top" class="gh-hud__top" picking-mode="Ignore">
+            <ui:VisualElement name="hud-place" class="gh-hud__place" picking-mode="Ignore">
+                <ui:VisualElement class="gh-hud__place-pin" picking-mode="Ignore" />
+                <ui:Label name="hud-place-name" class="gh-hud__place-name" text="Thamel" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement name="hud-actions" class="gh-hud__actions" picking-mode="Ignore">
+                <ui:VisualElement name="hud-compass" class="gh-compass" picking-mode="Ignore">
+                    <ui:VisualElement name="hud-compass-rose" class="gh-compass__rose" picking-mode="Ignore">
+                        <ui:VisualElement class="gh-compass__north" picking-mode="Ignore" />
+                        <ui:Label class="gh-compass__label" binding-path="hud.compass.n" text="N" picking-mode="Ignore" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="gh-compass__hub" picking-mode="Ignore" />
+                </ui:VisualElement>
+                <ui:Button name="hud-search" class="gh-icon-btn" tooltip="Search">
+                    <ui:VisualElement class="gh-hud-icon" picking-mode="Ignore">
+                        <ui:VisualElement class="gh-hud-icon__lens" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-hud-icon__handle" picking-mode="Ignore" />
+                    </ui:VisualElement>
+                </ui:Button>
+                <ui:Button name="hud-mode" class="gh-icon-btn" tooltip="Walk / ride">
+                    <ui:VisualElement name="hud-mode-icon" class="gh-hud-icon" picking-mode="Ignore">
+                        <ui:VisualElement class="gh-hud__mode-walk gh-hud-icon" picking-mode="Ignore">
+                            <ui:VisualElement class="gh-hud-icon__head" picking-mode="Ignore" />
+                            <ui:VisualElement class="gh-hud-icon__body" picking-mode="Ignore" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="gh-hud__mode-ride gh-hud-icon" picking-mode="Ignore">
+                            <ui:VisualElement class="gh-hud-icon__scooter" picking-mode="Ignore" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:Button>
+                <ui:Button name="hud-menu" class="gh-icon-btn" tooltip="Menu">
+                    <ui:VisualElement class="gh-hud-icon" picking-mode="Ignore">
+                        <ui:VisualElement class="gh-hud-icon__bar gh-hud-icon__bar--left" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-hud-icon__bar gh-hud-icon__bar--right" picking-mode="Ignore" />
+                    </ui:VisualElement>
+                </ui:Button>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Route: a direction arrow, where to, how far and how long; × stops it. -->
+        <ui:VisualElement name="hud-route" class="gh-hud__route" picking-mode="Ignore">
+            <ui:VisualElement class="gh-hud__route-arrow" picking-mode="Ignore">
+                <ui:VisualElement name="hud-route-pointer" class="gh-hud__route-pointer" picking-mode="Ignore">
+                    <ui:VisualElement class="gh-hud__route-chevron" picking-mode="Ignore" />
+                    <ui:VisualElement class="gh-hud__route-stem" picking-mode="Ignore" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="gh-hud__route-text" picking-mode="Ignore">
+                <ui:Label name="hud-route-to" class="gh-hud__route-to" text="To Boudhanath Stupa" picking-mode="Ignore" />
+                <ui:Label name="hud-route-info" class="gh-hud__route-info" text="7.5 km · 9 min" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:Button name="hud-route-cancel" class="gh-icon-btn gh-icon-btn--small" tooltip="Stop the route">
+                <ui:Label class="gh-icon-btn__glyph" text="×" picking-mode="Ignore" />
+            </ui:Button>
+        </ui:VisualElement>
+
+        <!-- Development builds and the editor: time of day (the slider is created in code). -->
+        <ui:VisualElement name="hud-debug" class="gh-hud__debug">
+            <ui:Label name="hud-debug-clock" class="gh-hud__debug-clock" text="Time of day 06:00" />
+        </ui:VisualElement>
+
+        <!-- OpenStreetMap credit: always visible in the world (LICENSES.md 1.1). -->
+        <ui:Label name="hud-attribution" class="gh-attribution gh-hud__attribution" binding-path="attribution.osm" text="Map data © OpenStreetMap contributors" picking-mode="Ignore" />
+
+        <ui:VisualElement name="toast-bubble" class="gh-toast" picking-mode="Ignore">
+            <ui:VisualElement name="toast-icon" class="gh-toast__icon" picking-mode="Ignore" />
+            <ui:Label name="toast" class="gh-toast__text" text="" picking-mode="Ignore" />
+        </ui:VisualElement>
+
+        <!-- Confetti and sparkles (UI/Motion/ParticleBurst.cs). -->
+        <ui:VisualElement name="fx-layer" class="gh-fx" picking-mode="Ignore" />
+
+        <!-- Search: a bottom sheet in portrait, a side panel in landscape (UI/Hud/SearchSheet.cs). -->
+        <ui:VisualElement name="search-layer" class="gh-sheet-layer" picking-mode="Ignore">
+            <ui:Button name="search-scrim" class="gh-scrim" tooltip="Close" />
+            <ui:VisualElement name="search-sheet" class="gh-panel gh-sheet">
+                <ui:VisualElement name="search-content" class="gh-sheet__content">
+                    <ui:VisualElement name="search-handle" class="gh-sheet__handle">
+                        <ui:VisualElement class="gh-sheet__grabber" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-sheet__header">
+                            <ui:Label class="gh-sheet__title" binding-path="search.title" text="Where to?" />
+                            <ui:Button name="search-close" class="gh-icon-btn gh-icon-btn--small" tooltip="Close">
+                                <ui:Label class="gh-icon-btn__glyph" text="×" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="search-field-host" class="gh-search__field">
+                        <ui:Label name="search-placeholder" class="gh-search__placeholder" text="Search places, temples, peaks…" picking-mode="Ignore" />
+                        <ui:Button name="search-clear" class="gh-search__clear" tooltip="Clear">
+                            <ui:Label class="gh-icon-btn__glyph" text="×" picking-mode="Ignore" />
+                        </ui:Button>
+                    </ui:VisualElement>
+                    <ui:Label name="search-hint" class="gh-search__hint" text="" />
+                    <ui:ScrollView name="search-results" class="gh-sheet__body" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Pause (Menu, Escape, Android back, gamepad Start). -->
+        <ui:VisualElement name="pause-layer" class="gh-sheet-layer gh-pause" picking-mode="Ignore">
+            <ui:Button name="pause-scrim" class="gh-scrim" tooltip="Resume" />
+            <ui:VisualElement name="pause-panel" class="gh-panel gh-pause__panel">
+                <ui:VisualElement class="gh-ribbon gh-ribbon--small gh-pause__ribbon" picking-mode="Ignore">
+                    <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--left" picking-mode="Ignore" />
+                    <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
+                    <ui:Label class="gh-ribbon__title" binding-path="pause.title" text="Paused" picking-mode="Ignore" />
+                </ui:VisualElement>
+                <ui:Button name="pause-resume" class="gh-pill gh-pill--green">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="pause.resume" text="Resume" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="pause-settings" class="gh-pill gh-pill--white">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="menu.settings" text="Settings" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="pause-menu" class="gh-pill gh-pill--red">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="pause.main_menu" text="Main menu" picking-mode="Ignore" />
+                </ui:Button>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Settings: the main menu's sheet (UI/Screens/SettingsSheet.cs), same element names. -->
+        <ui:VisualElement name="settings-layer" class="gh-sheet-layer" picking-mode="Ignore">
+            <ui:Button name="settings-scrim" class="gh-scrim" tooltip="Close" />
+            <ui:VisualElement name="settings-sheet" class="gh-panel gh-sheet">
+                <ui:VisualElement name="settings-content" class="gh-sheet__content">
+                    <ui:VisualElement name="settings-handle" class="gh-sheet__handle">
+                        <ui:VisualElement class="gh-sheet__grabber" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-sheet__header">
+                            <ui:Label class="gh-sheet__title" binding-path="menu.settings" text="Settings" />
+                            <ui:Button name="settings-close" class="gh-icon-btn gh-icon-btn--small" tooltip="Close">
+                                <ui:Label class="gh-icon-btn__glyph" text="×" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:ScrollView name="settings-scroll" class="gh-sheet__body">
+                        <ui:VisualElement name="settings-row-haptics" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.haptics" text="Vibration" />
+                                <ui:Label class="gh-setting__hint" binding-path="settings.haptics.hint" text="Little buzzes on taps and rewards" />
+                            </ui:VisualElement>
+                            <ui:Button name="settings-haptics-toggle" class="gh-toggle">
+                                <ui:VisualElement name="settings-haptics-knob" class="gh-toggle__knob" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                        <ui:Label name="settings-haptics-note" class="gh-setting__note" binding-path="settings.haptics.unsupported" text="This device can't vibrate, so the haptics test shows their names instead." />
+                        <ui:VisualElement name="settings-row-motion" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.reduce_motion" text="Reduce motion" />
+                                <ui:Label class="gh-setting__hint" binding-path="settings.reduce_motion.hint" text="Calm fades instead of bounces and moving scenery" />
+                            </ui:VisualElement>
+                            <ui:Button name="settings-motion-toggle" class="gh-toggle">
+                                <ui:VisualElement name="settings-motion-knob" class="gh-toggle__knob" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="settings-row-language" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.language" text="Language" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="gh-segment">
+                                <ui:Button name="settings-lang-en" class="gh-segment__option" text="English" />
+                                <ui:Button name="settings-lang-ne" class="gh-segment__option" text="नेपाली" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="settings-row-feel" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.feel" text="Feel the haptics" />
+                                <ui:Label name="settings-feel-status" class="gh-setting__status" text="Plays every kind, one after another" />
+                            </ui:VisualElement>
+                            <ui:Button name="settings-feel-play" class="gh-pill gh-pill--small gh-pill--cyan">
+                                <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                                <ui:Label class="gh-pill__label" binding-path="settings.feel.play" text="Play" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                    </ui:ScrollView>
+                    <ui:Button name="settings-done" class="gh-pill gh-pill--green gh-sheet__done">
+                        <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                        <ui:Label class="gh-pill__label" binding-path="common.done" text="Done" picking-mode="Ignore" />
+                    </ui:Button>
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Loading: progress while the region opens and the streets around the spawn stream in; or why it can't open. -->
+        <ui:VisualElement name="loading-layer" class="gh-loading">
+            <ui:VisualElement name="loading-panel" class="gh-panel gh-loading__panel">
+                <ui:VisualElement name="loading-scooter" class="gh-loading__scooter" picking-mode="Ignore" />
+                <ui:Label name="loading-title" class="gh-loading__title" text="Getting your scooter ready" />
+                <ui:Label name="loading-status" class="gh-loading__status" text="Opening Kathmandu…" />
+                <ui:VisualElement name="loading-bar" class="gh-loading__bar" picking-mode="Ignore">
+                    <ui:VisualElement name="loading-bar-fill" class="gh-loading__fill" picking-mode="Ignore" />
+                </ui:VisualElement>
+                <ui:Label name="loading-percent" class="gh-loading__percent" text="0%" />
+                <ui:Label name="loading-help" class="gh-loading__help" text="" />
+                <ui:Button name="loading-back" class="gh-pill gh-pill--white gh-loading__back">
+                    <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                    <ui:Label class="gh-pill__label" binding-path="explore.back_to_menu" text="Back to menu" picking-mode="Ignore" />
+                </ui:Button>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

@@ -1,4 +1,5 @@
 using System;
+using Ghumante.App.Explore;
 using Ghumante.Core.Save;
 using Ghumante.Core.Services;
 using Ghumante.Platform;
@@ -17,8 +18,10 @@ namespace Ghumante.App
     /// Entry point of <c>Assets/Ghumante/Scenes/Bootstrap.unity</c> (created by
     /// <c>Ghumante.EditorTools.ProjectSetup</c>). It applies the device tier, loads the player's settings from
     /// the local save, wires services (haptics included), loads the string tables and shows the first screen:
-    /// the main menu. The Devanagari TextSpike (ARCHITECTURE.md section 2, P3) is one tap away ("Text test"),
-    /// or the start screen when <see cref="StartScreen.TextSpike"/> is picked in the inspector.
+    /// the main menu. Explore opens the world (<see cref="ExploreSession"/> behind the <see cref="ExploreScreen"/> HUD)
+    /// and its Main menu comes back here with the world closed. The Devanagari TextSpike (ARCHITECTURE.md section 2, P3)
+    /// is one tap away ("Text test"). Pick <see cref="StartScreen.Explore"/> or <see cref="StartScreen.TextSpike"/> in
+    /// the inspector to start there.
     /// </summary>
     [DefaultExecutionOrder(-1000)]
     [DisallowMultipleComponent]
@@ -32,12 +35,19 @@ namespace Ghumante.App
         {
             MainMenu = 0,
             TextSpike = 1,
+
+            /// <summary>Straight into the world (quick testing in the editor).</summary>
+            Explore = 2,
         }
+
+        /// <summary>Where the Explore HUD lives; the editor loads it from here if the scene predates it.</summary>
+        public const string ExploreUxmlPath = "Assets/Ghumante/UI/Screens/Explore.uxml";
 
         [Header("UI (assigned by ProjectSetup)")]
         [SerializeField] private UIDocument document;
         [SerializeField] private VisualTreeAsset textSpikeScreen;
         [SerializeField] private VisualTreeAsset mainMenuScreen;
+        [SerializeField] private VisualTreeAsset exploreScreen;
         [SerializeField] private StartScreen startScreen = StartScreen.MainMenu;
 
         [Header("Localisation")]
@@ -45,6 +55,7 @@ namespace Ghumante.App
         [SerializeField] private TextAsset nepaliStrings;
 
         private ScreenBase _current;
+        private ExploreSession _explore;
         private LocalSaveStore _store;
         private SaveData _save;
         private IHaptics _haptics;
@@ -130,16 +141,26 @@ namespace Ghumante.App
             if (_motion != null) _motion.AppFocused = !paused;
         }
 
+        /// <summary>The Explore session while the world is open (null on the menu).</summary>
+        public ExploreSession CurrentExplore
+        {
+            get { return _explore; }
+        }
+
         /// <summary>Swaps the UIDocument to the requested screen and wires its presenter.</summary>
         public void Show(StartScreen screen)
         {
-            DisposeCurrentScreen();
-            VisualTreeAsset asset = screen == StartScreen.MainMenu ? mainMenuScreen : textSpikeScreen;
+            VisualTreeAsset asset = screen == StartScreen.MainMenu ? mainMenuScreen
+                : screen == StartScreen.Explore ? ExploreAsset : textSpikeScreen;
             if (asset == null)
             {
-                Debug.LogError("Bootstrap: screen asset for " + screen + " is not assigned.");
+                Debug.LogError("Bootstrap: screen asset for " + screen + " is not assigned. Run Ghumante > Project Setup.");
+                if (_current != null) return; // keep what is showing
+                if (screen == StartScreen.MainMenu) return;
+                Show(StartScreen.MainMenu);
                 return;
             }
+            DisposeCurrentScreen();
 
             document.visualTreeAsset = asset;
             VisualElement root = document.rootVisualElement;
@@ -151,8 +172,7 @@ namespace Ghumante.App
                 menu.TextTestRequested += () => Show(StartScreen.TextSpike);
                 menu.LanguageToggleRequested += ToggleLanguage;
                 menu.LanguageSelected += SetLanguage;
-                // TODO(M1): Explore opens the world (docs/M1_PLAN.md, track D); until then a playful teaser.
-                menu.ExploreRequested += menu.PlayExploreTeaser;
+                menu.ExploreRequested += () => Show(StartScreen.Explore);
                 menu.MapRequested += () => menu.PlayComingSoon("map");
                 menu.CollectionsRequested += () => menu.PlayComingSoon("collections");
                 menu.SettingsRequested += menu.OpenSettings;
@@ -160,6 +180,16 @@ namespace Ghumante.App
                 menu.HapticsChanged += OnHapticsChanged;
                 menu.ReduceMotionChanged += OnReduceMotionChanged;
                 _current = menu;
+            }
+            else if (screen == StartScreen.Explore)
+            {
+                var explore = new ExploreScreen(root, Localizer, _haptics, _motion);
+                explore.LanguageSelected += SetLanguage;
+                explore.HapticsChanged += OnHapticsChanged;
+                explore.ReduceMotionChanged += OnReduceMotionChanged;
+                _current = explore;
+                _explore = ExploreSession.Begin(explore, _haptics, _motion, Localizer, Tier);
+                _explore.ExitRequested += () => Show(StartScreen.MainMenu);
             }
             else
             {
@@ -209,9 +239,38 @@ namespace Ghumante.App
 
         private void DisposeCurrentScreen()
         {
+            if (_explore != null)
+            {
+                // Leaving Explore: close the world and free its memory before the next screen builds.
+                _explore.Close();
+                _explore = null;
+            }
             if (_current == null) return;
             _current.Dispose();
             _current = null;
+        }
+
+        /// <summary>
+        /// The Explore UXML. Scenes made before Explore existed have no reference; the editor then loads it from
+        /// <see cref="ExploreUxmlPath"/> (Project Setup saves the reference into the scene, which player builds need).
+        /// </summary>
+        private VisualTreeAsset ExploreAsset
+        {
+            get
+            {
+#if UNITY_EDITOR
+                if (exploreScreen == null)
+                {
+                    exploreScreen = UnityEditor.AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(ExploreUxmlPath);
+                    if (exploreScreen != null)
+                    {
+                        Debug.LogWarning("Bootstrap: the scene has no Explore screen reference; loaded " + ExploreUxmlPath +
+                                         ". Run Ghumante > Project Setup to save it into Bootstrap.unity (player builds need it).");
+                    }
+                }
+#endif
+                return exploreScreen;
+            }
         }
 
         /// <summary>Reads the settings section of the local save (ARCHITECTURE.md 7.10); defaults on first launch.</summary>

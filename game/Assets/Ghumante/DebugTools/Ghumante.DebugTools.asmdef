@@ -3,7 +3,8 @@
     "rootNamespace": "Ghumante.DebugTools",
     "references": [
         "Ghumante.Core",
-        "Ghumante.Platform"
+        "Ghumante.Platform",
+        "Ghumante.World"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

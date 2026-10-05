@@ -1,5 +1,6 @@
 using Ghumante.Core.Services;
 using Ghumante.Platform.Haptics;
+using Ghumante.World;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.UIElements;
@@ -13,7 +14,8 @@ namespace Ghumante.DebugTools
     /// editor and Device Simulator, a Mac, a phone without a motor. The Ghumante.DebugTools assembly only
     /// compiles in development builds and the editor (asmdef define constraint
     /// <c>DEVELOPMENT_BUILD || UNITY_EDITOR</c>), and nothing references it: it installs itself after the
-    /// first scene loads, so release builds simply do not contain it.
+    /// first scene loads, so release builds simply do not contain it. While a world is open it adds the streaming
+    /// lines of <see cref="WorldRoot.DebugSummary"/> (F3 there toggles the free-fly camera).
     /// </summary>
     [AddComponentMenu("")]
     public sealed class DebugHud : MonoBehaviour
@@ -76,6 +78,9 @@ namespace Ghumante.DebugTools
                     Profiler.GetMonoUsedSizeLong() / 1048576.0,
                     Profiler.GetAllocatedMemoryForGraphicsDriver() / 1048576.0,
                     quality, SystemInfo.graphicsDeviceType);
+                // World streaming (M1 track C): tiles, queue, upload ms, cache, focus and origin.
+                WorldRoot world = WorldRoot.Active;
+                if (world != null) _stats += "\n" + world.DebugSummary();
                 ShowText();
             }
             _elapsed = 0f;

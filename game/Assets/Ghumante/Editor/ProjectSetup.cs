@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using Ghumante.App;
 using Ghumante.Platform;
+using Ghumante.World.EditorTools;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.SceneManagement;
@@ -65,6 +66,7 @@ namespace Ghumante.EditorTools
         public const string ThemePath = "Assets/Ghumante/UI/Themes/GhumanteRuntime.tss";
         public const string TextSpikeUxmlPath = "Assets/Ghumante/UI/Screens/TextSpike.uxml";
         public const string MainMenuUxmlPath = "Assets/Ghumante/UI/Screens/MainMenu.uxml";
+        public const string ExploreUxmlPath = Bootstrap.ExploreUxmlPath;
         public const string EnglishStringsPath = "Assets/Ghumante/UI/Localization/strings.en.json";
         public const string NepaliStringsPath = "Assets/Ghumante/UI/Localization/strings.ne.json";
 
@@ -73,7 +75,7 @@ namespace Ghumante.EditorTools
 
         /// <summary>Serialized field names of <see cref="Bootstrap"/>; EditMode tests check they exist.</summary>
         public static readonly string[] BootstrapFields =
-            { "document", "textSpikeScreen", "mainMenuScreen", "englishStrings", "nepaliStrings" };
+            { "document", "textSpikeScreen", "mainMenuScreen", "englishStrings", "nepaliStrings", "exploreScreen" };
 
         /// <summary>
         /// Per-tier rendering settings. They must match the budget table and renderer rules in
@@ -174,6 +176,9 @@ namespace Ghumante.EditorTools
             AdvancedTextGeneratorSetting.Enable();
             PanelSettings panel = EnsurePanelSettings();
             EnsureBootstrapScene(forceRebuild: false, panelSettings: panel);
+            // World (M1 track C): the sample region in StreamingAssets/Regions and the world materials.
+            RegionImport.EnsureSampleRegion();
+            WorldSetup.EnsureMaterials();
             AssetDatabase.SaveAssets();
         }
 
@@ -449,8 +454,9 @@ namespace Ghumante.EditorTools
             if (panelSettings == null) panelSettings = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsPath);
 
             bool exists = File.Exists(BootstrapScenePath);
-            if (!exists || forceRebuild)
+            if (!exists || forceRebuild || !SceneHasAllReferences(BootstrapScenePath))
             {
+                // A scene saved before a screen existed (Explore, M1) lacks its reference: rebuild it (it is generated).
                 CreateBootstrapScene(panelSettings);
             }
 
@@ -495,6 +501,7 @@ namespace Ghumante.EditorTools
             SetObject(so, BootstrapFields[2], AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(MainMenuUxmlPath));
             SetObject(so, BootstrapFields[3], AssetDatabase.LoadAssetAtPath<TextAsset>(EnglishStringsPath));
             SetObject(so, BootstrapFields[4], AssetDatabase.LoadAssetAtPath<TextAsset>(NepaliStringsPath));
+            SetObject(so, BootstrapFields[5], AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(ExploreUxmlPath));
             so.ApplyModifiedPropertiesWithoutUndo();
 
             if (!EditorSceneManager.SaveScene(scene, BootstrapScenePath))
@@ -502,6 +509,32 @@ namespace Ghumante.EditorTools
                 throw new InvalidOperationException("Could not save " + BootstrapScenePath);
             }
             Debug.Log("ProjectSetup: created " + BootstrapScenePath);
+        }
+
+        /// <summary>
+        /// True when the saved (text-serialized) scene sets every <see cref="BootstrapFields"/> reference: each appears as
+        /// <c>name: {fileID: N...}</c> with N non-zero. Unreadable scenes count as complete (nothing is rebuilt blindly).
+        /// </summary>
+        public static bool SceneHasAllReferences(string scenePath)
+        {
+            string text;
+            try
+            {
+                text = File.ReadAllText(scenePath);
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            foreach (string field in BootstrapFields)
+            {
+                string needle = "  " + field + ": {fileID: ";
+                int at = text.IndexOf(needle, StringComparison.Ordinal);
+                if (at < 0) return false;
+                int start = at + needle.Length;
+                if (start >= text.Length || text[start] == '0') return false;
+            }
+            return true;
         }
 
         // ----- Helpers -------------------------------------------------------------------------------

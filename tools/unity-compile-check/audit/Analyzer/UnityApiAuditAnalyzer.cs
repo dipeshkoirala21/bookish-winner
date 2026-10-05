@@ -196,9 +196,21 @@ namespace Ghumante.UnityApiAudit
             for (int i = 0; i < ours.Length; i++)
             {
                 if (ours[i] == "*" || IsTypeParameterName(theirs[i])) continue;
+                if (IsTypeParameterArray(ours[i], theirs[i])) continue;
                 if (!TypeNamesEqual(ours[i], theirs[i])) return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// A generic method's array parameter: ours prints the type argument as "*" ("*[]" for <c>T[]</c>), theirs keeps
+        /// the type parameter's name ("T[]"). Same rank, element a type parameter on both sides.
+        /// </summary>
+        private static bool IsTypeParameterArray(string ours, string theirs)
+        {
+            int a = ours.IndexOf('['), b = theirs.IndexOf('[');
+            if (a < 0 || b < 0 || ours.Substring(a) != theirs.Substring(b)) return false;
+            return ours.Substring(0, a) == "*" && IsTypeParameterName(theirs.Substring(0, b));
         }
 
         private static bool IsTypeParameterName(string name)

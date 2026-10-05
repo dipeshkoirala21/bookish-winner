@@ -3,6 +3,8 @@
     "rootNamespace": "Ghumante.Characters",
     "references": [
         "Ghumante.Core",
+        "Ghumante.Vehicles",
+        "Ghumante.World",
         "Unity.InputSystem"
     ],
     "includePlatforms": [],
@@ -12,6 +14,12 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "GHUMANTE_INPUT_SYSTEM"
+        }
+    ],
     "noEngineReferences": false
 }

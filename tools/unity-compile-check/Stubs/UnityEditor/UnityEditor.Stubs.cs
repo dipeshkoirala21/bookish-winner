@@ -27,14 +27,23 @@ namespace UnityEditor
         public MenuItem(string itemName, bool isValidateFunction, int priority) { throw null; }
     }
 
+    [AttributeUsage(AttributeTargets.Method)]
+    public class InitializeOnLoadMethodAttribute : Attribute
+    {
+    }
+
     public sealed class EditorApplication
     {
         public static void Exit(int returnValue) { throw null; }
+        public static bool isPlaying { get { throw null; } set { } }
+        public static void EnterPlaymode() { throw null; }
     }
 
     public sealed class EditorUtility
     {
         public static void SetDirty(UnityEngine.Object target) { throw null; }
+        public static string OpenFolderPanel(string title, string folder, string defaultName) { throw null; }
+        public static bool DisplayDialog(string title, string message, string ok) { throw null; }
     }
 
     public sealed class AssetDatabase
@@ -47,6 +56,7 @@ namespace UnityEditor
         public static string[] FindAssets(string filter, string[] searchInFolders) { throw null; }
         public static string GUIDToAssetPath(string guid) { throw null; }
         public static string CreateFolder(string parentFolder, string newFolderName) { throw null; }
+        public static void Refresh() { throw null; }
     }
 
     public class EditorBuildSettingsScene
@@ -387,6 +397,11 @@ namespace UnityEditor.Build
     public interface IOrderedCallback
     {
         int callbackOrder { get; }
+    }
+
+    public interface IPreprocessBuildWithReport : IOrderedCallback
+    {
+        void OnPreprocessBuild(UnityEditor.Build.Reporting.BuildReport report);
     }
 
     public class BuildFailedException : Exception

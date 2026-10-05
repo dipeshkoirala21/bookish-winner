@@ -1,0 +1,994 @@
+/*
+ * Explore HUD (M1 track D; ARCHITECTURE.md 7.9, 7.10a). Builds on Styles/Ghumante.uss (tokens, pills, round icon
+ * buttons, panels, sheets, toast, particles) and adds the in-world HUD: place name, compass, speedometer and surface
+ * chip, route banner, touch controls (floating stick, pedals, portrait drive zone), the pause panel and the loading
+ * overlay. The same motion rules apply: code animates translate / scale / rotate / opacity only, so nothing here
+ * puts a static value or a transition on those properties of an element code moves (see UI/README.md, "Motion").
+ *
+ * Layout classes on the screen's .gh-root: orient-portrait / orient-landscape (OrientationWatcher) and
+ * gh-hud--ride / gh-hud--walk (ExploreScreen). Landscape is two-thumb (stick left, pedals right); portrait is
+ * one-thumb (riding: hold the lower area to go and slide to steer, brake button bottom-left; walking: a floating
+ * stick in the lower area). Panel units: about 2069 x 931 on a 20:9 phone in landscape.
+ */
+
+.gh-hud {
+    flex-grow: 1;
+}
+
+/* ----- World pad (behind everything: one finger looks around, two fingers zoom) -------------------------- */
+
+.gh-hud__pad {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+/* ----- Top bar: place name, compass, buttons -------------------------------------------------------------- */
+
+.gh-hud__top {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: var(--gh-space-2) var(--gh-space-3);
+}
+
+.gh-hud__place {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 1;
+    max-width: 52%;
+    min-height: 72px;
+    margin-top: 12px;
+    padding: 6px 30px 8px 16px;
+    border-radius: 36px;
+    background-color: var(--gh-cream);
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-cream-edge);
+    transform-origin: 0% 50%;
+}
+
+.gh-hud__place-pin {
+    width: 34px;
+    height: 34px;
+    margin-right: 12px;
+    border-radius: 17px;
+    background-color: var(--gh-ribbon);
+    border-width: 5px;
+    border-color: var(--gh-white);
+    flex-shrink: 0;
+}
+
+.gh-hud__place-name,
+.gh-root .gh-hud__place-name {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 38px;
+    color: var(--gh-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-lang-ne .gh-hud__place-name {
+    font-size: 34px;
+}
+
+.gh-hud__actions {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* Compass: a cream disc whose rose turns so its red tick points north. */
+.gh-compass {
+    width: 96px;
+    height: 96px;
+    margin: 6px 10px 6px 6px;
+    border-radius: 48px;
+    background-color: var(--gh-cream);
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-cream-edge);
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-compass__rose {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    transform-origin: 50% 50%;
+}
+
+.gh-compass__north {
+    position: absolute;
+    left: 37px;
+    top: 4px;
+    width: 16px;
+    height: 26px;
+    border-radius: 8px;
+    background-color: var(--gh-ribbon);
+}
+
+.gh-compass__label,
+.gh-root .gh-compass__label {
+    position: absolute;
+    left: 25px;
+    top: 26px;
+    width: 40px;
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 26px;
+    color: var(--gh-ribbon);
+    -unity-text-align: middle-center;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-compass__hub {
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background-color: var(--gh-ink-soft);
+}
+
+/* Drawn icons (no art yet): a magnifier, a walker, pause bars. The scooter uses the menu's scooter.png. */
+.gh-hud-icon {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+}
+
+.gh-hud-icon__lens {
+    position: absolute;
+    left: 6px;
+    top: 4px;
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    border-width: 7px;
+    border-color: var(--gh-ink);
+}
+
+.gh-hud-icon__handle {
+    position: absolute;
+    left: 31px;
+    top: 30px;
+    width: 9px;
+    height: 24px;
+    border-radius: 4px;
+    background-color: var(--gh-ink);
+    rotate: -45deg;
+    transform-origin: 50% 0%;
+}
+
+.gh-hud-icon__bar {
+    position: absolute;
+    top: 10px;
+    width: 13px;
+    height: 36px;
+    border-radius: 5px;
+    background-color: var(--gh-ink);
+}
+
+.gh-hud-icon__bar--left {
+    left: 12px;
+}
+
+.gh-hud-icon__bar--right {
+    left: 31px;
+}
+
+.gh-hud-icon__head {
+    position: absolute;
+    left: 19px;
+    top: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    background-color: var(--gh-ink);
+}
+
+.gh-hud-icon__body {
+    position: absolute;
+    left: 15px;
+    top: 21px;
+    width: 26px;
+    height: 34px;
+    border-radius: 12px;
+    background-color: var(--gh-cyan);
+    border-width: 3px;
+    border-color: var(--gh-ink);
+}
+
+.gh-hud-icon__scooter {
+    position: absolute;
+    left: -6px;
+    top: -6px;
+    width: 68px;
+    height: 68px;
+    background-image: url("../Icons/scooter.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+/* The mode button shows the other mode: walk while riding, the scooter while walking. */
+.gh-hud__mode-walk {
+    display: flex;
+}
+
+.gh-hud__mode-ride {
+    display: none;
+}
+
+.gh-hud--walk .gh-hud__mode-walk {
+    display: none;
+}
+
+.gh-hud--walk .gh-hud__mode-ride {
+    display: flex;
+}
+
+/* ----- Route banner ------------------------------------------------------------------------------------- */
+
+.gh-hud__route {
+    position: absolute;
+    top: 128px;
+    align-self: center;
+    flex-direction: row;
+    align-items: center;
+    max-width: 70%;
+    padding: 6px 8px 8px 8px;
+    border-radius: 40px;
+    background-color: var(--gh-cream);
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-cream-edge);
+    display: none;
+    transform-origin: 50% 0%;
+}
+
+.gh-hud__route--visible {
+    display: flex;
+}
+
+.gh-hud__route-arrow {
+    width: 72px;
+    height: 72px;
+    border-radius: 36px;
+    background-color: var(--gh-yellow);
+    border-width: 3px;
+    border-bottom-width: 6px;
+    border-color: var(--gh-yellow-dark);
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.gh-hud__route-pointer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    transform-origin: 50% 50%;
+}
+
+.gh-hud__route-chevron {
+    margin-top: 16px;
+    width: 26px;
+    height: 26px;
+    border-top-width: 9px;
+    border-left-width: 9px;
+    border-color: var(--gh-white);
+    rotate: 45deg;
+}
+
+.gh-hud__route-stem {
+    width: 9px;
+    height: 20px;
+    margin-top: -14px;
+    border-radius: 3px;
+    background-color: var(--gh-white);
+}
+
+.gh-hud__route-text {
+    flex-shrink: 1;
+    margin: 0 16px;
+}
+
+.gh-hud__route-to,
+.gh-root .gh-hud__route-to {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 30px;
+    color: var(--gh-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-hud__route-info,
+.gh-root .gh-hud__route-info {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 26px;
+    color: var(--gh-cyan-dark);
+    margin: 0;
+    padding: 0;
+}
+
+/* ----- Speedometer and surface chip ---------------------------------------------------------------------- */
+
+.gh-hud__speedo {
+    position: absolute;
+    bottom: 44px;
+    align-self: center;
+    align-items: center;
+    transform-origin: 50% 100%;
+}
+
+.gh-hud__speed-row {
+    flex-direction: row;
+    align-items: flex-end;
+}
+
+.gh-hud__speed,
+.gh-root .gh-hud__speed {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 96px;
+    color: var(--gh-white);
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: var(--gh-outline);
+    text-shadow: 0 5px 0 var(--gh-shadow);
+    -unity-text-align: lower-right;
+    min-width: 150px;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-hud__speed-unit,
+.gh-root .gh-hud__speed-unit {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 30px;
+    color: var(--gh-white);
+    -unity-text-outline-width: 1.5px;
+    -unity-text-outline-color: var(--gh-outline);
+    margin: 0 0 20px 8px;
+    padding: 0;
+}
+
+.gh-hud__surface {
+    flex-direction: row;
+    align-items: center;
+    height: 50px;
+    padding: 0 20px;
+    border-radius: 25px;
+    border-width: 2px;
+    border-bottom-width: 5px;
+    transform-origin: 50% 50%;
+}
+
+.gh-hud__surface--paved {
+    background-color: #6F7E95;
+    border-color: #4B5868;
+}
+
+.gh-hud__surface--gravel {
+    background-color: #B79E78;
+    border-color: #86704F;
+}
+
+.gh-hud__surface--dirt {
+    background-color: #C47A3C;
+    border-color: #8E5223;
+}
+
+.gh-hud__surface--mud {
+    background-color: #7A5638;
+    border-color: #533722;
+}
+
+/* Off the road: a dashed look is not available in USS, so the chip goes lighter and loses its edge. */
+.gh-hud__surface--offroad {
+    border-bottom-width: 2px;
+    opacity: 0.85;
+}
+
+.gh-hud__surface-label,
+.gh-root .gh-hud__surface-label {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 24px;
+    color: var(--gh-white);
+    white-space: nowrap;
+    margin: 0;
+    padding: 0;
+}
+
+/* Subtle marker: the road's surface is inferred (ADR-005), not tagged in OpenStreetMap. */
+.gh-hud__inferred {
+    width: 12px;
+    height: 12px;
+    margin-left: 10px;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.6);
+    display: none;
+}
+
+.gh-hud__inferred--on {
+    display: flex;
+}
+
+/* ----- Attribution (always visible, LICENSES 1.1) and the debug clock --------------------------------------- */
+
+.gh-hud__attribution {
+    position: absolute;
+    bottom: 6px;
+    align-self: center;
+    font-size: 18px;
+}
+
+.gh-hud__debug {
+    position: absolute;
+    right: 24px;
+    top: 140px;
+    width: 360px;
+    padding: 8px 18px 12px 18px;
+    border-radius: 20px;
+    background-color: rgba(30, 20, 10, 0.55);
+    display: none;
+}
+
+.gh-hud__debug--on {
+    display: flex;
+}
+
+.gh-hud__debug-clock,
+.gh-root .gh-hud__debug-clock {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 22px;
+    color: var(--gh-white);
+    margin: 0;
+    padding: 0;
+}
+
+/* ----- Touch controls ----------------------------------------------------------------------------------- */
+
+.gh-hud__controls {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+/* Landscape: the left side is the stick zone (both modes). */
+.gh-hud__stick-zone {
+    position: absolute;
+    left: 0;
+    top: 30%;
+    bottom: 0;
+    width: 42%;
+}
+
+.gh-stick {
+    position: absolute;
+    left: 70px;
+    bottom: 60px;
+    width: 230px;
+    height: 230px;
+    border-radius: 115px;
+    background-color: rgba(255, 246, 227, 0.28);
+    border-width: 4px;
+    border-color: rgba(255, 255, 255, 0.55);
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.gh-stick--active {
+    opacity: 1;
+    background-color: rgba(255, 246, 227, 0.42);
+}
+
+.gh-stick__knob {
+    width: 108px;
+    height: 108px;
+    border-radius: 54px;
+    background-color: var(--gh-white);
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-white-dark);
+}
+
+/* Pedals (riding): go on the right, brake/reverse beside it; portrait keeps only the brake (bottom-left). */
+.gh-hud__pedals {
+    position: absolute;
+    right: 48px;
+    bottom: 56px;
+    flex-direction: row;
+    align-items: flex-end;
+    display: none;
+}
+
+.gh-hud--ride .gh-hud__pedals {
+    display: flex;
+}
+
+.gh-pedal,
+.gh-pedal:focus,
+.gh-pedal:active,
+.gh-pedal:hover:active {
+    margin: 0 0 0 28px;
+    padding: 0;
+    border-width: 3px;
+    border-bottom-width: 9px;
+    align-items: center;
+    justify-content: center;
+    transform-origin: 50% 100%;
+}
+
+.gh-pedal:active,
+.gh-pedal:hover:active {
+    translate: 0 4px;
+    border-bottom-width: 4px;
+}
+
+.gh-pedal--go,
+.gh-pedal--go:focus,
+.gh-pedal--go:hover,
+.gh-pedal--go:active,
+.gh-pedal--go:hover:active {
+    width: 190px;
+    height: 190px;
+    border-radius: 95px;
+    background-color: var(--gh-green);
+    border-color: var(--gh-green-dark);
+}
+
+.gh-pedal--brake,
+.gh-pedal--brake:focus,
+.gh-pedal--brake:hover,
+.gh-pedal--brake:active,
+.gh-pedal--brake:hover:active {
+    width: 150px;
+    height: 150px;
+    border-radius: 75px;
+    background-color: var(--gh-red);
+    border-color: var(--gh-red-dark);
+}
+
+.gh-pedal__label,
+.gh-root .gh-pedal__label {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 34px;
+    color: var(--gh-white);
+    -unity-text-outline-width: 1.5px;
+    -unity-text-outline-color: var(--gh-outline);
+    -unity-text-align: middle-center;
+    margin: 0;
+    padding: 0;
+}
+
+/* Portrait riding: hold anywhere in the lower area to go, slide to steer. Hidden otherwise. */
+.gh-hud__drive-zone {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 42%;
+    display: none;
+}
+
+.gh-hud__drive-hint,
+.gh-root .gh-hud__drive-hint {
+    position: absolute;
+    bottom: 64px;
+    right: 40px;
+    font-size: 22px;
+    color: var(--gh-white);
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: var(--gh-outline);
+    opacity: 0.85;
+}
+
+.gh-drive-marker {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 150px;
+    height: 150px;
+    border-radius: 75px;
+    border-width: 8px;
+    border-color: var(--gh-green);
+    background-color: rgba(123, 210, 62, 0.25);
+    align-items: center;
+    transform-origin: 50% 50%;
+}
+
+.gh-drive-marker__arrow {
+    margin-top: 20px;
+    width: 34px;
+    height: 34px;
+    border-top-width: 10px;
+    border-left-width: 10px;
+    border-color: var(--gh-white);
+    rotate: 45deg;
+}
+
+/* Portrait: on foot the whole lower area is the stick zone; riding swaps it for the drive zone. */
+.orient-portrait .gh-hud__stick-zone {
+    left: 0;
+    right: 0;
+    top: auto;
+    width: auto;
+    height: 42%;
+}
+
+.orient-portrait .gh-stick {
+    left: 50%;
+    margin-left: -115px;
+    bottom: 120px;
+}
+
+.orient-portrait.gh-hud--ride .gh-hud__stick-zone {
+    display: none;
+}
+
+.orient-portrait.gh-hud--ride .gh-hud__drive-zone {
+    display: flex;
+}
+
+.orient-portrait .gh-hud__pedals {
+    left: 36px;
+    right: auto;
+    bottom: 140px;
+}
+
+.orient-portrait .gh-pedal--go {
+    display: none;
+}
+
+/* ----- Portrait layout of the rest ----------------------------------------------------------------------------- */
+
+.orient-portrait .gh-hud__top {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    padding: var(--gh-space-2) var(--gh-space-2) 0 var(--gh-space-2);
+}
+
+.orient-portrait .gh-hud__actions {
+    align-self: flex-end;
+}
+
+.orient-portrait .gh-hud__place {
+    align-self: center;
+    max-width: 92%;
+    margin-top: 4px;
+    transform-origin: 50% 50%;
+}
+
+.orient-portrait .gh-hud__route {
+    top: 240px;
+    max-width: 94%;
+}
+
+.orient-portrait .gh-hud__speedo {
+    bottom: 42%;
+    margin-bottom: 12px;
+}
+
+.orient-portrait .gh-hud__debug {
+    right: auto;
+    left: 24px;
+    top: 330px;
+}
+
+/* ----- Search results ----------------------------------------------------------------------------------- */
+
+.gh-search__field {
+    flex-direction: row;
+    align-items: center;
+    height: 84px;
+    margin: 4px 0 8px 0;
+    padding: 0 8px 0 24px;
+    border-radius: 42px;
+    background-color: var(--gh-white);
+    border-width: 3px;
+    border-color: var(--gh-cream-edge);
+    flex-shrink: 0;
+}
+
+/* The TextField is created in code (SearchSheet); make it fill the pill and drop the theme's box. */
+.gh-search__input {
+    flex-grow: 1;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-search__input .unity-base-text-field__input,
+.gh-search__input .unity-text-field__input {
+    -unity-font-definition: url("../Fonts/Mukta-Regular.ttf");
+    font-size: 34px;
+    color: var(--gh-ink);
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.gh-search__placeholder,
+.gh-root .gh-search__placeholder {
+    position: absolute;
+    left: 26px;
+    top: 0;
+    bottom: 0;
+    font-size: 30px;
+    color: var(--gh-ink-soft);
+    -unity-text-align: middle-left;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-search__clear,
+.gh-search__clear:focus,
+.gh-search__clear:hover,
+.gh-search__clear:active,
+.gh-search__clear:hover:active {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    border-radius: 32px;
+    background-color: var(--gh-cream-shade);
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-search__hint,
+.gh-root .gh-search__hint {
+    font-size: 24px;
+    color: var(--gh-ink-soft);
+    white-space: normal;
+    margin: 4px 12px 8px 12px;
+}
+
+.gh-result {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px 12px 22px;
+    margin: 5px 0;
+    border-radius: 24px;
+    background-color: var(--gh-cream-shade);
+}
+
+.gh-result__text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin-right: var(--gh-space-2);
+}
+
+.gh-result__name,
+.gh-root .gh-result__name {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 32px;
+    color: var(--gh-ink);
+    white-space: normal;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-result__alt,
+.gh-root .gh-result__alt {
+    font-size: 24px;
+    color: var(--gh-ink-soft);
+    white-space: normal;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-result__meta,
+.gh-root .gh-result__meta {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 22px;
+    color: var(--gh-cyan-dark);
+    margin: 2px 0 0 0;
+    padding: 0;
+}
+
+.gh-result__actions {
+    flex-direction: column;
+    align-items: stretch;
+    flex-shrink: 0;
+}
+
+.gh-result__action {
+    min-width: 200px;
+    margin: 4px 0;
+}
+
+/* ----- Pause panel ------------------------------------------------------------------------------------- */
+
+.gh-pause {
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-pause__panel {
+    align-items: stretch;
+    min-width: 560px;
+    padding-top: 70px;
+    transform-origin: 50% 50%;
+}
+
+.gh-pause__ribbon {
+    position: absolute;
+    top: -50px;
+    align-self: center;
+}
+
+/* ----- Loading overlay --------------------------------------------------------------------------------- */
+
+.gh-loading {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--gh-sky-top);
+    background-image: url("../Icons/background-himalaya.png");
+    background-size: cover;
+    background-position: center bottom;
+}
+
+.gh-loading--hidden {
+    display: none;
+}
+
+.gh-loading__panel {
+    align-items: center;
+    width: 760px;
+    max-width: 92%;
+    transform-origin: 50% 50%;
+}
+
+.gh-loading__scooter {
+    width: 170px;
+    height: 170px;
+    background-image: url("../Icons/scooter.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    transform-origin: 50% 100%;
+}
+
+.gh-loading__title,
+.gh-root .gh-loading__title {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 46px;
+    color: var(--gh-ribbon);
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin: 6px 0 0 0;
+}
+
+.gh-loading__status,
+.gh-root .gh-loading__status {
+    font-size: 28px;
+    color: var(--gh-ink-soft);
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin: 6px 0 14px 0;
+}
+
+.gh-loading__bar {
+    width: 92%;
+    height: 34px;
+    border-radius: 17px;
+    background-color: var(--gh-cream-shade);
+    border-width: 3px;
+    border-color: var(--gh-cream-edge);
+    overflow: hidden;
+}
+
+/* The fill is full width and scaled from its left edge (scale only: no layout per frame). */
+.gh-loading__fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: var(--gh-green);
+    transform-origin: 0% 50%;
+}
+
+.gh-loading__percent,
+.gh-root .gh-loading__percent {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 28px;
+    color: var(--gh-green-dark);
+    margin: 6px 0 0 0;
+}
+
+.gh-loading__help,
+.gh-root .gh-loading__help {
+    font-size: 26px;
+    color: var(--gh-ink);
+    white-space: normal;
+    -unity-text-align: middle-left;
+    margin: 8px 12px 4px 12px;
+    display: none;
+}
+
+.gh-loading--failed .gh-loading__help {
+    display: flex;
+}
+
+.gh-loading--failed .gh-loading__bar,
+.gh-loading--failed .gh-loading__percent {
+    display: none;
+}
+
+.gh-loading__back {
+    margin-top: 18px;
+    display: none;
+}
+
+.gh-loading--failed .gh-loading__back {
+    display: flex;
+}
+
+/* ----- Confetti (arrival; ParticleBurst classes) ---------------------------------------------------------- */
+
+.gh-particle--confetti-red {
+    background-color: #E8473C;
+    border-radius: 6px;
+    width: 26px;
+    height: 40px;
+    left: -13px;
+    top: -20px;
+}
+
+.gh-particle--confetti-yellow {
+    background-color: #FFCB2E;
+    border-radius: 6px;
+    width: 26px;
+    height: 40px;
+    left: -13px;
+    top: -20px;
+}
+
+.gh-particle--confetti-cyan {
+    background-color: #35C2F1;
+    border-radius: 6px;
+    width: 26px;
+    height: 40px;
+    left: -13px;
+    top: -20px;
+}
+
+.gh-particle--confetti-green {
+    background-color: #7BD23E;
+    border-radius: 6px;
+    width: 26px;
+    height: 40px;
+    left: -13px;
+    top: -20px;
+}

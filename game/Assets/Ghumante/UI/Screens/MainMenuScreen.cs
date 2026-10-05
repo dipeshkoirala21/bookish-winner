@@ -26,8 +26,8 @@ namespace Ghumante.UI.Screens
     /// <item><b>Idle life</b>: a living backdrop (<see cref="LivingBackdrop"/>), the Explore pill breathes and a
     /// shine sweeps across it, the ribbon sways, counter icons hop now and then.</item>
     /// <item><b>Touch</b>: every button squashes with a haptic (<see cref="PressFeel"/>). "+" counts the demo
-    /// value up with a burst of particles and a Success haptic; Explore (until M1's world arrives) wiggles
-    /// with a Warning haptic and a scooter toast; the title ribbon says "Namaste!"; the globe flips the
+    /// value up with a burst of particles and a Success haptic; Explore (a MediumImpact press) opens the world
+    /// (App's Explore flow, <see cref="ExploreScreen"/>); the title ribbon says "Namaste!"; the globe flips the
     /// language; the gear and the Settings pill open the <see cref="SettingsSheet"/>.</item>
     /// </list>
     /// App decides what the buttons lead to through the events; the reactions above are methods it calls.
@@ -338,28 +338,6 @@ namespace Ghumante.UI.Screens
                 _toastBubble.RemoveFromClassList("gh-toast--visible");
                 if (!Animator.Reduced) Animator.Play(_toastNode, MotionChannel.TranslateY, new Tween(0f, -40f, 0.3f, Ease.InCubic));
             });
-        }
-
-        /// <summary>
-        /// Explore until the world arrives (M1): the pill wiggles with a Warning haptic and a scooter "warms up"
-        /// in a toast, puffing exhaust.
-        /// </summary>
-        public void PlayExploreTeaser()
-        {
-            Haptics.Play(HapticKind.Warning);
-            Wiggle(_pillNodes[0], 300f);
-            ShowToast(Localizer.Get("menu.explore_soon"), "gh-toast__icon--scooter");
-            if (Animator.Reduced) return;
-            Animator.Play(_toastIconNode, MotionChannel.RotateDegrees, new Tween(-12f, 0f, 0.6f, Ease.OutElastic));
-            for (int i = 0; i < 3; i++)
-            {
-                Animator.After(0.35f + 0.28f * i, () =>
-                {
-                    Rect r = _toastIcon.worldBound;
-                    _particles.Emit(new Vector2(r.xMin + r.width * 0.15f, r.yMax - r.height * 0.25f), "gh-particle--puff", 2, ParticleStyle.Puff);
-                    _toastIconNode.KickHop(120f);
-                });
-            }
         }
 
         /// <summary>Map / Collections until they exist: a wiggle, a Warning haptic and a friendly toast.</summary>

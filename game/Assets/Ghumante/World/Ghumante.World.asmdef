@@ -3,9 +3,11 @@
     "rootNamespace": "Ghumante.World",
     "references": [
         "Ghumante.Core",
+        "Ghumante.Platform",
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Mathematics",
+        "Unity.InputSystem",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.Universal.Runtime"
     ],
@@ -16,6 +18,12 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "GHUMANTE_INPUT_SYSTEM"
+        }
+    ],
     "noEngineReferences": false
 }

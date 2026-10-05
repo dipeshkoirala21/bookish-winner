@@ -6,6 +6,8 @@
         "Ghumante.App",
         "Ghumante.UI",
         "Ghumante.Platform",
+        "Ghumante.World",
+        "Ghumante.World.Editor",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.GPUDriven.Runtime",
         "Unity.RenderPipelines.Universal.Runtime"

@@ -1,6 +1,6 @@
-// Ghumante.Vehicles: Arcade raycast-wheel vehicle controller, surface grip table and vehicle definitions (ARCHITECTURE.md 7.6).
-// M0 ships no runtime code in this assembly yet. The marker type keeps the assembly non-empty so the
-// asmdef graph (ARCHITECTURE.md 7.1) compiles and references to it resolve.
+// Ghumante.Vehicles: vehicles on top of Core's arcade model (ARCHITECTURE.md 7.6). M1 track D adds the explorer's
+// scooter: Explore tuning (VehicleTuning), a fixed-step driver with interpolation (FixedStepDriver, engine-free), and
+// the placeholder cartoon model with dust and mud puffs (Visuals/). Taxis, buses and traffic come in later waves.
 namespace Ghumante.Vehicles
 {
     /// <summary>Marker for the <c>Ghumante.Vehicles</c> assembly.</summary>
