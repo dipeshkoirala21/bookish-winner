@@ -15,13 +15,21 @@ namespace Ghumante.Core.Streaming
     /// pointless). An area without any source is always split while data lies inside it. Children without finer
     /// data are still emitted and drawn from the ancestor source, cropped. Areas with no source at all and areas
     /// beyond the view radius are skipped. Levels a pack does not hold (kathmandu_core has 5, 6, 8, 9, 10) simply
-    /// have no tiles; tiles finer than the finest ring are ignored.
+    /// have no tiles; tiles finer than the finest ring are ignored. Exact nodes whose closest point lies within
+    /// <see cref="StreamingConfig.DetailRadiusM"/> are marked <see cref="SelectedNode.DrawsDetail"/>.
+    /// </para>
+    /// <para>
+    /// Hysteresis (<see cref="StreamingConfig.HysteresisFraction"/>): the selector remembers which areas the previous
+    /// call split and which nodes drew detail; those keep splitting / drawing detail out to their radius times
+    /// (1 + fraction), so a focus that stops or wanders on a ring edge does not flip a parent and its four children
+    /// (or a detail tile) back and forth. Any split decision still covers the data exactly once. The selection
+    /// therefore depends on the previous call; <see cref="ResetHysteresis"/> forgets it (after a teleport, say).
     /// </para>
     /// <para>
     /// The result is ordered by distance from the focus to the area's closest point, then by area key, and is
-    /// deterministic. After warm-up a call allocates nothing (scratch lists are reused; the lazily memoised
-    /// existence index of the <see cref="Func{T,TResult}"/> constructor grows only when new areas are visited).
-    /// Not thread-safe: use one selector per thread.
+    /// deterministic for the same sequence of calls. After warm-up a call allocates nothing (scratch lists and
+    /// sets are reused; the lazily memoised existence index of the <see cref="Func{T,TResult}"/> constructor grows
+    /// only when new areas are visited). Not thread-safe: use one selector per thread.
     /// </para>
     /// </summary>
     public sealed class TileSelector
@@ -54,6 +62,8 @@ namespace Ghumante.Core.Streaming
         private readonly List<TileId> _roots = new List<TileId>(64);
         private Candidate[] _found = new Candidate[256];
         private int _foundCount;
+        private HashSet<ulong> _wasSplit = new HashSet<ulong>(), _nowSplit = new HashSet<ulong>();
+        private HashSet<ulong> _hadDetail = new HashSet<ulong>(), _nowDetail = new HashSet<ulong>();
 
         /// <summary>Selector over the tiles for which <paramref name="exists"/> answers true. Roots are the tiles of
         /// the coarsest ring level around the focus; existence below them is probed lazily and memoised.</summary>
@@ -100,7 +110,16 @@ namespace Ghumante.Core.Streaming
             return t.Level <= _config.FinestLevel && _index.Exists(t);
         }
 
-        /// <summary>Clear <paramref name="result"/> and fill it with the selection around game point (x, z).</summary>
+        /// <summary>Forget the previous selection, so the next <see cref="Select"/> uses the plain radii (no
+        /// hysteresis).</summary>
+        public void ResetHysteresis()
+        {
+            _wasSplit.Clear();
+            _hadDetail.Clear();
+        }
+
+        /// <summary>Clear <paramref name="result"/> and fill it with the selection around game point (x, z). Areas
+        /// split (and nodes drawing detail) in the previous call keep that state within the hysteresis margin.</summary>
         public void Select(double x, double z, List<SelectedNode> result)
         {
             if (result == null) throw new ArgumentNullException(nameof(result));
@@ -108,6 +127,10 @@ namespace Ghumante.Core.Streaming
             if (double.IsNaN(x) || double.IsNaN(z) || double.IsInfinity(x) || double.IsInfinity(z)) return;
             double view = _config.ViewRadiusM, view2 = view * view;
             int finest = _config.FinestLevel;
+            double keep = 1.0 + _config.HysteresisFraction, keep2 = keep * keep;
+            double detail = _config.DetailRadiusM, detail2 = detail * detail;
+            _nowSplit.Clear();
+            _nowDetail.Clear();
 
             _stack.Clear();
             _foundCount = 0;
@@ -134,13 +157,14 @@ namespace Ghumante.Core.Streaming
                     if (!p.HasSource) split = true;
                     else
                     {
-                        double r = _config.SplitRadius(a.Level + 1);
-                        split = d2 <= r * r;
+                        double r = _config.SplitRadius(a.Level + 1), r2 = r * r;
+                        split = d2 <= r2 || (d2 <= r2 * keep2 && _wasSplit.Contains(a.Key));
                     }
                 }
 
                 if (split)
                 {
+                    _nowSplit.Add(a.Key);
                     for (int q = 3; q >= 0; q--)
                     {
                         TileId c = TileArea.Child(a, q);
@@ -151,9 +175,22 @@ namespace Ghumante.Core.Streaming
                 }
                 else if (p.HasSource)
                 {
-                    Sorting.Add(ref _found, ref _foundCount, new Candidate { D2 = d2, Node = new SelectedNode(a, p.Source) });
+                    bool drawsDetail = false;
+                    if (a == p.Source)
+                    {
+                        drawsDetail = d2 <= detail2 || (d2 <= detail2 * keep2 && _hadDetail.Contains(a.Key));
+                        if (drawsDetail) _nowDetail.Add(a.Key);
+                    }
+                    Sorting.Add(ref _found, ref _foundCount, new Candidate { D2 = d2, Node = new SelectedNode(a, p.Source, drawsDetail) });
                 }
             }
+
+            HashSet<ulong> swap = _wasSplit;
+            _wasSplit = _nowSplit;
+            _nowSplit = swap;
+            swap = _hadDetail;
+            _hadDetail = _nowDetail;
+            _nowDetail = swap;
 
             Sorting.HeapSort(_found, _foundCount, default(CandidateOrder));
             for (int k = 0; k < _foundCount; k++) result.Add(_found[k].Node);

@@ -35,7 +35,7 @@ namespace Ghumante.Core.Tests
                                                   double fx, double fz, Random rng, int points, string what)
         {
             int finest = cfg.FinestLevel;
-            double view = cfg.ViewRadiusM;
+            double view = cfg.ViewRadiusM, keep = 1 + cfg.HysteresisFraction + 1e-12;
             Func<TileId, bool> has = t => t.Level <= finest && exists.Contains(t.Key);
             int coarsest = int.MaxValue;
             foreach (ulong k in exists)
@@ -68,16 +68,24 @@ namespace Ghumante.Core.Tests
                 prevD = d;
                 prevKey = n.Area.Key;
 
-                // Split rule: a node finer data could refine stays unsplit only beyond the next ring.
+                // Split rule: a node finer data could refine stays unsplit only beyond the next ring; a split survives
+                // (hysteresis) out to the ring times 1 + HysteresisFraction.
                 if (n.Area.Level < finest && hasDataBelow(n.Area))
                     Assert.That(d, Is.GreaterThan(cfg.SplitRadius(n.Area.Level + 1)), what + ": " + n + " should have split");
+                // Detail: always inside the detail radius, never beyond it plus the hysteresis margin, exact nodes only.
+                if (n.IsExact && d <= cfg.DetailRadiusM) Assert.That(n.DrawsDetail, Is.True, what + ": " + n + " should draw detail");
+                if (n.DrawsDetail)
+                {
+                    Assert.That(n.IsExact, Is.True, what + ": " + n);
+                    Assert.That(d, Is.LessThanOrEqualTo(cfg.DetailRadiusM * keep), what + ": " + n + " should not draw detail");
+                }
                 if (n.Area.Level > coarsest)
                 {
                     TileId parent = n.Area.Parent();
                     bool parentHasSource = false;
                     for (int l = coarsest; l <= parent.Level; l++) parentHasSource |= has(TileArea.AncestorAt(parent, l));
                     if (parentHasSource)
-                        Assert.That(TileArea.ClosestDistance(parent, fx, fz), Is.LessThanOrEqualTo(cfg.SplitRadius(n.Area.Level)),
+                        Assert.That(TileArea.ClosestDistance(parent, fx, fz), Is.LessThanOrEqualTo(cfg.SplitRadius(n.Area.Level) * keep),
                                     what + ": parent of " + n + " should not have split");
                 }
             }
@@ -140,7 +148,7 @@ namespace Ghumante.Core.Tests
                         int l = hit.Area.Level;
                         if (l < cfg.FinestLevel) Assert.That(cfg.SplitRadius(l + 1), Is.LessThan(r));
                         if (l > cfg.CoarsestLevel)
-                            Assert.That(r, Is.LessThanOrEqualTo(cfg.SplitRadius(l) + Math.Sqrt(2) * TileId.SizeAt(l - 1) + 1e-6));
+                            Assert.That(r, Is.LessThanOrEqualTo(cfg.SplitRadius(l) * (1 + cfg.HysteresisFraction) + Math.Sqrt(2) * TileId.SizeAt(l - 1) + 1e-6));
                     }
                 }
             }
@@ -185,6 +193,81 @@ namespace Ghumante.Core.Tests
             Assert.That(worst[2], Is.LessThanOrEqualTo(1));
             Assert.That(worst[1], Is.LessThanOrEqualTo(1));
             Assert.That(worst[0], Is.LessThanOrEqualTo(2));
+        }
+
+        /// <summary>
+        /// A focus that wanders back and forth across a ring edge (or the detail radius) must not flip a parent and
+        /// its four children, or a tile's detail, on every reselection: with the default hysteresis the selection
+        /// settles after the first crossing and only changes again once the focus is beyond the margin. Without
+        /// hysteresis it flips every time (the old behaviour).
+        /// </summary>
+        [Test]
+        public void HysteresisStopsRingEdgeFlipping()
+        {
+            StreamingConfig cfg = StreamingConfig.ForTier(StreamingConfig.TierLow); // L10 ring 750 m, detail 100 m
+            Assert.That(cfg.HysteresisFraction, Is.EqualTo(StreamingConfig.DefaultHysteresisFraction));
+            double half = cfg.ViewRadiusM + 40000;
+            List<TileId> tiles = FullCoverage(new[] { 5, 6, 7, 8, 9, 10 }, KtmX - half, KtmZ - half, KtmX + half, KtmZ + half);
+            HashSet<ulong> keys = KeySet(tiles);
+            TileId parent = TileId.At(9, KtmX, KtmZ);
+            TileId leaf = TileId.At(10, KtmX, KtmZ);
+            double z = parent.Z0 + parent.Size * 0.5;
+            double ringEdge = parent.X0 + parent.Size + 750; // the parent splits within 750 m of its east edge
+            double detailEdge = leaf.X0 - 100;               // the leaf draws detail within 100 m of its west edge
+
+            foreach (double edge in new[] { ringEdge, detailEdge })
+            {
+                double zz = edge == ringEdge ? z : leaf.Z0 + leaf.Size * 0.5;
+                double inward = edge == ringEdge ? -1 : 1; // the side of the edge where the split / detail applies
+                var with = new TileSelector(cfg, tiles);
+                StreamingConfig pureCfg = cfg.Clone();
+                pureCfg.HysteresisFraction = 0;
+                var pure = new TileSelector(pureCfg, tiles);
+                var a = new List<SelectedNode>();
+                var b = new List<SelectedNode>();
+                var settled = new List<SelectedNode>();
+
+                // Out, in (split / detail on), then back and forth by 5 m either side of the edge.
+                with.Select(edge - 5 * inward, zz, a);
+                with.Select(edge + 5 * inward, zz, a);
+                AssertValidSelection(a, keys, cfg, edge + 5 * inward, zz, new Random(3), 500, "inside");
+                settled.AddRange(a);
+                for (int k = 0; k < 6; k++)
+                {
+                    double fx = edge + (k % 2 == 0 ? 5 : -5);
+                    with.Select(fx, zz, a);
+                    AssertValidSelection(a, keys, cfg, fx, zz, new Random(k), 300, "oscillation " + k);
+                    a.Sort();
+                    var sortedSettled = new List<SelectedNode>(settled);
+                    sortedSettled.Sort();
+                    Assert.That(a, Is.EqualTo(sortedSettled), "selection flipped at oscillation " + k);
+                }
+
+                pure.Select(edge - 5, zz, a);
+                pure.Select(edge + 5, zz, b);
+                a.Sort();
+                b.Sort();
+                Assert.That(b, Is.Not.EqualTo(a), "without hysteresis the edge flips the selection");
+
+                // Beyond the margin the merge / detail drop happens.
+                double far = edge == ringEdge ? 750 * 0.1 + 10 : 100 * 0.1 + 10;
+                with.Select(edge - far * inward, zz, a);
+                pure.Select(edge - far * inward, zz, b);
+                a.Sort();
+                b.Sort();
+                Assert.That(a, Is.EqualTo(b), "beyond the margin the hysteresis selection matches the plain one");
+            }
+
+            // Detail is kept inside the margin, and ResetHysteresis forgets it.
+            var sel = new TileSelector(cfg, tiles);
+            var r = new List<SelectedNode>();
+            sel.Select(detailEdge + 5, leaf.Z0 + leaf.Size * 0.5, r);
+            Assert.That(r.Find(n => n.Area == leaf).DrawsDetail, Is.True);
+            sel.Select(detailEdge - 5, leaf.Z0 + leaf.Size * 0.5, r);
+            Assert.That(r.Find(n => n.Area == leaf).DrawsDetail, Is.True, "detail kept inside the margin");
+            sel.ResetHysteresis();
+            sel.Select(detailEdge - 5, leaf.Z0 + leaf.Size * 0.5, r);
+            Assert.That(r.Find(n => n.Area == leaf).DrawsDetail, Is.False, "ResetHysteresis forgets the previous selection");
         }
 
         [Test]
@@ -374,6 +457,11 @@ namespace Ghumante.Core.Tests
             Assert.That(n, Is.EqualTo(new SelectedNode(area, new TileId(8, 129, 40))));
             Assert.That(n.GetHashCode(), Is.EqualTo(new SelectedNode(area, new TileId(8, 129, 40)).GetHashCode()));
             Assert.That(n, Is.Not.EqualTo(new SelectedNode(area, area)));
+            // DrawsDetail is part of the identity and only ever set on exact nodes.
+            Assert.That(new SelectedNode(area, area).DrawsDetail, Is.True);
+            Assert.That(new SelectedNode(area, area, false), Is.Not.EqualTo(new SelectedNode(area, area)));
+            Assert.That(new SelectedNode(area, new TileId(8, 129, 40), true).DrawsDetail, Is.False);
+            Assert.That(new SelectedNode(area, area, false).CompareTo(new SelectedNode(area, area)), Is.LessThan(0));
         }
 
         [Test]
