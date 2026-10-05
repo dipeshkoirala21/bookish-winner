@@ -18,6 +18,12 @@ ATG limits worth knowing (Unity manual, *Enable and use Advanced Text Generator*
 | `Styles/Ghumante.uss` | Design tokens (`--gh-*` custom properties) and components: cream panels, ribbon header, glossy pills (yellow/cyan/green/white/red), round icon buttons, counter pills with "+" |
 | `Themes/GhumanteRuntime.tss` | Runtime theme for the PanelSettings asset (imports Unity's default theme only) |
 | `Screens/MainMenu.uxml` + `MainMenuScreen.cs` | The animated main menu: living backdrop, title ribbon "Ghumante / घुमन्ते", Explore, Map, Collections, Settings, counters bar, toast, settings sheet (see "Motion" below) |
+| `Screens/Explore.uxml` + `ExploreScreen.cs` | The Explore HUD (M1): loading overlay, speed, surface chip, place name, compass, route banner, Search / Walk-Ride / Menu, touch controls, search sheet, pause panel, the shared settings sheet (see "Explore HUD" below) |
+| `Hud/Hud.uss` | HUD styles for both orientations (layout classes `orient-*` and `gh-hud--ride` / `gh-hud--walk`) |
+| `Hud/TouchControls.cs`, `Hud/TouchMath.cs` | Touch controls: floating stick, pedals, the portrait one-thumb drive zone, look and pinch on the world; when they show |
+| `Hud/SearchSheet.cs` | "Where to?": search as you type, results with kind and distance, Ride there / Teleport |
+| `Hud/HudFormat.cs` | Engine-free HUD text: km/h, distances, ETA, Devanagari digits, surface and kind string keys (unit-tested) |
+| `Hud/HudToast.cs`, `Hud/HudSlider.cs` | The HUD's toast and the debug time-of-day slider |
 | `Screens/SettingsSheet.cs` | Settings: Vibration, Reduce motion, Language, "Feel the haptics"; bottom sheet in portrait, side panel in landscape |
 | `Screens/ScreenBase.cs` | Base presenter: localisation, orientation, an animator per screen, `Feel(button, haptic, action)` |
 | `Screens/TextSpike.uxml` + `TextSpikeScreen.cs` | The P3 shaping test (generated, see below) |
@@ -41,6 +47,7 @@ classifies the **safe area** (taller than wide = portrait, else landscape), togg
 | Screen | Landscape | Portrait |
 |---|---|---|
 | Main menu | counters + icon buttons in one top row; hero (ribbon, subtitle) left, menu panel right | counters centred along the top, icon buttons below them on the right; hero in the upper half; menu panel (Explore, Map, ...) at the bottom of the body, i.e. in the bottom third |
+| Explore HUD | place pill top-left, compass and Search / Walk-Ride / Menu top-right; route banner under them; speedometer and surface chip bottom centre; two-thumb controls: floating stick on the left, Go and Brake pedals on the right | buttons along the top right, place pill under them; route banner below; speedometer at the top of the thumb zone; one-thumb controls in the bottom 42%: riding, hold anywhere to go and slide sideways to steer, Brake bottom-left; walking, a floating stick wherever the thumb lands |
 | TextSpike | case / live / reference in three columns | one block per case, live above reference, column headings hidden; toggles in the bottom bar in both orientations |
 
 PanelSettings uses an orientation-neutral scale (square 1500x1500 reference, match 0.5), so a 20:9 phone is
@@ -96,8 +103,8 @@ rotation.
 * **Fun**: "+" (or anywhere on its counter pill) rolls the demo value up (0.6 s) with a pop, the icon hops,
   coins/stars/hearts/bolts and sparkles burst out (pooled particles, which stay below the safe-area top and
   draw over the toast), and a Success haptic plays (hearts stop at 5 and energy at 100 with a
-  "full" wiggle). Explore (until the world arrives in M1) wiggles with a Warning haptic and a toast: a scooter
-  "warming up" and puffing exhaust. Map and Collections give a friendly "soon" toast. Tapping the title
+  "full" wiggle). Explore (a MediumImpact press) opens the world (see "Explore HUD"). Map and Collections give
+  a friendly "soon" toast. Tapping the title
   ribbon says "Namaste!" (wobble, bubble, sparkles, Selection haptic). The globe flips every label edge-on,
   swaps the language and flips them back. The gear spins and opens Settings.
 * **Settings sheet**: a bottom sheet in portrait, a side panel in landscape, sliding in over a dimmed scrim
@@ -126,7 +133,7 @@ Android `performHapticFeedback`/Vibrator, silent in the editor). The implementat
 | Explore | press-down | MediumImpact |
 | Toggles (or their rows), language choice, TextSpike toolbar toggles, scrim | press-down | Selection |
 | "+" adds to a counter | click | Success |
-| "+" on full hearts / energy, Explore / Map / Collections before they exist | click | Warning |
+| "+" on full hearts / energy, Map / Collections before they exist | click | Warning |
 | Title ribbon ("Namaste!") | tap | Selection |
 | Language switched (globe or sheet) | mid-flip | Selection |
 | Vibration switched on | click | Success |
@@ -186,10 +193,56 @@ counters on top, the hero peak behind the title and the menu in the bottom third
 left and menu right. Click-drag on the sky to steer the parallax (the simulator has no tilt sensor).
 
 **Phone**: tilt the phone gently for the parallax; every button press should tick, "+" should give a
-success pattern, Explore a warning. Settings > Feel the haptics plays all seven kinds in order (iOS:
+success pattern. Settings > Feel the haptics plays all seven kinds in order (iOS:
 selection tick, light/medium/heavy taps, success/warning/error notifications; Android: the closest
 predefined effects). With iOS Reduce Motion or Android Remove animations on, a fresh install starts with
 Reduce motion on. Pull down the notification shade: flags and clouds stop until you come back.
+
+## Explore HUD (M1 track D)
+
+`Screens/Explore.uxml` + `ExploreScreen.cs`, fed every frame by `App/Explore/ExploreSession.cs` (which owns the world,
+the explorer and the camera). Everything follows the menu's rules: transforms and opacity only, press feel and haptics on
+every button, Reduce motion turns pops and slides into fades, text is written only when what it shows changes (the
+speedometer reads cached digit strings, so it allocates nothing per frame).
+
+| Element | What |
+|---|---|
+| Loading overlay | The Himalaya backdrop, a bobbing scooter, a status line ("Opening Kathmandu Core…", "Drawing the streets around Thamel…") and a progress bar: the region opening (unpacking on Android), then the tiles around the spawn streaming in. No region installed, or opening failed: a friendly explanation (Ghumante > Project Setup / Import Region Pack) and Back to menu. |
+| Speedometer | Whole km/h, Devanagari digits (०-९) in Nepali. |
+| Surface chip | The road's own surface (Asphalt, Brick, Gravel...) or, off the road, the ground's group with "· off road"; coloured by physics group (paved, gravel, dirt, mud). A small white dot when the road's surface is inferred by the pipeline (ADR-005); hover it for the explanation. It pops when the surface changes. |
+| Place pill | The landmark you stand by (within 60 m, from the loaded tiles' POIs; never businesses, ADR-010) or the neighbourhood / village / town you are in; EN or NE (Nepali only where OSM has it). Changes after two looks half a second apart, so it never flickers. |
+| Compass | The red tick points north; the rose turns with the camera. |
+| Search / Walk-Ride / Menu | Search opens the search sheet; Walk-Ride shows the other mode (a walker while riding, the scooter while walking); Menu pauses. Tooltips name them on desktop. |
+| Route banner | A yellow arrow towards the route ahead (relative to the camera), "To Boudhanath Stupa", "4.9 km · 9 min" (ETA = the route's own time scaled by what is left), × stops the route. "Finding the way…" while A* runs; "Finding a new way…" when re-routing after 3 s more than 45 m off the route. |
+| Arrival | Within about 40 m of the destination (or the end of the road once nearly there): confetti, a star toast "You made it to …!" and a Success haptic. |
+| Search sheet | Bottom sheet in portrait, side panel in landscape (the settings sheet's styles and EdgeSheet pose). Search as you type (Latin, Devanagari, romanised, typos: Core's SearchEngine); empty query suggests the region's landmarks. Rows: name in the current language, the other script below, kind and distance; Ride there (MediumImpact) and, in development builds and the editor, Teleport. Enter rides to the first result. Gameplay pauses while it is open. |
+| Pause panel | Resume, Settings (the main menu's SettingsSheet, same element names), Main menu (closes the world and frees its memory). The game also pauses when the app goes to the background. |
+| Attribution | "Map data © OpenStreetMap contributors", always on screen. |
+| Debug clock | Development builds and the editor: time of day with a slider. |
+
+**Controls.** Keyboard: WASD or arrows (W/up throttle, S/down brake then reverse, A/D steer; on foot camera-relative),
+Space brake, Shift boost (sprint on foot), E walk/ride, M map (a "soon" toast until wave 2), / search, Esc pause, mouse
+wheel zoom, right-drag look. Gamepad: left stick, right trigger throttle, left trigger brake/reverse, A walk/ride, B brake,
+X boost, Y search, Start pause, shoulders zoom, right stick look. Touch: see the orientation table above; one finger on the
+world turns the camera, two fingers pinch to zoom. Touch controls hide as soon as a keyboard or gamepad drives and come
+back on the first touch (on a Mac without the Device Simulator they start hidden). HUD buttons never take keyboard focus,
+so Space and gamepad A only drive. Escape, Android back and gamepad B arrive as UI cancel events: they close the top panel
+(settings, search, pause); while playing Escape and back pause, B (the brake) does not.
+
+**Haptics in Explore.**
+
+| Interaction | HapticKind |
+|---|---|
+| HUD buttons, pedals, route ×, pause buttons | LightImpact (Walk-Ride, Ride there and Main menu: MediumImpact) |
+| A thumb lands on the stick or the drive zone | Selection |
+| Riding onto another surface | Selection |
+| A bump or a firm landing | LightImpact |
+| Stuck recovery (the hop and nudge) | MediumImpact |
+| Arrival | Success |
+| The ride starts / a teleport | MediumImpact |
+| No region installed | Warning |
+
+**Trying it**: game/README.md, "How to play the M1 slice on a Mac".
 
 ## The TextSpike (week-1 device test, ARCHITECTURE.md P3)
 

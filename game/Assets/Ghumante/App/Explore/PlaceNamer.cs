@@ -8,8 +8,8 @@ namespace Ghumante.App.Explore
     /// <summary>
     /// "Where am I?" for the HUD (M1 track D): the name of the nearest landmark-like POI within <see cref="PoiRadiusM"/>
     /// from the loaded level-10 tiles around the explorer (temples, stupas, squares, museums, parks...; never businesses
-    /// or brands, ADR-010), else the place (neighbourhood, village, town, city) whose own radius the explorer is in,
-    /// nearest first (places come from the region's search index, else from the tiles). <see cref="Update"/> adds a little
+    /// or brands, ADR-010), else the place (neighbourhood, village, town, city) whose own radius covers the explorer
+    /// best (distance / radius; places come from the region's search index, else from the tiles). <see cref="Update"/> adds a little
     /// hysteresis: a new name must win twice in a row, so the label does not flicker on a boundary. Engine-free, no
     /// allocation per update.
     /// </summary>
@@ -27,6 +27,7 @@ namespace Ghumante.App.Explore
 
         private readonly Place[] _places;
         private NameRecord _pending;
+        private bool _hasPending;
 
         /// <param name="index">The region's search index (null: places come from the loaded tiles only).</param>
         public PlaceNamer(SearchIndexData index)
@@ -57,16 +58,18 @@ namespace Ghumante.App.Explore
             NameRecord candidate = Resolve(ground, x, z);
             if (Same(candidate, Current))
             {
-                _pending = null;
+                _hasPending = false;
                 return false;
             }
-            if (Current == null || Same(candidate, _pending))
+            if (Current == null || _hasPending && Same(candidate, _pending))
             {
                 Current = candidate;
+                _hasPending = false;
                 _pending = null;
                 return true;
             }
-            _pending = candidate ?? Empty;
+            _pending = candidate;
+            _hasPending = true;
             return false;
         }
 
@@ -75,13 +78,15 @@ namespace Ghumante.App.Explore
         {
             Current = null;
             _pending = null;
+            _hasPending = false;
         }
 
-        /// <summary>The best name for (x, z) right now, without hysteresis (null: none).</summary>
+        /// <summary>The best name for (x, z) right now, without hysteresis (null: none): the nearest landmark-like POI
+        /// within <see cref="PoiRadiusM"/>, else the place whose radius covers the point most (distance / radius).</summary>
         public NameRecord Resolve(TileGroundQuery ground, double x, double z)
         {
-            NameRecord best = null;
-            double bestScore = double.PositiveInfinity;
+            NameRecord poi = null, place = null;
+            double poiDistance = PoiRadiusM, placeScore = 1.0;
             if (ground != null)
             {
                 TileId centre = TileId.At(10, x, z);
@@ -92,7 +97,7 @@ namespace Ghumante.App.Explore
                         RoadSpatialIndex roads = ground.RoadIndexOf(new TileId(10, centre.Tx + dx, centre.Ty + dy));
                         TileData tile = roads != null ? roads.Tile : null;
                         if (tile == null) continue;
-                        ScoreTile(tile, x, z, ref best, ref bestScore);
+                        ScoreTile(tile, x, z, ref poi, ref poiDistance, ref place, ref placeScore);
                     }
                 }
             }
@@ -100,16 +105,17 @@ namespace Ghumante.App.Explore
             {
                 double ddx = _places[i].X - x, ddz = _places[i].Z - z;
                 double score = Math.Sqrt(ddx * ddx + ddz * ddz) / _places[i].Radius;
-                if (score <= 1.0 && score < bestScore)
+                if (score <= placeScore)
                 {
-                    bestScore = score;
-                    best = _places[i].Name;
+                    placeScore = score;
+                    place = _places[i].Name;
                 }
             }
-            return best;
+            return poi ?? place;
         }
 
-        private void ScoreTile(TileData tile, double x, double z, ref NameRecord best, ref double bestScore)
+        private void ScoreTile(TileData tile, double x, double z, ref NameRecord poi, ref double poiDistance,
+                               ref NameRecord place, ref double placeScore)
         {
             List<PoiRecord> pois = tile.Pois;
             for (int i = 0; i < pois.Count; i++)
@@ -117,32 +123,35 @@ namespace Ghumante.App.Explore
                 PoiRecord p = pois[i];
                 if (p.NameRef <= 0) continue;
                 int kind = (int)p.Kind;
-                double radius;
-                double weight;
-                if (kind >= SearchEntry.PlaceKindOffset)
+                bool isPlace = kind >= SearchEntry.PlaceKindOffset;
+                double radius = 0.0;
+                if (isPlace)
                 {
                     if (HasIndexPlaces) continue; // the index has them, with merged names
                     radius = PlaceRadius((PlaceKind)(kind - SearchEntry.PlaceKindOffset));
-                    weight = 1.0;
+                    if (!(radius > 0)) continue;
                 }
-                else
+                else if (!Landmarkish(p.Kind))
                 {
-                    if (!Landmarkish(p.Kind)) continue;
-                    radius = PoiRadiusM;
-                    weight = 0.5; // a temple you stand next to beats the neighbourhood around it
+                    continue;
                 }
-                if (!(radius > 0)) continue;
                 double px, pz;
                 tile.LocalToGame(p.XCm, p.ZCm, out px, out pz);
                 double ddx = px - x, ddz = pz - z;
-                double score = Math.Sqrt(ddx * ddx + ddz * ddz) / radius;
-                if (score > 1.0) continue;
-                score *= weight;
-                if (score >= bestScore) continue;
+                double d = Math.Sqrt(ddx * ddx + ddz * ddz);
+                if (isPlace ? d / radius > placeScore : d > poiDistance) continue;
                 NameRecord name = tile.Name(p.NameRef);
                 if (name == null || name.IsEmpty) continue;
-                bestScore = score;
-                best = name;
+                if (isPlace)
+                {
+                    placeScore = d / radius;
+                    place = name;
+                }
+                else
+                {
+                    poiDistance = d;
+                    poi = name;
+                }
             }
         }
 
@@ -191,8 +200,6 @@ namespace Ghumante.App.Explore
                     return k >= 500 && k < 600;      // adventure
             }
         }
-
-        private static readonly NameRecord Empty = new NameRecord("", "", "");
 
         private static bool Same(NameRecord a, NameRecord b)
         {

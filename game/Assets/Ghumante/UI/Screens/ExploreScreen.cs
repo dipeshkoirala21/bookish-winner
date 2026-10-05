@@ -80,6 +80,9 @@ namespace Ghumante.UI.Screens
         private readonly Label _debugClock;
         private readonly VisualElement _controls;
         private readonly MotionNode _controlsNode;
+        private readonly Button _searchButton;
+        private readonly Button _modeButton;
+        private readonly Button _menuButton;
 
         private readonly VisualElement _pauseLayer;
         private readonly MotionNode _pausePanelNode;
@@ -96,7 +99,7 @@ namespace Ghumante.UI.Screens
         private readonly MotionNode _loadingFillNode;
 
         private VisualElement _backTarget;
-        private Slider _timeSlider;
+        private HudSlider _timeSlider;
 
         // What the HUD shows (to write text only on change).
         private bool _riding = true;
@@ -110,7 +113,8 @@ namespace Ghumante.UI.Screens
         private float _compassDeg = float.NaN;
         private float _arrowDeg = float.NaN;
         private string _routeDestination;
-        private string _routeDistance;
+        private long _routeBucket = -1;
+        private double _routeRemainingM;
         private int _routeMinutes = -1;
         private string _routeStatusKey;
         private bool _routeStatusOnly;
@@ -169,9 +173,12 @@ namespace Ghumante.UI.Screens
                                   Required<Label>("toast"));
             _particles = new ParticleBurst(Animator, Required<VisualElement>("fx-layer"), Motion.LowPower ? 16 : 36, 5309u);
 
-            Feel(Required<Button>("hud-search"), HapticKind.LightImpact, OpenSearch);
-            Feel(Required<Button>("hud-mode"), HapticKind.MediumImpact, () => Raise(ModeToggleRequested));
-            Feel(Required<Button>("hud-menu"), HapticKind.LightImpact, Pause);
+            _searchButton = Required<Button>("hud-search");
+            _modeButton = Required<Button>("hud-mode");
+            _menuButton = Required<Button>("hud-menu");
+            Feel(_searchButton, HapticKind.LightImpact, OpenSearch);
+            Feel(_modeButton, HapticKind.MediumImpact, () => Raise(ModeToggleRequested));
+            Feel(_menuButton, HapticKind.LightImpact, Pause);
             Feel(Required<Button>("hud-route-cancel"), HapticKind.LightImpact, () => Raise(RouteCancelRequested));
 
             _search = new SearchSheet(new SearchSheetView
@@ -238,6 +245,7 @@ namespace Ghumante.UI.Screens
             _loadingHelp = Required<Label>("loading-help");
             Required<VisualElement>("loading-bar");
             _loadingFillNode = Animator.Node(Required<VisualElement>("loading-bar-fill"));
+            _loadingFillNode.Set(MotionChannel.ScaleX, 0.001f); // the fill is full width, scaled from its left edge
             Feel(Required<Button>("loading-back"), HapticKind.LightImpact, () => Raise(MenuRequested));
 
             // HUD buttons never take keyboard focus: gamepad A and Space drive the scooter, they must not also "submit"
@@ -400,6 +408,7 @@ namespace Ghumante.UI.Screens
             StyledRoot.EnableInClassList(RideClass, riding);
             StyledRoot.EnableInClassList(WalkClass, !riding);
             _touch.Riding = riding;
+            _modeButton.tooltip = Localizer.Get(riding ? "hud.walk" : "hud.ride");
             if (changed)
             {
                 _touch.ReleaseAll();
@@ -493,7 +502,7 @@ namespace Ghumante.UI.Screens
             _routeDestination = destination ?? "";
             _routeStatusKey = statusKey;
             _routeStatusOnly = statusKey != null;
-            _routeDistance = null;
+            _routeBucket = -1;
             _routeMinutes = -1;
             bool wasVisible = _route.ClassListContains(RouteVisibleClass);
             _route.AddToClassList(RouteVisibleClass);
@@ -509,16 +518,14 @@ namespace Ghumante.UI.Screens
         /// (radians, 0 = straight ahead, clockwise). Text changes only when the rounded values change.</summary>
         public void SetRouteProgress(double remainingM, double etaSeconds, float arrowRad)
         {
-            bool devanagari = Localizer.UsesDevanagariDigits;
-            bool km;
-            string number = HudFormat.Distance(remainingM, devanagari, out km);
-            string distance = km ? "km:" + number : "m:" + number;
+            long bucket = HudFormat.DistanceBucket(remainingM);
             int minutes = HudFormat.EtaMinutes(etaSeconds);
-            if (_routeStatusOnly || distance != _routeDistance || minutes != _routeMinutes)
+            if (_routeStatusOnly || bucket != _routeBucket || minutes != _routeMinutes)
             {
                 _routeStatusOnly = false;
                 _routeStatusKey = null;
-                _routeDistance = distance;
+                _routeBucket = bucket;
+                _routeRemainingM = remainingM;
                 _routeMinutes = minutes;
                 ApplyRouteText();
             }
@@ -578,10 +585,8 @@ namespace Ghumante.UI.Screens
             _debug.AddToClassList(DebugOnClass);
             if (_timeSlider == null)
             {
-                _timeSlider = new Slider(0f, 24f) { name = "hud-debug-slider", value = hours, focusable = false };
-                _timeSlider.AddToClassList("gh-hud__debug-slider");
-                _timeSlider.RegisterValueChangedCallback(evt => Raise(TimeOfDayChanged, evt.newValue));
-                _debug.Add(_timeSlider);
+                _timeSlider = new HudSlider(_debug, "hud-debug-slider", 0f, 24f, hours);
+                _timeSlider.ValueChanged += h => Raise(TimeOfDayChanged, h);
             }
             SetDebugClock(hours);
         }
@@ -719,6 +724,9 @@ namespace Ghumante.UI.Screens
             if (_surfaceKey != null) ApplySurfaceText();
             if (_routeDestination != null) ApplyRouteText();
             _inferred.tooltip = Localizer.Get("hud.surface.inferred");
+            _searchButton.tooltip = Localizer.Get("hud.search");
+            _menuButton.tooltip = Localizer.Get("hud.menu");
+            _modeButton.tooltip = Localizer.Get(_riding ? "hud.walk" : "hud.ride");
             ApplyLoadingText();
             _loadingPercentShown = -1;
             if (_loadingProgress >= 0f)
@@ -752,13 +760,14 @@ namespace Ghumante.UI.Screens
                 _routeInfo.text = Localizer.Get(_routeStatusKey);
                 return;
             }
-            if (_routeDistance == null)
+            if (_routeBucket < 0)
             {
                 _routeInfo.text = "";
                 return;
             }
-            bool km = _routeDistance.StartsWith("km:", StringComparison.Ordinal);
-            string number = _routeDistance.Substring(km ? 3 : 2);
+            // Re-derived from the metres, so a language switch also switches the digits.
+            bool km;
+            string number = HudFormat.Distance(_routeRemainingM, Localizer.UsesDevanagariDigits, out km);
             string distance = Localizer.Format(km ? "hud.distance_km" : "hud.distance_m", number);
             string eta = Localizer.Format("hud.eta_min", HudFormat.Number(_routeMinutes, Localizer.UsesDevanagariDigits));
             _routeInfo.text = Localizer.Format("hud.route.info", distance, eta);

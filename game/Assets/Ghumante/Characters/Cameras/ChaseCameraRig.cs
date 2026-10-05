@@ -31,8 +31,11 @@ namespace Ghumante.Characters.Cameras
         /// <summary>Lowest the camera may get above the ground.</summary>
         public const float GroundClearanceM = 0.8f;
 
-        /// <summary>Seconds after the last look input before the camera swings back behind the explorer.</summary>
+        /// <summary>Seconds after the last look input before the camera swings back behind the rider.</summary>
         public const float LookReturnDelayS = 1.4f;
+
+        /// <summary>On foot the camera swings in behind only while the walker heads within this angle of its view.</summary>
+        public const float WalkFollowConeDeg = 35f;
 
         private Camera _camera;
         private Vector3 _savedPosition;
@@ -143,32 +146,41 @@ namespace Ghumante.Characters.Cameras
             }
             ChaseRigProfile rig = ChaseRigProfile.Blend(Smooth(_ride), Smooth(_portrait));
 
-            // Player zoom (log scale, so each notch feels the same), pitch and look-around.
+            // Player zoom (log scale, so each notch feels the same), pitch and look-around. On the scooter looking around
+            // is a glance that swings back behind the rider; on foot it turns the camera for good (walking is relative
+            // to it).
             _zoomLog = Mathf.Clamp(_zoomLog - controls.ZoomSteps * 0.12f, Mathf.Log(MinZoom), Mathf.Log(MaxZoom));
             _pitchOffset = Mathf.Clamp(_pitchOffset + controls.LookPitchDeg, MinPitchOffsetDeg, MaxPitchOffsetDeg);
-            if (controls.LookYawDeg != 0f || controls.Looking)
+            bool looking = controls.LookYawDeg != 0f || controls.Looking;
+            if (looking) _lookIdle = 0f;
+            else _lookIdle += dt;
+            if (riding)
             {
                 _orbit = Mathf.Repeat(_orbit + controls.LookYawDeg + 180f, 360f) - 180f;
-                _lookIdle = 0f;
+                if (_lookIdle > LookReturnDelayS) _orbit *= Mathf.Exp(-2.5f * dt);
             }
             else
             {
-                _lookIdle += dt;
-                if (_lookIdle > LookReturnDelayS) _orbit *= Mathf.Exp(-2.5f * dt);
+                _yaw += controls.LookYawDeg;
+                _orbit *= Mathf.Exp(-6f * dt);
             }
 
-            // Follow the heading: tightly on the scooter; on foot only while walking, so turning to face the camera
-            // does not spin it around.
+            // Follow the heading: tightly on the scooter. On foot only while walking roughly away from the camera, so
+            // walking towards it or sideways (the stick is camera-relative) never sends camera and walker chasing each
+            // other in circles.
             float headingDeg = headingRad * Mathf.Rad2Deg;
             if (_snap)
             {
                 _yaw = headingDeg;
                 _yawVelocity = 0f;
             }
-            else if (riding || Mathf.Abs(speedMps) > 0.4f)
+            else if (riding)
             {
-                float follow = riding ? rig.FollowSeconds : rig.FollowSeconds / Mathf.Clamp(Mathf.Abs(speedMps) / 1.6f, 0.5f, 2f);
-                _yaw = Mathf.SmoothDampAngle(_yaw, headingDeg, ref _yawVelocity, follow, Mathf.Infinity, dt);
+                _yaw = Mathf.SmoothDampAngle(_yaw, headingDeg, ref _yawVelocity, rig.FollowSeconds, Mathf.Infinity, dt);
+            }
+            else if (!looking && Mathf.Abs(speedMps) > 0.4f && Mathf.Abs(Mathf.DeltaAngle(_yaw, headingDeg)) < WalkFollowConeDeg)
+            {
+                _yaw = Mathf.SmoothDampAngle(_yaw, headingDeg, ref _yawVelocity, rig.FollowSeconds, 90f, dt);
             }
             else
             {

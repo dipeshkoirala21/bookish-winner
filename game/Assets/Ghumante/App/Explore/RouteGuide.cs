@@ -20,8 +20,8 @@ namespace Ghumante.App.Explore
     /// (projection onto the polyline, searched near the last position so a route that comes back along the same street
     /// does not jump ahead), the remaining distance and ETA (the route's own time, scaled by what is left), a direction
     /// to steer by (towards a point <see cref="LookAheadM"/> further along the route) and arrival within
-    /// <see cref="ArrivalRadiusM"/> (about 40 m) of the end of the road or of the destination. Engine-free; no allocation
-    /// per update.
+    /// <see cref="ArrivalRadiusM"/> (about 40 m) of the destination, or of the end of the road once the route is nearly
+    /// done. Engine-free; no allocation per update.
     /// </summary>
     public sealed class RouteGuide
     {
@@ -32,6 +32,9 @@ namespace Ghumante.App.Explore
 
         /// <summary>Beyond this from the local search, the whole route is searched again.</summary>
         private const double RelocateM = 60.0;
+
+        /// <summary>Cost of a jump in progress, metres of distance per metre along the route (see Nearest).</summary>
+        private const double ContinuityPerM = 0.05;
 
         private const int WindowBehind = 4;
         private const int WindowAhead = 48;
@@ -110,12 +113,13 @@ namespace Ghumante.App.Explore
             int last = Math.Min(_points - 2, _segment + WindowAhead);
             int segment;
             double t, distance;
-            Nearest(x, z, first, last, out segment, out t, out distance);
-            if (distance > RelocateM && (first > 0 || last < _points - 2))
+            Nearest(x, z, first, last, ProgressM, ContinuityPerM, out segment, out t, out distance);
+            if (distance > RelocateM)
             {
+                // Lost (a teleport, a long detour): the plain nearest point of the whole route.
                 int s2;
                 double t2, d2;
-                Nearest(x, z, 0, _points - 2, out s2, out t2, out d2);
+                Nearest(x, z, 0, _points - 2, 0.0, 0.0, out s2, out t2, out d2);
                 if (d2 < distance - 1e-6)
                 {
                     segment = s2;
@@ -127,9 +131,11 @@ namespace Ghumante.App.Explore
             ProgressM = _cumulative[segment] + t * (_cumulative[segment + 1] - _cumulative[segment]);
             DistanceToRouteM = distance;
 
+            // Arrived: at the destination itself; or at the end of the road near the end of the route (a route that passes
+            // close to its end earlier, out and back, does not count); or on the route with 40 m to go.
             double endX = _xz[2 * _points - 2], endZ = _xz[2 * _points - 1];
-            if (Hypot(x - endX, z - endZ) <= ArrivalRadiusM ||
-                Hypot(x - Route.DestinationX, z - Route.DestinationZ) <= ArrivalRadiusM ||
+            if (Hypot(x - Route.DestinationX, z - Route.DestinationZ) <= ArrivalRadiusM ||
+                Hypot(x - endX, z - endZ) <= ArrivalRadiusM && RemainingM <= 2.0 * ArrivalRadiusM ||
                 RemainingM <= ArrivalRadiusM && distance <= ArrivalRadiusM)
             {
                 Arrived = true;
@@ -176,11 +182,18 @@ namespace Ghumante.App.Explore
             z = _xz[2 * lo + 1] + (_xz[2 * hi + 1] - _xz[2 * lo + 1]) * f;
         }
 
-        private void Nearest(double x, double z, int first, int last, out int bestSegment, out double bestT, out double bestDistance)
+        /// <summary>
+        /// The point of segments [first, last] closest to (x, z), where a candidate costs its distance plus
+        /// <paramref name="perMetre"/> times how far its progress is from <paramref name="progress"/>: on a route that
+        /// passes the same street twice the leg being ridden wins over the one further along.
+        /// </summary>
+        private void Nearest(double x, double z, int first, int last, double progress, double perMetre,
+                             out int bestSegment, out double bestT, out double bestDistance)
         {
             bestSegment = first;
             bestT = 0.0;
             bestDistance = double.PositiveInfinity;
+            double bestCost = double.PositiveInfinity;
             for (int i = first; i <= last; i++)
             {
                 double ax = _xz[2 * i], az = _xz[2 * i + 1];
@@ -189,8 +202,11 @@ namespace Ghumante.App.Explore
                 double t = len2 > 1e-12 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0.0;
                 t = t < 0 ? 0 : t > 1 ? 1 : t;
                 double d = Hypot(ax + dx * t - x, az + dz * t - z);
-                if (d < bestDistance)
+                double along = _cumulative[i] + t * (_cumulative[i + 1] - _cumulative[i]);
+                double cost = d + perMetre * Math.Abs(along - progress);
+                if (cost < bestCost)
                 {
+                    bestCost = cost;
                     bestDistance = d;
                     bestSegment = i;
                     bestT = t;

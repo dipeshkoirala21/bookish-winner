@@ -46,3 +46,62 @@ One asmdef per module (ARCHITECTURE.md 7.1), all referencing `Ghumante.Core` (wr
 | `fonts.py fetch / instance / verify` | Download Baloo 2 + Mukta from google/fonts (pinned SHA-256), cut static Baloo 2 Bold/ExtraBold, verify Devanagari coverage and shaping |
 | `textspike.py [--check]` | Generate the TextSpike UXML, reference USS and HarfBuzz reference images from `textspike_cases.json` |
 | `make_ui_art.py` | Regenerate the placeholder icons and menu background |
+
+## How to play the M1 slice on a Mac
+
+The Explore slice of M1 wave 1: 1:1 Kathmandu streamed around a scooter or a walker, search, a route to follow,
+portrait and landscape. It runs on the committed `kathmandu_core` sample (Swayambhunath to Boudhanath); once the
+full valley is imported (`python build.py --region kathmandu_valley` in `pipeline/`, then **Ghumante → Import Region
+Pack…**), Explore opens `kathmandu_valley` instead.
+
+**Set up once (and after pulling M1 changes)**
+
+1. Open `game/` in Unity 6000.3.25f1 and run **Ghumante → Project Setup**. Besides the settings it copies the sample
+   region into `Assets/StreamingAssets/Regions/`, creates the world materials, and rebuilds
+   `Assets/Ghumante/Scenes/Bootstrap.unity` if it predates the Explore screen (the scene is generated; Play mode in the
+   editor also finds the Explore screen without this, but player builds need it saved in the scene).
+2. Open `Assets/Ghumante/Scenes/Bootstrap.unity`. Optional: set **Start Screen = Explore** on the *Ghumante* object to
+   skip the menu.
+
+**Ride from Thamel to Boudhanath (keyboard, Game view)**
+
+1. Press **Play**, then click **Explore** on the main menu. The loading overlay shows "Opening Kathmandu Core…", then
+   "Drawing the streets around Thamel…" while the tiles around the spawn stream in (a few seconds).
+2. You start on the red scooter on a street in Thamel, facing along it ("Namaste from Thamel!"). The pill at the top
+   left names the place, the compass beside the buttons points north, the speedometer is at the bottom.
+3. Ride: **W** (or up) throttle, **A / D** steer, **S** brake then reverse, **Space** brake, **Shift** boost. The mouse
+   wheel zooms, a right-drag looks around (it swings back behind you). The chip under the speed names the surface; a
+   small white dot means OpenStreetMap does not say and the pipeline guessed it.
+4. Press **/** (or click the magnifier), type **Boudha**. The first result is *Boudhanāth Stupa* (Stupa, about 4.9 km
+   away). Click **Ride there**.
+5. A yellow chevron ribbon appears on the roads and the banner shows "To Boudhanāth Stupa", the distance left and the
+   ETA (about 7.5 km and 9 minutes), with an arrow pointing along the route ahead. Follow the ribbon east. Leave it for
+   a few seconds and it finds a new way.
+6. Within about 40 m of the end: confetti, "You made it to Boudhanāth Stupa!" and a Success haptic (in the editor the
+   debug box at the bottom right shows `haptic: Success (editor - not felt)`).
+7. Press **E** to hop off (at speed it brakes first) and walk around the stupa: W walks away from the camera, A/D and S
+   walk left, right and towards it; Shift sprints. **E** again hops back on (a scooter left far away rolls up to you).
+8. **Esc** pauses: Resume, Settings (Vibration, Reduce motion, Language: switch to नेपाली to see Nepali place names
+   and numerals), **Main menu** (closes the world and frees its memory).
+
+Shortcut while testing: each search result also has **Teleport** (editor and development builds only), which drops
+you on the nearest road to it. Other debug keys (track C): **F3** free-fly camera, **T** fast time, **[ ]** an hour
+back/forward, **P** pause the clock; the HUD's debug slider (top right) sets the time of day.
+
+**Gamepad**: left stick steers (walks), right trigger throttle, left trigger brake/reverse, A walk/ride, B brake, X
+boost, Y search, Start pause, shoulders zoom, right stick look. Touch controls hide as soon as a keyboard or gamepad
+drives.
+
+**Portrait, landscape and touch (Device Simulator)**: **Window → General → Device Simulator**, pick an iPhone 15 or a
+Pixel and press Play. Mouse clicks act as touches and the touch controls appear:
+
+* Landscape (two thumbs): drag in the left part of the screen for the floating stick (steering), hold **Go** and
+  **Brake** on the right.
+* Portrait (one thumb): press and hold anywhere in the lower part of the screen to throttle and slide sideways to steer;
+  **Brake** (bottom left) brakes, then reverses. On foot, a stick appears wherever your thumb lands in the lower part.
+* Drag on the open world to look around. Rotate with the simulator's rotate buttons, also mid-ride: the camera rises
+  and pulls back in portrait and blends there in 0.3 s, and the HUD re-flows.
+
+If Explore says *No map installed yet*, run **Ghumante → Project Setup** (or **Import Region Pack…**) and press Play
+again. What to report: anything that feels wrong about the scooter, the camera, the HUD in either orientation, or the
+route; the debug box shows fps, memory and streaming counters.

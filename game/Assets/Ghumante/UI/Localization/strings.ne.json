@@ -65,7 +65,6 @@
   "explore.loading.finding": "घुम्ने नक्सा खोज्दै…",
   "explore.loading.opening": "{0} खोल्दै…",
   "explore.loading.streets": "{0} वरपरका गल्लीहरू कोर्दै…",
-  "explore.loading.ready": "तयार! चढ्नुहोस्।",
   "explore.no_region.title": "अहिलेसम्म कुनै नक्सा छैन",
   "explore.no_region.body": "घुम्नका लागि क्षेत्र प्याक चाहिन्छ। Unity editor मा Ghumante > Project Setup चलाउनुहोस् (यसले काठमाडौंको नमुना StreamingAssets मा राख्छ) वा Ghumante > Import Region Pack… छान्नुहोस्, अनि फेरि Play थिच्नुहोस्।",
   "explore.load_failed.title": "नक्सा खुलेन",

@@ -31,6 +31,16 @@ namespace Ghumante.App.Explore
             }
             return sample ? Sample : first;
         }
+
+        /// <summary>"kathmandu_core" as "Kathmandu Core" for the loading line (before the manifest is read).</summary>
+        public static string Label(string regionId)
+        {
+            if (string.IsNullOrEmpty(regionId)) return "";
+            string[] words = regionId.Split('_');
+            for (int i = 0; i < words.Length; i++)
+                if (words[i].Length > 0) words[i] = char.ToUpperInvariant(words[i][0]) + words[i].Substring(1);
+            return string.Join(" ", words);
+        }
     }
 
     /// <summary>Where the explorer starts (or lands after a teleport): game metres and a heading along the road.</summary>

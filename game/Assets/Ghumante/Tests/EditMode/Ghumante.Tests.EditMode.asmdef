@@ -8,6 +8,8 @@
         "Ghumante.App",
         "Ghumante.Save",
         "Ghumante.World",
+        "Ghumante.Vehicles",
+        "Ghumante.Characters",
         "Ghumante.EditorTools",
         "Unity.RenderPipelines.Universal.Runtime",
         "UnityEngine.TestRunner",

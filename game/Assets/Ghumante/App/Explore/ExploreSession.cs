@@ -138,13 +138,18 @@ namespace Ghumante.App.Explore
         /// <summary>Closes the world and frees everything (meshes, materials, region data); safe to call twice.</summary>
         public void Close()
         {
+            Close(true);
+        }
+
+        private void Close(bool unloadAssets)
+        {
             if (_phase == Phase.Closed) return;
             _phase = Phase.Closed;
             _routeToken++;
             if (_cts != null)
             {
+                // Cancelled, not disposed: the open in flight may still pass its token around while it unwinds.
                 _cts.Cancel();
-                _cts.Dispose();
                 _cts = null;
             }
             if (_input != null)
@@ -178,6 +183,7 @@ namespace Ghumante.App.Explore
             if (_screen != null) Unwire();
             _screen = null;
             Destroy(gameObject);
+            if (!unloadAssets) return;
             // Region data, tile meshes and caches are unreferenced now: give the memory back before the menu.
             Resources.UnloadUnusedAssets();
             GC.Collect();
@@ -231,7 +237,7 @@ namespace Ghumante.App.Explore
                     _screen.ShowNoRegion();
                     return;
                 }
-                _screen.ShowLoading("explore.loading.opening", RegionLabel(regionId));
+                _screen.ShowLoading("explore.loading.opening", ExploreRegions.Label(regionId));
                 var progress = new Progress<float>(p =>
                 {
                     if (_phase == Phase.Opening && _screen != null) _screen.SetLoadingProgress(0.05f + 0.5f * p);
@@ -384,6 +390,7 @@ namespace Ghumante.App.Explore
             _explorer.Tick(dt, frame, _rig.YawRad, blocked);
             WorldPos position = _explorer.Position;
             _world.Focus = position;
+            _screen.Search.SetPlayerPosition(position.X, position.Z);
 
             HapticKind kind;
             if (!blocked && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode == ExplorerMode.Ride,
@@ -428,7 +435,8 @@ namespace Ghumante.App.Explore
 
         private void OnDestroy()
         {
-            Close();
+            // Leaving play mode or the scene: release what we hold, without forcing an unload while Unity tears down.
+            Close(false);
         }
 
         /// <summary>The touch controls as a <see cref="ControlFrame"/> (the device is Touch when a finger is on them).</summary>
@@ -599,16 +607,6 @@ namespace Ghumante.App.Explore
 
         // -------------------------------------------------------------------------------------------------------------
         // Helpers
-
-        /// <summary>"kathmandu_core" as "Kathmandu Core" for the loading line (the manifest name is not read yet).</summary>
-        public static string RegionLabel(string regionId)
-        {
-            if (string.IsNullOrEmpty(regionId)) return "";
-            string[] words = regionId.Split('_');
-            for (int i = 0; i < words.Length; i++)
-                if (words[i].Length > 0) words[i] = char.ToUpperInvariant(words[i][0]) + words[i].Substring(1);
-            return string.Join(" ", words);
-        }
 
         /// <summary>The explorer's material: a copy of the world's ToonLit building material (Project Setup's asset), else
         /// a new one from the shader.</summary>

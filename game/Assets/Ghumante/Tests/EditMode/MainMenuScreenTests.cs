@@ -175,20 +175,18 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
-        public void ExploreTeaserWigglesWithAWarningAndAToast()
+        public void ExploreKeepsItsPressFeelAndAsksForTheWorld()
         {
             var haptics = new RecordingHaptics();
             MainMenuScreen screen = Create(haptics, new MotionSettings(), Demo, out VisualElement root);
-            screen.ExploreRequested += screen.PlayExploreTeaser;  // what Bootstrap wires until M1
+            int requests = 0;
+            screen.ExploreRequested += () => requests++;  // Bootstrap opens the Explore flow (M1 track D)
 
             screen.SimulateTap("explore-button");
 
-            CollectionAssert.AreEqual(new[] { HapticKind.MediumImpact, HapticKind.Warning }, haptics.Played);
-            VisualElement toast = root.Q("toast-bubble");
-            Assert.IsTrue(toast.ClassListContains("gh-toast--visible"));
-            StringAssert.Contains("scooter", root.Q<Label>("toast").text);
-            Run(screen, MainMenuScreen.ToastSeconds + 0.1f);
-            Assert.IsFalse(toast.ClassListContains("gh-toast--visible"), "the toast leaves by itself");
+            Assert.AreEqual(1, requests);
+            CollectionAssert.AreEqual(new[] { HapticKind.MediumImpact }, haptics.Played, "a primary press, no teaser warning");
+            Assert.IsFalse(root.Q("toast-bubble").ClassListContains("gh-toast--visible"), "no 'warming up' teaser any more");
         }
 
         [Test]

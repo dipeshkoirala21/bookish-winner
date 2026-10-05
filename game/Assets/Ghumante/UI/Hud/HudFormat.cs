@@ -85,6 +85,22 @@ namespace Ghumante.UI.Hud
             return devanagari ? ToDevanagariDigits(text) : text;
         }
 
+        /// <summary>
+        /// An integer that changes exactly when <see cref="Distance"/>'s text changes (the rounded value and its unit), so
+        /// the HUD can compare it every frame and format only on change.
+        /// </summary>
+        public static long DistanceBucket(double metres)
+        {
+            if (double.IsNaN(metres) || metres < 0) metres = 0;
+            if (metres < 995)
+            {
+                double step = metres < 100 ? 5 : 10;
+                return (long)(Math.Round(metres / step, MidpointRounding.AwayFromZero) * step);
+            }
+            if (metres < 9950) return 1000000L + (long)Math.Round(metres / 100.0, MidpointRounding.AwayFromZero);
+            return 2000000L + (long)Math.Round(Math.Min(metres, 1e12) / 1000.0, MidpointRounding.AwayFromZero);
+        }
+
         /// <summary>Whole minutes for an ETA, rounded up; at least 1 for any positive time, 0 for none.</summary>
         public static int EtaMinutes(double seconds)
         {

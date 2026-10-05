@@ -992,3 +992,36 @@
     left: -13px;
     top: -20px;
 }
+
+/* ----- Debug slider (UI/Hud/HudSlider.cs, built in code) ------------------------------------------------- */
+
+.gh-hud-slider {
+    height: 40px;
+    margin-top: 6px;
+    border-radius: 20px;
+    background-color: var(--gh-cream-shade);
+    justify-content: center;
+}
+
+.gh-hud-slider__fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    border-radius: 20px;
+    background-color: var(--gh-yellow);
+    transform-origin: 0% 50%;
+}
+
+.gh-hud-slider__knob {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    background-color: var(--gh-white);
+    border-width: 3px;
+    border-color: var(--gh-yellow-dark);
+}

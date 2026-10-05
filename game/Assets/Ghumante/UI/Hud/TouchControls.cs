@@ -345,9 +345,12 @@ namespace Ghumante.UI.Hud
             // Trickle-down: the Clickable captures the pointer on press-down, so see the press first (like PressFeel).
             pedal.RegisterCallback<PointerDownEvent>(evt =>
             {
+                if (!IsPrimary(evt)) return;
                 Note(evt.pointerType);
                 if (throttle) _throttlePointer = evt.pointerId;
                 else _brakePointer = evt.pointerId;
+                // Held until this finger lifts, wherever it slides: the pedal keeps the pointer.
+                if (!pedal.HasPointerCapture(evt.pointerId)) pedal.CapturePointer(evt.pointerId);
             }, TrickleDown.TrickleDown);
             pedal.RegisterCallback<PointerUpEvent>(evt => ReleasePedal(throttle, evt.pointerId), TrickleDown.TrickleDown);
             pedal.RegisterCallback<PointerCancelEvent>(evt => ReleasePedal(throttle, evt.pointerId), TrickleDown.TrickleDown);
