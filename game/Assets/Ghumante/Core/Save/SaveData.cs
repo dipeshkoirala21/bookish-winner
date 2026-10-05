@@ -80,6 +80,13 @@ namespace Ghumante.Core.Save
             public string OrientationLock = "auto";
 
             public bool AnalyticsConsent;
+
+            /// <summary>Vibration/haptic feedback on supported phones (on by default; the OS settings still apply).</summary>
+            public bool Haptics = true;
+
+            /// <summary>Accessibility: replaces bounces, parallax and idle animation with simple fades.</summary>
+            public bool ReduceMotion;
+
             public JsonObject Extra = new JsonObject();
         }
 
@@ -125,7 +132,8 @@ namespace Ghumante.Core.Save
             var st = new JsonObject().Set("language", Settings.Language ?? "en")
                 .Set("nepaliNumerals", Settings.NepaliNumerals).Set("musicVolume", Settings.MusicVolume)
                 .Set("sfxVolume", Settings.SfxVolume).Set("orientationLock", Settings.OrientationLock ?? "auto")
-                .Set("analyticsConsent", Settings.AnalyticsConsent);
+                .Set("analyticsConsent", Settings.AnalyticsConsent).Set("haptics", Settings.Haptics)
+                .Set("reduceMotion", Settings.ReduceMotion);
             CopyExtra(Settings.Extra, st);
             root.Set("settings", st);
 
@@ -198,8 +206,10 @@ namespace Ghumante.Core.Save
             s.Settings.SfxVolume = st.GetDouble("sfxVolume", s.Settings.SfxVolume);
             s.Settings.OrientationLock = st.GetString("orientationLock", "auto");
             s.Settings.AnalyticsConsent = st.GetBool("analyticsConsent");
+            s.Settings.Haptics = st.GetBool("haptics", true);
+            s.Settings.ReduceMotion = st.GetBool("reduceMotion");
             KeepExtra(st, s.Settings.Extra, "language", "nepaliNumerals", "musicVolume", "sfxVolume", "orientationLock",
-                      "analyticsConsent");
+                      "analyticsConsent", "haptics", "reduceMotion");
 
             s.Story = root.GetObject("story") ?? new JsonObject();
             s.Quests = root.GetObject("quests") ?? new JsonObject();
