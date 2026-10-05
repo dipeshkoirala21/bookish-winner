@@ -73,7 +73,7 @@ Use these as the default size distribution when a point-only POI needs a prop (C
 * Footprints of heroes are mostly the **plinth outline**, not the sanctum. The sanctum is ~0.45 × that width (§2.1).
 * Boudhanath: the anchor in `landmarks.yaml` is the compound wall **w56688296**; the stupa is **w56688295** (also noted in CONTENT_COVERAGE L2).
 * Kal Bhairav **w196261745** is tagged `building=temple` + pyramidal roof, but the real object is an **open-air stone relief** (no roof) [V].
-* Guhyeshwari is mapped at the wrong place (n4525481095, 27.7448 N — that is 4 km from Pashupati); place it by hand from imagery [V].
+* Guhyeshwari: the node n4525481095 is at the wrong place (27.7448 N, 4 km from Pashupati), but the temple **way w112664308 "Guheshowari Mata" (centroid 27.7112, 85.3533) is at the right place**, about 450 m east of Pashupatinath on the Bagmati [O, checked in the W2 design review 2026-10-05]. Use the way; ignore the node.
 * Several key objects are unnamed `tourism=attraction` nodes (Hanuman Dhoka n11365076769, Basantapur tower n6348849285, Bhaktapur Golden Gate n11365076869): coordinates usable, identity [V].
 
 ---
@@ -294,6 +294,22 @@ Coordinates are the OSM centroid (lat, lon) of the given object. Heights are tot
 | 38 | Kopan Monastery | w206085866 (main gompa) | 27.742542, 85.364241 | 30.4 × 19.8 [O] | ≈ 15 [E] | Tibetan gompa on hill | flat + gilt ornaments | Tibetan Buddhist (Gelug, FPMT) [V] | ≈ 180° [V] |
 | 39 | Kathesimbhu (Thamel) | n3377725834 | 27.709542, 85.309756 | ≈ 15 [E] | ≈ 12 [E] | small replica of Swayambhu (c. 1650) [V] | whitewash, gilt | Buddhist; Harati shrine n4582884189 next to it [O] | — |
 
+### 3.1 Added in the W2 design review (2026-10-05)
+
+Heroes the first pass missed that make Asan and the smaller Newar towns recognisable. OSM ids read with pyosmium from the same snapshot [O].
+
+| Hero | OSM | Lat, lon | Form | Roof | Deity | Notes and source |
+|---|---|---|---|---|---|---|
+| Annapurna (Asan Ajima), Asan Tol | n3569849497 (node only) | 27.70737, 85.31222 | **3-tier pagoda** at a six-road junction | **heavily gilded** roofs and finial | Annapurna; a silver purnakalash wound with a silver serpent instead of an image (never shown) | [S] https://nepalitimes.com/asans-annapurna ; https://backpackandsnorkel.com/Nepal/Day2/52117-AnnapurnaTemple/ |
+| Seto Machhindranath, Jana Bahal | w501427078; n4308805189 | 27.70663, 85.31008 | tiered pagoda free-standing in a bahal court with chaityas | gilded metal | Janabaha Dyo / Karunamaya | tier count [V]; [S] https://en.wikipedia.org/wiki/Seto_Machindranath ; https://nepaltraveller.com/sidetrack/seto-machhindranath-kathmandu-a-living-heritage-of-faith-ritual-and-architecture |
+| Akash Bhairab, Indra Chowk | w136526480 | 27.70599, 85.30941 | house-temple | tile + gilt | Akash Bhairab | form [V] |
+| Balkumari, Thimi | n1945526719, n10068876012 | 27.6759, 85.3853 | **3-storey pagoda, faces north**, 17th c. | **gold-coated copper** | Balkumari | [S] https://www.bhaktapur.com/discover/balkumari-temple-of-thimi/ |
+| Rudrayani, Khokana | n4344434602 | 27.63578, 85.2981 | **3-storey** tiered temple in Chwe Lachi square; projecting inclined lattice on the 2nd storey; rebuilt by Amara Malla (15th c.) | tile | Rudrayani (Durga) | [S] https://en.wikipedia.org/wiki/Khokana |
+| Uma Maheshwar, Kirtipur | not found by name [V] | hilltop of Kirtipur | **3 roofs** on a tall stepped platform; built with 4, one lost in the 1934 earthquake | tile | Shiva and Parvati | [S] https://en.wikivoyage.org/wiki/Kirtipur (and Lonely Planet POI) |
+| Chilancho (Chilandeo) stupa, Kirtipur | w1074769018 | 27.67696, 85.27794 | stupa | whitewash | Buddhist | form [V] |
+| Ghantaghar | w194744621 (`height=15`) | 27.70746, 85.31680 | Rana clock tower; built 1894 (≈ 100 ft), destroyed 1934, rebuilt | stucco | civic | [S] https://en.wikipedia.org/wiki/Ghanta_Ghar_(Kathmandu) ; rebuilt height [V] |
+| Guhyeshwari | w112664308 | 27.71122, 85.3533 | courtyard temple | gilt | Guhyeshwari | see §1.3 |
+
 ---
 
 ## 4. Per-hero specs
@@ -373,7 +389,7 @@ Durbar Square w1192827651 (44.6 × 24.5 core, `place=square`; no `heritage` tag)
 * **Nyatapola** — w85470341 (26.8 × 21.7 incl. stair, long axis 20°) + 35 parts [O]. **Five-tier pagoda on a five-level plinth**, completed **15 July 1702** (Bhupatindra Malla), Siddhi Lakshmi [S: Wikipedia]. Height: widely quoted **30 m**; Wikipedia 33.23 m; OSM parts to 31.7 m + finial ⇒ build **31.7 + 1.5 m finial = 33.2 m** to match Wikipedia, or 30 m for the "widely quoted" figure [O/S]; choose 33.2 (consistent with parts). Plinth steps 24.2 → 21.7 → 18.1 → 15.4 → 10.9 m [O]; use 5 × 1.4 m rises (plinth top ≈ 7 m) [E]; sanctum 10.9 × 9.4 m [O]. Roofs per §2.1 table; tile roofs `#800000` [O]. **529 bells** (48/80/104/128/168 top→bottom) [S]. Stairway on the **south** side rising from Taumadhi, flanked at each of the five plinth levels by pairs, bottom to top: **two wrestlers (Jaya and Patta), two elephants, two lions, two griffins (sardula), two goddesses Simhini and Vyaghrini** [S]; each guardian is said to be ten times as strong as the one below [V]. Ganesh images at the plinth corners [S]. Bricks: 1,135,350 + 102,304 for the plinths; 1,528 stones [S] (trivia for the discovery card).
 * **Bhairavnath** — w185746728, 16.9 × 14.6 m [O]. Three-tier **rectangular** pagoda on Taumadhi's east side, ≈ 35 m SSE of Nyatapola [O]; front faces west onto the square [V]; small window through which offerings are passed; gilt pataka [V].
 * **55-Window Palace** — no OSM footprint [O]. Three-storey brick palace, 55 carved wooden windows in a row on the upper floor, east of the Golden Gate [S: Lonely Planet]; c. 1697 [V]. Build ≈ 50 × 12 × 12 m [E], window pitch ≈ 0.9 m, facade faces south onto the square.
-* **Golden Gate (Lun Dhoka / Sun Dhoka)** — ≈ n11365076869 [O][V]. Gilt gate set into a **bright red gatehouse surrounded by white palace walls** [S: Lonely Planet]; 1754 (Jaya Ranjit Malla) [V]; gilt torana with Taleju/Kali and Garuda at the apex [V]. Gate ≈ 4 × 5.5 m [E]. Leads to the Taleju courtyard (Mul Chowk n12289962101) which is closed to non-Hindus in real life [V] → courtyard beyond the gate not modelled.
+* **Golden Gate (Lun Dhoka / Sun Dhoka)** — ≈ n11365076869 [O][V]. Gilt gate set into a **bright red gatehouse surrounded by white palace walls** [S: Lonely Planet]; 1754 (Jaya Ranjit Malla) [V]; gilt torana with Taleju/Kali and Garuda at the apex [V]. Gate ≈ 4 × 5.5 m [E]. Leads to the Taleju courtyard (Mul Chowk n12289962101) which is closed to non-Hindus in real life [V]. Superseded by the owner's W2-O1 decision: the courtyard is modelled and walkable, with an info card about the real custom and the sanctum closed (W2_DESIGN §3.4 row 28).
 * **Vatsala Durga** — w211082585 "Vatsala Shikhara", 7.3 × 6.1 m [O]. Stone shikhara, 1672 or 1727, destroyed 2015, rebuilt 2017–2021 [S: Lonely Planet]. Height ≈ 14 m [E]. The bronze "barking bell" (Taleju bell, 1737 [V]) stands in front on a stone pavilion.
 * **Pashupati (Bhaktapur)** — n12293366201 [O]. Two-tier replica of Pashupatinath, Yaksha Malla, 1475 [S: Lonely Planet]; erotic struts → generic.
 * **Siddhi Lakshmi** w211082584, **Kedarnath** w211080703, **Krishna** w197122572, **Fasidega (Shilu Mahadev)** w185750794 (21.8 × 21.6 plinth; white plastered shikhara on a 6-stage plinth with elephants [V]), **Chyasing Mandap** w495632745 (7.8 × 7.8), **Ta Dhi Chhen bahal** w185746826, **Dabu** n9871425646, lion statue n1942507475 [O].
@@ -444,8 +460,8 @@ The product owner overrode the earlier no-entry rule: temple **compounds** are f
 | Rule | Recommendation | Status |
 |---|---|---|
 | Sanctum (garbhagriha) | Never enterable, never rendered inside; door shows a dark interior with a lamp glow. No deity image is modelled inside a sanctum | [V] |
-| Pashupatinath main compound | In reality non-Hindus may not enter. Owner override applies to compounds; reviewer must decide whether the main courtyard is walkable. Safe default: east-bank terraces, ghats and outer shrines walkable; the main courtyard gate shows a respectful prompt | **[V] escalate** |
-| Taleju (KTM, Patan, Bhaktapur Mul Chowk) | Real temples open once a year / closed to non-Hindus. Plinth walkable, compound gate closed | [V] |
+| Pashupatinath main compound | In reality non-Hindus may not enter. **Resolved by the owner (W2_DESIGN W2-O1): the main courtyard is walkable**; a non-blocking info card explains the real custom; sanctum closed | decided |
+| Taleju (KTM, Patan, Bhaktapur Mul Chowk) | Real temples open once a year / closed to non-Hindus. **Owner override (W2-O1): compounds walkable**, info card explains the real custom, sanctum closed | decided |
 | Kumari Ghar | Courtyard enterable; the Kumari is never shown; windows closed | ASSET_MANIFEST |
 | Stupa kora | Clockwise only for NPCs; player not forced, but prayer wheels spin clockwise | ASSET_MANIFEST |
 | Shoes / leather | Shoe racks at temple doors; Golden Temple "no leather" sign | [V] |
@@ -468,7 +484,7 @@ The product owner overrode the earlier no-entry rule: temple **compounds** are f
 6. Prayer-wheel counts at Boudha and Swayambhu.
 7. Taleju KTM, Kasthamandap, Kumbheshwar, Krishna Mandir heights (estimates).
 8. Naga hood count at Budhanilkantha; Bagh Bhairab image; Golden Gate iconography.
-9. Guhyeshwari: OSM position is wrong; place it from imagery.
+9. Guhyeshwari: use w112664308 (correct); the node n4525481095 is wrong (§1.3).
 10. Missing OSM footprints: Mahabouddha, 55-Window Palace, Golden Gate, Hanuman Dhoka gate, Kumari Ghar. Add `manual:` placements in `landmarks.yaml` (pipeline workflow, not this one).
 
 ---
