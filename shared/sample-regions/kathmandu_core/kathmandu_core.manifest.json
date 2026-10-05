@@ -1,0 +1,219 @@
+{
+ "attribution": [
+  "© OpenStreetMap contributors",
+  "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+  "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Licensed under CC BY 4.0 (creativecommons.org/licenses/by/4.0/). Resampled and stylised for this game."
+ ],
+ "bbox_game": [
+  526461.086,
+  163521.145,
+  535585.833,
+  168604.449
+ ],
+ "bbox_lonlat": [
+  85.283,
+  27.69,
+  85.375,
+  27.735
+ ],
+ "biome_grid": 65,
+ "built_at": "2026-10-05T00:53:46Z",
+ "data_version": 1,
+ "detail_levels": [
+  8,
+  9,
+  10
+ ],
+ "files": [
+  {
+   "bytes": 11281736,
+   "path": "kathmandu_core.ghpk",
+   "sha256": "5073bc4d2603d1c009544f2602f650f13422218e6d820ebe07d65ca694bcc7e3"
+  },
+  {
+   "bytes": 150685,
+   "path": "kathmandu_core.search.ghsi",
+   "sha256": "44341abb62c15608da4ea97bbcb5699a739c057691ab9622f84022eeaf71d273"
+  },
+  {
+   "bytes": 2274177,
+   "path": "kathmandu_core.route.ghrg",
+   "sha256": "c80a79fa8d9a7ef5aa2de2074b029dc3014d323dffe382335ad507fddc7cf93e"
+  }
+ ],
+ "format": "ghumante-region-manifest",
+ "height_grid": 129,
+ "horizon_bbox_lonlat": [
+  84.6,
+  27.2,
+  86.4,
+  28.6
+ ],
+ "horizon_levels": [
+  5,
+  6
+ ],
+ "leaf_level": 10,
+ "name": {
+  "en": "Kathmandu (core)",
+  "ne": "काठमाडौं (मुख्य)"
+ },
+ "pipeline_version": "0.1.0",
+ "region": "kathmandu_core",
+ "scale_model": "identity",
+ "sources": {
+  "dem": [
+   {
+    "bytes": 45336691,
+    "md5": "0d5ffaef0d04a1a2c10a15ba9dd7b04a",
+    "name": "Copernicus_DSM_COG_10_N27_00_E084_00_DEM.tif",
+    "sha256": "66ae02e02fff0bcc1455717c1a5d6199c5ad3d00f96a1a94c10b74f3301d122a"
+   },
+   {
+    "bytes": 44874244,
+    "md5": "4789613b867d5924d886e7c947255c5b",
+    "name": "Copernicus_DSM_COG_10_N27_00_E085_00_DEM.tif",
+    "sha256": "5a0ec09cda62bcacfccacae0724e6493bee8f3f6fe11fb0ef47ccf3fa3716194"
+   },
+   {
+    "bytes": 43039634,
+    "md5": "37c621f4f1b33740ea8f5997922a3f03",
+    "name": "Copernicus_DSM_COG_10_N27_00_E086_00_DEM.tif",
+    "sha256": "4dfc87a0dec44a8a037164ddade45dd24bb53187176b5a14175c265bd6d20e76"
+   },
+   {
+    "bytes": 41688284,
+    "md5": "f6f936f5ef1c5d4bbc51c47f1c43becb",
+    "name": "Copernicus_DSM_COG_10_N28_00_E084_00_DEM.tif",
+    "sha256": "4df89793d0dc6373deb9c27536a1d7039ec4a9962a699a2312f57c935fbbe6dc"
+   },
+   {
+    "bytes": 38402839,
+    "md5": "0e1522e26e1a768bdaa827aa64436a0b",
+    "name": "Copernicus_DSM_COG_10_N28_00_E085_00_DEM.tif",
+    "sha256": "1590255a0ae7e8c1f49b277e287032a18a2e32c8e13c4c3298ed458f851cd3c7"
+   },
+   {
+    "bytes": 38212170,
+    "md5": "6103f546fec418f2377ca1c76ad41346",
+    "name": "Copernicus_DSM_COG_10_N28_00_E086_00_DEM.tif",
+    "sha256": "c13a224161a9fb9de14ea259a9f5dfa3c9d39f975c78c53b87e497c04b3c4b9c"
+   }
+  ],
+  "landcover": [
+   {
+    "bytes": 104225123,
+    "md5": "87dab1d279f6dbddc511cca55f5a5471",
+    "name": "ESA_WorldCover_10m_2021_v200_N27E084_Map.tif",
+    "sha256": "43dd6237600f5a36b8dcd92228ee12fce3db386a07ac7f95defb90e806a21847"
+   }
+  ],
+  "osm": {
+   "bytes": 468147023,
+   "md5": "f94ba0c6cef6cb9f5eead0a53ec33c59",
+   "name": "nepal.osm.pbf",
+   "sha256": "d64bb417a8cdeb42ca17cd93449d9e08dcc539ec318551244975588b0ebf928b",
+   "timestamp": "2026-10-04T07:33:52Z"
+  }
+ },
+ "stats": {
+  "admin_areas": 12,
+  "areas": 1816,
+  "building_archetypes": {
+   "CHURCH": 43,
+   "GOMPA": 44,
+   "GREENHOUSE": 124,
+   "HILL_VILLAGE": 341,
+   "HUT": 29,
+   "INDUSTRIAL": 91,
+   "INSTITUTIONAL": 3747,
+   "MODERN_URBAN": 199095,
+   "NEWAR": 14940,
+   "SHRINE": 30,
+   "STUPA": 1,
+   "TEMPLE_PAGODA": 137
+  },
+  "building_levels_inferred_pct": 94.03,
+  "building_levels_tagged_pct": 5.97,
+  "buildings": 218622,
+  "buildings_in_tiles": 167576,
+  "chunk_bytes": {
+   "AREA": 134055,
+   "BIOM": 154142,
+   "BLDG": 4707473,
+   "HGHT": 5269108,
+   "LINE": 12727,
+   "META": 12638,
+   "NAME": 278652,
+   "POIS": 192332,
+   "ROAD": 487707,
+   "SEED": 1246
+  },
+  "graph_edges": 52064,
+  "graph_nodes": 20832,
+  "leaf_tiles": 60,
+  "lines": 128,
+  "max_tile_bytes": 250665,
+  "pack_bytes": 11281736,
+  "places": 314,
+  "pois": 22075,
+  "road_km": 1442.9,
+  "road_km_extract": 2141.912,
+  "roads": 17568,
+  "search_entries": 1156,
+  "search_keys": 2831,
+  "surface_default_pct": 0.09,
+  "surface_derived_pct": 0.08,
+  "surface_inferred_pct": 81.58,
+  "surface_mix_pct": {
+   "ASPHALT": 82.96,
+   "BRICK": 5.24,
+   "COBBLE": 0.27,
+   "COMPACTED": 0.46,
+   "CONCRETE": 3.9,
+   "DIRT": 5.0,
+   "GRASS": 0.02,
+   "GRAVEL": 2.1,
+   "METAL": 0.02,
+   "ROCK": 0.02,
+   "SAND": 0.0
+  },
+  "surface_tagged_pct": 18.25,
+  "tile_features": {
+   "area_parts": 1485,
+   "buildings": 167576,
+   "line_pieces": 168,
+   "places": 216,
+   "pois": 15186,
+   "road_pieces": 14371
+  },
+  "tiles": 263,
+  "timings_s": {
+   "buildings": 11.05,
+   "clip_roads": 0.2,
+   "dem": 3.44,
+   "extract": 4.62,
+   "landcover_detail": 0.03,
+   "landcover_horizon": 15.84,
+   "pack": 0.04,
+   "routing": 0.27,
+   "search": 0.1,
+   "search_entries": 0.2,
+   "surface": 0.71,
+   "tiles": 40.62,
+   "total": 77.58,
+   "trails": 0.35
+  },
+  "trails_sac_inferred": 3393,
+  "trails_sac_tagged": 1,
+  "warnings": []
+ },
+ "tile_counts": {
+  "5": 42,
+  "6": 132,
+  "8": 9,
+  "9": 20,
+  "10": 60
+ },
+ "version": 1
+}
