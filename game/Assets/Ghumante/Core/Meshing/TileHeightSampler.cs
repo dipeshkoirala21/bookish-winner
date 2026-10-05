@@ -27,15 +27,15 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Sampler of a whole tile decimated by <paramref name="step"/> (as <see cref="TerrainOptions.Step"/>).</summary>
         public TileHeightSampler(TileData source, int step)
-            : this(source, source == null ? default(TileId) : source.Tile, step)
+            : this(source, source == null ? default(TileId) : source.Tile, step, TileNeighbours.None)
         {
         }
 
-        private TileHeightSampler(TileData source, TileId area, int step)
+        private TileHeightSampler(TileData source, TileId area, int step, TileNeighbours neighbours)
         {
             _source = source ?? throw new ArgumentNullException(nameof(source));
             _valid = TerrainGrid.HasHeights(source);
-            if (_valid) _grid = TerrainGrid.For(source, area, step);
+            if (_valid) _grid = TerrainGrid.For(source, area, step, neighbours);
             _x0 = area.X0;
             _z0 = area.Z0;
             _size = area.Size;
@@ -45,8 +45,16 @@ namespace Ghumante.Core.Meshing
         /// answering only inside <paramref name="area"/>.</summary>
         public static TileHeightSampler ForArea(TileData source, TileId area, int step)
         {
+            return ForArea(source, area, step, TileNeighbours.None);
+        }
+
+        /// <summary>The sampler matching <c>TerrainMesher.Build(source, area, o)</c> with
+        /// <see cref="TerrainOptions.Neighbours"/> = <paramref name="neighbours"/>: heights are the same, and the
+        /// smooth normals (<see cref="TrySmoothNormal"/>) match the mesh's border normals too.</summary>
+        public static TileHeightSampler ForArea(TileData source, TileId area, int step, TileNeighbours neighbours)
+        {
             if (source == null) throw new ArgumentNullException(nameof(source));
-            return new TileHeightSampler(source, area, step);
+            return new TileHeightSampler(source, area, step, neighbours);
         }
 
         /// <summary>The grid this sampler follows (default when the source has no heights).</summary>

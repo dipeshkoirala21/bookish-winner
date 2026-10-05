@@ -21,11 +21,6 @@ namespace Ghumante.Core.Tests
             return new RoadRecord { RoadClass = c, Surface = s, Flags = flags, Points = pointsCm, OsmWayId = 1 };
         }
 
-        private static float ClassLift(RoadOptions o, RoadClass c)
-        {
-            return o.LiftM + Math.Min(8, RoadStyle.Priority(c)) * o.ClassLiftStepM;
-        }
-
         /// <summary>A sampler that is not a <see cref="TileHeightSampler"/>: the mesher then emits plain
         /// cross-sections at sampled heights instead of draping.</summary>
         private sealed class PlainSampler : IHeightSampler
@@ -74,6 +69,65 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>
+        /// Overlapping ribbons of the same class used to share one lift and z-fight at every junction. On the real
+        /// sample, pieces of different ways that meet at a rendered point and share a class now mostly get different
+        /// lifts (a hash rank collides about once in PieceLiftLevels), a way keeps one lift in every tile, and the
+        /// piece lift never breaks the class order.
+        /// </summary>
+        [Test]
+        public void SameClassRibbonsAtJunctionsGetDistinctLifts()
+        {
+            var o = new RoadOptions();
+            Assert.That((o.PieceLiftLevels - 1) * o.PieceLiftStepM, Is.LessThan(o.ClassLiftStepM), "class order kept");
+            int pairs = 0, coplanar = 0;
+            var wayLift = new Dictionary<ulong, float>();
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                var at = new Dictionary<long, List<RoadRecord>>();
+                foreach (RoadRecord r in t.Roads)
+                {
+                    if (!RoadMesher.IsDrawn(r, o)) continue;
+                    float lift = RoadMesher.LiftOf(r, o);
+                    int prio = Math.Min(8, RoadStyle.Priority(r.RoadClass));
+                    Assert.That(lift, Is.GreaterThanOrEqualTo(o.LiftM + prio * o.ClassLiftStepM - 1e-6));
+                    Assert.That(lift, Is.LessThan(o.LiftM + (prio + 1) * o.ClassLiftStepM));
+                    float seen;
+                    if (wayLift.TryGetValue(r.OsmWayId, out seen) && r.WidthCm == 0)
+                        Assert.That(lift, Is.EqualTo(seen), "way " + r.OsmWayId + " has one lift everywhere");
+                    else if (r.WidthCm == 0) wayLift[r.OsmWayId] = lift;
+                    int first = r.HasPrevContext ? 1 : 0, last = r.HasNextContext ? r.PointCount - 2 : r.PointCount - 1;
+                    for (int i = first; i <= last; i++)
+                    {
+                        long key = ((long)r.Points[2 * i] << 32) ^ (uint)r.Points[2 * i + 1];
+                        List<RoadRecord> list;
+                        if (!at.TryGetValue(key, out list)) at[key] = list = new List<RoadRecord>();
+                        if (!list.Contains(r)) list.Add(r);
+                    }
+                }
+                foreach (List<RoadRecord> list in at.Values)
+                {
+                    for (int a = 0; a < list.Count; a++)
+                    {
+                        for (int b = a + 1; b < list.Count; b++)
+                        {
+                            RoadRecord ra = list[a], rb = list[b];
+                            if (ra.OsmWayId == rb.OsmWayId || RoadStyle.Priority(ra.RoadClass) != RoadStyle.Priority(rb.RoadClass)) continue;
+                            pairs++;
+                            if (RoadMesher.LiftOf(ra, o) == RoadMesher.LiftOf(rb, o)) coplanar++;
+                        }
+                    }
+                }
+            }
+            TestContext.WriteLine("same-class junction pairs {0}, still coplanar {1}", pairs, coplanar);
+            Assert.That(pairs, Is.GreaterThan(1000));
+            Assert.That(coplanar, Is.LessThan(pairs * 0.2), "was every pair before the piece lift");
+
+            var off = new RoadOptions { PieceLiftLevels = 1 };
+            Assert.That(RoadMesher.PieceRank(StreamingSampleRegion.Tile(StreamingSampleRegion.DensestLeaf()).Roads[0], off), Is.EqualTo(0));
+        }
+
         [Test]
         public void StraightRibbonWidthDensityColoursAndUvs()
         {
@@ -87,7 +141,7 @@ namespace Ghumante.Core.Tests
             Assert.That(m.TriangleCount, Is.EqualTo(4 * 13));
             MeshingChecks.AssertWellFormed(m, "straight");
             MeshingChecks.AssertFrontFacesAgreeWithNormals(m, 0, m.TriangleCount, 0.99, "straight");
-            float y = Ght.Dequantize(Ght.Quantize(1300)) + ClassLift(o, RoadClass.Residential);
+            float y = Ght.Dequantize(Ght.Quantize(1300)) + RoadMesher.LiftOf(t.Roads[0], o);
             for (int sec = 0; sec < 14; sec++)
             {
                 int l = 3 * sec, c = l + 1, r = l + 2;
@@ -194,7 +248,7 @@ namespace Ghumante.Core.Tests
             Assert.That(RoadMesher.Build(t, s, o, m), Is.EqualTo(1));
             MeshingChecks.AssertWellFormed(m, "draped");
             Assert.That(m.HasUv0, Is.True);
-            float lift = ClassLift(o, RoadClass.Secondary);
+            float lift = RoadMesher.LiftOf(t.Roads[0], o);
             double area = 0;
             for (int tri = 0; tri < m.TriangleCount; tri++)
             {

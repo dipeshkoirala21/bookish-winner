@@ -16,6 +16,10 @@ namespace Ghumante.World.Sky
     {
         public const float DefaultDayLengthMinutes = 48f;
 
+        /// <summary>Most of the terrain colour that may survive the fog at the edge of the streamed world
+        /// (<see cref="ViewRadiusM"/>): the last ring then melts into the fog-coloured horizon band of the sky.</summary>
+        public const double EdgeTransmittance = 0.04;
+
         /// <summary>The light turns once the sun moved more than 0.1 degrees (cos 0.1°).</summary>
         private const float LightStepCos = 0.9999985f;
 
@@ -53,6 +57,7 @@ namespace Ghumante.World.Sky
         [Tooltip("Scales the haze density (1 = the palette's valley haze).")]
         [SerializeField] private float fogDensityScale = 1f;
 
+        private float _viewRadiusM;
         private SkyState _state;
         private Vector3 _lightTowards;
         private bool _createdSun;
@@ -127,6 +132,33 @@ namespace Ghumante.World.Sky
                 skyMaterial = value;
                 if (isActiveAndEnabled && value != null) RenderSettings.skybox = value;
             }
+        }
+
+        /// <summary>
+        /// Radius of the streamed world (the tier's coarsest ring; 0 = unknown). The fog is at least dense enough that
+        /// no more than <see cref="EdgeTransmittance"/> of the terrain shows at that distance
+        /// (<see cref="FogDensityFloor"/>), so Low and Mid, whose rings end at 50 and 80 km, do not end in a hard,
+        /// barely fogged edge.
+        /// </summary>
+        public float ViewRadiusM
+        {
+            get { return _viewRadiusM; }
+            set
+            {
+                _viewRadiusM = value > 0f && !float.IsInfinity(value) ? value : 0f;
+                if (isActiveAndEnabled) Apply();
+            }
+        }
+
+        /// <summary>
+        /// Exponential-squared fog density whose transmittance <c>exp(-(ρ·d)²)</c> is <see cref="EdgeTransmittance"/>
+        /// at <paramref name="viewRadiusM"/>: <c>sqrt(ln(1 / T)) / R</c>, about 1.79 / R (3.6e-5 at 50 km, 2.2e-5 at
+        /// 80 km, 1.5e-5 at 120 km). 0 when the radius is not positive.
+        /// </summary>
+        public static float FogDensityFloor(double viewRadiusM)
+        {
+            if (!(viewRadiusM > 0.0) || double.IsInfinity(viewRadiusM)) return 0f;
+            return (float)(System.Math.Sqrt(System.Math.Log(1.0 / EdgeTransmittance)) / viewRadiusM);
         }
 
         /// <summary>The state last applied.</summary>
@@ -236,7 +268,7 @@ namespace Ghumante.World.Sky
             }
 
             RenderSettings.fogColor = ToColor(s.Fog);
-            RenderSettings.fogDensity = s.FogDensity * fogDensityScale;
+            RenderSettings.fogDensity = Mathf.Max(s.FogDensity, FogDensityFloor(_viewRadiusM)) * fogDensityScale;
             RenderSettings.ambientSkyColor = ToColor(s.AmbientSky);
             RenderSettings.ambientEquatorColor = ToColor(s.AmbientEquator);
             RenderSettings.ambientGroundColor = ToColor(s.AmbientGround);

@@ -86,7 +86,7 @@ namespace Ghumante.App.Explore
         private PlaceNamer _namer;
         private RouteGuide _guide;
         private SearchEntry _destination;
-        private string _destinationName;
+        private bool _blockedLastFrame;
         private CancellationTokenSource _cts;
         private Phase _phase;
         private SpawnPoint _spawn;
@@ -237,7 +237,10 @@ namespace Ghumante.App.Explore
                     _screen.ShowNoRegion();
                     return;
                 }
-                _screen.ShowLoading("explore.loading.opening", ExploreRegions.Label(regionId));
+                // The manifest (with its Nepali name) is read only by OpenRegionAsync; until then Nepali gets a generic
+                // line rather than the id spelled out in English.
+                if (_localizer.Locale == Localizer.Nepali) _screen.ShowLoading("explore.loading.opening_map", null);
+                else _screen.ShowLoading("explore.loading.opening", ExploreRegions.Label(regionId));
                 var progress = new Progress<float>(p =>
                 {
                     if (_phase == Phase.Opening && _screen != null) _screen.SetLoadingProgress(0.05f + 0.5f * p);
@@ -361,6 +364,9 @@ namespace Ghumante.App.Explore
         private void UpdatePlaying(float dt)
         {
             bool blocked = _screen.BlocksGameplay;
+            // A panel closed since the last frame: the button press that closed it (gamepad A on "Ride there" or
+            // Resume) is not also a Walk/Ride, search or map press.
+            bool settling = _blockedLastFrame;
             // Keys belong to the search field and Settings while they are open.
             _input.Enabled = !_screen.SearchOpen && !_screen.SettingsOpen;
             var frame = new ControlFrame();
@@ -375,13 +381,14 @@ namespace Ghumante.App.Explore
             if (_touchVisibility.Update(source)) _screen.SetTouchControlsVisible(_touchVisibility.Visible);
 
             if (frame.Pause) _screen.TogglePause();
-            if (!blocked)
+            if (!blocked && !settling)
             {
                 if (frame.ToggleMode) ToggleMode();
-                if (frame.Search) _screen.OpenSearch();
+                if (frame.Search) _screen.OpenSearch(frame.Device == ControlDevice.Gamepad);
                 if (frame.Map) _screen.ShowToast(_localizer.Get("menu.map_soon"), "gh-toast__icon--map");
             }
             blocked = _screen.BlocksGameplay;
+            _blockedLastFrame = blocked;
             if (blocked) frame = new ControlFrame { ZoomSteps = frame.ZoomSteps };
             _frame = frame;
 
@@ -512,10 +519,10 @@ namespace Ghumante.App.Explore
                 return;
             }
             _destination = entry;
-            _destinationName = entry.Name.Display(_localizer.Locale == Localizer.Nepali);
             _guide = null;
             _world.ClearRoute();
-            _screen.ShowRoute(_destinationName, "hud.route.finding");
+            // The name record, not a string: the banner and the arrival toast follow a language switch mid-route.
+            _screen.ShowRoute(entry.Name, "hud.route.finding");
             PlanRoute();
         }
 
@@ -540,7 +547,7 @@ namespace Ghumante.App.Explore
             _planning = false;
             if (route == null)
             {
-                _screen.ShowToast(_localizer.Format("hud.route.none", _destinationName), "gh-toast__icon--map");
+                _screen.ShowToast(_localizer.Format("hud.route.none", DestinationName()), "gh-toast__icon--map");
                 CancelRoute();
                 return;
             }
@@ -548,7 +555,7 @@ namespace Ghumante.App.Explore
             _world.ShowRoute(route.Polyline);
             _rerouteCooldown = RerouteCooldownS;
             _haptics.Play(HapticKind.Selection);
-            Debug.Log("ExploreSession: route to " + _destinationName + ": " + (route.LengthM / 1000.0).ToString("0.0") + " km, " +
+            Debug.Log("ExploreSession: route to " + DestinationName() + ": " + (route.LengthM / 1000.0).ToString("0.0") + " km, " +
                       (route.TimeS / 60.0).ToString("0") + " min, " + route.Polyline.Length / 2 + " points.");
         }
 
@@ -559,18 +566,24 @@ namespace Ghumante.App.Explore
             RouteStatus status = _guide.Update(position.X, position.Z, _screen.BlocksGameplay ? 0f : dt);
             if (status == RouteStatus.Arrived)
             {
-                string name = _destinationName;
+                NameRecord name = _destination.Name;
                 CancelRoute();
                 _screen.CelebrateArrival(name);
                 return;
             }
             if (status == RouteStatus.OffRoute && !_planning && _rerouteCooldown <= 0f)
             {
-                _screen.ShowRoute(_destinationName, "hud.route.rerouting");
+                _screen.ShowRoute(_destination.Name, "hud.route.rerouting");
                 PlanRoute();
                 return;
             }
             if (!_planning) _screen.SetRouteProgress(_guide.RemainingM, _guide.EtaSeconds, _guide.RelativeBearing(_rig.YawRad));
+        }
+
+        /// <summary>The destination's name in the current language ("" without one).</summary>
+        private string DestinationName()
+        {
+            return _destination != null ? _destination.Name.Display(_localizer.Locale == Localizer.Nepali) : "";
         }
 
         private void CancelRoute()

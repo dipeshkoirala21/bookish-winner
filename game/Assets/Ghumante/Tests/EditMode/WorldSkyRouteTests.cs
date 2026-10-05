@@ -10,6 +10,25 @@ namespace Ghumante.Tests.EditMode
     public class WorldSkyRouteTests
     {
         [Test]
+        public void FogHidesTheEndOfTheStreamedWorldOnEveryTier()
+        {
+            foreach (int tier in new[] { Ghumante.Core.Streaming.StreamingConfig.TierLow, Ghumante.Core.Streaming.StreamingConfig.TierMid,
+                                         Ghumante.Core.Streaming.StreamingConfig.TierHigh })
+            {
+                double r = Ghumante.Core.Streaming.StreamingConfig.ForTier(tier).ViewRadiusM;
+                float rho = WorldSky.FogDensityFloor(r);
+                // URP exponential-squared fog: transmittance exp(-(rho d)^2).
+                double t = Math.Exp(-(rho * r) * (rho * r));
+                Assert.AreEqual(WorldSky.EdgeTransmittance, t, 1e-4, "tier " + tier);
+                Assert.Less(Math.Exp(-(rho * r * 0.5) * (rho * r * 0.5)), 0.5, "half way out is already mostly fogged");
+            }
+            Assert.AreEqual(3.6e-5, WorldSky.FogDensityFloor(50000), 1e-6, "Low ends at 50 km");
+            Assert.AreEqual(1.5e-5, WorldSky.FogDensityFloor(120000), 1e-6, "High ends at 120 km");
+            Assert.AreEqual(0f, WorldSky.FogDensityFloor(0));
+            Assert.AreEqual(0f, WorldSky.FogDensityFloor(double.PositiveInfinity));
+        }
+
+        [Test]
         public void EarthCurvatureMatchesTheArchitectureFigures()
         {
             Assert.AreEqual(7432833.3, EarthCurvature.EffectiveRadiusM, 1.0);

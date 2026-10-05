@@ -9,8 +9,8 @@ using UnityEngine;
 namespace Ghumante.Characters.Cameras
 {
     /// <summary>
-    /// The Explore chase camera (M1 track D; ARCHITECTURE.md 7.10a): it trails the explorer with spring smoothing, aims a
-    /// little ahead along the motion, and frames by mode and orientation (<see cref="ChaseRigProfile"/>): in portrait it
+    /// The Explore chase camera (M1 track D; ARCHITECTURE.md 7.10a): it trails the explorer with spring smoothing, tilts
+    /// up the road with speed while keeping the explorer in the lower part of the frame, and frames by mode and orientation (<see cref="ChaseRigProfile"/>): in portrait it
     /// rises and pulls back, and a rotation mid-ride blends the rig over 0.3 s. The vertical field of view keeps the rig's
     /// minimum horizontal FOV at any aspect (<see cref="CameraFov"/>: driving 62°, walking 55°). The player zooms (wheel,
     /// pinch, shoulders) and pitches or looks around (right-drag, two-finger drag, right stick); looking around springs
@@ -54,7 +54,7 @@ namespace Ghumante.Characters.Cameras
         private float _yawVelocity;
         private Vector3 _aim;
         private Vector3 _aimVelocity;
-        private float _lookAhead;
+        private float _footY;
         private float _fov;
 
         public Camera Camera
@@ -187,18 +187,19 @@ namespace Ghumante.Characters.Cameras
                 _yawVelocity = 0f;
             }
 
-            float lookAhead = rig.LookAhead(speedMps);
-            _lookAhead = _snap ? lookAhead : Mathf.Lerp(_lookAhead, lookAhead, 1f - Mathf.Exp(-3f * dt));
-            var forward = new Vector3(Mathf.Sin(headingRad), 0f, Mathf.Cos(headingRad));
-            Vector3 aim = target + new Vector3(0f, rig.AimHeightM, 0f) + forward * _lookAhead;
+            // The camera sits behind the explorer's pivot (never ahead of it); the look-ahead only tilts the view up the
+            // road, by pinning the explorer's ground point at the rig's screen height for this speed.
+            float footY = rig.FootScreenY(speedMps);
+            _footY = _snap ? footY : Mathf.Lerp(_footY, footY, 1f - Mathf.Exp(-3f * dt));
+            Vector3 pivot = target + new Vector3(0f, rig.AimHeightM, 0f);
             if (_snap)
             {
-                _aim = aim;
+                _aim = pivot;
                 _aimVelocity = Vector3.zero;
             }
             else
             {
-                _aim = Vector3.SmoothDamp(_aim, aim, ref _aimVelocity, 0.06f, Mathf.Infinity, dt);
+                _aim = Vector3.SmoothDamp(_aim, pivot, ref _aimVelocity, 0.06f, Mathf.Infinity, dt);
             }
 
             float yaw = _yaw + _orbit;
@@ -207,20 +208,13 @@ namespace Ghumante.Characters.Cameras
             Quaternion look = Quaternion.Euler(pitch, yaw, 0f);
             Vector3 position = _aim - look * Vector3.forward * distance;
 
-            // Never under the ground (a hillside behind, a dip): lift and keep aiming at the explorer.
+            // Never under the ground (a hillside behind, a dip): lift and keep framing the explorer.
             GroundSample s;
             if (ground != null && ground.TrySample(position.x + origin.X, position.z + origin.Z, out s))
             {
                 float floor = s.Height - origin.Y + GroundClearanceM;
                 if (position.y < floor) position.y = floor;
             }
-            Vector3 toAim = _aim - position;
-            Quaternion rotation = toAim.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(toAim, Vector3.up) : look;
-            if (!ReducedMotion && riding)
-            {
-                rotation *= Quaternion.Euler(0f, 0f, -leanRad * Mathf.Rad2Deg * 0.12f);
-            }
-            _camera.transform.SetPositionAndRotation(position, rotation);
 
             // Vertical FOV from the rig's minimum horizontal FOV at this aspect, plus a little speed kick on the scooter.
             float kick = !ReducedMotion && riding ? 5f * Mathf.Clamp01(Mathf.Abs(speedMps) / 25f) : 0f;
@@ -228,6 +222,24 @@ namespace Ghumante.Characters.Cameras
             float fov = CameraFov.VerticalFromHorizontal(rig.MinHorizontalFovDeg + kick, aspect);
             _fov = _snap ? fov : Mathf.Lerp(_fov, fov, 1f - Mathf.Exp(-8f * dt));
             _camera.fieldOfView = _fov;
+
+            // Face the explorer and pitch so its (smoothed) ground point stands at the framing height.
+            float footX = _aim.x - position.x;
+            float footZ = _aim.z - position.z;
+            float horizontal = Mathf.Sqrt(footX * footX + footZ * footZ);
+            Quaternion rotation = look;
+            if (horizontal > 1e-3f)
+            {
+                float aboveFoot = position.y - (_aim.y - rig.AimHeightM);
+                float viewPitch = ChaseRigProfile.ViewPitchDeg(aboveFoot, horizontal, _footY, _fov);
+                float viewYaw = Mathf.Atan2(footX, footZ) * Mathf.Rad2Deg;
+                rotation = Quaternion.Euler(Mathf.Clamp(viewPitch, -80f, 89f), viewYaw, 0f);
+            }
+            if (!ReducedMotion && riding)
+            {
+                rotation *= Quaternion.Euler(0f, 0f, -leanRad * Mathf.Rad2Deg * 0.12f);
+            }
+            _camera.transform.SetPositionAndRotation(position, rotation);
             _snap = false;
         }
 

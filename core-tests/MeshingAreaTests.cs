@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
 using NUnit.Framework;
@@ -67,7 +68,7 @@ namespace Ghumante.Core.Tests
                     double my = 0.5 * (m.Positions[3 * a + 1] + m.Positions[3 * b + 1]);
                     float h;
                     Assert.That(s.TryHeight(Leaf.X0 + mx, Leaf.Z0 + mz, out h), Is.True);
-                    Assert.That(my - h, Is.EqualTo(o.GreenLiftM).Within(1e-3), "edge midpoints on the lifted surface too");
+                    Assert.That(my - h, Is.EqualTo(AreaMesher.LiftOf(t.Areas[0], o)).Within(1e-3), "edge midpoints on the lifted surface too");
                 }
             }
             uint c = AreaStyle.Rgba(AreaKind.Park);
@@ -103,7 +104,9 @@ namespace Ghumante.Core.Tests
             var m = new MeshData();
             Assert.That(AreaMesher.Build(t, s, new AreaOptions(), m), Is.EqualTo(1), "subtle kinds are off by default");
             float y = Ght.Dequantize(Ght.Quantize(1300));
-            for (int v = 0; v < m.VertexCount; v++) Assert.That(m.Positions[3 * v + 1], Is.EqualTo(y + 0.14f).Within(1e-3));
+            // Water lift 0.14 m, plus the pond's kind rank (3 × 4 mm) and size rank (a 1 600 m² pond: 3 × 1 mm).
+            Assert.That(AreaMesher.LiftOf(t.Areas[0], new AreaOptions()), Is.EqualTo(0.14f + 3 * 0.004f + 3 * 0.001f).Within(1e-6));
+            for (int v = 0; v < m.VertexCount; v++) Assert.That(m.Positions[3 * v + 1], Is.EqualTo(y + 0.155f).Within(1e-3));
             Assert.That(AreaMesher.Build(t, s, new AreaOptions { IncludeSubtle = true }, new MeshData()), Is.EqualTo(2));
         }
 
@@ -154,7 +157,7 @@ namespace Ghumante.Core.Tests
                         expected += 0.5 * cr;
                     }
                     Assert.That(PlanArea(m), Is.EqualTo(expected).Within(1e-4 * expected + 0.05), id + " area " + a.OsmRef);
-                    float lift = AreaStyle.Family(a.Kind) == AreaFamily.Water ? o.WaterLiftM : AreaStyle.Family(a.Kind) == AreaFamily.Green ? o.GreenLiftM : o.SubtleLiftM;
+                    float lift = AreaMesher.LiftOf(a, o);
                     for (int v = 0; v < m.VertexCount; v++)
                     {
                         float x = m.Positions[3 * v], z = m.Positions[3 * v + 2], h;
@@ -166,6 +169,100 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine("areas drawn: " + drawnTotal);
             Assert.That(drawnTotal, Is.GreaterThan(500));
+        }
+
+        /// <summary>The lift a record had before kind and size ranks (family only).</summary>
+        private static float FamilyLift(AreaRecord a, AreaOptions o)
+        {
+            AreaFamily f = AreaStyle.Family(a.Kind);
+            return f == AreaFamily.Water ? o.WaterLiftM : f == AreaFamily.Green ? o.GreenLiftM : o.SubtleLiftM;
+        }
+
+        /// <summary>
+        /// Overlapping AREA records of one family used to share the family lift and z-fight (a pitch in a park, a
+        /// park in a forest). Rasterised at 2 m over every level-10 tile of the real sample, the plan area where two
+        /// drawn records of different kinds overlap at the same lift is now zero, the area where any two records do is
+        /// a small remainder (same kind and size class), the families keep their order, and a pitch lies above
+        /// a park above a forest.
+        /// </summary>
+        [Test]
+        public void OverlappingAreasOfOneFamilyAreNotCoplanar()
+        {
+            var o = new AreaOptions();
+            Assert.That(9 * o.KindLiftStepM + 3 * o.SizeLiftStepM, Is.LessThan(o.GreenLiftM - o.SubtleLiftM));
+            Assert.That(9 * o.KindLiftStepM + 3 * o.SizeLiftStepM, Is.LessThan(o.WaterLiftM - o.GreenLiftM));
+            Assert.That(AreaStyle.KindRank(AreaKind.Pitch), Is.GreaterThan(AreaStyle.KindRank(AreaKind.Park)));
+            Assert.That(AreaStyle.KindRank(AreaKind.Park), Is.GreaterThan(AreaStyle.KindRank(AreaKind.Meadow)));
+            Assert.That(AreaStyle.KindRank(AreaKind.Meadow), Is.GreaterThan(AreaStyle.KindRank(AreaKind.Forest)));
+
+            const double Cell = 2.0;
+            const int N = 512;
+            double before = 0, after = 0, afterDifferentKinds = 0;
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                var cells = new Dictionary<int, List<int>>();
+                for (int r = 0; r < t.Areas.Count; r++)
+                {
+                    AreaRecord a = t.Areas[r];
+                    if (!AreaMesher.IsDrawn(a, o)) continue;
+                    float lift = AreaMesher.LiftOf(a, o);
+                    Assert.That(lift, Is.GreaterThanOrEqualTo(FamilyLift(a, o)));
+                    Assert.That(lift, Is.LessThan(FamilyLift(a, o) + 0.04f));
+                    var mine = new HashSet<int>();
+                    for (int k = 0; k + 2 < a.Indices.Length; k += 3)
+                    {
+                        int i0 = a.Indices[k], i1 = a.Indices[k + 1], i2 = a.Indices[k + 2];
+                        double x0 = a.Vertices[2 * i0] / 100.0, z0 = a.Vertices[2 * i0 + 1] / 100.0;
+                        double x1 = a.Vertices[2 * i1] / 100.0, z1 = a.Vertices[2 * i1 + 1] / 100.0;
+                        double x2 = a.Vertices[2 * i2] / 100.0, z2 = a.Vertices[2 * i2 + 1] / 100.0;
+                        int cx0 = Math.Max(0, (int)(Math.Min(x0, Math.Min(x1, x2)) / Cell)), cx1 = Math.Min(N - 1, (int)(Math.Max(x0, Math.Max(x1, x2)) / Cell));
+                        int cz0 = Math.Max(0, (int)(Math.Min(z0, Math.Min(z1, z2)) / Cell)), cz1 = Math.Min(N - 1, (int)(Math.Max(z0, Math.Max(z1, z2)) / Cell));
+                        for (int cz = cz0; cz <= cz1; cz++)
+                        {
+                            for (int cx = cx0; cx <= cx1; cx++)
+                            {
+                                double px = (cx + 0.5) * Cell, pz = (cz + 0.5) * Cell;
+                                double e0 = (x1 - x0) * (pz - z0) - (z1 - z0) * (px - x0);
+                                double e1 = (x2 - x1) * (pz - z1) - (z2 - z1) * (px - x1);
+                                double e2 = (x0 - x2) * (pz - z2) - (z0 - z2) * (px - x2);
+                                bool inside = e0 >= 0 && e1 >= 0 && e2 >= 0 || e0 <= 0 && e1 <= 0 && e2 <= 0;
+                                if (inside) mine.Add(cz * N + cx);
+                            }
+                        }
+                    }
+                    foreach (int cell in mine)
+                    {
+                        List<int> list;
+                        if (!cells.TryGetValue(cell, out list)) cells[cell] = list = new List<int>();
+                        list.Add(r);
+                    }
+                }
+                foreach (List<int> list in cells.Values)
+                {
+                    bool sameBefore = false, sameAfter = false, sameAfterKinds = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        for (int j = i + 1; j < list.Count; j++)
+                        {
+                            AreaRecord a = t.Areas[list[i]], b = t.Areas[list[j]];
+                            if (FamilyLift(a, o) == FamilyLift(b, o)) sameBefore = true;
+                            if (AreaMesher.LiftOf(a, o) == AreaMesher.LiftOf(b, o))
+                            {
+                                sameAfter = true;
+                                if (a.Kind != b.Kind) sameAfterKinds = true;
+                            }
+                        }
+                    }
+                    if (sameBefore) before += Cell * Cell;
+                    if (sameAfter) after += Cell * Cell;
+                    if (sameAfterKinds) afterDifferentKinds += Cell * Cell;
+                }
+            }
+            TestContext.WriteLine("coplanar overlap of drawn areas: before {0:0} m², after {1:0} m² ({2:0} m² of different kinds)", before, after, afterDifferentKinds);
+            Assert.That(before, Is.GreaterThan(20000), "the sample has same-family overlaps");
+            Assert.That(afterDifferentKinds, Is.EqualTo(0));
+            Assert.That(after, Is.LessThan(before * 0.5));
         }
     }
 }

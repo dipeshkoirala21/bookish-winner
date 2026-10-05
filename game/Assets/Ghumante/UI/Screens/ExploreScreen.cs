@@ -38,6 +38,9 @@ namespace Ghumante.UI.Screens
         public const string RideClass = "gh-hud--ride";
         public const string WalkClass = "gh-hud--walk";
         public const string RouteVisibleClass = "gh-hud__route--visible";
+
+        /// <summary>On the root while the route banner shows: toasts then drop below it (Hud.uss).</summary>
+        public const string RoutingClass = "gh-hud--routing";
         public const string InferredOnClass = "gh-hud__inferred--on";
         public const string OffRoadClass = "gh-hud__surface--offroad";
         public const string DebugOnClass = "gh-hud__debug--on";
@@ -85,6 +88,11 @@ namespace Ghumante.UI.Screens
         private readonly Button _menuButton;
 
         private readonly VisualElement _pauseLayer;
+        private readonly Button _pauseResume;
+        private readonly Button _pauseSettings;
+        private readonly VisualElement _searchLayer;
+        private readonly VisualElement _settingsLayer;
+        private readonly Button _settingsFirst;
         private readonly MotionNode _pausePanelNode;
         private readonly MotionNode _pauseScrimNode;
 
@@ -113,6 +121,7 @@ namespace Ghumante.UI.Screens
         private float _compassDeg = float.NaN;
         private float _arrowDeg = float.NaN;
         private string _routeDestination;
+        private NameRecord _routeRecord;
         private long _routeBucket = -1;
         private double _routeRemainingM;
         private int _routeMinutes = -1;
@@ -176,7 +185,7 @@ namespace Ghumante.UI.Screens
             _searchButton = Required<Button>("hud-search");
             _modeButton = Required<Button>("hud-mode");
             _menuButton = Required<Button>("hud-menu");
-            Feel(_searchButton, HapticKind.LightImpact, OpenSearch);
+            Feel(_searchButton, HapticKind.LightImpact, () => OpenSearch());
             Feel(_modeButton, HapticKind.MediumImpact, () => Raise(ModeToggleRequested));
             Feel(_menuButton, HapticKind.LightImpact, Pause);
             Feel(Required<Button>("hud-route-cancel"), HapticKind.LightImpact, () => Raise(RouteCancelRequested));
@@ -198,18 +207,23 @@ namespace Ghumante.UI.Screens
             Required<VisualElement>("search-content");
             Required<VisualElement>("search-handle");
 
+            _searchLayer = Required<VisualElement>("search-layer");
             _pauseLayer = Required<VisualElement>("pause-layer");
             _pausePanelNode = Animator.Node(Required<VisualElement>("pause-panel"));
             Button pauseScrim = Required<Button>("pause-scrim");
             _pauseScrimNode = Animator.Node(pauseScrim);
             Feel(pauseScrim, HapticKind.Selection, Resume).Bouncy = false;
-            Feel(Required<Button>("pause-resume"), HapticKind.LightImpact, Resume);
-            Feel(Required<Button>("pause-settings"), HapticKind.LightImpact, OpenSettings);
+            _pauseResume = Required<Button>("pause-resume");
+            _pauseSettings = Required<Button>("pause-settings");
+            Feel(_pauseResume, HapticKind.LightImpact, Resume);
+            Feel(_pauseSettings, HapticKind.LightImpact, OpenSettings);
             Feel(Required<Button>("pause-menu"), HapticKind.MediumImpact, () => Raise(MenuRequested));
 
+            _settingsLayer = Required<VisualElement>("settings-layer");
+            _settingsFirst = Required<Button>("settings-haptics-toggle");
             _settings = new SettingsSheet(new SettingsSheetView
             {
-                Layer = Required<VisualElement>("settings-layer"),
+                Layer = _settingsLayer,
                 Scrim = Required<Button>("settings-scrim"),
                 Sheet = Required<VisualElement>("settings-sheet"),
                 Content = Required<VisualElement>("settings-content"),
@@ -249,8 +263,13 @@ namespace Ghumante.UI.Screens
             Feel(Required<Button>("loading-back"), HapticKind.LightImpact, () => Raise(MenuRequested));
 
             // HUD buttons never take keyboard focus: gamepad A and Space drive the scooter, they must not also "submit"
-            // a button clicked earlier with the mouse.
+            // a button clicked earlier with the mouse. The pause panel and the Settings sheet keep theirs, so a gamepad
+            // can move between them (D-pad) and press them (A); focus is dropped as soon as their panel closes
+            // (DropStaleFocus). Search result pills are focusable the same way (SearchSheet).
             Root.Query<Button>().ForEach(b => b.focusable = false);
+            Required<VisualElement>("pause-panel").Query<Button>().ForEach(b => b.focusable = true);
+            Required<VisualElement>("settings-sheet").Query<Button>().ForEach(b => b.focusable = true);
+            Animator.OnUpdate(DropStaleFocus);
 
             Root.RegisterCallback<AttachToPanelEvent>(OnAttach);
             if (Root.panel != null) ListenForBack();
@@ -496,10 +515,20 @@ namespace Ghumante.UI.Screens
             _compassRose.style.rotate = new Rotate(new Angle(deg, AngleUnit.Degree));
         }
 
-        /// <summary>Shows the route banner for <paramref name="destination"/> with a status line (e.g. finding the way).</summary>
+        /// <summary>Shows the route banner for <paramref name="destination"/> with a status line (e.g. finding the way).
+        /// The name follows the language: a switch mid-route re-renders it.</summary>
+        public void ShowRoute(NameRecord destination, string statusKey)
+        {
+            ShowRoute(destination != null ? destination.Display(Localizer.Locale == Localizer.Nepali) : "", statusKey);
+            _routeRecord = destination;
+        }
+
+        /// <summary>Shows the route banner for a fixed <paramref name="destination"/> text with a status line.</summary>
         public void ShowRoute(string destination, string statusKey)
         {
+            _routeRecord = null;
             _routeDestination = destination ?? "";
+            StyledRoot.AddToClassList(RoutingClass);
             _routeStatusKey = statusKey;
             _routeStatusOnly = statusKey != null;
             _routeBucket = -1;
@@ -540,12 +569,20 @@ namespace Ghumante.UI.Screens
         public void HideRoute()
         {
             _routeDestination = null;
+            _routeRecord = null;
             _route.RemoveFromClassList(RouteVisibleClass);
+            StyledRoot.RemoveFromClassList(RoutingClass);
         }
 
         public bool RouteVisible
         {
             get { return _route.ClassListContains(RouteVisibleClass); }
+        }
+
+        /// <summary>Arrived at <paramref name="destination"/>, named in the current language.</summary>
+        public void CelebrateArrival(NameRecord destination)
+        {
+            CelebrateArrival(destination != null ? destination.Display(Localizer.Locale == Localizer.Nepali) : "");
         }
 
         /// <summary>Arrived: confetti, a star toast and a Success haptic.</summary>
@@ -603,17 +640,21 @@ namespace Ghumante.UI.Screens
 
         // ----- Panels ------------------------------------------------------------------------------------------------
 
-        /// <summary>Opens search (gameplay pauses while it is open).</summary>
-        public void OpenSearch()
+        /// <summary>Opens search (gameplay pauses while it is open). <paramref name="fromGamepad"/>: focus goes to the
+        /// first result's "Ride there" instead of the text field, so the D-pad and A pick a place.</summary>
+        public void OpenSearch(bool fromGamepad = false)
         {
             if (IsLoading || IsPaused) return;
             _touch.ReleaseAll();
-            _search.Open();
+            _search.Open(fromGamepad);
         }
 
         public void OpenSettings()
         {
+            // Opened from the pause panel with the D-pad (its pill had focus): carry focus into the sheet.
+            bool navigating = FocusedElement() is Button b && _pauseLayer.Contains(b);
             _settings.Open();
+            if (navigating) _settingsFirst.Focus();
         }
 
         /// <summary>Pauses: the pause panel (Resume, Settings, Main menu) pops in over a dimmed world.</summary>
@@ -647,7 +688,8 @@ namespace Ghumante.UI.Screens
             Raise(PauseChanged, false);
         }
 
-        /// <summary>Gamepad Start: closes the top panel, or toggles pause.</summary>
+        /// <summary>Gamepad Start: closes the top panel, or toggles pause (focusing Resume, so the D-pad reaches
+        /// Settings and Main menu).</summary>
         public void TogglePause()
         {
             if (_settings.IsOpen)
@@ -656,8 +698,13 @@ namespace Ghumante.UI.Screens
                 return;
             }
             if (_search.Back()) return;
-            if (IsPaused) Resume();
-            else Pause();
+            if (IsPaused)
+            {
+                Resume();
+                return;
+            }
+            Pause();
+            if (IsPaused) _pauseResume.Focus();
         }
 
         /// <summary>
@@ -754,6 +801,7 @@ namespace Ghumante.UI.Screens
         private void ApplyRouteText()
         {
             if (_routeDestination == null) return;
+            if (_routeRecord != null) _routeDestination = _routeRecord.Display(Localizer.Locale == Localizer.Nepali);
             _routeTo.text = Localizer.Format("hud.route.to", _routeDestination);
             if (_routeStatusOnly && _routeStatusKey != null)
             {
@@ -850,6 +898,36 @@ namespace Ghumante.UI.Screens
         {
             if (_settings.IsOpen) return; // the sheet handles it
             if (Back(GamepadCancelThisFrame())) evt.StopPropagation();
+        }
+
+        private Focusable FocusedElement()
+        {
+            IPanel panel = Root.panel;
+            return panel != null && panel.focusController != null ? panel.focusController.focusedElement : null;
+        }
+
+        /// <summary>
+        /// Every tick: a pill that kept focus after its panel closed (pause, Settings, a search result) is let go, so
+        /// gamepad A or Enter never presses a hidden button while driving. Closing Settings over the pause panel hands
+        /// focus back to the pause panel's Settings pill.
+        /// </summary>
+        private void DropStaleFocus(float time, float dt)
+        {
+            var focused = FocusedElement() as VisualElement;
+            if (focused == null) return;
+            if (!_settings.IsOpen && _settingsLayer.Contains(focused))
+            {
+                if (IsPaused) _pauseSettings.Focus();
+                else focused.Blur();
+            }
+            else if (!IsPaused && _pauseLayer.Contains(focused))
+            {
+                focused.Blur();
+            }
+            else if (!_search.IsOpen && _searchLayer.Contains(focused))
+            {
+                focused.Blur();
+            }
         }
 
         private static bool GamepadCancelThisFrame()

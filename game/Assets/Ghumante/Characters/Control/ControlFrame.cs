@@ -128,14 +128,27 @@ namespace Ghumante.Characters
             outY = y / length * scaled;
         }
 
-        /// <summary>Scooter: stick X steers, Throttle − Reverse drives (negative brakes, then reverses), Brake brakes,
-        /// Boost boosts.</summary>
+        /// <summary>Scooter: stick X steers, Throttle drives, Reverse brakes and then reverses once stopped, Brake
+        /// brakes, Boost boosts. Reverse held together with Throttle (both triggers, W and S, the drive zone and the Brake
+        /// pedal) is a brake that cuts the throttle, never a coast.</summary>
         public static DriveInput Ride(in ControlFrame f)
         {
             float steer, unused;
             ApplyDeadZone(f.MoveX, 0f, StickDeadZone, out steer, out unused);
-            float throttle = Clamp(Finite(f.Throttle), 0f, 1f) - Clamp(Finite(f.Reverse), 0f, 1f);
-            return new DriveInput(throttle, Clamp(Finite(f.Brake), 0f, 1f), steer, f.Boost);
+            float forward = Clamp(Finite(f.Throttle), 0f, 1f);
+            float reverse = Clamp(Finite(f.Reverse), 0f, 1f);
+            float brake = Clamp(Finite(f.Brake), 0f, 1f);
+            float throttle;
+            if (forward > 0f && reverse > 0f)
+            {
+                throttle = 0f;
+                brake = Math.Max(brake, reverse);
+            }
+            else
+            {
+                throttle = forward - reverse;
+            }
+            return new DriveInput(throttle, brake, steer, f.Boost);
         }
 
         /// <summary>

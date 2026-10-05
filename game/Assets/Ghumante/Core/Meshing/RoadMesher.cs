@@ -13,6 +13,15 @@ namespace Ghumante.Core.Meshing
         /// draws over a minor one where ribbons overlap at junctions. At most 8 steps.</summary>
         public float ClassLiftStepM = 0.008f;
 
+        /// <summary>Extra lift per piece rank inside a class (<see cref="RoadMesher.PieceRank"/>, 0 to
+        /// <see cref="PieceLiftLevels"/> - 1), so two overlapping ribbons of the same class are not coplanar at a
+        /// junction. Keep <c>(PieceLiftLevels - 1) × PieceLiftStepM</c> below <see cref="ClassLiftStepM"/> so the
+        /// class order still holds.</summary>
+        public float PieceLiftStepM = 0.001f;
+
+        /// <summary>Number of piece ranks inside a class (1 turns the piece lift off).</summary>
+        public int PieceLiftLevels = 7;
+
         /// <summary>Longest ribbon segment in metres; 0 uses the sampler's grid spacing
         /// (<see cref="TileHeightSampler.SpacingM"/>), or 8 m for other samplers.</summary>
         public float MaxSegmentM = 0f;
@@ -143,8 +152,11 @@ namespace Ghumante.Core.Meshing
     /// triangles (every ribbon triangle clipped against the terrain grid), <see cref="RoadOptions.LiftM"/> plus a
     /// small class lift above it everywhere, shaded with the terrain's own normals. With another sampler each
     /// cross-section vertex takes the sampled height plus the lift. Bridges run straight between their lifted end
-    /// heights (never below the lifted terrain); tunnels are skipped. Overlapping ribbons at junctions are left to the
-    /// shader's depth offset and the class lift.
+    /// heights (never below the lifted terrain); tunnels are skipped. Overlapping ribbons at junctions are separated
+    /// by the lift (<see cref="LiftOf"/>): the class lift puts a major road over a minor one, and a deterministic
+    /// piece rank from the way id, surface and width (identical in every tile the way crosses) puts one of two
+    /// same-class ribbons a millimetre or more above the other, so they do not z-fight (pieces whose ranks
+    /// collide, about one pair in <see cref="RoadOptions.PieceLiftLevels"/>, are still coplanar).
     /// </para>
     /// <para>Positions are relative to the tile's south-west corner (draw roads only for exact nodes). UV0: U across
     /// (0, 0.5, 1), V along at one unit per 4 m. Appends to <see cref="MeshData"/>; returns the number of pieces
@@ -226,12 +238,32 @@ namespace Ghumante.Core.Meshing
             return last - first >= 1;
         }
 
-        /// <summary>Height of a piece's ribbon above the terrain: <see cref="RoadOptions.LiftM"/> plus its class lift.</summary>
+        /// <summary>Height of a piece's ribbon above the terrain: <see cref="RoadOptions.LiftM"/> plus its class lift
+        /// plus its piece lift (<see cref="PieceRank"/> × <see cref="RoadOptions.PieceLiftStepM"/>).</summary>
         public static float LiftOf(RoadRecord r, RoadOptions o)
         {
             if (o == null) o = new RoadOptions();
             int prio = RoadStyle.Priority(r.RoadClass);
-            return o.LiftM + (prio > 8 ? 8 : prio) * o.ClassLiftStepM;
+            return o.LiftM + (prio > 8 ? 8 : prio) * o.ClassLiftStepM + PieceRank(r, o) * o.PieceLiftStepM;
+        }
+
+        /// <summary>
+        /// The piece's rank inside its class lift band, 0 to <see cref="RoadOptions.PieceLiftLevels"/> - 1: a hash of
+        /// the way id, surface and width, so every piece of a way gets the same rank in every tile and the ground
+        /// query (which uses <see cref="LiftOf"/>) agrees with the drawn ribbon.
+        /// </summary>
+        public static int PieceRank(RoadRecord r, RoadOptions o)
+        {
+            int levels = o == null ? new RoadOptions().PieceLiftLevels : o.PieceLiftLevels;
+            if (levels <= 1) return 0;
+            unchecked
+            {
+                ulong h = r.OsmWayId * 0x9E3779B97F4A7C15UL ^ ((ulong)r.Surface << 48) ^ r.WidthCm * 0xC2B2AE3D27D4EB4FUL;
+                h ^= h >> 31;
+                h *= 0xBF58476D1CE4E5B9UL;
+                h ^= h >> 29;
+                return (int)(h % (ulong)levels);
+            }
         }
 
         private static bool Piece(ref Ctx ctx, RoadRecord r, RoadOptions o, double maxSeg, Sections sec, MeshData m)

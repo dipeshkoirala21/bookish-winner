@@ -31,6 +31,7 @@ namespace Ghumante.DebugTools
         private string _stats = string.Empty;
         private string _haptic;
         private float _hapticHideAt;
+        private int _placement = -1;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
@@ -81,6 +82,7 @@ namespace Ghumante.DebugTools
                 // World streaming (M1 track C): tiles, queue, upload ms, cache, focus and origin.
                 WorldRoot world = WorldRoot.Active;
                 if (world != null) _stats += "\n" + world.DebugSummary();
+                Place();
                 ShowText();
             }
             _elapsed = 0f;
@@ -120,9 +122,7 @@ namespace Ghumante.DebugTools
                 _label = new Label { name = HudName, pickingMode = PickingMode.Ignore };
                 IStyle s = _label.style;
                 s.position = Position.Absolute;
-                // Above the bottom-right OpenStreetMap credit, which must stay readable (LICENSES 1.1).
-                s.right = 12;
-                s.bottom = 72;
+                // Where it sits depends on the screen (Place); never over the OpenStreetMap credit (LICENSES 1.1).
                 s.paddingLeft = 10;
                 s.paddingRight = 10;
                 s.paddingTop = 4;
@@ -138,6 +138,37 @@ namespace Ghumante.DebugTools
             }
             doc.rootVisualElement.Add(_label);
             _label.BringToFront();
+            _placement = -1;
+            Place();
+        }
+
+        /// <summary>
+        /// Keeps the box clear of the controls. Over the Explore HUD (a .gh-hud screen) it sits top-left under the place
+        /// pill and the route banner, away from the pedals, the drive zone, the speedometer and the OpenStreetMap credit
+        /// (in portrait below the debug clock); on other screens bottom-right above the credit.
+        /// </summary>
+        private void Place()
+        {
+            if (_label == null || _label.parent == null) return;
+            VisualElement hud = _label.parent.Q(className: "gh-hud");
+            int placement = hud == null ? 0 : hud.ClassListContains("orient-portrait") ? 2 : 1;
+            if (placement == _placement) return;
+            _placement = placement;
+            IStyle s = _label.style;
+            if (placement == 0)
+            {
+                s.left = StyleKeyword.Null;
+                s.top = StyleKeyword.Null;
+                s.right = 12;
+                s.bottom = 72;
+            }
+            else
+            {
+                s.right = StyleKeyword.Null;
+                s.bottom = StyleKeyword.Null;
+                s.left = 24;
+                s.top = placement == 2 ? 460 : 240;
+            }
         }
     }
 }

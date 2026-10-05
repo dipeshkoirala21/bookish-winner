@@ -31,7 +31,13 @@ namespace Ghumante.UI.Hud
     /// Core's <see cref="SearchEngine"/> as the player types (latin, Devanagari, romanised Nepali, typos) and lists up to
     /// <see cref="MaxResults"/> places: the name in the current language with the other script below it, the kind and
     /// the distance from the explorer. Each row offers "Ride there" (a route) and, in development builds and the editor,
-    /// "Teleport". With an empty query it suggests the region's landmarks. Enter rides to the first result.
+    /// "Teleport". With an empty query it suggests the region's landmarks. Enter rides to the first result, and so does
+    /// the phone keyboard's Return/Done (UI Toolkit only blurs the field then; see <see cref="OnFieldFocusOut"/>).
+    /// <para>On phones the soft keyboard covers the bottom of the screen and UI Toolkit neither pans nor resizes for it,
+    /// so while it shows the sheet is lifted above <see cref="TouchScreenKeyboard.area"/> (<see cref="KeyboardLift"/>):
+    /// the field and the results stay visible and tappable as the player types.</para>
+    /// <para>The result pills take focus, so a gamepad (D-pad, A) can pick a place; opened from a gamepad the first
+    /// "Ride there" gets focus instead of the text field.</para>
     /// </summary>
     public sealed class SearchSheet : IDisposable
     {
@@ -40,6 +46,15 @@ namespace Ghumante.UI.Hud
 
         /// <summary>Seconds after the last keystroke before searching.</summary>
         public const float Debounce = 0.12f;
+
+        /// <summary>Space kept between the lifted sheet's top and the top of the screen (panel units).</summary>
+        public const float KeyboardTopGap = 24f;
+
+        /// <summary>Share of the screen height assumed covered when the keyboard shows but reports no area.</summary>
+        public const float FallbackKeyboardShare = 0.42f;
+
+        /// <summary>A blur this soon after a tap is the tap moving focus, not the keyboard's Return/Done.</summary>
+        private const float TapBlurWindowS = 0.35f;
 
         private sealed class Row
         {
@@ -73,6 +88,10 @@ namespace Ghumante.UI.Hud
         private float _progress, _from, _target, _start, _duration;
         private bool _sliding;
         private int _searchToken;
+        private float _lift;
+        private bool _liftPortrait;
+        private string _focusValue;
+        private float _lastPointerDown = -10f;
 
         public SearchSheet(SearchSheetView view, UiAnimator animator, Localizer localizer, IHaptics haptics,
                            Func<Button, HapticKind, Action, PressFeel> feel, VisualElement orientationRoot)
@@ -96,6 +115,9 @@ namespace Ghumante.UI.Hud
             view.Placeholder.BringToFront();
             _field.RegisterValueChangedCallback(OnQueryChanged);
             _field.RegisterCallback<KeyDownEvent>(OnKeyDown, TrickleDown.TrickleDown);
+            _field.RegisterCallback<FocusInEvent>(OnFieldFocusIn);
+            _field.RegisterCallback<FocusOutEvent>(OnFieldFocusOut);
+            view.Layer.RegisterCallback<PointerDownEvent>(OnLayerPointerDown, TrickleDown.TrickleDown);
 
             for (int i = 0; i < MaxResults; i++)
             {
@@ -160,7 +182,9 @@ namespace Ghumante.UI.Hud
             _hasFrom = true;
         }
 
-        public void Open()
+        /// <summary>Slides the sheet in. <paramref name="focusResults"/> (a gamepad opened it): focus the first result's
+        /// "Ride there" instead of the text field.</summary>
+        public void Open(bool focusResults = false)
         {
             if (_open) return;
             _open = true;
@@ -170,7 +194,9 @@ namespace Ghumante.UI.Hud
             // Give the field the keyboard once the layer is laid out (a phone shows its keyboard then).
             _view.FieldHost.schedule.Execute(() =>
             {
-                if (_open) _field.Focus();
+                if (!_open) return;
+                if (focusResults && _shown.Count > 0) _rows[0].Ride.Focus();
+                else _field.Focus();
             }).StartingIn(60);
         }
 
@@ -180,6 +206,20 @@ namespace Ghumante.UI.Hud
             _open = false;
             _field.Blur();
             StartSlide(0f, _animator.Reduced ? 0.12f : 0.22f);
+            ApplyLift(0f, false);
+        }
+
+        /// <summary>
+        /// How far (panel units) to raise a sheet whose bottom edge is at <paramref name="sheetBottom"/> (panel units from
+        /// the top of a panel <paramref name="panelHeight"/> tall that fills the screen) so it clears a keyboard
+        /// <paramref name="keyboardHeightPx"/> tall at the bottom of a screen <paramref name="screenHeightPx"/> tall.
+        /// 0 when nothing is covered.
+        /// </summary>
+        public static float KeyboardLift(float sheetBottom, float panelHeight, float keyboardHeightPx, float screenHeightPx)
+        {
+            if (!(panelHeight > 0f) || !(screenHeightPx > 0f) || !(keyboardHeightPx > 0f)) return 0f;
+            float keyboardTop = panelHeight * (1f - Mathf.Min(1f, keyboardHeightPx / screenHeightPx));
+            return Mathf.Max(0f, sheetBottom - keyboardTop);
         }
 
         /// <summary>Back / Escape: closes the sheet when open (true), else false.</summary>
@@ -216,6 +256,9 @@ namespace Ghumante.UI.Hud
             _searchToken++;
             _field.UnregisterValueChangedCallback(OnQueryChanged);
             _field.UnregisterCallback<KeyDownEvent>(OnKeyDown, TrickleDown.TrickleDown);
+            _field.UnregisterCallback<FocusInEvent>(OnFieldFocusIn);
+            _field.UnregisterCallback<FocusOutEvent>(OnFieldFocusOut);
+            _view.Layer.UnregisterCallback<PointerDownEvent>(OnLayerPointerDown, TrickleDown.TrickleDown);
         }
 
         // ----- Searching ------------------------------------------------------------------------------------------
@@ -236,6 +279,35 @@ namespace Ghumante.UI.Hud
             RunSearch();
             if (_shown.Count > 0) Choose(_shown[0], false);
             evt.StopPropagation();
+        }
+
+        private void OnFieldFocusIn(FocusInEvent evt)
+        {
+            _focusValue = Query;
+        }
+
+        private void OnLayerPointerDown(PointerDownEvent evt)
+        {
+            _lastPointerDown = _animator.Time;
+        }
+
+        /// <summary>
+        /// The phone keyboard's Return/Done reaches UI Toolkit only as a blur of the field (no KeyDownEvent). A blur with
+        /// no tap just before it, on a touch keyboard, with a query the player changed (Cancel and Android back restore
+        /// the old text) rides to the first result, like Enter.
+        /// </summary>
+        private void OnFieldFocusOut(FocusOutEvent evt)
+        {
+            if (!_open || !TouchScreenKeyboard.isSupported) return;
+            if (_animator.Time - _lastPointerDown < TapBlurWindowS) return;
+            string query = Query;
+            if (query.Trim().Length == 0 || query == _focusValue) return;
+            _animator.After(0f, () =>
+            {
+                if (!_open || Query != query) return;
+                RunSearch();
+                if (_shown.Count > 0) Choose(_shown[0], false);
+            });
         }
 
         private void ClearQuery()
@@ -369,13 +441,16 @@ namespace Ghumante.UI.Hud
             Show(row.Teleport, _teleportAllowed);
             feel(row.Ride, HapticKind.MediumImpact, () => Choose(row.Entry, false));
             feel(row.Teleport, HapticKind.LightImpact, () => Choose(row.Entry, true));
+            // Keep the row a gamepad moved to in view.
+            row.Ride.RegisterCallback<FocusInEvent>(_ => _view.Results.ScrollTo(row.Root));
+            row.Teleport.RegisterCallback<FocusInEvent>(_ => _view.Results.ScrollTo(row.Root));
             Show(row.Root, false);
             return row;
         }
 
         private static Button Pill(string name, string colour, out Label label)
         {
-            var button = new Button { name = name, focusable = false };
+            var button = new Button { name = name };
             button.AddToClassList("gh-pill");
             button.AddToClassList("gh-pill--small");
             button.AddToClassList(colour);
@@ -409,6 +484,7 @@ namespace Ghumante.UI.Hud
 
         private void UpdateSlide(float time, float dt)
         {
+            UpdateKeyboardLift();
             if (!_sliding) return;
             float t = _duration > 0f ? (time - _start) / _duration : 1f;
             float eased = _target > _from ? (_animator.Reduced ? Easing.OutCubic(t) : Easing.OutBack(t, 1.1f)) : Easing.InCubic(t);
@@ -420,6 +496,48 @@ namespace Ghumante.UI.Hud
                 if (_target <= 0f) _view.Layer.RemoveFromClassList(OpenClass);
             }
             ApplySlide();
+        }
+
+        /// <summary>While the soft keyboard shows, lift the sheet above it (written only when the lift changes).</summary>
+        private void UpdateKeyboardLift()
+        {
+            float lift = 0f;
+            IPanel panel = _view.Layer.panel;
+            if (_open && panel != null && TouchScreenKeyboard.isSupported && TouchScreenKeyboard.visible)
+            {
+                float keyboardPx = TouchScreenKeyboard.area.height;
+                if (!(keyboardPx >= 1f)) keyboardPx = Screen.height * FallbackKeyboardShare;
+                Rect layer = _view.Layer.worldBound;
+                float panelHeight = panel.visualTree.layout.height;
+                if (!float.IsNaN(layer.yMax)) lift = KeyboardLift(layer.yMax, panelHeight, keyboardPx, Screen.height);
+            }
+            bool portrait = _orientationRoot != null && _orientationRoot.ClassListContains(OrientationWatcher.PortraitClass);
+            ApplyLift(lift, portrait);
+        }
+
+        private void ApplyLift(float lift, bool portrait)
+        {
+            if (Mathf.Abs(lift - _lift) < 0.5f && portrait == _liftPortrait) return;
+            _lift = lift;
+            _liftPortrait = portrait;
+            IStyle style = _view.Sheet.style;
+            if (lift <= 0f)
+            {
+                style.bottom = StyleKeyword.Null;
+                style.height = StyleKeyword.Null;
+                return;
+            }
+            style.bottom = lift;
+            if (portrait)
+            {
+                // The portrait sheet is a fixed share of the height: fill the space above the keyboard instead.
+                float space = _view.Layer.layout.height - lift - KeyboardTopGap;
+                style.height = Mathf.Max(160f, space);
+            }
+            else
+            {
+                style.height = StyleKeyword.Null; // the side panel spans top to bottom: the raised bottom shortens it
+            }
         }
 
         private void ApplySlide()

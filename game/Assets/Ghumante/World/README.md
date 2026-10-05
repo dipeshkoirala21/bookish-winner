@@ -37,8 +37,9 @@ world.Close();                                            // back to the menu: u
 
 Every frame (`LateUpdate`): `TileSelector.Select(focus)` when the focus moved 4 m, `TileResidency` diffs it against
 what is resident (`TileLoadPlanner`), the nearest queued nodes are decoded and meshed on at most two worker threads
-(`TileBuild.Execute`, Core only, no Unity API), finished builds are uploaded layer by layer within 2 ms (1.5 ms at
-60 fps) through the advanced Mesh API (multi-stream, 16-bit indices unless a layer passes 65 535 vertices, CPU copy
+(`TileBuild.Execute`, Core only, no Unity API), finished builds are uploaded in chunks of at most 32 768 vertices
+(`UploadChunk`, one mesh each: a dense city buildings layer of 290 000 vertices spreads over several frames) within
+2 ms (1.5 ms at 60 fps) and 1 MB per frame through the advanced Mesh API (multi-stream, 16-bit indices, CPU copy
 released), and the swap rule shows them: a node that leaves the selection stays visible until every node replacing
 it is ready, so there are no holes and never two overlapping LODs on screen. Decoded tiles sit in a byte-budgeted LRU
 (30/60/90 MB); resident nodes are capped per tier (`StreamingConfig.MaxResidentTiles`).
@@ -62,8 +63,8 @@ them in builds; tune them there (Project Setup does not overwrite existing value
 
 **Ghumante > World Preview** builds a throw-away scene (camera, sun, `WorldRoot` + `WorldPreview`) and presses Play.
 Fly with WASD, Q/E, Shift, the mouse wheel and a mouse drag (touch: drag, pinch, two-finger slide). T: fast time,
-[ and ]: one hour back/forward, P: pause the clock, R: route on/off, F3: free-fly overlay over gameplay (in a game
-scene). The corner box shows the streaming statistics.
+[ and ]: one hour back/forward, P: pause the clock, R: route on/off, F3 (touch: hold four fingers for a second): free-fly
+overlay over gameplay (in a game scene; it closes with the world). The hotkeys ignore keys typed into a text field. The corner box shows the streaming statistics.
 
 ## Files
 

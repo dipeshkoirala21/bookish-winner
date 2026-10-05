@@ -6,6 +6,7 @@ using Ghumante.Core.Driving;
 using Ghumante.Core.Services;
 using Ghumante.UI.Hud;
 using Ghumante.Vehicles;
+using Ghumante.World.Cameras;
 using NUnit.Framework;
 
 namespace Ghumante.Tests.EditMode
@@ -47,10 +48,19 @@ namespace Ghumante.Tests.EditMode
             Assert.AreEqual(-1f, back.Throttle, Eps, "S / left trigger / the brake pedal brake, then reverse");
             Assert.AreEqual(-0.5f, back.Steer, Eps);
 
-            DriveInput both = ControlMapper.Ride(new ControlFrame { Throttle = 0.8f, Reverse = 0.3f, Brake = 1f, Boost = true });
-            Assert.AreEqual(0.5f, both.Throttle, Eps);
-            Assert.AreEqual(1f, both.Brake, Eps, "Space / B brake without reversing");
-            Assert.IsTrue(both.Boost);
+            DriveInput brake = ControlMapper.Ride(new ControlFrame { Throttle = 0.8f, Brake = 1f, Boost = true });
+            Assert.AreEqual(0.8f, brake.Throttle, Eps);
+            Assert.AreEqual(1f, brake.Brake, Eps, "Space / B brake without reversing");
+            Assert.IsTrue(brake.Boost);
+
+            // Regression: Go and Brake held together (RT + LT, W + S, the portrait drive zone + the Brake pedal) used to
+            // net out to a coast; it brakes.
+            DriveInput both = ControlMapper.Ride(new ControlFrame { Throttle = 1f, Reverse = 1f });
+            Assert.AreEqual(0f, both.Throttle, Eps, "the brake cuts the throttle");
+            Assert.AreEqual(1f, both.Brake, Eps, "full brake, not a coast");
+            DriveInput squeeze = ControlMapper.Ride(new ControlFrame { Throttle = 1f, Reverse = 0.4f, Brake = 0.2f });
+            Assert.AreEqual(0f, squeeze.Throttle, Eps);
+            Assert.AreEqual(0.4f, squeeze.Brake, Eps, "a squeezed trigger brakes as hard as it is pressed");
 
             DriveInput stickForward = ControlMapper.Ride(new ControlFrame { MoveY = 1f });
             Assert.AreEqual(0f, stickForward.Throttle, Eps, "on the scooter the stick only steers; pedals and W drive");
@@ -190,6 +200,41 @@ namespace Ghumante.Tests.EditMode
             Assert.AreEqual(55f, ChaseRigProfile.Blend(0f, 0.7f).MinHorizontalFovDeg, Eps, "walking rig");
             Assert.AreEqual(ChaseRigProfile.RideLandscape.LookAheadMaxM, ChaseRigProfile.RideLandscape.LookAhead(1000f), Eps);
             Assert.AreEqual(0f, ChaseRigProfile.RideLandscape.LookAhead(-5f), "no look-ahead reversing");
+        }
+
+        [Test]
+        public void TheExplorerStaysInTheLowerFrameAtAnySpeedAndAspect()
+        {
+            // Regression: the look-ahead used to slide the whole camera forward, so at riding speed the scooter left the
+            // bottom of the screen and from about 14 m/s the camera was ahead of it. Projects the explorer's feet and a
+            // 1.7 m head into the view the rig builds (default zoom and pitch, flat ground).
+            var aspects = new[] { 9f / 19.5f, 9f / 16f, 3f / 4f, 4f / 3f, 16f / 9f, 20f / 9f };
+            foreach (float ride in new[] { 0f, 1f })
+            {
+                foreach (float aspect in aspects)
+                {
+                    ChaseRigProfile rig = ChaseRigProfile.Blend(ride, aspect < 1f ? 1f : 0f);
+                    float minHFov = ride > 0f ? CameraFov.DrivingMinHorizontalFov : CameraFov.WalkingMinHorizontalFov;
+                    double p = rig.PitchDeg * Math.PI / 180.0;
+                    float behind = (float)(rig.DistanceM * Math.Cos(p));
+                    float above = rig.AimHeightM + (float)(rig.DistanceM * Math.Sin(p));
+                    Assert.Greater(behind, 1f, "the camera stays behind the explorer");
+                    for (float speed = 0f; speed <= 30f; speed += 1f)
+                    {
+                        float kick = ride > 0f ? 5f * Math.Min(1f, speed / 25f) : 0f;
+                        float vfov = CameraFov.VerticalFromHorizontal(minHFov + kick, aspect);
+                        float pitch = ChaseRigProfile.ViewPitchDeg(above, behind, rig.FootScreenY(speed), vfov);
+                        float feet = ChaseRigProfile.ScreenY(above, behind, pitch, vfov);
+                        float head = ChaseRigProfile.ScreenY(above - 1.7f, behind, pitch, vfov);
+                        string at = "ride " + ride + ", aspect " + aspect + ", " + speed + " m/s";
+                        Assert.AreEqual(rig.FootScreenY(speed), feet, 1e-3f, at);
+                        Assert.GreaterOrEqual(feet, -0.9f, "feet on screen: " + at);
+                        Assert.LessOrEqual(feet, -0.4f, "feet in the lower part: " + at);
+                        Assert.Greater(head, feet, at);
+                        Assert.LessOrEqual(head, 0.3f, "head below the upper third: " + at);
+                    }
+                }
+            }
         }
     }
 }

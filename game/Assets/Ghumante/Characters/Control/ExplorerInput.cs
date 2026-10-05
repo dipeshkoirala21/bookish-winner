@@ -40,6 +40,7 @@ namespace Ghumante.Characters
 
 #if GHUMANTE_INPUT_SYSTEM
         private readonly InputActionMap _map;
+        private readonly InputActionMap _systemMap;
         private readonly InputAction _move;
         private readonly InputAction _throttle;
         private readonly InputAction _reverse;
@@ -72,7 +73,11 @@ namespace Ghumante.Characters
             _boost = Button("Boost", "<Keyboard>/leftShift", "<Keyboard>/rightShift", "<Gamepad>/buttonWest");
             _toggle = Button("WalkRide", "<Keyboard>/e", "<Gamepad>/buttonSouth");
             _mapButton = Button("Map", "<Keyboard>/m", "<Gamepad>/select");
-            _pause = Button("Pause", "<Gamepad>/start");
+            // Start lives in its own map that stays enabled while search or Settings own the keys, so it can still
+            // close them (ExploreScreen.TogglePause).
+            _systemMap = new InputActionMap("ExploreSystem");
+            _pause = _systemMap.AddAction("Pause", InputActionType.Button, "<Gamepad>/start");
+            _systemMap.Enable();
             _search = Button("Search", "<Keyboard>/slash", "<Gamepad>/buttonNorth");
 
             _zoomHold = _map.AddAction("ZoomHold", InputActionType.Value, expectedControlLayout: "Axis");
@@ -100,7 +105,8 @@ namespace Ghumante.Characters
         /// <summary>The device that produced the most recent input (None until something is pressed).</summary>
         public ControlDevice LastDevice { get; private set; }
 
-        /// <summary>True while the actions listen. Disable them while a text field has the keyboard (search).</summary>
+        /// <summary>True while the actions listen. Disable them while a text field has the keyboard (search); gamepad
+        /// Start is still read then.</summary>
         public bool Enabled
         {
             get
@@ -128,7 +134,14 @@ namespace Ghumante.Characters
         public void Read(ref ControlFrame frame, float dt)
         {
 #if GHUMANTE_INPUT_SYSTEM
-            if (_disposed || !_map.enabled) return;
+            if (_disposed) return;
+            if (_pause.WasPressedThisFrame())
+            {
+                frame.Pause = true;
+                LastDevice = ControlDevice.Gamepad;
+                frame.Device = ControlDevice.Gamepad;
+            }
+            if (!_map.enabled) return;
             Vector2 move = _move.ReadValue<Vector2>();
             frame.MoveX = move.x;
             frame.MoveY = move.y;
@@ -138,7 +151,6 @@ namespace Ghumante.Characters
             frame.Boost = _boost.IsPressed();
             frame.ToggleMode = _toggle.WasPressedThisFrame();
             frame.Map = _mapButton.WasPressedThisFrame();
-            frame.Pause = _pause.WasPressedThisFrame();
             frame.Search = _search.WasPressedThisFrame();
 
             Mouse mouse = Mouse.current;
@@ -190,6 +202,8 @@ namespace Ghumante.Characters
 #if GHUMANTE_INPUT_SYSTEM
             _map.Disable();
             _map.Dispose();
+            _systemMap.Disable();
+            _systemMap.Dispose();
 #endif
         }
 

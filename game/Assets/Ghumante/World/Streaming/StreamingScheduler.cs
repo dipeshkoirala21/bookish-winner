@@ -15,11 +15,11 @@ namespace Ghumante.World.Streaming
     /// <summary>What the scheduler drives on the main thread: the Unity tile views (WorldStreamer) or a test fake.</summary>
     public interface ITileSink
     {
-        /// <summary>Upload one non-empty layer of a build to the node's view, creating the view (hidden) on its first
-        /// layer.</summary>
-        void Upload(TileBuild build, int layer);
+        /// <summary>Upload one chunk of a build (<c>build.Chunks[chunk]</c>, never empty) to the node's view, creating
+        /// the view (hidden) on its first chunk.</summary>
+        void Upload(TileBuild build, int chunk);
 
-        /// <summary>Show or hide the node's view (only called for nodes that uploaded at least one layer).</summary>
+        /// <summary>Show or hide the node's view (only called for nodes that uploaded at least one chunk).</summary>
         void SetVisible(SelectedNode node, bool visible);
 
         /// <summary>Destroy the node's view and meshes (also for partially uploaded nodes).</summary>
@@ -99,8 +99,10 @@ namespace Ghumante.World.Streaming
     /// <item>re-selects when the focus moved (<see cref="TileSelector.Select"/> into <see cref="TileResidency"/>);</item>
     /// <item>collects finished builds (decoded source tiles go into an <see cref="LruByteCache{TKey,TValue}"/> sized by
     /// <see cref="StreamingConfig.CacheBudgetBytes"/>);</item>
-    /// <item>uploads finished builds layer by layer through the <see cref="ITileSink"/> until
-    /// <see cref="UploadBudgetMs"/> is spent (at least one layer per tick so streaming never stalls);</item>
+    /// <item>uploads finished builds chunk by chunk (<see cref="TileBuild.Chunks"/>, at most
+    /// <see cref="TileBuild.UploadChunkVertices"/> vertices each) through the <see cref="ITileSink"/> until
+    /// <see cref="UploadBudgetMs"/> or <see cref="UploadBudgetBytes"/> is spent (at least one chunk per tick so
+    /// streaming never stalls);</item>
     /// <item>applies the swap rule (<see cref="TileResidency.Resolve"/>) to views and to the ground query, which therefore
     /// always describes exactly what is drawn;</item>
     /// <item>dispatches the nearest queued nodes to <see cref="ITileJobRunner"/>, at most <see cref="MaxConcurrentJobs"/>
@@ -196,6 +198,10 @@ namespace Ghumante.World.Streaming
 
         /// <summary>Main-thread milliseconds per tick for mesh uploads (2 ms at 30 fps, 1.5 ms at 60 fps).</summary>
         public double UploadBudgetMs = 2.0;
+
+        /// <summary>Mesh bytes per tick: no further chunk starts once this many were uploaded in the tick (the copy and
+        /// GPU upload cost grows with bytes, and the clock alone only notices after the fact).</summary>
+        public long UploadBudgetBytes = 1L << 20;
 
         /// <summary>The focus must move this far before the selection is recomputed.</summary>
         public double ReselectDistanceM = 4.0;
@@ -344,7 +350,7 @@ namespace Ghumante.World.Streaming
                 ReturnToPool(b);
                 return;
             }
-            b.NextLayer = 0;
+            b.NextChunk = 0;
             _uploads.Add(b);
         }
 
@@ -352,6 +358,7 @@ namespace Ghumante.World.Streaming
         {
             double start = _clockMs();
             bool uploaded = false;
+            long bytes = 0;
             while (_uploads.Count > 0)
             {
                 TileBuild b = _uploads[0];
@@ -371,13 +378,12 @@ namespace Ghumante.World.Streaming
                     ReturnToPool(b);
                     continue;
                 }
-                while (b.NextLayer < TileLayers.Count && !b.HasLayer(b.NextLayer)) b.NextLayer++;
-                if (b.NextLayer < TileLayers.Count)
+                if (b.NextChunk < b.Chunks.Count)
                 {
-                    if (uploaded && _clockMs() - start >= UploadBudgetMs) break;
+                    if (uploaded && (bytes >= UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) break;
                     try
                     {
-                        _sink.Upload(b, b.NextLayer);
+                        _sink.Upload(b, b.NextChunk);
                     }
                     catch (Exception e)
                     {
@@ -403,13 +409,15 @@ namespace Ghumante.World.Streaming
                         _partial[b.Node] = c;
                     }
                     c.HasView = true;
-                    c.Bytes += b.LayerBytes(b.NextLayer);
-                    b.NextLayer++;
+                    long chunkBytes = b.ChunkBytes(b.NextChunk);
+                    c.Bytes += chunkBytes;
+                    bytes += chunkBytes;
+                    b.NextChunk++;
                     uploaded = true;
                     continue;
                 }
 
-                // Every layer is up: the node is ready.
+                // Every chunk is up: the node is ready.
                 Content content;
                 if (!_partial.TryGetValue(b.Node, out content)) content = RentContent();
                 _partial.Remove(b.Node);

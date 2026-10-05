@@ -104,6 +104,18 @@ namespace Ghumante.World.Debugging
             _overlay.overrideFocus = true;
         }
 
+        /// <summary>
+        /// Close the debug overlay if it streams <paramref name="world"/> (or any world when null): the hidden main
+        /// camera is enabled again and the overlay camera destroyed. <see cref="WorldRoot.Close"/> calls it, so leaving
+        /// Explore with the overlay on never leaves the menu drawn by a stale camera.
+        /// </summary>
+        public static void CloseOverlay(WorldRoot world)
+        {
+            if (_overlay == null) return;
+            if (world != null && _overlay.world != null && _overlay.world != world) return;
+            Toggle(world);
+        }
+
         private void OnEnable()
         {
             Vector3 e = transform.rotation.eulerAngles;
@@ -143,6 +155,12 @@ namespace Ghumante.World.Debugging
         private void Update()
         {
             WorldRoot w = World;
+            if (_overlay == this && (w == null || !w.IsOpen))
+            {
+                // The world closed under the overlay (for example a scene change): give the main camera back.
+                Toggle(null);
+                return;
+            }
             Subscribe(w);
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
             Vector3 move = Vector3.zero;

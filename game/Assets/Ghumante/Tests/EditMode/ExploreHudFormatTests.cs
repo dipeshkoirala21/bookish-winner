@@ -135,7 +135,8 @@ namespace Ghumante.Tests.EditMode
             keys.AddRange(HudFormat.AllSurfaceKeys);
             keys.AddRange(new[]
             {
-                "explore.loading.title", "explore.loading.finding", "explore.loading.opening", "explore.loading.streets",
+                "explore.loading.title", "explore.loading.finding", "explore.loading.opening", "explore.loading.opening_map",
+                "explore.loading.streets",
                 "explore.no_region.title", "explore.no_region.body", "explore.load_failed.title", "explore.load_failed.body",
                 "explore.back_to_menu", "explore.spawn", "hud.kmh", "hud.distance_m", "hud.distance_km", "hud.eta_min",
                 "hud.route.to", "hud.route.finding", "hud.route.rerouting", "hud.route.none", "hud.route.unavailable",

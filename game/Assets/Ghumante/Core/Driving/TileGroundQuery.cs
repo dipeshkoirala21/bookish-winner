@@ -261,12 +261,19 @@ namespace Ghumante.Core.Driving
             return true;
         }
 
-        /// <summary>The ribbon lift of a road class, as <see cref="RoadMesher"/>: <c>LiftM + min(priority, 8) ×
-        /// ClassLiftStepM</c>.</summary>
+        /// <summary>The class part of the ribbon lift, as <see cref="RoadMesher"/>: <c>LiftM + min(priority, 8) ×
+        /// ClassLiftStepM</c> (without the piece's own rank lift; see <see cref="RoadLiftM(RoadRecord)"/>).</summary>
         public float RoadLiftM(RoadClass c)
         {
             int prio = RoadStyle.Priority(c);
             return _roadOptions.LiftM + (prio > 8 ? 8 : prio) * _roadOptions.ClassLiftStepM;
+        }
+
+        /// <summary>The exact ribbon lift of a road piece, as drawn (<see cref="RoadMesher.LiftOf"/>: class lift plus
+        /// the piece rank lift).</summary>
+        public float RoadLiftM(RoadRecord r)
+        {
+            return RoadMesher.LiftOf(r, _roadOptions);
         }
 
         /// <summary>
@@ -281,7 +288,7 @@ namespace Ghumante.Core.Driving
         {
             spans = false;
             grade = 0f;
-            float lift = RoadLiftM(hit.Road.RoadClass);
+            float lift = RoadLiftM(hit.Road);
             float ramp = 1f;
             if (hit.EdgeDistanceM > 0f) ramp = Math.Max(0f, 1f - hit.EdgeDistanceM / RoadSpatialIndex.OnRoadMarginM);
             float deck = terrain + lift;

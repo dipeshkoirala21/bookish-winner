@@ -306,7 +306,10 @@ namespace Ghumante.World
                 StreamingConfig config = StreamingConfig.ForTier((int)Tier);
                 Stream ps = packStream, ss = searchStream, rs = routeStream;
                 packStream = searchStream = routeStream = null; // owned by LoadRegionData from here
-                data = await Task.Run(() => LoadRegionData(ps, ss, rs, config), cancellationToken);
+                // No cancellation token here: a task cancelled before it starts never runs LoadRegionData, and nothing
+                // would dispose the three streams. Cancellation is honoured right after (ThrowIfStale), and the catch
+                // below disposes what was loaded.
+                data = await Task.Run(() => LoadRegionData(ps, ss, rs, config));
                 ThrowIfStale(version, cancellationToken);
                 for (int i = 0; i < data.Warnings.Count; i++) Debug.LogWarning("WorldRoot: " + data.Warnings[i]);
 
@@ -361,6 +364,9 @@ namespace Ghumante.World
                 _pendingHours = _sky.TimeOfDayHours;
                 _sky.enabled = false;
             }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            Debugging.FreeFlyCamera.CloseOverlay(this); // re-enables the main camera the F3 overlay hid
+#endif
             RestoreCamera();
             if (_materials != null && _materials.RuntimeCreated)
             {
@@ -390,6 +396,7 @@ namespace Ghumante.World
             _streamer.Rebase(_origin);
             WorldSky sky = EnsureSky();
             if (sky.SkyMaterial == null) sky.SkyMaterial = _materials.sky;
+            sky.ViewRadiusM = (float)config.ViewRadiusM; // fog thick enough to hide the end of the last ring
             sky.TimeOfDayHours = _pendingHours;
             sky.enabled = true;
             ConfigureCamera();
@@ -507,7 +514,10 @@ namespace Ghumante.World
         }
 
         /// <summary>Clip planes and clear mode for a world camera: near 0.3 m, far just past the coarsest ring (up to
-        /// 120 km on High, reversed-Z keeps depth precise on Vulkan and Metal), skybox clear. For camera rigs.</summary>
+        /// 155 km on High), skybox clear. For camera rigs. Depth precision over that range needs a floating-point
+        /// depth buffer with reversed Z: ProjectSetup asks URP for D32F (Metal uses it anyway); URP's Android default
+        /// is D24 UNorm, where reversed Z gains nothing (about 15 m of depth resolution at 10 km), and GLES3 has no
+        /// reversed Z at all.</summary>
         public static void ConfigureCamera(Camera camera, StreamingConfig config)
         {
             if (camera == null) throw new ArgumentNullException(nameof(camera));

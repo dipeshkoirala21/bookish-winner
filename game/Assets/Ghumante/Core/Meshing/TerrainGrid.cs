@@ -15,6 +15,11 @@ namespace Ghumante.Core.Meshing
     /// When the area is smaller than one source quad (more than log2(n - 1) levels below the source) the grid is a
     /// single quad whose corner heights are read off the source's full-resolution surface (<see cref="SubSample"/>).
     /// </para>
+    /// <para>
+    /// Normals (<see cref="VertexGradient"/>) on the source tile's border use the source's edge
+    /// <see cref="TileNeighbours"/> when the grid was made with them, so two neighbouring tiles agree on their
+    /// shared edge; without a neighbour that border uses a one-sided difference.
+    /// </para>
     /// </summary>
     public readonly struct TerrainGrid
     {
@@ -39,8 +44,11 @@ namespace Ghumante.Core.Meshing
         /// <summary>The area is smaller than one source quad.</summary>
         public readonly bool SubSample;
 
-        private TerrainGrid(TileId source, TileId area, int n, int step, int quads, int i0, int j0, bool sub)
+        private readonly TileNeighbours _neighbours;
+
+        private TerrainGrid(TileId source, TileId area, int n, int step, int quads, int i0, int j0, bool sub, TileNeighbours neighbours)
         {
+            _neighbours = neighbours;
             Source = source;
             Area = area;
             SourceN = n;
@@ -59,6 +67,13 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         public static TerrainGrid For(TileData source, TileId area, int step)
         {
+            return For(source, area, step, TileNeighbours.None);
+        }
+
+        /// <summary>As <see cref="For(TileData, TileId, int)"/>, with the source's edge neighbours for the border
+        /// normals (mismatched neighbours are ignored).</summary>
+        public static TerrainGrid For(TileData source, TileId area, int step, TileNeighbours neighbours)
+        {
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (!HasHeights(source)) throw new ArgumentException("tile " + source.Tile + " has no height grid");
             if (!TileArea.Contains(source.Tile, area))
@@ -67,14 +82,14 @@ namespace Ghumante.Core.Meshing
             int d = area.Level - source.Tile.Level;
             int log = 0;
             while (1 << log < qn) log++;
-            if (d > log) return new TerrainGrid(source.Tile, area, n, 0, 1, 0, 0, true);
+            if (d > log) return new TerrainGrid(source.Tile, area, n, 0, 1, 0, 0, true, TileNeighbours.None);
 
             int crop = qn >> d;
             int s = FloorPow2(step < 1 ? 1 : step);
             if (s > crop) s = crop;
             int i0 = (area.Tx - (source.Tile.Tx << d)) * crop;
             int j0 = (area.Ty - (source.Tile.Ty << d)) * crop;
-            return new TerrainGrid(source.Tile, area, n, s, crop / s, i0, j0, false);
+            return new TerrainGrid(source.Tile, area, n, s, crop / s, i0, j0, false, neighbours.ValidFor(source));
         }
 
         /// <summary>True when the tile carries a usable height grid.</summary>
@@ -117,8 +132,10 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// Height gradient (dh/dx, dh/dz) at area vertex (row k, column l) from central differences on the source
-        /// grid at the step spacing (one-sided on the source tile's border; sub-sample grids difference the source
-        /// surface one source quad either side). <see cref="TerrainMesher"/> derives its smooth normals from this.
+        /// grid at the step spacing. On the source tile's border the difference reaches into the edge neighbour when
+        /// the grid has it (<see cref="For(TileData, TileId, int, TileNeighbours)"/>), else it is one-sided; sub-sample
+        /// grids difference the source surface one source quad either side. <see cref="TerrainMesher"/> derives its
+        /// smooth normals from this.
         /// </summary>
         public void VertexGradient(TileData source, int k, int l, out double gx, out double gz)
         {
@@ -127,10 +144,50 @@ namespace Ghumante.Core.Meshing
             if (!SubSample)
             {
                 int i = I0 + l * Step, j = J0 + k * Step, s = Step;
-                int il = i - s < 0 ? i : i - s, ir = i + s > n - 1 ? i : i + s;
-                int jd = j - s < 0 ? j : j - s, ju = j + s > n - 1 ? j : j + s;
-                gx = (source.HeightAt(j, ir) - (double)source.HeightAt(j, il)) / ((ir - il) * srcCell);
-                gz = (source.HeightAt(ju, i) - (double)source.HeightAt(jd, i)) / ((ju - jd) * srcCell);
+                double h = source.HeightAt(j, i), hl = h, hr = h, hd = h, hu = h;
+                int wl = 0, wr = 0, wd = 0, wu = 0;
+                if (i - s >= 0)
+                {
+                    hl = source.HeightAt(j, i - s);
+                    wl = s;
+                }
+                else if (_neighbours.West != null)
+                {
+                    hl = _neighbours.West.HeightAt(j, n - 1 + i - s);
+                    wl = s;
+                }
+                if (i + s <= n - 1)
+                {
+                    hr = source.HeightAt(j, i + s);
+                    wr = s;
+                }
+                else if (_neighbours.East != null)
+                {
+                    hr = _neighbours.East.HeightAt(j, i + s - (n - 1));
+                    wr = s;
+                }
+                if (j - s >= 0)
+                {
+                    hd = source.HeightAt(j - s, i);
+                    wd = s;
+                }
+                else if (_neighbours.South != null)
+                {
+                    hd = _neighbours.South.HeightAt(n - 1 + j - s, i);
+                    wd = s;
+                }
+                if (j + s <= n - 1)
+                {
+                    hu = source.HeightAt(j + s, i);
+                    wu = s;
+                }
+                else if (_neighbours.North != null)
+                {
+                    hu = _neighbours.North.HeightAt(j + s - (n - 1), i);
+                    wu = s;
+                }
+                gx = wl + wr > 0 ? (hr - hl) / ((wl + wr) * srcCell) : 0.0;
+                gz = wd + wu > 0 ? (hu - hd) / ((wd + wu) * srcCell) : 0.0;
                 return;
             }
             double x = Area.X0 + l * CellM, z = Area.Z0 + k * CellM;

@@ -250,6 +250,83 @@ namespace Ghumante.Core.Tests
             TestContext.WriteLine("seams checked: " + checkedEdges);
         }
 
+        /// <summary>
+        /// Shared edge vertices of neighbouring tiles used to get different normals (and slope colours): a backward
+        /// difference on one side, a forward one on the other. Meshed with their decoded edge neighbours, both
+        /// tiles of every east-west and north-south pair of the real sample (levels 10, 9, 8, 6, 5; steps 1, 2 and 4)
+        /// now show bit-identical normals and colours on the shared edge, and the samplers' smooth normals agree on
+        /// it. Without neighbours the old mismatch (degrees on hillsides) is still measurable.
+        /// </summary>
+        [Test]
+        public void NeighbourAwareNormalsMatchAcrossTileBorders()
+        {
+            Func<TileId, TileData> lookup = t => StreamingSampleRegion.Pack.Contains(t) ? StreamingSampleRegion.Tile(t) : null;
+            int edges = 0;
+            double worstWithout = 0;
+            foreach (int level in new[] { 10, 9, 8, 6, 5 })
+            {
+                foreach (TileId a in StreamingSampleRegion.TilesAt(level))
+                {
+                    foreach (bool east in new[] { true, false })
+                    {
+                        if (east ? a.Tx + 1 >= 1 << level : a.Ty + 1 >= 1 << level) continue;
+                        var b = east ? new TileId(level, a.Tx + 1, a.Ty) : new TileId(level, a.Tx, a.Ty + 1);
+                        if (!StreamingSampleRegion.Pack.Contains(b)) continue;
+                        TileData sa = StreamingSampleRegion.Tile(a), sb = StreamingSampleRegion.Tile(b);
+                        TileNeighbours na = TileNeighbours.Of(a, lookup), nb = TileNeighbours.Of(b, lookup);
+                        Assert.That(east ? na.East : na.North, Is.SameAs(sb));
+                        foreach (int step in new[] { 1, 2, 4 })
+                        {
+                            var ma = new MeshData();
+                            var mb = new MeshData();
+                            TerrainMesher.Build(sa, a, new TerrainOptions { Step = step, SkirtDepthM = 0, Neighbours = na }, ma);
+                            TerrainMesher.Build(sb, b, new TerrainOptions { Step = step, SkirtDepthM = 0, Neighbours = nb }, mb);
+                            MeshData oa = Terrain(sa, a, step), ob = Terrain(sb, b, step);
+                            int side = TerrainGrid.For(sa, a, step).Quads + 1;
+                            TileHeightSampler ha = TileHeightSampler.ForArea(sa, a, step, na), hb = TileHeightSampler.ForArea(sb, b, step, nb);
+                            for (int t = 0; t < side; t++)
+                            {
+                                int va = east ? t * side + side - 1 : (side - 1) * side + t;
+                                int vb = east ? t * side : t;
+                                for (int c = 0; c < 3; c++)
+                                    Assert.That(ma.Normals[3 * va + c], Is.EqualTo(mb.Normals[3 * vb + c]), a + "/" + b + " step " + step + " normal");
+                                for (int c = 0; c < 4; c++)
+                                    Assert.That(ma.Colors[4 * va + c], Is.EqualTo(mb.Colors[4 * vb + c]), a + "/" + b + " step " + step + " colour");
+                                double dot = oa.Normals[3 * va] * ob.Normals[3 * vb] + oa.Normals[3 * va + 1] * ob.Normals[3 * vb + 1] +
+                                             oa.Normals[3 * va + 2] * ob.Normals[3 * vb + 2];
+                                worstWithout = Math.Max(worstWithout, Math.Acos(Math.Min(1.0, dot)) * 180 / Math.PI);
+                            }
+                            // Overlays (roads, areas) read the same normals off the samplers along the border.
+                            for (int t = 0; t <= 8; t++)
+                            {
+                                double f = (t + 0.37) / 9.0;
+                                double x = east ? b.X0 : a.X0 + f * a.Size, z = east ? a.Z0 + f * a.Size : b.Z0;
+                                float ax, ay, az, bx, by, bz;
+                                Assert.That(ha.TrySmoothNormal(x, z, out ax, out ay, out az), Is.True);
+                                Assert.That(hb.TrySmoothNormal(x, z, out bx, out by, out bz), Is.True);
+                                Assert.That(ax, Is.EqualTo(bx).Within(1e-5));
+                                Assert.That(ay, Is.EqualTo(by).Within(1e-5));
+                                Assert.That(az, Is.EqualTo(bz).Within(1e-5));
+                            }
+                            edges++;
+                        }
+                    }
+                }
+            }
+            TestContext.WriteLine("border edges checked: {0}; worst normal mismatch without neighbours {1:0.0} deg", edges, worstWithout);
+            Assert.That(edges, Is.GreaterThan(300));
+            Assert.That(worstWithout, Is.GreaterThan(5), "the one-sided fallback still differs (the old seam)");
+
+            // Mismatched neighbours are ignored: a wrong tile in the east slot leaves the one-sided difference.
+            TileId leaf = StreamingSampleRegion.TilesAt(10)[0];
+            TileData src = StreamingSampleRegion.Tile(leaf);
+            var wrong = new TileNeighbours(null, src, null, null);
+            var m1 = new MeshData();
+            TerrainMesher.Build(src, leaf, new TerrainOptions { Step = 2, SkirtDepthM = 0, Neighbours = wrong }, m1);
+            MeshData m0 = Terrain(src, leaf, 2);
+            Assert.That(m1.Normals, Is.EqualTo(m0.Normals));
+        }
+
         /// <summary>Every tile of the sample meshes at its own area and at its four children (and a grandchild):
         /// no exceptions, finite values, unit normals, indices in range, heights in range, up-facing grid.</summary>
         [Test]

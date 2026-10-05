@@ -78,7 +78,7 @@ Pack…**), Explore opens `kathmandu_valley` instead.
    ETA (about 7.5 km and 9 minutes), with an arrow pointing along the route ahead. Follow the ribbon east. Leave it for
    a few seconds and it finds a new way.
 6. Within about 40 m of the end: confetti, "You made it to Boudhanāth Stupa!" and a Success haptic (in the editor the
-   debug box at the bottom right shows `haptic: Success (editor - not felt)`).
+   debug box, top left under the place name in Explore, shows `haptic: Success (editor - not felt)`).
 7. Press **E** to hop off (at speed it brakes first) and walk around the stupa: W walks away from the camera, A/D and S
    walk left, right and towards it; Shift sprints. **E** again hops back on (a scooter left far away rolls up to you).
 8. **Esc** pauses: Resume, Settings (Vibration, Reduce motion, Language: switch to नेपाली to see Nepali place names
@@ -88,9 +88,10 @@ Shortcut while testing: each search result also has **Teleport** (editor and dev
 you on the nearest road to it. Other debug keys (track C): **F3** free-fly camera, **T** fast time, **[ ]** an hour
 back/forward, **P** pause the clock; the HUD's debug slider (top right) sets the time of day.
 
-**Gamepad**: left stick steers (walks), right trigger throttle, left trigger brake/reverse, A walk/ride, B brake, X
-boost, Y search, Start pause, shoulders zoom, right stick look. Touch controls hide as soon as a keyboard or gamepad
-drives.
+**Gamepad**: left stick steers (walks), right trigger throttle, left trigger brake/reverse (squeezed while the right
+trigger is held it brakes; the same goes for W + S and the touch Go + Brake), A walk/ride, B brake, X boost, Y search
+(D-pad and A pick a result), Start pause (D-pad and A reach Settings and Main menu; Start also closes Search and
+Settings), shoulders zoom, right stick look. Touch controls hide as soon as a keyboard or gamepad drives.
 
 **Portrait, landscape and touch (Device Simulator)**: **Window → General → Device Simulator**, pick an iPhone 15 or a
 Pixel and press Play. Mouse clicks act as touches and the touch controls appear:

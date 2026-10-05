@@ -36,6 +36,10 @@ Shader "Ghumante/RouteRibbon"
             ZWrite Off
             ZTest LEqual
             Cull Off
+            // A stronger depth bias than the roads it lies on (WorldMaterialDefaults: Offset -1, -2). The roads'
+            // slope-scaled bias grows with distance and grazing angle and would otherwise outweigh the ribbon's few
+            // centimetres of lead, hiding the route beyond about 50 m while driving.
+            Offset -2, -4
 
             HLSLPROGRAM
             #pragma target 2.0

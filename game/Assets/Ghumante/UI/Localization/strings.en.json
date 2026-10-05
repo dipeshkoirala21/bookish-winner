@@ -64,6 +64,7 @@
   "explore.loading.title": "Getting your scooter ready",
   "explore.loading.finding": "Looking for a map to explore…",
   "explore.loading.opening": "Opening {0}…",
+  "explore.loading.opening_map": "Opening the map…",
   "explore.loading.streets": "Drawing the streets around {0}…",
   "explore.no_region.title": "No map installed yet",
   "explore.no_region.body": "Explore needs a region pack. In the Unity editor run Ghumante > Project Setup (it copies the Kathmandu sample into StreamingAssets) or Ghumante > Import Region Pack…, then press Play again.",

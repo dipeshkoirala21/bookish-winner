@@ -90,7 +90,10 @@ Shader "Ghumante/ToonLit"
             {
                 half3 n = normalize(i.normalWS);
                 float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
-                Light light = GetMainLight(shadowCoord);
+                // The overload with the position applies URP's shadow-distance fade (as URP Lit does): beyond the
+                // shadow distance the coordinate leaves the map (one cascade clamps to its edge texels, the no-op
+                // matrix past the last cascade samples texel 0), so without the fade far terrain gets random shadows.
+                Light light = GetMainLight(shadowCoord, i.positionWS, half4(1.0h, 1.0h, 1.0h, 1.0h));
                 half shadow = light.shadowAttenuation;
 
                 // Three bands (dark, mid, lit) with soft edges; cast shadows pull down to the dark band.

@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
+using Ghumante.Core.Meshing;
 using Ghumante.Core.Streaming;
 using Ghumante.World.Streaming;
 using NUnit.Framework;
@@ -418,6 +419,159 @@ namespace Ghumante.Tests.EditMode
             Assert.IsNull(c.Roads);
             Assert.AreEqual(far, c.Sampler.Grid.Area);
             Assert.Greater(c.CurvatureMarginM, 0f);
+        }
+
+        // ------------------------------------------------------------------------------------------------------
+        // Upload chunks and build pooling (dense city tiles)
+
+        /// <summary>The densest level-10 tiles of the sample: buildings layers of 170 000 to 290 000 vertices.</summary>
+        private static readonly TileId DenseLeaf = new TileId(10, 516, 161);
+
+        private static readonly TileId DenseLeaf2 = new TileId(10, 519, 162);
+
+        [Test]
+        public void DenseCityLayersAreSplitIntoUploadChunksThatRebuildTheSameTriangles()
+        {
+            Assert.IsTrue(SampleRegion.Pack.Contains(DenseLeaf));
+            StreamingConfig config = StreamingConfig.ForTier(StreamingConfig.TierMid);
+            var meshing = new MeshingSettings();
+            var b = new TileBuild();
+            b.Node = new SelectedNode(DenseLeaf, DenseLeaf);
+            TileBuild.Execute(b, SampleRegion.Pack, config, meshing, null);
+            MeshData buildings = b.Layers[TileLayers.Buildings];
+            Assert.Greater(buildings.VertexCount, 4 * TileBuild.UploadChunkVertices, "a dense city layer");
+
+            // The same layer meshed again without chunking: the reference triangles.
+            var reference = new MeshData();
+            BuildingMesher.Build(b.Source, b.Sampler, meshing.Buildings, reference);
+            Assert.AreEqual(buildings.IndexCount, reference.IndexCount);
+
+            int expectedIndex = 0, layer = -1, buildingChunks = 0;
+            for (int k = 0; k < b.Chunks.Count; k++)
+            {
+                UploadChunk c = b.Chunks[k];
+                if (c.Layer != layer)
+                {
+                    Assert.Greater(c.Layer, layer, "chunks in layer order");
+                    if (layer >= 0) Assert.AreEqual(b.Layers[layer].IndexCount, expectedIndex, "chunks cover the whole layer");
+                    layer = c.Layer;
+                    expectedIndex = 0;
+                }
+                Assert.AreEqual(expectedIndex, c.FirstIndex, "chunks are consecutive runs of triangles");
+                Assert.Greater(c.IndexCount, 0);
+                Assert.AreEqual(0, c.IndexCount % 3);
+                Assert.LessOrEqual(c.VertexCount, TileBuild.UploadChunkVertices);
+                Assert.IsTrue(c.UsesShortIndices);
+                Assert.Less(b.ChunkBytes(k), 1300000L, "about 1 MB per chunk at most");
+                MeshData m = b.Layers[c.Layer];
+                ushort[] s = b.ShortIndices[c.Layer];
+                for (int i = c.FirstIndex; i < c.FirstIndex + c.IndexCount; i++)
+                {
+                    int v = m.Indices[i];
+                    Assert.That(v, Is.InRange(0, c.VertexCount - 1));
+                    Assert.AreEqual(v, s[i]);
+                    int p = (c.FirstVertex + v) * 3;
+                    Assert.That(m.Positions[p], Is.InRange(c.MinX, c.MaxX));
+                    Assert.That(m.Positions[p + 1], Is.InRange(c.MinY, c.MaxY));
+                    Assert.That(m.Positions[p + 2], Is.InRange(c.MinZ, c.MaxZ));
+                    if (c.Layer == TileLayers.Buildings) Assert.AreEqual(reference.Indices[i], c.FirstVertex + v);
+                }
+                if (c.Layer == TileLayers.Buildings) buildingChunks++;
+                expectedIndex += c.IndexCount;
+            }
+            Assert.AreEqual(b.Layers[layer].IndexCount, expectedIndex);
+            Assert.GreaterOrEqual(buildingChunks, (buildings.VertexCount + TileBuild.UploadChunkVertices - 1) / TileBuild.UploadChunkVertices);
+            Assert.IsTrue(b.UsesShortIndices(TileLayers.Buildings), "every chunk keeps 16-bit indices");
+        }
+
+        [Test]
+        public void SplitLayerCutsAtTheVertexSpanAndIsolatesWideTriangles()
+        {
+            var m = new MeshData();
+            for (int i = 0; i < 70000; i++) m.AddVertex(i, 0, 0, 0, 1, 0, 0xFFFFFFFFu);
+            m.AddTriangle(0, 1, 2);
+            m.AddTriangle(3, 4, 5);
+            m.AddTriangle(6, 7, 8); // 0..8 spans 9 > 8 vertices: a new chunk
+            m.AddTriangle(0, 69999, 1); // wider than any chunk: alone, with 32-bit indices
+            m.AddTriangle(10, 11, 12);
+            var chunks = new List<UploadChunk>();
+            ushort[] s = null;
+            TileBuild.SplitLayer(m, TileLayers.Roads, 8, chunks, ref s);
+
+            Assert.AreEqual(4, chunks.Count);
+            int[] first = { 0, 6, 9, 12 }, count = { 6, 3, 3, 3 }, v0 = { 0, 6, 0, 10 }, vc = { 6, 3, 70000, 3 };
+            for (int k = 0; k < 4; k++)
+            {
+                Assert.AreEqual(TileLayers.Roads, chunks[k].Layer);
+                Assert.AreEqual(first[k], chunks[k].FirstIndex, "chunk " + k);
+                Assert.AreEqual(count[k], chunks[k].IndexCount, "chunk " + k);
+                Assert.AreEqual(v0[k], chunks[k].FirstVertex, "chunk " + k);
+                Assert.AreEqual(vc[k], chunks[k].VertexCount, "chunk " + k);
+            }
+            Assert.IsFalse(chunks[2].UsesShortIndices);
+            Assert.AreEqual(69999f, chunks[2].MaxX);
+            CollectionAssert.AreEqual(new[] { 0, 1, 2, 3, 4, 5, 0, 1, 2, 0, 69999, 1, 0, 1, 2 },
+                                      new ArraySegment<int>(m.Indices, 0, m.IndexCount), "indices rebased to their chunk");
+            Assert.AreEqual(2, s[14]);
+
+            // Empty layers add nothing.
+            var empty = new MeshData();
+            TileBuild.SplitLayer(empty, TileLayers.Areas, 8, chunks, ref s);
+            Assert.AreEqual(4, chunks.Count);
+        }
+
+        [Test]
+        public void UploadsStopAtTheByteBudgetAndSpreadDenseNodesOverSeveralTicks()
+        {
+            var sink = new FakeTileSink { MsPerUpload = 0 }; // the clock never runs out: only bytes limit a tick
+            TileGroundQuery ground;
+            using (StreamingScheduler s = NewScheduler(sink, StreamingConfig.TierMid, out ground))
+            {
+                s.UploadBudgetBytes = 1L << 20;
+                int ticks = 0;
+                while (!s.IsSettled)
+                {
+                    Assert.Less(ticks++, 6000, s.Stats.Format());
+                    sink.BytesThisTick = 0;
+                    sink.UploadsThisTick = 0;
+                    s.Tick(SampleRegion.ThamelX, SampleRegion.ThamelZ);
+                    if (sink.UploadsThisTick > 1)
+                        Assert.Less(sink.BytesThisTick - sink.LastChunkBytes, s.UploadBudgetBytes, "no chunk starts once the tick's bytes are spent");
+                }
+                Assert.AreEqual(0, s.Stats.Failed);
+                Assert.Greater(sink.LargestChunkBytes, s.UploadBudgetBytes / 2, "dense chunks were uploaded");
+                Assert.Less(sink.LargestChunkBytes, 1300000L);
+                Assert.Greater(sink.Uploads, s.Residency.ReadyCount, "dense nodes took several chunks");
+            }
+        }
+
+        [Test]
+        public void RecycledBuildsKeepTheBuffersOfDenseCityLayers()
+        {
+            Assert.IsTrue(SampleRegion.Pack.Contains(DenseLeaf2));
+            StreamingConfig config = StreamingConfig.ForTier(StreamingConfig.TierMid);
+            var meshing = new MeshingSettings();
+            var b = new TileBuild();
+            b.Node = new SelectedNode(DenseLeaf2, DenseLeaf2);
+            TileBuild.Execute(b, SampleRegion.Pack, config, meshing, null);
+            MeshData buildings = b.Layers[TileLayers.Buildings];
+            Assert.Greater(buildings.VertexCount, 131072, "grew past the old 131 072-vertex pool cap");
+            Assert.LessOrEqual(buildings.VertexCapacity, TileBuild.PoolKeepVertices);
+            float[] positions = buildings.Positions;
+            ushort[] shortIndices = b.ShortIndices[TileLayers.Buildings];
+
+            b.Recycle();
+            Assert.AreSame(buildings, b.Layers[TileLayers.Buildings], "the grown buffer is reused, not dropped as garbage");
+            Assert.AreSame(positions, b.Layers[TileLayers.Buildings].Positions);
+            Assert.AreSame(shortIndices, b.ShortIndices[TileLayers.Buildings]);
+            Assert.AreEqual(0, b.Layers[TileLayers.Buildings].VertexCount);
+            Assert.AreEqual(0, b.Chunks.Count);
+
+            // Building the same node again does not grow anything.
+            b.Node = new SelectedNode(DenseLeaf2, DenseLeaf2);
+            b.Source = null;
+            TileBuild.Execute(b, SampleRegion.Pack, config, meshing, null);
+            Assert.AreSame(positions, b.Layers[TileLayers.Buildings].Positions);
         }
     }
 }

@@ -88,9 +88,24 @@ namespace Ghumante.Tests.EditMode
         /// <summary>Uploads of this node throw (after creating its view), like a broken mesh would.</summary>
         public SelectedNode? ThrowFor;
 
-        public void Upload(TileBuild build, int layer)
+        /// <summary>Bytes uploaded since the counter was last reset, and the largest chunk seen.</summary>
+        public long BytesThisTick;
+
+        public long LargestChunkBytes;
+
+        public long LastChunkBytes;
+
+        public void Upload(TileBuild build, int chunk)
         {
-            Assert.IsTrue(build.HasLayer(layer), "only non-empty layers are uploaded");
+            Assert.That(chunk, Is.InRange(0, build.Chunks.Count - 1));
+            UploadChunk c = build.Chunks[chunk];
+            Assert.IsTrue(build.HasLayer(c.Layer), "only non-empty layers are uploaded");
+            Assert.Greater(c.IndexCount, 0, "only non-empty chunks are uploaded");
+            Assert.LessOrEqual(c.VertexCount, TileBuild.UploadChunkVertices);
+            long bytes = build.ChunkBytes(chunk);
+            BytesThisTick += bytes;
+            LastChunkBytes = bytes;
+            if (bytes > LargestChunkBytes) LargestChunkBytes = bytes;
             if (!Views.ContainsKey(build.Node)) Views[build.Node] = false;
             if (ThrowFor.HasValue && ThrowFor.Value == build.Node) throw new InvalidOperationException("broken mesh");
             Uploads++;

@@ -20,6 +20,11 @@ namespace Ghumante.Core.Meshing
         /// <summary>Blend steep ground into the biome's slope and rock colours.</summary>
         public bool SlopeColours = true;
 
+        /// <summary>Decoded edge neighbours of the source tile: border normals (and slope colours) then match the
+        /// neighbouring tiles' exactly. Give the same neighbours to <see cref="TileHeightSampler.ForArea(TileData,
+        /// TileId, int, TileNeighbours)"/> so overlays shade alike. None: one-sided differences on the border.</summary>
+        public TileNeighbours Neighbours;
+
         /// <summary>Automatic skirt depth for a grid spacing: twice the spacing, at least 4 m and at most 600 m
         /// (cracks between neighbouring LODs are at most a fraction of the coarser spacing's relief).</summary>
         public static float AutoSkirtDepthM(double cellM)
@@ -32,7 +37,8 @@ namespace Ghumante.Core.Meshing
     /// Terrain meshes from HGHT (ARCHITECTURE.md 7.3): the <see cref="TerrainGrid"/> of an area (the source grid
     /// cropped to the area and decimated by <see cref="TerrainOptions.Step"/>), every quad split along its
     /// (i, j)-(i+1, j+1) diagonal, smooth normals from central differences on the source grid at the step spacing
-    /// (one-sided on the source tile's border), biome colours from the nearest BIOM sample through
+    /// (across the source tile's border into <see cref="TerrainOptions.Neighbours"/>, one-sided where a neighbour is
+    /// missing), biome colours from the nearest BIOM sample through
     /// <see cref="BiomePalette"/>, and skirts hanging down on all four edges. Positions are relative to the area's
     /// south-west corner with absolute heights; adjacent areas drawn with the same step from tiles whose shared
     /// edges match (the GHT1 no-cracks invariant) produce identical edge vertices.
@@ -57,7 +63,7 @@ namespace Ghumante.Core.Meshing
             if (m == null) throw new ArgumentNullException(nameof(m));
             if (o == null) o = new TerrainOptions();
             if (!TerrainGrid.HasHeights(source)) return;
-            TerrainGrid g = TerrainGrid.For(source, area, o.Step);
+            TerrainGrid g = TerrainGrid.For(source, area, o.Step, o.Neighbours);
 
             int q = g.Quads, side = q + 1;
             float skirt = o.SkirtDepthM < 0f ? TerrainOptions.AutoSkirtDepthM(g.CellM) : o.SkirtDepthM;

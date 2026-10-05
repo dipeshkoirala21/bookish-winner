@@ -263,6 +263,15 @@
     display: flex;
 }
 
+/* While a route shows, toasts drop below its banner instead of covering it (ExploreScreen.RoutingClass). */
+.gh-root.gh-hud--routing .gh-toast {
+    top: 240px;
+}
+
+.gh-root.orient-portrait.gh-hud--routing .gh-toast {
+    top: 352px;
+}
+
 .gh-hud__route-arrow {
     width: 72px;
     height: 72px;

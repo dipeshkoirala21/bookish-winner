@@ -21,8 +21,10 @@ float3 GhEarthCurvature(float3 positionWS, float scale)
 }
 
 // Moves a world position towards the camera by pull * distance. The point stays on the same view ray, so only its
-// depth changes: overlays (roads, water) win the depth test against the terrain under them at any distance and on
-// any depth buffer format, without the slope-dependent artefacts of a polygon offset alone.
+// depth changes: overlays (roads, water) win the depth test against the terrain under them without the
+// slope-dependent artefacts of a polygon offset alone. The pull only helps while it exceeds one depth step: always on
+// floating-point reversed-Z depth, but on 24-bit UNorm depth (URP's Android default, which ProjectSetup overrides
+// where it can) a 0.0004 pull falls below a step beyond about 3 km, where the materials' polygon offset must carry it.
 float3 GhViewPull(float3 positionWS, float pull)
 {
     return positionWS + (_WorldSpaceCameraPos.xyz - positionWS) * pull;

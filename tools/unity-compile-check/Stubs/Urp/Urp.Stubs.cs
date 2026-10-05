@@ -23,10 +23,17 @@ namespace UnityEngine.Rendering.Universal
     {
     }
 
+    public enum DepthFormat
+    {
+        Default,
+        Depth_32_Stencil_8 = UnityEngine.Experimental.Rendering.GraphicsFormat.D32_SFloat_S8_UInt,
+    }
+
     public class UniversalRendererData : ScriptableRendererData
     {
         public PostProcessData postProcessData;
         public RenderingMode renderingMode { get { throw null; } set { } }
+        public DepthFormat depthAttachmentFormat { get { throw null; } set { } }
     }
 
     public class UniversalRenderPipelineAsset : RenderPipelineAsset

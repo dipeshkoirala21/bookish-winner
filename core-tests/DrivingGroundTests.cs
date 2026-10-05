@@ -217,8 +217,9 @@ namespace Ghumante.Core.Tests
             Assert.That(s.RoadClass, Is.EqualTo(RoadClass.Residential));
             Assert.That(s.RoadSurface, Is.EqualTo(Surface.Brick));
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Paved));
-            Assert.That(g.RoadLiftM(RoadClass.Residential), Is.EqualTo(0.25f + 4 * 0.008f).Within(1e-6), "the mesher's lift");
-            Assert.That(s.Height, Is.EqualTo(s.TerrainHeight + g.RoadLiftM(RoadClass.Residential)).Within(1e-4));
+            Assert.That(g.RoadLiftM(RoadClass.Residential), Is.EqualTo(0.25f + 4 * 0.008f).Within(1e-6), "the mesher's class lift");
+            Assert.That(g.RoadLiftM(t.Roads[0]), Is.EqualTo(RoadMesher.LiftOf(t.Roads[0], new RoadOptions())), "the mesher's piece lift");
+            Assert.That(s.Height, Is.EqualTo(s.TerrainHeight + g.RoadLiftM(t.Roads[0])).Within(1e-4));
             Assert.That(s.RoadHalfWidthM, Is.EqualTo(2.5f));
             Assert.That(s.RoadOffsetM, Is.EqualTo(-1f).Within(1e-3));
             Assert.That(s.RoadDirX, Is.EqualTo(1f).Within(1e-5));
@@ -226,7 +227,7 @@ namespace Ghumante.Core.Tests
             // In the margin the lift ramps down to the terrain (a kerb ramp, not a cliff).
             Assert.That(g.TrySample(x0 + 300, z0 + 502.75, out s), Is.True);
             Assert.That(s.OnRoad, Is.True);
-            Assert.That(s.Height - s.TerrainHeight, Is.EqualTo(0.5f * g.RoadLiftM(RoadClass.Residential)).Within(1e-3));
+            Assert.That(s.Height - s.TerrainHeight, Is.EqualTo(0.5f * g.RoadLiftM(t.Roads[0])).Within(1e-3));
 
             Assert.That(g.TrySample(x0 + 500, z0 + 800, out s), Is.True);
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Gravel));
@@ -284,7 +285,7 @@ namespace Ghumante.Core.Tests
             Assert.That(g.TrySample(t.Tile.X0 + 500, t.Tile.Z0 + 500, out s), Is.True);
             Assert.That(s.TerrainHeight, Is.EqualTo(1280f).Within(0.1));
             float bank = Ght.Dequantize(Ght.Quantize(1300.0));
-            Assert.That(s.Height, Is.EqualTo(bank + g.RoadLiftM(RoadClass.Secondary)).Within(1e-3), "the deck, not the river bed");
+            Assert.That(s.Height, Is.EqualTo(bank + g.RoadLiftM(t.Roads[0])).Within(1e-3), "the deck, not the river bed");
             Assert.That(s.RoadFlags & RoadFlags.Bridge, Is.EqualTo(RoadFlags.Bridge));
             Assert.That(g.TrySample(t.Tile.X0 + 500, t.Tile.Z0 + 530, out s), Is.True);
             Assert.That(s.OnRoad, Is.False);
@@ -318,7 +319,7 @@ namespace Ghumante.Core.Tests
             // Without a height hint (teleports): the deck.
             Assert.That(g.TrySample(x, z, out s), Is.True);
             Assert.That(s.RoadFlags & RoadFlags.Bridge, Is.EqualTo(RoadFlags.Bridge));
-            Assert.That(s.Height, Is.EqualTo(bank + g.RoadLiftM(RoadClass.Secondary)).Within(1e-3));
+            Assert.That(s.Height, Is.EqualTo(bank + g.RoadLiftM(t.Roads[0])).Within(1e-3));
             // From the deck: the deck.
             Assert.That(g.TrySample(x, z, 1300.3f, out s), Is.True);
             Assert.That(s.RoadClass, Is.EqualTo(RoadClass.Secondary));
@@ -326,7 +327,7 @@ namespace Ghumante.Core.Tests
             Assert.That(g.TrySample(x, z, 1280.2f, out s), Is.True);
             Assert.That(s.RoadClass, Is.EqualTo(RoadClass.Track));
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Dirt));
-            Assert.That(s.Height, Is.EqualTo(bed + g.RoadLiftM(RoadClass.Track)).Within(1e-3));
+            Assert.That(s.Height, Is.EqualTo(bed + g.RoadLiftM(t.Roads[1])).Within(1e-3));
             // Beside the track on the bed: plain riverbed under the deck.
             Assert.That(g.TrySample(x + 10, z, 1280.2f, out s), Is.True);
             Assert.That(s.OnRoad, Is.False);
@@ -389,7 +390,8 @@ namespace Ghumante.Core.Tests
             Assert.That(s.OnRoad, Is.True);
             Assert.That(s.TileLevel, Is.EqualTo(10));
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Paved));
-            Assert.That(s.Height, Is.EqualTo(s.TerrainHeight + g.RoadLiftM(s.RoadClass)).Within(1e-3));
+            // Class lift plus the piece's rank lift (0 to 6 mm).
+            Assert.That(s.Height - s.TerrainHeight, Is.InRange(g.RoadLiftM(s.RoadClass) - 1e-3f, g.RoadLiftM(s.RoadClass) + 0.007f));
             Assert.That(s.Height, Is.InRange(1290f, 1360f));
 
             // With only the level-8 tile loaded the coarse terrain answers, within metres of the leaf terrain.

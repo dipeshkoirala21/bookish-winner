@@ -15,6 +15,16 @@ namespace Ghumante.Core.Meshing
         /// <summary>Lift for the subtle land-use tints (only with <see cref="IncludeSubtle"/>).</summary>
         public float SubtleLiftM = 0.06f;
 
+        /// <summary>Extra lift per kind rank inside a family (<see cref="AreaStyle.KindRank"/>, 0..9: the more
+        /// specific kind higher, a pitch over a park over a forest), so overlapping records of one family are not
+        /// coplanar.</summary>
+        public float KindLiftStepM = 0.004f;
+
+        /// <summary>Extra lift per size rank inside a kind (<see cref="AreaMesher.SizeRank"/>, 0..3: smaller records
+        /// higher). The defaults keep the whole in-family band (9 × 4 mm + 3 × 1 mm) below the 40 mm gap between
+        /// families.</summary>
+        public float SizeLiftStepM = 0.001f;
+
         /// <summary>Also draw built-up and bare land uses as subtle tints (residential, commercial, sand, ...).</summary>
         public bool IncludeSubtle = false;
 
@@ -70,6 +80,44 @@ namespace Ghumante.Core.Meshing
             }
         }
 
+        /// <summary>
+        /// Draw order of a kind inside its family (higher draws on top where records overlap): the smaller, more
+        /// specific kinds above the broad ones. Green: forest, scrub, grassland, meadow, farmland, orchard, tea
+        /// garden, cemetery, park, pitch. Water: wetland, river, lake, pond. Subtle: glacier, scree, bare rock,
+        /// sand, residential, industrial, commercial, aerodrome, religious, pedestrian. 0 for undrawn kinds.
+        /// </summary>
+        public static int KindRank(AreaKind k)
+        {
+            switch (k)
+            {
+                case AreaKind.Forest: return 0;
+                case AreaKind.Scrub: return 1;
+                case AreaKind.Grassland: return 2;
+                case AreaKind.Meadow: return 3;
+                case AreaKind.Farmland: return 4;
+                case AreaKind.Orchard: return 5;
+                case AreaKind.TeaGarden: return 6;
+                case AreaKind.Cemetery: return 7;
+                case AreaKind.Park: return 8;
+                case AreaKind.Pitch: return 9;
+                case AreaKind.Wetland: return 0;
+                case AreaKind.WaterRiver: return 1;
+                case AreaKind.WaterLake: return 2;
+                case AreaKind.WaterPond: return 3;
+                case AreaKind.Glacier: return 0;
+                case AreaKind.Scree: return 1;
+                case AreaKind.BareRock: return 2;
+                case AreaKind.SandShingle: return 3;
+                case AreaKind.Residential: return 4;
+                case AreaKind.Industrial: return 5;
+                case AreaKind.Commercial: return 6;
+                case AreaKind.Aerodrome: return 7;
+                case AreaKind.Religious: return 8;
+                case AreaKind.Pedestrian: return 9;
+                default: return 0;
+            }
+        }
+
         public static uint Rgba(AreaKind k)
         {
             switch (k)
@@ -109,6 +157,12 @@ namespace Ghumante.Core.Meshing
     /// Surfaces drape over the terrain at a small lift. With a <see cref="TileHeightSampler"/> every AREA triangle is
     /// clipped against the rendered terrain triangles, so the surface lies exactly the lift above the ground and
     /// shades with the terrain's own normals; with another sampler triangles are subdivided uniformly.
+    /// <para>
+    /// Lift (<see cref="LiftOf"/>): the family's (water over green over subtle) plus a kind rank
+    /// (<see cref="AreaStyle.KindRank"/>) and a size rank (<see cref="SizeRank"/>), so where land-use polygons of one
+    /// family overlap (a pitch in a park, a park in a forest) the more specific, smaller one is drawn on top
+    /// instead of z-fighting. Two overlapping records of the same kind and size class remain coplanar.
+    /// </para>
     /// <para>Positions are relative to the tile's south-west corner (draw areas only for exact nodes). Appends to
     /// <see cref="MeshData"/>; returns the number of area records drawn. Thread-safe for distinct meshes.</para>
     /// </summary>
@@ -123,6 +177,37 @@ namespace Ghumante.Core.Meshing
             return a.Indices != null && a.Indices.Length >= 3;
         }
 
+        /// <summary>Lift above the terrain of a drawn record: its family's lift, plus
+        /// <see cref="AreaStyle.KindRank"/> × <see cref="AreaOptions.KindLiftStepM"/>, plus <see cref="SizeRank"/> ×
+        /// <see cref="AreaOptions.SizeLiftStepM"/>.</summary>
+        public static float LiftOf(AreaRecord a, AreaOptions o)
+        {
+            if (o == null) o = new AreaOptions();
+            AreaFamily f = AreaStyle.Family(a.Kind);
+            float lift = f == AreaFamily.Water ? o.WaterLiftM : f == AreaFamily.Green ? o.GreenLiftM : o.SubtleLiftM;
+            return lift + AreaStyle.KindRank(a.Kind) * o.KindLiftStepM + SizeRank(a) * o.SizeLiftStepM;
+        }
+
+        /// <summary>Size class of a record from the plan area of its triangles in this tile: 3 under 2 000 m²,
+        /// 2 under 20 000 m², 1 under 200 000 m², else 0 (smaller draws higher). A polygon cut by a tile border is
+        /// ranked per piece, so its lift may step by a millimetre or two at the border.</summary>
+        public static int SizeRank(AreaRecord a)
+        {
+            double twice = 0;
+            if (a.Indices != null && a.Vertices != null)
+            {
+                for (int k = 0; k + 2 < a.Indices.Length; k += 3)
+                {
+                    int i0 = a.Indices[k], i1 = a.Indices[k + 1], i2 = a.Indices[k + 2];
+                    double x0 = a.Vertices[2 * i0], z0 = a.Vertices[2 * i0 + 1];
+                    double cr = (a.Vertices[2 * i1] - x0) * (a.Vertices[2 * i2 + 1] - z0) - (a.Vertices[2 * i1 + 1] - z0) * (a.Vertices[2 * i2] - x0);
+                    twice += Math.Abs(cr);
+                }
+            }
+            double m2 = twice * 0.5 / 10000.0; // cm² to m²
+            return m2 < 2000 ? 3 : m2 < 20000 ? 2 : m2 < 200000 ? 1 : 0;
+        }
+
         public static int Build(TileData t, IHeightSampler h, AreaOptions o, MeshData m)
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
@@ -135,8 +220,7 @@ namespace Ghumante.Core.Meshing
             {
                 AreaRecord a = t.Areas[r];
                 if (!IsDrawn(a, o)) continue;
-                AreaFamily f = AreaStyle.Family(a.Kind);
-                float lift = f == AreaFamily.Water ? o.WaterLiftM : f == AreaFamily.Green ? o.GreenLiftM : o.SubtleLiftM;
+                float lift = LiftOf(a, o);
                 uint c = AreaStyle.Rgba(a.Kind);
                 for (int k = 0; k + 2 < a.Indices.Length; k += 3)
                 {

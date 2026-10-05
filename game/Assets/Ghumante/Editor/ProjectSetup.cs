@@ -173,6 +173,7 @@ namespace Ghumante.EditorTools
             Dictionary<DeviceTier, UniversalRenderPipelineAsset> pipelines = EnsureUrpAssets();
             ApplyQualityLevels(pipelines);
             GraphicsSettings.defaultRenderPipeline = pipelines[DeviceTier.High];
+            ApplyShaderStripping();
             AdvancedTextGeneratorSetting.Enable();
             PanelSettings panel = EnsurePanelSettings();
             EnsureBootstrapScene(forceRebuild: false, panelSettings: panel);
@@ -308,6 +309,7 @@ namespace Ghumante.EditorTools
                     renderer.postProcessData = postProcessData;
                 }
                 renderer.renderingMode = profile.renderingMode;
+                ConfigureRenderer(renderer);
                 EditorUtility.SetDirty(renderer);
 
                 var pipeline = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(pipelinePath);
@@ -322,7 +324,35 @@ namespace Ghumante.EditorTools
             return result;
         }
 
-        private static void ConfigurePipeline(UniversalRenderPipelineAsset pipeline, UniversalRendererData renderer,
+        /// <summary>
+        /// Renderer settings shared by every tier. The camera depth attachment is 32-bit float: URP's default on
+        /// Android is D24 UNorm, where reversed-Z gains nothing and the 0.3 m to 155 km world camera resolves only
+        /// about 15 m of depth at 10 km and 1.5 km at 100 km, so far ridgelines shimmer. URP falls back to the
+        /// default where the format is unsupported. (Applies when URP renders to an intermediate target.)
+        /// </summary>
+        public static void ConfigureRenderer(UniversalRendererData renderer)
+        {
+            if (renderer == null) throw new ArgumentNullException(nameof(renderer));
+            renderer.depthAttachmentFormat = DepthFormat.Depth_32_Stencil_8;
+        }
+
+        /// <summary>
+        /// Graphics settings shader stripping. Fog modes are Custom with only Exponential Squared kept: the world turns
+        /// fog on at runtime (WorldSky, ExponentialSquared) and no build scene uses fog, so the Automatic mode would
+        /// strip the FOG_EXP2 variants of ToonLit and RouteRibbon from player builds (the editor compiles variants on
+        /// demand and would not show it).
+        /// </summary>
+        public static void ApplyShaderStripping()
+        {
+            var so = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
+            SetInt(so, "m_FogStripping", 1); // StrippingModes: Automatic = 0, Custom = 1
+            SetBool(so, "m_FogKeepLinear", false);
+            SetBool(so, "m_FogKeepExp", false);
+            SetBool(so, "m_FogKeepExp2", true);
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        public static void ConfigurePipeline(UniversalRenderPipelineAsset pipeline, UniversalRendererData renderer,
             TierProfile p)
         {
             pipeline.renderScale = p.renderScale;
@@ -332,7 +362,10 @@ namespace Ghumante.EditorTools
             pipeline.shadowCascadeCount = p.shadowCascades;
             pipeline.mainLightShadowmapResolution = p.mainLightShadowResolution;
             pipeline.maxAdditionalLightsCount = p.maxAdditionalLights;
-            pipeline.supportsCameraDepthTexture = p.tier != DeviceTier.Low;
+            // Nothing samples _CameraDepthTexture (no soft particles, SSAO or depth effects); requesting it costs a
+            // depth prepass on GLES3 with MSAA or an MSAA depth resolve and copy elsewhere. A future consumer asks for
+            // it per camera or through its renderer feature (ConfigureInput).
+            pipeline.supportsCameraDepthTexture = false;
             pipeline.supportsCameraOpaqueTexture = false;
             pipeline.useSRPBatcher = true;
             pipeline.useAdaptivePerformance = true;

@@ -249,6 +249,57 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void RouteNameFollowsALanguageSwitchMidRoute()
+        {
+            // Regression: the destination used to be cached as an English string, so the banner and the arrival toast
+            // stayed English after switching to Nepali in Settings.
+            ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
+            screen.HideLoading();
+            var boudha = new NameRecord("Boudhanath", "Boudhanath Stupa", "बौद्धनाथ स्तूप");
+            screen.ShowRoute(boudha, "hud.route.finding");
+            Assert.AreEqual("To Boudhanath Stupa", root.Q<Label>("hud-route-to").text);
+            _localizer.SetLocale(Localizer.Nepali);
+            StringAssert.Contains("बौद्धनाथ स्तूप", root.Q<Label>("hud-route-to").text);
+            screen.CelebrateArrival(boudha);
+            StringAssert.Contains("बौद्धनाथ स्तूप", root.Q<Label>("toast").text);
+        }
+
+        [Test]
+        public void ToastsDropBelowTheRouteBanner()
+        {
+            ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
+            screen.HideLoading();
+            Assert.IsFalse(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass));
+            screen.ShowRoute("Boudhanath Stupa", "hud.route.finding");
+            Assert.IsTrue(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass), "Hud.uss moves .gh-toast down");
+            screen.HideRoute();
+            Assert.IsFalse(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass));
+        }
+
+        [Test]
+        public void PanelPillsTakeGamepadFocusButTheHudDoesNot()
+        {
+            ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
+            Assert.IsFalse(root.Q<Button>("hud-menu").focusable, "A drives the scooter; it must not press HUD buttons");
+            Assert.IsFalse(root.Q<Button>("hud-search").focusable);
+            Assert.IsTrue(root.Q<Button>("pause-resume").focusable);
+            Assert.IsTrue(root.Q<Button>("pause-settings").focusable);
+            Assert.IsTrue(root.Q<Button>("pause-menu").focusable);
+            Assert.IsTrue(root.Q<Button>("settings-done").focusable);
+            Assert.IsTrue(root.Q<Button>("search-ride-0").focusable, "the D-pad reaches the results");
+        }
+
+        [Test]
+        public void TheSearchSheetRisesAboveThePhoneKeyboard()
+        {
+            // A 2400 px tall phone, a 1000 px keyboard, a 1000-unit panel: the keyboard covers the bottom 416.7 units.
+            Assert.AreEqual(1000f - 583.333f, SearchSheet.KeyboardLift(1000f, 1000f, 1000f, 2400f), 0.01f);
+            Assert.AreEqual(0f, SearchSheet.KeyboardLift(500f, 1000f, 1000f, 2400f), "above the keyboard: no lift");
+            Assert.AreEqual(0f, SearchSheet.KeyboardLift(1000f, 1000f, 0f, 2400f), "no keyboard");
+            Assert.AreEqual(0f, SearchSheet.KeyboardLift(1000f, 0f, 1000f, 2400f), "not laid out yet");
+        }
+
+        [Test]
         public void ArrivalCelebratesWithASuccessHaptic()
         {
             var haptics = new RecordingHaptics();
