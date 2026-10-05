@@ -16,13 +16,15 @@ One csproj per asmdef, with:
   * NUnit for the EditMode tests;
   * C# 9 and .NET Standard 2.1, like Unity 6.3.
 
-Package assemblies we have no reference for (Burst, Collections, Mathematics, Input System, Addressables,
-Localization, ...) are skipped: code that starts using them fails to compile here until a stub or a
-reference package is added, which is the signal we want.
+Package assemblies we have no reference for (Burst, Collections, Mathematics, Addressables, Localization,
+...) are skipped: code that starts using them fails to compile here until a stub or a reference package is
+added, which is the signal we want. For packages that do have a stub (Input System), the asmdefs'
+versionDefines are applied from game/Packages/manifest.json, so code under those defines is compiled too.
 """
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -31,16 +33,21 @@ from xml.sax.saxutils import escape
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 GAME = REPO / "game" / "Assets" / "Ghumante"
+MANIFEST = REPO / "game" / "Packages" / "manifest.json"
 OUT = HERE / "generated"
 
 STUB_PROJECTS = {
     "UnityEditor": HERE / "Stubs" / "UnityEditor" / "UnityEditor.csproj",
     "Unity.RenderPipelines.Universal.Runtime": HERE / "Stubs" / "Urp" / "Unity.RenderPipelines.Universal.Runtime.csproj",
     "Unity6": HERE / "Stubs" / "Unity6" / "Unity6.Stubs.csproj",
+    "Unity.InputSystem": HERE / "Stubs" / "InputSystem" / "Unity.InputSystem.csproj",
 }
+# Packages compiled against a stub above: an asmdef's versionDefines for them are applied (Unity sets them
+# when the package is installed at a matching version), so the code they guard is compiled here too.
+STUBBED_PACKAGES = {"com.unity.inputsystem"}
 # Package assemblies that resolve to nothing we can compile against yet.
 KNOWN_UNAVAILABLE = {
-    "Unity.Burst", "Unity.Collections", "Unity.Mathematics", "Unity.InputSystem", "Unity.Addressables",
+    "Unity.Burst", "Unity.Collections", "Unity.Mathematics", "Unity.Addressables",
     "Unity.ResourceManager", "Unity.Localization", "Unity.AdaptivePerformance",
     "Unity.RenderPipelines.Core.Runtime",  # its few types we touch live in UnityEngine.CoreModule
     "Unity.RenderPipelines.GPUDriven.Runtime",  # declares interfaces URP's asset implements; we call none
@@ -56,6 +63,49 @@ def asmdefs() -> dict[str, tuple[Path, dict]]:
     return found
 
 
+def _version(text: str) -> tuple[int, ...]:
+    parts = [int(n) for n in re.findall(r"\d+", text.split("-")[0])[:4]]
+    return tuple(parts + [0] * (4 - len(parts)))  # "2.0" == "2.0.0"
+
+
+def satisfies(version: str, expression: str) -> bool | None:
+    """Unity's versionDefines expression syntax: "1.2" means >= 1.2; "[a,b]", "(a,b)", "[a,)" and the like
+    are intervals; "[1.2]" is exactly 1.2. Returns None for an expression this does not understand."""
+    expr = expression.replace(" ", "")
+    if not expr:
+        return True
+    v = _version(version)
+    if re.fullmatch(r"[\d.]+", expr):
+        return v >= _version(expr)
+    m = re.fullmatch(r"([\[(])([\d.]*)(?:,([\d.]*))?([\])])", expr)
+    if not m:
+        return None
+    lo_inc, lo, hi, hi_inc = m.group(1) == "[", m.group(2), m.group(3), m.group(4) == "]"
+    if hi is None:  # "[1.2]": exactly this version
+        return v == _version(lo)
+    if lo and (v < _version(lo) or (v == _version(lo) and not lo_inc)):
+        return False
+    if hi and (v > _version(hi) or (v == _version(hi) and not hi_inc)):
+        return False
+    return True
+
+
+def version_defines(name: str, data: dict, packages: dict[str, str], notes: list[str]) -> list[str]:
+    """The versionDefines of an asmdef that Unity would set, for the packages we compile against."""
+    defines: list[str] = []
+    for vd in data.get("versionDefines", []):
+        package, define = vd.get("name", ""), vd.get("define", "")
+        if package not in STUBBED_PACKAGES or not define or package not in packages:
+            continue
+        ok = satisfies(packages[package], vd.get("expression", ""))
+        if ok is None:
+            notes.append(f"{name}: versionDefines expression '{vd.get('expression')}' for {package} not understood; "
+                         f"{define} not set")
+        elif ok:
+            defines.append(define)
+    return defines
+
+
 def sources_for(asmdef_path: Path, all_asmdef_dirs: list[Path]) -> str:
     """Compile items: every .cs under the asmdef folder, minus nested asmdef folders."""
     folder = asmdef_path.parent
@@ -69,6 +119,7 @@ def sources_for(asmdef_path: Path, all_asmdef_dirs: list[Path]) -> str:
 
 def main() -> int:
     graph = asmdefs()
+    packages = json.loads(MANIFEST.read_text(encoding="utf-8")).get("dependencies", {})
     if not graph:
         print("no asmdef files found under", GAME, file=sys.stderr)
         return 1
@@ -112,6 +163,7 @@ def main() -> int:
         # Player assemblies are compiled once per mobile platform (run.sh passes UnityPlatformDefine=UNITY_ANDROID,
         # then UNITY_IOS) so platform #if branches are checked too; editor assemblies see UNITY_EDITOR.
         defines += ["UNITY_EDITOR", "UNITY_INCLUDE_TESTS"] if editor_only else ["DEVELOPMENT_BUILD", "$(UnityPlatformDefine)"]
+        defines += version_defines(name, data, packages, notes)
         unity_import = "" if no_engine else '  <Import Project="$(MSBuildThisFileDirectory)../../UnityEngine.props" />\n'
         csproj = f'''<Project Sdk="Microsoft.NET.Sdk">
   <!-- GENERATED by tools/unity-compile-check/generate.py from {path.relative_to(REPO)}. Do not edit. -->

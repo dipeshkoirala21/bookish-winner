@@ -10,7 +10,7 @@ namespace Ghumante.Platform.Haptics
     /// <summary>
     /// Android haptics through JNI, without a Java plugin. Each kind takes one of two paths:
     /// <list type="table">
-    /// <item><term>Selection</term><description>View.performHapticFeedback(CLOCK_TICK)</description></item>
+    /// <item><term>Selection</term><description>View.performHapticFeedback(CONTEXT_CLICK)</description></item>
     /// <item><term>LightImpact</term><description>View.performHapticFeedback(KEYBOARD_TAP)</description></item>
     /// <item><term>MediumImpact</term><description>Vibrator, VibrationEffect.EFFECT_CLICK</description></item>
     /// <item><term>HeavyImpact</term><description>Vibrator, EFFECT_HEAVY_CLICK</description></item>
@@ -23,25 +23,39 @@ namespace Ghumante.Platform.Haptics
     /// off: there is no Vibrator fallback when performHapticFeedback declines. The bigger moments use the
     /// Vibrator with predefined effects (API 29, our minSdk), which the OEM tunes for its motor and replaces
     /// with a plain buzz where the vibrator HAL lacks them, so a reward feels the same on every supported
-    /// Android version. CONFIRM / REJECT (API 30+) are not used: on AOSP, CONFIRM plays the same EFFECT_CLICK
-    /// as a key tap, so a reward would feel like a button press, and API 29 would need another mapping
-    /// anyway. The Android "Vibration &amp; haptics" master switch silences both paths.</para>
+    /// Android version. The Android "Vibration &amp; haptics" master switch silences both paths.</para>
+    /// <para>Selection uses CONTEXT_CLICK (API 23), which AOSP plays as EFFECT_TICK on every API from 29 to 36:
+    /// a crisp tick like iOS selectionChanged. CLOCK_TICK is not used: current AOSP plays it as
+    /// EFFECT_TEXTURE_TICK, the faint tick meant for continuous slider or drag feedback, which is barely felt
+    /// on many phones.</para>
+    /// <para>Permission: Vibrator.vibrate needs android.permission.VIBRATE (performHapticFeedback does not).
+    /// The Editor build hook <c>Ghumante.EditorTools.AndroidVibratePermission</c> declares it in every
+    /// Android build (Unity would add it only for a script that calls Handheld.Vibrate). It is a normal
+    /// install-time permission, so there is no prompt. It is still checked once at start-up
+    /// (Context.checkSelfPermission) as a safety net: without it, or if VibrationEffect objects cannot be
+    /// created, the Vibrator kinds fall back to the View with the nearest HapticFeedbackConstants:
+    /// MediumImpact VIRTUAL_KEY, HeavyImpact LONG_PRESS, Success CONFIRM, Warning and Error REJECT (API 30+;
+    /// on API 29 VIRTUAL_KEY and LONG_PRESS). CONFIRM / REJECT are only a fallback because on AOSP CONFIRM
+    /// plays the same EFFECT_CLICK as a key tap, so a reward would feel like a button press.</para>
     /// <para>Threading: requests are handed to the Android UI thread (Activity.runOnUiThread), where View
     /// calls must run. The Vibrator is called there too, so the Unity main thread never waits on a binder
     /// call. A request that arrives before the UI thread ran the previous one replaces it (latest wins; the
     /// gate keeps requests at least 35 ms apart, so this is rare).</para>
-    /// <para>Permission: Vibrator.vibrate needs android.permission.VIBRATE (performHapticFeedback does not).
-    /// Unity adds that permission to the manifest because this assembly references
-    /// <see cref="Handheld.Vibrate"/>, the legacy fallback used only when VibrationEffect objects cannot be
-    /// created. Keep that reference.</para>
     /// <para>Every Java object is created once and cached; <see cref="GatedHaptics.Dispose"/>, which runs on
     /// Application.quitting, releases them.</para>
     /// </summary>
     public sealed class AndroidHaptics : GatedHaptics
     {
-        // android.view.HapticFeedbackConstants
+        // android.view.HapticFeedbackConstants (CONTEXT_CLICK: API 23; CONFIRM and REJECT: API 30)
+        private const int FeedbackLongPress = 0;
+        private const int FeedbackVirtualKey = 1;
         private const int FeedbackKeyboardTap = 3;
-        private const int FeedbackClockTick = 4;
+        private const int FeedbackContextClick = 6;
+        private const int FeedbackConfirm = 16;
+        private const int FeedbackReject = 17;
+
+        private const string VibratePermission = "android.permission.VIBRATE";
+        private const int PermissionGranted = 0; // PackageManager.PERMISSION_GRANTED
 
         // android.os.VibrationEffect predefined effects (API 29)
         private const int EffectClick = 0;
@@ -61,8 +75,7 @@ namespace Ghumante.Platform.Haptics
         private readonly object _sync = new object();
         private readonly AndroidJavaObject[] _effects = new AndroidJavaObject[KindCount];
         private readonly object[][] _vibrateArgs = new object[KindCount][];
-        private readonly object[] _clockTickArgs = { FeedbackClockTick };
-        private readonly object[] _keyboardTapArgs = { FeedbackKeyboardTap };
+        private readonly object[][] _feedbackArgs = new object[KindCount][];
         private AndroidJavaObject _activity;
         private AndroidJavaObject _vibrator;
         private AndroidJavaObject _decorView;
@@ -92,22 +105,11 @@ namespace Ghumante.Platform.Haptics
             get { return _hasVibrator; }
         }
 
-        /// <summary>Main thread: hands the request to the UI thread (or the legacy vibrate).</summary>
+        /// <summary>Main thread: hands the request to the UI thread.</summary>
         protected override bool PlayNative(HapticKind kind)
         {
             int k = (int)kind;
             if (!_hasVibrator || _released || k < 0 || k >= KindCount) return false;
-
-            bool viewPath = kind == HapticKind.Selection || kind == HapticKind.LightImpact;
-            if (!viewPath && _vibrateArgs[k] == null)
-            {
-                // VibrationEffect could not be created. Handheld.Vibrate is one long fixed buzz, so it is kept
-                // for the big moments only.
-                if (kind < HapticKind.HeavyImpact) return false;
-                Handheld.Vibrate();
-                return true;
-            }
-
             if (Interlocked.Exchange(ref _pending, k) == NoRequest)
             {
                 try
@@ -143,25 +145,43 @@ namespace Ghumante.Platform.Haptics
                 return;
             }
 
-            try
+            bool api30 = sdk >= 30;
+            SetFeedback(HapticKind.Selection, FeedbackContextClick);
+            SetFeedback(HapticKind.LightImpact, FeedbackKeyboardTap);
+            SetFeedback(HapticKind.MediumImpact, FeedbackVirtualKey);
+            SetFeedback(HapticKind.HeavyImpact, FeedbackLongPress);
+            SetFeedback(HapticKind.Success, api30 ? FeedbackConfirm : FeedbackVirtualKey);
+            SetFeedback(HapticKind.Warning, api30 ? FeedbackReject : FeedbackLongPress);
+            SetFeedback(HapticKind.Error, api30 ? FeedbackReject : FeedbackLongPress);
+
+            if (_activity.Call<int>("checkSelfPermission", VibratePermission) != PermissionGranted)
             {
-                using (var effect = new AndroidJavaClass("android.os.VibrationEffect"))
-                {
-                    // Selection and LightImpact normally use the View; these are for when it is unavailable.
-                    SetEffect(HapticKind.Selection, effect.CallStatic<AndroidJavaObject>("createPredefined", EffectTick));
-                    SetEffect(HapticKind.LightImpact, effect.CallStatic<AndroidJavaObject>("createPredefined", EffectClick));
-                    SetEffect(HapticKind.MediumImpact, effect.CallStatic<AndroidJavaObject>("createPredefined", EffectClick));
-                    SetEffect(HapticKind.HeavyImpact, effect.CallStatic<AndroidJavaObject>("createPredefined", EffectHeavyClick));
-                    SetEffect(HapticKind.Success, effect.CallStatic<AndroidJavaObject>("createPredefined", EffectDoubleClick));
-                    SetEffect(HapticKind.Warning, effect.CallStatic<AndroidJavaObject>("createWaveform", WarningTimings, -1));
-                    SetEffect(HapticKind.Error, effect.CallStatic<AndroidJavaObject>("createWaveform", ErrorTimings, -1));
-                }
+                Debug.LogWarning("AndroidHaptics: " + VibratePermission + " is not granted (missing from the " +
+                                 "manifest? AndroidVibratePermission adds it at build time); every kind uses " +
+                                 "View haptic feedback constants.");
             }
-            catch (Exception e)
+            else
             {
-                Debug.LogWarning("AndroidHaptics: VibrationEffect unavailable, falling back to Handheld.Vibrate for " +
-                                 "the big moments: " + e.Message);
-                ReleaseEffects();
+                try
+                {
+                    using (var effect = new AndroidJavaClass("android.os.VibrationEffect"))
+                    {
+                        // Selection and LightImpact normally use the View; these are for when it is unavailable.
+                        SetEffect(HapticKind.Selection, Predefined(effect, EffectTick));
+                        SetEffect(HapticKind.LightImpact, Predefined(effect, EffectClick));
+                        SetEffect(HapticKind.MediumImpact, Predefined(effect, EffectClick));
+                        SetEffect(HapticKind.HeavyImpact, Predefined(effect, EffectHeavyClick));
+                        SetEffect(HapticKind.Success, Predefined(effect, EffectDoubleClick));
+                        SetEffect(HapticKind.Warning, Waveform(effect, WarningTimings));
+                        SetEffect(HapticKind.Error, Waveform(effect, ErrorTimings));
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning("AndroidHaptics: VibrationEffect unavailable, every kind uses View haptic " +
+                                     "feedback constants: " + e.Message);
+                    ReleaseEffects();
+                }
             }
 
             _runnable = new UiThreadRunnable(this);
@@ -173,12 +193,30 @@ namespace Ghumante.Platform.Haptics
             if (sdk >= 31)
             {
                 // Context.getSystemService("vibrator") is deprecated from API 31 in favour of VibratorManager.
-                using (AndroidJavaObject manager = context.Call<AndroidJavaObject>("getSystemService", "vibrator_manager"))
+                using (AndroidJavaObject manager =
+                       context.Call<AndroidJavaObject>("getSystemService", "vibrator_manager"))
                 {
                     if (manager != null) return manager.Call<AndroidJavaObject>("getDefaultVibrator");
                 }
             }
             return context.Call<AndroidJavaObject>("getSystemService", "vibrator");
+        }
+
+        /// <summary>VibrationEffect.createPredefined(effectId), API 29.</summary>
+        private static AndroidJavaObject Predefined(AndroidJavaClass effect, int effectId)
+        {
+            return effect.CallStatic<AndroidJavaObject>("createPredefined", effectId);
+        }
+
+        /// <summary>VibrationEffect.createWaveform(timings, -1): played once, at the default amplitude.</summary>
+        private static AndroidJavaObject Waveform(AndroidJavaClass effect, long[] timings)
+        {
+            return effect.CallStatic<AndroidJavaObject>("createWaveform", timings, -1);
+        }
+
+        private void SetFeedback(HapticKind kind, int feedbackConstant)
+        {
+            _feedbackArgs[(int)kind] = new object[] { feedbackConstant };
         }
 
         private void SetEffect(HapticKind kind, AndroidJavaObject effect)
@@ -198,7 +236,7 @@ namespace Ghumante.Platform.Haptics
                 lock (_sync)
                 {
                     if (_released || Faulted) return;
-                    PlayOnUiThread((HapticKind)k);
+                    PlayOnUiThread(k);
                 }
             }
             catch (Exception e)
@@ -207,21 +245,21 @@ namespace Ghumante.Platform.Haptics
             }
         }
 
-        private void PlayOnUiThread(HapticKind kind)
+        private void PlayOnUiThread(int k)
         {
-            if (kind == HapticKind.Selection || kind == HapticKind.LightImpact)
+            object[] vibrate = _vibrateArgs[k];
+            bool touchKind = k == (int)HapticKind.Selection || k == (int)HapticKind.LightImpact;
+            if (touchKind || vibrate == null)
             {
                 AndroidJavaObject view = DecorView();
                 if (view != null)
                 {
                     // Returns false when the player turned touch feedback off: respected, no fallback.
-                    view.Call<bool>("performHapticFeedback",
-                                    kind == HapticKind.Selection ? _clockTickArgs : _keyboardTapArgs);
+                    view.Call<bool>("performHapticFeedback", _feedbackArgs[k]);
                     return;
                 }
             }
-            object[] args = _vibrateArgs[(int)kind];
-            if (args != null) _vibrator.Call("vibrate", args);
+            if (vibrate != null) _vibrator.Call("vibrate", vibrate);
         }
 
         /// <summary>The window's decor view, looked up once on the UI thread (under <see cref="_sync"/>).</summary>

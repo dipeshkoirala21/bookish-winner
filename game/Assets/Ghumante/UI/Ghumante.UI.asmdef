@@ -2,7 +2,8 @@
     "name": "Ghumante.UI",
     "rootNamespace": "Ghumante.UI",
     "references": [
-        "Ghumante.Core"
+        "Ghumante.Core",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -11,6 +12,12 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "GHUMANTE_INPUT_SYSTEM"
+        }
+    ],
     "noEngineReferences": false
 }

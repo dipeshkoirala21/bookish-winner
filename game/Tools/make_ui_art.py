@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the placeholder UI art (icons + menu background) used by Ghumante.uss.
+"""Generate the placeholder UI art (icons, menu background, living-menu layers and sprites) used by Ghumante.uss.
 
     python game/Tools/make_ui_art.py
 
@@ -185,6 +185,360 @@ def background():
     print("wrote", (OUT / "background-himalaya.png").relative_to(ROOT))
 
 
+# ----- Living main-menu backdrop (UI/Motion/LivingBackdrop.cs) ------------------------------------------
+# The menu splits the old single background into parallax layers that move independently (tilt, drift,
+# flutter). Layers are drawn at 2x the size they are shown at on a 1080p-class phone and have transparent
+# skies so they stack: sky < sun < clouds < birds < mountains < hills < prayer flags < foreground.
+
+LAYER_W = 2560   # drawing space (x2 supersampled); exports are at most 2048 px, the UI importer's max size
+OUT_W = 2048
+SKY_TOP, SKY_BOTTOM = (108, 200, 245), (224, 246, 255)
+INK = (91, 55, 20, 255)
+
+
+def _save_rgba(img: Image.Image, name: str, size: tuple[int, int]) -> None:
+    img.resize(size, Image.LANCZOS).save(OUT / name, optimize=True)
+    print("wrote", (OUT / name).relative_to(ROOT))
+
+
+def _vgradient(d: ImageDraw.ImageDraw, box, top, bottom) -> None:
+    x0, y0, x1, y1 = box
+    for y in range(int(y0), int(y1)):
+        t = (y - y0) / max(1, (y1 - y0 - 1))
+        d.line([(x0, y), (x1, y)], fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(len(top))))
+
+
+def sky_layer() -> None:
+    """Vertical sky gradient, stretched to the screen by USS (tiny texture)."""
+    img = Image.new("RGB", (8, 512))
+    _vgradient(ImageDraw.Draw(img), (0, 0, 8, 512), SKY_TOP, SKY_BOTTOM)
+    img.save(OUT / "bg-sky.png", optimize=True)
+    print("wrote", (OUT / "bg-sky.png").relative_to(ROOT))
+
+
+def sun_layer() -> None:
+    """Cartoon sun with rounded rays; the rays turn slowly at runtime."""
+    n = 256 * SS
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    c = n / 2
+    glow = Image.new("L", (n, n), 0)
+    gd = ImageDraw.Draw(glow)
+    for r in range(int(c), 0, -SS * 2):
+        a = int(110 * (1 - r / c) ** 1.6)
+        gd.ellipse([c - r, c - r, c + r, c + r], fill=a)
+    img.paste((255, 244, 200, 255), (0, 0), glow)
+    d = ImageDraw.Draw(img)
+    for i in range(12):
+        a0 = i * math.pi * 2 / 12
+        tip = 0.46 * n
+        base = 0.30 * n
+        half = math.pi / 26
+        pts = [(c + base * math.cos(a0 - half), c + base * math.sin(a0 - half)),
+               (c + tip * math.cos(a0), c + tip * math.sin(a0)),
+               (c + base * math.cos(a0 + half), c + base * math.sin(a0 + half))]
+        d.polygon(pts, fill=(255, 214, 90, 235))
+    r = 0.26 * n
+    d.ellipse([c - r, c - r, c + r, c + r], fill=(255, 205, 60, 255), outline=(240, 160, 30, 255), width=3 * SS)
+    r2 = 0.19 * n
+    d.ellipse([c - r2 - 0.03 * n, c - r2 - 0.04 * n, c + r2 - 0.03 * n, c + r2 - 0.04 * n], fill=(255, 226, 120, 255))
+    _save_rgba(img, "bg-sun.png", (256, 256))
+
+
+def _peak(img: Image.Image, rng: random.Random, px: float, py: float, sl: float, sr: float, base: float,
+          body, shadow, snow, snow_shadow, snow_frac: float, jag: float) -> None:
+    """One cartoon peak: a tent with jagged flanks, the right-hand face in shadow, and a snow cap with a
+    zig-zag lower edge. Peaks are drawn back to front, so later (lower) peaks overlap earlier ones."""
+    W, H = img.size
+    left_foot = px - (base - py) / sl
+    right_foot = px + (base - py) / sr
+
+    def flank(x0, y0, x1, y1, n=10):
+        pts = []
+        for i in range(1, n):
+            t = i / n
+            pts.append((x0 + (x1 - x0) * t + rng.uniform(-jag, jag), y0 + (y1 - y0) * t + rng.uniform(-jag, jag) * 0.5))
+        return pts
+
+    left = flank(left_foot, base, px, py)
+    right = flank(px, py, right_foot, base)
+    # Below the feet the flanks keep their slope down to the image edge, so overlapping peaks show no seams.
+    left_bottom = left_foot - (H - base) / sl
+    right_bottom = right_foot + (H - base) / sr
+    outline = [(left_bottom, H), (left_foot, base)] + left + [(px, py)] + right + [(right_foot, base), (right_bottom, H)]
+    shape = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(shape).polygon(outline, fill=255)
+    img.paste(body, (0, 0), shape)
+
+    split_x = px + (right_foot - px) * 0.18
+    face = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(face).polygon([(px, py)] + right + [(right_foot, base), (right_bottom, H), (split_x, H)], fill=255)
+    face = Image.composite(face, Image.new("L", (W, H), 0), shape)
+    img.paste(shadow, (0, 0), face)
+
+    depth = (base - py) * snow_frac
+    lx, rx = px - depth / sl, px + depth / sr
+    zig = []
+    steps = 8
+    for i in range(steps + 1):
+        t = i / steps
+        dy = 0 if i in (0, steps) else (rng.uniform(0.05, 0.22) if i % 2 else -rng.uniform(0.02, 0.12)) * depth
+        zig.append((lx + (rx - lx) * t, py + depth + dy))
+    cap = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(cap).polygon([(px, py - 6)] + [(lx - jag, py + depth)] + zig + [(rx + jag, py + depth)], fill=255)
+    cap = Image.composite(cap, Image.new("L", (W, H), 0), shape)
+    img.paste(snow, (0, 0), cap)
+    img.paste(snow_shadow, (0, 0), Image.composite(cap, Image.new("L", (W, H), 0), face))
+
+
+def mountains_layer() -> None:
+    """Snow-capped Himalaya with a hazy far range behind. The hero peak (a fishtail double summit, after
+    Machhapuchhre) sits in the middle of the image, which is what a portrait screen shows."""
+    W, H = LAYER_W * 2, 896 * 2
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    rng = random.Random(8091)
+    far_body, far_shadow = (184, 205, 236, 255), (163, 187, 226, 255)
+    far_snow, far_snow_shadow = (246, 250, 255, 255), (222, 232, 248, 255)
+    far = [(x + rng.uniform(-120, 120), rng.uniform(520, 700), rng.uniform(0.8, 1.05), rng.uniform(0.8, 1.05))
+           for x in range(-100, W + 300, 520)]
+    for px, py, sl, sr in sorted(far, key=lambda p: p[1]):
+        _peak(img, rng, px, py, sl, sr, 1320, far_body, far_shadow, far_snow, far_snow_shadow, 0.32, 9)
+
+    body, shadow = (141, 170, 214, 255), (103, 128, 184, 255)
+    snow, snow_shadow = (255, 255, 255, 255), (208, 222, 244, 255)
+    near = [
+        (2470, 150, 1.45, 1.6), (2640, 250, 1.7, 1.45),            # hero: fishtail double summit
+        (1650, 380, 1.15, 1.2), (3420, 400, 1.1, 1.05), (560, 470, 1.0, 1.1), (4560, 430, 1.05, 1.0),
+        (1080, 640, 0.95, 1.0), (3980, 620, 1.0, 0.95), (5150, 600, 0.95, 1.0), (60, 640, 1.0, 1.0),
+        (2050, 760, 0.9, 1.0), (2980, 780, 1.0, 0.9),
+    ]
+    for px, py, sl, sr in sorted(near, key=lambda p: p[1]):
+        _peak(img, rng, px, py, sl, sr, 1560, body, shadow, snow, snow_shadow, 0.34, 12)
+
+    # Haze at the foot so the range sinks into the valley air.
+    haze = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(haze)
+    for y in range(int(H * 0.6), H):
+        t = (y - H * 0.6) / (H * 0.4)
+        hd.line([(0, y), (W, y)], fill=(214, 238, 252, int(170 * t * t)))
+    alpha = img.getchannel("A")
+    img = Image.alpha_composite(img, Image.composite(haze, Image.new("RGBA", (W, H), (0, 0, 0, 0)), alpha))
+    _save_rgba(img, "bg-mountains.png", (OUT_W, round(896 * OUT_W / LAYER_W)))
+    # Portrait shows only the middle of the range, scaled up; a separate, sharper centre crop (aspect 1.1, so
+    # an upright iPad still sees the summit) keeps the hero peak crisp (ASSET_MANIFEST.md 12: two crops).
+    crop_w = int(H * 1.1)
+    centre = W // 2
+    _save_rgba(img.crop((centre - crop_w // 2, 0, centre + crop_w // 2, H)), "bg-mountains-portrait.png", (1408, 1280))
+
+
+def _tree(d: ImageDraw.ImageDraw, x: float, y: float, s: float, dark, light) -> None:
+    d.rectangle([x - 5 * s, y - 10 * s, x + 5 * s, y + 22 * s], fill=(110, 76, 44, 255))
+    d.ellipse([x - 30 * s, y - 70 * s, x + 30 * s, y - 4 * s], fill=dark)
+    d.ellipse([x - 22 * s, y - 64 * s, x + 6 * s, y - 34 * s], fill=light)
+
+
+def _house(d: ImageDraw.ImageDraw, x: float, y: float, s: float, wall) -> None:
+    """A small Kathmandu-valley house: brick or whitewashed walls, dark tiled roof, carved window."""
+    w, h = 90 * s, 70 * s
+    d.rectangle([x - w / 2, y - h, x + w / 2, y], fill=wall)
+    d.polygon([(x - w / 2 - 16 * s, y - h), (x, y - h - 46 * s), (x + w / 2 + 16 * s, y - h)], fill=(96, 56, 38, 255))
+    d.rectangle([x - 14 * s, y - h + 16 * s, x + 14 * s, y - h + 40 * s], fill=(72, 44, 28, 255))
+    d.rectangle([x - 9 * s, y - 26 * s, x + 9 * s, y], fill=(72, 44, 28, 255))
+
+
+def hills_layer() -> None:
+    """Rolling green middle hills with terrace lines, trees and a few houses."""
+    W, H = LAYER_W * 2, 640 * 2
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    def hill_y(x: float, base: float, amp: float, phase: float) -> float:
+        return base - amp * (0.55 * math.sin(x / 640 + phase) + 0.30 * math.sin(x / 260 + 2 * phase) + 0.15 * math.sin(x / 120))
+
+    back = [(x, hill_y(x, 430, 150, 0.7)) for x in range(0, W + 1, 8)]
+    d.polygon([(0, H)] + back + [(W, H)], fill=(132, 204, 96, 255))
+    # Terraces: curved strokes following the hill.
+    for k in range(1, 9):
+        pts = [(x, y + k * 62 + 10 * math.sin(x / 90 + k)) for x, y in back if (x // 900) % 2 == 0]
+        for i in range(0, len(pts) - 1):
+            if pts[i + 1][0] - pts[i][0] == 8:
+                d.line([pts[i], pts[i + 1]], fill=(112, 184, 80, 255), width=5)
+    front = [(x, hill_y(x, 760, 120, 2.1)) for x in range(0, W + 1, 8)]
+    d.polygon([(0, H)] + front + [(W, H)], fill=(112, 190, 82, 255))
+    rng = random.Random(2072)
+    for x in range(160, W, 380):
+        xx = x + rng.uniform(-80, 80)
+        _tree(d, xx, hill_y(xx, 760, 120, 2.1) + 20, rng.uniform(0.9, 1.3), (64, 140, 58, 255), (96, 172, 74, 255))
+    for xx, wall in ((1010, (178, 74, 52, 255)), (1150, (246, 238, 220, 255)), (3720, (178, 74, 52, 255)),
+                     (4430, (246, 238, 220, 255))):
+        _house(d, xx, hill_y(xx, 760, 120, 2.1) + 34, 1.25, wall)
+    _save_rgba(img, "bg-hills.png", (OUT_W, round(640 * OUT_W / LAYER_W)))
+
+
+def foreground_layer() -> None:
+    """Front meadow with rhododendron (Nepal's national flower) and mustard-yellow flowers."""
+    W, H = LAYER_W * 2, 420 * 2
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    edge = [(x, 300 - 70 * math.sin(x / 520 + 1.3) - 30 * math.sin(x / 170)) for x in range(0, W + 1, 8)]
+    d.polygon([(0, H)] + edge + [(W, H)], fill=(84, 164, 60, 255))
+    lip = [(x, y + 26) for x, y in edge]
+    d.polygon(edge + lip[::-1], fill=(104, 186, 72, 255))
+    rng = random.Random(4011)
+    for _ in range(140):
+        x = rng.uniform(0, W)
+        y0 = 300 - 70 * math.sin(x / 520 + 1.3) - 30 * math.sin(x / 170)
+        y = rng.uniform(y0 + 60, H - 30)
+        r = rng.uniform(9, 15)
+        col = (232, 62, 74, 255) if rng.random() < 0.6 else (255, 206, 54, 255)
+        for a in range(5):
+            ang = a * math.pi * 2 / 5
+            d.ellipse([x + r * math.cos(ang) - r * 0.7, y + r * math.sin(ang) - r * 0.7,
+                       x + r * math.cos(ang) + r * 0.7, y + r * math.sin(ang) + r * 0.7], fill=col)
+        d.ellipse([x - r * 0.45, y - r * 0.45, x + r * 0.45, y + r * 0.45], fill=(255, 244, 200, 255))
+    for x in range(40, W, 150):
+        y = 300 - 70 * math.sin(x / 520 + 1.3) - 30 * math.sin(x / 170) + 30
+        for k in (-1, 0, 1):
+            d.line([(x, y), (x + 14 * k, y - 34)], fill=(70, 146, 50, 255), width=7)
+    _save_rgba(img, "bg-front.png", (OUT_W, round(420 * OUT_W / LAYER_W)))
+
+
+def cloud_sprite(name: str, puffs, size: tuple[int, int]) -> None:
+    w, h = size
+    W, H = w * SS, h * SS
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    k = W / w
+    for cx, cy, r in puffs:  # shade first, offset down
+        d.ellipse([(cx - r) * k, (cy - r + 6) * k, (cx + r) * k, (cy + r + 6) * k], fill=(206, 228, 246, 255))
+    for cx, cy, r in puffs:
+        d.ellipse([(cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k], fill=(255, 255, 255, 255))
+    d.rectangle([puffs[0][0] * k, (h * 0.62) * k, puffs[-1][0] * k, (h * 0.80) * k], fill=(255, 255, 255, 255))
+    _save_rgba(img, name, (w * 2, h * 2))  # shown at w x h panel units: 2x density, like the icons
+
+
+def bird_sprite() -> None:
+    """A gliding bird: two arcs (the classic cartoon "m"). Wings flap at runtime by scaling it vertically."""
+    img = Image.new("RGBA", (96 * SS, 48 * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    s = SS
+    d.arc([6 * s, 10 * s, 50 * s, 50 * s], 200, 330, fill=(58, 48, 70, 255), width=6 * s)
+    d.arc([46 * s, 10 * s, 90 * s, 50 * s], 210, 340, fill=(58, 48, 70, 255), width=6 * s)
+    d.ellipse([44 * s, 18 * s, 52 * s, 26 * s], fill=(58, 48, 70, 255))
+    _save_rgba(img, "bird.png", (96, 48))
+
+
+def prayer_flag() -> None:
+    """One lungta flag in white with grey block-print marks; USS tints it blue/white/red/green/yellow."""
+    w, h = 64, 80
+    W, H = w * SS, h * SS
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    s = SS
+    d.rectangle([2 * s, 6 * s, 62 * s, 78 * s], fill=(255, 255, 255, 255))
+    d.polygon([(62 * s, 6 * s), (62 * s, 78 * s), (54 * s, 78 * s), (60 * s, 6 * s)], fill=(226, 226, 226, 255))
+    d.rectangle([2 * s, 2 * s, 62 * s, 10 * s], fill=(214, 214, 214, 255))      # hem around the string
+    d.rectangle([22 * s, 26 * s, 42 * s, 46 * s], outline=(170, 170, 170, 255), width=2 * s)
+    d.ellipse([28 * s, 31 * s, 36 * s, 41 * s], fill=(184, 184, 184, 255))
+    for row, y in enumerate((18, 54, 62, 70)):
+        x = 8
+        while x < 56:
+            seg = 5 + (row * 7 + x) % 6
+            d.line([(x * s, y * s), (min(56, x + seg) * s, y * s)], fill=(178, 178, 178, 255), width=2 * s)
+            x += seg + 3
+    _save_rgba(img, "flag.png", (w, h))
+
+
+def flag_rope() -> None:
+    """The string the flags hang from: a sagging curve, stretched to the backdrop width by USS. The flags
+    are placed on the same curve by LivingBackdrop.RopeY (keep the two in sync)."""
+    w, h = 1024, 128
+    W, H = w * SS, h * SS
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    pts = []
+    for i in range(0, 257):
+        p = i / 256
+        y = 0.08 + (0.88 - 0.08) * (1 - (2 * p - 1) ** 2)
+        pts.append((p * W, y * H))
+    d.line(pts, fill=(96, 68, 44, 255), width=4 * SS, joint="curve")
+    _save_rgba(img, "flag-rope.png", (w, h))
+
+
+def sparkle_sprite() -> None:
+    img, d, k = canvas(96)
+    c = 48 * SS
+    for ang, long_r, col in ((0, 44, (255, 236, 150, 255)), (math.pi / 4, 26, (255, 255, 255, 230))):
+        pts = []
+        for i in range(8):
+            a = ang + i * math.pi / 4
+            r = (long_r if i % 2 == 0 else 7) * SS
+            pts.append((c + r * math.cos(a), c + r * math.sin(a)))
+        d.polygon(pts, fill=col)
+    d.ellipse([c - 9 * SS, c - 9 * SS, c + 9 * SS, c + 9 * SS], fill=(255, 255, 255, 255))
+    _save_rgba(img, "sparkle.png", (96, 96))
+
+
+def puff_sprite() -> None:
+    img, d, k = canvas(96)
+    s = SS
+    for cx, cy, r in ((34, 54, 22), (56, 46, 26), (66, 62, 18), (44, 66, 16)):
+        d.ellipse([(cx - r) * s, (cy - r) * s, (cx + r) * s, (cy + r) * s], fill=(236, 240, 246, 255))
+    d.ellipse([(46 - 10) * s, (40 - 8) * s, (46 + 10) * s, (40 + 8) * s], fill=(255, 255, 255, 255))
+    _save_rgba(img, "puff.png", (96, 96))
+
+
+def shine_sprite() -> None:
+    """Soft vertical light band swept across the Explore pill."""
+    w, h = 48, 128
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for x in range(w):
+        t = abs(x - (w - 1) / 2) / ((w - 1) / 2)
+        d.line([(x, 0), (x, h)], fill=(255, 255, 255, int(200 * (1 - t) ** 1.5)))
+    img.save(OUT / "shine.png", optimize=True)
+    print("wrote", (OUT / "shine.png").relative_to(ROOT))
+
+
+def scooter_icon() -> None:
+    """A cheerful red scooter (Nepal's favourite ride), for the Explore teaser toast."""
+    img, d, k = canvas()
+    o = int(4 * k)
+    wheel = (52, 44, 40, 255)
+    d.ellipse(poly_scaled([(10, 76), (46, 112)], k), fill=wheel, outline=OUTLINE, width=o)
+    d.ellipse(poly_scaled([(82, 76), (118, 112)], k), fill=wheel, outline=OUTLINE, width=o)
+    d.ellipse(poly_scaled([(21, 87), (35, 101)], k), fill=(200, 200, 210, 255))
+    d.ellipse(poly_scaled([(93, 87), (107, 101)], k), fill=(200, 200, 210, 255))
+    body = [(16, 80), (30, 62), (66, 62), (74, 78), (92, 78), (98, 46), (108, 46), (112, 84), (100, 92),
+            (40, 92), (24, 92)]
+    d.polygon(poly_scaled(body, k), fill=(232, 71, 60, 255), outline=OUTLINE, width=o)
+    d.polygon(poly_scaled([(30, 66), (64, 66), (68, 74), (26, 74)], k), fill=(255, 120, 104, 255))
+    d.rounded_rectangle(poly_scaled([(28, 52), (70, 62)], k), radius=int(5 * k), fill=(92, 58, 34, 255),
+                        outline=OUTLINE, width=int(3 * k))
+    d.line(poly_scaled([(100, 46), (94, 22)], k), fill=OUTLINE, width=int(6 * k))
+    d.line(poly_scaled([(84, 22), (104, 20)], k), fill=OUTLINE, width=int(7 * k))
+    d.ellipse(poly_scaled([(104, 50), (120, 64)], k), fill=(255, 226, 90, 255), outline=OUTLINE, width=int(3 * k))
+    d.ellipse(poly_scaled([(40, 66), (48, 72)], k), fill=(255, 255, 255, 170))
+    save(img, "scooter.png")
+
+
+def menu_backdrop() -> None:
+    sky_layer()
+    sun_layer()
+    mountains_layer()
+    hills_layer()
+    foreground_layer()
+    cloud_sprite("cloud-a.png", [(70, 92, 46), (130, 70, 60), (196, 88, 48), (240, 104, 30)], (300, 150))
+    cloud_sprite("cloud-b.png", [(52, 70, 34), (100, 56, 44), (150, 72, 34)], (200, 110))
+    cloud_sprite("cloud-c.png", [(60, 84, 40), (116, 62, 54), (172, 78, 42), (214, 92, 26)], (260, 135))
+    bird_sprite()
+    prayer_flag()
+    flag_rope()
+    sparkle_sprite()
+    puff_sprite()
+    shine_sprite()
+    scooter_icon()
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     heart()
@@ -196,6 +550,7 @@ def main() -> None:
     back()
     map_icon()
     background()
+    menu_backdrop()
 
 
 if __name__ == "__main__":

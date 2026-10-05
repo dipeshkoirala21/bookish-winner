@@ -11,10 +11,21 @@
 //
 // GhumanteHaptics_Prepare creates and prepares the common generators ahead of use, and every generator is
 // prepared again right after it fires, so a follow-up within the next few seconds (rapid taps) plays with
-// minimal latency. Devices without a Taptic Engine and players with
-// Settings > Sounds & Haptics > System Haptics off get silence; UIKit handles both.
+// minimal latency. Devices without a Taptic Engine, and players who turned off Settings > Sounds & Haptics >
+// System Haptics, get silence; UIKit handles both. GhumanteHaptics_IsSupported tells the game whether the
+// device has a Taptic Engine at all, so Settings can say so instead of offering a switch that does nothing.
 
 #import <UIKit/UIKit.h>
+
+// The C entry points, declared up front (also keeps -Wmissing-prototypes quiet).
+extern "C" {
+void GhumanteHaptics_Prepare(void);
+void GhumanteHaptics_Impact(int style);
+void GhumanteHaptics_Selection(void);
+void GhumanteHaptics_Notification(int type);
+int GhumanteHaptics_IsSupported(void);
+int GhumanteHaptics_ReduceMotionEnabled(void);
+}
 
 static UISelectionFeedbackGenerator *s_selection = nil;
 static UINotificationFeedbackGenerator *s_notification = nil;
@@ -90,6 +101,16 @@ void GhumanteHaptics_Notification(int type)
     GhumanteEnsureNotification();
     [s_notification notificationOccurred:(UINotificationFeedbackType)type];
     [s_notification prepare];
+}
+
+// 1 when UIFeedbackGenerator can be felt here, else 0. Every iPhone that runs iOS 16 (our floor) has a Taptic
+// Engine; iPads have none, and an iPhone or iPad app running on an Apple-silicon Mac has none either (it may
+// report the phone idiom there). Uses UIKit only, so no extra framework has to be linked (CoreHaptics'
+// CHHapticEngine.capabilitiesForHardware would need one). Returns int, not bool: unambiguous marshalled width.
+int GhumanteHaptics_IsSupported(void)
+{
+    if ([[NSProcessInfo processInfo] isiOSAppOnMac]) return 0;
+    return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone ? 1 : 0;
 }
 
 // 1 when Settings > Accessibility > Motion > Reduce Motion is on, else 0. Returns int, not bool, so the

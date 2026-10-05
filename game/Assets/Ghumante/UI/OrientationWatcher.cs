@@ -43,12 +43,18 @@ namespace Ghumante.UI
             Apply(styledRoot);
         }
 
-        public static void Apply(VisualElement styledRoot)
+        /// <summary>The layout family for the screen right now (what <see cref="Apply"/> puts on the root).</summary>
+        public static LayoutOrientation Detect()
         {
             Rect safe = Screen.safeArea;
-            LayoutOrientation orientation = safe.width > 0f && safe.height > 0f
+            return safe.width > 0f && safe.height > 0f
                 ? Classify(safe.width, safe.height)
                 : Classify(Screen.width, Screen.height);
+        }
+
+        public static void Apply(VisualElement styledRoot)
+        {
+            LayoutOrientation orientation = Detect();
             styledRoot.EnableInClassList(PortraitClass, orientation == LayoutOrientation.Portrait);
             styledRoot.EnableInClassList(LandscapeClass, orientation == LayoutOrientation.Landscape);
             if (orientation == Current) return;

@@ -12,7 +12,9 @@ namespace Ghumante.Platform.Haptics
     {
         private readonly NullHaptics _recorder = new NullHaptics();
 
-        /// <summary>Every request that passed <see cref="GatedHaptics.Enabled"/> and the gate (tests, overlays).</summary>
+        /// <summary>
+        /// Records every request that passed <see cref="GatedHaptics.Enabled"/> and the gate (tests, overlays).
+        /// </summary>
         public NullHaptics Recorder
         {
             get { return _recorder; }

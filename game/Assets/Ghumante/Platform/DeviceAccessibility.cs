@@ -97,8 +97,10 @@ namespace Ghumante.Platform
                     {
                         // Accessibility > Remove animations sets all three animation scales to 0; developer
                         // options can set them one by one.
-                        float animator = global.CallStatic<float>("getFloat", resolver, "animator_duration_scale", 1f);
-                        float transition = global.CallStatic<float>("getFloat", resolver, "transition_animation_scale", 1f);
+                        float animator = global.CallStatic<float>(
+                            "getFloat", resolver, "animator_duration_scale", 1f);
+                        float transition = global.CallStatic<float>(
+                            "getFloat", resolver, "transition_animation_scale", 1f);
                         return animator == 0f || transition == 0f;
                     }
                 }

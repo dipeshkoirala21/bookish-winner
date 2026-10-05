@@ -6,6 +6,7 @@
         "Ghumante.UI",
         "Ghumante.Platform",
         "Ghumante.App",
+        "Ghumante.Save",
         "Ghumante.World",
         "Ghumante.EditorTools",
         "Unity.RenderPipelines.Universal.Runtime",

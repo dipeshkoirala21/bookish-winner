@@ -14,6 +14,11 @@
  *   - The default runtime theme styles .unity-button / .unity-label with pseudo-state rules such as
  *     .unity-button:hover:active. Our variants repeat the states so they win on specificity ties
  *     (this sheet is attached closer to the elements than the theme, so it wins equal-specificity ties).
+ *   - Motion (UI/Motion, see UI/README.md) writes only translate / scale / rotate / opacity as inline
+ *     styles, and only on the elements it animates. Inline styles beat USS, and USS transitions would
+ *     smooth every frame the code writes, so: no USS transition or static value on a property that code
+ *     animates on the same element (e.g. pills keep their :active translate sink because code only
+ *     scales and rotates them). transform-origin is set here, never animated.
  */
 
 :root,
@@ -134,6 +139,11 @@
     background-position: center bottom;
 }
 
+/* Screens with a living backdrop (.gh-backdrop) draw their own layers. */
+.gh-screen--layered {
+    background-image: none;
+}
+
 /* ----- Panels ----------------------------------------------------------------------------------- */
 
 .gh-panel {
@@ -167,6 +177,7 @@
     border-radius: 18px;
     border-bottom-width: 10px;
     border-color: var(--gh-ribbon-dark);
+    transform-origin: 50% 0%;  /* hangs and swings from its top edge */
 }
 
 /* Folded tails behind the band, drawn as darker rounded blocks offset down and outwards. */
@@ -181,12 +192,14 @@
 
 .gh-ribbon__tail--left {
     left: -64px;
-    rotate: -8deg;
+    rotate: -8deg;          /* MainMenuScreen.TailRestDegrees mirrors these when it flutters the tails */
+    transform-origin: 100% 0%;
 }
 
 .gh-ribbon__tail--right {
     right: -64px;
     rotate: 8deg;
+    transform-origin: 0% 0%;
 }
 
 .gh-ribbon__title {
@@ -246,9 +259,11 @@
     border-bottom-width: var(--gh-pill-edge);
     background-color: var(--gh-yellow);
     border-color: var(--gh-yellow-dark);
-    transition-property: translate, scale;
-    transition-duration: 0.08s, 0.08s;
-    transition-timing-function: ease-out, ease-out;
+    /* The :active sink is USS; squash, pop-in and wobble are code (PressFeel) around the bottom centre. */
+    transform-origin: 50% 100%;
+    transition-property: translate;
+    transition-duration: 0.08s;
+    transition-timing-function: ease-out;
 }
 
 /* Pressed: the button sinks onto its darker edge. */
@@ -271,6 +286,24 @@
     height: 38%;
     border-radius: 30px;
     background-color: var(--gh-gloss);
+}
+
+/* A soft light band that MainMenuScreen sweeps across the pill every few seconds (translate + opacity).
+   The pill gets .gh-pill--shiny (clipping) only when the sweep runs, so Low-tier devices skip the mask. */
+.gh-pill__shine {
+    position: absolute;
+    top: -30%;
+    bottom: -30%;
+    left: 0;
+    width: 72px;
+    background-image: url("../Icons/shine.png");
+    background-size: 100% 100%;
+    rotate: 18deg;
+    opacity: 0;
+}
+
+.gh-pill--shiny {
+    overflow: hidden;
 }
 
 .gh-pill__label,
@@ -631,18 +664,25 @@
     align-items: stretch;
 }
 
-/* ----- Toast (short notices such as "coming in M1") --------------------------------------------- */
+/* ----- Toast (ASSET_MANIFEST.md 12.1: slides in from the top; icon + one line) ------------------- */
 
+/* The bubble fades with the class (USS transition on opacity); MainMenuScreen adds the slide and pop
+   with translate/scale, so reduced motion keeps a plain fade. */
 .gh-toast,
 .gh-root .gh-toast {
     position: absolute;
-    bottom: 140px;
+    top: 15%;
     align-self: center;
-    padding: 10px 28px;
-    border-radius: 26px;
-    background-color: rgba(62, 36, 12, 0.85);
-    color: var(--gh-white);
-    font-size: 28px;
+    flex-direction: row;
+    align-items: center;
+    max-width: 86%;
+    padding: 8px 30px 8px 12px;
+    border-radius: 34px;
+    background-color: var(--gh-cream);
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-cream-edge);
+    transform-origin: 50% 0%;
     opacity: 0;
     transition-property: opacity;
     transition-duration: 0.25s;
@@ -652,6 +692,523 @@
 .gh-root .gh-toast.gh-toast--visible {
     /* Must out-rank ".gh-root .gh-toast" (opacity 0) above, or the toast never shows. */
     opacity: 1;
+}
+
+.gh-toast__icon {
+    width: 76px;
+    height: 76px;
+    flex-shrink: 0;
+    margin-right: 12px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.gh-toast__icon--scooter {
+    background-image: url("../Icons/scooter.png");
+}
+
+.gh-toast__icon--map {
+    background-image: url("../Icons/map.png");
+}
+
+.gh-toast__icon--star {
+    background-image: url("../Icons/star.png");
+}
+
+.gh-toast__icon--heart {
+    background-image: url("../Icons/heart.png");
+}
+
+.gh-toast__icon--energy {
+    background-image: url("../Icons/energy.png");
+}
+
+.gh-toast__text,
+.gh-root .gh-toast__text {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 30px;
+    color: var(--gh-ink);
+    white-space: normal;
+    flex-shrink: 1;
+    margin: 0;
+    padding: 0;
+}
+
+/* ----- Speech bubble ("Namaste!" when the title ribbon is tapped) -------------------------------- */
+
+.gh-bubble,
+.gh-root .gh-bubble {
+    position: absolute;
+    top: -84px;
+    align-self: center;
+    padding: 2px 30px 8px 30px;
+    border-radius: 30px;
+    background-color: var(--gh-white);
+    border-width: 3px;
+    border-bottom-width: 7px;
+    border-color: var(--gh-cream-edge);
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 44px;
+    color: var(--gh-ribbon);
+    white-space: nowrap;
+    transform-origin: 50% 100%;
+    opacity: 0;
+}
+
+/* ----- Living backdrop (UI/Motion/LivingBackdrop.cs; art from game/Tools/make_ui_art.py) ----------
+ * Parallax layers, back to front. Each layer overhangs the screen so the tilt parallax never shows an
+ * edge; LivingBackdrop also bleeds the whole backdrop under the notch and home indicator. Layers use
+ * "cover" anchored at the bottom: portrait shows a centre crop around the hero peak (ASSET_MANIFEST.md
+ * 12: one composition, centre-safe crop for both orientations). Landscape shows the whole range: there
+ * the hills and meadow fit the width instead (see "Orientation"), because cover on a short, wide layer
+ * would clip their tops into a flat line.
+ */
+
+.gh-backdrop {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.gh-layer {
+    position: absolute;
+    left: -48px;
+    right: -48px;
+    bottom: -24px;
+    background-size: cover;
+    background-position: center bottom;
+}
+
+.gh-layer--sky {
+    top: -24px;
+    left: -24px;
+    right: -24px;
+    background-image: url("../Icons/bg-sky.png");
+    background-size: 100% 100%;
+}
+
+.gh-layer--mountains {
+    height: 84%;
+    background-image: url("../Icons/bg-mountains.png");
+}
+
+.gh-layer--hills {
+    height: 40%;
+    background-image: url("../Icons/bg-hills.png");
+}
+
+.gh-layer--front {
+    height: 22%;
+    background-image: url("../Icons/bg-front.png");
+}
+
+.gh-sun {
+    position: absolute;
+    top: 9%;
+    right: 40%;
+    width: 230px;
+    height: 230px;
+    background-image: url("../Icons/bg-sun.png");
+    background-size: 100% 100%;
+}
+
+/* Clouds sit at their home position (left/top); drift and parallax are translate offsets from it. */
+.gh-cloud {
+    position: absolute;
+    background-size: 100% 100%;
+}
+
+.gh-cloud--a {
+    width: 300px;
+    height: 150px;
+    background-image: url("../Icons/cloud-a.png");
+}
+
+.gh-cloud--b {
+    width: 200px;
+    height: 110px;
+    background-image: url("../Icons/cloud-b.png");
+}
+
+.gh-cloud--c {
+    width: 260px;
+    height: 135px;
+    background-image: url("../Icons/cloud-c.png");
+}
+
+.gh-cloud--1 {
+    left: 5%;
+    top: 12%;
+}
+
+.gh-cloud--2 {
+    left: 42%;
+    top: 24%;
+}
+
+.gh-cloud--3 {
+    left: 66%;
+    top: 7%;
+}
+
+.gh-cloud--4 {
+    left: 86%;
+    top: 31%;
+}
+
+/* A small V of birds; LivingBackdrop flies the group across now and then and flaps each bird. */
+.gh-birds {
+    position: absolute;
+    left: 0;
+    top: 27%;
+    width: 150px;
+    height: 70px;
+}
+
+.gh-bird {
+    position: absolute;
+    width: 48px;
+    height: 24px;
+    background-image: url("../Icons/bird.png");
+    background-size: 100% 100%;
+}
+
+.gh-bird--lead {
+    left: 52px;
+    top: 0;
+}
+
+.gh-bird--left {
+    left: 6px;
+    top: 24px;
+    width: 40px;
+    height: 20px;
+}
+
+.gh-bird--right {
+    left: 102px;
+    top: 28px;
+    width: 42px;
+    height: 21px;
+}
+
+/* Prayer flags (lungta) on a sagging string. The flags are created by LivingBackdrop on the rope's
+   curve (RopeY) in the traditional order blue, white, red, green, yellow, and flutter from their top. */
+.gh-flags {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 11%;
+    height: 140px;
+}
+
+.gh-flags__rope {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url("../Icons/flag-rope.png");
+    background-size: 100% 100%;
+}
+
+.gh-flag {
+    position: absolute;
+    width: 32px;
+    height: 40px;
+    margin-left: -16px;
+    margin-top: -3px;
+    background-image: url("../Icons/flag.png");
+    background-size: 100% 100%;
+    transform-origin: 50% 0%;
+}
+
+.gh-flag--blue {
+    -unity-background-image-tint-color: #2D6BD2;
+}
+
+.gh-flag--white {
+    -unity-background-image-tint-color: #FFFFFF;
+}
+
+.gh-flag--red {
+    -unity-background-image-tint-color: #E2403A;
+}
+
+.gh-flag--green {
+    -unity-background-image-tint-color: #3AA65A;
+}
+
+.gh-flag--yellow {
+    -unity-background-image-tint-color: #F7C531;
+}
+
+/* ----- Particles (UI/Motion/ParticleBurst.cs: pooled, translate/rotate/scale/opacity only) -------- */
+
+.gh-fx {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.gh-particle {
+    position: absolute;
+    left: -24px;
+    top: -24px;
+    width: 48px;
+    height: 48px;
+    background-size: 100% 100%;
+}
+
+.gh-particle--heart {
+    background-image: url("../Icons/heart.png");
+}
+
+.gh-particle--star {
+    background-image: url("../Icons/star.png");
+}
+
+.gh-particle--coin {
+    background-image: url("../Icons/coin.png");
+}
+
+.gh-particle--energy {
+    background-image: url("../Icons/energy.png");
+}
+
+.gh-particle--sparkle {
+    background-image: url("../Icons/sparkle.png");
+}
+
+.gh-particle--puff {
+    background-image: url("../Icons/puff.png");
+}
+
+/* ----- Settings sheet: bottom sheet in portrait, side panel in landscape (ARCHITECTURE.md 7.10a) ---- */
+
+.gh-sheet-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+}
+
+.gh-sheet-layer--open {
+    display: flex;
+}
+
+.gh-scrim,
+.gh-scrim:focus,
+.gh-scrim:hover,
+.gh-scrim:active,
+.gh-scrim:hover:active {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    border-radius: 0;
+    background-color: rgba(48, 26, 6, 0.45);
+}
+
+.gh-sheet {
+    position: absolute;
+    padding: var(--gh-space-3);
+}
+
+.gh-sheet__content {
+    flex-grow: 1;
+}
+
+.gh-sheet__handle {
+    flex-shrink: 0;
+}
+
+.gh-sheet__grabber {
+    align-self: center;
+    width: 96px;
+    height: 10px;
+    border-radius: 5px;
+    background-color: var(--gh-cream-edge);
+    margin-bottom: var(--gh-space-1);
+    flex-shrink: 0;
+}
+
+.gh-sheet__header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--gh-space-1);
+    flex-shrink: 0;
+}
+
+.gh-sheet__title,
+.gh-root .gh-sheet__title {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 50px;
+    color: var(--gh-ribbon);
+    margin: 0;
+    padding: 0 0 0 8px;
+}
+
+.gh-sheet__body {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.gh-sheet__done {
+    align-self: center;
+    min-width: 280px;
+    margin-top: var(--gh-space-2);
+    flex-shrink: 0;
+}
+
+.gh-setting {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    margin: 6px 0;
+    border-radius: 24px;
+    background-color: var(--gh-cream-shade);
+}
+
+.gh-setting__text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin-right: var(--gh-space-2);
+}
+
+.gh-setting__label,
+.gh-root .gh-setting__label {
+    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
+    font-size: 34px;
+    color: var(--gh-ink);
+    margin: 0;
+    padding: 0;
+}
+
+.gh-setting__hint,
+.gh-root .gh-setting__hint {
+    font-size: 22px;
+    color: var(--gh-ink-soft);
+    white-space: normal;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-setting__status,
+.gh-root .gh-setting__status {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 24px;
+    color: var(--gh-cyan-dark);
+    white-space: normal;
+    margin: 0;
+    padding: 0;
+}
+
+.gh-setting__note,
+.gh-root .gh-setting__note {
+    font-size: 22px;
+    color: var(--gh-ink-soft);
+    white-space: normal;
+    margin: 4px 20px;
+}
+
+/* Toggle (ghm_ui_toggle): pill track with a knob. The state is the --on class (USS moves the knob with
+   `left`, once per switch); SettingsSheet slides and squashes the knob with translate/scale. */
+.gh-toggle,
+.gh-toggle:focus,
+.gh-toggle:hover,
+.gh-toggle:active,
+.gh-toggle:hover:active {
+    width: 108px;
+    height: 60px;
+    min-width: 108px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+    border-radius: 30px;
+    border-width: 3px;
+    border-bottom-width: 5px;
+    border-color: var(--gh-white-dark);
+    background-color: #E2D5BB;
+}
+
+.gh-toggle--on,
+.gh-toggle--on:focus,
+.gh-toggle--on:hover,
+.gh-toggle--on:active,
+.gh-toggle--on:hover:active {
+    background-color: var(--gh-green);
+    border-color: var(--gh-green-dark);
+}
+
+.gh-toggle__knob {
+    position: absolute;
+    left: 4px;
+    top: 3px;
+    width: 46px;
+    height: 46px;
+    border-radius: 23px;
+    border-width: 2px;
+    border-bottom-width: 4px;
+    border-color: var(--gh-white-dark);
+    background-color: var(--gh-white);
+}
+
+.gh-toggle--on .gh-toggle__knob {
+    left: 50px;
+}
+
+/* Segmented choice (language). Options are 78 units tall, about 32 pt on a phone: the height of a native
+   segmented control (the switches and Play take their whole row as their touch target instead). */
+.gh-segment {
+    flex-direction: row;
+    flex-shrink: 0;
+    padding: 4px;
+    border-radius: 43px;
+    background-color: #E2D5BB;
+}
+
+.gh-segment__option,
+.gh-segment__option:focus,
+.gh-segment__option:hover,
+.gh-segment__option:active,
+.gh-segment__option:hover:active {
+    height: 78px;
+    min-width: 128px;
+    margin: 0;
+    padding: 0 22px;
+    border-width: 0;
+    border-radius: 39px;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.gh-root .gh-segment__option {
+    -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
+    font-size: 26px;
+    color: var(--gh-ink);
+}
+
+.gh-segment__option--selected,
+.gh-segment__option--selected:focus,
+.gh-segment__option--selected:hover,
+.gh-segment__option--selected:active,
+.gh-segment__option--selected:hover:active {
+    background-color: var(--gh-yellow);
+    border-bottom-width: 4px;
+    border-color: var(--gh-yellow-dark);
 }
 
 /* ----- Orientation (ARCHITECTURE.md 7.10a, ADR-017) ----------------------------------------------
@@ -677,6 +1234,17 @@
 
 .orient-landscape .gh-menu-panel {
     margin-top: 0;
+}
+
+/* The hills and meadow are short layers. On a wide screen "cover" scales them to the width, which makes
+   the image taller than the layer and clips its top (hill crests, bushes) into a straight line. Landscape
+   fits them to the width instead (the same scale), bottom-anchored in a layer as tall as the backdrop, so
+   nothing is clipped; their tops are transparent. Mountains are tall enough for cover up to about 21:9. */
+.orient-landscape .gh-layer--hills,
+.orient-landscape .gh-layer--front {
+    top: 0;
+    height: auto;
+    background-size: 100% auto;
 }
 
 /* Portrait */
@@ -753,5 +1321,85 @@
 }
 
 .orient-portrait .gh-toast {
-    bottom: 120px;
+    top: 30%;
+}
+
+/* Living backdrop, portrait: a taller range (the hero peak rises behind the title), flags in the open
+   sky between the title and the menu panel. */
+.orient-portrait .gh-layer--mountains {
+    height: 70%;
+    background-image: url("../Icons/bg-mountains-portrait.png");  /* sharper centre crop */
+}
+
+.orient-portrait .gh-layer--hills {
+    height: 34%;
+}
+
+.orient-portrait .gh-layer--front {
+    height: 18%;
+}
+
+.orient-portrait .gh-sun {
+    top: 24.5%;
+    right: 6%;
+    width: 190px;
+    height: 190px;
+}
+
+.orient-portrait .gh-flags {
+    top: 25.5%;
+    height: 130px;
+}
+
+.orient-portrait .gh-birds {
+    top: 36%;
+}
+
+.orient-portrait .gh-cloud--1 {
+    left: 2%;
+    top: 23.5%;
+}
+
+.orient-portrait .gh-cloud--2 {
+    left: 62%;
+    top: 33%;
+}
+
+.orient-portrait .gh-cloud--3 {
+    left: 20%;
+    top: 40%;
+}
+
+.orient-portrait .gh-cloud--4 {
+    left: 70%;
+    top: 47%;
+}
+
+/* Settings: bottom sheet in portrait, side panel on the right in landscape. The transform origin is on the
+   screen edge the sheet rests on: its open overshoot stretches it from there (SettingsSheet). */
+.orient-portrait .gh-sheet {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 60%;
+    transform-origin: 50% 100%;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-width: 0;
+}
+
+.orient-landscape .gh-sheet {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 46%;
+    min-width: 640px;
+    transform-origin: 100% 50%;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right-width: 0;
+}
+
+.orient-landscape .gh-sheet__grabber {
+    display: none;
 }

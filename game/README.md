@@ -8,7 +8,7 @@ Unity **6000.3.25f1** (Unity 6.3 LTS, the current LTS line; 6.0 LTS support ends
 2. Open `game/` in Unity Hub. Only `ProjectSettings/ProjectVersion.txt` is committed; Unity generates the rest.
 3. Run **Ghumante → Project Setup**. It applies every player setting from code (ARCHITECTURE.md 11), creates the URP assets for the Low/Medium/High quality levels, the PanelSettings asset and the Bootstrap scene, and enables UI Toolkit's Advanced Text Generator (see `Assets/Ghumante/UI/README.md`).
 4. Commit what Unity and ProjectSetup generated: all `.meta` files, `ProjectSettings/*.asset`, `Packages/packages-lock.json`, `Assets/Ghumante/Settings/**`, `Assets/Ghumante/Scenes/Bootstrap.unity`. From then on GUIDs are stable for everyone.
-5. Press Play in `Assets/Ghumante/Scenes/Bootstrap.unity`: the Devanagari TextSpike screen appears; its back button leads to the main menu mock.
+5. Press Play in `Assets/Ghumante/Scenes/Bootstrap.unity`: the animated main menu appears (what to try: `Assets/Ghumante/UI/README.md`, "Motion"). The Devanagari TextSpike is behind **Text test** in the bottom bar, or set **Start Screen = Text Spike** on the Bootstrap object.
 
 Batch mode equivalent of step 3: `Unity -batchmode -quit -projectPath game -executeMethod Ghumante.EditorTools.ProjectSetup.ApplyFromCommandLine`.
 

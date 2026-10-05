@@ -1,36 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Main menu mock in the reference style (ARCHITECTURE.md 7.9).
+<!-- Main menu in the reference style (ARCHITECTURE.md 7.9), animated by MainMenuScreen (see UI/README.md, "Motion").
      Text elements carry their localisation key in binding-path (see UI/Localization/Localizer.cs);
      the English text attribute is only the UI Builder preview. Decorative children use
      picking-mode="Ignore" so the Button itself receives the click. -->
 <ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
     <Style src="../Styles/Ghumante.uss" />
-    <ui:VisualElement name="main-menu" class="gh-root gh-screen">
-        <ui:VisualElement class="gh-topbar">
+    <ui:VisualElement name="main-menu" class="gh-root gh-screen gh-screen--layered">
+        <!-- Living backdrop (UI/Motion/LivingBackdrop.cs), back to front. Prayer flags are added in code. -->
+        <ui:VisualElement name="backdrop" class="gh-backdrop" picking-mode="Ignore">
+            <ui:VisualElement name="bg-sky" class="gh-layer gh-layer--sky" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-sun" class="gh-sun" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-cloud-1" class="gh-cloud gh-cloud--a gh-cloud--1" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-cloud-2" class="gh-cloud gh-cloud--b gh-cloud--2" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-cloud-3" class="gh-cloud gh-cloud--c gh-cloud--3" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-cloud-4" class="gh-cloud gh-cloud--b gh-cloud--4" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-birds" class="gh-birds" picking-mode="Ignore">
+                <ui:VisualElement name="bg-bird-1" class="gh-bird gh-bird--lead" picking-mode="Ignore" />
+                <ui:VisualElement name="bg-bird-2" class="gh-bird gh-bird--left" picking-mode="Ignore" />
+                <ui:VisualElement name="bg-bird-3" class="gh-bird gh-bird--right" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement name="bg-mountains" class="gh-layer gh-layer--mountains" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-hills" class="gh-layer gh-layer--hills" picking-mode="Ignore" />
+            <ui:VisualElement name="bg-flags" class="gh-flags" picking-mode="Ignore">
+                <ui:VisualElement class="gh-flags__rope" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement name="bg-front" class="gh-layer gh-layer--front" picking-mode="Ignore" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="topbar" class="gh-topbar">
             <ui:VisualElement name="counters" class="gh-counters">
                 <ui:VisualElement name="counter-hearts" class="gh-counter">
-                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--heart" picking-mode="Ignore" />
+                    <ui:VisualElement name="counter-hearts-icon" class="gh-icon gh-counter__icon gh-icon--heart" picking-mode="Ignore" />
                     <ui:Label name="counter-hearts-value" class="gh-counter__value" text="5" />
                     <ui:Button name="counter-hearts-add" class="gh-counter__plus" tooltip="Add">
                         <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
                     </ui:Button>
                 </ui:VisualElement>
                 <ui:VisualElement name="counter-stars" class="gh-counter">
-                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--star" picking-mode="Ignore" />
+                    <ui:VisualElement name="counter-stars-icon" class="gh-icon gh-counter__icon gh-icon--star" picking-mode="Ignore" />
                     <ui:Label name="counter-stars-value" class="gh-counter__value" text="12" />
                     <ui:Button name="counter-stars-add" class="gh-counter__plus" tooltip="Add">
                         <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
                     </ui:Button>
                 </ui:VisualElement>
                 <ui:VisualElement name="counter-coins" class="gh-counter">
-                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--coin" picking-mode="Ignore" />
+                    <ui:VisualElement name="counter-coins-icon" class="gh-icon gh-counter__icon gh-icon--coin" picking-mode="Ignore" />
                     <ui:Label name="counter-coins-value" class="gh-counter__value" text="1,250" />
                     <ui:Button name="counter-coins-add" class="gh-counter__plus" tooltip="Add">
                         <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
                     </ui:Button>
                 </ui:VisualElement>
                 <ui:VisualElement name="counter-energy" class="gh-counter">
-                    <ui:VisualElement class="gh-icon gh-counter__icon gh-icon--energy" picking-mode="Ignore" />
+                    <ui:VisualElement name="counter-energy-icon" class="gh-icon gh-counter__icon gh-icon--energy" picking-mode="Ignore" />
                     <ui:Label name="counter-energy-value" class="gh-counter__value" text="80" />
                     <ui:Button name="counter-energy-add" class="gh-counter__plus" tooltip="Add">
                         <ui:Label class="gh-counter__plus-label" text="+" picking-mode="Ignore" />
@@ -39,49 +60,52 @@
             </ui:VisualElement>
             <ui:VisualElement name="topbar-actions" class="gh-row gh-topbar__actions">
                 <ui:Button name="language-button" class="gh-icon-btn" tooltip="Language">
-                    <ui:VisualElement class="gh-icon gh-icon--globe" picking-mode="Ignore" />
+                    <ui:VisualElement name="language-icon" class="gh-icon gh-icon--globe" picking-mode="Ignore" />
                 </ui:Button>
                 <ui:Button name="settings-button" class="gh-icon-btn" tooltip="Settings">
-                    <ui:VisualElement class="gh-icon gh-icon--gear" picking-mode="Ignore" />
+                    <ui:VisualElement name="settings-icon" class="gh-icon gh-icon--gear" picking-mode="Ignore" />
                 </ui:Button>
             </ui:VisualElement>
         </ui:VisualElement>
 
-        <!-- Landscape: hero and menu centred together. Portrait (ADR-017): hero in the upper half, the menu
+        <!-- Landscape: hero and menu side by side. Portrait (ADR-017): hero in the upper half, the menu
              panel pushed into the bottom third (thumb zone). See "Orientation" in Ghumante.uss. -->
         <ui:VisualElement name="menu-body" class="gh-center gh-menu-body">
             <ui:VisualElement name="hero" class="gh-hero" picking-mode="Ignore">
-                <ui:VisualElement name="title-ribbon" class="gh-ribbon" picking-mode="Ignore">
-                    <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--left" picking-mode="Ignore" />
-                    <ui:VisualElement class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
+                <!-- Tappable: a "Namaste!" wobble (MainMenuScreen). -->
+                <ui:VisualElement name="title-ribbon" class="gh-ribbon">
+                    <ui:VisualElement name="ribbon-tail-left" class="gh-ribbon__tail gh-ribbon__tail--left" picking-mode="Ignore" />
+                    <ui:VisualElement name="ribbon-tail-right" class="gh-ribbon__tail gh-ribbon__tail--right" picking-mode="Ignore" />
                     <!-- The bilingual brand name is the same in both locales, so it is not a localisation key. -->
                     <ui:Label name="title-latin" class="gh-ribbon__title" text="Ghumante" picking-mode="Ignore" />
                     <ui:Label class="gh-ribbon__separator" text="/" picking-mode="Ignore" />
                     <ui:Label name="title-devanagari" class="gh-ribbon__title" text="घुमन्ते" picking-mode="Ignore" />
                 </ui:VisualElement>
+                <ui:Label name="namaste-bubble" class="gh-bubble" binding-path="menu.namaste" text="Namaste!" picking-mode="Ignore" />
                 <ui:Label name="subtitle" class="gh-subtitle" binding-path="app.subtitle" text="Explore the real Nepal" />
             </ui:VisualElement>
-            <ui:VisualElement class="gh-panel gh-menu-panel">
+            <ui:VisualElement name="menu-panel" class="gh-panel gh-menu-panel">
                 <ui:Button name="explore-button" class="gh-pill gh-pill--large gh-pill--yellow">
                     <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label class="gh-pill__label" binding-path="menu.explore" text="Explore" picking-mode="Ignore" />
+                    <ui:VisualElement name="explore-shine" class="gh-pill__shine" picking-mode="Ignore" />
+                    <ui:Label name="explore-label" class="gh-pill__label" binding-path="menu.explore" text="Explore" picking-mode="Ignore" />
                 </ui:Button>
                 <ui:Button name="map-button" class="gh-pill gh-pill--cyan">
                     <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label class="gh-pill__label" binding-path="menu.map" text="Map" picking-mode="Ignore" />
+                    <ui:Label name="map-label" class="gh-pill__label" binding-path="menu.map" text="Map" picking-mode="Ignore" />
                 </ui:Button>
                 <ui:Button name="collections-button" class="gh-pill gh-pill--green">
                     <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label class="gh-pill__label" binding-path="menu.collections" text="Collections" picking-mode="Ignore" />
+                    <ui:Label name="collections-label" class="gh-pill__label" binding-path="menu.collections" text="Collections" picking-mode="Ignore" />
                 </ui:Button>
                 <ui:Button name="settings-pill" class="gh-pill gh-pill--white">
                     <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
-                    <ui:Label class="gh-pill__label" binding-path="menu.settings" text="Settings" picking-mode="Ignore" />
+                    <ui:Label name="settings-label" class="gh-pill__label" binding-path="menu.settings" text="Settings" picking-mode="Ignore" />
                 </ui:Button>
             </ui:VisualElement>
         </ui:VisualElement>
 
-        <ui:VisualElement class="gh-bottombar">
+        <ui:VisualElement name="bottombar" class="gh-bottombar">
             <ui:Button name="text-test-button" class="gh-pill gh-pill--small gh-pill--red">
                 <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
                 <ui:Label class="gh-pill__label" binding-path="menu.text_test" text="Text test" picking-mode="Ignore" />
@@ -89,6 +113,77 @@
             <ui:Label class="gh-attribution" binding-path="attribution.osm" text="Map data © OpenStreetMap contributors" />
         </ui:VisualElement>
 
-        <ui:Label name="toast" class="gh-toast" text="" picking-mode="Ignore" />
+        <ui:VisualElement name="toast-bubble" class="gh-toast" picking-mode="Ignore">
+            <ui:VisualElement name="toast-icon" class="gh-toast__icon" picking-mode="Ignore" />
+            <ui:Label name="toast" class="gh-toast__text" text="" picking-mode="Ignore" />
+        </ui:VisualElement>
+
+        <!-- Coin, star and sparkle bursts and the scooter's exhaust (UI/Motion/ParticleBurst.cs fills this with
+             pooled elements). After the toast, so puffs from its scooter draw over the bubble; before Settings. -->
+        <ui:VisualElement name="fx-layer" class="gh-fx" picking-mode="Ignore" />
+
+        <!-- Settings (UI/Screens/SettingsSheet.cs): a bottom sheet in portrait, a side panel in landscape. -->
+        <ui:VisualElement name="settings-layer" class="gh-sheet-layer" picking-mode="Ignore">
+            <ui:Button name="settings-scrim" class="gh-scrim" tooltip="Close" />
+            <ui:VisualElement name="settings-sheet" class="gh-panel gh-sheet">
+                <ui:VisualElement name="settings-content" class="gh-sheet__content">
+                    <!-- Drag handle: drag the grabber or header towards the edge to dismiss (SettingsSheet). -->
+                    <ui:VisualElement name="settings-handle" class="gh-sheet__handle">
+                        <ui:VisualElement class="gh-sheet__grabber" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-sheet__header">
+                            <ui:Label class="gh-sheet__title" binding-path="menu.settings" text="Settings" />
+                            <ui:Button name="settings-close" class="gh-icon-btn gh-icon-btn--small" tooltip="Close">
+                                <ui:Label class="gh-icon-btn__glyph" text="×" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:ScrollView name="settings-scroll" class="gh-sheet__body">
+                        <ui:VisualElement name="settings-row-haptics" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.haptics" text="Vibration" />
+                                <ui:Label class="gh-setting__hint" binding-path="settings.haptics.hint" text="Little buzzes on taps and rewards" />
+                            </ui:VisualElement>
+                            <ui:Button name="settings-haptics-toggle" class="gh-toggle">
+                                <ui:VisualElement name="settings-haptics-knob" class="gh-toggle__knob" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                        <ui:Label name="settings-haptics-note" class="gh-setting__note" binding-path="settings.haptics.unsupported" text="This device can't vibrate, so the haptics test shows their names instead." />
+                        <ui:VisualElement name="settings-row-motion" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.reduce_motion" text="Reduce motion" />
+                                <ui:Label class="gh-setting__hint" binding-path="settings.reduce_motion.hint" text="Calm fades instead of bounces and moving scenery" />
+                            </ui:VisualElement>
+                            <ui:Button name="settings-motion-toggle" class="gh-toggle">
+                                <ui:VisualElement name="settings-motion-knob" class="gh-toggle__knob" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="settings-row-language" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.language" text="Language" />
+                            </ui:VisualElement>
+                            <!-- Each language is named in itself, in both locales (no localisation key). -->
+                            <ui:VisualElement class="gh-segment">
+                                <ui:Button name="settings-lang-en" class="gh-segment__option" text="English" />
+                                <ui:Button name="settings-lang-ne" class="gh-segment__option" text="नेपाली" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="settings-row-feel" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.feel" text="Feel the haptics" />
+                                <ui:Label name="settings-feel-status" class="gh-setting__status" text="Plays every kind, one after another" />
+                            </ui:VisualElement>
+                            <ui:Button name="settings-feel-play" class="gh-pill gh-pill--small gh-pill--cyan">
+                                <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                                <ui:Label class="gh-pill__label" binding-path="settings.feel.play" text="Play" picking-mode="Ignore" />
+                            </ui:Button>
+                        </ui:VisualElement>
+                    </ui:ScrollView>
+                    <ui:Button name="settings-done" class="gh-pill gh-pill--green gh-sheet__done">
+                        <ui:VisualElement class="gh-pill__gloss" picking-mode="Ignore" />
+                        <ui:Label class="gh-pill__label" binding-path="common.done" text="Done" picking-mode="Ignore" />
+                    </ui:Button>
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

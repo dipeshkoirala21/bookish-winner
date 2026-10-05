@@ -13,17 +13,23 @@ namespace Ghumante.Platform.Haptics
     /// <item><term>Success / Warning / Error</term><description>UINotificationFeedbackGenerator, type Success /
     /// Warning / Error</description></item>
     /// </list>
-    /// <see cref="IHaptics.IsSupported"/> is true on every iOS device: UIFeedbackGenerator does nothing, silently,
-    /// on hardware without a Taptic Engine (iPads) and when the player turned System Haptics off in iOS Settings.
+    /// <see cref="IHaptics.IsSupported"/> is true only on hardware with a Taptic Engine (every iPhone that runs
+    /// iOS 16), as reported once at start-up by <c>GhumanteHaptics_IsSupported</c>. UIFeedbackGenerator does
+    /// nothing, silently, on iPads and on Apple-silicon Macs, so there requests are not sent to UIKit and
+    /// <see cref="MobileHaptics.Requested"/> reports them as not played. System Haptics switched off in iOS
+    /// Settings still silences a supported iPhone (UIKit handles it; the app cannot read that setting).
     /// </summary>
     public sealed class IosHaptics : GatedHaptics
     {
+        private readonly bool _hasTapticEngine;
+
         public IosHaptics()
         {
             try
             {
+                _hasTapticEngine = IosPlugin.GhumanteHaptics_IsSupported() != 0;
                 // Creates the generators now rather than on the first tap.
-                IosPlugin.GhumanteHaptics_Prepare();
+                if (_hasTapticEngine) IosPlugin.GhumanteHaptics_Prepare();
             }
             catch (System.Exception e)
             {
@@ -33,11 +39,12 @@ namespace Ghumante.Platform.Haptics
 
         protected override bool HasHardware
         {
-            get { return true; }
+            get { return _hasTapticEngine; }
         }
 
         protected override bool PlayNative(HapticKind kind)
         {
+            if (!_hasTapticEngine) return false;
             switch (kind)
             {
                 case HapticKind.Selection:
@@ -68,7 +75,7 @@ namespace Ghumante.Platform.Haptics
 
         protected override void PrepareNative()
         {
-            IosPlugin.GhumanteHaptics_Prepare();
+            if (_hasTapticEngine) IosPlugin.GhumanteHaptics_Prepare();
         }
     }
 }

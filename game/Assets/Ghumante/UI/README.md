@@ -17,13 +17,16 @@ ATG limits worth knowing (Unity manual, *Enable and use Advanced Text Generator*
 |---|---|
 | `Styles/Ghumante.uss` | Design tokens (`--gh-*` custom properties) and components: cream panels, ribbon header, glossy pills (yellow/cyan/green/white/red), round icon buttons, counter pills with "+" |
 | `Themes/GhumanteRuntime.tss` | Runtime theme for the PanelSettings asset (imports Unity's default theme only) |
-| `Screens/MainMenu.uxml` + `MainMenuScreen.cs` | Main menu mock: title ribbon "Ghumante / घुमन्ते", Explore, Map, Collections, Settings, counters bar |
+| `Screens/MainMenu.uxml` + `MainMenuScreen.cs` | The animated main menu: living backdrop, title ribbon "Ghumante / घुमन्ते", Explore, Map, Collections, Settings, counters bar, toast, settings sheet (see "Motion" below) |
+| `Screens/SettingsSheet.cs` | Settings: Vibration, Reduce motion, Language, "Feel the haptics"; bottom sheet in portrait, side panel in landscape |
+| `Screens/ScreenBase.cs` | Base presenter: localisation, orientation, an animator per screen, `Feel(button, haptic, action)` |
 | `Screens/TextSpike.uxml` + `TextSpikeScreen.cs` | The P3 shaping test (generated, see below) |
+| `Motion/` | UI motion runtime: `UiAnimator`, `MotionNode`, `PressFeel`, `ParticleBurst`, `LivingBackdrop`, `TiltInput`, `MotionSettings` |
 | `TextSpike/` | Its layout USS, generated reference USS and the HarfBuzz reference images |
 | `Localization/strings.{en,ne}.json`, `Localizer.cs` | Flat string tables and the M0 dictionary localizer (replaced by the Unity Localization package in M1, same keys) |
 | `OrientationWatcher.cs`, `SafeArea.cs` | Portrait/landscape classification from the safe area (orient-* classes, `OrientationChanged`) and safe-area padding |
 | `Fonts/` | Baloo 2 (display; static Bold/ExtraBold instances cut from the variable font) and Mukta (body), SIL OFL 1.1, licence files alongside |
-| `Icons/` | Placeholder icons and menu background, drawn by `game/Tools/make_ui_art.py` |
+| `Icons/` | Placeholder icons, menu backgrounds, the living-menu layers (`bg-*`), clouds, birds, prayer flag and rope, sparkles, puffs, shine and scooter, all drawn by `game/Tools/make_ui_art.py` |
 
 Text elements carry their localisation key in `binding-path` (temporary convention; `binding-path` only drives editor SerializedObject binding, so it is inert at runtime). `Localizer.Apply(root)` fills them and puts `gh-lang-en`/`gh-lang-ne` on the screen root.
 
@@ -48,9 +51,149 @@ minimum horizontal FOV (vertical FOV = 2*atan(tan(h/2)/aspect), clamped to 100 d
 Unverified without Unity: the actual layout at each reference resolution. Check in the UI Builder or on
 device at 1080x2400 and 2400x1080 (and an iPad, both ways) before M0 sign-off.
 
+## Motion: the living main menu
+
+The product owner asked for a menu that is "animated, interesting and fun", with haptics on phones that
+have them (2026-10-05). It follows ARCHITECTURE.md 8 ("bouncy UI tweens") and ASSET_MANIFEST.md 12
+("overshoot 1.1, 180-250 ms, squash on press, reduced-motion setting").
+
+### How it works
+
+| Layer | Where | What |
+|---|---|---|
+| Maths | `Core/Motion` (engine-free, `core-tests/MotionTests.cs`) | `Easing` (Linear, OutCubic, InCubic, InOutSine, OutBack, OutElastic, OutBounce, InBack; exact at 0 and 1), `Spring` (closed-form damped spring: frame-rate independent, cannot blow up), `Tween` / `Stagger` (delay, duration, ease as data), `Wave` (idle loops), `Squash`, `CountUp`, `MotionRandom` |
+| Runtime | `UI/Motion/UiAnimator.cs` | One per screen, created by `ScreenBase` on the screen root. Ticked by the **panel scheduler** on every panel update (`schedule.Execute(..).Every(0)`, i.e. once per rendered frame; the tier's target frame rate is the only throttle), so it stops by itself when the tree leaves the panel; `Dispose` pauses it. Never schedule per-frame work with an interval near the frame period (`Every(16)` at 60 fps, `Every(33)` at 30 fps): the scheduler compares whole milliseconds without carry-over and skips every frame that arrives a fraction of a millisecond early, so the motion judders. Runs timers (`After`), idle loops (`OnIdle`), reactive updates (`OnUpdate`) and `MotionNode`s. |
+| Per element | `UI/Motion/MotionNode.cs` | Base pose (tweens) + offsets (idle loops, parallax) + springs (squash, wobble, hop). Writes only `style.translate/scale/rotate/opacity`, only when the value changed, and only the properties it was asked to animate, so **layout never runs** and USS keeps the rest (a pill's `:active` sink stays USS). Elements that move every frame get `UsageHints.DynamicTransform`. No allocations per frame. |
+
+Rules for new screens: animate transforms and opacity only; never put a USS `transition` or static value on a
+property code animates on the same element (inline styles win, and a USS transition would smooth every
+frame); put `transform-origin` in USS; use `Feel(button, kind, action)` for buttons, and
+`.ExtendTo(rowOrPill)` when the control is smaller than 44 pt / 48 dp (about 108 units on a phone) so its row
+or pill is the touch target; register idle loops with `Animator.OnIdle(update, rest)` so Reduce motion and
+focus loss stop them. Anything that extends under the safe-area insets reads them with `SafeArea.Insets(root)`
+(the padding SafeArea wrote), never `root.resolvedStyle.padding*`, which lags one layout pass behind after a
+rotation.
+
+### Main menu
+
+* **Entrance** (about 1.15 s, replayed every time the menu is shown, e.g. back from the text test):
+  counters drop in one by one with a bounce (0.05 s + 0.08 s each, OutBounce); globe and gear pop; the
+  title ribbon swings in from its top edge (OutBack) and its tails flutter into place (OutElastic); the
+  subtitle rises and fades in; the cream panel settles; the four pills pop from 0.6 one after another
+  (0.4 s + 0.08 s each, OutBack); the bottom bar slides up.
+* **Living backdrop** (`LivingBackdrop`, art from `make_ui_art.py`): sky, sun (turns slowly), four clouds
+  drifting and wrapping, a V of three birds gliding across every 8-15 s, the Himalaya (a fishtail hero peak
+  in the middle, which is what portrait shows), green hills with terraces and houses, a string of prayer
+  flags in lungta order (blue, white, red, green, yellow, repeating) fluttering in a travelling gust, and a
+  flowery meadow. Layers shift with **device tilt** (Input System `Accelerometer`, or `GravitySensor`,
+  enabled while the menu is up, slowly re-centred so any holding angle is neutral) or with the **mouse** in
+  the editor, for a parallax look into the mountains; the sensor is switched off again whenever the idle
+  loops stop (Reduce motion, app unfocused). The backdrop bleeds under the notch and home indicator, and
+  follows rotation (including a 180-degree turn, which moves the insets without resizing anything). In
+  landscape the hills and meadow fit the width, so their crests and bushes are never clipped flat.
+* **Idle life**: the Explore pill breathes and a shine sweeps across it every 4.2 s; the ribbon sways about
+  1.6 degrees and its tails flutter; a counter icon hops every few seconds.
+* **Fun**: "+" (or anywhere on its counter pill) rolls the demo value up (0.6 s) with a pop, the icon hops,
+  coins/stars/hearts/bolts and sparkles burst out (pooled particles, which stay below the safe-area top and
+  draw over the toast), and a Success haptic plays (hearts stop at 5 and energy at 100 with a
+  "full" wiggle). Explore (until the world arrives in M1) wiggles with a Warning haptic and a toast: a scooter
+  "warming up" and puffing exhaust. Map and Collections give a friendly "soon" toast. Tapping the title
+  ribbon says "Namaste!" (wobble, bubble, sparkles, Selection haptic). The globe flips every label edge-on,
+  swaps the language and flips them back. The gear spins and opens Settings.
+* **Settings sheet**: a bottom sheet in portrait, a side panel in landscape, sliding in over a dimmed scrim
+  (rows slide in after it). Its little overshoot is a stretch from the screen edge it rests on, so it never
+  lifts off that edge. Drag the grabber or header towards the edge to dismiss it (a Selection tick marks the
+  point where letting go closes it; a flick closes it from anywhere; pulling it in stretches it a little);
+  the Android back button and Escape close it too. Each switch's whole row is its touch target, as is the
+  "Feel the haptics" row for Play. Toggles move with a squashing knob. **Vibration**
+  plays Success when switched on; **Reduce motion**; **Language** (English / नेपाली); **Feel the haptics**
+  plays every `HapticKind` 0.75 s apart and names each one, so it can be checked on a phone (and seen in the
+  editor). Rotating while it is open, or mid-slide, moves it to the right edge for the new orientation
+  (bottom in portrait, right in landscape).
+
+### Haptics
+
+Screens only see `Ghumante.Core.Services.IHaptics` (App creates it with
+`Ghumante.Platform.Haptics.MobileHaptics.Create(settings.Haptics)`; on iOS UIKit feedback generators, on
+Android `performHapticFeedback`/Vibrator, silent in the editor). The implementation rate-limits with
+`HapticGate` and honours the player's switch and the OS settings.
+
+| Interaction | When | HapticKind |
+|---|---|---|
+| Any pill or round button (Map, Collections, Settings, globe, gear, Text test, "+" or its counter pill, close, Done) | press-down | LightImpact |
+| Back button / Escape closing Settings | press | LightImpact |
+| Dragging Settings past the point where letting go closes it (or back) | drag | Selection |
+| Explore | press-down | MediumImpact |
+| Toggles (or their rows), language choice, TextSpike toolbar toggles, scrim | press-down | Selection |
+| "+" adds to a counter | click | Success |
+| "+" on full hearts / energy, Explore / Map / Collections before they exist | click | Warning |
+| Title ribbon ("Namaste!") | tap | Selection |
+| Language switched (globe or sheet) | mid-flip | Selection |
+| Vibration switched on | click | Success |
+| Feel the haptics | every 0.75 s | Selection, LightImpact, MediumImpact, HeavyImpact, Success, Warning, Error |
+
+Press-down feedback needs `RegisterCallback<PointerDownEvent>(.., TrickleDown.TrickleDown)`: `Button.clicked`
+fires on release and the Clickable manipulator captures the pointer (`PressFeel` does this).
+
+A click's outcome (Success, Warning, Error, HeavyImpact) often arrives less than 35 ms after its own
+press-down tick: a quick tap delivers both in one frame, and at 30 fps they are 33 ms apart. The rate limiter
+would drop it, so `Core.Services.HapticPacer` holds it instead and it plays a frame or two later (never more
+than 250 ms late). Press ticks are still dropped when they come too fast.
+
+Platform notes:
+
+* **Android**: the Editor build hook `EditorTools/AndroidVibratePermission.cs` declares
+  `android.permission.VIBRATE` (an install-time permission, so there is no prompt). This lets
+  MediumImpact and up use the Vibrator's predefined effects. Without the permission, every kind falls back
+  to a View key-tap constant. Selection uses `CONTEXT_CLICK`, which plays as a crisp tick on API 29 to 36.
+* **iOS**: iPads and Apple-silicon Macs have no Taptic Engine. `IsSupported` is false on them, so Settings
+  shows the "can't vibrate" note.
+
+### Reduce motion, Low tier, focus
+
+* **Reduce motion** (Settings, or the OS setting until the player picks: iOS Reduce Motion, Android Remove
+  animations, via `Ghumante.Platform.DeviceAccessibility`): no bounces, squash, parallax, idle loops, birds
+  or particles; screens fade in (0.25 s); the sheet fades instead of sliding; the toast only fades. Haptics
+  still play unless Vibration is off. Switching it on puts everything back at rest immediately.
+* **Low tier** (`MotionSettings.LowPower`, from the device tier): two clouds, eleven flags at half rate, no
+  birds, no shine (its clipping mask costs a stencil pass), a smaller particle pool. The tier's 30 fps target
+  frame rate already limits the animator to 30 ticks a second.
+* **Focus**: in players, idle loops freeze while the app is not focused (notification shade, Control
+  Centre, a system dialog). The editor keeps them running while you click around the Inspector.
+
+### Settings persistence
+
+`Ghumante.Save.LocalSaveStore` writes the whole `SaveData` as UTF-8 JSON to
+`Application.persistentDataPath/ghumante-save.json`, atomically (temp file, flush, `File.Replace`), keeping
+two backups (`.bak`, `.bak2`) that are read if the save is unreadable; a save from a newer build is never
+overwritten. App loads it at startup and saves whenever Vibration, Reduce motion or the language changes.
+"The player chose" is recorded in `settings` as `reduceMotionChosen` / `languageChosen`
+(`Ghumante.Save.SettingsChoices`); until then the game follows the device. To start fresh, delete the file
+(macOS editor: `~/Library/Application Support/Ghumante/Ghumante/`).
+
+### Trying it
+
+**Mac editor, Play mode** (Bootstrap scene): the menu builds itself in about a second; move the mouse over
+the Game view and the mountains, hills, flags and meadow shift at different depths. Hover a pill to make it
+wobble, press and hold to see it squash, release for the stretch. Tap "+" next to the coins, the title
+ribbon, Explore, the globe, the gear. In Settings, "Feel the haptics" names each kind as it plays; the debug
+HUD (bottom right) shows `haptic: <kind> (editor - not felt)` for every request, which is how haptics are
+checked without a motor. Switch Reduce motion on and off and watch the scene stop and come back.
+
+**Device Simulator** (Window > General > Device Simulator, e.g. iPhone 15 or a Pixel): rotate with the
+simulator's rotate buttons, also in the middle of the entrance or with Settings open; portrait shows
+counters on top, the hero peak behind the title and the menu in the bottom third; landscape shows hero
+left and menu right. Click-drag on the sky to steer the parallax (the simulator has no tilt sensor).
+
+**Phone**: tilt the phone gently for the parallax; every button press should tick, "+" should give a
+success pattern, Explore a warning. Settings > Feel the haptics plays all seven kinds in order (iOS:
+selection tick, light/medium/heavy taps, success/warning/error notifications; Android: the closest
+predefined effects). With iOS Reduce Motion or Android Remove animations on, a fresh install starts with
+Reduce motion on. Pull down the notification shade: flags and clouds stop until you come back.
+
 ## The TextSpike (week-1 device test, ARCHITECTURE.md P3)
 
-Every M0 build starts on this screen. Each row shows a hard case three ways: its id and what to look for, the **live** UI Toolkit rendering, and a **reference** image of the same string rendered by HarfBuzz (the shaping engine ATG uses) with the same font file. On every test device:
+Open it from the main menu's "Text test" button (or pick *Start Screen: Text Spike* on the Bootstrap object to start there). Each row shows a hard case three ways: its id and what to look for, the **live** UI Toolkit rendering, and a **reference** image of the same string rendered by HarfBuzz (the shaping engine ATG uses) with the same font file. On every test device:
 
 1. Compare each live cell with its reference. They must match glyph for glyph (sizes may differ by a pixel).
 2. Tap "Shaping: Advanced" to switch the samples to the standard generator: the conjunct rows must visibly break. If they do not change, ATG was not active in the first place.

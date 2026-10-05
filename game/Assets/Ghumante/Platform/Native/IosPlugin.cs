@@ -34,9 +34,15 @@ namespace Ghumante.Platform.Native
         [DllImport("__Internal")]
         internal static extern void GhumanteHaptics_Selection();
 
-        /// <summary>UINotificationFeedbackGenerator notificationOccurred for a UINotificationFeedbackType (0-2).</summary>
+        /// <summary>UINotificationFeedbackGenerator notificationOccurred for a UINotificationFeedbackType
+        /// (0-2).</summary>
         [DllImport("__Internal")]
         internal static extern void GhumanteHaptics_Notification(int type);
+
+        /// <summary>1 when the device has a Taptic Engine (an iPhone, not an iPad and not an app on a Mac), else 0
+        /// (an int, not a C++ bool, so the marshalled width is unambiguous).</summary>
+        [DllImport("__Internal")]
+        internal static extern int GhumanteHaptics_IsSupported();
 
         /// <summary>UIAccessibilityIsReduceMotionEnabled as 0 or 1 (an int, not a C++ bool, so the marshalled
         /// width is unambiguous).</summary>

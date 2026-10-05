@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fetch (read-only, sparse, shallow) the Unity C# reference source and the Graphics repository that
-# match game/ProjectSettings/ProjectVersion.txt, for the API audit. Nothing from these repositories is
+# match game/ProjectSettings/ProjectVersion.txt, and the Input System package source at the version in
+# game/Packages/manifest.json (Stubs/InputSystem is audited against it), for the API audit. Nothing from these repositories is
 # committed or redistributed: the indexer only lists declared API names and their [Obsolete] state
 # (reference use, as the Unity Reference-Only License allows). The cache directory is git-ignored.
 set -euo pipefail
@@ -8,6 +9,7 @@ CACHE="${1:?usage: fetch_reference_sources.sh <cache-dir>}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 VERSION="$(sed -n 's/^m_EditorVersion: //p' "$REPO/game/ProjectSettings/ProjectVersion.txt" | tr -d '\r')"
 MAJOR_MINOR="$(echo "$VERSION" | cut -d. -f1,2)"   # 6000.3
+INPUT_SYSTEM="$(sed -n 's/.*"com\.unity\.inputsystem": *"\([^"]*\)".*/\1/p' "$REPO/game/Packages/manifest.json")"
 mkdir -p "$CACHE"
 
 fetch() { # <dir> <url> <ref> <sparse paths...>
@@ -28,3 +30,5 @@ fetch "$CACHE/UnityCsReference" https://github.com/Unity-Technologies/UnityCsRef
   '/Editor/*' '/Runtime/*' '/Modules/*'
 fetch "$CACHE/Graphics" https://github.com/Unity-Technologies/Graphics.git "$MAJOR_MINOR/staging" \
   '/Packages/com.unity.render-pipelines.universal/Runtime/*' '/Packages/com.unity.render-pipelines.core/Runtime/*'
+fetch "$CACHE/InputSystem" https://github.com/Unity-Technologies/InputSystem.git "${INPUT_SYSTEM:?no com.unity.inputsystem in manifest.json}" \
+  '/Packages/com.unity.inputsystem/InputSystem/*'

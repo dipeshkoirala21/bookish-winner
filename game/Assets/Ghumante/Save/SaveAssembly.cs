@@ -1,6 +1,5 @@
 // Ghumante.Save: Local save storage (atomic writes, rotating backups) and cloud-save adapters (ARCHITECTURE.md 7.10).
-// M0 ships no runtime code in this assembly yet. The marker type keeps the assembly non-empty so the
-// asmdef graph (ARCHITECTURE.md 7.1) compiles and references to it resolve.
+// M0 has LocalSaveStore (settings persistence) and SettingsChoices; cloud adapters arrive in M1+.
 namespace Ghumante.Save
 {
     /// <summary>Marker for the <c>Ghumante.Save</c> assembly.</summary>

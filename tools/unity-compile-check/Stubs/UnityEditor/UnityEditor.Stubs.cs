@@ -40,6 +40,7 @@ namespace UnityEditor
     public sealed class AssetDatabase
     {
         public static T LoadAssetAtPath<T>(string assetPath) where T : UnityEngine.Object { throw null; }
+        public static UnityEngine.Object[] LoadAllAssetsAtPath(string assetPath) { throw null; }
         public static void CreateAsset(UnityEngine.Object asset, string path) { throw null; }
         public static void SaveAssets() { throw null; }
         public static bool IsValidFolder(string path) { throw null; }
@@ -309,6 +310,7 @@ namespace UnityEditor
         public static ColorSpace colorSpace { get { throw null; } set { } }
         public static bool gcIncremental { get { throw null; } set { } }
         public static bool stripEngineCode { get { throw null; } set { } }
+        public static bool enableFrameTimingStats { get { throw null; } set { } }
         public static UIOrientation defaultInterfaceOrientation { get { throw null; } set { } }
         public static bool allowedAutorotateToPortrait { get { throw null; } set { } }
         public static bool allowedAutorotateToPortraitUpsideDown { get { throw null; } set { } }
@@ -380,6 +382,26 @@ namespace UnityEditor.Build
         public static readonly NamedBuildTarget iOS;
         public string TargetName { get { throw null; } }
         public bool Equals(NamedBuildTarget other) { throw null; }
+    }
+
+    public interface IOrderedCallback
+    {
+        int callbackOrder { get; }
+    }
+
+    public class BuildFailedException : Exception
+    {
+        public BuildFailedException(string message) { throw null; }
+    }
+}
+
+namespace UnityEditor.Android
+{
+    // Declared in UnityEditor.CoreModule (Editor/Mono/BuildPipeline/Android), so it is available without the
+    // Android build support module.
+    public interface IPostGenerateGradleAndroidProject : UnityEditor.Build.IOrderedCallback
+    {
+        void OnPostGenerateGradleAndroidProject(string path);
     }
 }
 

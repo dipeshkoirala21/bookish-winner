@@ -41,7 +41,8 @@ if [[ $AUDIT -eq 1 ]]; then
   INDEX="$HERE/.cache/unity-api-index.tsv"
   "$HERE/audit/fetch_reference_sources.sh" "$HERE/.cache"
   "$DOTNET" run --project "$HERE/audit/Indexer/Indexer.csproj" -c Release -- \
-      "$INDEX" "$HERE/.cache/UnityCsReference" "$HERE/.cache/Graphics/Packages"
+      "$INDEX" "$HERE/.cache/UnityCsReference" "$HERE/.cache/Graphics/Packages" \
+      "$HERE/.cache/InputSystem/Packages/com.unity.inputsystem/InputSystem"
   "$DOTNET" build "$HERE/audit/Analyzer/Analyzer.csproj" -c Release -nologo -v q
   EXTRA=(-p:UnityApiIndex="$INDEX")
 fi

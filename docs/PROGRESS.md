@@ -2,9 +2,9 @@
 
 > The running log: what's done, what's next, known issues, and decisions with the reasons for them. The newest entry is at the top.
 
-## Current status (2026-10-04)
+## Current status (2026-10-05)
 
-**Milestone:** M0 Foundations, in progress (see the [ROADMAP](ROADMAP.md#m0-foundations-planning-and-pipeline-proof)).
+**Milestone:** M0 Foundations done; M1 Kathmandu vertical slice started (see [M1_PLAN](M1_PLAN.md)).
 
 | Area | State |
 |---|---|
@@ -13,9 +13,36 @@
 | Tag coverage | [report](reports/tag_coverage.md) + [findings](reports/TAG_COVERAGE_FINDINGS.md) |
 | Landmarks | [60/66 resolved](reports/landmarks.md) against OSM |
 | Pipeline | ✅ M0: `fetch.py` + `build.py` build the Kathmandu Valley pack, search index and routing graph; ~1.8 k fixture tests + 44 real-data tests pass (stats below) |
-| C# core | ✅ readers for pack, tiles, search and routing, plus geo and save; 111 `dotnet test` cases against the Python golden files; also compiles as netstandard2.1 / C# 9 |
-| Unity project | ✅ skeleton, unverified in Unity (can't be opened or run in this cloud environment, which has no Unity licence); compile-checked against reference assemblies |
+| C# core | ✅ readers for pack, tiles, search and routing, plus geo, save, motion and haptics pacing; 174 `dotnet test` cases against the Python golden files; also compiles as netstandard2.1 / C# 9 |
+| Unity project | ✅ runs in the owner's Mac editor (Unity 6000.3.25f1): animated main menu, haptics, Settings, Devanagari TextSpike; compile-checked and API-audited against Unity 6000.3 |
 | CI | ✅ pipeline, core, localisation, Unity (compile check always; GameCI jobs need secrets) and nightly data (incl. real-data tests) |
+
+---
+
+## 2026-10-05: session 2 (first run on the Mac, fun menu, M1 start)
+
+### Done
+* **The project ran in the owner's Mac editor:** Project Setup applied, the main menu at 60 fps, and Devanagari shaping correct (the live rows match the HarfBuzz references). Fixed from that first run: the invisible toast, the debug HUD covering the OSM credit, and the TextSpike layout cut-off (UI Toolkit's default `flex-shrink: 1`). Project Setup now also turns on frame-timing stats and selects the new Input System only, so the two start-up dialogs no longer appear.
+* **Animated main menu with haptics** (owner request).
+  * **Motion:** a living Himalaya backdrop (clouds, sun, birds, lungta prayer flags, parallax from tilt or the mouse); an entrance sequence; springy press feel; particle bursts; playful reactions on every button; a Settings sheet (bottom sheet in portrait, side panel in landscape; drag or back to close).
+  * **Reduce motion** follows the OS until the player chooses.
+  * **Settings persist** atomically (`LocalSaveStore`).
+  * **The app now starts on the main menu.**
+  * Details and what to try are in `game/Assets/Ghumante/UI/README.md` ("Motion").
+* **Haptics on phones:**
+  * iOS uses UIFeedbackGenerator through `Plugins/iOS/GhumanteHaptics.mm`, and only on iPhones (not iPads or Macs).
+  * Android uses VibrationEffect predefined effects and View haptic feedback over JNI. A build hook declares VIBRATE.
+  * A rate limiter is followed by a pacer, so a reward haptic still plays right after a press tick.
+  * In the editor the debug HUD shows each haptic ("editor - not felt").
+* **The compile check covers more:** Input System stubs, so the tilt-sensor path is compiled and audited, and two editor stubs that the Project Setup change needed.
+* **M1 plan** ([M1_PLAN.md](M1_PLAN.md)): three waves, track ownership and code contracts. The `kathmandu_core` sample region (11.3 MB) is committed so Explore works out of the box.
+
+### Verification
+`dotnet test core-tests` 174/174; `run.sh --audit` PASS (Android + iOS); `check_ui.py` PASS; localisation OK; TextSpike up to date. An adversarial review found 14 issues and rejected 3 more; all 14 were fixed. Nothing has run on a phone yet.
+
+### Next
+* M1 Wave 1, "Explore works" (in progress).
+* A native Nepali speaker should review the new menu and settings strings (listed in UI/README.md).
 
 ---
 

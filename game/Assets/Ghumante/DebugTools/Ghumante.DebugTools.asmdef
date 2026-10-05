@@ -2,7 +2,8 @@
     "name": "Ghumante.DebugTools",
     "rootNamespace": "Ghumante.DebugTools",
     "references": [
-        "Ghumante.Core"
+        "Ghumante.Core",
+        "Ghumante.Platform"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

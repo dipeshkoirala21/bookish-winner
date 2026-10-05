@@ -6,7 +6,9 @@ namespace Ghumante.UI
     /// <summary>
     /// Pads a full-screen root so content avoids notches and rounded corners (<see cref="Screen.safeArea"/>).
     /// UI Toolkit does not do this by itself. Call <see cref="Track"/> once per root; the padding is
-    /// recomputed whenever the root's geometry changes (rotation, split screen, resolution change).
+    /// recomputed whenever the root's geometry changes (rotation, split screen, resolution change). A
+    /// 180-degree turn moves the insets without resizing the root, so screens that care also re-apply when
+    /// <see cref="Screen.safeArea"/> changes (see <see cref="Insets"/>).
     /// </summary>
     public static class SafeArea
     {
@@ -33,6 +35,31 @@ namespace Ghumante.UI
 
             SetIfChanged(root, Mathf.Max(0f, topLeft.x - origin.x), Mathf.Max(0f, topLeft.y - origin.y),
                 Mathf.Max(0f, end.x - bottomRight.x), Mathf.Max(0f, end.y - bottomRight.y));
+        }
+
+        /// <summary>
+        /// The safe-area padding of <paramref name="root"/> as <see cref="Apply"/> writes it inline, re-applied
+        /// first so it is current whatever order GeometryChangedEvent callbacks run in. Code that extends
+        /// something under the insets (a backdrop, a sheet) must read these, not
+        /// <c>root.resolvedStyle.padding*</c>: the resolved padding comes from the last layout pass, and the pass
+        /// that applies new padding sends the root no GeometryChangedEvent, because padding does not change the
+        /// root's own rect. Without a panel (EditMode tests) it returns whatever padding is set inline.
+        /// </summary>
+        public static void Insets(VisualElement root, out float left, out float top, out float right, out float bottom)
+        {
+            Apply(root);
+            IStyle s = root.style;
+            left = Inline(s.paddingLeft);
+            top = Inline(s.paddingTop);
+            right = Inline(s.paddingRight);
+            bottom = Inline(s.paddingBottom);
+        }
+
+        private static float Inline(StyleLength length)
+        {
+            if (length.keyword != StyleKeyword.Undefined) return 0f;
+            float v = length.value.value;
+            return float.IsNaN(v) || float.IsInfinity(v) ? 0f : v;
         }
 
         private static void SetIfChanged(VisualElement root, float left, float top, float right, float bottom)

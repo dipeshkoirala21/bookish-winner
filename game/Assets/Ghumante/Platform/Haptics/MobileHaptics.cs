@@ -21,9 +21,9 @@ namespace Ghumante.Platform.Haptics
         /// <summary>
         /// Raised on the main thread for every request that passed <see cref="IHaptics.Enabled"/> and the rate
         /// limiter. <c>deviceWillPlay</c> is true when the device was asked to play it (it may still be silenced
-        /// by the OS: iOS System Haptics off, Android touch feedback off, an iPad without a Taptic Engine), and
-        /// false in the editor, on devices without a motor, or after a native error. Handler exceptions are
-        /// logged, never propagated.
+        /// by the OS: iOS System Haptics off, Android touch feedback off for Selection and LightImpact), and
+        /// false in the editor, on devices without a motor (iPads, Android tablets without a vibrator), or after
+        /// a native error. Handler exceptions are logged, never propagated.
         /// </summary>
         public static event Action<HapticKind, bool> Requested;
 
