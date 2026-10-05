@@ -198,6 +198,9 @@ namespace Ghumante.EditorTools
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.gcIncremental = true;
             PlayerSettings.stripEngineCode = true;
+            // Adaptive Performance (Android ADPF performance hints) needs precise frame timings;
+            // without this the editor shows an "Adaptive Performance Android" prompt on open.
+            PlayerSettings.enableFrameTimingStats = true;
 
             // Both landscapes and (with AllowPortrait) upright portrait; the device rotates the game live.
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
