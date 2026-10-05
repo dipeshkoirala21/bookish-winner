@@ -644,7 +644,9 @@
     transition-duration: 0.25s;
 }
 
-.gh-toast--visible {
+.gh-toast--visible,
+.gh-root .gh-toast.gh-toast--visible {
+    /* Must out-rank ".gh-root .gh-toast" (opacity 0) above, or the toast never shows. */
     opacity: 1;
 }
 

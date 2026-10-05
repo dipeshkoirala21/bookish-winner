@@ -72,8 +72,9 @@ namespace Ghumante.DebugTools
                 _label = new Label { name = HudName, pickingMode = PickingMode.Ignore };
                 IStyle s = _label.style;
                 s.position = Position.Absolute;
+                // Above the bottom-right OpenStreetMap credit, which must stay readable (LICENSES 1.1).
                 s.right = 12;
-                s.bottom = 12;
+                s.bottom = 72;
                 s.paddingLeft = 10;
                 s.paddingRight = 10;
                 s.paddingTop = 4;
