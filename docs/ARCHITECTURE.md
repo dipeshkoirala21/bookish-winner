@@ -160,9 +160,9 @@ Because the world is 1:1, the full-screen map, the minimap, the in-world route r
 | Stage | Module | Input → output | Notes |
 |---|---|---|---|
 | Fetch | `fetch.py` | Mirrors → `data/raw/**`, `SOURCES.lock.json` | Geofabrik first, then the OSMToday mirror. MD5 checked for OSM; SHA-256 recorded for everything; resumable. |
-| Coverage | `coverage.py` | PBF → `docs/reports/tag_coverage.{md,json}` | Run nightly; CI warns when coverage drops. |
+| Coverage | `coverage.py` | PBF → `docs/reports/tag_coverage.{md,json}` | Run nightly; the job summary compares tonight's figures with the committed report. *Planned:* a CI warning when coverage drops (not implemented yet). |
 | Landmarks | `landmarks.py` | PBF + `config/landmarks.yaml` → `landmarks.resolved.json` | Hero placement source of truth. |
-| Extract | `osm_extract.py` | PBF + region bbox → `Extract` (`model.py`) | pyosmium with node locations; multipolygons via the area assembler; clipped to bbox + buffer. |
+| Extract | `osm_extract.py` | PBF + region bbox → `Extract` (`model.py`) | pyosmium with node locations; multipolygons via the area assembler. Features are selected by bbox + buffer (1.5 km) and kept whole: a road or line with any node in the buffered box is kept entire. The tiler clips to each tile; the routing graph is built from roads clipped to the leaf-tile coverage, and the search index drops places and POIs outside it. |
 | Tag parsing | `tags.py` | raw tags → typed fields | Robust to Nepali data quirks: `G+2` levels, `5m`, `5 m`, `bitumin`, `Blacktopped`, Hebrew `בלתי_סלול` and so on. |
 | Surface inference | `surface.py` | Roads → surface + source | Empirical model trained on the 15% of roads that are tagged (§6.2). |
 | Building inference | `buildings.py` | Buildings → levels, height, roof, materials, archetype | Rules from region, density, use and elevation. Configurable. |
@@ -176,7 +176,7 @@ Because the world is 1:1, the full-screen map, the minimap, the in-world route r
 | Routing | `routing.py` | Roads and trails → `.ghrg` | Per-profile access and speeds. |
 | QA export | `qa_export.py` | Pack → GeoJSON + PNGs | Decodes the pack, so it tests the whole chain. |
 
-`build.py --region kathmandu_valley` runs every stage. Each stage caches its output under `build/cache/<region>/<stage>-<hash>.pkl.gz`. The hash covers stage inputs, config and code version, so editing the biome rules does not re-read the 468 MB PBF.
+`build.py --region kathmandu_valley` runs every stage. Only the OSM extract is cached, under `build/cache/<region>/extract-<hash>.pkl.gz`; the hash covers the PBF (name, size, mtime), the region bbox and buffer, the admin levels, the extract code and `data_version`. So editing the biome rules does not re-read the 468 MB PBF, but every later stage reruns. *Planned:* per-stage caches.
 
 ### 6.2 Inference models (ADR-005)
 
@@ -190,7 +190,7 @@ Coverage numbers come from the [tag coverage report](reports/tag_coverage.md).
 
 ### 6.3 Terrain and road conformance
 
-*DEM provenance:* the AWS copy of GLO-30 is the **2021 release** (objects dated 2022-05-09). CDSE's newest release is 2024_1, but no change since 2021 touches Nepal. All of Nepal plus a horizon buffer needs 28 GLO-30 tiles (1.2 GB) and 8 WorldCover tiles (0.8 GB); the pipeline selects tiles by the Nepal polygon plus buffer, not by bounding box.
+*DEM provenance:* the AWS copy of GLO-30 is the **2021 release** (objects dated 2022-05-09). CDSE's newest release is 2024_1, but no change since 2021 touches Nepal. All of Nepal plus a horizon buffer needs 28 GLO-30 tiles (1.2 GB) and 8 WorldCover tiles (0.8 GB); `fetch.py` currently selects tiles by bounding box: every 1° DEM / 3° WorldCover tile that intersects the union of the region's `horizon_bbox` and `bbox` (`fetch.plan_downloads`). *Planned:* selection by the Nepal polygon plus buffer for the all-Nepal build, so tiles that only touch India or Tibet are skipped.
 
 
 DEM heights are shipped at 8 m spacing on level-10 tiles (129² samples per 1 024 m). The runtime builds 2 m near-field terrain chunks by bicubic upsampling and conforms them to roads: it flattens the road corridor along the road's smoothed elevation profile with a falloff, and adds embankments and cuts. This happens in Burst jobs, so the pack stays small and roads always sit on the terrain.
@@ -199,7 +199,7 @@ DEM heights are shipped at 8 m spacing on level-10 tiles (129² samples per 1 02
 
 * For the same inputs (pinned by `SOURCES.lock.json`), config and code, the pipeline produces byte-identical packs. A CI test builds the fixture region twice and compares SHA-256 sums.
 * `data_version` is written into every tile, pack and manifest. The runtime refuses to mix packs with different `data_version` values.
-* The nightly job re-fetches data, rebuilds every region, publishes the coverage report and a diff, and uploads packs to the staging CDN. Production promotion is a manual step.
+* The nightly job (`nightly-data.yml`) re-fetches data, publishes the coverage report and landmark check, builds **one** region (input `region`, default `kathmandu_valley`), runs the real-data tests on it, and keeps the pack and reports as 14-day workflow artifacts; its job summary compares coverage with the committed report. *Planned:* building every active region and uploading packs to the staging CDN (needs CDN credentials, `docs/CI_SECRETS.md`). Production promotion is a manual step.
 
 ### 6.5 QA viewer
 
@@ -373,10 +373,10 @@ Tiers are detected at first launch from total RAM, GPU name and graphics API, an
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `pipeline.yml` | push, PR | Run `pytest`, including a synthetic end-to-end build done twice to check byte-determinism and seams. |
-| `core.yml` | push, PR | Regenerate golden files from the Python reference and check they are committed unchanged, then `dotnet test` for `Ghumante.Core` against them. |
-| `unity.yml` | push to main, manual | GameCI (`unityci/editor` 6000.3.x images): EditMode tests, Android AAB (IL2CPP, ARM64, **targetSdk 36**, minSdk 29, 16 KB page support), iOS Xcode project, then macOS + fastlane → TestFlight. It skips cleanly without secrets (`docs/CI_SECRETS.md`). |
+| `core.yml` | push, PR | Regenerate golden files from the Python reference and check they are committed unchanged, compile `Ghumante.Core` as netstandard2.1 / C# 9 (`tools/core-netstandard`), then `dotnet test` for it against the golden files. The SDK is pinned to 8.0.x by `global.json`. |
+| `unity.yml` | push to main, PR, manual | Compile check without Unity (`tools/unity-compile-check`, always runs). Then, with secrets, GameCI (`unityci/editor` 6000.3.x images): EditMode tests, Android AAB (IL2CPP, ARM64, **targetSdk 36**, minSdk 29, 16 KB page support), iOS Xcode project, then macOS + fastlane → TestFlight. It skips cleanly without secrets (`docs/CI_SECRETS.md`). |
 | `localization.yml` | push, PR | Fails when a string key is missing in EN or NE. |
-| `nightly-data.yml` | cron 02:15 UTC | Fetch, coverage report, landmark check, build all active regions, upload artifacts and the staging CDN, and post a diff summary. |
+| `nightly-data.yml` | cron 02:15 UTC, manual | Fetch, coverage report, landmark check, build one region (default `kathmandu_valley`), run `pytest -m realdata` on it, upload the pack and reports as artifacts, and write a job summary. *Planned:* all active regions and the staging CDN upload. |
 
 `ProjectSettings` are applied by an editor script (`Ghumante.EditorTools.ProjectSetup`), not edited by hand. That covers the bundle id, API levels, IL2CPP, ARM64, graphics APIs and the URP asset. The script is idempotent, so CI and every developer get identical settings.
 

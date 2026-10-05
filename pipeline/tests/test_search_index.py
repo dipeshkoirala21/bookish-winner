@@ -19,7 +19,10 @@ from ghumante_pipeline.search_index import (
     FLAG_TRANSPORT_HUB,
     HEADER_SIZE,
     PLACE_KIND_OFFSET,
+    RANK_BONUS_HERITAGE,
+    RANK_BONUS_LANDMARK,
     SCORE_SCALE,
+    TOKEN_MATCH_SCORE,
     SearchEntry,
     SearchIndex,
     build_entries,
@@ -36,6 +39,7 @@ from ghumante_pipeline.search_index import (
     poi_importance,
     population_bonus,
     read_index,
+    rank_bonus,
     search_ids,
     sort_entries,
     write_index,
@@ -459,9 +463,22 @@ def test_encode_rejects_out_of_range_coordinates():
 def test_search_ids(entries):
     ids = search_ids(entries)
     idx = SearchIndex.from_entries(entries)
-    for ref, sid in ids.items():
+    for (ref, kind), sid in ids.items():
         assert idx.entries[sid - 1].osm_ref == ref & 0xFFFFFFFF
-    assert ids[(56688296 << 2) | 1] >= 1
+        assert idx.entries[sid - 1].kind == kind
+    assert ids[((56688296 << 2) | 1, int(PoiKind.STUPA))] >= 1
+
+
+def test_search_ids_keep_poi_and_place_of_one_object_apart():
+    """One OSM object that is both a place and a POI gets two entries; each id points at its own."""
+    poi = _entry("Patan Durbar Square", kind=int(PoiKind.HERITAGE_SQUARE), ref=(18231886 << 2) | 2)
+    place = _entry("Patan Durbar Square", kind=int(PlaceKind.SQUARE) + PLACE_KIND_OFFSET,
+                   ref=(18231886 << 2) | 2)
+    ids = search_ids([place, poi])
+    idx = SearchIndex.from_entries([place, poi])
+    assert len(ids) == 2
+    assert idx.entries[ids[(poi.osm_ref, poi.kind)] - 1].kind == PoiKind.HERITAGE_SQUARE
+    assert idx.entries[ids[(place.osm_ref, place.kind)] - 1].kind == int(PlaceKind.SQUARE) + PLACE_KIND_OFFSET
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +527,8 @@ def test_boudha_finds_boudhanath(index):
     res = index.search("boudha", 5)
     names = [e.display_name for _, e in res]
     assert "Boudhanāth Stupa" in names
-    assert names[0] == "Baudha"  # the exact-match suburb comes first
+    # The landmark's rank bonus puts the stupa above the exact-match suburb "Baudha".
+    assert names[0] == "Boudhanāth Stupa" and "Baudha" in names
     assert _top(index, "boudhanath").display_name == "Boudhanāth Stupa"
     assert _top(index, "बौद्धनाथ").display_name == "Boudhanāth Stupa"
     assert _top(index, "Bouddhanath stupa").display_name == "Boudhanāth Stupa"
@@ -541,6 +559,92 @@ def test_alt_name_and_suffix_matches(index):
     assert _top(index, "international airport").display_name == "Tribhuvan International Airport"
     assert _top(index, "sagarmatha").display_name == "Mount Everest"
     assert _top(index, "everest").display_name == "Mount Everest"  # suffix "everest" of "Mount Everest"
+
+
+def test_rank_bonus_landmark_and_heritage():
+    lm = _entry("Boudhanath Stupa", kind=PoiKind.STUPA, imp=190, ref=4, flags=FLAG_LANDMARK)
+    sq = _entry("Patan Durbar Square", kind=PoiKind.HERITAGE_SQUARE, imp=100, ref=8)
+    nb = _entry("Boudha", kind=P + PlaceKind.SUBURB, imp=150, ref=12)
+    assert [rank_bonus(e) for e in (lm, sq, nb)] == [RANK_BONUS_LANDMARK, RANK_BONUS_HERITAGE, 0]
+    idx = SearchIndex.from_entries([lm, sq, nb])
+    ranked = idx.rank("boudha", 5)
+    m = idx.match_scores("boudha")
+    by_i = {i: s for s, i in ranked}
+    for i, e in enumerate(idx.entries):
+        if i in m:
+            assert by_i[i] == 1785 * min(1000, m[i] + rank_bonus(e)) + 3000 * e.importance
+    assert idx.entries[ranked[0][1]].display_name == "Boudhanath Stupa"
+    # an exact match is capped at 1000
+    assert idx.rank("boudhanath stupa", 1)[0][0] == 1785 * 1000 + 3000 * 190
+
+
+def test_dedupe_matches_any_name_variant():
+    """Three OSM objects for Patan Durbar Square (Latin, Devanagari and odd defaults, same en) collapse to one."""
+    lon, lat = 85.3253, 27.6727
+    pois = [
+        _poi(3970047196, PoiKind.HERITAGE_SQUARE, lon, lat, "DUBAR SQUARE PATAN", "Patan Durbar Square"),
+        _poi(332341748, PoiKind.HERITAGE_SQUARE, lon + 0.0002, lat + 0.0002, "पाटन दरवार क्षेत्र",
+             "Patan Durbar Square", osm_type="w"),
+        _poi(18231886, PoiKind.HERITAGE_SQUARE, lon + 0.00025, lat + 0.00028, "Patan Durbar Square",
+             osm_type="r"),
+        _poi(99, PoiKind.HERITAGE_SQUARE, lon + 0.05, lat, "Patan Durbar Square"),  # 5 km away: kept
+    ]
+    es = build_entries([], pois, [], {3970047196: "patan_durbar_square"})
+    near = [e for e in es if abs(e.lon - lon) < 0.01]
+    assert len(near) == 1 and len(es) == 2
+    kept = near[0]
+    assert kept.name.default == "DUBAR SQUARE PATAN"  # the landmark (highest importance) wins
+    assert "पाटन दरवार क्षेत्र" in kept.name.alt  # the duplicate's names stay searchable
+    idx = SearchIndex.from_entries(es)
+    ref32 = (3970047196 << 2) & 0xFFFFFFFF  # truncated in the file
+    assert [e.osm_ref for _, e in idx.search("patan durbar square")] == [ref32, (99 << 2)]
+    assert idx.search("पाटन दरवार")[0][1].osm_ref == ref32
+
+
+def test_token_match_finds_names_with_skipped_words():
+    es = [_entry("Tribhuvan International Airport", kind=PoiKind.AIRPORT, imp=220, ref=4),
+          _entry("Kathmandu", kind=P + PlaceKind.CITY, imp=255, ref=8),
+          _entry("Tribhuvan Chowk", kind=PoiKind.ATTRACTION, imp=120, ref=12)]
+    idx = SearchIndex.from_entries(es)
+    res = idx.search("Tribhuvan airport")
+    assert res and res[0][1].display_name == "Tribhuvan International Airport"
+    assert len(res) == 1  # every significant word must match
+    assert idx.match_scores("tribhu airp") == {0: TOKEN_MATCH_SCORE}  # word prefixes
+    # one significant word (the other is a stop word / short): plain lookup only
+    assert idx.search("Tribhuvan the") == []
+    # a phrase match beats the token match
+    assert idx.match_scores("tribhuvan international")[0] > TOKEN_MATCH_SCORE
+
+
+def test_aliases_become_keys():
+    pois = [_poi(118505122, PoiKind.AIRPORT, 85.3591, 27.6966, "त्रिभुवन अन्तर्राष्ट्रिय विमानस्थल",
+                 "Tribhuvan International Airport", osm_type="w")]
+    es = build_entries([], pois, [], {118505122: "tribhuvan_airport"},
+                       aliases={118505122: ["Kathmandu Airport", "TIA"]})
+    idx = SearchIndex.from_entries(es)
+    for q in ("TIA", "Kathmandu airport", "kathmandu airp"):
+        assert idx.search(q)[0][1].name.en == "Tribhuvan International Airport", q
+    assert es[0].name.alt == ("Kathmandu Airport", "TIA")
+
+
+def test_bounds_drop_buffer_zone_entries_but_keep_admin():
+    x, z = (float(v) for v in projection.lonlat_to_game(85.32, 27.70))
+    inside = _poi(1, PoiKind.SPRING, 85.32, 27.70, "Inside Mul")
+    outside = _poi(2, PoiKind.SPRING, 85.60, 27.58, "Aakshko pakhako mul")
+    place_out = _place(3, PlaceKind.VILLAGE, 85.60, 27.58, "Faraway")
+    es = build_entries([place_out], [inside, outside], [BAGMATI], {}, bounds_game=(x - 1000, z - 1000, x + 1000, z + 1000))
+    assert sorted(e.display_name for e in es) == ["Bagmati Province", "Inside Mul"]
+    assert len(build_entries([place_out], [inside, outside], [BAGMATI], {})) == 4
+
+
+def test_bus_to_stop_is_not_a_hub():
+    stops = [_poi(1, PoiKind.BUS_STATION, 85.43, 27.67, "Bus to Nagarkot"),
+             _poi(2, PoiKind.BUS_STATION, 85.43, 27.68, "Nagarkot Bus Park"),
+             _poi(3, PoiKind.BUS_STATION, 85.40, 27.68, "bus for Kathmandu")]
+    es = {e.display_name: e for e in build_entries([], stops, [], {})}
+    assert not es["Bus to Nagarkot"].flags & FLAG_TRANSPORT_HUB and es["Bus to Nagarkot"].importance == 50
+    assert not es["bus for Kathmandu"].flags & FLAG_TRANSPORT_HUB
+    assert es["Nagarkot Bus Park"].flags & FLAG_TRANSPORT_HUB and es["Nagarkot Bus Park"].importance == 140
 
 
 def test_importance_breaks_ties():

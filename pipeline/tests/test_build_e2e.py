@@ -73,6 +73,8 @@ def test_manifest(synth) -> None:
             levels[str(k >> 58)] = levels.get(str(k >> 58), 0) + 1
     assert m["tile_counts"] == levels
     assert any("OpenStreetMap" in a for a in m["attribution"]) and len(m["attribution"]) == 3
+    srcs = build.config.load_sources()
+    assert m["attribution"] == [srcs[k]["attribution"] for k in ("osm", "dem", "landcover")]
     s = m["stats"]
     for k in ("surface_tagged_pct", "surface_derived_pct", "surface_inferred_pct", "surface_default_pct",
               "building_levels_inferred_pct", "graph_nodes", "graph_edges", "search_entries", "timings_s"):
@@ -129,6 +131,12 @@ def test_landmark_and_poi_search_ids(synth) -> None:
     assert p.flags & PoiFlags.LANDMARK and p.search_id > 0
     assert idx.entries[p.search_id - 1].name.default == TEMPLE_NAME
     assert td.name(p.name_ref).ne == TEMPLE_NAME_NE
+    # search_id is the record's own entry (DATA_FORMATS 1.8): same kind and OSM object.
+    linked = [(td, q) for td in tiles for q in td.pois if q.search_id]
+    assert linked
+    for _, q in linked:
+        e = idx.entries[q.search_id - 1]
+        assert e.kind == q.kind and e.osm_ref == q.osm_ref & 0xFFFFFFFF, (q, e)
 
 
 def test_oneway_reverse_stored_reversed(synth) -> None:
@@ -276,6 +284,9 @@ def test_cli_and_qa_only_stage(tmp_path) -> None:
     assert (reg / "qa" / "index.json").exists()
     assert sha256_file(reg / "synth_test.ghpk") == pack_sha
     assert m["stats"]["qa"]["layers"]["buildings"] == len(syn.buildings) + 1
+    # No build-machine paths in the manifest that ships beside the pack.
+    assert m["stats"]["qa"]["out_dir"] == "qa"
+    assert str(tmp_path) not in (reg / "synth_test.manifest.json").read_text(encoding="utf-8")
     with pytest.raises(ValueError):
         build.build_region(region, pbf=syn.osm, raw_dir=syn.root, out_dir=out, stages=["bogus"])
 
@@ -304,7 +315,7 @@ def test_apply_landmark_kinds(tmp_path) -> None:
 
     p = tmp_path / "lm.json"
     p.write_text(json.dumps([{"id": "boudhanath", "kind": "stupa", "osm": "w56688296"},
-                             {"id": "x", "kind": "temple_pagoda", "osm": "n5"},
+                             {"id": "x", "kind": "village", "osm": "n5"},
                              {"id": "y", "kind": "stupa", "osm": "n6"}]), encoding="utf-8")
     ex = Extract(region="t")
     ex.pois = [PoiFeature("w", 56688296, PoiKind.GOMPA, 85.36, 27.72),
@@ -314,3 +325,89 @@ def test_apply_landmark_kinds(tmp_path) -> None:
     assert build.apply_landmark_kinds(ex, p) == 1
     assert [q.kind for q in ex.pois] == [PoiKind.STUPA, PoiKind.GOMPA, PoiKind.GOMPA, PoiKind.STUPA]
     assert build.apply_landmark_kinds(ex, tmp_path / "missing.json") == 0
+
+
+def test_landmark_poi_kinds_cover_valley_landmarks() -> None:
+    """Every Kathmandu Valley landmark kind is either a POI kind or a settlement (its place is the entry)."""
+    import yaml as _yaml
+
+    from ghumante_pipeline.config import CONFIG_DIR
+
+    kinds = {lm["kind"] for lm in _yaml.safe_load((CONFIG_DIR / "landmarks.yaml").read_text())["landmarks"]
+             if lm["region"] == "kathmandu_valley"}
+    assert kinds <= set(build.LANDMARK_POI_KINDS) | build.LANDMARK_PLACE_KINDS, \
+        kinds - set(build.LANDMARK_POI_KINDS) - build.LANDMARK_PLACE_KINDS
+    from ghumante_pipeline.model import PoiKind
+    assert build.LANDMARK_POI_KINDS["temple_pagoda"] == PoiKind.TEMPLE_HINDU
+    assert build.LANDMARK_POI_KINDS["garden"] == PoiKind.PARK
+
+
+def test_resolved_landmarks_match_config() -> None:
+    """landmarks.resolved.json is generated from landmarks.yaml: ids, pins and aliases agree."""
+    import yaml as _yaml
+
+    from ghumante_pipeline.config import CONFIG_DIR
+
+    cfg = {lm["id"]: lm for lm in _yaml.safe_load((CONFIG_DIR / "landmarks.yaml").read_text())["landmarks"]}
+    rows = json.loads((CONFIG_DIR / "landmarks.resolved.json").read_text(encoding="utf-8"))
+    assert [r["id"] for r in rows] == list(cfg)
+    for r in rows:
+        assert r.get("aliases", []) == cfg[r["id"]].get("aliases", []), r["id"]
+        if cfg[r["id"]].get("osm"):
+            assert r["osm"] == cfg[r["id"]]["osm"] and r["status"] == "found", r["id"]
+
+
+def test_ensure_landmark_pois_and_aliases(tmp_path) -> None:
+    from ghumante_pipeline.model import Extract, LineFeature, LineKind, NameRec, PlaceFeature, PlaceKind, PoiFeature, PoiFlags, PoiKind
+
+    p = tmp_path / "lm.json"
+    p.write_text(json.dumps([
+        {"id": "dharahara", "region": "r", "kind": "tower", "osm": "n11622074774", "lon": 85.312169,
+         "lat": 27.700545, "name": "Dharahara (Bhimsen Isthamba)", "name_en": None, "name_ne": "भीमसेन स्तम्भ",
+         "aliases": ["Dharahara", "Bhimsen Tower"]},
+        {"id": "cable", "region": "r", "kind": "cable_car", "osm": "w638657930", "lon": 85.21, "lat": 27.677,
+         "name": "चन्द्रागिरि केबलकार", "name_en": "Chandragiri Cable Car", "name_ne": "चन्द्रागिरि केबलकार"},
+        {"id": "stupa", "region": "r", "kind": "stupa", "osm": "w1", "lon": 85.36, "lat": 27.72, "name": "S"},
+        {"id": "thamel", "region": "r", "kind": "district", "osm": "n2", "lon": 85.31, "lat": 27.71, "name": "T"},
+        {"id": "far", "region": "r", "kind": "tower", "osm": "n3", "lon": 86.9, "lat": 27.9, "name": "F"},
+        {"id": "other", "region": "elsewhere", "kind": "tower", "osm": "n4", "lon": 85.3, "lat": 27.7, "name": "O",
+         "aliases": ["Nope"]},
+    ]), encoding="utf-8")
+    ex = Extract(region="r")
+    ex.pois = [PoiFeature("w", 1, PoiKind.STUPA, 85.36, 27.72, NameRec("S", "S", ""))]
+    ex.places = [PlaceFeature("n", 2, PlaceKind.NEIGHBOURHOOD, 85.31, 27.71, NameRec("T", "T", ""))]
+    ex.lines = [LineFeature(638657930, LineKind.CABLE_CAR,
+                            np.array([[85.2005, 27.6870], [85.2210, 27.6680]]))]
+    assert build.ensure_landmark_pois(ex, p, "r", (85.18, 27.55, 85.58, 27.83)) == 2
+    tower, cable = ex.pois[1], ex.pois[2]
+    assert (tower.osm_type, tower.osm_id, tower.kind) == ("n", 11622074774, PoiKind.MONUMENT)
+    assert tower.name.default == "Dharahara (Bhimsen Isthamba)" and tower.name.ne == "भीमसेन स्तम्भ"
+    assert tower.flags & PoiFlags.LANDMARK and (tower.lon, tower.lat) == (85.312169, 27.700545)
+    assert cable.kind == PoiKind.CABLE_CAR_STATION and (cable.lon, cable.lat) == (85.2005, 27.6870)
+    assert cable.name.en == "Chandragiri Cable Car"
+    assert build.ensure_landmark_pois(ex, p, "r", (85.18, 27.55, 85.58, 27.83)) == 0  # idempotent
+    assert build.load_landmark_aliases(p, "r") == {11622074774: ["Dharahara", "Bhimsen Tower"]}
+    assert build.load_landmark_aliases(p)[4] == ["Nope"]
+    # the synthesised landmark is searchable by its alias, flagged as a landmark
+    ids, _ = build.load_landmarks(p)
+    es = search_index.build_entries(ex.places, ex.pois, [], ids, aliases=build.load_landmark_aliases(p, "r"))
+    idx = search_index.SearchIndex.from_entries(es)
+    top = idx.search("Dharahara")[0][1]
+    assert top.kind == PoiKind.MONUMENT and top.flags & search_index.FLAG_LANDMARK
+    assert idx.search("Bhimsen Tower")[0][1].kind == PoiKind.MONUMENT
+
+
+def test_coverage_box() -> None:
+    tiles = [projection.TileId(10, 5, 7), projection.TileId(10, 6, 8)]
+    b = build.coverage_box(tiles)
+    assert b == (tiles[0].bounds[0], tiles[0].bounds[1], tiles[1].bounds[2], tiles[1].bounds[3])
+    assert build.coverage_box([]) is None
+
+
+def test_osm_timestamp_falls_back_to_lock_last_modified(tmp_path) -> None:
+    # An OSM XML file without a header timestamp (like the geo2day mirror's PBF header).
+    f = tmp_path / "x.osm"
+    f.write_text('<?xml version="1.0"?><osm version="0.6"></osm>', encoding="utf-8")
+    assert build._osm_timestamp(f) is None
+    assert build._osm_timestamp(f, {"last_modified": "Sun, 04 Oct 2026 07:33:52 GMT"}) == "2026-10-04T07:33:52Z"
+    assert build._osm_timestamp(f, {"last_modified": "garbage"}) is None

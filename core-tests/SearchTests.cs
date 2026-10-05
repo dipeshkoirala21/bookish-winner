@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,20 @@ namespace Ghumante.Core.Tests
         private static SearchIndexData Index()
         {
             return SearchIndexReader.Read(GoldenFiles.Bytes("golden.ghsi"));
+        }
+
+        [Test]
+        public void StopWordsAndRankConstantsMatchPython()
+        {
+            JsonElement root = GoldenFiles.Json("golden_search.json");
+            var expected = root.GetProperty("stop_words").EnumerateArray().Select(e => e.GetString()).ToList();
+            Assert.That(SearchEngine.StopWordsFolded.OrderBy(w => w, StringComparer.Ordinal).ToList(), Is.EqualTo(expected));
+            JsonElement rb = root.GetProperty("rank_bonus");
+            Assert.That(SearchEngine.RankBonusLandmark, Is.EqualTo(rb.GetProperty("landmark").GetInt32()));
+            Assert.That(SearchEngine.RankBonusHeritage, Is.EqualTo(rb.GetProperty("heritage").GetInt32()));
+            Assert.That(SearchEngine.HeritageKindMin, Is.EqualTo(rb.GetProperty("heritage_kinds")[0].GetInt32()));
+            Assert.That(SearchEngine.HeritageKindMax, Is.EqualTo(rb.GetProperty("heritage_kinds")[1].GetInt32()));
+            Assert.That(SearchEngine.TokenMatchScore, Is.EqualTo(rb.GetProperty("token_match").GetInt32()));
         }
 
         [Test]

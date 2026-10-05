@@ -77,6 +77,32 @@ def check_seams(a: TileData, b: TileData, d: str) -> list[str]:
     return bad
 
 
+def polyline_problems(td: TileData) -> list[str]:
+    """ROAD/LINE pieces with zero-length segments or a context point that is its cut
+    point or lies strictly inside the tile (DATA_FORMATS 1.4)."""
+    bad = []
+    s = int(round(td.tile.size * 100))
+    for attr, pb, nb in (("roads", int(RoadFlags.HAS_PREV_CTX), int(RoadFlags.HAS_NEXT_CTX)),
+                         ("lines", int(LineFlags.HAS_PREV_CTX), int(LineFlags.HAS_NEXT_CTX))):
+        for r in getattr(td, attr) or []:
+            p = np.asarray(r.points)
+            if len(p) >= 2 and np.any(np.all(p[1:] == p[:-1], axis=1)):
+                bad.append(f"{td.tile} {attr} way {r.osm_way_id}: consecutive duplicate points")
+            for flag, c, cut in ((pb, 0, 1), (nb, -1, -2)):
+                if r.flags & flag:
+                    ctx = p[c]
+                    if np.array_equal(ctx, p[cut]):
+                        bad.append(f"{td.tile} {attr} way {r.osm_way_id}: context point equals the cut point")
+                    elif 0 < ctx[0] < s and 0 < ctx[1] < s:
+                        bad.append(f"{td.tile} {attr} way {r.osm_way_id}: context point inside the tile")
+    return bad
+
+
+def test_polylines_have_no_rounding_artifacts(decoded) -> None:
+    problems = [m for td in decoded.values() for m in polyline_problems(td)]
+    assert not problems, "\n".join(problems[:20])
+
+
 def test_every_level_has_neighbours(decoded) -> None:
     levels = Counter(t.level for t in decoded)
     pairs = Counter(t.level for t, _, _ in neighbour_pairs(decoded))

@@ -11,23 +11,27 @@
 #
 # region: the delivery region the landmark ships in (see config/regions.yaml).
 # kind: drives the hero-asset spec in docs/ASSET_MANIFEST.md.
+# osm: pins the resolution to one OSM object ("n123", "w123", "r123") when the
+#   tag ranking picks the wrong candidate; it must still match `match` and `near`.
+# aliases: extra names people search for (build.py indexes them as search keys
+#   of the landmark's entry, like alt_name).
 
 landmarks:
   # ---------------------------------------------------------------- Kathmandu Valley
-  - {id: boudhanath, region: kathmandu_valley, kind: stupa, match: "bou?d+h?a(nath)?|baudha|bouddha|बौद्ध", prefer: ["man_made=stupa", "building=stupa", "amenity=place_of_worship", "historic=*"], near: [85.362, 27.721, 3]}
-  - {id: swayambhunath, region: kathmandu_valley, kind: stupa, match: "swa?yambhu|स्वयम्भू", prefer: ["man_made=stupa", "amenity=place_of_worship", "historic=*", "tourism=attraction"], near: [85.29, 27.715, 3]}
-  - {id: pashupatinath, region: kathmandu_valley, kind: temple_pagoda, match: "pashupati|पशुपति", prefer: ["amenity=place_of_worship", "building=temple", "historic=*", "tourism=attraction"], near: [85.348, 27.711, 3]}
-  - {id: kathmandu_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "kathmandu durbar|basantapur|hanuman ?dhoka|काठमाडौं दरबार|हनुमानढोका", prefer: ["place=square", "historic=*", "tourism=attraction", "highway=pedestrian"], near: [85.307, 27.704, 2]}
-  - {id: patan_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "patan durbar|पाटन दरबार|mangal bazaar", prefer: ["place=square", "historic=*", "tourism=attraction"], near: [85.325, 27.673, 2]}
-  - {id: bhaktapur_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "bhaktapur durbar|भक्तपुर दरबार", prefer: ["place=square", "historic=*", "tourism=attraction"], near: [85.428, 27.672, 2]}
-  - {id: nyatapola, region: kathmandu_valley, kind: temple_pagoda, match: "nyatapola|nyatapol|न्यातपोल", prefer: ["amenity=place_of_worship", "building=temple", "historic=*"], near: [85.429, 27.671, 2]}
-  - {id: changu_narayan, region: kathmandu_valley, kind: temple_pagoda, match: "changu ?narayan|चाँगुनारायण|चाँगु नारायण", prefer: ["amenity=place_of_worship", "building=temple", "historic=*"], near: [85.428, 27.716, 3]}
-  - {id: dharahara, region: kathmandu_valley, kind: tower, match: "dharahara|bhimsen tower|धरहरा", prefer: ["man_made=tower", "tourism=attraction", "historic=*"], near: [85.312, 27.7, 2]}
-  - {id: garden_of_dreams, region: kathmandu_valley, kind: garden, match: "garden of dreams|swapna bagaicha|स्वप्न बगैंचा", prefer: ["leisure=garden", "leisure=park", "tourism=attraction"], near: [85.315, 27.714, 2]}
-  - {id: thamel, region: kathmandu_valley, kind: district, match: "^thamel$|^ठमेल$", prefer: ["place=neighbourhood", "place=suburb", "place=quarter"], near: [85.31, 27.715, 2]}
-  - {id: chandragiri_cable_car, region: kathmandu_valley, kind: cable_car, match: "chandragiri", prefer: ["aerialway=*", "tourism=attraction", "natural=peak"], near: [85.21, 27.67, 8]}
-  - {id: nagarkot_viewpoint, region: kathmandu_valley, kind: viewpoint, match: "nagarkot", prefer: ["tourism=viewpoint", "man_made=tower", "place=*"], near: [85.52, 27.715, 6]}
-  - {id: tribhuvan_airport, region: kathmandu_valley, kind: airport, match: "tribhuvan international|त्रिभुवन अन्तर्राष्ट्रिय", prefer: ["aeroway=aerodrome"], near: [85.359, 27.697, 4]}
+  - {id: boudhanath, region: kathmandu_valley, kind: stupa, match: "bou?d+h?a(nath)?|baudha|bouddha|बौद्ध", prefer: ["man_made=stupa", "building=stupa", "amenity=place_of_worship", "historic=*"], near: [85.362, 27.721, 3], aliases: ["Boudha", "Boudhanath", "Bouddhanath", "Boudha Stupa", "Boudhanath Stupa"]}
+  - {id: swayambhunath, region: kathmandu_valley, kind: stupa, match: "swa?yambhu|स्वयम्भू", prefer: ["man_made=stupa", "amenity=place_of_worship", "historic=*", "tourism=attraction"], near: [85.29, 27.715, 3], aliases: ["Swayambhu", "Swayambhu Stupa", "Swayambhunath Stupa", "Monkey Temple"]}
+  - {id: pashupatinath, region: kathmandu_valley, kind: temple_pagoda, match: "pashupati|पशुपति", prefer: ["amenity=place_of_worship", "building=temple", "historic=*", "tourism=attraction"], near: [85.348, 27.711, 3], aliases: ["Pashupati", "Pashupatinath", "Pashupatinath Temple"]}
+  - {id: kathmandu_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "kathmandu durbar|basantapur|hanuman ?dhoka|काठमाडौं दरबार|हनुमानढोका", prefer: ["place=square", "historic=*", "tourism=attraction", "highway=pedestrian"], near: [85.307, 27.704, 2], aliases: ["Kathmandu Durbar Square", "Kathmandu Durbar", "Hanuman Dhoka", "Basantapur Durbar Square"]}
+  - {id: patan_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "patan durbar|पाटन दरबार|mangal bazaar", prefer: ["place=square", "historic=*", "tourism=attraction"], near: [85.325, 27.673, 2], aliases: ["Patan Durbar Square", "Lalitpur Durbar Square", "Mangal Bazaar"]}
+  - {id: bhaktapur_durbar_square, region: kathmandu_valley, kind: heritage_square, match: "bhaktapur durbar|भक्तपुर दरबार", prefer: ["place=square", "historic=*", "tourism=attraction"], near: [85.428, 27.672, 2], aliases: ["Bhaktapur Durbar Square"]}
+  - {id: nyatapola, region: kathmandu_valley, kind: temple_pagoda, match: "nyatapola|nyatapol|न्यातपोल", prefer: ["amenity=place_of_worship", "building=temple", "historic=*"], near: [85.429, 27.671, 2], aliases: ["Nyatapola", "Nyatapola Temple"]}
+  - {id: changu_narayan, region: kathmandu_valley, kind: temple_pagoda, match: "changu ?narayan|चाँगुनारायण|चाँगु नारायण", prefer: ["amenity=place_of_worship", "building=temple", "historic=*"], near: [85.428, 27.716, 3], aliases: ["Changu Narayan", "Changunarayan", "Changu Narayan Temple"]}
+  - {id: dharahara, region: kathmandu_valley, kind: tower, match: "dharahara|bhimsen tower|धरहरा", prefer: ["man_made=tower", "tourism=attraction", "historic=*"], near: [85.312, 27.7, 2], aliases: ["Dharahara", "Bhimsen Tower", "धरहरा"]}
+  - {id: garden_of_dreams, region: kathmandu_valley, kind: garden, match: "garden of dreams|swapna bagaicha|स्वप्न बगैंचा", prefer: ["leisure=garden", "leisure=park", "tourism=attraction"], near: [85.315, 27.714, 2], aliases: ["Garden of Dreams", "Swapna Bagaicha"]}
+  - {id: thamel, region: kathmandu_valley, kind: district, match: "^thamel$|^ठमेल$", prefer: ["place=neighbourhood", "place=suburb", "place=quarter"], near: [85.31, 27.715, 2], aliases: ["Thamel"]}
+  - {id: chandragiri_cable_car, region: kathmandu_valley, kind: cable_car, match: "chandragiri", prefer: ["aerialway=*", "tourism=attraction", "natural=peak"], near: [85.21, 27.67, 8], aliases: ["Chandragiri Cable Car", "Chandragiri Hills"]}
+  - {id: nagarkot_viewpoint, region: kathmandu_valley, kind: viewpoint, match: "nagarkot", prefer: ["tourism=viewpoint", "man_made=tower", "place=*"], near: [85.52, 27.715, 6], osm: n1398437048, aliases: ["Nagarkot", "Nagarkot Viewpoint", "Nagarkot View Tower"]}
+  - {id: tribhuvan_airport, region: kathmandu_valley, kind: airport, match: "tribhuvan international|त्रिभुवन अन्तर्राष्ट्रिय", prefer: ["aeroway=aerodrome"], near: [85.359, 27.697, 4], aliases: ["Tribhuvan Airport", "Tribhuvan International Airport", "Kathmandu Airport", "Kathmandu International Airport", "Tribhuvan Intl Airport", "TIA"]}
   # ---------------------------------------------------------------- Pokhara & Gandaki
   - {id: phewa_lake, region: pokhara, kind: lake, match: "phewa|fewa|फेवा", prefer: ["natural=water", "water=lake"], near: [83.95, 28.215, 5]}
   - {id: tal_barahi, region: pokhara, kind: temple_pagoda, match: "barahi|वाराही|बाराही", prefer: ["amenity=place_of_worship", "building=temple"], near: [83.951, 28.209, 2]}

@@ -1,5 +1,6 @@
 # Nightly data build (ARCHITECTURE.md 6.4): re-fetch the sources, publish the OSM tag coverage report
-# and the landmark check, build the region pack, and keep everything as artifacts for 14 days.
+# and the landmark check, build the region pack, run the real-data tests (pytest -m realdata) on it, and
+# keep everything as artifacts for 14 days.
 # Uploading to the staging CDN is a later step (needs CDN credentials; see docs/CI_SECRETS.md).
 name: nightly-data
 
@@ -84,6 +85,11 @@ jobs:
             exit 1
           fi
           python pipeline/build.py --region "$REGION"
+
+      # The real-data tests (marker "realdata") read pipeline/build/regions/kathmandu_valley; pipeline.yml
+      # runs only the fixture tests. With another region they skip for lack of outputs.
+      - name: Real-data tests
+        run: pytest -q pipeline/tests -m realdata -rs
 
       - name: Collect pack, manifest and lock file
         run: |

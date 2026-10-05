@@ -150,7 +150,7 @@ from typing import Callable, Iterable, Sequence
 
 import numpy as np
 from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
+from scipy.sparse.csgraph import breadth_first_order, connected_components
 from scipy.spatial import cKDTree
 
 from .binio import Reader, Writer
@@ -551,6 +551,129 @@ def lonlat_to_game_xy(lonlat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     a = np.asarray(lonlat, dtype=np.float64).reshape(-1, 2)
     x, z = lonlat_to_game(a[:, 0], a[:, 1])
     return np.asarray(x, dtype=np.float64), np.asarray(z, dtype=np.float64)
+
+
+def _project_all(roads: Sequence[RoadFeature], to_game) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Game x, z of every vertex of every road (one projection call) and the split offsets."""
+    lens = np.array([np.asarray(r.lonlat).reshape(-1, 2).shape[0] for r in roads], dtype=np.int64)
+    off = np.zeros(len(roads) + 1, dtype=np.int64)
+    off[1:] = np.cumsum(lens)
+    if not len(roads) or off[-1] == 0:
+        return np.zeros(0), np.zeros(0), off
+    ll = np.concatenate([np.asarray(r.lonlat, dtype=np.float64).reshape(-1, 2) for r in roads])
+    x, z = to_game(ll)
+    return np.asarray(x, dtype=np.float64), np.asarray(z, dtype=np.float64), off
+
+
+def _clip_segment(xa: float, za: float, xb: float, zb: float,
+                  box: tuple[float, float, float, float]) -> tuple[float, float] | None:
+    """Liang-Barsky: the parameter range [t0, t1] of segment a->b inside the closed box, or None."""
+    dx, dz = xb - xa, zb - za
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, xa - box[0]), (dx, box[2] - xa), (-dz, za - box[1]), (dz, box[3] - za)):
+        if p == 0.0:
+            if q < 0.0:
+                return None
+            continue
+        t = q / p
+        if p < 0.0:
+            if t > t1:
+                return None
+            t0 = max(t0, t)
+        else:
+            if t < t0:
+                return None
+            t1 = min(t1, t)
+    return t0, t1
+
+
+def clip_roads(roads: Sequence[RoadFeature], box: tuple[float, float, float, float], *,
+               to_game: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] = lonlat_to_game_xy,
+               to_lonlat: Callable | None = None) -> list[RoadFeature]:
+    """Clip roads to the closed game-metre box ``(x0, z0, x1, z1)`` (the region's leaf tiles).
+
+    Roads entirely inside are returned as they are; roads entirely outside are
+    dropped; the others become one road per inside run (same attributes and
+    OSM id) whose cut points are synthetic vertices (node id 0, see
+    ``build_graph``) placed exactly on the box edge. Original vertices keep
+    their lon/lat and node ids, so the topology inside the box is unchanged.
+    ``to_lonlat`` maps game ``(x, z)`` arrays back to lon/lat (default
+    ``projection.game_to_lonlat``).
+    """
+    import dataclasses
+
+    if to_lonlat is None:
+        from .projection import game_to_lonlat as to_lonlat
+    box = tuple(float(v) for v in box)
+    roads = list(roads)
+    gx, gz, off = _project_all(roads, to_game)
+    out: list[RoadFeature] = []
+    for k, r in enumerate(roads):
+        x, z = gx[off[k]:off[k + 1]], gz[off[k]:off[k + 1]]
+        if x.shape[0] == 0:
+            continue
+        inside = (x >= box[0]) & (x <= box[2]) & (z >= box[1]) & (z <= box[3])
+        if inside.all():
+            out.append(r)
+            continue
+        if x.shape[0] < 2 or (x.max() < box[0] or x.min() > box[2] or z.max() < box[1] or z.min() > box[3]):
+            continue
+        ll = np.asarray(r.lonlat, dtype=np.float64).reshape(-1, 2)
+        ids = np.asarray(r.node_ids, dtype=np.int64).reshape(-1)
+        runs: list[list[tuple[float, float, int, float, float]]] = []  # (lon, lat, id, x, z); lon nan = cut
+        run: list | None = None
+        for i in range(x.shape[0] - 1):
+            c = _clip_segment(float(x[i]), float(z[i]), float(x[i + 1]), float(z[i + 1]), box)
+            if c is None:
+                if run is not None:
+                    runs.append(run)
+                    run = None
+                continue
+            t0, t1 = c
+            dx, dz = float(x[i + 1] - x[i]), float(z[i + 1] - z[i])
+            if run is None:
+                if t0 == 0.0:
+                    run = [(float(ll[i, 0]), float(ll[i, 1]), int(ids[i]), float(x[i]), float(z[i]))]
+                else:
+                    run = [(math.nan, math.nan, 0, float(x[i]) + t0 * dx, float(z[i]) + t0 * dz)]
+            if t1 == 1.0:
+                run.append((float(ll[i + 1, 0]), float(ll[i + 1, 1]), int(ids[i + 1]), float(x[i + 1]),
+                            float(z[i + 1])))
+            else:
+                run.append((math.nan, math.nan, 0, float(x[i]) + t1 * dx, float(z[i]) + t1 * dz))
+                runs.append(run)
+                run = None
+        if run is not None:
+            runs.append(run)
+        for run in runs:
+            pts = [run[0]]
+            for p in run[1:]:
+                if (p[3], p[4]) != (pts[-1][3], pts[-1][4]):
+                    pts.append(p)
+            if len(pts) < 2:
+                continue
+            arr = np.array([(p[0], p[1]) for p in pts], dtype=np.float64)
+            cut = np.isnan(arr[:, 0])
+            if cut.any():
+                lon, lat = to_lonlat(np.array([p[3] for p, c in zip(pts, cut) if c]),
+                                     np.array([p[4] for p, c in zip(pts, cut) if c]))
+                arr[cut, 0], arr[cut, 1] = np.asarray(lon, dtype=np.float64), np.asarray(lat, dtype=np.float64)
+            out.append(dataclasses.replace(r, lonlat=arr,
+                                           node_ids=np.array([p[2] for p in pts], dtype=np.int64)))
+    return out
+
+
+def roads_length_m(roads: Sequence[RoadFeature], *,
+                   to_game: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] = lonlat_to_game_xy) -> float:
+    """Total polyline length of the roads in game metres."""
+    roads = list(roads)
+    x, z, off = _project_all(roads, to_game)
+    if x.size < 2:
+        return 0.0
+    seg = np.hypot(np.diff(x), np.diff(z))
+    same = np.ones(seg.shape[0], dtype=bool)
+    same[off[1:-1] - 1] = False  # no segment between the last vertex of one road and the next road
+    return float(seg[same].sum())
 
 
 def _name_key(n: NameRec | None) -> tuple[str, str, str] | None:
@@ -1022,41 +1145,123 @@ def route_geometry(g: RoutingGraph, r: Route) -> np.ndarray:
     return np.concatenate([parts[0]] + [q[1:] for q in parts[1:]])
 
 
-def _kdtree(g: RoutingGraph, p: TravelProfile, incoming: bool) -> tuple[cKDTree | None, np.ndarray]:
-    key = ("kdtree", p.travel, incoming)
+def main_component(g: RoutingGraph, profile: Travel | int | str) -> np.ndarray:
+    """Sorted node indices of the profile's *main component*: the largest strongly
+    connected component of the usable-edge graph (ties: the component holding
+    the smallest node index). Empty when no component has two or more nodes.
+    Mirrored by ``NearestNode.MainComponent`` in C#."""
+    p = get_profile(profile)
+    key = ("main", p.travel)
     c = g._cache.get(key)
     if c is None:
-        use = np.isfinite(edge_times(g, p.travel))
-        ends = g.edge_target[use].astype(np.int64) if incoming else g.edge_source[use]
-        ids = np.unique(ends)
+        c = g._cache[key] = _main_component(g, p)
+    return c
+
+
+def _usable_matrix(g: RoutingGraph, p: TravelProfile) -> csr_matrix:
+    use = np.isfinite(edge_times(g, p.travel))
+    n = g.node_count
+    src = g.edge_source[use]
+    dst = g.edge_target[use].astype(np.int64)
+    return csr_matrix((np.ones(src.size, dtype=np.int8), (src, dst)), shape=(n, n))
+
+
+def _main_component(g: RoutingGraph, p: TravelProfile) -> np.ndarray:
+    n = g.node_count
+    if n == 0:
+        return np.zeros(0, dtype=np.int64)
+    _, labels = connected_components(_usable_matrix(g, p), directed=True, connection="strong")
+    sizes = np.bincount(labels)
+    best = int(sizes.max())
+    if best < 2:
+        return np.zeros(0, dtype=np.int64)
+    first = int(np.flatnonzero(sizes[labels] == best)[0])  # smallest node of a largest component
+    return np.flatnonzero(labels == labels[first]).astype(np.int64)
+
+
+def snap_nodes(g: RoutingGraph, profile: Travel | int | str, incoming: bool = False,
+               main_network: bool = True) -> np.ndarray:
+    """Sorted node indices that ``nearest_node`` may return.
+
+    Always nodes with a usable outgoing edge for the profile (``incoming``: a
+    usable incoming edge). With ``main_network`` (the default), and when the
+    profile has a main component (``main_component``), only the nodes that can
+    reach it (``incoming=False``: route starts) or that can be reached from it
+    (``incoming=True``: destinations). Any start can then reach any destination,
+    so a landmark never snaps into a small disconnected island (a two-node
+    oneway fragment, a footway ring in a compound) and returns no route.
+    """
+    p = get_profile(profile)
+    key = ("snap", p.travel, bool(incoming), bool(main_network))
+    c = g._cache.get(key)
+    if c is not None:
+        return c
+    use = np.isfinite(edge_times(g, p.travel))
+    ends = g.edge_target[use].astype(np.int64) if incoming else g.edge_source[use]
+    ids = np.unique(ends)
+    if main_network:
+        main = main_component(g, p.travel)
+        if main.size:
+            m = _usable_matrix(g, p)
+            reach = breadth_first_order(m if incoming else m.T.tocsr(), int(main[0]), directed=True,
+                                        return_predecessors=False)
+            ids = np.intersect1d(ids, reach.astype(np.int64))
+    ids = ids.astype(np.int64)
+    ids.setflags(write=False)
+    g._cache[key] = ids
+    return ids
+
+
+def _kdtree(g: RoutingGraph, p: TravelProfile, incoming: bool,
+            main_network: bool) -> tuple[cKDTree | None, np.ndarray]:
+    key = ("kdtree", p.travel, incoming, main_network)
+    c = g._cache.get(key)
+    if c is None:
+        ids = snap_nodes(g, p.travel, incoming, main_network)
         tree = cKDTree(g.node_xz_array()[ids]) if ids.size else None
         c = g._cache[key] = (tree, ids)
     return c
 
 
 def nearest_node(g: RoutingGraph, x: float, z: float, profile: Travel | int | str, *,
-                 incoming: bool = False, max_dist_m: float | None = None) -> int | None:
-    """Closest node (game metres) with at least one usable outgoing edge for ``profile``.
+                 incoming: bool = False, max_dist_m: float | None = None,
+                 main_network: bool = True) -> int | None:
+    """Closest node (game metres) among ``snap_nodes(g, profile, incoming, main_network)``.
 
-    With ``incoming=True`` the node needs a usable incoming edge instead (a
-    destination). None when no node qualifies or the nearest is farther than
-    ``max_dist_m``.
+    By default that is a node with a usable outgoing edge for ``profile`` that
+    can reach the profile's main component; with ``incoming=True`` a node with
+    a usable incoming edge reachable from it (a destination). Exact distance
+    ties (``dx * dx + dz * dz`` in doubles of the decimetre-quantised node
+    position) go to the lowest node index, like the C# ``NearestNode``. None
+    when no node qualifies or the nearest is farther than ``max_dist_m``.
     """
-    tree, ids = _kdtree(g, get_profile(profile), incoming)
+    tree, ids = _kdtree(g, get_profile(profile), bool(incoming), bool(main_network))
     if tree is None:
         return None
-    d, i = tree.query([float(x), float(z)])
-    if max_dist_m is not None and d > max_dist_m:
+    x, z = float(x), float(z)
+    d, _ = tree.query([x, z])
+    # Every node at (numerically) the same distance, then the exact C# comparison.
+    cand = tree.query_ball_point([x, z], r=float(d) * (1.0 + 1e-9) + 1e-9)
+    best_v, best_d2 = -1, math.inf
+    for i in cand:
+        v = int(ids[int(i)])
+        dx = int(g.node_x_dm[v]) / 10.0 - x
+        dz = int(g.node_z_dm[v]) / 10.0 - z
+        d2 = dx * dx + dz * dz
+        if d2 < best_d2 or (d2 == best_d2 and v < best_v):
+            best_v, best_d2 = v, d2
+    if best_v < 0 or (max_dist_m is not None and math.sqrt(best_d2) > max_dist_m):
         return None
-    return int(ids[int(i)])
+    return best_v
 
 
 def eta_by_profile(g: RoutingGraph, src_xz: tuple[float, float], dst_xz: tuple[float, float], *,
                    max_snap_m: float | None = None) -> dict[str, tuple[float, float] | None]:
     """``{profile name: (length_m, time_s) or None}`` for the map's "how to get there" panel.
 
-    Both points snap to the profile's nearest usable node (the start needs an
-    outgoing edge, the destination an incoming one). Only the network part is
+    Both points snap with ``nearest_node`` (main network on: the start must
+    reach the profile's main component, the destination be reachable from it),
+    so a route exists for every profile that has a main component. Only the network part is
     timed; the walk to and from the network is left to the caller.
     """
     out: dict[str, tuple[float, float] | None] = {}

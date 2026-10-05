@@ -26,6 +26,17 @@ Mirrors are tried in order within each round; after a failed round the
 downloader backs off 2, 4, 8, 16 s. Client errors (404, 403, ...) and a second
 checksum mismatch drop a mirror for the rest of the run.
 
+**Contributor metadata** (``strip_metadata: true`` on a mirror in
+``sources.yaml``, set for the OSMToday mirror): OSM user names, uids and
+changeset ids are personal data we do not need (docs/LICENSES.md 1.1). After a
+download from such a mirror is verified against the published checksum, the PBF
+is rewritten without them (``strip_osm_metadata``: object versions and
+timestamps and the file header are kept) before it is moved into place. The
+lock entry then describes the stripped file at rest (``bytes``, ``md5``,
+``sha256``) and records the verified original under ``upstream`` plus
+``postprocess: ["strip_metadata"]``. An existing unlocked file adopted from such
+a mirror is stripped the same way.
+
 Integrity sources: OSM mirrors publish ``<hex>  <name>`` MD5 files. Amazon S3
 (GLO-30, WorldCover) returns an ETag that is the object's MD5 for single-part,
 non-KMS uploads (all GLO-30 tiles). Multipart uploads (WorldCover) have an ETag
@@ -107,6 +118,7 @@ class Download:
     dest: Path
     source_id: str = ""
     mirror_names: list[str | None] = field(default_factory=list)
+    strip_metadata: list[bool] = field(default_factory=list)  # per mirror; empty = never
 
     def __post_init__(self) -> None:
         self.dest = Path(self.dest)
@@ -118,8 +130,16 @@ class Download:
             raise ValueError(f"{self.name}: md5_urls must parallel urls")
         if self.mirror_names and len(self.mirror_names) != len(self.urls):
             raise ValueError(f"{self.name}: mirror_names must parallel urls")
+        if self.strip_metadata and len(self.strip_metadata) != len(self.urls):
+            raise ValueError(f"{self.name}: strip_metadata must parallel urls")
+        if any(self.strip_metadata) and self.kind != "osm":
+            raise ValueError(f"{self.name}: strip_metadata only applies to OSM files")
         if not _is_safe_relpath(self.dest.as_posix()):
             raise ValueError(f"{self.name}: dest must be a relative path inside the raw dir: {self.dest}")
+
+    def strips(self, i: int) -> bool:
+        """True when downloads from mirror ``i`` get their contributor metadata stripped."""
+        return bool(self.strip_metadata and self.strip_metadata[i])
 
 
 # --------------------------------------------------------------------------
@@ -178,7 +198,8 @@ def plan_downloads(region: config.Region, sources: Mapping) -> list[Download]:
                      urls=[m["url"] for m in mirrors],
                      md5_urls=[m.get("md5_url") for m in mirrors],
                      dest=Path(osm["dest"]), source_id=osm["id"],
-                     mirror_names=[m.get("name") for m in mirrors])]
+                     mirror_names=[m.get("name") for m in mirrors],
+                     strip_metadata=[bool(m.get("strip_metadata", False)) for m in mirrors])]
     # horizon_bbox is documented as a superset of bbox; the union guards a config slip.
     bbox = _union_bbox(region.horizon_bbox, region.bbox)
     plan += _raster_downloads("dem", sources["dem"], bbox)
@@ -446,10 +467,14 @@ def _finish(dl: Download, raw_dir: Path, i: int, remote: _Remote, expected_md5: 
     except _ChecksumMismatch:
         _discard(part, sidecar)
         raise
+    upstream = None
+    if dl.strips(i):
+        upstream = {"bytes": size, "md5": md5, "sha256": sha}
+        size, md5, sha = _strip_in_place(part, log, dl.dest.as_posix())
     os.replace(part, dest)
     sidecar.unlink(missing_ok=True)
     log(f"{dl.dest.as_posix()}: {size / MIB:.1f} MB, checks: {', '.join(checks) or 'none'}")
-    return _make_entry(dl, i, remote, size, md5, sha, checks, "downloaded")
+    return _make_entry(dl, i, remote, size, md5, sha, checks, "downloaded", upstream)
 
 
 def _adopt(dl: Download, raw_dir: Path, timeout: float, log: Log) -> dict | None:
@@ -487,13 +512,17 @@ def _adopt(dl: Download, raw_dir: Path, timeout: float, log: Log) -> dict | None
             continue
         if checks:
             log(f"{dl.dest.as_posix()}: adopted (mirror {i}, {', '.join(checks)})")
-            return _make_entry(dl, i, remote, size, md5, sha, checks, "adopted")
+            upstream = None
+            if dl.strips(i):
+                upstream = {"bytes": size, "md5": md5, "sha256": sha}
+                size, md5, sha = _strip_in_place(dest, log, dl.dest.as_posix())
+            return _make_entry(dl, i, remote, size, md5, sha, checks, "adopted", upstream)
     return None
 
 
 def _make_entry(dl: Download, i: int, remote: _Remote, size: int, md5: str, sha256: str,
-                checks: list[str], method: str) -> dict:
-    return {
+                checks: list[str], method: str, upstream: dict | None = None) -> dict:
+    entry = {
         "name": dl.name,
         "kind": dl.kind,
         "source_id": dl.source_id,
@@ -511,6 +540,48 @@ def _make_entry(dl: Download, i: int, remote: _Remote, size: int, md5: str, sha2
         "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "method": method,
     }
+    if upstream is not None:
+        entry["upstream"] = dict(upstream)
+        entry["postprocess"] = ["strip_metadata"]
+    return entry
+
+
+# --------------------------------------------------------------------------
+# Contributor metadata
+# --------------------------------------------------------------------------
+STRIP_FORMAT = "pbf,add_metadata=version+timestamp"
+
+
+def strip_osm_metadata(src: Path, dst: Path) -> None:
+    """Rewrite the OSM PBF ``src`` to ``dst`` without user names, uids and
+    changeset ids. Tags, ids, geometry, object versions and timestamps, and the
+    file header (bbox, replication timestamp) are kept."""
+    import osmium
+
+    src_file = osmium.io.File(str(src), "pbf")
+    reader = osmium.io.Reader(src_file, osmium.osm.osm_entity_bits.NOTHING)
+    header = reader.header()
+    reader.close()
+    writer = osmium.SimpleWriter(osmium.io.File(str(dst), STRIP_FORMAT), header=header, overwrite=True)
+    try:
+        for obj in osmium.FileProcessor(osmium.io.File(str(src), "pbf")):
+            writer.add(obj)
+    finally:
+        writer.close()
+
+
+def _strip_in_place(path: Path, log: Log, label: str) -> tuple[int, str, str]:
+    """Strip contributor metadata from ``path`` (atomically); returns the new (size, md5, sha256)."""
+    tmp = path.with_name(path.name + ".strip")
+    try:
+        strip_osm_metadata(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    size, md5, sha = _hash_file(path)
+    log(f"{label}: contributor metadata stripped ({size / MIB:.1f} MB)")
+    return size, md5, sha
 
 
 # --------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 # Engine-agnostic C# core (game/Assets/Ghumante/Core) tested with plain `dotnet test`, against golden
 # files that the Python pipeline writes. The golden files are committed; CI regenerates them and fails
-# if they differ, so the C# readers and the Python writers can never drift apart silently.
+# if they differ, so the C# readers and the Python writers can never drift apart silently. Core is also
+# compiled as netstandard2.1 / C# 9 (tools/core-netstandard), the API surface Unity 6 compiles it against.
 name: core
 
 on:
@@ -8,6 +9,8 @@ on:
     paths:
       - "game/Assets/Ghumante/Core/**"
       - "core-tests/**"
+      - "tools/core-netstandard/**"
+      - "global.json"
       - "shared/**"
       - "pipeline/**"
       - ".github/workflows/core.yml"
@@ -15,6 +18,8 @@ on:
     paths:
       - "game/Assets/Ghumante/Core/**"
       - "core-tests/**"
+      - "tools/core-netstandard/**"
+      - "global.json"
       - "shared/**"
       - "pipeline/**"
       - ".github/workflows/core.yml"
@@ -64,6 +69,11 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
+
+      # Unity compiles Core against .NET Standard 2.1 with C# 9; core-tests targets net8.0, which would
+      # accept APIs Unity does not have. Build the same sources the way Unity does.
+      - name: Compile Core as netstandard2.1 (C# 9)
+        run: dotnet build tools/core-netstandard -c Release -nologo
 
       - name: dotnet test
         run: dotnet test core-tests -c Release --logger "trx;LogFileName=core-tests.trx" --results-directory TestResults

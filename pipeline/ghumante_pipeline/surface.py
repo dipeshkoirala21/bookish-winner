@@ -40,6 +40,9 @@ Road chains
 name and ref. Every way in a chain gets one surface. ``assign_surfaces``
 decides once per chain, from the length-weighted mean of its members' model
 distributions combined with any surfaces observed on other members of the chain.
+Bridge deck materials (``BRIDGE_ONLY_SURFACES``: METAL, WOOD) are removed from
+that distribution unless every road being decided is a bridge, so a footway in
+town is never inferred to be steel grating because tagged footbridges are.
 """
 
 from __future__ import annotations
@@ -61,6 +64,9 @@ MIN_SUPPORT_KM = 2.0  # a conditioning level needs this much observed road to be
 ALPHA = 1.0  # km of pseudo-count pulling each level toward its parent
 ARGMAX_THRESHOLD = 0.6
 CHAIN_ALPHA_KM = 1.0  # pseudo-km of model belief against surfaces observed on the same chain
+# Deck materials: in Nepal's tagged data they occur (almost) only on bridges, so the
+# model never infers them for a chain that has a non-bridge member to decide.
+BRIDGE_ONLY_SURFACES = (Surface.METAL, Surface.WOOD)
 N_SURFACES = len(Surface)
 _U_SCALE = 1 << 53
 _MASK64 = (1 << 64) - 1
@@ -403,6 +409,19 @@ def _observed_surface(road: RoadFeature) -> tuple[Surface | None, SurfaceSource 
     return None, None, raw_present
 
 
+def _without_bridge_only(p: np.ndarray, cls: RoadClass) -> np.ndarray:
+    """``p`` with ``BRIDGE_ONLY_SURFACES`` removed (``decide`` renormalises); the
+    class prior, likewise filtered, if nothing else is left."""
+    q = np.array(p, dtype=np.float64)
+    for s in BRIDGE_ONLY_SURFACES:
+        q[int(s)] = 0.0
+    if not q[1:].sum() > 0.0:
+        q = _PRIORS.get(int(cls), _PRIORS[int(RoadClass.UNKNOWN)]).copy()
+        for s in BRIDGE_ONLY_SURFACES:
+            q[int(s)] = 0.0
+    return q
+
+
 def _class_name(value: int) -> str:
     try:
         return RoadClass(value).name
@@ -478,6 +497,8 @@ def assign_surfaces(roads: Sequence[RoadFeature], contexts: Sequence[RoadContext
         if seen_km > 0.0:
             p = (seen + CHAIN_ALPHA_KM * p) / (seen_km + CHAIN_ALPHA_KM)
         source = SurfaceSource.INFERRED if (depth > 0 or seen_km > 0.0) else SurfaceSource.DEFAULT
+        if not all(roads[i].bridge for i in pending):
+            p = _without_bridge_only(p, roads[pending[0]].cls)
         surface, _ = decide(p, key)
         for i in pending:
             roads[i].surface = surface

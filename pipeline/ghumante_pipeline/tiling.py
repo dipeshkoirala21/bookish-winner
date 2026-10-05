@@ -148,8 +148,8 @@ class _State:
     bld_bucket: dict[TileId, list[int]] = field(default_factory=dict)
     poi_bucket: dict[TileId, list[int]] = field(default_factory=dict)
     place_bucket: dict[TileId, list[int]] = field(default_factory=dict)
-    search_ids: Mapping[int, int] = field(default_factory=dict)
-    search_importance: Mapping[int, int] = field(default_factory=dict)
+    search_ids: Mapping[tuple[int, int], int] = field(default_factory=dict)  # (osm_ref, entry kind) ->
+    search_importance: Mapping[tuple[int, int], int] = field(default_factory=dict)
     landmark_refs: frozenset[tuple[str, int]] = frozenset()
 
 
@@ -249,7 +249,8 @@ def _to_game_geoms(geoms: Sequence[object]) -> np.ndarray:
 
 def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dict[int, LandcoverSampler],
              zones: BiomeZones | None, tiles_by_level: dict[int, list[TileId]], data_version: int,
-             meta: dict | None, search_ids: Mapping[int, int], search_importance: Mapping[int, int],
+             meta: dict | None, search_ids: Mapping[tuple[int, int], int],
+             search_importance: Mapping[tuple[int, int], int],
              landmark_refs: Iterable[tuple[str, int]]) -> _State:
     leaf = region.leaf_level
     st = _State(region=region, data_version=data_version, leaf=leaf, meta=meta, dem=dem, lc_by_level=lc_by_level,
@@ -385,6 +386,72 @@ def _terrain(st: _State, tile: TileId) -> tuple[np.ndarray, np.ndarray]:
     return heights_q, biomes.astype(np.uint8)
 
 
+def _beyond_ctx(tile: TileId, full: np.ndarray, ctx: np.ndarray, cut_cm: np.ndarray, step: int) -> np.ndarray | None:
+    """The first original vertex from ``ctx`` on, walking away from the tile
+    (``step`` -1 before a start cut, +1 after an end cut), whose centimetre
+    position differs from the cut point. None when there is none, or when that
+    vertex lies strictly inside the tile (the way only grazed the border by
+    less than half a centimetre and comes back)."""
+    pts = np.asarray(full, dtype=np.float64)
+    hit = np.flatnonzero((pts[:, 0] == ctx[0]) & (pts[:, 1] == ctx[1]))
+    if not hit.size:
+        return None
+    closed = len(pts) > 2 and np.array_equal(pts[0], pts[-1])
+    n = len(pts) - 1 if closed else len(pts)
+    j = int(hit[0]) % n if closed else int(hit[0])
+    for _ in range(n):
+        if not closed and not 0 <= j < n:
+            return None
+        c = points_to_local_cm(tile, pts[j:j + 1])[0]
+        if not np.array_equal(c, cut_cm):
+            sc = int(round(tile.size * 100))
+            if 0 < c[0] < sc and 0 < c[1] < sc:
+                return None
+            return c
+        j = (j + step) % n if closed else j + step
+    return None
+
+
+def _piece_cm(tile: TileId, piece: geom.Piece, full: np.ndarray) -> tuple[np.ndarray, bool, bool] | None:
+    """A clipped piece in local centimetres, fixed up for rounding (DATA_FORMATS 1.4).
+
+    Rounding to whole centimetres can merge an original vertex lying within
+    0.5 cm of the border with the cut point. Consecutive duplicate in-tile
+    points are dropped (a piece left with fewer than 2 is dropped), and a
+    context point that rounds onto its cut point is replaced by the next
+    original vertex further out that does not, which is the first in-tile
+    point of the neighbour's piece, so both sides still see the same tangent
+    at the cut. Without such a vertex the context flag is cleared.
+    """
+    pc = points_to_local_cm(tile, piece.points)
+    prev, nxt = bool(piece.has_prev_ctx), bool(piece.has_next_ctx)
+    raw = pc[(1 if prev else 0):len(pc) - (1 if nxt else 0)]
+    keep = np.ones(len(raw), dtype=bool)
+    keep[1:] = np.any(raw[1:] != raw[:-1], axis=1)
+    inner = raw[keep]
+    if len(inner) < 2:
+        return None
+    parts = []
+    if prev:
+        c = pc[0]
+        if np.array_equal(c, inner[0]):
+            c = _beyond_ctx(tile, full, piece.points[0], inner[0], -1)
+        if c is None:
+            prev = False
+        else:
+            parts.append(np.asarray(c, dtype=np.int64).reshape(1, 2))
+    parts.append(inner)
+    if nxt:
+        c = pc[-1]
+        if np.array_equal(c, inner[-1]):
+            c = _beyond_ctx(tile, full, piece.points[-1], inner[-1], +1)
+        if c is None:
+            nxt = False
+        else:
+            parts.append(np.asarray(c, dtype=np.int64).reshape(1, 2))
+    return np.concatenate(parts).astype(np.int64), prev, nxt
+
+
 def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> list[RoadRec]:
     out = []
     box = tile.bounds
@@ -410,17 +477,22 @@ def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter) ->
         ref_ref = names.ref_str(r.ref)
         width_cm = int(round(r.width_m * 100)) if r.width_m and r.width_m > 0 else 0
         for p in pieces:
+            fixed = _piece_cm(tile, p, st.roads_game[i])
+            if fixed is None:
+                stats["road_pieces_dropped_rounding"] += 1
+                continue
+            pts_cm, has_prev, has_next = fixed
             flags = int(base)
-            if p.has_prev_ctx:
+            if has_prev:
                 flags |= RoadFlags.HAS_PREV_CTX
-            if p.has_next_ctx:
+            if has_next:
                 flags |= RoadFlags.HAS_NEXT_CTX
             out.append(RoadRec(
                 osm_way_id=int(r.osm_id), road_class=int(r.cls), surface=int(r.surface),
                 surface_source=int(r.surface_source), flags=flags, lanes=min(max(int(r.lanes), 0), 255),
                 sac_scale=int(r.sac_scale), trail_visibility=min(max(int(r.trail_visibility), 0), 255),
                 layer=min(max(int(r.layer), -128), 127), width_cm=width_cm, access=int(r.access) & 0xFF,
-                name_ref=name_ref, ref_ref=ref_ref, points=points_to_local_cm(tile, p.points)))
+                name_ref=name_ref, ref_ref=ref_ref, points=pts_cm))
             stats["road_pieces"] += 1
     return out
 
@@ -443,13 +515,18 @@ def _line_records(st: _State, tile: TileId, names: NameTable, stats: Counter) ->
         name_ref = names.ref(ln.name)
         width_cm = int(round(ln.width_m * 100)) if ln.width_m and ln.width_m > 0 else 0
         for p in pieces:
+            fixed = _piece_cm(tile, p, st.lines_game[i])
+            if fixed is None:
+                stats["line_pieces_dropped_rounding"] += 1
+                continue
+            pts_cm, has_prev, has_next = fixed
             flags = int(base)
-            if p.has_prev_ctx:
+            if has_prev:
                 flags |= LineFlags.HAS_PREV_CTX
-            if p.has_next_ctx:
+            if has_next:
                 flags |= LineFlags.HAS_NEXT_CTX
             out.append(LineRec(osm_way_id=int(ln.osm_id), kind=int(ln.kind), flags=flags, width_cm=width_cm,
-                               name_ref=name_ref, points=points_to_local_cm(tile, p.points)))
+                               name_ref=name_ref, points=pts_cm))
             stats["line_pieces"] += 1
     return out
 
@@ -536,26 +613,28 @@ def _poi_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> 
         if p.ele_m is not None and math.isfinite(p.ele_m):
             flags |= PoiFlags.HAS_ELE
             ele_dm = int(round(p.ele_m * 10))
-        imp = st.search_importance.get(ref)
+        skey = (ref, int(p.kind))
+        imp = st.search_importance.get(skey)
         if imp is None:
             imp = int(round(min(max(p.importance, 0.0), 1.0) * 255))
         xc, zc = to_local_cm(tile, st.poi_xz[i, 0], st.poi_xz[i, 1])
         out.append(PoiRec(osm_ref=ref, kind=int(p.kind), flags=flags & 0xFF, importance=int(imp), x_cm=int(xc),
                           z_cm=int(zc), ele_dm=ele_dm, name_ref=names.ref(p.name),
-                          search_id=int(st.search_ids.get(ref, 0))))
+                          search_id=int(st.search_ids.get(skey, 0))))
     for i in st.place_bucket.get(tile, ()):
         p = ex.places[i]
         if p.kind == PlaceKind.NONE:
             continue
         ref = osm_ref_nwr(p.osm_type, p.osm_id)
-        imp = st.search_importance.get(ref)
+        skey = (ref, int(p.kind) + PLACE_KIND_OFFSET)
+        imp = st.search_importance.get(skey)
         if imp is None:
             imp = int(round(min(max(p.importance, 0.0), 1.0) * 255))
         flags = int(PoiFlags.LANDMARK) if (p.osm_type, int(p.osm_id)) in st.landmark_refs else 0
         xc, zc = to_local_cm(tile, st.place_xz[i, 0], st.place_xz[i, 1])
         out.append(PoiRec(osm_ref=ref, kind=int(p.kind) + PLACE_KIND_OFFSET, flags=flags, importance=int(imp),
                           x_cm=int(xc), z_cm=int(zc), ele_dm=0, name_ref=names.ref(p.name),
-                          search_id=int(st.search_ids.get(ref, 0))))
+                          search_id=int(st.search_ids.get(skey, 0))))
         stats["places"] += 1
     stats["pois"] += len(out)
     return out
@@ -605,15 +684,17 @@ def _worker_init() -> None:
 # ---------------------------------------------------------------------------
 def build_tiles(region: Region, extract: Extract, dem: DemSampler, landcover: LandcoverSampler | Mapping[int, LandcoverSampler],
                 zones: BiomeZones | None = None, *, data_version: int = PIPELINE_DATA_VERSION, meta: dict | None = None,
-                search_ids: Mapping[int, int] | None = None, search_importance: Mapping[int, int] | None = None,
+                search_ids: Mapping[tuple[int, int], int] | None = None,
+                search_importance: Mapping[tuple[int, int], int] | None = None,
                 landmark_refs: Iterable[tuple[str, int]] = (), workers: int | None = None,
                 stats: dict | None = None) -> dict[int, bytes]:
     """Encode every tile of ``region``: returns ``{tile key: GHT1 blob}``.
 
     ``landcover`` is one sampler, or ``{level: sampler}`` (every level needed).
-    ``search_ids`` maps POI ``osm_ref`` -> search id (``search_index.search_ids``)
-    and ``search_importance`` POI ``osm_ref`` -> 0..255 importance (else the
-    feature's own 0..1 importance is scaled). ``landmark_refs`` holds
+    ``search_ids`` maps ``(osm_ref, kind)`` -> search id (``search_index.search_ids``;
+    ``kind`` is the POIS record kind, ``PlaceKind + 1000`` for places) and
+    ``search_importance`` the same key -> 0..255 importance (else the feature's
+    own 0..1 importance is scaled). ``landmark_refs`` holds
     ``(osm_type, osm_id)`` of hero landmarks (``LANDMARK`` flags). ``workers``
     defaults to ``min(4, cpu_count)``; 1 runs in-process. When ``stats`` is
     given it is filled with tile counts, feature counts, chunk bytes and timings.

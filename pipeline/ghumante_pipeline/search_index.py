@@ -14,6 +14,14 @@ Entry selection (``build_entries``)
 * **POIs** with a display name whose kind is not in ``EXCLUDED_POI_KINDS``
   (ADR-010: no business names; lodging is left out in M0 too).
 
+With ``bounds_game`` (the region's leaf-tile coverage, game metres), place and
+POI candidates outside it are dropped first: the extract's buffer zone has no
+detail tiles to travel to. Admin areas are kept.
+
+``aliases`` (raw OSM id -> names; the curated ``aliases`` of
+``config/landmarks.yaml``) are appended to the entry's ``alt`` names, so they
+become search keys ("Kathmandu Airport", "TIA").
+
 "Display name" means at least one of ``default``/``en``/``ne`` is non-empty.
 A candidate is also dropped when none of those three folds to a non-empty
 string (for example a name only in Tibetan script).
@@ -32,6 +40,9 @@ Positions come from ``projection.lonlat_to_game``.
   ``PoiFlags.LANDMARK``).
 * Wikidata: +20 when the feature's ``tags`` has ``wikidata`` (only
   ``PoiFeature`` carries tags; ``PlaceFeature`` and ``AdminArea`` do not).
+* A BUS_STATION that is not a landmark and whose folded name says where the
+  bus goes ("Bus to Nagarkot", "bus for Kathmandu"; ``is_bus_to_stop``) gets
+  at most ``DEFAULT_WEIGHT`` and no transport-hub flag.
 
 The ``importance`` floats already on the features are not used.
 
@@ -40,11 +51,16 @@ nature; or ``PoiFlags.DISCOVERABLE``), bit1 landmark, bit2 transport hub
 (AIRPORT, BUS_STATION, CABLE_CAR_STATION, RAILWAY_STATION).
 
 **Dedupe.** The *folded primary name* of an entry is the first non-empty
-``fold`` of ``default``, ``en``, ``ne``. Candidates are visited in order of
+``fold`` of ``default``, ``en``, ``ne``; its *folded variants* are all the
+distinct non-empty folds of the three. Candidates are visited in order of
 (importance descending, osm_ref, kind, folded primary name). A candidate is
-dropped when an already kept candidate has the same folded primary name, the
+dropped when an already kept candidate shares any folded variant, has the
 same ``kind_group`` and lies within 300 m (game metres), or, when either one
-is an admin area, the admin polygon contains the other's point. Kind groups:
+is an admin area, the admin polygon contains the other's point. So
+"DUBAR SQUARE PATAN", "पाटन दरवार क्षेत्र" and "Patan Durbar Square" (all with
+``en`` "Patan Durbar Square", 40 m apart) are one entry. The dropped
+candidate's names that fold differently are appended to the kept entry's
+``alt``, so they stay searchable. Kind groups:
 settlement places (city, town, village, hamlet, isolated dwelling, suburb,
 neighbourhood, quarter, locality, farm) share one group; ``place=square``
 joins the religious/heritage POIs; each other place or admin kind is its own
@@ -100,15 +116,26 @@ All arithmetic is integer; ``m`` is a match score in thousandths.
    order) and walk forward while the key starts with ``q``. With
    ``extra = len(key) - L``: ``m = 1000`` when ``extra == 0``, else
    ``m = max(100, 900 - 10 * extra)``.
-3. **Fuzzy**, only when ``L > 3``: ``max_d = max(1, L // 4)``. Every key whose
+3. **Token match.** The distinct words of ``q`` that are *significant*
+   (``significant``: at least 3 characters and not a folded stop word) are
+   collected. With two or more, every entry that has, for **each** of them, a
+   key starting with it gets ``m = TOKEN_MATCH_SCORE`` (600). Keys start at
+   every significant word of a name, so this means every significant query
+   word is a prefix of some word of the entry: "tribhuvan airport" finds
+   "Tribhuvan International Airport".
+4. **Fuzzy**, only when ``L > 3``: ``max_d = max(1, L // 4)``. Every key whose
    first character equals ``q[0]`` (a contiguous range of the sorted keys) and
    whose length differs from ``L`` by at most ``max_d`` is compared with the
    optimal-string-alignment distance (restricted Damerau-Levenshtein: insert,
    delete, substitute, swap two adjacent characters; all cost 1; no substring
    edited twice). A distance ``d <= max_d`` gives ``m = 750 - 100 * d``.
-4. Each entry keeps the maximum ``m`` over all its matching keys and queries.
-5. ``score = 1785 * m + 3000 * importance``, which is
-   ``2 550 000 * (m / 1000 * 0.7 + importance / 255 * 0.3)``. Results are
+5. Each entry keeps the maximum ``m`` over all its matching keys and queries.
+6. **Rank bonus** (``rank_bonus``): landmarks (flag bit1) +150, other
+   heritage POIs (kinds 120..129) +50; ``m' = min(1000, m + bonus)``.
+   "Boudha" ranks Boudhanath Stupa (prefix match, landmark) above the Baudha
+   neighbourhood (exact match).
+7. ``score = 1785 * m' + 3000 * importance``, which is
+   ``2 550 000 * (m' / 1000 * 0.7 + importance / 255 * 0.3)``. Results are
    sorted by (score descending, ``kind_priority(kind)`` ascending, entry
    index ascending) and the first ``limit`` are returned as
    ``(score / 2 550 000, entry)``. ``kind_priority`` puts places before POIs:
@@ -119,6 +146,7 @@ All arithmetic is integer; ``m`` is a match score in thousandths.
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 from bisect import bisect_left
 from dataclasses import dataclass, field
@@ -196,6 +224,17 @@ DEFAULT_WEIGHT = 50
 PEAK_BASE, PEAK_RANGE, PEAK_ELE_MIN, PEAK_ELE_MAX = 70, 150, 1000.0, 8849.0
 LANDMARK_BONUS = 40
 WIKIDATA_BONUS = 20
+
+# Ranking bonus, in thousandths of the match score (``rank``): famous landmarks and
+# heritage sites beat a same-named neighbourhood or bus stop.
+RANK_BONUS_LANDMARK = 150
+RANK_BONUS_HERITAGE = 50
+HERITAGE_KIND_MIN, HERITAGE_KIND_MAX = 120, 129  # HERITAGE_SQUARE .. (heritage POI kinds)
+# Every significant query word is a prefix of some word of the entry (``match_scores``).
+TOKEN_MATCH_SCORE = 600
+
+# A bus stop named after its destination ("Bus to Nagarkot") is not a hub of that place.
+_BUS_TO_RE = re.compile(r"^(bus|buses|busses|micro|microbus|micro bus|jeep|tempo)( stop| station| park)? (to|por) ")
 
 # Generic words that may not start a suffix key (compared after folding).
 SUFFIX_STOP_WORDS: tuple[str, ...] = (
@@ -300,9 +339,31 @@ def poi_flags(kind: PoiKind, landmark: bool = False, poi_flags_in: int = 0) -> i
     return f
 
 
+def is_bus_to_stop(name: NameRec | None) -> bool:
+    """True for bus stops named after where the bus goes ("Bus to Nagarkot", "bus for Kathmandu")."""
+    if name is None:
+        return False
+    return any(_BUS_TO_RE.match(f) for f in folded_variants(name))
+
+
+def rank_bonus(entry: SearchEntry) -> int:
+    """Match-score bonus (thousandths) used by ``rank``: landmarks, then heritage POIs."""
+    if entry.flags & FLAG_LANDMARK:
+        return RANK_BONUS_LANDMARK
+    if HERITAGE_KIND_MIN <= entry.kind <= HERITAGE_KIND_MAX:
+        return RANK_BONUS_HERITAGE
+    return 0
+
+
 def _has_wikidata(feature: object) -> bool:
     tags = getattr(feature, "tags", None)
     return bool(tags and tags.get("wikidata"))
+
+
+def significant(word: str) -> bool:
+    """A folded word that may start a suffix key and counts in token matching:
+    at least 3 characters and not in ``SUFFIX_STOP_WORDS``."""
+    return len(word) >= 3 and word not in _STOP_FOLDED
 
 
 def keys_for(entry: SearchEntry) -> list[str]:
@@ -321,8 +382,7 @@ def keys_for(entry: SearchEntry) -> list[str]:
             keys.add(f)
             words = f.split(" ")
             for i in range(1, len(words)):
-                w = words[i]
-                if len(w) >= 3 and w not in _STOP_FOLDED:
+                if significant(words[i]):
                     keys.add(" ".join(words[i:]))
     return sorted(keys)
 
@@ -333,6 +393,26 @@ class _Cand:
     folded: str
     group: int
     polygon: object = None  # admin areas only (lon/lat)
+    variants: tuple[str, ...] = ()  # distinct non-empty folds of default, en, ne
+
+
+def folded_variants(name: NameRec) -> tuple[str, ...]:
+    """Distinct non-empty folds of ``default``, ``en``, ``ne`` (in that order)."""
+    return tuple(dict.fromkeys(f for f in (fold(name.default), fold(name.en), fold(name.ne)) if f))
+
+
+def _merge_alt(kept: SearchEntry, dropped: SearchEntry) -> None:
+    """Keep the dropped duplicate's names searchable: they become alternates of the kept entry."""
+    have = {fold(v) for v in (kept.name.default, kept.name.en, kept.name.ne, *kept.name.alt) if v}
+    extra = []
+    for v in (dropped.name.default, dropped.name.en, dropped.name.ne, *dropped.name.alt):
+        f = fold(v) if v else ""
+        if f and f not in have:
+            have.add(f)
+            extra.append(v)
+    if extra:
+        n = kept.name
+        kept.name = NameRec(n.default, n.en, n.ne, tuple(n.alt) + tuple(extra))
 
 
 def _dedupe(cands: list[_Cand]) -> list[_Cand]:
@@ -341,22 +421,28 @@ def _dedupe(cands: list[_Cand]) -> list[_Cand]:
     out: list[_Cand] = []
     r2 = DEDUPE_RADIUS_M * DEDUPE_RADIUS_M
     for c in order:
-        bucket = kept.setdefault((c.folded, c.group), [])
         e = c.entry
-        dup = False
-        for k in bucket:
-            ke = k.entry
-            if (ke.x - e.x) ** 2 + (ke.z - e.z) ** 2 <= r2:
-                dup = True
-            elif k.polygon is not None and shapely.intersects_xy(k.polygon, e.lon, e.lat):
-                dup = True
-            elif c.polygon is not None and shapely.intersects_xy(c.polygon, ke.lon, ke.lat):
-                dup = True
-            if dup:
+        dup_of: _Cand | None = None
+        seen: set[int] = set()
+        for v in c.variants:
+            for k in kept.get((v, c.group), ()):
+                if id(k) in seen:
+                    continue
+                seen.add(id(k))
+                ke = k.entry
+                if ((ke.x - e.x) ** 2 + (ke.z - e.z) ** 2 <= r2
+                        or (k.polygon is not None and shapely.intersects_xy(k.polygon, e.lon, e.lat))
+                        or (c.polygon is not None and shapely.intersects_xy(c.polygon, ke.lon, ke.lat))):
+                    dup_of = k
+                    break
+            if dup_of is not None:
                 break
-        if not dup:
-            bucket.append(c)
-            out.append(c)
+        if dup_of is not None:
+            _merge_alt(dup_of.entry, e)
+            continue
+        for v in c.variants:
+            kept.setdefault((v, c.group), []).append(c)
+        out.append(c)
     return out
 
 
@@ -387,15 +473,28 @@ def _assign_admin(entries: list[SearchEntry], admin: list[AdminArea]) -> None:
                 e.province = areas[t].name
 
 
+def _with_aliases(name: NameRec, aliases: Sequence[str]) -> NameRec:
+    extra = tuple(a for a in aliases if a and a not in name.alt)
+    return NameRec(name.default, name.en, name.ne, tuple(name.alt) + extra) if extra else name
+
+
 def build_entries(places: Sequence[PlaceFeature], pois: Sequence[PoiFeature],
                   admin: Sequence[AdminArea] | None = None,
-                  landmark_ids: dict[int, str] | None = None) -> list[SearchEntry]:
+                  landmark_ids: dict[int, str] | None = None, *,
+                  aliases: dict[int, Sequence[str]] | None = None,
+                  bounds_game: tuple[float, float, float, float] | None = None) -> list[SearchEntry]:
     """Select, score, dedupe and annotate search entries (see the module docstring).
 
     ``landmark_ids`` maps raw OSM ids (``feature.osm_id``, any element type)
-    to landmark ids. The result is in file order (``sort_entries``).
+    to landmark ids; ``aliases`` maps raw OSM ids to extra search names (the
+    curated ``aliases`` of ``config/landmarks.yaml``), indexed like ``alt``.
+    With ``bounds_game`` ``(x0, z0, x1, z1)`` (the region's leaf-tile coverage),
+    place and POI candidates outside it are dropped before dedupe: the extract's
+    buffer zone has no detail tiles. Admin areas are kept. The result is in file
+    order (``sort_entries``).
     """
     landmark_ids = landmark_ids or {}
+    aliases = aliases or {}
     admin_sorted = sorted(admin or [], key=lambda a: (a.osm_id, int(a.level)))
     raw: list[tuple[SearchEntry, object]] = []  # entry without x/z, admin polygon
 
@@ -404,8 +503,9 @@ def build_entries(places: Sequence[PlaceFeature], pois: Sequence[PoiFeature],
             continue
         lm = p.osm_id in landmark_ids
         imp = place_importance(p.kind, p.population, landmark=lm, wikidata=_has_wikidata(p))
-        e = SearchEntry(p.name, int(p.kind) + PLACE_KIND_OFFSET, imp, FLAG_LANDMARK if lm else 0, 0.0, 0.0,
-                        float(p.lon), float(p.lat), osm_ref(p.osm_type, p.osm_id))
+        e = SearchEntry(_with_aliases(p.name, aliases.get(p.osm_id, ())), int(p.kind) + PLACE_KIND_OFFSET, imp,
+                        FLAG_LANDMARK if lm else 0, 0.0, 0.0, float(p.lon), float(p.lat),
+                        osm_ref(p.osm_type, p.osm_id))
         raw.append((e, None))
 
     for a in admin_sorted:
@@ -420,8 +520,8 @@ def build_entries(places: Sequence[PlaceFeature], pois: Sequence[PoiFeature],
             continue
         lm = a.osm_id in landmark_ids
         imp = place_importance(a.level, None, landmark=lm)
-        e = SearchEntry(a.name, int(a.level) + PLACE_KIND_OFFSET, imp, FLAG_LANDMARK if lm else 0, 0.0, 0.0,
-                        float(pt.x), float(pt.y), osm_ref("r", a.osm_id))
+        e = SearchEntry(_with_aliases(a.name, aliases.get(a.osm_id, ())), int(a.level) + PLACE_KIND_OFFSET, imp,
+                        FLAG_LANDMARK if lm else 0, 0.0, 0.0, float(pt.x), float(pt.y), osm_ref("r", a.osm_id))
         raw.append((e, poly))
 
     for q in pois:
@@ -429,7 +529,10 @@ def build_entries(places: Sequence[PlaceFeature], pois: Sequence[PoiFeature],
             continue
         lm = q.osm_id in landmark_ids or bool(q.flags & PoiFlags.LANDMARK)
         imp = poi_importance(q.kind, q.ele_m, landmark=lm, wikidata=_has_wikidata(q))
-        e = SearchEntry(q.name, int(q.kind), imp, poi_flags(q.kind, lm, int(q.flags)), 0.0, 0.0,
+        fl = poi_flags(q.kind, lm, int(q.flags))
+        if q.kind == PoiKind.BUS_STATION and not lm and is_bus_to_stop(q.name):
+            imp, fl = min(imp, DEFAULT_WEIGHT), fl & ~FLAG_TRANSPORT_HUB
+        e = SearchEntry(_with_aliases(q.name, aliases.get(q.osm_id, ())), int(q.kind), imp, fl, 0.0, 0.0,
                         float(q.lon), float(q.lat), osm_ref(q.osm_type, q.osm_id))
         raw.append((e, None))
 
@@ -439,10 +542,13 @@ def build_entries(places: Sequence[PlaceFeature], pois: Sequence[PoiFeature],
     cands: list[_Cand] = []
     for (e, poly), x, z in zip(raw, np.asarray(xs).tolist(), np.asarray(zs).tolist()):
         e.x, e.z = float(x), float(z)
+        if bounds_game is not None and poly is None and not (
+                bounds_game[0] <= e.x <= bounds_game[2] and bounds_game[1] <= e.z <= bounds_game[3]):
+            continue
         folded = folded_primary(e.name)
         if not folded:
             continue
-        cands.append(_Cand(e, folded, kind_group(e.kind), poly))
+        cands.append(_Cand(e, folded, kind_group(e.kind), poly, folded_variants(e.name)))
 
     entries = [c.entry for c in _dedupe(cands)]
     _assign_admin(entries, admin_sorted)
@@ -454,11 +560,22 @@ def sort_entries(entries: Iterable[SearchEntry]) -> list[SearchEntry]:
     return sorted(entries, key=lambda e: (e.kind, folded_primary(e.name), e.osm_ref))
 
 
-def search_ids(entries: Iterable[SearchEntry]) -> dict[int, int]:
-    """Full osm_ref -> ``search_id`` (file entry index + 1) for the tile ``POIS`` chunk."""
-    out: dict[int, int] = {}
+def search_ids(entries: Iterable[SearchEntry]) -> dict[tuple[int, int], int]:
+    """``(full osm_ref, kind)`` -> ``search_id`` (file entry index + 1) for the tile
+    ``POIS`` chunk. ``kind`` is the entry kind (``PlaceKind + 1000`` for places
+    and admin areas), so one OSM object that yields both a POI and a place entry
+    maps each tile record to its own entry."""
+    out: dict[tuple[int, int], int] = {}
     for i, e in enumerate(sort_entries(entries)):
-        out.setdefault(e.osm_ref, i + 1)
+        out.setdefault((e.osm_ref, int(e.kind)), i + 1)
+    return out
+
+
+def search_importances(entries: Iterable[SearchEntry]) -> dict[tuple[int, int], int]:
+    """``(full osm_ref, kind)`` -> entry importance (0..255), keyed like ``search_ids``."""
+    out: dict[tuple[int, int], int] = {}
+    for e in entries:
+        out.setdefault((e.osm_ref, int(e.kind)), int(e.importance))
     return out
 
 
@@ -689,6 +806,21 @@ class SearchIndex:
             while i < len(keys) and keys[i].startswith(q):
                 hit(i, match_score_prefix(len(keys[i]) - n))
                 i += 1
+            words = [w for w in dict.fromkeys(q.split(" ")) if significant(w)]
+            if len(words) >= 2:
+                common: set[int] | None = None
+                for w in words:
+                    hits: set[int] = set()
+                    i = bisect_left(keys, w)
+                    while i < len(keys) and keys[i].startswith(w):
+                        hits.add(self.key_entries[i])
+                        i += 1
+                    common = hits if common is None else common & hits
+                    if not common:
+                        break
+                for e in sorted(common or ()):
+                    if TOKEN_MATCH_SCORE > best.get(e, -1):
+                        best[e] = TOKEN_MATCH_SCORE
             if n > 3:
                 max_d = max(1, n // 4)
                 lo, hi = self._first_char_range(q[0])
@@ -707,7 +839,8 @@ class SearchIndex:
         """Ranked ``(integer score, entry index)`` pairs; the form golden tests compare."""
         if limit <= 0:
             return []
-        scored = [(1785 * m + 3000 * self.entries[i].importance, i) for i, m in self.match_scores(query).items()]
+        scored = [(1785 * min(1000, m + rank_bonus(self.entries[i])) + 3000 * self.entries[i].importance, i)
+                  for i, m in self.match_scores(query).items()]
         scored.sort(key=lambda t: (-t[0], kind_priority(self.entries[t[1]].kind), t[1]))
         return scored[:limit]
 

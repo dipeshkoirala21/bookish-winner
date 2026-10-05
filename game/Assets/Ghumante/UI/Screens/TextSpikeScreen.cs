@@ -42,7 +42,17 @@ namespace Ghumante.UI.Screens
             Required<Button>("toggle-generator").clicked += ToggleGenerator;
             Required<Button>("toggle-numerals").clicked += () => Localizer.NativeNumerals = !Localizer.NativeNumerals;
 
+            // Rotation, window resize and fold/unfold change Screen.width/height, which the device line
+            // reports; GeometryChangedEvent on the styled root fires for all of them (ADR-017).
+            StyledRoot.RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
+
             Refresh();
+        }
+
+        public override void Dispose()
+        {
+            StyledRoot.UnregisterCallback<GeometryChangedEvent>(OnGeometryChanged);
+            base.Dispose();
         }
 
         public event Action BackRequested;
@@ -63,7 +73,26 @@ namespace Ghumante.UI.Screens
                 "spike.generator",
                 Localizer.Get(_standardGenerator ? "spike.generator.standard" : "spike.generator.advanced"));
             _numeralsLabel.text = Localizer.Get(Localizer.NativeNumerals ? "settings.numerals.on" : "settings.numerals.off");
-            _deviceInfo.text = DeviceSummary();
+            UpdateDeviceInfo();
+        }
+
+        private void OnGeometryChanged(GeometryChangedEvent evt)
+        {
+            UpdateDeviceInfo();
+        }
+
+        /// <summary>Rewrites the device line (resolution included); a no-op when nothing changed.</summary>
+        public void UpdateDeviceInfo()
+        {
+            string summary = DeviceSummary();
+            // Writing an identical value would still dirty the layout and re-trigger GeometryChangedEvent.
+            if (_deviceInfo.text != summary) _deviceInfo.text = summary;
+        }
+
+        /// <summary>The device line shown on the screen (and in the test report screenshot).</summary>
+        public string DeviceInfoText
+        {
+            get { return _deviceInfo.text; }
         }
 
         private void ToggleGenerator()
@@ -73,7 +102,7 @@ namespace Ghumante.UI.Screens
             OnRefresh();
         }
 
-        private static string DeviceSummary()
+        public static string DeviceSummary()
         {
             return string.Format(
                 "Unity {0} · {1} · {2} · {3} · {4} MB RAM · {5}x{6} @ {7} dpi · {8}",

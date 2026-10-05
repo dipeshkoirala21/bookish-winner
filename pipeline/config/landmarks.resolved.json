@@ -33,6 +33,13 @@
    "n4908895021 बौद्ध पिपलबोट (0.31 km)",
    "n3481359219 अन्तर्राष्ट्रिय बौद्ध एकेडेमी (1.08 km)",
    "w56688295 Baudhanath (0.05 km)"
+  ],
+  "aliases": [
+   "Boudha",
+   "Boudhanath",
+   "Bouddhanath",
+   "Boudha Stupa",
+   "Boudhanath Stupa"
   ]
  },
  {
@@ -67,6 +74,12 @@
    "w256548640 Swayambhunath (0.09 km)",
    "w255881416 Swayambhu Buddhist Museum (0.02 km)",
    "w180834315 स्वयम्भू परिकारामा (0.24 km)"
+  ],
+  "aliases": [
+   "Swayambhu",
+   "Swayambhu Stupa",
+   "Swayambhunath Stupa",
+   "Monkey Temple"
   ]
  },
  {
@@ -90,6 +103,11 @@
    "n5656895033 None (0.26 km)",
    "w125634570 Pashupatinath (0.04 km)",
    "w1154468930 Pashupati Sadak (0.13 km)"
+  ],
+  "aliases": [
+   "Pashupati",
+   "Pashupatinath",
+   "Pashupatinath Temple"
   ]
  },
  {
@@ -125,6 +143,12 @@
    "w248965182 Basantpur Plaza (0.11 km)",
    "n10006872418 None (0.07 km)",
    "n13278125833 वसन्तपुर दरबार (0.07 km)"
+  ],
+  "aliases": [
+   "Kathmandu Durbar Square",
+   "Kathmandu Durbar",
+   "Hanuman Dhoka",
+   "Basantapur Durbar Square"
   ]
  },
  {
@@ -146,6 +170,11 @@
    "n6851227787 None (0.02 km)",
    "n6851230785 None (0.04 km)",
    "r4557971 Patan Durbar Square (0.03 km)"
+  ],
+  "aliases": [
+   "Patan Durbar Square",
+   "Lalitpur Durbar Square",
+   "Mangal Bazaar"
   ]
  },
  {
@@ -162,7 +191,10 @@
   "key_tags": {
    "place": "square"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": [
+   "Bhaktapur Durbar Square"
+  ]
  },
  {
   "id": "nyatapola",
@@ -187,6 +219,10 @@
   },
   "alternatives": [
    "n11933629087 Nyatapola Kitchen (0.08 km)"
+  ],
+  "aliases": [
+   "Nyatapola",
+   "Nyatapola Temple"
   ]
  },
  {
@@ -220,6 +256,11 @@
    "w706922152 Changunarayan (0.05 km)",
    "r7715042 Changunarayan-04 (0.31 km)",
    "w341776778 Changunarayan Ward no 4 Office (0.43 km)"
+  ],
+  "aliases": [
+   "Changu Narayan",
+   "Changunarayan",
+   "Changu Narayan Temple"
   ]
  },
  {
@@ -247,6 +288,11 @@
    "w341772537 Dharahara (0.07 km)",
    "w1363556903 Dharahara (0.08 km)",
    "w205183188 Dharahara Guest House & Restaurant (0.15 km)"
+  ],
+  "aliases": [
+   "Dharahara",
+   "Bhimsen Tower",
+   "धरहरा"
   ]
  },
  {
@@ -272,6 +318,10 @@
   },
   "alternatives": [
    "n1857049442 गार्डेन अफ ड्रिम्स पार्किङ् (0.03 km)"
+  ],
+  "aliases": [
+   "Garden of Dreams",
+   "Swapna Bagaicha"
   ]
  },
  {
@@ -290,7 +340,10 @@
    "wikidata": "Q2467967",
    "wikipedia": "en:Thamel"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": [
+   "Thamel"
+  ]
  },
  {
   "id": "chandragiri_cable_car",
@@ -311,6 +364,10 @@
    "n6333301847 चन्द्रागिरि हिल्स (0.63 km)",
    "r16112955 Chandragiri-06 (1.38 km)",
    "r16112954 Chandragiri-07 (1.6 km)"
+  ],
+  "aliases": [
+   "Chandragiri Cable Car",
+   "Chandragiri Hills"
   ]
  },
  {
@@ -318,20 +375,28 @@
   "region": "kathmandu_valley",
   "kind": "viewpoint",
   "status": "found",
-  "osm": "n4430216290",
-  "lon": 85.528521,
-  "lat": 27.720198,
-  "name": null,
-  "name_en": "End of Nagarkot Panoramic hiking trail",
+  "osm": "n1398437048",
+  "lon": 85.519901,
+  "lat": 27.692168,
+  "name": "Nagarkot Tower",
+  "name_en": "Nagarkot Trigonometry Tower",
   "name_ne": null,
   "key_tags": {
-   "tourism": "viewpoint"
+   "description": "Nagarkot View",
+   "man_made": "tower",
+   "tourism": "viewpoint",
+   "tower:type": "observation"
   },
   "alternatives": [
-   "n1398437048 Nagarkot Tower (2.54 km)",
+   "n4430216290 None (1.02 km)",
    "n316984476 नगरकोट (0.39 km)",
    "w568645056 Way to Nagarkot (0.37 km)",
    "w758626442 Nagarkot Buddha Peace Garden Hiking Trail (0.35 km)"
+  ],
+  "aliases": [
+   "Nagarkot",
+   "Nagarkot Viewpoint",
+   "Nagarkot View Tower"
   ]
  },
  {
@@ -360,7 +425,15 @@
    "wikidata": "Q61066",
    "wikipedia": "en:Tribhuvan International Airport"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": [
+   "Tribhuvan Airport",
+   "Tribhuvan International Airport",
+   "Kathmandu Airport",
+   "Kathmandu International Airport",
+   "Tribhuvan Intl Airport",
+   "TIA"
+  ]
  },
  {
   "id": "phewa_lake",
@@ -387,7 +460,8 @@
    "w44790125 Fewa Lakeside Foot Path (0.62 km)",
    "w198565131 Hotel Fewa (0.63 km)",
    "w44790126 Fewa Lakeside Foot Path (0.8 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "tal_barahi",
@@ -414,7 +488,8 @@
    "w24622137 13 (0.72 km)",
    "w120638652 Hotel Barahi (0.75 km)",
    "w450936500 Barahi Mini Market Pvt Ltd (0.96 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "sarangkot",
@@ -437,7 +512,8 @@
    "n3485963579 Sarangkot View Point (1.11 km)",
    "n3485963129 सराङ्गकोट (0.9 km)",
    "n570126093 Sarangkot Tower (1.1 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "world_peace_pagoda",
@@ -464,7 +540,8 @@
    "w1526648513 Peace Stupa - Dhungepani Foot Path (0.14 km)",
    "w239279341 World Peace Stupa Hiking Trail (0.23 km)",
    "w117380660 Peace Pagoda Road (0.43 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "davis_falls",
@@ -485,7 +562,8 @@
    "w567061364 Devi's Fall Driving School & Pre-test Center Pvt.Ltd (0.37 km)",
    "w24623929 Davis Falls (0.63 km)",
    "n4805411467 Devi's Fall Medical Hall (0.04 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "gupteshwor_cave",
@@ -508,7 +586,8 @@
    "w566711569 Gupteshwar Mahadev Multiple Campus (0.37 km)",
    "n4375196023 Gupteshwar Mahadev Bed Bigyan Pathsala (0.09 km)",
    "n9791595156 Gupteshwor Puja Samagrhi Bhandar (0.09 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "bat_cave",
@@ -532,7 +611,8 @@
    "w418108667 Way to Bat Cave (0.73 km)",
    "w418108669 Way to Bat Cave (0.71 km)",
    "w670034956 Way to Bat Cave (0.82 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "begnas_lake",
@@ -558,7 +638,8 @@
    "w485299683 Begnas Youth Club (1.06 km)",
    "w342721624 Talchowk Begnastal Road (1.15 km)",
    "w331636423 Talchowk Begnastal Road (1.26 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "pokhara_international_airport",
@@ -590,7 +671,8 @@
    "w126708147 Pokhara Airport (4.85 km)",
    "n5489250723 Pokhara International Pvt. Ltd (5.4 km)",
    "n5474681806 Hotel Pokhara International (7.11 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "machhapuchhre",
@@ -614,7 +696,8 @@
   "alternatives": [
    "w620058338 Machhapuchhare Base Camp (5.79 km)",
    "n4193320690 Machhapuchhare Guest House and Restaurant (5.77 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "annapurna_i",
@@ -635,7 +718,8 @@
    "wikidata": "Q159621",
    "wikipedia": "en:Annapurna"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "poon_hill",
@@ -661,7 +745,8 @@
    "w544151580 घोरेपानी-पूनहिल (0.21 km)",
    "w340898704 घोरेपानी-पूनहिल (0.47 km)",
    "w335030467 Poon Hill Guest House (0.98 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "ghandruk",
@@ -682,7 +767,8 @@
    "wikidata": "Q3412040",
    "wikipedia": "en:Ghandruk"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "bandipur",
@@ -704,7 +790,8 @@
   "alternatives": [
    "r12405037 Bandipur (4.15 km)",
    "n6411689877 Bandipur (0.44 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "manakamana",
@@ -728,7 +815,8 @@
    "w341403715 Manakamana cable car (1.68 km)",
    "n1726693455 Manakamana cable car hill station (0.57 km)",
    "n1726693459 Manakamana Cable Car Station (3.12 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "gorkha_durbar",
@@ -744,7 +832,8 @@
   "key_tags": {
    "amenity": "restaurant"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "kushma_bungee",
@@ -771,7 +860,8 @@
   "alternatives": [
    "w870647006 Kusma-Balewa Bridge (Kushma Bungee Footbridge) (1.75 km)",
    "n9044782738 Kushma Bungee Jump (1.73 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "everest",
@@ -822,7 +912,8 @@
   },
   "alternatives": [
    "n1326607409 珠穆朗玛南峰 (0.33 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "lhotse",
@@ -844,7 +935,8 @@
    "wikidata": "Q168702",
    "wikipedia": "en:Lhotse"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "ama_dablam",
@@ -868,7 +960,8 @@
   "alternatives": [
    "w30386589 Ama Dablam Glacier (2.33 km)",
    "w36479489 Base Camp Amadablam (3.52 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "kangchenjunga",
@@ -890,7 +983,8 @@
    "wikidata": "Q82019",
    "wikipedia": "en:Kangchenjunga"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "dhaulagiri",
@@ -914,7 +1008,8 @@
    "wikimedia_commons": "File:Dhaulagiri_-_view_from_aircraft.jpg",
    "wikipedia": "en:Dhaulagiri"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "manaslu",
@@ -935,7 +1030,8 @@
    "wikidata": "Q170070",
    "wikipedia": "en:Manaslu"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "lukla_airport",
@@ -962,7 +1058,8 @@
    "n303021945 नेपाल (0.27 km)",
    "w249739223 Lukla Numbur Hotel (0.2 km)",
    "w249739311 Everest Mountain Home Lukla Airport (0.25 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "namche_bazaar",
@@ -986,7 +1083,8 @@
    "w312775939 नाम्चे स्वास्थ्य चौकी (0.38 km)",
    "w312775915 Namche Gompa (0.52 km)",
    "w539956612 Namche Bazar Helipad (0.77 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "tengboche_monastery",
@@ -1011,7 +1109,8 @@
    "n274018195 Tengboche (0.06 km)",
    "n4441512089 None (0.07 km)",
    "n4515354492 None (0.12 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "everest_base_camp",
@@ -1031,7 +1130,8 @@
   },
   "alternatives": [
    "n11730385960 Everest Base Camp Monument (0.93 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "kala_patthar",
@@ -1052,7 +1152,8 @@
   },
   "alternatives": [
    "n12794895934 Kalapathar Lodge & Restaurant (1.7 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "gokyo_lakes",
@@ -1078,7 +1179,8 @@
    "n425189343 Gokyo Ri (1.45 km)",
    "w1123104488 Gokyo Lake side (0.52 km)",
    "w344731668 None (0.63 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "langtang_valley",
@@ -1102,7 +1204,8 @@
    "w342366766 Kyāṅjiṅ (0.8 km)",
    "n632389897 Lower Kyāṅjiṅ Ri (1.35 km)",
    "n632390009 Kyāṅjiṅ Ri (2.16 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "gosaikunda",
@@ -1124,7 +1227,8 @@
    "w47203446 GosainKunda Trek (2.19 km)",
    "r4867746 GosainKunda Trek (2.38 km)",
    "n601521345 गोसाइँकुण्ड (0.52 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "tilicho_lake",
@@ -1150,7 +1254,8 @@
    "w346967612 Tilicho Tea Shop (1.43 km)",
    "r11077478 Tilicho Trek (5.0 km)",
    "w1088769962 New Tilicho Lake Base Camp Hotel (5.59 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "thorong_la",
@@ -1174,7 +1279,8 @@
   "alternatives": [
    "n1967080904 Thorong top tea shop (0.94 km)",
    "n4593919691 None (0.95 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "muktinath",
@@ -1198,7 +1304,8 @@
    "n1431996477 मुक्तिनाथ (0.14 km)",
    "n295283304 Ranipauwa (0.53 km)",
    "w1164625779 Holy Pond of Muktinath (0.16 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "rara_lake",
@@ -1222,7 +1329,8 @@
    "w303630931 Rara Ring Track (1.1 km)",
    "w687891249 Rara Ring Track (1.61 km)",
    "w941192898 Rara lake road (2.08 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "shey_phoksundo",
@@ -1252,7 +1360,8 @@
    "w295702373 Phoksundo Khola (6.13 km)",
    "r16068344 Shey Phoksundo-09 (6.31 km)",
    "w736586766 Phoksundo Hotel (7.08 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "lo_manthang",
@@ -1281,7 +1390,8 @@
    "w1254822597 Jeep Road Beni-Lo Manthang (0.08 km)",
    "w1254822596 Jeep Road Beni-Lo Manthang (0.16 km)",
    "r16078784 Lomanthang-03 (4.16 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "khaptad",
@@ -1305,7 +1415,8 @@
    "w480999247 Khaptad Hotel (1.02 km)",
    "w480999248 Khaptad Hotel (1.03 km)",
    "w480999249 Khaptad Hotel (1.05 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "maya_devi_temple",
@@ -1328,7 +1439,8 @@
    "n2253944909 Maya Devi Guest House (0.85 km)",
    "n9780881645 Mayadevi Primary School (2.6 km)",
    "n9814735279 Mayadevi Arts (2.77 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "lumbini_monastic_zone",
@@ -1350,7 +1462,8 @@
   },
   "alternatives": [
    "n5577702821 None (1.36 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "chitwan_np",
@@ -1381,7 +1494,8 @@
    "n6909860485 None (14.14 km)",
    "n567142502 Chitwan National Park Info Office (16.4 km)",
    "n4796270233 None (16.56 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "bardiya_np",
@@ -1399,7 +1513,8 @@
    "protect_class": "2",
    "start_date": "1988"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "koshi_tappu",
@@ -1425,7 +1540,8 @@
    "w1055994080 Koshi Tappu Wildlife Reserve (11.72 km)",
    "w1378864163 Koshi Tappu wildlife reserve (12.13 km)",
    "w374844892 Koshi Tappu Waildlife camp (12.84 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "janaki_mandir",
@@ -1447,7 +1563,8 @@
   "alternatives": [
    "r7081539 Janaki Mandir Area (0.1 km)",
    "w353717394 Janaki Mandir Park (0.16 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "ilam_tea_gardens",
@@ -1468,7 +1585,8 @@
    "w482975094 Kanyam Tea Estate (15.47 km)",
    "n3385957280 Kanyam (15.87 km)",
    "n5012149922 Kanyam inn (16.81 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "kalinchowk",
@@ -1492,7 +1610,8 @@
    "r6742499 Kalinchok-04 (7.59 km)",
    "r16118719 Kalinchok-05 (8.16 km)",
    "r10430164 कालिन्चोक गाउँपालिका (9.11 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "hyatung_falls",
@@ -1509,7 +1628,8 @@
    "height": "365",
    "waterway": "waterfall"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "bhote_koshi_bungee",
@@ -1523,7 +1643,8 @@
   "name_en": null,
   "name_ne": null,
   "key_tags": {},
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "sarangkot_paragliding",
@@ -1546,7 +1667,8 @@
    "w197338918 Old Paragliding Landing (2.34 km)",
    "w1156893063 प्याराग्लाइडिङ टेकऑफ (3.83 km)",
    "n5491406004 Old Paragliding Landing Zone (1.56 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "pokhara_zipline",
@@ -1563,7 +1685,8 @@
    "highway": "residential",
    "surface": "dirt"
   },
-  "alternatives": []
+  "alternatives": [],
+  "aliases": []
  },
  {
   "id": "trishuli_river",
@@ -1586,7 +1709,8 @@
    "w915399519 Trishuli Ganga River (19.93 km)",
    "w302864211 Trishuli Ganga River (20.9 km)",
    "w915399518 Trishuli Ganga River (20.8 km)"
-  ]
+  ],
+  "aliases": []
  },
  {
   "id": "seti_river",
@@ -1611,6 +1735,7 @@
    "w1396732401 Seti Gandaki River (2.01 km)",
    "w407693769 Seti River (2.63 km)",
    "w404671139 Seti Gandaki River (5.86 km)"
-  ]
+  ],
+  "aliases": []
  }
 ]

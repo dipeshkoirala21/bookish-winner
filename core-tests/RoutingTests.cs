@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Ghumante.Core.Data;
@@ -166,18 +167,44 @@ namespace Ghumante.Core.Tests
                 Travel profile = TravelProfiles.Get(q.GetProperty("profile").GetString()).Travel;
                 bool incoming = q.GetProperty("incoming").GetBoolean();
                 double x = q.GetProperty("x").GetDouble(), z = q.GetProperty("z").GetDouble();
+                bool main = q.GetProperty("main_network").GetBoolean();
                 JsonElement node = q.GetProperty("node");
                 int expected = node.ValueKind == JsonValueKind.Null ? -1 : node.GetInt32();
                 foreach (double cell in new[] { 64.0, 512.0, 5000.0 })
-                    Assert.That(new NearestNode(g, profile, incoming, cell).Find(x, z), Is.EqualTo(expected), q.ToString() + " cell " + cell);
+                    Assert.That(new NearestNode(g, profile, incoming, cell, main).Find(x, z), Is.EqualTo(expected), q.ToString() + " cell " + cell);
             }
+        }
+
+        [Test]
+        public void MainComponentAndSnapNodesMatchPython()
+        {
+            RouteGraph g = Graph();
+            JsonElement root = GoldenFiles.Json("golden_routes.json");
+            foreach (JsonProperty kv in root.GetProperty("main_component").EnumerateObject())
+            {
+                Travel profile = TravelProfiles.Get(kv.Name).Travel;
+                Assert.That(NearestNode.MainComponent(g, profile), Is.EqualTo(ToInts(kv.Value)), kv.Name);
+            }
+            foreach (JsonProperty kv in root.GetProperty("snap_nodes").EnumerateObject())
+            {
+                string[] parts = kv.Name.Split('/');
+                Travel profile = TravelProfiles.Get(parts[0]).Travel;
+                Assert.That(NearestNode.SnapNodes(g, profile, parts[1] == "in"), Is.EqualTo(ToInts(kv.Value)), kv.Name);
+            }
+        }
+
+        private static int[] ToInts(JsonElement a)
+        {
+            var l = new List<int>();
+            foreach (JsonElement v in a.EnumerateArray()) l.Add(v.GetInt32());
+            return l.ToArray();
         }
 
         [Test]
         public void NearestNodeAgreesWithBruteForce()
         {
             RouteGraph g = Graph();
-            int[] nodes = NearestNode.UsableNodes(g, Travel.Car, false);
+            int[] nodes = NearestNode.SnapNodes(g, Travel.Car, false);
             var index = new NearestNode(g, Travel.Car, false, 100.0);
             var rng = new Random(7);
             for (int k = 0; k < 500; k++)

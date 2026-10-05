@@ -108,7 +108,7 @@ count × Road:
   point_count × { svarint dx_cm, svarint dz_cm }   first point relative to tile origin, then deltas
 ```
 
-A way is clipped to the tile's square. Each clipped piece stores its in-tile vertices plus the exact intersection points with the tile border. If the piece was cut at its start (or end), the original polyline vertex just outside the tile is stored as a **context point** and the `HAS_PREV_CTX` (or `HAS_NEXT_CTX`) flag is set. Context points are never rendered. They exist so the mesher on each side of a tile edge computes the same tangent at the shared cut point, which makes the meshes meet without seams. Pieces are sorted by `(osm_way_id, first point)`.
+A way is clipped to the tile's square. Each clipped piece stores its in-tile vertices plus the exact intersection points with the tile border. If the piece was cut at its start (or end), the original polyline vertex just outside the tile is stored as a **context point** and the `HAS_PREV_CTX` (or `HAS_NEXT_CTX`) flag is set. Context points are never rendered. They exist so the mesher on each side of a tile edge computes the same tangent at the shared cut point, which makes the meshes meet without seams. After rounding to whole centimetres, a piece has no two equal consecutive points, and a context point never equals its cut point: when the vertex just outside rounds onto the cut (it lies within 0.5 cm of the border), the next original vertex further out that does not is stored instead, which is the first in-tile point of the neighbour's piece. If there is no such vertex the flag is cleared. Pieces are sorted by `(osm_way_id, first point)`.
 
 `ONEWAY` means traffic flows in point order: the writer reverses `oneway=-1` ways.
 
@@ -188,6 +188,8 @@ count × Poi:
   varint search_id      index into the global search index + 1, 0 = not searchable
 ```
 
+`search_id` is the record's own entry: the region index entry with the same OSM object **and** the same kind (`PlaceKind + 1000` for places), so `entries[search_id - 1].kind == kind`. One OSM object can be both a POI and a place, and each record links to its own entry. Records whose entry was deduplicated away or filtered out get 0.
+
 ### 1.9 `SEED`: deterministic scatter
 
 ```
@@ -251,6 +253,8 @@ Packs are read with random access, either memory-mapped or by seeking. A region'
 }
 ```
 
+`sources.osm.timestamp` is the PBF header's replication timestamp, or, when the header has none (the geo2day mirror), the `Last-Modified` time recorded for that file in `SOURCES.lock.json`, as ISO 8601 UTC; `null` only if neither exists. Paths inside the manifest (`files[].path`, `stats.qa.out_dir`) are relative to the region directory.
+
 ## 3. Search index (`.ghsi`): magic `GHSI`
 
 There is one search index per region. The game merges the indexes of every installed region at load time.
@@ -287,15 +291,22 @@ Keys section: key_count × { str key, varint entry_index }, sorted by (key bytes
 
 **Keys** are folded search keys (`translit.fold`). Each entry gets keys for:
 
-* every name variant (`default`, `en`, `ne`, `alt`), folded;
+* every name variant (`default`, `en`, `ne`, `alt`), folded. `alt` holds OSM `alt_name`, `old_name`, `official_name`, `short_name`, `loc_name` and their language variants, the curated `aliases` of `config/landmarks.yaml` (for example "Kathmandu Airport" and "TIA" for Tribhuvan International Airport), and the names of duplicates merged into the entry;
 * the romanisation of every Devanagari variant (`translit.romanize`), folded;
-* every word suffix of a multi-word name, so that "Durbar Square" matches "square".
+* every word suffix of a multi-word name whose first word is *significant*: at least 3 characters and not in the folded stop list `search_index.SUFFIX_STOP_WORDS` (generic words such as temple, mandir, lake, tal, road, chowk, the). So "Patan Durbar Square" gets "durbar square" and "square", but "Pashupatinath Temple" gets no "temple" key.
 
-Lookup (`search_index.search`, mirrored in C#):
+**Entries.** Places, admin areas (province, district, local level) and named POIs except businesses and lodging. Place and POI candidates outside the region's leaf-tile coverage (the extract's buffer zone) are dropped; admin areas are kept. Two candidates of the same kind group within 300 m are duplicates when **any** of their folded `default`/`en`/`ne` names match; the more important one is kept and inherits the other's names as `alt`. A bus stop named after its destination ("Bus to Nagarkot") gets the default importance and no transport-hub flag. See the `search_index` module docstring for the importance formula.
+
+Lookup (`search_index.search`, mirrored exactly in C# `SearchEngine`; all integer arithmetic, `m` in thousandths):
 
 1. Fold the query. If it contains Devanagari, also romanise it and fold that.
-2. Collect candidates in three ways: exact key matches (score 1.0), prefix matches found by binary search over the sorted keys (score 0.9 − 0.01 · extra characters), and fuzzy matches. Fuzzy matches are keys within Damerau–Levenshtein distance `max(1, len/4)` that share the first character (score 0.75 − 0.1·distance); queries of 3 characters or fewer get no fuzzy matching.
-3. Rank by `match_score × 0.7 + importance/255 × 0.3`. Break ties by kind priority, then name.
+2. Collect candidates in four ways:
+   * exact key matches: `m = 1000`;
+   * prefix matches found by binary search over the sorted keys: `m = max(100, 900 − 10 · extra characters)`, so 0.9 − 0.01 · extra with a floor of 0.1;
+   * token matches: when the query has at least two distinct significant words, an entry for which every one of them is a prefix of some key of the entry gets `m = 600`. "Tribhuvan airport" finds "Tribhuvan International Airport". Phrase matches score higher;
+   * fuzzy matches, for queries longer than 3 characters: keys that share the first character and lie within optimal-string-alignment (restricted Damerau–Levenshtein) distance `d ≤ max(1, len/4)`: `m = 750 − 100 · d`.
+3. Each entry keeps its best `m`. Landmarks (flag bit1) add a rank bonus of 150, and other heritage POIs (kinds 120–129) add 50, capped at 1000: `m' = min(1000, m + bonus)`. This makes "Boudha" return Boudhanath Stupa before the Baudha neighbourhood.
+4. Rank by `score = 1785 · m' + 3000 · importance`, which is `2 550 000 · (m'/1000 × 0.7 + importance/255 × 0.3)`. Break ties by kind priority (places before POIs, then ascending kind), then entry index (folded name, then osm_ref).
 
 ## 4. Routing graph (`.ghrg`): magic `GHRG`
 
@@ -329,19 +340,22 @@ Geometry blob: per edge, geom_count × { svarint dx_dm, svarint dz_dm }, the fir
 Names: name_count × { str default, str en, str ne }
 ```
 
-Nodes are OSM nodes that are an endpoint or that are shared by two or more routable ways. Ways are split at those nodes. Each edge is stored once per direction it can be travelled in. For a `oneway` road, the reverse edge keeps only `FOOT` (and `BICYCLE` when `oneway:bicycle=no`), and it is omitted when its mask would be empty.
+The graph holds the region's roads clipped to its leaf-tile coverage; cut points become synthetic end nodes on the coverage edge. Nodes are OSM nodes that are an endpoint or that are shared by two or more routable ways. Ways are split at those nodes. Each edge is stored once per direction it can be travelled in. For a `oneway` road, the reverse edge keeps only `FOOT`, and it is omitted when its mask would be empty. `oneway:bicycle=no` (contraflow cycling) is not modelled yet, because the extract does not carry the tag (future work).
 
 Travel cost for profile `p` is `length / speed(p, class, surface) × climb_factor`, with the tables in `routing.py` / `Routing/TravelProfiles.cs`. The reference query is A* with the straight-line distance divided by the profile's maximum speed as the heuristic.
 
+Snapping a position to the graph (`routing.nearest_node` / C# `NearestNode`) picks the closest node with a usable outgoing edge for the profile (a destination: a usable incoming edge). By default it only considers nodes connected to the profile's *main component*, the largest strongly connected component of its usable edges (ties go to the component holding the smallest node index): starts must be able to reach it and destinations must be reachable from it. A landmark therefore never snaps into a small disconnected island, and every start can reach every destination. Exact distance ties go to the lowest node index.
+
 ## 5. QA export (`qa/`)
 
-`build.py --qa` writes developer-only files for the QA viewer (`tools/qa-viewer/`):
+`build.py --qa` writes developer-only files for the QA viewer (`tools/qa-viewer/`) next to the pack, in `build/regions/<region>/qa/`:
 
 ```
-qa/<region>/index.json             region bbox, tile list, layer list, stats
-qa/<region>/<layer>.geojson         roads | trails | buildings | areas | lines | pois (lon/lat, decoded FROM THE PACK)
-qa/<region>/hillshade/<L>/<tx>_<ty>.png   one per detail tile at the leaf level (decoded from HGHT)
-qa/<region>/biome/<L>/<tx>_<ty>.png       colour-coded BIOM
+qa/index.json                         region bbox, tile list, layer list, stats
+qa/<layer>.geojson                    roads | trails | buildings | areas | lines | pois (lon/lat, decoded FROM THE PACK)
+qa/buildings/<L>/<tx>_<ty>.geojson    buildings again, one file per leaf tile (the viewer loads them on demand)
+qa/hillshade/<L>/<tx>_<ty>.png        one per detail tile at the leaf level (decoded from HGHT)
+qa/biome/<L>/<tx>_<ty>.png            colour-coded BIOM
 ```
 
 The GeoJSON layers are produced by **decoding the region pack**, not from intermediate data. Overlaying them on OpenStreetMap therefore checks the whole chain: extract, project, clip, encode, decode, unproject.

@@ -264,11 +264,23 @@ def test_manifest_round_trip(tmp_path, pack1000):
     assert "format" not in m  # input not mutated
     text = mpath.read_text(encoding="utf-8")
     assert "काठमाडौं उपत्यका" in text and "©" in text  # ensure_ascii=False
-    assert text == json.dumps(back, sort_keys=True, ensure_ascii=False, indent=1) + "\n"
+    assert text == json.dumps(back, ensure_ascii=False, indent=1) + "\n"  # key order as written
     assert text.splitlines()[1].startswith(' "attribution"')  # sorted keys, indent=1
     write_manifest(tmp_path / "again.json", dict(reversed(list(m.items()))))
     assert (tmp_path / "again.json").read_bytes() == mpath.read_bytes()
     assert back["files"][0] == file_entry(path)
+
+
+def test_manifest_tile_counts_numeric_order(tmp_path):
+    """Level keys sort numerically ("5" < "10"), every other dict lexicographically."""
+    m = {"region": "r", "tile_counts": {"10": 1248, "5": 42, "9": 300, "6": 132},
+         "stats": {"b": 1, "a": {"z": 0, "y": 1}, "chunk_bytes": {"ROAD": 1, "AREA": 2}}}
+    write_manifest(tmp_path / "m.json", m)
+    back = json.loads((tmp_path / "m.json").read_text(encoding="utf-8"))
+    assert list(back["tile_counts"]) == ["5", "6", "9", "10"]
+    assert list(back) == ["format", "region", "stats", "tile_counts", "version"]
+    assert list(back["stats"]) == ["a", "b", "chunk_bytes"] and list(back["stats"]["a"]) == ["y", "z"]
+    assert list(back["stats"]["chunk_bytes"]) == ["AREA", "ROAD"]
 
 
 def test_manifest_validation(tmp_path):

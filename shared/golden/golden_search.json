@@ -1238,7 +1238,7 @@
   }
  ],
  "format": "ghumante-golden-search",
- "key_count": 86,
+ "key_count": 90,
  "keys": [
   [
    "airport",
@@ -1333,6 +1333,10 @@
    13
   ],
   [
+   "doka",
+   6
+  ],
+  [
    "dreams",
    17
   ],
@@ -1363,6 +1367,10 @@
   [
    "garden op dreams",
    17
+  ],
+  [
+   "hanuman doka",
+   6
   ],
   [
    "international airport",
@@ -1403,6 +1411,10 @@
   [
    "katmandu",
    36
+  ],
+  [
+   "katmandu airport",
+   18
   ],
   [
    "katmandu durbar square",
@@ -1575,6 +1587,10 @@
   [
    "tatopani",
    16
+  ],
+  [
+   "tia",
+   18
   ],
   [
    "tribuban antarastriy bimanastal",
@@ -1849,8 +1865,14 @@
     {
      "entry": 6,
      "osm_ref": 125,
-     "score": 0.8025882352941176,
-     "score_int": 2046600
+     "score": 0.9075882352941177,
+     "score_int": 2314350
+    },
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.8092941176470588,
+     "score_int": 2063700
     },
     {
      "entry": 32,
@@ -1880,8 +1902,14 @@
     {
      "entry": 6,
      "osm_ref": 125,
-     "score": 0.8025882352941176,
-     "score_int": 2046600
+     "score": 0.9075882352941177,
+     "score_int": 2314350
+    },
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.8092941176470588,
+     "score_int": 2063700
     },
     {
      "entry": 32,
@@ -1911,8 +1939,8 @@
     {
      "entry": 6,
      "osm_ref": 125,
-     "score": 0.7955882352941176,
-     "score_int": 2028750
+     "score": 0.9005882352941177,
+     "score_int": 2296500
     }
    ]
   },
@@ -1922,16 +1950,16 @@
    "query": "boudha",
    "results": [
     {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.9470588235294117,
+     "score_int": 2415000
+    },
+    {
      "entry": 33,
      "osm_ref": 388111672,
      "score": 0.8764705882352941,
      "score_int": 2235000
-    },
-    {
-     "entry": 2,
-     "osm_ref": 226753185,
-     "score": 0.8560588235294118,
-     "score_int": 2182950
     }
    ]
   },
@@ -1941,16 +1969,16 @@
    "query": "Bouddha",
    "results": [
     {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.9470588235294117,
+     "score_int": 2415000
+    },
+    {
      "entry": 33,
      "osm_ref": 388111672,
      "score": 0.8764705882352941,
      "score_int": 2235000
-    },
-    {
-     "entry": 2,
-     "osm_ref": 226753185,
-     "score": 0.8560588235294118,
-     "score_int": 2182950
     }
    ]
   },
@@ -1960,16 +1988,16 @@
    "query": "बौद्ध",
    "results": [
     {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.9470588235294117,
+     "score_int": 2415000
+    },
+    {
      "entry": 33,
      "osm_ref": 388111672,
      "score": 0.8764705882352941,
      "score_int": 2235000
-    },
-    {
-     "entry": 2,
-     "osm_ref": 226753185,
-     "score": 0.8560588235294118,
-     "score_int": 2182950
     }
    ]
   },
@@ -2077,20 +2105,20 @@
     {
      "entry": 6,
      "osm_ref": 125,
-     "score": 0.8515882352941176,
-     "score_int": 2171550
+     "score": 0.9565882352941176,
+     "score_int": 2439300
     },
     {
      "entry": 5,
      "osm_ref": 133,
-     "score": 0.8045294117647059,
-     "score_int": 2051550
+     "score": 0.8395294117647059,
+     "score_int": 2140800
     },
     {
      "entry": 7,
      "osm_ref": 129,
-     "score": 0.8045294117647059,
-     "score_int": 2051550
+     "score": 0.8395294117647059,
+     "score_int": 2140800
     }
    ]
   },
@@ -2312,16 +2340,16 @@
    "query": "k",
    "results": [
     {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.9705882352941176,
+     "score_int": 2475000
+    },
+    {
      "entry": 24,
      "osm_ref": 268628232,
      "score": 0.881,
      "score_int": 2246550
-    },
-    {
-     "entry": 6,
-     "osm_ref": 125,
-     "score": 0.8655882352941177,
-     "score_int": 2207250
     },
     {
      "entry": 35,
@@ -2340,6 +2368,12 @@
      "osm_ref": 104,
      "score": 0.8374705882352941,
      "score_int": 2135550
+    },
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.7602941176470588,
+     "score_int": 1938750
     },
     {
      "entry": 0,
@@ -2367,16 +2401,16 @@
    "query": "k",
    "results": [
     {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.9705882352941176,
+     "score_int": 2475000
+    },
+    {
      "entry": 24,
      "osm_ref": 268628232,
      "score": 0.881,
      "score_int": 2246550
-    },
-    {
-     "entry": 6,
-     "osm_ref": 125,
-     "score": 0.8655882352941177,
-     "score_int": 2207250
     },
     {
      "entry": 35,
@@ -2444,8 +2478,8 @@
     {
      "entry": 5,
      "osm_ref": 133,
-     "score": 0.7555294117647059,
-     "score_int": 1926600
+     "score": 0.7905294117647059,
+     "score_int": 2015850
     }
    ]
   },
@@ -2487,16 +2521,22 @@
      "score_int": 2282250
     },
     {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.8725882352941177,
+     "score_int": 2225100
+    },
+    {
      "entry": 36,
      "osm_ref": 18332986,
      "score": 0.8538235294117648,
      "score_int": 2177250
     },
     {
-     "entry": 6,
-     "osm_ref": 125,
-     "score": 0.7675882352941177,
-     "score_int": 1957350
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.7742941176470588,
+     "score_int": 1974450
     },
     {
      "entry": 32,
@@ -2533,8 +2573,8 @@
     {
      "entry": 13,
      "osm_ref": 180,
-     "score": 0.795,
-     "score_int": 2027250
+     "score": 0.9,
+     "score_int": 2295000
     }
    ]
   },
@@ -2565,8 +2605,8 @@
     {
      "entry": 7,
      "osm_ref": 129,
-     "score": 0.7555294117647059,
-     "score_int": 1926600
+     "score": 0.7905294117647059,
+     "score_int": 2015850
     }
    ]
   },
@@ -2756,8 +2796,207 @@
      "score_int": 2165850
     }
    ]
+  },
+  {
+   "folded": "tribuban airport",
+   "limit": 10,
+   "query": "tribhuvan airport",
+   "results": [
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.6552941176470588,
+     "score_int": 1671000
+    }
+   ]
+  },
+  {
+   "folded": "katmandu airport",
+   "limit": 10,
+   "query": "Kathmandu Airport",
+   "results": [
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.9352941176470588,
+     "score_int": 2385000
+    }
+   ]
+  },
+  {
+   "folded": "tia",
+   "limit": 10,
+   "query": "TIA",
+   "results": [
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.9352941176470588,
+     "score_int": 2385000
+    }
+   ]
+  },
+  {
+   "folded": "durbar katmandu",
+   "limit": 10,
+   "query": "durbar kathmandu",
+   "results": [
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.7955882352941176,
+     "score_int": 2028750
+    }
+   ]
+  },
+  {
+   "folded": "sbayambu stupa",
+   "limit": 10,
+   "query": "swayambhu stupa",
+   "results": []
+  },
+  {
+   "folded": "tribu airp",
+   "limit": 10,
+   "query": "tribhu airp",
+   "results": [
+    {
+     "entry": 18,
+     "osm_ref": 474020489,
+     "score": 0.6552941176470588,
+     "score_int": 1671000
+    }
+   ]
+  },
+  {
+   "folded": "te lake",
+   "limit": 10,
+   "query": "the lake",
+   "results": []
+  },
+  {
+   "folded": "peba lake pokara",
+   "limit": 10,
+   "query": "phewa lake pokhara",
+   "results": []
+  },
+  {
+   "folded": "patan square",
+   "limit": 10,
+   "query": "patan square",
+   "results": [
+    {
+     "entry": 7,
+     "osm_ref": 129,
+     "score": 0.6785294117647059,
+     "score_int": 1730250
+    }
+   ]
+  },
+  {
+   "folded": "katmandu durbar square",
+   "limit": 10,
+   "query": "kathmandu durbar square",
+   "results": [
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.9705882352941176,
+     "score_int": 2475000
+    }
+   ]
+  },
+  {
+   "folded": "square durbar",
+   "limit": 10,
+   "query": "square durbar",
+   "results": [
+    {
+     "entry": 6,
+     "osm_ref": 125,
+     "score": 0.7955882352941176,
+     "score_int": 2028750
+    },
+    {
+     "entry": 5,
+     "osm_ref": 133,
+     "score": 0.6785294117647059,
+     "score_int": 1730250
+    },
+    {
+     "entry": 7,
+     "osm_ref": 129,
+     "score": 0.6785294117647059,
+     "score_int": 1730250
+    }
+   ]
+  },
+  {
+   "folded": "bauda stupa",
+   "limit": 10,
+   "query": "boudha stupa",
+   "results": [
+    {
+     "entry": 2,
+     "osm_ref": 226753185,
+     "score": 0.9470588235294117,
+     "score_int": 2415000
+    }
+   ]
   }
  ],
+ "rank_bonus": {
+  "heritage": 50,
+  "heritage_kinds": [
+   120,
+   129
+  ],
+  "landmark": 150,
+  "token_match": 600
+ },
  "score_scale": 2550000,
+ "stop_words": [
+  "and",
+  "area",
+  "bajar",
+  "bard",
+  "bilage",
+  "chok",
+  "city",
+  "colege",
+  "district",
+  "gaunpalika",
+  "hospital",
+  "kola",
+  "kund",
+  "kunda",
+  "lake",
+  "mahanagarpalika",
+  "mandir",
+  "mandira",
+  "marg",
+  "metropolitan",
+  "municipality",
+  "nadi",
+  "nagarpalika",
+  "palika",
+  "park",
+  "pokari",
+  "pond",
+  "probince",
+  "riber",
+  "road",
+  "rural",
+  "sadak",
+  "schul",
+  "strit",
+  "sub",
+  "tal",
+  "te",
+  "temple",
+  "tol",
+  "tole",
+  "upamahanagarpalika"
+ ],
  "version": 1
 }

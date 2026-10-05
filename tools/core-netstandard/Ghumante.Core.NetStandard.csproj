@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compiles game/Assets/Ghumante/Core exactly as Unity 6 does: .NET Standard 2.1 API surface, C# 9.
+    core-tests compiles the same sources for net8.0, where APIs Unity lacks (for example newer
+    System.Math, Span or collection overloads) would still build; this project catches them.
+    Run: dotnet build tools/core-netstandard -c Release   (CI: .github/workflows/core.yml)
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>Ghumante.Core</AssemblyName>
+    <RootNamespace>Ghumante.Core</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../game/Assets/Ghumante/Core/**/*.cs" LinkBase="Core" />
+  </ItemGroup>
+
+</Project>

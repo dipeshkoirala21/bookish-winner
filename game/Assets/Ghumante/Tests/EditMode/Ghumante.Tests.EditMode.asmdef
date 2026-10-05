@@ -8,6 +8,7 @@
         "Ghumante.App",
         "Ghumante.World",
         "Ghumante.EditorTools",
+        "Unity.RenderPipelines.Universal.Runtime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

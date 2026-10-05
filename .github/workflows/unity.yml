@@ -12,11 +12,13 @@ on:
     paths:
       - "game/**"
       - "tools/unity-compile-check/**"
+      - "global.json"
       - ".github/workflows/unity.yml"
   pull_request:
     paths:
       - "game/**"
       - "tools/unity-compile-check/**"
+      - "global.json"
       - ".github/workflows/unity.yml"
   workflow_dispatch:
     inputs:

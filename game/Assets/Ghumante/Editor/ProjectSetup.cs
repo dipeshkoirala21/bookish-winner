@@ -75,7 +75,12 @@ namespace Ghumante.EditorTools
         public static readonly string[] BootstrapFields =
             { "document", "textSpikeScreen", "mainMenuScreen", "englishStrings", "nepaliStrings" };
 
-        /// <summary>Per-tier rendering settings (ARCHITECTURE.md section 10).</summary>
+        /// <summary>
+        /// Per-tier rendering settings. They must match the budget table and renderer rules in
+        /// ARCHITECTURE.md section 10: URP Forward (never Forward+) on every tier, render scale 0.7 on Low,
+        /// texture streaming budgets 200/350/450 MB, shadows 1 cascade 512 / 1 cascade 1024 / 2 cascades 1024.
+        /// EditMode test ProjectTests.TierProfilesMatchArchitectureBudgets pins the values.
+        /// </summary>
         public sealed class TierProfile
         {
             public DeviceTier tier;
@@ -99,24 +104,24 @@ namespace Ghumante.EditorTools
         {
             new TierProfile
             {
-                tier = DeviceTier.Low, qualityName = "Low", renderScale = 0.8f, msaa = 1, hdr = false,
+                tier = DeviceTier.Low, qualityName = "Low", renderScale = 0.7f, msaa = 1, hdr = false,
                 shadowDistance = 60f, shadowCascades = 1, mainLightShadowResolution = 512, softShadows = false,
                 maxAdditionalLights = 2, additionalLightsPerPixel = false, renderingMode = RenderingMode.Forward,
-                lodBias = 0.6f, textureStreamingBudgetMB = 250, particleRaycastBudget = 64,
+                lodBias = 0.6f, textureStreamingBudgetMB = 200, particleRaycastBudget = 64,
             },
             new TierProfile
             {
                 tier = DeviceTier.Mid, qualityName = "Medium", renderScale = 1.0f, msaa = 2, hdr = false,
-                shadowDistance = 120f, shadowCascades = 2, mainLightShadowResolution = 1024, softShadows = false,
+                shadowDistance = 120f, shadowCascades = 1, mainLightShadowResolution = 1024, softShadows = false,
                 maxAdditionalLights = 4, additionalLightsPerPixel = true, renderingMode = RenderingMode.Forward,
-                lodBias = 1.0f, textureStreamingBudgetMB = 450, particleRaycastBudget = 256,
+                lodBias = 1.0f, textureStreamingBudgetMB = 350, particleRaycastBudget = 256,
             },
             new TierProfile
             {
                 tier = DeviceTier.High, qualityName = "High", renderScale = 1.0f, msaa = 4, hdr = true,
-                shadowDistance = 180f, shadowCascades = 2, mainLightShadowResolution = 2048, softShadows = true,
-                maxAdditionalLights = 8, additionalLightsPerPixel = true, renderingMode = RenderingMode.ForwardPlus,
-                lodBias = 1.5f, textureStreamingBudgetMB = 700, particleRaycastBudget = 1024,
+                shadowDistance = 180f, shadowCascades = 2, mainLightShadowResolution = 1024, softShadows = true,
+                maxAdditionalLights = 8, additionalLightsPerPixel = true, renderingMode = RenderingMode.Forward,
+                lodBias = 1.5f, textureStreamingBudgetMB = 450, particleRaycastBudget = 1024,
             },
         };
 

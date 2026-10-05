@@ -10,12 +10,13 @@ namespace Ghumante.Core.Search
         /// <summary>Index into the index's entries.</summary>
         public int EntryIndex;
 
-        /// <summary><c>1785 · m + 3000 · importance</c> (integer, compared by the golden tests).</summary>
+        /// <summary><c>1785 · min(1000, m + rank bonus) + 3000 · importance</c> (integer, compared by the
+        /// golden tests).</summary>
         public long ScoreInt;
 
         public SearchEntry Entry;
 
-        /// <summary>Score in [0, 1]: <c>m/1000 · 0.7 + importance/255 · 0.3</c>.</summary>
+        /// <summary>Score in [0, 1]: <c>min(1, m/1000 + bonus/1000) · 0.7 + importance/255 · 0.3</c>.</summary>
         public double Score
         {
             get { return ScoreInt / (double)SearchEngine.ScoreScale; }
@@ -25,13 +26,38 @@ namespace Ghumante.Core.Search
     /// <summary>
     /// Search over one decoded GHSI index: an exact port of <c>search_index.SearchIndex.rank</c>
     /// (integer arithmetic, so results and scores are identical to the Python reference). Exact and
-    /// prefix matches come from a binary search over the sorted keys; fuzzy matches use the
-    /// optimal-string-alignment distance within the keys sharing the query's first letter.
+    /// prefix matches come from a binary search over the sorted keys; token matches need every significant
+    /// query word to start some key of the entry; fuzzy matches use the optimal-string-alignment distance
+    /// within the keys sharing the query's first letter. Landmarks and heritage POIs get a rank bonus.
     /// Thread-safe for concurrent searches after construction.
     /// </summary>
     public sealed class SearchEngine
     {
         public const long ScoreScale = 2550000; // 1785 * 1000 + 3000 * 255
+        public const int RankBonusLandmark = 150;
+        public const int RankBonusHeritage = 50;
+        public const int HeritageKindMin = 120, HeritageKindMax = 129;
+        public const int TokenMatchScore = 600;
+
+        /// <summary>Generic words that may not start a suffix key (<c>SUFFIX_STOP_WORDS</c>), compared after folding.</summary>
+        public static readonly string[] SuffixStopWords =
+        {
+            "the", "and", "temple", "mandir", "mandira", "lake", "tal", "taal", "pokhari", "pond", "kunda", "kund",
+            "river", "khola", "nadi", "road", "marg", "sadak", "street", "chowk", "tole", "tol", "bazar", "bazaar",
+            "school", "college", "hospital", "ward", "village", "city", "metropolitan", "sub", "municipality",
+            "rural", "palika", "nagarpalika", "gaunpalika", "mahanagarpalika", "upamahanagarpalika", "district",
+            "province", "area", "park",
+        };
+
+        /// <summary>The folded stop words.</summary>
+        public static readonly HashSet<string> StopWordsFolded = FoldAll(SuffixStopWords);
+
+        private static HashSet<string> FoldAll(string[] words)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string w in words) set.Add(Fold.Apply(w));
+            return set;
+        }
 
         private readonly SearchIndexData _index;
 
@@ -51,6 +77,20 @@ namespace Ghumante.Core.Search
             return kind >= SearchEntry.PlaceKindOffset ? kind - SearchEntry.PlaceKindOffset : kind + SearchEntry.PlaceKindOffset;
         }
 
+        /// <summary>A folded word that counts in token matching: 3+ characters and not a stop word.</summary>
+        public static bool Significant(string word)
+        {
+            return word.Length >= 3 && !StopWordsFolded.Contains(word);
+        }
+
+        /// <summary>Match-score bonus in thousandths (<c>rank_bonus</c>): landmarks, then heritage POIs.</summary>
+        public static int RankBonus(SearchEntry e)
+        {
+            if ((e.Flags & SearchEntry.FlagLandmark) != 0) return RankBonusLandmark;
+            if (e.Kind >= HeritageKindMin && e.Kind <= HeritageKindMax) return RankBonusHeritage;
+            return 0;
+        }
+
         public static int MatchScorePrefix(int extra)
         {
             return extra == 0 ? 1000 : Math.Max(100, 900 - 10 * extra);
@@ -63,11 +103,14 @@ namespace Ghumante.Core.Search
             if (limit <= 0) return results;
             Dictionary<int, int> best = MatchScores(query);
             foreach (var kv in best)
+            {
+                SearchEntry e = _index.Entries[kv.Key];
                 results.Add(new SearchResult
                 {
-                    EntryIndex = kv.Key, Entry = _index.Entries[kv.Key],
-                    ScoreInt = 1785L * kv.Value + 3000L * _index.Entries[kv.Key].Importance,
+                    EntryIndex = kv.Key, Entry = e,
+                    ScoreInt = 1785L * Math.Min(1000, kv.Value + RankBonus(e)) + 3000L * e.Importance,
                 });
+            }
             results.Sort(Compare);
             if (results.Count > limit) results.RemoveRange(limit, results.Count - limit);
             return results;
@@ -109,6 +152,29 @@ namespace Ghumante.Core.Search
             int n = q.Length;
             for (int i = LowerBound(keys, q); i < keys.Length && keys[i].StartsWith(q, StringComparison.Ordinal); i++)
                 Hit(best, i, MatchScorePrefix(keys[i].Length - n));
+
+            // Token match: every distinct significant word starts some key of the entry.
+            var words = new List<string>();
+            foreach (string w in q.Split(' '))
+                if (Significant(w) && !words.Contains(w)) words.Add(w);
+            if (words.Count >= 2)
+            {
+                HashSet<int> common = null;
+                foreach (string w in words)
+                {
+                    var hits = new HashSet<int>();
+                    for (int i = LowerBound(keys, w); i < keys.Length && keys[i].StartsWith(w, StringComparison.Ordinal); i++)
+                        hits.Add(_index.KeyEntries[i]);
+                    if (common == null) common = hits;
+                    else common.IntersectWith(hits);
+                    if (common.Count == 0) break;
+                }
+                foreach (int e in common)
+                {
+                    int old;
+                    if (!best.TryGetValue(e, out old) || TokenMatchScore > old) best[e] = TokenMatchScore;
+                }
+            }
 
             if (n <= 3) return;
             int maxD = Math.Max(1, n / 4);

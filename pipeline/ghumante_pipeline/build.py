@@ -164,10 +164,17 @@ def find_landcover_files(raw_dir: Path, bbox_lonlat) -> tuple[list[Path], list[s
 # place of worship (Boudhanath: amenity=place_of_worship + religion=buddhist ->
 # GOMPA); the hand-checked landmark kind is better evidence.
 LANDMARK_POI_KINDS: dict[str, PoiKind] = {
-    "stupa": PoiKind.STUPA, "monastery": PoiKind.GOMPA, "heritage_square": PoiKind.HERITAGE_SQUARE, "palace": PoiKind.PALACE, "waterfall": PoiKind.WATERFALL,
-    "cave": PoiKind.CAVE, "viewpoint": PoiKind.VIEWPOINT, "airport": PoiKind.AIRPORT,
-    "cable_car": PoiKind.CABLE_CAR_STATION, "pass": PoiKind.PASS,
+    "stupa": PoiKind.STUPA, "monastery": PoiKind.GOMPA, "heritage_square": PoiKind.HERITAGE_SQUARE,
+    "palace": PoiKind.PALACE, "waterfall": PoiKind.WATERFALL, "cave": PoiKind.CAVE, "viewpoint": PoiKind.VIEWPOINT,
+    "airport": PoiKind.AIRPORT, "cable_car": PoiKind.CABLE_CAR_STATION, "pass": PoiKind.PASS,
+    "temple_pagoda": PoiKind.TEMPLE_HINDU, "tower": PoiKind.MONUMENT, "garden": PoiKind.PARK, "lake": PoiKind.LAKE,
+    "peak": PoiKind.PEAK, "bungee": PoiKind.BUNGEE, "base_camp": PoiKind.CAMP_SITE,
+    "paragliding": PoiKind.PARAGLIDING, "zipline": PoiKind.ZIPLINE, "river": PoiKind.RIVER,
+    "national_park": PoiKind.PROTECTED_AREA, "wildlife_reserve": PoiKind.PROTECTED_AREA,
+    "temple_palace": PoiKind.TEMPLE_HINDU, "temple_peak": PoiKind.TEMPLE_HINDU,
 }
+# Landmark kinds that are settlements: the place feature is their search entry.
+LANDMARK_PLACE_KINDS = frozenset({"district", "village", "walled_town"})
 
 
 def _landmark_entries(path: Path | None) -> list[dict]:
@@ -182,6 +189,70 @@ def _landmark_osm(e: dict) -> tuple[str, int] | None:
     if len(osm) < 2 or osm[0] not in "nwr" or not osm[1:].isdigit():
         return None
     return osm[0], int(osm[1:])
+
+
+def load_landmark_aliases(path: Path | None, region_id: str | None = None) -> dict[int, list[str]]:
+    """Raw OSM id -> curated search ``aliases`` of the landmarks (of one region, when given)."""
+    out: dict[int, list[str]] = {}
+    for e in _landmark_entries(path):
+        ref = _landmark_osm(e)
+        if ref is None or (region_id is not None and e.get("region") != region_id):
+            continue
+        al = [str(a) for a in (e.get("aliases") or []) if str(a).strip()]
+        if al:
+            out.setdefault(ref[1], [])
+            out[ref[1]] += [a for a in al if a not in out[ref[1]]]
+    return out
+
+
+def ensure_landmark_pois(extract: Extract, path: Path | None, region_id: str,
+                         bbox_lonlat: Sequence[float] | None = None) -> int:
+    """Give every resolved landmark of ``region_id`` a POI (in place), so that it
+    gets a search entry with the landmark flag and a tile ``POIS`` record.
+
+    Landmarks whose OSM object is already a POI or a place are left alone. For
+    the rest (a ``man_made=tower`` the extractor has no POI kind for, an
+    aerialway that is only a LINE) a POI is synthesised with the object's OSM
+    id, kind ``LANDMARK_POI_KINDS[kind]`` (else ATTRACTION), the landmark's
+    names, and its position: the first vertex of a matching line (a cable car's
+    station), a point on the surface of a matching area, else the resolved
+    lon/lat. Landmarks outside ``bbox_lonlat`` are skipped. Returns the number
+    of POIs added.
+    """
+    from .model import NameRec, PoiFeature, PoiFlags
+    from .tags import parse_name
+
+    have = {(p.osm_type, int(p.osm_id)) for p in extract.pois}
+    have |= {(p.osm_type, int(p.osm_id)) for p in extract.places}
+    lines = {("w", int(ln.osm_id)): ln for ln in extract.lines}
+    areas = {(a.osm_type, int(a.osm_id)): a for a in extract.areas}
+    added = 0
+    for e in _landmark_entries(path):
+        ref = _landmark_osm(e)
+        if ref is None or e.get("region") != region_id or ref in have:
+            continue
+        if str(e.get("kind") or "") in LANDMARK_PLACE_KINDS:
+            continue
+        lon, lat = e.get("lon"), e.get("lat")
+        if ref in lines and len(lines[ref].lonlat):
+            lon, lat = (float(v) for v in np.asarray(lines[ref].lonlat)[0])
+        elif ref in areas and areas[ref].polygon is not None and not areas[ref].polygon.is_empty:
+            pt = areas[ref].polygon.point_on_surface()
+            lon, lat = float(pt.x), float(pt.y)
+        if lon is None or lat is None:
+            continue
+        lon, lat = float(lon), float(lat)
+        if bbox_lonlat is not None and not (bbox_lonlat[0] <= lon <= bbox_lonlat[2]
+                                            and bbox_lonlat[1] <= lat <= bbox_lonlat[3]):
+            continue
+        name = parse_name({k: v for k, v in (("name", e.get("name")), ("name:en", e.get("name_en")),
+                                             ("name:ne", e.get("name_ne"))) if v}) or NameRec()
+        kind = LANDMARK_POI_KINDS.get(str(e.get("kind") or ""), PoiKind.ATTRACTION)
+        extract.pois.append(PoiFeature(ref[0], ref[1], kind, lon, lat, name,
+                                       flags=PoiFlags.LANDMARK | PoiFlags.DISCOVERABLE, importance=0.8))
+        have.add(ref)
+        added += 1
+    return added
 
 
 def load_landmarks(path: Path) -> tuple[dict[int, str], set[tuple[str, int]]]:
@@ -234,7 +305,11 @@ def extract_cache_key(pbf: Path, region: config.Region, admin_levels: Sequence[i
     return hashlib.sha256(payload.encode()).hexdigest()[:20]
 
 
-def _osm_timestamp(pbf: Path) -> str | None:
+def _osm_timestamp(pbf: Path, lock_entry: dict | None = None) -> str | None:
+    """Snapshot time of the OSM file: the PBF header's replication timestamp when
+    present, else the HTTP ``Last-Modified`` recorded in SOURCES.lock.json (some
+    mirrors, e.g. geo2day, write an empty header), as ISO 8601 UTC. None if neither."""
+    ts = None
     try:
         import osmium
 
@@ -242,9 +317,24 @@ def _osm_timestamp(pbf: Path) -> str | None:
         h = r.header()
         r.close()
         ts = h.get("osmosis_replication_timestamp") or h.get("timestamp")
-        return ts or None
     except Exception:  # noqa: BLE001 - optional metadata
-        return None
+        ts = None
+    if ts:
+        return ts
+    lm = (lock_entry or {}).get("last_modified")
+    if lm:
+        from email.utils import parsedate_to_datetime
+
+        try:
+            dt = parsedate_to_datetime(lm)
+        except (TypeError, ValueError):
+            return None
+        if dt.tzinfo is not None:
+            from datetime import timezone
+
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +365,15 @@ def _glacier_test(extract: Extract):
         return bool(shapely.intersects_xy(geom, ll[:, 0], ll[:, 1]).any())
 
     return near
+
+
+def coverage_box(tiles: Sequence[projection.TileId]) -> tuple[float, float, float, float] | None:
+    """Game-metre bounds ``(x0, z0, x1, z1)`` of a tile set (the leaf tiles of a
+    region form a rectangle), or None for no tiles."""
+    if not tiles:
+        return None
+    b = np.array([t.bounds for t in tiles], dtype=np.float64)
+    return float(b[:, 0].min()), float(b[:, 1].min()), float(b[:, 2].max()), float(b[:, 3].max())
 
 
 def _pct(part: float, whole: float) -> float:
@@ -345,7 +444,8 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
         stats["unknown_tag_values"] = extract.stats.get("unknown_values", {})
 
         osm_rec = source_record(pbf, raw_dir, lock)
-        manifest_sources["osm"] = {**osm_rec, "timestamp": _osm_timestamp(pbf)}
+        osm_lock = next((e for e in lock.values() if e.get("md5") == osm_rec["md5"]), None)
+        manifest_sources["osm"] = {**osm_rec, "timestamp": _osm_timestamp(pbf, osm_lock)}
         tile_meta["sources"]["osm"] = osm_rec["md5"]
 
         # --- rasters ---------------------------------------------------------------
@@ -404,12 +504,13 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
         # --- search ------------------------------------------------------------------
         landmark_ids, landmark_refs = load_landmarks(landmarks_path)
         stats["landmark_kinds_applied"] = apply_landmark_kinds(extract, landmarks_path)
+        stats["landmark_pois_added"] = ensure_landmark_pois(extract, landmarks_path, rid, region.bbox)
+        leaf_box = coverage_box(tiles_by_level.get(region.leaf_level, []))
         entries = timer.run("search_entries", search_index.build_entries, extract.places, extract.pois,
-                            extract.admin, landmark_ids)
+                            extract.admin, landmark_ids, aliases=load_landmark_aliases(landmarks_path, rid),
+                            bounds_game=leaf_box)
         sids = search_index.search_ids(entries)
-        simp: dict[int, int] = {}
-        for e in entries:
-            simp.setdefault(e.osm_ref, int(e.importance))
+        simp = search_index.search_importances(entries)
         if "search" in stages:
             stats["search"] = timer.run("search", search_index.write_index, index_path, entries)
 
@@ -424,10 +525,15 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
             stats["pack"] = timer.run("pack", write_pack, pack_path, rid, config.PIPELINE_DATA_VERSION, tiles)
             del tiles
 
+        # Roads clipped to the leaf tiles: the extract keeps buffer-zone roads whole,
+        # but the world (and so the router) ends where the detail tiles end.
+        roads_in = timer.run("clip_roads", routing.clip_roads, extract.roads, leaf_box) if leaf_box else extract.roads
+        stats["road_km_in_tiles"] = round(routing.roads_length_m(roads_in) / 1000.0, 1)
+
         # --- routing ----------------------------------------------------------------------
         if "routing" in stages:
             def routing_stage():
-                g = routing.build_graph(extract.roads, elev=lambda x, z: dem.sample_game(x, z))
+                g = routing.build_graph(roads_in, elev=lambda x, z: dem.sample_game(x, z))
                 return g, routing.write_graph(graph_path, g)
 
             graph, stats["routing"] = timer.run("routing", routing_stage)
@@ -453,6 +559,8 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
         from . import qa_export  # needs pillow (a dev dependency); only for --qa
         qa_sum = timer.run("qa", qa_export.export_qa, pack_path, reg_dir / "qa",
                            leaf_level=region.leaf_level, region_meta=manifest)
+        # Relative to the region directory: the manifest ships beside the pack, so no build-machine paths.
+        qa_sum = {**qa_sum, "out_dir": "qa"}
         stats["qa"] = qa_sum
         manifest["stats"]["timings_s"] = dict(timer.t)
         manifest["stats"]["qa"] = qa_sum
@@ -482,7 +590,8 @@ def _manifest(region: config.Region, reg_dir: Path, pack_path: Path, index_path:
         "roads": counts.get("roads", 0), "buildings": counts.get("buildings", 0), "pois": counts.get("pois", 0),
         "places": counts.get("places", 0), "areas": counts.get("areas", 0), "lines": counts.get("lines", 0),
         "admin_areas": counts.get("admin", 0),
-        "road_km": surf.get("total_km", 0.0),
+        "road_km": stats.get("road_km_in_tiles", surf.get("total_km", 0.0)),
+        "road_km_extract": surf.get("total_km", 0.0),
         "surface_tagged_pct": pct.get("TAGGED", 0.0), "surface_derived_pct": pct.get("DERIVED", 0.0),
         "surface_inferred_pct": pct.get("INFERRED", 0.0), "surface_default_pct": pct.get("DEFAULT", 0.0),
         "surface_mix_pct": surf.get("surface_pct", {}),
@@ -527,7 +636,10 @@ def build_report(manifest: dict, stats: dict, warnings: list[str]) -> str:
              f"* bbox {manifest.get('bbox_lonlat')}, horizon {manifest.get('horizon_bbox_lonlat')}; "
              f"detail levels {manifest.get('detail_levels')}, horizon levels {manifest.get('horizon_levels')}.",
              f"* Extract {'from cache' if stats.get('extract_cached') else 'read from the PBF'}; "
-             f"{stats.get('landmark_kinds_applied', 0)} POI kinds set from curated landmarks.", ""]
+             f"{stats.get('landmark_kinds_applied', 0)} POI kinds set from curated landmarks, "
+             f"{stats.get('landmark_pois_added', 0)} landmark POIs added.",
+             "* road_km counts roads clipped to the leaf tiles (what the tiles and the routing graph hold); "
+             "road_km_extract includes the extract's buffer zone.", ""]
     lines += ["## Files", "", "| File | Bytes | MB | SHA-256 |", "|---|---:|---:|---|"]
     for f in manifest.get("files", []):
         lines.append(f"| {f['path']} | {f['bytes']:,} | {f['bytes'] / 1e6:.2f} | `{f['sha256'][:16]}…` |")
@@ -545,7 +657,7 @@ def build_report(manifest: dict, stats: dict, warnings: list[str]) -> str:
                   f"of {tb.get('buildings_in_extract', 0):,} extracted (the rest lie in the bbox buffer).",
                   f"Feature records: {json.dumps(tb.get('features', {}))}"]
     lines += ["", "## Content", "", "| What | Value |", "|---|---:|"]
-    for k in ("roads", "road_km", "buildings", "pois", "places", "areas", "lines", "admin_areas",
+    for k in ("roads", "road_km", "road_km_extract", "buildings", "pois", "places", "areas", "lines", "admin_areas",
               "search_entries", "search_keys", "graph_nodes", "graph_edges"):
         v = s.get(k, 0)
         lines.append(f"| {k} | {v:,} |" if isinstance(v, int) else f"| {k} | {v} |")

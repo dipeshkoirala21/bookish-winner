@@ -223,9 +223,9 @@ def unit_build():
     dem, lc = _dem(), _landcover()
     st: dict = {}
     tiles1 = tiling.build_tiles(reg, ex, dem, lc, None, meta={"region": "unit", "sources": {}}, workers=1,
-                                search_ids={(50 << 2): 7}, landmark_refs={("w", 31)}, stats=st)
+                                search_ids={((50 << 2), int(PoiKind.TEMPLE_HINDU)): 7}, landmark_refs={("w", 31)}, stats=st)
     tiles2 = tiling.build_tiles(reg, ex, dem, lc, None, meta={"region": "unit", "sources": {}}, workers=2,
-                                search_ids={(50 << 2): 7}, landmark_refs={("w", 31)})
+                                search_ids={((50 << 2), int(PoiKind.TEMPLE_HINDU)): 7}, landmark_refs={("w", 31)})
     return reg, ex, tiles1, tiles2, st
 
 
@@ -329,3 +329,45 @@ def test_pack_roundtrip(unit_build, tmp_path) -> None:
     _, _, tiles, _, _ = unit_build
     info = write_pack(tmp_path / "unit.ghpk", "unit", 1, tiles)
     assert info["tile_count"] == len(tiles)
+
+
+def test_piece_cm_rounding_onto_cut_point() -> None:
+    """A vertex within 0.5 cm of a tile border must not leave a zero-length segment or a
+    context point equal to its cut point (DATA_FORMATS 1.4); both sides keep one tangent."""
+    a, b = TileId(10, 0, 0), TileId(10, 1, 0)
+    s = a.size
+    full = np.array([(s - 5.0, 5.0), (s + 0.004, 5.0), (s + 5.0, 5.0), (s + 10.0, 5.0)])
+    (pa,) = geom.clip_polyline(full, a.bounds)
+    pts_a, prev_a, next_a = tiling._piece_cm(a, pa, full)
+    sc = int(round(s * 100))
+    assert not prev_a and next_a
+    assert pts_a.tolist() == [[sc - 500, 500], [sc, 500], [sc + 500, 500]]
+    (pb,) = geom.clip_polyline(full, b.bounds)
+    pts_b, prev_b, next_b = tiling._piece_cm(b, pb, full)
+    assert prev_b and not next_b
+    assert pts_b.tolist() == [[-500, 500], [0, 500], [500, 500], [1000, 500]]
+    # A's context point is B's first point after the cut; B's context is A's last point before it.
+    assert pts_a[-1].tolist() == [pts_b[2][0] + sc, pts_b[2][1]]
+    assert pts_b[0].tolist() == [pts_a[0][0] - sc, pts_a[0][1]]
+    # a piece that rounds to a single point is dropped
+    tiny = np.array([(s - 0.002, 5.0), (s + 5.0, 5.0)])
+    (pt,) = geom.clip_polyline(tiny, a.bounds)
+    assert tiling._piece_cm(a, pt, tiny) is None
+    # no further vertex that differs: the context flag is cleared
+    short = np.array([(s - 5.0, 5.0), (s + 0.004, 5.0)])
+    (ps,) = geom.clip_polyline(short, a.bounds)
+    pts_s, _, next_s = tiling._piece_cm(a, ps, short)
+    assert not next_s and pts_s.tolist() == [[sc - 500, 500], [sc, 500]]
+
+
+def test_piece_cm_grazing_the_border_clears_context() -> None:
+    """A way that dips < 0.5 cm outside the tile and comes back: no context point inside the tile."""
+    a = TileId(10, 0, 0)
+    full = np.array([(5.0, 5.0), (-0.004, 6.0), (5.0, 7.0)])
+    pieces = geom.clip_polyline(full, a.bounds)
+    assert len(pieces) == 2
+    out = [tiling._piece_cm(a, p, full) for p in pieces]
+    for pts, prev, nxt in out:
+        for has, ctx in ((prev, pts[0]), (nxt, pts[-1])):
+            if has:
+                assert not (0 < ctx[0] < a.size * 100 and 0 < ctx[1] < a.size * 100), pts

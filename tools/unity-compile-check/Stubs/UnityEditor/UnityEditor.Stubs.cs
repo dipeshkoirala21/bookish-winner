@@ -43,6 +43,8 @@ namespace UnityEditor
         public static void CreateAsset(UnityEngine.Object asset, string path) { throw null; }
         public static void SaveAssets() { throw null; }
         public static bool IsValidFolder(string path) { throw null; }
+        public static string[] FindAssets(string filter, string[] searchInFolders) { throw null; }
+        public static string GUIDToAssetPath(string guid) { throw null; }
         public static string CreateFolder(string parentFolder, string newFolderName) { throw null; }
     }
 
@@ -56,6 +58,60 @@ namespace UnityEditor
     public class EditorBuildSettings : UnityEngine.Object
     {
         public static EditorBuildSettingsScene[] scenes { get { throw null; } set { } }
+    }
+
+    // ----- Asset import --------------------------------------------------------------------------------
+
+    public class AssetImporter : UnityEngine.Object
+    {
+        public string assetPath { get { throw null; } }
+        public static AssetImporter GetAtPath(string path) { throw null; }
+        public void SaveAndReimport() { throw null; }
+    }
+
+    public class AssetPostprocessor
+    {
+        public string assetPath { get { throw null; } set { } }
+        public AssetImporter assetImporter { get { throw null; } }
+        public virtual uint GetVersion() { throw null; }
+    }
+
+    public enum TextureImporterType
+    {
+        Default = 0,
+        Sprite = 8,
+    }
+
+    public enum SpriteImportMode
+    {
+        None = 0,
+        Single = 1,
+        Multiple = 2,
+        Polygon = 3,
+    }
+
+    public enum TextureImporterFormat
+    {
+        Automatic = -1,
+        ASTC_4x4 = 48,
+    }
+
+    public sealed class TextureImporterPlatformSettings
+    {
+        public string name { get { throw null; } set { } }
+        public bool overridden { get { throw null; } set { } }
+        public TextureImporterFormat format { get { throw null; } set { } }
+    }
+
+    public sealed class TextureImporter : AssetImporter
+    {
+        public TextureImporterType textureType { get { throw null; } set { } }
+        public SpriteImportMode spriteImportMode { get { throw null; } set { } }
+        public bool mipmapEnabled { get { throw null; } set { } }
+        public bool isReadable { get { throw null; } set { } }
+        public bool alphaIsTransparency { get { throw null; } set { } }
+        public TextureImporterPlatformSettings GetPlatformTextureSettings(string platform) { throw null; }
+        public void SetPlatformTextureSettings(TextureImporterPlatformSettings platformSettings) { throw null; }
     }
 
     public enum SerializationMode

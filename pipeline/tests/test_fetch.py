@@ -201,6 +201,7 @@ def test_plan_kathmandu_valley_tiles(real_cfg):
     assert osm.urls == ["https://download.geofabrik.de/asia/nepal-latest.osm.pbf", "https://geo2day.com/asia/nepal.pbf"]
     assert osm.md5_urls == [u + ".md5" for u in osm.urls]
     assert osm.mirror_names == ["geofabrik", "osmtoday"]
+    assert osm.strip_metadata == [False, True]  # OSMToday ships user/uid/changeset
     dem_names = [d.name for d in plan if d.kind == "dem"]
     assert dem_names == [f"Copernicus_DSM_COG_10_N{lat}_00_E{lon:03d}_00_DEM" for lat in (27, 28) for lon in (84, 85, 86)]
     n27e085 = next(d for d in plan if d.name == "Copernicus_DSM_COG_10_N27_00_E085_00_DEM")
@@ -310,6 +311,83 @@ def test_download_basic_and_lock_entry(server, raw):
     assert e["last_modified"] == "Sun, 04 Oct 2026 07:33:52 GMT" and e["etag"]
     assert e["method"] == "downloaded"
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", e["fetched_at"])
+
+
+_OSM_WITH_METADATA = """<?xml version='1.0' encoding='UTF-8'?>
+<osm version="0.6" generator="test">
+<node id="1" version="3" timestamp="2020-01-02T03:04:05Z" changeset="77" uid="42" user="alice" lat="27.7" lon="85.3">
+ <tag k="name" v="A"/></node>
+<node id="2" version="1" timestamp="2021-01-01T00:00:00Z" changeset="78" uid="43" user="bob" lat="27.71" lon="85.31"/>
+<way id="10" version="2" timestamp="2022-05-06T07:08:09Z" changeset="79" uid="42" user="alice">
+ <nd ref="1"/><nd ref="2"/><tag k="highway" v="path"/></way>
+</osm>
+"""
+
+
+def _pbf_with_metadata(tmp_path: Path) -> bytes:
+    import osmium
+
+    xml = tmp_path / "m.osm"
+    xml.write_text(_OSM_WITH_METADATA, encoding="utf-8")
+    out = tmp_path / "m.osm.pbf"
+    w = osmium.SimpleWriter(osmium.io.File(str(out), "pbf,add_metadata=true"), overwrite=True)
+    for o in osmium.FileProcessor(str(xml)):
+        w.add(o)
+    w.close()
+    return out.read_bytes()
+
+
+def _objects(path: Path) -> list[tuple]:
+    import osmium
+
+    return [(o.id, o.user, o.uid, o.changeset, o.version, o.timestamp.isoformat(), dict(o.tags))
+            for o in osmium.FileProcessor(osmium.io.File(str(path), "pbf"))]
+
+
+@pytest.mark.parametrize("adopt", [False, True])
+def test_strip_metadata_from_mirror(server, raw, tmp_path, adopt):
+    """A mirror flagged strip_metadata: the verified PBF loses user/uid/changeset, keeps the rest."""
+    data = _pbf_with_metadata(tmp_path)
+    src = tmp_path / "src.osm.pbf"
+    src.write_bytes(data)
+    before = _objects(src)
+    assert before[0][1:4] == ("alice", 42, 77)
+    url = server.add("/nepal.pbf", data)
+    md5_url = server.add_md5("/nepal.pbf.md5", data)
+    dl = F.Download("osm_nepal", "osm", [url], [md5_url], Path("osm/nepal.osm.pbf"), mirror_names=["osmtoday"],
+                    strip_metadata=[True])
+    if adopt:  # present but unlocked: adopted by checksum, then stripped
+        (raw / "osm").mkdir()
+        (raw / "osm/nepal.osm.pbf").write_bytes(data)
+    e = F.download(dl, raw, sleep=Sleeps(), timeout=5, lock={})
+    path = raw / "osm/nepal.osm.pbf"
+    after = _objects(path)
+    assert [o[1:4] for o in after] == [("", 0, 0)] * 3
+    assert [(o[0], o[4], o[5], o[6]) for o in after] == [(o[0], o[4], o[5], o[6]) for o in before]
+    assert e["method"] == ("adopted" if adopt else "downloaded")
+    assert e["postprocess"] == ["strip_metadata"]
+    assert e["upstream"] == {"bytes": len(data), "md5": hashlib.md5(data).hexdigest(), "sha256": _sha(data)}
+    stripped = path.read_bytes()
+    assert e["bytes"] == len(stripped) and e["sha256"] == _sha(stripped) and stripped != data
+    F.write_lock(raw, [e])
+    assert F.verify(raw) == []
+    # up to date on the next run (no re-download, no second strip)
+    hits = len(server.gets("/nepal.pbf"))
+    assert F.download(dl, raw, sleep=Sleeps(), timeout=5) == e
+    assert len(server.gets("/nepal.pbf")) == hits
+
+
+def test_no_strip_without_flag(server, raw, tmp_path):
+    data = _pbf_with_metadata(tmp_path)
+    url = server.add("/g.pbf", data)
+    dl = F.Download("osm_nepal", "osm", [url], [server.add_md5("/g.pbf.md5", data)], Path("osm/g.pbf"),
+                    strip_metadata=[False])
+    e = F.download(dl, raw, sleep=Sleeps(), timeout=5)
+    assert (raw / "osm/g.pbf").read_bytes() == data and "upstream" not in e and "postprocess" not in e
+    with pytest.raises(ValueError):
+        F.Download("x", "dem", ["http://a"], [None], Path("a"), strip_metadata=[True])
+    with pytest.raises(ValueError):
+        F.Download("x", "osm", ["http://a"], [None], Path("a"), strip_metadata=[True, False])
 
 
 @pytest.mark.parametrize("failure", ["http500", "refused", "http404"])

@@ -6,8 +6,11 @@ namespace Ghumante.Core.Routing
 {
     /// <summary>
     /// Snaps game positions to routing-graph nodes (<c>routing.nearest_node</c>): the closest node with at
-    /// least one usable outgoing edge for a profile (or, for destinations, a usable incoming edge). Uses a
-    /// uniform grid of buckets; exact distance ties go to the lowest node index.
+    /// least one usable outgoing edge for a profile (or, for destinations, a usable incoming edge). With
+    /// <c>mainNetwork</c> (the default) only nodes that can reach the profile's main component (the largest
+    /// strongly connected component; destinations: nodes reachable from it) qualify, so a landmark never snaps
+    /// into a small disconnected island and every start can reach every destination. Uses a uniform grid of
+    /// buckets; exact distance ties go to the lowest node index.
     /// </summary>
     public sealed class NearestNode
     {
@@ -20,9 +23,11 @@ namespace Ghumante.Core.Routing
 
         public int Count { get; private set; }
 
-        /// <summary>Index of the nodes usable by <paramref name="profile"/> in <paramref name="graph"/>.</summary>
-        public NearestNode(RouteGraph graph, Travel profile, bool incoming, double cellM = DefaultCellM)
-            : this(graph, UsableNodes(graph, profile, incoming), cellM)
+        /// <summary>Index of the nodes <paramref name="profile"/> may snap to in <paramref name="graph"/>
+        /// (<see cref="SnapNodes"/>).</summary>
+        public NearestNode(RouteGraph graph, Travel profile, bool incoming, double cellM = DefaultCellM,
+                           bool mainNetwork = true)
+            : this(graph, SnapNodes(graph, profile, incoming, mainNetwork), cellM)
         {
         }
 
@@ -62,6 +67,162 @@ namespace Ghumante.Core.Routing
             var outList = new List<int>();
             for (int v = 0; v < use.Length; v++)
                 if (use[v]) outList.Add(v);
+            return outList.ToArray();
+        }
+
+        /// <summary>
+        /// Nodes a query may snap to (<c>routing.snap_nodes</c>), ascending: <see cref="UsableNodes"/>, and with
+        /// <paramref name="mainNetwork"/> (when the profile has a main component) only those that can reach it
+        /// (<paramref name="incoming"/> false) or can be reached from it (true).
+        /// </summary>
+        public static int[] SnapNodes(RouteGraph g, Travel profile, bool incoming, bool mainNetwork = true)
+        {
+            int[] usable = UsableNodes(g, profile, incoming);
+            if (!mainNetwork) return usable;
+            int[] main = MainComponent(g, profile);
+            if (main.Length == 0) return usable;
+            bool[] reach = Reachable(g, Usable(g, profile), main[0], !incoming);
+            var outList = new List<int>();
+            foreach (int v in usable)
+                if (reach[v]) outList.Add(v);
+            return outList.ToArray();
+        }
+
+        private static bool[] Usable(RouteGraph g, Travel profile)
+        {
+            TravelProfile p = TravelProfiles.Get(profile);
+            var ok = new bool[g.EdgeCount];
+            for (int e = 0; e < ok.Length; e++) ok[e] = !double.IsPositiveInfinity(p.EdgeTimeS(g, e));
+            return ok;
+        }
+
+        /// <summary>Nodes reachable from <paramref name="start"/> over usable edges (backwards when
+        /// <paramref name="reverse"/>: the nodes that can reach it).</summary>
+        private static bool[] Reachable(RouteGraph g, bool[] ok, int start, bool reverse)
+        {
+            int n = g.NodeCount;
+            int[] off = g.Offsets, tgt = g.EdgeTarget, src = g.EdgeSource;
+            int[] rOff = null, rEdge = null;
+            if (reverse)
+            {
+                rOff = new int[n + 1];
+                for (int e = 0; e < ok.Length; e++)
+                    if (ok[e]) rOff[tgt[e] + 1]++;
+                for (int v = 0; v < n; v++) rOff[v + 1] += rOff[v];
+                rEdge = new int[rOff[n]];
+                var fill = (int[])rOff.Clone();
+                for (int e = 0; e < ok.Length; e++)
+                    if (ok[e]) rEdge[fill[tgt[e]]++] = e;
+            }
+            var seen = new bool[n];
+            var stack = new Stack<int>();
+            seen[start] = true;
+            stack.Push(start);
+            while (stack.Count > 0)
+            {
+                int v = stack.Pop();
+                if (reverse)
+                {
+                    for (int j = rOff[v]; j < rOff[v + 1]; j++)
+                    {
+                        int w = src[rEdge[j]];
+                        if (!seen[w]) { seen[w] = true; stack.Push(w); }
+                    }
+                }
+                else
+                {
+                    for (int e = off[v]; e < off[v + 1]; e++)
+                    {
+                        if (!ok[e]) continue;
+                        int w = tgt[e];
+                        if (!seen[w]) { seen[w] = true; stack.Push(w); }
+                    }
+                }
+            }
+            return seen;
+        }
+
+        /// <summary>
+        /// The profile's main component (<c>routing.main_component</c>), ascending: the largest strongly
+        /// connected component of the usable-edge graph; ties go to the component holding the smallest node
+        /// index. Empty when no component has two or more nodes.
+        /// </summary>
+        public static int[] MainComponent(RouteGraph g, Travel profile)
+        {
+            int n = g.NodeCount;
+            if (n == 0) return new int[0];
+            bool[] ok = Usable(g, profile);
+            int[] off = g.Offsets, tgt = g.EdgeTarget;
+            // Iterative Tarjan.
+            var index = new int[n];
+            var low = new int[n];
+            var comp = new int[n];
+            var onStack = new bool[n];
+            var edgePos = new int[n];
+            for (int v = 0; v < n; v++) { index[v] = -1; comp[v] = -1; }
+            var sccStack = new Stack<int>();
+            var call = new Stack<int>();
+            var sizes = new List<int>();
+            int counter = 0;
+            for (int root = 0; root < n; root++)
+            {
+                if (index[root] >= 0) continue;
+                call.Push(root);
+                index[root] = low[root] = counter++;
+                edgePos[root] = off[root];
+                sccStack.Push(root);
+                onStack[root] = true;
+                while (call.Count > 0)
+                {
+                    int v = call.Peek();
+                    bool descended = false;
+                    while (edgePos[v] < off[v + 1])
+                    {
+                        int e = edgePos[v]++;
+                        if (!ok[e]) continue;
+                        int w = tgt[e];
+                        if (index[w] < 0)
+                        {
+                            index[w] = low[w] = counter++;
+                            edgePos[w] = off[w];
+                            sccStack.Push(w);
+                            onStack[w] = true;
+                            call.Push(w);
+                            descended = true;
+                            break;
+                        }
+                        if (onStack[w] && index[w] < low[v]) low[v] = index[w];
+                    }
+                    if (descended) continue;
+                    call.Pop();
+                    if (call.Count > 0)
+                    {
+                        int u = call.Peek();
+                        if (low[v] < low[u]) low[u] = low[v];
+                    }
+                    if (low[v] == index[v])
+                    {
+                        int id = sizes.Count, size = 0, w;
+                        do
+                        {
+                            w = sccStack.Pop();
+                            onStack[w] = false;
+                            comp[w] = id;
+                            size++;
+                        } while (w != v);
+                        sizes.Add(size);
+                    }
+                }
+            }
+            int best = 0;
+            foreach (int sz in sizes) best = Math.Max(best, sz);
+            if (best < 2) return new int[0];
+            int pick = -1;
+            for (int v = 0; v < n && pick < 0; v++)
+                if (sizes[comp[v]] == best) pick = comp[v];
+            var outList = new List<int>();
+            for (int v = 0; v < n; v++)
+                if (comp[v] == pick) outList.Add(v);
             return outList.ToArray();
         }
 

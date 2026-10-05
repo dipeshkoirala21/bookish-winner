@@ -23,6 +23,7 @@ Batch mode equivalent of step 3: `Unity -batchmode -quit -projectPath game -exec
 | Both | Linear colour space, incremental GC, managed stripping Medium, engine code stripping, .NET Standard API level; auto-rotation to portrait, landscape left and landscape right (not upside-down), default orientation AutoRotation (ADR-017) |
 | Quality levels | Low / Medium / High, each with its own URP asset and renderer (budgets from ARCHITECTURE.md 10); Bootstrap picks one from the device tier |
 | Editor | Force Text serialization, visible meta files |
+| UI textures | `UiTextureImportRules` (AssetPostprocessor) imports everything under `Assets/Ghumante/UI/` as Sprite, no mipmaps, Read/Write off, ASTC 4x4 on Android and iOS (ARCHITECTURE.md 10) |
 
 ## Assemblies
 

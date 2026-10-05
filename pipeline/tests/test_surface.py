@@ -425,6 +425,25 @@ def test_assign_uses_given_model():
     assert stats["model"]["classes"]["SERVICE"]["surface_pct"] == {"COBBLE": 100.0}
 
 
+def test_inferred_metal_and_wood_only_on_bridges():
+    """Tagged METAL/WOOD come from footbridges; inference must not spread them onto ordinary footways."""
+    model = SurfaceModel.fit([(RoadClass.FOOTWAY, CTX, Surface.METAL, 5.0), (RoadClass.FOOTWAY, CTX, Surface.WOOD, 3.0),
+                              (RoadClass.FOOTWAY, CTX, Surface.CONCRETE, 1.0)])
+    plain = [make_road(10 + i, RoadClass.FOOTWAY, [100 + 2 * i, 101 + 2 * i]) for i in range(30)]
+    bridges = [make_road(200 + i, RoadClass.FOOTWAY, [300 + 2 * i, 301 + 2 * i]) for i in range(30)]
+    for b in bridges:
+        b.bridge = True
+    assign_surfaces(plain + bridges, [CTX] * 60, model)
+    assert all(r.surface not in S.BRIDGE_ONLY_SURFACES for r in plain)
+    assert all(r.surface_source == SurfaceSource.INFERRED for r in plain)
+    assert {r.surface for r in bridges} & set(S.BRIDGE_ONLY_SURFACES)
+    # only bridge-only evidence: falls back to the class prior without them
+    only_metal = SurfaceModel.fit([(RoadClass.FOOTWAY, CTX, Surface.METAL, 50.0)])
+    r = make_road(1, RoadClass.FOOTWAY, [1, 2])
+    assign_surfaces([r], [CTX], only_metal)
+    assert r.surface in HAND_PRIORS[RoadClass.FOOTWAY] and r.surface != Surface.METAL
+
+
 def test_assign_chain_consistency_across_contexts():
     # training data: town tertiary roads are asphalt-ish, rural ones dirt-ish, neither above 0.6
     samples = []

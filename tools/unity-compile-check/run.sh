@@ -19,10 +19,18 @@ done
 
 python3 "$HERE/generate.py"
 cd "$HERE/generated"
+# global.json (repo root) pins SDK 8, which writes CompileCheck.sln. SDK 10+ writes CompileCheck.slnx by
+# default, so remove stale solutions and use whichever one `dotnet new sln` produced.
+rm -f CompileCheck.sln CompileCheck.slnx
 "$DOTNET" new sln -n CompileCheck --force >/dev/null
-"$DOTNET" sln CompileCheck.sln add ./*/*.csproj >/dev/null
+SLN=$(ls CompileCheck.sln CompileCheck.slnx 2>/dev/null | head -n 1 || true)
+if [[ -z "$SLN" ]]; then
+  echo "compile check: 'dotnet new sln' produced no CompileCheck solution" >&2
+  exit 1
+fi
+"$DOTNET" sln "$SLN" add ./*/*.csproj >/dev/null
 expected=$(find . -mindepth 2 -maxdepth 2 -name "*.csproj" | wc -l)
-actual=$("$DOTNET" sln CompileCheck.sln list | grep -c '\.csproj$' || true)
+actual=$("$DOTNET" sln "$SLN" list | grep -c '\.csproj$' || true)
 if [[ "$expected" -ne "$actual" ]]; then
   echo "compile check: only $actual of $expected generated projects could be loaded" >&2
   exit 1
@@ -42,7 +50,7 @@ status=0
 for platform in UNITY_ANDROID UNITY_IOS; do
   echo "== compile check: $platform"
   # --no-incremental: the two passes differ only in defines, so never reuse the previous pass's output.
-  if ! "$DOTNET" build CompileCheck.sln -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform ${EXTRA[@]+"${EXTRA[@]}"}; then
+  if ! "$DOTNET" build "$SLN" -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform ${EXTRA[@]+"${EXTRA[@]}"}; then
     status=1
   fi
 done

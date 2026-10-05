@@ -11,6 +11,7 @@ import pytest
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
+from ghumante_pipeline import routing
 from ghumante_pipeline.binio import Reader
 from ghumante_pipeline.model import (ALL_TRAVEL, MOTOR_TRAVEL, NameRec, RoadClass, RoadFeature, SacScale, Surface,
                                      Travel)
@@ -647,6 +648,89 @@ def test_nearest_node_per_profile():
     # oneway: node 1 has no incoming CAR edge, so a destination snaps to node 2
     assert nearest_node(g, -50, 0, C, incoming=True) == n2
     assert nearest_node(g, -50, 0, F, incoming=True) == n1
+
+
+def test_nearest_node_tie_goes_to_lowest_index():
+    """Exact distance ties pick the lowest node index (as C# NearestNode does)."""
+    roads = [road(1, RoadClass.RESIDENTIAL, [(0, 0), (100, 0), (200, 0)], [5, 3, 9]),
+             road(2, RoadClass.RESIDENTIAL, [(100, 100), (100, 0), (100, -100)], [7, 3, 4])]
+    g = build_graph(roads, to_game=planar)
+    for x, z in ((50.0, 0.0), (150.0, 0.0), (100.0, 50.0), (100.0, -50.0), (150.0, 50.0), (50.0, -50.0)):
+        xs, zs = g.node_x_dm / 10.0, g.node_z_dm / 10.0
+        d2 = (xs - x) ** 2 + (zs - z) ** 2
+        tied = np.flatnonzero(d2 == d2.min())
+        assert len(tied) >= 2, (x, z)
+        for prof in (F, C):
+            assert nearest_node(g, x, z, prof) == int(tied.min()), (x, z, prof)
+            assert nearest_node(g, x, z, prof, main_network=False) == int(tied.min())
+
+
+def test_nearest_node_avoids_disconnected_islands():
+    """A two-node fragment next to the query point is skipped for the main network."""
+    grid = [road(10 + i, RoadClass.RESIDENTIAL, [(i * 500.0, 0), ((i + 1) * 500.0, 0)], [100 + i, 101 + i])
+            for i in range(4)]
+    island = road(50, RoadClass.RESIDENTIAL, [(1000.0, 300.0), (1040.0, 300.0)], [500, 501])
+    oneway_island = road(51, RoadClass.RESIDENTIAL, [(1500.0, 300.0), (1540.0, 300.0)], [600, 601], oneway=1)
+    spur_in = road(52, RoadClass.RESIDENTIAL, [(2000.0, 200.0), (2000.0, 0.0)], [700, 104], oneway=1)
+    g = build_graph(grid + [island, oneway_island, spur_in], to_game=planar)
+    main = routing.main_component(g, C)
+    assert sorted(main.tolist()) == sorted(node_of(g, o) for o in range(100, 105))
+    assert nearest_node(g, 1020.0, 290.0, C, main_network=False) in (node_of(g, 500), node_of(g, 501))
+    assert nearest_node(g, 1020.0, 290.0, C) == node_of(g, 102)
+    assert nearest_node(g, 1520.0, 290.0, C, incoming=True) == node_of(g, 103)
+    # a oneway spur INTO the network is a valid start but not a destination
+    assert nearest_node(g, 2000.0, 210.0, C) == node_of(g, 700)
+    assert nearest_node(g, 2000.0, 210.0, C, incoming=True) == node_of(g, 104)
+    eta = eta_by_profile(g, (1020.0, 290.0), (1980.0, 190.0))
+    assert eta["CAR"] is not None and eta["CAR"][0] == pytest.approx(1000.0)
+    no_main = build_graph([island], to_game=planar)
+    assert routing.main_component(no_main, C).size == 2
+    lone = build_graph([oneway_island], to_game=planar)
+    assert routing.main_component(lone, C).size == 0  # no cycle: no filtering
+    assert nearest_node(lone, 1500.0, 300.0, C) == node_of(lone, 600)
+
+
+def _ident(x, z):
+    return np.asarray(x, dtype=np.float64), np.asarray(z, dtype=np.float64)
+
+
+def test_clip_roads_to_box():
+    box = (0.0, 0.0, 1000.0, 1000.0)
+    inside = road(1, RoadClass.RESIDENTIAL, [(100, 100), (200, 100)], [1, 2])
+    outside = road(2, RoadClass.RESIDENTIAL, [(1100, 100), (1200, 100)], [3, 4])
+    crossing = road(3, RoadClass.PRIMARY, [(500, 500), (900, 500), (1500, 500), (1500, 900), (900, 900)],
+                    [5, 6, 7, 8, 9], oneway=1, name=NameRec("X", "X", ""))
+    through = road(4, RoadClass.TRACK, [(-100, 200), (1100, 200)], [10, 11])
+    corner = road(5, RoadClass.TRACK, [(900, 1100), (1100, 900)], [12, 13])  # touches (1000, 1000) only
+    out = routing.clip_roads([inside, outside, crossing, through, corner], box, to_game=planar, to_lonlat=_ident)
+    assert out[0] is inside
+    pieces = {}
+    for r in out[1:]:
+        pieces.setdefault(int(r.osm_id), []).append(r)
+    assert sorted(pieces) == [3, 4]
+    a, b = pieces[3]
+    assert a.lonlat.tolist() == [[500, 500], [900, 500], [1000, 500]] and a.node_ids.tolist() == [5, 6, 0]
+    assert b.lonlat.tolist() == [[1000, 900], [900, 900]] and b.node_ids.tolist() == [0, 9]
+    assert a.oneway == 1 and a.name == crossing.name and a.cls == RoadClass.PRIMARY
+    (t,) = pieces[4]
+    assert t.lonlat.tolist() == [[0, 200], [1000, 200]] and t.node_ids.tolist() == [0, 0]
+    # the graph of the clipped roads stays inside the box and keeps the shared topology
+    g = build_graph(out, to_game=planar)
+    xz = g.node_xz_array()
+    assert xz[:, 0].min() >= 0 and xz[:, 0].max() <= 1000 and xz[:, 1].max() <= 1000
+    assert routing.roads_length_m(out, to_game=planar) == pytest.approx(100 + 500 + 100 + 1000)
+    assert routing.roads_length_m([crossing], to_game=planar) == pytest.approx(400 + 600 + 400 + 600)
+
+
+def test_clip_roads_projected_round_trip():
+    """With the real projection, uncut vertices keep their lon/lat bit for bit; cut points land on the edge."""
+    ll = np.array([[85.30, 27.70], [85.31, 27.70], [85.33, 27.70]])
+    x, z = lonlat_to_game(ll[:, 0], ll[:, 1])
+    box = (float(x[0]) - 10.0, float(z[0]) - 500.0, float(x[1]) + 500.0, float(z[0]) + 500.0)
+    (r,) = routing.clip_roads([road(1, RoadClass.RESIDENTIAL, ll, [1, 2, 3])], box)
+    assert r.lonlat[:2].tolist() == ll[:2].tolist() and r.node_ids.tolist() == [1, 2, 0]
+    cx, cz = lonlat_to_game(r.lonlat[2, 0], r.lonlat[2, 1])
+    assert float(cx) == pytest.approx(box[2], abs=1e-4)
 
 
 def test_eta_by_profile():

@@ -254,17 +254,34 @@ def file_entry(path, name: str | None = None) -> dict:
     return {"path": name or p.name, "bytes": p.stat().st_size, "sha256": sha256_file(p)}
 
 
+def _ordered(obj):
+    """Recursively sort dict keys for the manifest: numerically when every key of
+    a dict is a decimal integer (``tile_counts`` levels: 5, 6, ..., 10), else
+    lexicographically (what ``json.dumps(sort_keys=True)`` would do)."""
+    if isinstance(obj, dict):
+        keys = list(obj)
+        if keys and all(isinstance(k, str) and k.isascii() and k.isdigit() for k in keys):
+            keys.sort(key=lambda k: (int(k), k))
+        else:
+            keys.sort()
+        return {k: _ordered(obj[k]) for k in keys}
+    if isinstance(obj, (list, tuple)):
+        return [_ordered(v) for v in obj]
+    return obj
+
+
 def manifest_json(manifest: dict) -> str:
     m = dict(manifest)
     if m.setdefault("format", MANIFEST_FORMAT) != MANIFEST_FORMAT:
         raise ValueError(f"manifest format must be {MANIFEST_FORMAT!r}")
     if m.setdefault("version", MANIFEST_VERSION) != MANIFEST_VERSION:
         raise ValueError(f"manifest version must be {MANIFEST_VERSION}")
-    return json.dumps(m, sort_keys=True, ensure_ascii=False, indent=1, allow_nan=False) + "\n"
+    return json.dumps(_ordered(m), ensure_ascii=False, indent=1, allow_nan=False) + "\n"
 
 
 def write_manifest(path, manifest: dict) -> None:
-    """Write ``<region>.manifest.json``: UTF-8, sorted keys, ``indent=1``.
+    """Write ``<region>.manifest.json``: UTF-8, sorted keys (integer keys such as
+    ``tile_counts`` levels numerically), ``indent=1``.
     ``format`` and ``version`` are filled in when missing."""
     _atomic_write(Path(path), [manifest_json(manifest).encode("utf-8")])
 

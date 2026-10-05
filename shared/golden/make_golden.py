@@ -330,6 +330,7 @@ POIS = [
     _poi(48, PoiKind.TEMPLE_HINDU, 85.3080, 27.7050, "Kasthamandap", "Kasthamandap", "काष्ठमण्डप"),
 ]
 LANDMARKS = {56688296: "boudhanath", 201223707: "swayambhunath", 1349697740: "thamel", 31: "ktm_durbar"}
+ALIASES = {118505122: ["Kathmandu Airport", "TIA"], 31: ["Basantapur Durbar Square", "Hanuman Dhoka"]}
 
 QUERIES: list[tuple[str, int]] = [
     ("kathmandu", 10), ("Kathmandoo", 10), ("काठमाडौं", 10), ("boudha", 10), ("Bouddha", 10), ("बौद्ध", 10),
@@ -342,6 +343,10 @@ QUERIES: list[tuple[str, int]] = [
     ("lalitpur", 10), ("patan", 10), ("kirtipur", 10), ("namche", 10), ("garden", 10), ("pokhari", 10),
     ("kasthamandap", 10), ("काष्ठमण्डप", 10), ("tatopani", 10), ("chandragiri", 10), ("ZZZZZZZZ", 10),
     ("Ṭhamel", 10), ("THAMEL!!", 10), ("lukla", 1), ("sauraha", 10), ("bagmati", 10),
+    # token matches (every significant word starts a key), aliases and the rank bonus
+    ("tribhuvan airport", 10), ("Kathmandu Airport", 10), ("TIA", 10), ("durbar kathmandu", 10),
+    ("swayambhu stupa", 10), ("tribhu airp", 10), ("the lake", 10), ("phewa lake pokhara", 10),
+    ("patan square", 10), ("kathmandu durbar square", 10), ("square durbar", 10), ("boudha stupa", 10),
 ]
 
 FOLD_CASES = [
@@ -356,7 +361,7 @@ FOLD_CASES = [
 
 
 def make_search() -> None:
-    entries = search_index.build_entries(PLACES, POIS, ADMIN, LANDMARKS)
+    entries = search_index.build_entries(PLACES, POIS, ADMIN, LANDMARKS, aliases=ALIASES)
     data = search_index.encode_index(entries)
     write_bytes("golden.ghsi", data)
     idx = search_index.decode_index(data)
@@ -384,7 +389,11 @@ def make_search() -> None:
         "format": "ghumante-golden-search", "version": 1, "score_scale": search_index.SCORE_SCALE,
         "entry_count": len(idx.entries), "key_count": len(idx.keys), "names": [name(n) for n in idx.names],
         "keys": [[k, i] for k, i in zip(idx.keys, idx.key_entries)], "entries": out_entries,
-        "queries": results, "fold_cases": folds, "osa_cases": osa})
+        "queries": results, "fold_cases": folds, "osa_cases": osa,
+        "stop_words": sorted(search_index._STOP_FOLDED),
+        "rank_bonus": {"landmark": search_index.RANK_BONUS_LANDMARK, "heritage": search_index.RANK_BONUS_HERITAGE,
+                       "heritage_kinds": [search_index.HERITAGE_KIND_MIN, search_index.HERITAGE_KIND_MAX],
+                       "token_match": search_index.TOKEN_MATCH_SCORE}})
 
 
 # ---------------------------------------------------------------------------
@@ -485,8 +494,19 @@ def make_routing() -> None:
         z = 299900.0 + float(rng.integers(0, 1900)) + 0.75
         for t in (Travel.FOOT, Travel.CAR, Travel.BICYCLE):
             for incoming in (False, True):
-                nearest.append({"x": x, "z": z, "profile": t.name, "incoming": incoming,
-                                "node": routing.nearest_node(g, x, z, t, incoming=incoming)})
+                for main in (True, False):
+                    nearest.append({"x": x, "z": z, "profile": t.name, "incoming": incoming, "main_network": main,
+                                    "node": routing.nearest_node(g, x, z, t, incoming=incoming, main_network=main)})
+    # Exact ties (midpoints between nodes) and points near the isolated piece.
+    for x, z in ((200150.0, 300000.0), (200000.0, 300150.0), (203150.0, 302990.0), (203000.0, 303000.0)):
+        for t in (Travel.FOOT, Travel.CAR):
+            for incoming in (False, True):
+                for main in (True, False):
+                    nearest.append({"x": x, "z": z, "profile": t.name, "incoming": incoming, "main_network": main,
+                                    "node": routing.nearest_node(g, x, z, t, incoming=incoming, main_network=main)})
+    main_component = {t.name: routing.main_component(g, t).tolist() for t in routing.PROFILES}
+    snap = {f"{t.name}/{d}": routing.snap_nodes(g, t, d == "in").tolist() for t in routing.PROFILES
+            for d in ("out", "in")}
     times = {t.name: [None if math.isinf(v) else float(v) for v in routing.edge_times(g, t)]
              for t in routing.PROFILES}
 
@@ -498,7 +518,8 @@ def make_routing() -> None:
         "edges": {name: getattr(g, name).tolist() for name, _, _ in routing._EDGE_FIELDS},
         "edge_geometry_dm": [g.edge_geometry_dm(e).reshape(-1).tolist() for e in range(g.edge_count)],
         "names": [[nm.default, nm.en, nm.ne] for nm in g.names],
-        "edge_times": times, "routes": routes, "nearest": nearest})
+        "edge_times": times, "routes": routes, "nearest": nearest, "main_component": main_component,
+        "snap_nodes": snap})
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 using System;
+using Ghumante.Core.Services;
 using Ghumante.Platform;
 using Ghumante.UI;
 using Ghumante.UI.Localization;
@@ -180,17 +181,36 @@ namespace Ghumante.App
         /// </summary>
         private void WireCoreServices()
         {
-            // TODO(core): register the no-op implementations from Ghumante.Core once that assembly lands
-            // (ARCHITECTURE.md 7.1, 7.11, 7.12). The interfaces, all in Ghumante.Core.Services:
-            //   IAnalytics        -> NullAnalytics      (collects nothing; opt-in only, ADR-009)
-            //   ICrashReporter    -> NullCrashReporter
-            //   ICloudSave        -> NullCloudSave      (Game Center / Play Games adapters in M1+)
-            //   IQuestService     -> NullQuestService   (Story Mode hook, 7.11)
-            //   IDialogueService  -> NullDialogueService
-            //   IWorldStateFlags  -> NullWorldStateFlags
-            //   INpcRegistry      -> NullNpcRegistry
-            // e.g. Services.Register<IAnalytics>(new NullAnalytics());
-            // The event bus (DiscoveryMade, ActivityCompleted, PlaceEntered) is registered here too.
+            RegisterCoreServices(Services, Debug.LogException);
+        }
+
+        /// <summary>
+        /// Registers the M0 defaults of every Ghumante.Core.Services interface (ARCHITECTURE.md 7.1, 7.11,
+        /// 7.12) and the event bus. Public and static so EditMode tests can check the wiring without a scene.
+        /// </summary>
+        /// <param name="services">Registry to fill.</param>
+        /// <param name="handlerError">Receives exceptions thrown by event-bus handlers (may be null).</param>
+        public static void RegisterCoreServices(ServiceRegistry services, Action<Exception> handlerError)
+        {
+            if (services == null) throw new ArgumentNullException(nameof(services));
+
+            var bus = new EventBus();
+            if (handlerError != null)
+            {
+                bus.HandlerError += handlerError;
+            }
+            // DiscoveryMade, ActivityCompleted, PlaceEntered and friends travel on this bus.
+            services.Register<IEventBus>(bus);
+
+            services.Register<IAnalytics>(new NullAnalytics());            // opt-in only, ADR-009
+            services.Register<ICrashReporter>(new NullCrashReporter());
+            services.Register<ICloudSave>(new NullCloudSave());            // Game Center / Play Games in M1+
+            services.Register<IQuestService>(new NullQuestService());      // Story Mode hook, 7.11
+            services.Register<IDialogueService>(new NullDialogueService());
+            services.Register<IWorldStateFlags>(new NullWorldStateFlags());
+            services.Register<INpcRegistry>(new NullNpcRegistry());
+            // TODO(M1): BuiltInSource / CdnSource from Ghumante.Platform (ARCHITECTURE.md section 9).
+            services.Register<IRegionPackSource>(new NullRegionPackSource());
         }
 
         private void OnLowMemory()
