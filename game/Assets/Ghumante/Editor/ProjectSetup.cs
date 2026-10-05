@@ -201,6 +201,7 @@ namespace Ghumante.EditorTools
             // Adaptive Performance (Android ADPF performance hints) needs precise frame timings;
             // without this the editor shows an "Adaptive Performance Android" prompt on open.
             PlayerSettings.enableFrameTimingStats = true;
+            EnsureNewInputSystemOnly();
 
             // Both landscapes and (with AllowPortrait) upright portrait; the device rotates the game live.
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
@@ -218,6 +219,29 @@ namespace Ghumante.EditorTools
                 // large link.xml; revisit High once the M1 content is in (smaller IL2CPP output).
                 PlayerSettings.SetManagedStrippingLevel(target, ManagedStrippingLevel.Medium);
             }
+        }
+
+        // "Active Input Handling" = Input System Package (New). Unity has no public API for it, so the
+        // serialized PlayerSettings asset is edited (0 = old Input Manager, 1 = Input System, 2 = both).
+        // The editor applies it after a restart; builds read the serialized value directly.
+        private static void EnsureNewInputSystemOnly()
+        {
+            UnityEngine.Object[] assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
+            if (assets == null || assets.Length == 0) return;
+            var so = new SerializedObject(assets[0]);
+            SerializedProperty prop = so.FindProperty("activeInputHandler");
+            if (prop == null)
+            {
+                Debug.LogWarning("ProjectSetup: 'activeInputHandler' not found; set Project Settings > Player > " +
+                                 "Active Input Handling to 'Input System Package (New)' manually.");
+                return;
+            }
+            if (prop.intValue == 1) return;
+            prop.intValue = 1;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            AssetDatabase.SaveAssets();
+            Debug.Log("ProjectSetup: Active Input Handling set to Input System Package (New). " +
+                      "Restart the editor for it to take effect in Play mode.");
         }
 
         private static void ApplyAndroidSettings()
