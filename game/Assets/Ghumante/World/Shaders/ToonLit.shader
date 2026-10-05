@@ -4,6 +4,10 @@
 // vertex drop. Terrain, buildings, roads and areas all use it; roads and areas add a depth pull (_ViewPull) and a
 // polygon offset so they never z-fight the ground. URP 17.3 Forward, SRP Batcher compatible (UnityPerMaterial in
 // ToonLitInput.hlsl), hand-written HLSL.
+// W2 (World/README.md "Rendering"): GPU instancing for the instanced dressing (trees, props, vehicles, people, animals,
+// aircraft; Graphics.RenderMeshInstanced, GLES3-safe), _INSTANCE_TINT (a per-instance colour on vertex-alpha-masked
+// parts), _WIND (vertex sway for trees) and _BAND_FADE (the dithered opaque cross-fade of the building bands,
+// W2_DESIGN 2.4). Shader model 3.5 (GLES3, Metal, Vulkan), which instancing needs.
 Shader "Ghumante/ToonLit"
 {
     Properties
@@ -21,6 +25,11 @@ Shader "Ghumante/ToonLit"
         [Enum(UnityEngine.Rendering.CullMode)] _Cull("Cull", Float) = 2
         _OffsetFactor("Depth offset factor", Float) = 0
         _OffsetUnits("Depth offset units", Float) = 0
+        _BandRange("Band: x inner, y outer, z fade (m from the camera)", Vector) = (0, 100000, 4, 0)
+        _Wind("Wind: x amplitude, y Hz, zw direction", Vector) = (0, 0.45, 0.8, 0.6)
+        [Toggle(_BAND_FADE)] _BandFade("Building band fade", Float) = 0
+        [Toggle(_WIND)] _WindOn("Vertex wind", Float) = 0
+        [Toggle(_INSTANCE_TINT)] _InstanceTintOn("Per-instance tint (instanced)", Float) = 0
     }
 
     SubShader
@@ -45,9 +54,13 @@ Shader "Ghumante/ToonLit"
             Offset [_OffsetFactor], [_OffsetUnits]
 
             HLSLPROGRAM
-            #pragma target 2.0
+            #pragma target 3.5
             #pragma vertex ToonVert
             #pragma fragment ToonFrag
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local _BAND_FADE
+            #pragma shader_feature_local_vertex _WIND
+            #pragma shader_feature_local_vertex _INSTANCE_TINT
 
             // Main light shadows (1 cascade on Low/Mid, 2 on High) and URP's soft-shadow quality keywords.
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
@@ -63,6 +76,7 @@ Shader "Ghumante/ToonLit"
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
                 half4 color : COLOR;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -77,17 +91,24 @@ Shader "Ghumante/ToonLit"
             Varyings ToonVert(Attributes input)
             {
                 Varyings o = (Varyings)0;
+                UNITY_SETUP_INSTANCE_ID(input);
                 float3 positionWS = GhToonWorldPosition(input.positionOS.xyz);
                 o.positionWS = positionWS;
                 o.positionCS = TransformWorldToHClip(positionWS);
                 o.normalWS = TransformObjectToWorldNormal(input.normalOS);
-                o.albedo = GhVertexColorToLinear(input.color.rgb) * _BaseColor.rgb;
+                half3 albedo = GhVertexColorToLinear(input.color.rgb);
+            #if defined(_INSTANCE_TINT)
+                // Vertex alpha masks the tinted parts (crowns, bodies); the tint is an sRGB palette colour.
+                albedo = lerp(albedo, albedo * GhVertexColorToLinear((half3)GH_INSTANCE_TINT.rgb), input.color.a);
+            #endif
+                o.albedo = albedo * _BaseColor.rgb;
                 o.fogFactor = ComputeFogFactor(o.positionCS.z);
                 return o;
             }
 
             half4 ToonFrag(Varyings i) : SV_Target
             {
+                GhBandClip(i.positionWS, i.positionCS.xy);
                 half3 n = normalize(i.normalWS);
                 float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
                 // The overload with the position applies URP's shadow-distance fade (as URP Lit does): beyond the
@@ -133,10 +154,13 @@ Shader "Ghumante/ToonLit"
             Cull [_Cull]
 
             HLSLPROGRAM
-            #pragma target 2.0
+            #pragma target 3.5
             #pragma vertex ShadowVert
             #pragma fragment ShadowFrag
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local _BAND_FADE
+            #pragma shader_feature_local_vertex _WIND
 
             #include "ToonLitInput.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
@@ -149,19 +173,23 @@ Shader "Ghumante/ToonLit"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+                float3 positionWS : TEXCOORD0;
             };
 
             Varyings ShadowVert(Attributes input)
             {
                 Varyings o;
+                UNITY_SETUP_INSTANCE_ID(input);
                 // No curvature here: within the shadow distance (at most 180 m) the drop is under 3 mm, far below the
                 // shadow bias, and the camera position is not what the light renders from.
-                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                float3 positionWS = TransformObjectToWorld(GhWind(input.positionOS.xyz));
+                o.positionWS = positionWS;
                 float3 normalWS = TransformObjectToWorldNormal(input.normalOS);
             #if _CASTING_PUNCTUAL_LIGHT_SHADOW
                 float3 lightDirectionWS = normalize(_LightPosition - positionWS);
@@ -175,6 +203,7 @@ Shader "Ghumante/ToonLit"
 
             half4 ShadowFrag(Varyings input) : SV_TARGET
             {
+                GhBandClipHard(input.positionWS);
                 return 0;
             }
             ENDHLSL
@@ -191,31 +220,39 @@ Shader "Ghumante/ToonLit"
             Offset [_OffsetFactor], [_OffsetUnits]
 
             HLSLPROGRAM
-            #pragma target 2.0
+            #pragma target 3.5
             #pragma vertex DepthVert
             #pragma fragment DepthFrag
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local _BAND_FADE
+            #pragma shader_feature_local_vertex _WIND
 
             #include "ToonLitInput.hlsl"
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+                float3 positionWS : TEXCOORD0;
             };
 
             Varyings DepthVert(Attributes input)
             {
                 Varyings o;
-                o.positionCS = TransformWorldToHClip(GhToonWorldPosition(input.positionOS.xyz));
+                UNITY_SETUP_INSTANCE_ID(input);
+                o.positionWS = GhToonWorldPosition(input.positionOS.xyz);
+                o.positionCS = TransformWorldToHClip(o.positionWS);
                 return o;
             }
 
             half DepthFrag(Varyings input) : SV_TARGET
             {
+                GhBandClip(input.positionWS, input.positionCS.xy);
                 return input.positionCS.z;
             }
             ENDHLSL
@@ -232,10 +269,13 @@ Shader "Ghumante/ToonLit"
             Offset [_OffsetFactor], [_OffsetUnits]
 
             HLSLPROGRAM
-            #pragma target 2.0
+            #pragma target 3.5
             #pragma vertex DepthNormalsVert
             #pragma fragment DepthNormalsFrag
             #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local _BAND_FADE
+            #pragma shader_feature_local_vertex _WIND
 
             #include "ToonLitInput.hlsl"
 
@@ -243,24 +283,29 @@ Shader "Ghumante/ToonLit"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
                 half3 normalWS : TEXCOORD0;
+                float3 positionWS : TEXCOORD1;
             };
 
             Varyings DepthNormalsVert(Attributes input)
             {
                 Varyings o;
-                o.positionCS = TransformWorldToHClip(GhToonWorldPosition(input.positionOS.xyz));
+                UNITY_SETUP_INSTANCE_ID(input);
+                o.positionWS = GhToonWorldPosition(input.positionOS.xyz);
+                o.positionCS = TransformWorldToHClip(o.positionWS);
                 o.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 return o;
             }
 
             half4 DepthNormalsFrag(Varyings input) : SV_TARGET
             {
+                GhBandClip(input.positionWS, input.positionCS.xy);
             #if defined(_GBUFFER_NORMALS_OCT)
                 float3 normalWS = normalize(input.normalWS);
                 float2 octNormalWS = PackNormalOctQuadEncode(normalWS);

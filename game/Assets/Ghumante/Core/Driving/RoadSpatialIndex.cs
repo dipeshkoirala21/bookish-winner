@@ -28,8 +28,8 @@ namespace Ghumante.Core.Driving
         /// <summary>Distance from the query point to the centreline.</summary>
         public float DistanceM;
 
-        /// <summary>Distance beyond the road edge: <see cref="DistanceM"/> − <see cref="HalfWidthM"/> (negative
-        /// inside the road).</summary>
+        /// <summary>Distance beyond the carriageway edge (negative inside the carriageway): <see cref="DistanceM"/> −
+        /// <see cref="HalfWidthM"/> for a centred carriageway.</summary>
         public float EdgeDistanceM;
 
         /// <summary>Signed offset from the segment's line, positive to the right of the point order.</summary>
@@ -38,8 +38,20 @@ namespace Ghumante.Core.Driving
         /// <summary>Unit tangent of the segment in point order (game X/Z).</summary>
         public float DirX, DirZ;
 
-        /// <summary>Half the ribbon width (<see cref="RoadStyle.WidthM"/>, exactly as the road mesh).</summary>
+        /// <summary>Half the carriageway width at the nearest point, exactly as the road mesh draws it: the W2 width
+        /// model (<see cref="RoadLayout.HalfWidthAt"/>) when the index follows <see cref="RoadOptions.WidthModel"/>, else
+        /// <see cref="RoadStyle.WidthM"/>.</summary>
         public float HalfWidthM;
+
+        /// <summary>Lateral position of the carriageway centre (positive right of the point order): non-zero on a dual
+        /// carriageway, which grows outward away from its median (W2_DESIGN 4.6).</summary>
+        public float CentreShiftM;
+
+        /// <summary>Raised footpath widths on the left and right of the carriageway at the nearest point (0 = none).</summary>
+        public float FootLeftM, FootRightM;
+
+        /// <summary>True when the point lies on a raised footpath beside the carriageway (not on the carriageway).</summary>
+        public bool OnFootpath;
 
         /// <summary>Distance along the piece from its first rendered point to the nearest point, and the
         /// rendered length of the piece (context segments excluded).</summary>
@@ -52,9 +64,11 @@ namespace Ghumante.Core.Driving
     /// <summary>
     /// Nearest-road lookups for one tile: a uniform grid over the tile square holding the segments of every
     /// road piece <see cref="RoadMesher"/> draws with the given <see cref="RoadOptions"/> (by default all but
-    /// tunnels), with the mesher's widths (<see cref="RoadStyle.WidthM"/>). Context segments, which lie outside
-    /// the tile and are never drawn, are left out. Built once per tile, it is read-only afterwards, so it may be
-    /// built on a worker thread and queried from any thread. Queries are allocation free and deterministic (exact
+    /// tunnels), with the mesher's widths: the W2 width model through the tile's cached <see cref="RoadLayout"/>
+    /// (carriageway widths varying along the piece, dual carriageways shifted outward, raised footpaths) when
+    /// <see cref="RoadOptions.WidthModel"/> is on, else <see cref="RoadStyle.WidthM"/>. Context segments, which lie
+    /// outside the tile and are never drawn, are left out. Built once per tile, it is read-only afterwards, so it may
+    /// be built on a worker thread and queried from any thread. Queries are allocation free and deterministic (exact
     /// ties go to the lower segment index).
     ///
     /// "Nearest" means the nearest road *surface*: the road minimising <c>distance − halfWidth</c>, so a point
@@ -70,6 +84,9 @@ namespace Ghumante.Core.Driving
         /// <summary>A point counts as on a road within half its width plus this margin.</summary>
         public const float OnRoadMarginM = 0.5f;
 
+        /// <summary>Widest raised footpath any profile draws (search reach beyond the carriageway).</summary>
+        public const float MaxFootpathM = 6f;
+
         private readonly TileData _tile;
         private readonly double _x0, _z0, _cell;
         private readonly int _n; // grid is _n × _n cells over the tile square
@@ -78,7 +95,9 @@ namespace Ghumante.Core.Driving
         private readonly double[] _ax, _az, _bx, _bz;
         private readonly float[] _along; // distance from the piece's first rendered point to the segment start
         private readonly int[] _road, _seg;
-        private readonly float[] _roadHalfWidth, _roadLength; // per road record
+        private readonly float[] _roadHalfWidth, _roadLength; // per road record (half width: the widest along the piece)
+        private readonly RoadLayout _layout; // W2 widths, or null (W1 widths)
+        private readonly bool[] _dual, _bridge;
 
         // CSR grid: segments of cell c are _cellSegs[_cellStart[c] .. _cellStart[c + 1]).
         private readonly int[] _cellStart, _cellSegs;
@@ -121,6 +140,9 @@ namespace Ghumante.Core.Driving
             if (drawn == null) drawn = new RoadOptions();
             var roads = t.Roads;
             int segCount = 0;
+            _layout = drawn.WidthModel && roads.Count > 0 ? RoadLayout.For(t) : null;
+            _dual = new bool[roads.Count];
+            _bridge = new bool[roads.Count];
             _roadHalfWidth = new float[roads.Count];
             _roadLength = new float[roads.Count];
             var include = new bool[roads.Count];
@@ -147,6 +169,14 @@ namespace Ghumante.Core.Driving
             {
                 RoadRecord rec = roads[r];
                 float half = 0.5f * RoadStyle.WidthM(rec);
+                if (_layout != null)
+                {
+                    RoadWidthProfile prof = _layout.Profiles[r];
+                    _dual[r] = _layout.Attrs[r].Has(RoadAttrFlags.Dual);
+                    _bridge[r] = (rec.Flags & RoadFlags.Bridge) != 0 || !drawn.CrossSections;
+                    // Widest reach of the drawn carriageway: max width, plus the outward shift of a dual carriageway.
+                    half = 0.5f * prof.MaxWidth + (_dual[r] ? 0.5f * Math.Max(0f, prof.MaxWidth - prof.RealM) : 0f);
+                }
                 _roadHalfWidth[r] = half;
                 if (!include[r]) continue;
                 int first, last;
@@ -205,10 +235,40 @@ namespace Ghumante.Core.Driving
             last = r.PointCount - 1 - (r.HasNextContext ? 1 : 0);
         }
 
-        /// <summary>Half the width of road <paramref name="roadIndex"/> of the tile.</summary>
+        /// <summary>Half the widest drawn carriageway of road <paramref name="roadIndex"/> of the tile (the W1 width
+        /// without the width model).</summary>
         public float HalfWidthM(int roadIndex)
         {
             return _roadHalfWidth[roadIndex];
+        }
+
+        /// <summary>The road layout whose widths the index follows (null with W1 widths).</summary>
+        public RoadLayout Layout
+        {
+            get { return _layout; }
+        }
+
+        /// <summary>Carriageway half width, centre shift (positive right) and footpaths of road <paramref name="r"/> at
+        /// <paramref name="along"/> metres from its first rendered point, as drawn.</summary>
+        public void SectionAt(int r, double along, out float half, out float shiftRight, out float footL, out float footR)
+        {
+            if (_layout == null)
+            {
+                half = _roadHalfWidth[r];
+                shiftRight = 0f;
+                footL = 0f;
+                footR = 0f;
+                return;
+            }
+            RoadWidthProfile prof = _layout.Profiles[r];
+            float w = prof.WidthAt(along);
+            half = 0.5f * w;
+            // The mesher shifts a dual carriageway along its left normal by (w − real)/2: outward, away from the
+            // median on its right.
+            shiftRight = _dual[r] ? -0.5f * (w - prof.RealM) : 0f;
+            // Footpaths are drawn with cross sections, never on bridges, and a dual carriageway has its median on the right.
+            footL = _bridge[r] ? 0f : prof.Sample(prof.FootLeft, along);
+            footR = _bridge[r] || _dual[r] ? 0f : prof.Sample(prof.FootRight, along);
         }
 
         private void SegmentCells(int i, out int cx0, out int cz0, out int cx1, out int cz1)
@@ -268,12 +328,26 @@ namespace Ghumante.Core.Driving
                     double ax = _ax[i], az = _az[i];
                     double dx = _bx[i] - ax, dz = _bz[i] - az;
                     double len2 = dx * dx + dz * dz;
-                    double t = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
-                    if (t < 0) t = 0;
-                    else if (t > 1) t = 1;
+                    double tRaw = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
+                    double t = tRaw < 0 ? 0 : tRaw > 1 ? 1 : tRaw;
                     double qx = ax + t * dx - px, qz = az + t * dz - pz;
                     double d = Math.Sqrt(qx * qx + qz * qz);
-                    double edge = d - _roadHalfWidth[_road[i]];
+                    double edge;
+                    if (_layout == null)
+                    {
+                        edge = d - _roadHalfWidth[_road[i]];
+                    }
+                    else
+                    {
+                        // Distance beyond the drawn carriageway (shifted on a dual road), round past the segment ends.
+                        double len = Math.Sqrt(len2);
+                        double lat = len > 0 ? ((px - ax) * dz - (pz - az) * dx) / len : d;
+                        double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
+                        float half, shift, fl, fr;
+                        SectionAt(_road[i], _along[i] + t * len, out half, out shift, out fl, out fr);
+                        double side = Math.Abs(lat - shift) - half;
+                        edge = side > 0 ? Math.Sqrt(side * side + over * over) : over > 0 ? over : side;
+                    }
                     if (edge > maxDistM) continue;
                     if (edge < bestEdge || edge == bestEdge && i < best)
                     {
@@ -299,7 +373,6 @@ namespace Ghumante.Core.Driving
             hit.X = _x0 + nx;
             hit.Z = _z0 + nz;
             hit.DistanceM = (float)bestD;
-            hit.HalfWidthM = _roadHalfWidth[r];
             hit.EdgeDistanceM = (float)bestEdge;
             // Right of the direction (ux, uz) in the X-east/Z-north plane is (uz, -ux).
             hit.LateralM = (float)((px - _ax[best]) * uz - (pz - _az[best]) * ux);
@@ -307,7 +380,15 @@ namespace Ghumante.Core.Driving
             hit.DirZ = (float)uz;
             hit.AlongM = (float)(_along[best] + bestT * slen);
             hit.PieceLengthM = _roadLength[r];
-            hit.OnRoad = bestEdge <= OnRoadMarginM;
+            float h0, sh, fl0, fr0;
+            SectionAt(r, hit.AlongM, out h0, out sh, out fl0, out fr0);
+            hit.HalfWidthM = h0;
+            hit.CentreShiftM = sh;
+            hit.FootLeftM = fl0;
+            hit.FootRightM = fr0;
+            float footHere = hit.LateralM - sh < 0f ? fl0 : fr0;
+            hit.OnFootpath = bestEdge > 0 && footHere > 0f && bestEdge <= footHere;
+            hit.OnRoad = bestEdge <= OnRoadMarginM && !hit.OnFootpath;
             return true;
         }
     }

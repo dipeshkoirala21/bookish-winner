@@ -1,4 +1,5 @@
 using System;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Streaming;
@@ -24,7 +25,7 @@ namespace Ghumante.Characters.Cameras
     {
         public const float NearClipM = 0.4f;
         public const float OrientationBlendSeconds = 0.3f;
-        public const float ModeBlendSeconds = 0.5f;
+        public const float ModeBlendSeconds = 0.45f;
         public const float MinZoom = 0.55f, MaxZoom = 2.6f;
         public const float MinPitchOffsetDeg = -9f, MaxPitchOffsetDeg = 40f;
 
@@ -45,7 +46,8 @@ namespace Ghumante.Characters.Cameras
         private bool _snap = true;
 
         private float _portrait;
-        private float _ride = 1f;
+        private RigClass _rigClass = RigClass.TwoWheeler;
+        private ChaseRigProfile _profile = ChaseRigProfile.RideLandscape;
         private float _zoomLog;
         private float _pitchOffset;
         private float _orbit;
@@ -127,24 +129,40 @@ namespace Ghumante.Characters.Cameras
         public void Tick(float dt, Vector3 target, float headingRad, float speedMps, float leanRad, bool riding,
                          in ControlFrame controls, IGroundQuery ground, WorldPos origin)
         {
+            Tick(dt, target, headingRad, speedMps, leanRad, riding ? RigClass.TwoWheeler : RigClass.Walk, controls, ground, origin);
+        }
+
+        /// <summary>The rig the camera is on (or blending to).</summary>
+        public RigClass Rig
+        {
+            get { return _rigClass; }
+        }
+
+        /// <summary>The driver rig of the vehicle ridden along: <see cref="RigClass.Passenger"/> orbits at 1.2× it
+        /// (W2_DESIGN 6.4), so a bus ride frames the bus. Car by default.</summary>
+        public RigClass PassengerOf { get; set; } = RigClass.Car;
+
+        /// <summary>
+        /// Places the camera for this frame with the rig of <paramref name="rigClass"/> (W2_DESIGN 6.4: walk, bicycle,
+        /// two-wheeler, car, van, bus, truck, tractor, passenger). A change of rig blends over about 0.45 s (on) and
+        /// 0.35 s (off); a rotation blends over 0.3 s.
+        /// </summary>
+        public void Tick(float dt, Vector3 target, float headingRad, float speedMps, float leanRad, RigClass rigClass,
+                         in ControlFrame controls, IGroundQuery ground, WorldPos origin)
+        {
             if (_camera == null) return;
             if (!(dt >= 0f) || float.IsInfinity(dt)) dt = 0f;
             dt = Mathf.Min(dt, 0.1f);
+            bool riding = rigClass != RigClass.Walk;
 
-            // Rig blends: orientation from the camera's own aspect (what the framing is for), mode from the controller.
+            // Rig blends: orientation from the camera's own aspect (what the framing is for), class from the controller.
             float portraitTarget = _camera.aspect < 1f ? 1f : 0f;
-            float rideTarget = riding ? 1f : 0f;
-            if (_snap)
-            {
-                _portrait = portraitTarget;
-                _ride = rideTarget;
-            }
-            else
-            {
-                _portrait = Mathf.MoveTowards(_portrait, portraitTarget, dt / OrientationBlendSeconds);
-                _ride = Mathf.MoveTowards(_ride, rideTarget, dt / ModeBlendSeconds);
-            }
-            ChaseRigProfile rig = ChaseRigProfile.Blend(Smooth(_ride), Smooth(_portrait));
+            _portrait = _snap ? portraitTarget : Mathf.MoveTowards(_portrait, portraitTarget, dt / OrientationBlendSeconds);
+            ChaseRigProfile want = ChaseRigProfile.For(rigClass, Smooth(_portrait), PassengerOf);
+            float blendS = rigClass == RigClass.Walk ? 0.35f : ModeBlendSeconds;
+            _rigClass = rigClass;
+            _profile = _snap ? want : ChaseRigProfile.Lerp(_profile, want, 1f - Mathf.Exp(-3f * dt / blendS));
+            ChaseRigProfile rig = _profile;
 
             // Player zoom (log scale, so each notch feels the same), pitch and look-around. On the scooter looking around
             // is a glance that swings back behind the rider; on foot it turns the camera for good (walking is relative
@@ -217,7 +235,7 @@ namespace Ghumante.Characters.Cameras
             }
 
             // Vertical FOV from the rig's minimum horizontal FOV at this aspect, plus a little speed kick on the scooter.
-            float kick = !ReducedMotion && riding ? 5f * Mathf.Clamp01(Mathf.Abs(speedMps) / 25f) : 0f;
+            float kick = !ReducedMotion && riding ? CameraRigTable.FovKick(CameraRigTable.For(rigClass, _portrait > 0.5f), speedMps) : 0f;
             float aspect = Mathf.Max(0.1f, _camera.aspect);
             float fov = CameraFov.VerticalFromHorizontal(rig.MinHorizontalFovDeg + kick, aspect);
             _fov = _snap ? fov : Mathf.Lerp(_fov, fov, 1f - Mathf.Exp(-8f * dt));
@@ -235,7 +253,7 @@ namespace Ghumante.Characters.Cameras
                 float viewYaw = Mathf.Atan2(footX, footZ) * Mathf.Rad2Deg;
                 rotation = Quaternion.Euler(Mathf.Clamp(viewPitch, -80f, 89f), viewYaw, 0f);
             }
-            if (!ReducedMotion && riding)
+            if (!ReducedMotion && (rigClass == RigClass.TwoWheeler || rigClass == RigClass.Bicycle))
             {
                 rotation *= Quaternion.Euler(0f, 0f, -leanRad * Mathf.Rad2Deg * 0.12f);
             }

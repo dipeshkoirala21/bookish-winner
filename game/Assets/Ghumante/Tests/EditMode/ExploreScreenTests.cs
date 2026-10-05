@@ -173,6 +173,33 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void W2LayoutsActionButtonAndPrompt()
+        {
+            var haptics = new RecordingHaptics();
+            ExploreScreen screen = Create(haptics, out VisualElement root);
+            screen.HideLoading();
+            VisualElement styled = root.Q(className: "gh-root");
+            screen.SetLayout(Ghumante.Core.Characters.ControlLayout.Passenger);
+            Assert.IsTrue(styled.ClassListContains(ExploreScreen.PassengerClass));
+            Assert.IsFalse(styled.ClassListContains(ExploreScreen.RideClass));
+            screen.SetLayout(Ghumante.Core.Characters.ControlLayout.Heavy);
+            Assert.IsTrue(styled.ClassListContains(ExploreScreen.RideClass));
+            Assert.IsTrue(styled.ClassListContains(ExploreScreen.HeavyClass));
+            Assert.IsTrue(screen.Touch.Riding);
+            screen.SetAction("hud.action.hop_on", "hop", true);
+            CollectionAssert.Contains(haptics.Played, HapticKind.Selection);
+            Assert.AreEqual("Hop on", root.Q<Label>("hud-action-label").text);
+            screen.SetPrompt("hud.prompt.rest_outside");
+            Assert.IsTrue(root.Q("hud-prompt").ClassListContains(ExploreScreen.PromptOnClass));
+            screen.SetPrompt(null);
+            Assert.IsFalse(root.Q("hud-prompt").ClassListContains(ExploreScreen.PromptOnClass));
+            int garage = 0;
+            screen.GarageRequested += () => garage++;
+            Assert.IsTrue(screen.SimulateTap("hud-garage"));
+            Assert.AreEqual(1, garage);
+        }
+
+        [Test]
         public void MenuPausesAndOffersTheMainMenu()
         {
             ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);

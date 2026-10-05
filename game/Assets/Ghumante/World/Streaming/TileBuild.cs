@@ -3,22 +3,49 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
+using Ghumante.Core.Generators;
+using Ghumante.Core.Generators.Placement;
+using Ghumante.Core.Generators.Sacred;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Streaming;
+using Ghumante.World.Buildings;
+using Ghumante.World.Instancing;
 using Ghumante.World.Rendering;
+using Ghumante.World.Sacred;
 
 namespace Ghumante.World.Streaming
 {
-    /// <summary>The mesh layers of a tile view, in upload order.</summary>
+    /// <summary>
+    /// The mesh layers of a tile view, in upload order. W2 adds the road-decal layer (markings and zebras, W2_DESIGN
+    /// 4.5), the far building bands B2 and B3 (2.4; <see cref="Buildings"/> is B1), and the hero replicas (3.4). The
+    /// band and hero layers are split into parts (<see cref="UploadChunk.Part"/>): B1 and B2 per 128 m block, B3 per
+    /// 256 m block, heroes per (hero, LOD) as <c>hero × 4 + lod</c>.
+    /// </summary>
     public static class TileLayers
     {
         public const int Terrain = 0;
         public const int Roads = 1;
-        public const int Buildings = 2;
-        public const int Areas = 3;
-        public const int Count = 4;
 
-        private static readonly string[] Names = { "terrain", "roads", "buildings", "areas" };
+        /// <summary>B1 styled extrusions, one part per 128 m block.</summary>
+        public const int Buildings = 2;
+
+        public const int Areas = 3;
+
+        /// <summary>Road markings (decals lifted over the ribbons).</summary>
+        public const int RoadDecals = 4;
+
+        /// <summary>B2 prisms, one part per 128 m block.</summary>
+        public const int BuildingsFar = 5;
+
+        /// <summary>B3 city blocks, one part per 256 m block.</summary>
+        public const int BuildingsBlock = 6;
+
+        /// <summary>Hero replicas, part = hero × 4 + LOD.</summary>
+        public const int Heroes = 7;
+
+        public const int Count = 8;
+
+        private static readonly string[] Names = { "terrain", "roads", "buildings", "areas", "decals", "buildings_b2", "buildings_b3", "heroes" };
 
         /// <summary>Lowercase layer name (no allocation).</summary>
         public static string Name(int layer)
@@ -37,6 +64,9 @@ namespace Ghumante.World.Streaming
     public struct UploadChunk
     {
         public int Layer;
+
+        /// <summary>The part of the layer the chunk belongs to (<see cref="TileLayers"/>; 0 for unsplit layers).</summary>
+        public int Part;
 
         /// <summary>First index of the chunk in the layer's index arrays, and how many (a multiple of three).</summary>
         public int FirstIndex;
@@ -79,11 +109,71 @@ namespace Ghumante.World.Streaming
         /// <summary>Road ribbons; pass the same instance to <see cref="TileGroundQuery"/> so lift and roads agree.</summary>
         public RoadOptions Roads = new RoadOptions();
 
+        /// <summary>B1 buildings (the <see cref="TileLayers.Buildings"/> layer).</summary>
         public BuildingOptions Buildings = new BuildingOptions();
+
+        /// <summary>B2 prisms (<see cref="TileLayers.BuildingsFar"/>).</summary>
+        public BuildingOptions FarBuildings = new BuildingOptions { Band = BuildingBand.B2Prism };
+
+        /// <summary>B3 city blocks (<see cref="TileLayers.BuildingsBlock"/>).</summary>
+        public BuildingOptions BlockBuildings = new BuildingOptions { Band = BuildingBand.B3Block };
+
+        /// <summary>B0 detail cells (built by the streamer per 64 m cell, not by tile builds).</summary>
+        public BuildingOptions DetailBuildings = new BuildingOptions { Band = BuildingBand.B0KitLite };
+
         public AreaOptions Areas = new AreaOptions();
         public bool DrawRoads = true;
         public bool DrawBuildings = true;
         public bool DrawAreas = true;
+
+        /// <summary>Road markings into <see cref="TileLayers.RoadDecals"/> (W2_DESIGN 4.5).</summary>
+        public bool DrawRoadDecals = true;
+
+        /// <summary>W2 building bands: B1 split per 128 m block plus the B2 and B3 layers. Off: the W1 single B1 layer.</summary>
+        public bool BuildingBands = true;
+
+        /// <summary>Hero replicas and hide zones (null: none).</summary>
+        public HeroSet Heroes;
+
+        /// <summary>Trees, street props and parked vehicles (<see cref="TileBuild.Instances"/>).</summary>
+        public bool DrawInstances = true;
+
+        public TreePlacementOptions Trees = new TreePlacementOptions();
+
+        /// <summary>Hide the hero zones' buildings in every band (W2_DESIGN 3.3 D5).</summary>
+        public void SetHiddenRefs(ISet<ulong> refs)
+        {
+            Buildings.HiddenRefs = refs;
+            FarBuildings.HiddenRefs = refs;
+            BlockBuildings.HiddenRefs = refs;
+            DetailBuildings.HiddenRefs = refs;
+        }
+    }
+
+    /// <summary>A hero replica built with a tile (W2_DESIGN 3.4): where it stands and its triangles per LOD.</summary>
+    public struct HeroPiece
+    {
+        public string Id;
+
+        /// <summary>Index among the tile's heroes (its parts are <c>Index × 4 + lod</c>).</summary>
+        public int Index;
+
+        /// <summary>Centre (tile-local metres), ground height and height of the top.</summary>
+        public double CX, CZ;
+
+        public float GroundY, TopY, RadiusM;
+        public int Tris0, Tris1, Tris2, Tris3;
+    }
+
+    /// <summary>What a ready node hands to its view besides meshes: the decoded tile and sampler (for B0 cells), the
+    /// instanced dressing, the heroes and their structure colliders (tile-local). Owned by the view.</summary>
+    public sealed class TileExtras
+    {
+        public TileData Source;
+        public TileHeightSampler Sampler;
+        public TileInstances Instances;
+        public HeroPiece[] Heroes = new HeroPiece[0];
+        public StructureColliders HeroColliders;
     }
 
     /// <summary>
@@ -144,6 +234,25 @@ namespace Ghumante.World.Streaming
         public RoadSpatialIndex Roads;
         public Exception Error;
 
+        /// <summary>The runs of each layer's parts (empty for unsplit layers, which are part 0).</summary>
+        public readonly List<PartRange>[] Parts = new List<PartRange>[TileLayers.Count];
+
+        /// <summary>Trees, props and parked vehicles of a detail node (null when not built).</summary>
+        public TileInstances Instances;
+
+        /// <summary>Heroes built with this node.</summary>
+        public readonly List<HeroPiece> Heroes = new List<HeroPiece>();
+
+        /// <summary>Structure colliders of the heroes (tile-local), or null.</summary>
+        public StructureColliders HeroColliders;
+
+        /// <summary>Heroes whose build threw (skipped; the tile still loads).</summary>
+        public int HeroFailures;
+
+        private readonly MeshData _scratch = new MeshData();
+        private readonly MeshParts.Scratch _partScratch = new MeshParts.Scratch();
+        private readonly GenColliders _gen = new GenColliders();
+
         /// <summary>Worker milliseconds spent on this build.</summary>
         public double WorkMs;
 
@@ -154,7 +263,11 @@ namespace Ghumante.World.Streaming
 
         public TileBuild()
         {
-            for (int i = 0; i < TileLayers.Count; i++) Layers[i] = new MeshData();
+            for (int i = 0; i < TileLayers.Count; i++)
+            {
+                Layers[i] = new MeshData();
+                Parts[i] = new List<PartRange>();
+            }
             Work = RunOnWorker;
         }
 
@@ -224,7 +337,28 @@ namespace Ghumante.World.Streaming
             Generation = generation;
             NextChunk = 0;
             Chunks.Clear();
-            for (int i = 0; i < TileLayers.Count; i++) Layers[i].Clear();
+            Instances = null;
+            Heroes.Clear();
+            HeroColliders = null;
+            HeroFailures = 0;
+            for (int i = 0; i < TileLayers.Count; i++)
+            {
+                Layers[i].Clear();
+                Parts[i].Clear();
+            }
+        }
+
+        /// <summary>Hand the non-mesh results to the view (the build forgets them).</summary>
+        public TileExtras TakeExtras()
+        {
+            var e = new TileExtras
+            {
+                Source = Source, Sampler = Sampler, Instances = Instances, Heroes = Heroes.ToArray(), HeroColliders = HeroColliders,
+            };
+            Instances = null;
+            HeroColliders = null;
+            Heroes.Clear();
+            return e;
         }
 
         /// <summary>Drop references and oversized buffers before the build goes back to the pool.</summary>
@@ -237,8 +371,13 @@ namespace Ghumante.World.Streaming
             Error = null;
             Chunks.Clear();
             NextChunk = 0;
+            Instances = null;
+            Heroes.Clear();
+            HeroColliders = null;
+            if (_scratch.VertexCapacity > PoolKeepVertices) _scratch.Clear();
             for (int i = 0; i < TileLayers.Count; i++)
             {
+                Parts[i].Clear();
                 if (Layers[i].VertexCapacity > PoolKeepVertices || Layers[i].Indices.Length > PoolKeepVertices * 6) Layers[i] = new MeshData();
                 else Layers[i].Clear();
                 if (ShortIndices[i] != null && ShortIndices[i].Length > PoolKeepVertices * 6) ShortIndices[i] = null;
@@ -291,8 +430,11 @@ namespace Ghumante.World.Streaming
             if (n.DrawsDetail && src.HasDetail && b.Sampler.HasHeights)
             {
                 if (settings.DrawRoads) RoadMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.Roads]);
-                if (settings.DrawBuildings) BuildingMesher.Build(src, b.Sampler, settings.Buildings, b.Layers[TileLayers.Buildings]);
+                if (settings.DrawRoads && settings.DrawRoadDecals) MarkingMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.RoadDecals]);
+                if (settings.DrawBuildings) BuildBuildings(b, src, settings);
                 if (settings.DrawAreas) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
+                if (settings.Heroes != null) BuildHeroes(b, src, settings.Heroes);
+                if (settings.DrawInstances) BuildInstances(b, src, settings);
                 b.Roads = ground != null ? ground.BuildRoadIndex(src) : null;
             }
 
@@ -308,7 +450,8 @@ namespace Ghumante.World.Streaming
                 b.Bounds[o + 3] = x1;
                 b.Bounds[o + 4] = y1;
                 b.Bounds[o + 5] = z1;
-                SplitLayer(m, i, UploadChunkVertices, b.Chunks, ref b.ShortIndices[i]);
+                if (b.Parts[i].Count > 0) SplitLayer(m, i, b.Parts[i], UploadChunkVertices, b.Chunks, ref b.ShortIndices[i]);
+                else SplitLayer(m, i, UploadChunkVertices, b.Chunks, ref b.ShortIndices[i]);
             }
 
             // Vertices drop with the square of their distance to the camera; the camera can be anywhere inside this
@@ -316,6 +459,107 @@ namespace Ghumante.World.Streaming
             double reach = config.RingFor(area.Level).RadiusM + area.Size * 1.5;
             b.CurvatureMarginM = (float)EarthCurvature.DropM(reach);
             b.WorkMs = sw.Elapsed.TotalMilliseconds;
+        }
+
+        /// <summary>
+        /// The building bands (W2_DESIGN 2.4): B1 and B2 regrouped per 128 m block, B3 per 256 m block.
+        /// Without <see cref="MeshingSettings.BuildingBands"/> only the W1 B1 layer is built (one part).
+        /// </summary>
+        private static void BuildBuildings(TileBuild b, TileData src, MeshingSettings settings)
+        {
+            if (!settings.BuildingBands)
+            {
+                BuildingMesher.Build(src, b.Sampler, settings.Buildings, b.Layers[TileLayers.Buildings]);
+                return;
+            }
+            double size = src.Tile.Size;
+            b._scratch.Clear();
+            BuildingMesher.Build(src, b.Sampler, settings.Buildings, b._scratch);
+            MeshParts.ByBlocks(b._scratch, size, BandConfig.B1BlockM, b.Layers[TileLayers.Buildings], b.Parts[TileLayers.Buildings], b._partScratch);
+            b._scratch.Clear();
+            BuildingMesher.Build(src, b.Sampler, settings.FarBuildings, b._scratch);
+            MeshParts.ByBlocks(b._scratch, size, BandConfig.B2BlockM, b.Layers[TileLayers.BuildingsFar], b.Parts[TileLayers.BuildingsFar], b._partScratch);
+            b._scratch.Clear();
+            BuildingMesher.Build(src, b.Sampler, settings.BlockBuildings, b._scratch);
+            MeshParts.ByBlocks(b._scratch, size, BandConfig.B3BlockM, b.Layers[TileLayers.BuildingsBlock], b.Parts[TileLayers.BuildingsBlock], b._partScratch);
+        }
+
+        /// <summary>Every hero anchored in this tile at LOD 0 to 3 (parts hero × 4 + lod) and its LOD0 colliders.</summary>
+        private static void BuildHeroes(TileBuild b, TileData src, HeroSet heroes)
+        {
+            IReadOnlyList<HeritageRecord> list = heroes.InTile(src.Tile.Key);
+            if (list.Count == 0) return;
+            MeshData layer = b.Layers[TileLayers.Heroes];
+            List<PartRange> parts = b.Parts[TileLayers.Heroes];
+            var stats = new SacredStats();
+            for (int h = 0; h < list.Count; h++)
+            {
+                HeritageRecord r = list[h];
+                int index = b.Heroes.Count;
+                int partsBefore = parts.Count, v0 = layer.VertexCount, i0 = layer.IndexCount;
+                var piece = new HeroPiece { Id = r.Id, Index = index };
+                try
+                {
+                    b._gen.Clear();
+                    bool any = false;
+                    float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+                    float minY = float.MaxValue, maxY = float.MinValue;
+                    for (int lod = 0; lod < HeroLodBudget.LodCount; lod++)
+                    {
+                        b._scratch.Clear();
+                        int tris = HeroBuilder.Build(r, src, lod, b._scratch, lod == 0 ? b._gen : null, lod == 0 ? stats : null);
+                        if (tris <= 0) continue;
+                        any = true;
+                        float x0, y0, z0, x1, y1, z1;
+                        b._scratch.GetBounds(out x0, out y0, out z0, out x1, out y1, out z1);
+                        minX = Math.Min(minX, x0);
+                        minY = Math.Min(minY, y0);
+                        minZ = Math.Min(minZ, z0);
+                        maxX = Math.Max(maxX, x1);
+                        maxY = Math.Max(maxY, y1);
+                        maxZ = Math.Max(maxZ, z1);
+                        MeshParts.AppendPart(b._scratch, layer, index * HeroLodBudget.LodCount + lod, parts);
+                        switch (lod)
+                        {
+                            case 0: piece.Tris0 = tris; break;
+                            case 1: piece.Tris1 = tris; break;
+                            case 2: piece.Tris2 = tris; break;
+                            default: piece.Tris3 = tris; break;
+                        }
+                    }
+                    if (!any) continue;
+                    piece.CX = 0.5 * (minX + maxX);
+                    piece.CZ = 0.5 * (minZ + maxZ);
+                    piece.GroundY = minY;
+                    piece.TopY = maxY;
+                    piece.RadiusM = 0.5f * (float)Math.Sqrt((maxX - minX) * (maxX - minX) + (maxZ - minZ) * (maxZ - minZ));
+                    if (b._gen.Boxes.Count > 0 || b._gen.Ramps.Count > 0)
+                    {
+                        if (b.HeroColliders == null) b.HeroColliders = new StructureColliders();
+                        b.HeroColliders.AddFrom(b._gen);
+                    }
+                    b.Heroes.Add(piece);
+                }
+                catch (Exception)
+                {
+                    // A broken recipe must not take the tile down: drop what it added.
+                    b.HeroFailures++;
+                    parts.RemoveRange(partsBefore, parts.Count - partsBefore);
+                    layer.VertexCount = v0;
+                    layer.IndexCount = i0;
+                }
+            }
+        }
+
+        /// <summary>Trees (OSM, avenues, forest clumps), street props and parked vehicles, indexed by 64 m cell.</summary>
+        private static void BuildInstances(TileBuild b, TileData src, MeshingSettings settings)
+        {
+            var inst = new TileInstances();
+            TreePlacement.Place(src, b.Sampler, settings.Trees, inst.Trees);
+            PropPlacement.Place(src, b.Sampler, inst.Props);
+            ParkedPlacement.Place(src, b.Sampler, inst.Parked);
+            inst.Index(src.Tile.Size);
+            b.Instances = inst;
         }
 
         /// <summary>
@@ -329,32 +573,52 @@ namespace Ghumante.World.Streaming
         public static void SplitLayer(MeshData m, int layer, int maxVertices, List<UploadChunk> chunks, ref ushort[] shortIndices)
         {
             if (m == null) throw new ArgumentNullException(nameof(m));
-            if (chunks == null) throw new ArgumentNullException(nameof(chunks));
             int n = m.IndexCount - m.IndexCount % 3;
             if (n <= 0) return;
+            SplitLayer(m, layer, new[] { new PartRange(0, 0, n) }, maxVertices, chunks, ref shortIndices);
+        }
+
+        /// <summary>
+        /// <see cref="SplitLayer(MeshData, int, int, List{UploadChunk}, ref ushort[])"/> over the layer's parts: a chunk
+        /// never spans two parts, and each chunk carries its part.
+        /// </summary>
+        public static void SplitLayer(MeshData m, int layer, IReadOnlyList<PartRange> parts, int maxVertices, List<UploadChunk> chunks,
+                                      ref ushort[] shortIndices)
+        {
+            if (m == null) throw new ArgumentNullException(nameof(m));
+            if (parts == null) throw new ArgumentNullException(nameof(parts));
+            if (chunks == null) throw new ArgumentNullException(nameof(chunks));
+            int total = m.IndexCount - m.IndexCount % 3;
+            if (total <= 0) return;
             if (maxVertices < 3) maxVertices = 3;
             int[] idx = m.Indices;
             int firstChunk = chunks.Count;
-            int first = 0, vmin = int.MaxValue, vmax = -1;
-            for (int t = 0; t < n; t += 3)
+            for (int pi = 0; pi < parts.Count; pi++)
             {
-                int a = idx[t], b = idx[t + 1], c = idx[t + 2];
-                int tmin = Math.Min(a, Math.Min(b, c)), tmax = Math.Max(a, Math.Max(b, c));
-                int nmin = Math.Min(vmin, tmin), nmax = Math.Max(vmax, tmax);
-                if (t > first && nmax - nmin >= maxVertices)
+                PartRange pr = parts[pi];
+                int end = Math.Min(total, pr.FirstIndex + pr.IndexCount - pr.IndexCount % 3);
+                if (end <= pr.FirstIndex) continue;
+                int first = pr.FirstIndex, vmin = int.MaxValue, vmax = -1;
+                for (int t = pr.FirstIndex; t < end; t += 3)
                 {
-                    chunks.Add(MakeChunk(m, layer, first, t - first, vmin, vmax));
-                    first = t;
-                    nmin = tmin;
-                    nmax = tmax;
+                    int a = idx[t], b = idx[t + 1], c = idx[t + 2];
+                    int tmin = Math.Min(a, Math.Min(b, c)), tmax = Math.Max(a, Math.Max(b, c));
+                    int nmin = Math.Min(vmin, tmin), nmax = Math.Max(vmax, tmax);
+                    if (t > first && nmax - nmin >= maxVertices)
+                    {
+                        chunks.Add(MakeChunk(m, layer, pr.Part, first, t - first, vmin, vmax));
+                        first = t;
+                        nmin = tmin;
+                        nmax = tmax;
+                    }
+                    vmin = nmin;
+                    vmax = nmax;
                 }
-                vmin = nmin;
-                vmax = nmax;
+                chunks.Add(MakeChunk(m, layer, pr.Part, first, end - first, vmin, vmax));
             }
-            chunks.Add(MakeChunk(m, layer, first, n - first, vmin, vmax));
 
-            if (shortIndices == null || shortIndices.Length < n)
-                shortIndices = new ushort[Math.Max(n, shortIndices == null ? 3072 : shortIndices.Length * 2)];
+            if (shortIndices == null || shortIndices.Length < total)
+                shortIndices = new ushort[Math.Max(total, shortIndices == null ? 3072 : shortIndices.Length * 2)];
             ushort[] s = shortIndices;
             for (int k = firstChunk; k < chunks.Count; k++)
             {
@@ -370,11 +634,12 @@ namespace Ghumante.World.Streaming
             }
         }
 
-        private static UploadChunk MakeChunk(MeshData m, int layer, int firstIndex, int indexCount, int vmin, int vmax)
+        private static UploadChunk MakeChunk(MeshData m, int layer, int part, int firstIndex, int indexCount, int vmin, int vmax)
         {
             var c = new UploadChunk
             {
                 Layer = layer,
+                Part = part,
                 FirstIndex = firstIndex,
                 IndexCount = indexCount,
                 FirstVertex = vmin,

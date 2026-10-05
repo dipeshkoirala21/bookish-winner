@@ -17,8 +17,8 @@
   27.735
  ],
  "biome_grid": 65,
- "built_at": "2026-10-05T00:53:46Z",
- "data_version": 1,
+ "built_at": "2026-10-05T17:06:00Z",
+ "data_version": 2,
  "detail_levels": [
   8,
   9,
@@ -26,19 +26,39 @@
  ],
  "files": [
   {
-   "bytes": 11281736,
+   "bytes": 11778286,
    "path": "kathmandu_core.ghpk",
-   "sha256": "5073bc4d2603d1c009544f2602f650f13422218e6d820ebe07d65ca694bcc7e3"
+   "sha256": "898baa10f629c3d4126af196f65dc15cc90e4060c26687f97c61740dbfb8a5e7"
   },
   {
-   "bytes": 150685,
+   "bytes": 155776,
    "path": "kathmandu_core.search.ghsi",
-   "sha256": "44341abb62c15608da4ea97bbcb5699a739c057691ab9622f84022eeaf71d273"
+   "sha256": "e76829dffd0bd4902767f3f8bd254e41768721fe4cd79d72db3f296522969d22"
   },
   {
    "bytes": 2274177,
    "path": "kathmandu_core.route.ghrg",
-   "sha256": "c80a79fa8d9a7ef5aa2de2074b029dc3014d323dffe382335ad507fddc7cf93e"
+   "sha256": "443a709d62f16f52fc9055bf51487013a6cfcc1edd96f22dc7c3bfcb9254f060"
+  },
+  {
+   "bytes": 32827,
+   "path": "kathmandu_core.transit.ghrt",
+   "sha256": "6aec529618567361b20748963cd0d3add900a4c6ffb4d9411ab9cec2fcb01048"
+  },
+  {
+   "bytes": 5949,
+   "path": "kathmandu_core.curated.ghcd",
+   "sha256": "43cc35fc37b5d5886568abf57d77a72f0cf9cf2298e0d4203ad95d94988714c0"
+  },
+  {
+   "bytes": 18819,
+   "path": "hero_recipes.json",
+   "sha256": "51cbe65ea554733e47d6adb010a2522abc81ea7f3657137906d9b8323e9ead01"
+  },
+  {
+   "bytes": 31856,
+   "path": "kathmandu_core.aviation.json",
+   "sha256": "7b7a40a0e394d75ee174890901c16d9e3503c572e95ca2eb72e2892af751ee67"
   }
  ],
  "format": "ghumante-region-manifest",
@@ -118,94 +138,311 @@
  },
  "stats": {
   "admin_areas": 12,
-  "areas": 1816,
+  "areas": 1824,
   "building_archetypes": {
    "CHURCH": 43,
-   "GOMPA": 44,
+   "GOMPA": 52,
    "GREENHOUSE": 124,
-   "HILL_VILLAGE": 341,
+   "HILL_VILLAGE": 340,
    "HUT": 29,
    "INDUSTRIAL": 91,
-   "INSTITUTIONAL": 3747,
-   "MODERN_URBAN": 199095,
-   "NEWAR": 14940,
-   "SHRINE": 30,
-   "STUPA": 1,
-   "TEMPLE_PAGODA": 137
+   "INSTITUTIONAL": 3746,
+   "MODERN_URBAN": 199107,
+   "NEWAR": 14980,
+   "RANA_PALACE": 1,
+   "SHRINE": 25,
+   "STUPA": 41,
+   "TEMPLE_PAGODA": 438,
+   "TEMPLE_SHIKHARA": 7
   },
   "building_levels_inferred_pct": 94.03,
   "building_levels_tagged_pct": 5.97,
-  "buildings": 218622,
-  "buildings_in_tiles": 167576,
+  "buildings": 219024,
+  "buildings_in_tiles": 167977,
   "chunk_bytes": {
-   "AREA": 134055,
-   "BIOM": 154142,
-   "BLDG": 4707473,
+   "AREA": 134818,
+   "BFNT": 383165,
+   "BIOM": 154144,
+   "BLDG": 4722375,
    "HGHT": 5269108,
+   "JNCT": 1038,
    "LINE": 12727,
    "META": 12638,
-   "NAME": 278652,
-   "POIS": 192332,
-   "ROAD": 487707,
+   "NAME": 281039,
+   "POIS": 193593,
+   "PROP": 15278,
+   "RATR": 74501,
+   "ROAD": 487712,
    "SEED": 1246
   },
   "graph_edges": 52064,
   "graph_nodes": 20832,
+  "graph_sacred_pieces": 23,
   "leaf_tiles": 60,
   "lines": 128,
-  "max_tile_bytes": 250665,
-  "pack_bytes": 11281736,
+  "max_tile_bytes": 273159,
+  "pack_bytes": 11778286,
   "places": 314,
-  "pois": 22075,
+  "pois": 22165,
   "road_km": 1442.9,
   "road_km_extract": 2141.912,
   "roads": 17568,
-  "search_entries": 1156,
-  "search_keys": 2831,
+  "search_entries": 1213,
+  "search_keys": 2954,
   "surface_default_pct": 0.09,
   "surface_derived_pct": 0.08,
   "surface_inferred_pct": 81.58,
   "surface_mix_pct": {
    "ASPHALT": 82.96,
-   "BRICK": 5.24,
-   "COBBLE": 0.27,
+   "BRICK": 5.25,
+   "COBBLE": 0.29,
    "COMPACTED": 0.46,
    "CONCRETE": 3.9,
    "DIRT": 5.0,
    "GRASS": 0.02,
-   "GRAVEL": 2.1,
+   "GRAVEL": 2.08,
    "METAL": 0.02,
    "ROCK": 0.02,
    "SAND": 0.0
   },
   "surface_tagged_pct": 18.25,
   "tile_features": {
-   "area_parts": 1485,
-   "buildings": 167576,
+   "area_parts": 1493,
+   "bfnt_fronts": 141639,
+   "buildings": 167977,
+   "junctions": 53,
    "line_pieces": 168,
    "places": 216,
-   "pois": 15186,
+   "pois": 15252,
+   "props": 1119,
+   "ratr_corridor_samples": 50458,
    "road_pieces": 14371
   },
   "tiles": 263,
   "timings_s": {
-   "buildings": 11.05,
-   "clip_roads": 0.2,
-   "dem": 3.44,
-   "extract": 4.62,
-   "landcover_detail": 0.03,
-   "landcover_horizon": 15.84,
+   "buildings": 13.5,
+   "clip_roads": 0.22,
+   "dem": 4.03,
+   "extract": 141.36,
+   "landcover_detail": 0.04,
+   "landcover_horizon": 17.05,
    "pack": 0.04,
-   "routing": 0.27,
-   "search": 0.1,
-   "search_entries": 0.2,
-   "surface": 0.71,
-   "tiles": 40.62,
-   "total": 77.58,
-   "trails": 0.35
+   "routing": 0.38,
+   "search": 0.11,
+   "search_entries": 0.22,
+   "surface": 0.9,
+   "tiles": 63.67,
+   "total": 271.34,
+   "trails": 0.36,
+   "transit": 0.3,
+   "w2_chunk_stats": 5.62,
+   "w2_files": 0.1,
+   "w2_hints": 11.2,
+   "w2_inputs": 6.41
   },
   "trails_sac_inferred": 3393,
   "trails_sac_tagged": 1,
+  "w2": {
+   "area_types": {
+    "FOREST": 4,
+    "HILL": 88,
+    "OLD_CORE": 76,
+    "PERI_URBAN": 259,
+    "RURAL": 66,
+    "URBAN": 695
+   },
+   "aviation": {
+    "tia": {
+     "procedures": 12,
+     "runway": "w340948564",
+     "threshold_distance_m": 2755.81
+    }
+   },
+   "bus_route_ways": 474,
+   "chunks": {
+    "chunk_bytes": {
+     "BFNT": 383165,
+     "JNCT": 1038,
+     "PROP": 15278,
+     "RATR": 74501
+    },
+    "corridor": {
+     "narrower_pct": 0.0,
+     "narrower_than_tagged": 0,
+     "open": 18084,
+     "p25_p50_p75_m": [
+      5.2,
+      8.8,
+      16.4
+     ],
+     "samples": 50458,
+     "tagged_width_samples": 6218
+    },
+    "fronts": {
+     "buildings": 167977,
+     "corners": 20950,
+     "with_front": 141639
+    },
+    "junction_kinds": {
+     "CIRCULAR": 2,
+     "MINI_ROUNDABOUT": 2,
+     "POLICE": 10,
+     "ROUNDABOUT": 6,
+     "SIGNALS": 25,
+     "SYNTHETIC_ISLAND": 8
+    },
+    "props": {
+     "AEROWAY_GATE": 12,
+     "BUS_STOP": 134,
+     "CROSSING_MARKED": 158,
+     "CROSSING_UNMARKED": 225,
+     "GATE": 154,
+     "HELIPAD": 8,
+     "PARKING_POSITION": 10,
+     "STORAGE_TANK": 14,
+     "STREET_LAMP": 168,
+     "TAXI_STAND": 17,
+     "TRAFFIC_SIGNALS": 27,
+     "TREE": 190,
+     "WINDSOCK": 2
+    }
+   },
+   "courtyards": {
+    "courtyard_holes": 1,
+    "courtyards_demoted": 0,
+    "courtyards_dropped": 0
+   },
+   "curated_file": {
+    "bytes": 5949,
+    "records": 19
+   },
+   "dual": {
+    "dual_ways": 165,
+    "service_ways": 30
+   },
+   "heritage": {
+    "compound_missing": [],
+    "cut_buildings": 1,
+    "hidden_buildings": 197,
+    "no_hide_zone": [
+     "her.ktm.hanuman_dhoka"
+    ],
+    "not_in_extract": [
+     "her.bkt.bhairavnath",
+     "her.bkt.dattatreya",
+     "her.bkt.golden_gate",
+     "her.bkt.nyatapola",
+     "her.bkt.vatsala_durga",
+     "her.ptn.bhimsen",
+     "her.ptn.golden_temple",
+     "her.ptn.krishna_mandir",
+     "her.ptn.manga_hiti",
+     "her.ptn.taleju",
+     "her.ptn.taleju_bell",
+     "her.ptn.vishwanath",
+     "her.ptn.yoganarendra_column"
+    ],
+    "outside": [
+     "her.bkt.fifty_five_window_palace",
+     "her.bkt.peacock_window",
+     "her.ptn.kumbheshwar"
+    ],
+    "records": 35,
+    "resolved": 19,
+    "unhidden_overlaps": 4
+   },
+   "junctions": {
+    "chowks_unmatched": [
+     "ekantakuna",
+     "satdobato",
+     "mahalaxmi",
+     "jawalakhel",
+     "lagankhel",
+     "jadibuti"
+    ],
+    "mini": 3,
+    "police": 24,
+    "police_on_rings": 3,
+    "records": 67,
+    "rings": 9,
+    "signals": 34,
+    "synthetic_islands": 10
+   },
+   "parts": {
+    "hosts": 80,
+    "parts": 395,
+    "parts_with_host": 388
+   },
+   "poi_hints": {
+    "buildings_with_shops": 5337,
+    "religious_pois_footprint_kept": 26,
+    "religious_pois_to_footprints": 143,
+    "shop_pois_in_footprints": 8189
+   },
+   "sacred_zones": {
+    "areas": 138,
+    "by_kind": {
+     "COMPOUND": 122,
+     "COURTYARD": 13,
+     "HERITAGE_SQUARE": 1,
+     "STUPA_KORA": 2
+    },
+    "flagged_areas": 138
+   },
+   "small_town_tag_suspect": 0,
+   "style_profiles": {
+    "BOUDHA_KORA": 1038,
+    "KATHMANDU_CORE": 10828,
+    "KIRTIPUR": 3025,
+    "METRO": 167486,
+    "PATAN": 1227,
+    "RIM": 31629,
+    "THAMEL": 2530,
+    "THIMI": 1261
+   },
+   "style_rules": {
+    "by_rule": {
+     "area_type": 16283,
+     "municipality": 182832,
+     "newar_town": 845,
+     "zone": 19064
+    },
+    "towns_found": [
+     "Tokha"
+    ],
+    "towns_missing": [
+     "Bode",
+     "Chapagaun",
+     "Pharping",
+     "Thecho",
+     "Sunakothi",
+     "Harisiddhi",
+     "Lubhu",
+     "Siddhipur",
+     "Banepa",
+     "Dhulikhel"
+    ]
+   },
+   "transit": {
+    "by_mode": {
+     "BUS": 42,
+     "FOOT": 4,
+     "HIKING": 2,
+     "MICROBUS": 12,
+     "TEMPO": 9
+    },
+    "restrictions": 45,
+    "routes": 69,
+    "stops_from_members": 62,
+    "stops_inferred": 535,
+    "with_gaps": 55
+   },
+   "transit_file": {
+    "bytes": 32827,
+    "restrictions": 45,
+    "routes": 69
+   }
+  },
   "warnings": []
  },
  "tile_counts": {

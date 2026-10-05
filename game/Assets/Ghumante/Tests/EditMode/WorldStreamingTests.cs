@@ -441,10 +441,12 @@ namespace Ghumante.Tests.EditMode
             MeshData buildings = b.Layers[TileLayers.Buildings];
             Assert.Greater(buildings.VertexCount, 4 * TileBuild.UploadChunkVertices, "a dense city layer");
 
-            // The same layer meshed again without chunking: the reference triangles.
+            // The same layer meshed again without chunking: the reference triangles (regrouped by 128 m block in the
+            // streamed layer, W2 bands).
             var reference = new MeshData();
             BuildingMesher.Build(b.Source, b.Sampler, meshing.Buildings, reference);
             Assert.AreEqual(buildings.IndexCount, reference.IndexCount);
+            int perSide = MeshParts.BlocksPerSide(DenseLeaf.Size, Ghumante.World.Buildings.BandConfig.B1BlockM);
 
             int expectedIndex = 0, layer = -1, buildingChunks = 0;
             for (int k = 0; k < b.Chunks.Count; k++)
@@ -474,7 +476,21 @@ namespace Ghumante.Tests.EditMode
                     Assert.That(m.Positions[p], Is.InRange(c.MinX, c.MaxX));
                     Assert.That(m.Positions[p + 1], Is.InRange(c.MinY, c.MaxY));
                     Assert.That(m.Positions[p + 2], Is.InRange(c.MinZ, c.MaxZ));
-                    if (c.Layer == TileLayers.Buildings) Assert.AreEqual(reference.Indices[i], c.FirstVertex + v);
+                }
+                if (c.Layer == TileLayers.Buildings)
+                {
+                    // Every triangle of a B1 chunk has its centroid in the chunk's block.
+                    for (int i = c.FirstIndex; i < c.FirstIndex + c.IndexCount; i += 3)
+                    {
+                        double cx = 0, cz = 0;
+                        for (int q = 0; q < 3; q++)
+                        {
+                            int p = (c.FirstVertex + m.Indices[i + q]) * 3;
+                            cx += m.Positions[p] / 3.0;
+                            cz += m.Positions[p + 2] / 3.0;
+                        }
+                        Assert.AreEqual(c.Part, MeshParts.BlockOf(cx, cz, Ghumante.World.Buildings.BandConfig.B1BlockM, perSide));
+                    }
                 }
                 if (c.Layer == TileLayers.Buildings) buildingChunks++;
                 expectedIndex += c.IndexCount;
@@ -555,7 +571,7 @@ namespace Ghumante.Tests.EditMode
             b.Node = new SelectedNode(DenseLeaf2, DenseLeaf2);
             TileBuild.Execute(b, SampleRegion.Pack, config, meshing, null);
             MeshData buildings = b.Layers[TileLayers.Buildings];
-            Assert.Greater(buildings.VertexCount, 131072, "grew past the old 131 072-vertex pool cap");
+            Assert.Greater(buildings.VertexCount, 65536, "a dense styled B1 layer (W2 bands)");
             Assert.LessOrEqual(buildings.VertexCapacity, TileBuild.PoolKeepVertices);
             float[] positions = buildings.Positions;
             ushort[] shortIndices = b.ShortIndices[TileLayers.Buildings];

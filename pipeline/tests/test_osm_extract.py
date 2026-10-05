@@ -129,9 +129,12 @@ def test_way_with_missing_node_keeps_aligned_ids(ex):
 # Buildings
 # ---------------------------------------------------------------------------
 def test_building_set(ex):
-    # 250 is outside, 252 is a building:part only; 251 is in the buffer.
+    # 250 is outside; 251 is in the buffer; 252 is a building:part only (a PART record since W2, D4).
     assert [(b.osm_type, b.osm_id) for b in ex.buildings] == [("w", 200), ("w", 201), ("w", 230), ("w", 251),
-                                                              ("r", 300)]
+                                                              ("w", 252), ("r", 300)]
+    part = _by_id(ex.buildings, 252)
+    assert part.flags & BuildingFlags.PART
+    assert ex.stats["building_parts"] == 1
 
 
 def test_buildings_sorted_by_osm_ref(ex):
@@ -264,8 +267,8 @@ def test_excluded_features(ex):
     every = set()
     for lst in (ex.roads, ex.buildings, ex.pois, ex.places, ex.areas, ex.lines):
         every |= _ids(lst)
-    # Far-away road, building, peak, village and lake; a building:part; an untagged node.
-    for far in (("w", 150), ("w", 250), ("w", 252), ("n", 72), ("n", 73), ("r", 302), ("w", 223), ("n", 104)):
+    # Far-away road, building, peak, village and lake; an untagged node.
+    for far in (("w", 150), ("w", 250), ("n", 72), ("n", 73), ("r", 302), ("w", 223), ("n", 104)):
         assert far not in every
 
 
@@ -287,7 +290,8 @@ def test_buffered_bbox():
 # ---------------------------------------------------------------------------
 def test_stats(ex):
     s = ex.stats
-    assert s["counts"] == {"roads": 8, "buildings": 5, "pois": 5, "places": 2, "areas": 2, "lines": 1, "admin": 2}
+    assert s["counts"] == {"roads": 8, "buildings": 6, "pois": 5, "places": 2, "areas": 2, "lines": 1, "admin": 2,
+                           "props": 0, "junction_nodes": 0, "routes": 0, "restrictions": 0}
     assert s["region"] == "mini" and s["road_classes"]["RESIDENTIAL"] == 2
     assert set(s["timing_s"]) == {"pass_relations", "pass_nodes_ways", "assemble_relations", "total"}
     assert s["unknown_values"] == {}

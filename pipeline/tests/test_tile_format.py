@@ -52,7 +52,7 @@ NAMES = [NameRec("Durbar Marg", "Durbar Marg", "दरबार मार्ग"
          NameRec("बौद्धनाथ", "Boudhanath", "बौद्धनाथ"), NameRec("Thamel", "", ""), NameRec("", "", "")]
 
 
-def make_tile(seed: int = 0, n_roads=40, n_lines=10, n_bldg=200, n_areas=12, n_pois=30) -> TileData:
+def make_tile(seed: int = 0, n_roads=40, n_lines=10, n_bldg=200, n_areas=12, n_pois=30, w2: bool = True) -> TileData:
     rng = np.random.default_rng(seed)
     names = NameTable()
 
@@ -110,6 +110,38 @@ def make_tile(seed: int = 0, n_roads=40, n_lines=10, n_bldg=200, n_areas=12, n_p
                               importance=int(rng.integers(0, 256)), x_cm=int(rng.integers(0, S_CM)),
                               z_cm=int(rng.integers(0, S_CM)), ele_dm=int(rng.integers(-1000, 88490)) if has_ele else 0,
                               name_ref=nref(), search_id=int(rng.integers(0, 100000))))
+    if w2:
+        from ghumante_pipeline.tile_format import BuildingFrontRec, JunctionRec, PropRec, RoadAttrRec
+
+        for _ in td.roads:
+            td.road_attrs.append(RoadAttrRec(
+                area_type=int(rng.integers(0, 7)), sidewalk=int(rng.integers(0, 6)), lanes_fwd=int(rng.integers(0, 4)),
+                lanes_bwd=int(rng.integers(0, 4)), maxspeed_kmh=int(rng.choice([0, 30, 40, 50])),
+                flags=int(rng.integers(0, 256)), partner_way_id=int(rng.integers(0, 1 << 40)) * int(rng.random() < 0.2),
+                median_cm=int(rng.integers(0, 400)),
+                corridor_dm=rng.integers(0, 900, int(rng.integers(0, 30))).astype(np.int64)))
+        for b in td.buildings:
+            n = len(b.rings[0])
+            fe = int(rng.integers(0, n)) if rng.random() < 0.8 else 255
+            td.building_fronts.append(BuildingFrontRec(
+                int(rng.integers(0, 13)), int(rng.integers(0, 7)), fe, int(rng.integers(0, 256)),
+                int(rng.integers(0, 16)) | (0x80 if rng.random() < 0.3 else 0), int(rng.integers(0, 128)),
+                int(rng.integers(0, n)) if rng.random() < 0.2 else 255))
+        for _ in range(12):
+            td.junctions.append(JunctionRec(
+                osm_node_id=int(rng.integers(0, 1 << 40)), kind=int(rng.integers(0, 7)), arms=int(rng.integers(0, 7)),
+                flags=int(rng.integers(0, 64)), x_cm=int(rng.integers(-500, S_CM + 500)),
+                z_cm=int(rng.integers(-500, S_CM + 500)), ring_diameter_cm=int(rng.integers(0, 6000)),
+                island_diameter_cm=int(rng.integers(0, 4000)), island_area_osm_ref=int(rng.integers(0, 1 << 30)),
+                name_ref=nref()))
+        for _ in range(40):
+            yaw = rng.random() < 0.5
+            td.props.append(PropRec(
+                osm_ref=osm_ref_nwr("nw"[int(rng.integers(0, 2))], int(rng.integers(1, 1 << 40))),
+                kind=int(rng.integers(0, 25)), subtype=int(rng.integers(0, 6)),
+                flags=int(rng.integers(0, 32)) & ~1 | int(yaw), x_cm=int(rng.integers(0, S_CM)),
+                z_cm=int(rng.integers(0, S_CM)), yaw_cdeg=int(rng.integers(0, 36000)) if yaw else 0,
+                height_dm=int(rng.integers(0, 400)), name_ref=nref(), ref_ref=names.ref_str(["D7", "11", None][_ % 3])))
     td.names = names.entries()
     td.seed = make_seed(TILE, 1)
     td.meta = {"region": "kathmandu_valley", "sources": {"osm": "abc123", "dem": ["N27E085"], "landcover": "wc"},
@@ -228,13 +260,19 @@ def test_encoding_independent_of_record_and_name_order():
     def remap(rec, *fields):
         return dataclasses.replace(rec, **{f: new_ref[getattr(rec, f)] for f in fields})
 
+    rp = rng.permutation(len(td.roads))
+    bp = rng.permutation(len(td.buildings))
     shuffled = dataclasses.replace(
         td, names=new_names + [NameEntry("unused", "", "")],
-        roads=[remap(td.roads[i], "name_ref", "ref_ref") for i in rng.permutation(len(td.roads))],
+        roads=[remap(td.roads[i], "name_ref", "ref_ref") for i in rp],
+        road_attrs=[td.road_attrs[i] for i in rp],  # parallel lists move with their records
         lines=[remap(td.lines[i], "name_ref") for i in rng.permutation(len(td.lines))],
-        buildings=[remap(td.buildings[i], "name_ref") for i in rng.permutation(len(td.buildings))],
+        buildings=[remap(td.buildings[i], "name_ref") for i in bp],
+        building_fronts=[td.building_fronts[i] for i in bp],
         areas=[remap(td.areas[i], "name_ref") for i in rng.permutation(len(td.areas))],
         pois=[remap(td.pois[i], "name_ref") for i in rng.permutation(len(td.pois))],
+        junctions=[remap(td.junctions[i], "name_ref") for i in rng.permutation(len(td.junctions))],
+        props=[remap(td.props[i], "name_ref", "ref_ref") for i in rng.permutation(len(td.props))],
         meta=dict(reversed(list(td.meta.items()))))
     assert encode_tile(shuffled) == encode_tile(td)
 

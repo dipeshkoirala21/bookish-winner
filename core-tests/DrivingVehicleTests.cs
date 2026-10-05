@@ -663,7 +663,7 @@ namespace Ghumante.Core.Tests
         {
             TileGroundQuery g = DrivingData.SampleGround();
             double x, z;
-            WorldFrame.LonLatToGame(85.31172094019205, 27.716693189023914, out x, out z); // Thamel Marg
+            DrivingData.ThamelMarg(out x, out z);
             var bike = new ArcadeVehicle(VehicleSpec.Motorbike());
             var walker = new ArcadeVehicle(VehicleSpec.Walker());
             bike.Teleport(x, z, 1.2f, g);
@@ -694,7 +694,7 @@ namespace Ghumante.Core.Tests
         {
             TileGroundQuery g = DrivingData.SampleGround();
             double x, z, bx, bz;
-            WorldFrame.LonLatToGame(85.31172094019205, 27.716693189023914, out x, out z); // on Thamel Marg
+            DrivingData.ThamelMarg(out x, out z);
             WorldFrame.LonLatToGame(85.362, 27.7215, out bx, out bz); // Boudhanath
             var v = new ArcadeVehicle(VehicleSpec.Motorbike());
             float heading = (float)Math.Atan2(bx - x, bz - z);

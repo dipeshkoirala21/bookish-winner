@@ -1034,3 +1034,311 @@
     border-width: 3px;
     border-color: var(--gh-yellow-dark);
 }
+
+/* ----- W2 controls (W2_DESIGN 6.5): Action, passenger, namaste, horn, stop bell, prompt chip --------------------
+ * Layout classes added by ExploreScreen.SetLayout: gh-hud--walk, gh-hud--ride (any vehicle the player drives; with
+ * gh-hud--two for two-wheelers and gh-hud--heavy for buses and trucks) and gh-hud--passenger (riding along).
+ * Landscape (two thumbs): Action 80 pt at (88%, 18%), Namaste 56 pt at (76%, 12%), Horn 52 pt at (76%, 32%).
+ * Portrait (one thumb, right column): Action 72 pt at (84%, 14%), Namaste 52 pt at (84%, 27%); in a vehicle Hop off
+ * 52 pt at (92%, 30%) and Horn 52 pt at (66%, 22%). Panel units are about 2.3 per point. */
+
+/* Layout lives in the plain selectors only: a pseudo-class counts like a class in Unity's specificity, so a
+ * :hover:active rule carrying position, size or display would beat the layout rules below while the button is
+ * pressed (check_ui.py enforces this). */
+.gh-action-btn {
+    position: absolute;
+    right: 4%;
+    bottom: 14%;
+    width: 184px;
+    height: 184px;
+    border-radius: 92px;
+}
+
+.gh-action-btn,
+.gh-action-btn:focus,
+.gh-action-btn:hover,
+.gh-action-btn:active,
+.gh-action-btn:hover:active {
+    margin: 0;
+    padding: 0;
+    border-width: 3px;
+    border-bottom-width: 9px;
+    background-color: var(--gh-yellow);
+    border-color: var(--gh-yellow-dark);
+    align-items: center;
+    justify-content: center;
+    transform-origin: 50% 100%;
+}
+
+.gh-action-btn--hop,
+.gh-action-btn--hop:focus,
+.gh-action-btn--hop:hover,
+.gh-action-btn--hop:active,
+.gh-action-btn--hop:hover:active {
+    background-color: var(--gh-green);
+    border-color: var(--gh-green-dark);
+}
+
+.gh-action-btn--off,
+.gh-action-btn--off:focus,
+.gh-action-btn--off:hover,
+.gh-action-btn--off:active,
+.gh-action-btn--off:hover:active {
+    background-color: var(--gh-cyan);
+    border-color: var(--gh-cyan-dark);
+}
+
+.gh-action-btn__label,
+.gh-root .gh-action-btn__label {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 30px;
+    color: var(--gh-white);
+    -unity-text-outline-width: 1.5px;
+    -unity-text-outline-color: var(--gh-outline);
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin: 0;
+    padding: 0 8px;
+}
+
+.gh-action-btn__icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 2px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.gh-action-btn__icon--jump {
+    width: 0;
+    height: 0;
+    border-left-width: 30px;
+    border-right-width: 30px;
+    border-bottom-width: 40px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-right-color: rgba(0, 0, 0, 0);
+    border-bottom-color: var(--gh-white);
+}
+
+.gh-action-btn__icon--scooter {
+    background-image: url("../Icons/scooter.png");
+}
+
+.gh-action-btn__icon--none {
+    display: none;
+}
+
+.gh-round-btn {
+    position: absolute;
+    width: 129px;
+    height: 129px;
+    border-radius: 65px;
+    display: none;
+}
+
+.gh-round-btn,
+.gh-round-btn:focus,
+.gh-round-btn:hover,
+.gh-round-btn:active,
+.gh-round-btn:hover:active {
+    margin: 0;
+    padding: 0;
+    border-width: 3px;
+    border-bottom-width: 7px;
+    background-color: var(--gh-white);
+    border-color: var(--gh-white-dark);
+    align-items: center;
+    justify-content: center;
+    transform-origin: 50% 100%;
+}
+
+.gh-round-btn__label,
+.gh-root .gh-round-btn__label {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 24px;
+    color: var(--gh-ink);
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin: 0;
+    padding: 0 4px;
+}
+
+.gh-small-btn {
+    position: absolute;
+    right: 4%;
+    bottom: 36%;
+    height: 104px;
+    min-width: 200px;
+    border-radius: 52px;
+    display: none;
+}
+
+.gh-small-btn,
+.gh-small-btn:focus,
+.gh-small-btn:hover,
+.gh-small-btn:active,
+.gh-small-btn:hover:active {
+    margin: 0;
+    padding: 0 24px;
+    border-width: 3px;
+    border-bottom-width: 7px;
+    background-color: var(--gh-cream);
+    border-color: var(--gh-cream-edge);
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-small-btn__label,
+.gh-root .gh-small-btn__label {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 24px;
+    color: var(--gh-ink);
+    -unity-text-align: middle-center;
+    margin: 0;
+    padding: 0;
+}
+
+/* Which buttons each layout shows. */
+.gh-hud--walk .gh-hud__emote {
+    display: flex;
+    right: 20%;
+    bottom: 10%;
+}
+
+.gh-hud__passenger--on {
+    display: flex;
+}
+
+.gh-hud--ride .gh-hud__horn {
+    display: flex;
+    right: 20%;
+    bottom: 30%;
+}
+
+.gh-hud--passenger .gh-hud__bell {
+    display: flex;
+    right: 20%;
+    bottom: 14%;
+}
+
+/* Riding along: no steering or pedals. */
+.gh-hud--passenger .gh-hud__stick-zone,
+.gh-hud--passenger .gh-hud__drive-zone,
+.gh-hud--passenger .gh-hud__pedals {
+    display: none;
+}
+
+/* In a vehicle (landscape) the Action button is Hop off, above the pedals. */
+.gh-hud--ride .gh-hud__action {
+    width: 129px;
+    height: 129px;
+    border-radius: 65px;
+    right: 3%;
+    bottom: 46%;
+}
+
+/* Portrait: the right column holds the buttons; the stick and the drive zone keep left of it. */
+.orient-portrait .gh-hud__stick-zone,
+.orient-portrait .gh-hud__drive-zone {
+    right: 26%;
+}
+
+.orient-portrait .gh-hud__action {
+    width: 166px;
+    height: 166px;
+    border-radius: 83px;
+    right: 6%;
+    bottom: 12%;
+}
+
+.orient-portrait.gh-hud--walk .gh-hud__emote {
+    right: 7%;
+    bottom: 26%;
+}
+
+.orient-portrait .gh-hud__passenger {
+    right: 4%;
+    bottom: 34%;
+}
+
+.orient-portrait.gh-hud--ride .gh-hud__action {
+    width: 120px;
+    height: 120px;
+    border-radius: 60px;
+    right: 3%;
+    bottom: 30%;
+}
+
+.orient-portrait.gh-hud--ride .gh-hud__horn {
+    right: 6%;
+    bottom: 12%;
+}
+
+.orient-portrait.gh-hud--passenger .gh-hud__bell {
+    right: 7%;
+    bottom: 28%;
+}
+
+/* The prompt chip sits above the action column (landscape) or above the lower controls (portrait). */
+.gh-hud__prompt {
+    position: absolute;
+    right: 3%;
+    bottom: 58%;
+    max-width: 40%;
+    padding: 10px 22px;
+    border-radius: 30px;
+    background-color: var(--gh-counter-bg);
+    display: none;
+}
+
+.gh-hud__prompt--on {
+    display: flex;
+}
+
+.gh-hud__prompt-label,
+.gh-root .gh-hud__prompt-label {
+    font-size: 24px;
+    color: var(--gh-white);
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin: 0;
+    padding: 0;
+}
+
+/* Portrait: above the speedometer (which stands at 42% plus about 190 units of digits and surface chip), so the
+ * chip never covers the speed readout. */
+.orient-portrait .gh-hud__prompt {
+    left: 8%;
+    right: 8%;
+    max-width: none;
+    bottom: 54%;
+    align-self: center;
+}
+
+/* The garage button's icon: a roof over a door. */
+.gh-hud-icon__garage-roof {
+    position: absolute;
+    left: 6px;
+    top: 4px;
+    width: 0;
+    height: 0;
+    border-left-width: 22px;
+    border-right-width: 22px;
+    border-bottom-width: 18px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-right-color: rgba(0, 0, 0, 0);
+    border-bottom-color: var(--gh-ink);
+}
+
+.gh-hud-icon__garage-door {
+    position: absolute;
+    left: 12px;
+    top: 24px;
+    width: 32px;
+    height: 26px;
+    border-radius: 4px;
+    background-color: var(--gh-green);
+    border-width: 3px;
+    border-color: var(--gh-ink);
+}

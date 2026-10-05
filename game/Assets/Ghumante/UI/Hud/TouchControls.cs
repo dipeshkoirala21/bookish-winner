@@ -27,6 +27,18 @@ namespace Ghumante.UI.Hud
 
         /// <summary>A stick, zone or pedal is held.</summary>
         public bool Active;
+
+        /// <summary>The Action button went down since the last read (Jump / Hop on / Hop off / Stop).</summary>
+        public bool ActionPressed;
+
+        /// <summary>The Action button is held now (a 0.35 s hold rides as a passenger, 0.4 s hails a taxi).</summary>
+        public bool ActionHeld;
+
+        /// <summary>The Horn (or bicycle bell) button is held now.</summary>
+        public bool Horn;
+
+        /// <summary>Taps since the last read: Namaste, the Stop bell, Ride as passenger.</summary>
+        public bool Namaste, Bell, Passenger;
     }
 
     /// <summary>The elements of the touch controls, resolved by the Explore screen (check_ui verifies the names).</summary>
@@ -50,6 +62,13 @@ namespace Ghumante.UI.Hud
         /// <summary>Landscape throttle pedal and the brake/reverse pedal (both orientations while riding).</summary>
         public Button Throttle;
         public Button Brake;
+
+        /// <summary>W2 buttons (W2_DESIGN 6.5): Action (morphs), Ride as passenger, Namaste, Horn, Stop bell.</summary>
+        public Button Action;
+        public Button Passenger;
+        public Button Emote;
+        public Button Horn;
+        public Button Bell;
     }
 
     /// <summary>
@@ -85,6 +104,9 @@ namespace Ghumante.UI.Hud
 
         private int _throttlePointer = NoPointer;
         private int _brakePointer = NoPointer;
+        private int _actionPointer = NoPointer;
+        private int _hornPointer = NoPointer;
+        private bool _actionPressed, _namaste, _bell, _passenger;
 
         private int _padA = NoPointer, _padB = NoPointer;
         private Vector2 _padPosA, _padPosB;
@@ -110,6 +132,29 @@ namespace Ghumante.UI.Hud
             feel(view.Brake, HapticKind.LightImpact, null);
             HoldTracking(view.Throttle, true);
             HoldTracking(view.Brake, false);
+            if (view.Action != null)
+            {
+                feel(view.Action, HapticKind.MediumImpact, null);
+                ButtonHold(view.Action, id =>
+                {
+                    _actionPointer = id;
+                    _actionPressed = true;
+                }, id =>
+                {
+                    if (_actionPointer == id) _actionPointer = NoPointer;
+                });
+            }
+            if (view.Horn != null)
+            {
+                feel(view.Horn, HapticKind.LightImpact, null);
+                ButtonHold(view.Horn, id => _hornPointer = id, id =>
+                {
+                    if (_hornPointer == id) _hornPointer = NoPointer;
+                });
+            }
+            if (view.Emote != null) feel(view.Emote, HapticKind.LightImpact, () => _namaste = true);
+            if (view.Bell != null) feel(view.Bell, HapticKind.MediumImpact, () => _bell = true);
+            if (view.Passenger != null) feel(view.Passenger, HapticKind.LightImpact, () => _passenger = true);
 
             view.StickZone.RegisterCallback<PointerDownEvent>(OnStickDown);
             view.StickZone.RegisterCallback<PointerMoveEvent>(OnStickMove);
@@ -173,8 +218,15 @@ namespace Ghumante.UI.Hud
             s.Looking = _padA != NoPointer;
             s.Touched = _touched;
             s.Active = AnyHeld;
+            s.ActionPressed = _actionPressed;
+            s.ActionHeld = _actionPointer != NoPointer;
+            s.Horn = _hornPointer != NoPointer;
+            s.Namaste = _namaste;
+            s.Bell = _bell;
+            s.Passenger = _passenger;
             _zoom = _lookYaw = _lookPitch = 0f;
             _touched = false;
+            _actionPressed = _namaste = _bell = _passenger = false;
             return s;
         }
 
@@ -357,6 +409,21 @@ namespace Ghumante.UI.Hud
             pedal.RegisterCallback<PointerCaptureOutEvent>(evt => ReleasePedal(throttle, evt.pointerId));
         }
 
+        /// <summary>Tracks a button held by a finger (down to up, wherever it slides), like the pedals.</summary>
+        private void ButtonHold(Button button, Action<int> down, Action<int> up)
+        {
+            button.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (!IsPrimary(evt)) return;
+                Note(evt.pointerType);
+                down(evt.pointerId);
+                if (!button.HasPointerCapture(evt.pointerId)) button.CapturePointer(evt.pointerId);
+            }, TrickleDown.TrickleDown);
+            button.RegisterCallback<PointerUpEvent>(evt => up(evt.pointerId), TrickleDown.TrickleDown);
+            button.RegisterCallback<PointerCancelEvent>(evt => up(evt.pointerId), TrickleDown.TrickleDown);
+            button.RegisterCallback<PointerCaptureOutEvent>(evt => up(evt.pointerId));
+        }
+
         private void ReleasePedal(bool throttle, int pointerId)
         {
             if (throttle)
@@ -377,6 +444,10 @@ namespace Ghumante.UI.Hud
             if (_brakePointer != NoPointer && _view.Brake.HasPointerCapture(_brakePointer)) _view.Brake.ReleasePointer(_brakePointer);
             _throttlePointer = NoPointer;
             _brakePointer = NoPointer;
+            if (_actionPointer != NoPointer && _view.Action != null && _view.Action.HasPointerCapture(_actionPointer)) _view.Action.ReleasePointer(_actionPointer);
+            if (_hornPointer != NoPointer && _view.Horn != null && _view.Horn.HasPointerCapture(_hornPointer)) _view.Horn.ReleasePointer(_hornPointer);
+            _actionPointer = NoPointer;
+            _hornPointer = NoPointer;
         }
 
         // ----- World pad: look and pinch -------------------------------------------------------------------------------

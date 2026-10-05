@@ -1,0 +1,1675 @@
+{
+ "airport": {
+  "aerodrome": "w118505122",
+  "aprons": {
+   "domestic": "w736369694",
+   "east": "w912639950",
+   "international": "w736369689",
+   "maintenance": "w340948578",
+   "military": "w220704670",
+   "north": "w1368706500"
+  },
+  "buildings": {
+   "atc_tower": "w340948572",
+   "domestic_terminal": "w185408474",
+   "international_terminal": "w327224048"
+  },
+  "elevation_m": 1340.0,
+  "iata": "KTM",
+  "icao": "VNKT",
+  "name_en": "Tribhuvan International Airport",
+  "ndb": {
+   "id": "KTM",
+   "khz": 318,
+   "lat": 27.6937,
+   "lon": 85.3537,
+   "osm": "n4723585277",
+   "x": 533480.758,
+   "z": 164005.623
+  },
+  "open_hours": [
+   6,
+   24
+  ],
+  "runway": {
+   "designators": [
+    "02",
+    "20"
+   ],
+   "displaced_ways": [
+    "w1453500827",
+    "w1453500826"
+   ],
+   "heading_game_deg": 21.433,
+   "heading_true_deg": [
+    22.0,
+    202.0
+   ],
+   "hials_02_m": 870,
+   "length_between_thresholds_m": 2755.81,
+   "main_way": "w340948564",
+   "papi_deg": 3.0,
+   "pavement_ends": {
+    "north": {
+     "lat": 27.7093117,
+     "lon": 85.3649612,
+     "x": 534572.124,
+     "z": 165747.464
+    },
+    "south": {
+     "lat": 27.6815732,
+     "lon": 85.3523298,
+     "x": 533360.373,
+     "z": 162660.639
+    }
+   },
+   "thresholds": {
+    "02": {
+     "dsm_m": 1313.53,
+     "elev_m": 1315.0,
+     "lat": 27.6839528,
+     "lon": 85.3534132,
+     "x": 533464.331,
+     "z": 162925.441
+    },
+    "20": {
+     "dsm_m": 1336.49,
+     "elev_m": 1337.0,
+     "lat": 27.7070042,
+     "lon": 85.3639103,
+     "x": 534471.334,
+     "z": 165490.672
+    }
+   },
+   "width_m": 45.0
+  },
+  "vor": {
+   "id": "KTM",
+   "lat": 27.6733,
+   "lon": 85.3483,
+   "mhz": 113.2,
+   "x": 532972.952,
+   "z": 161739.719
+  }
+ },
+ "classes": {
+  "helicopter": {
+   "model": "ghm_veh_helicopter_a"
+  },
+  "narrowbody": {
+   "model": "ghm_veh_air_narrowbody_a",
+   "share_international": 0.92
+  },
+  "stol": {
+   "model": "ghm_veh_stol_turboprop_a",
+   "share_domestic_fixed_wing": 0.15
+  },
+  "turboprop": {
+   "model": "ghm_veh_air_turboprop_a",
+   "share_domestic_fixed_wing": 0.75
+  },
+  "turboprop_stretch": {
+   "model": "ghm_veh_air_turboprop_a",
+   "share_domestic_fixed_wing": 0.1
+  },
+  "widebody": {
+   "model": "ghm_veh_air_widebody_a",
+   "share_international": 0.08
+  }
+ },
+ "format": "ghumante-aviation",
+ "holds": [
+  {
+   "fix": "DARKE",
+   "inbound_deg": 108,
+   "lat": 27.74261,
+   "leg_km": 5.6,
+   "levels_m": [
+    3200,
+    3505,
+    3810
+   ],
+   "lon": 85.10672,
+   "turn": "right",
+   "x": 509076.834,
+   "z": 169180.92
+  },
+  {
+   "fix": "IGRIS",
+   "inbound_deg": 285,
+   "lat": 27.60841,
+   "leg_km": 5.6,
+   "levels_m": [
+    3200,
+    3505,
+    3810
+   ],
+   "lon": 85.62066,
+   "turn": "right",
+   "x": 559931.951,
+   "z": 154873.58
+  }
+ ],
+ "liveries": {
+  "fixed_wing": [
+   "liv_glacier",
+   "liv_rhodo",
+   "liv_kite",
+   "liv_monsoon",
+   "liv_sunrise",
+   "liv_yak"
+  ],
+  "helicopter": [
+   "#E63946",
+   "#FFC93C",
+   "#3A86FF"
+  ]
+ },
+ "note": "Imported unchanged from docs/research/w2/aviation.md sections 1, 4 and 5 (procedure geometry from superseded public chart copies, NOT for navigation). Thresholds and aprons are taken from OSM at build time (D20). All rates per REAL hour (AV 4.4).",
+ "procedure_weights": {
+  "DOM_arrival": {
+   "A1": 0.1,
+   "A3": 0.45,
+   "A4": 0.45
+  },
+  "DOM_departure": {
+   "east": [
+    "D2",
+    "D4"
+   ],
+   "west": [
+    "D1",
+    "D3"
+   ],
+   "west_share": 0.45
+  },
+  "HELI": {
+   "H-E": 0.5,
+   "H-N": 0.2,
+   "H-W": 0.3
+  },
+  "INTL_arrival": {
+   "A1": 0.595,
+   "A2": 0.1275,
+   "A4": 0.15
+  },
+  "INTL_departure": {
+   "east": [
+    "D2",
+    "D4"
+   ],
+   "west_afternoon": "D3",
+   "west_morning": "D1",
+   "west_share": 0.85
+  }
+ },
+ "procedures": {
+  "A1": {
+   "points": [
+    {
+     "alt_m": 4572.0,
+     "ground_m": 100.0,
+     "lat": 27.05333,
+     "lon": 85.06833,
+     "note": "ROMEO, FL150 (chart)",
+     "x": 505948.14,
+     "z": 92791.334
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 421.0,
+     "lat": 27.30167,
+     "lon": 85.18,
+     "note": "RATAN (alt estimate)",
+     "x": 516764.713,
+     "z": 120400.24
+    },
+    {
+     "alt_m": 3505.0,
+     "ground_m": 834.0,
+     "lat": 27.41,
+     "lon": 85.23,
+     "note": "GURAS IAF D17, 11 500 ft (chart)",
+     "x": 521594.403,
+     "z": 132448.74
+    },
+    {
+     "alt_m": 2987.0,
+     "ground_m": 790.0,
+     "lat": 27.47255,
+     "lon": 85.25691,
+     "note": "D13, 9 800 ft (read from the chart profile [V])",
+     "x": 524184.832,
+     "z": 139404.715
+    },
+    {
+     "alt_m": 2896.0,
+     "ground_m": 2062.0,
+     "lat": 27.51889,
+     "lon": 85.27798,
+     "note": "SIERRA D10, 9 500 ft (PIA268 report)",
+     "x": 526213.907,
+     "z": 144559.648
+    },
+    {
+     "alt_m": 2743.0,
+     "ground_m": 2229.0,
+     "lat": 27.53434,
+     "lon": 85.28501,
+     "note": "D9 start 5.5 deg segment (chart)",
+     "x": 526890.516,
+     "z": 146278.431
+    },
+    {
+     "alt_m": 2560.0,
+     "ground_m": 1974.0,
+     "lat": 27.54978,
+     "lon": 85.29204,
+     "note": "",
+     "x": 527566.934,
+     "z": 147996.156
+    },
+    {
+     "alt_m": 2393.0,
+     "ground_m": 1593.0,
+     "lat": 27.56523,
+     "lon": 85.29907,
+     "note": "",
+     "x": 528243.138,
+     "z": 149715.036
+    },
+    {
+     "alt_m": 2210.0,
+     "ground_m": 1564.0,
+     "lat": 27.58067,
+     "lon": 85.3061,
+     "note": "",
+     "x": 528919.151,
+     "z": 151432.857
+    },
+    {
+     "alt_m": 2027.0,
+     "ground_m": 1423.0,
+     "lat": 27.59612,
+     "lon": 85.31313,
+     "note": "",
+     "x": 529594.95,
+     "z": 153151.835
+    },
+    {
+     "alt_m": 1859.0,
+     "ground_m": 1459.0,
+     "lat": 27.61156,
+     "lon": 85.32017,
+     "note": "",
+     "x": 530271.544,
+     "z": 154869.764
+    },
+    {
+     "alt_m": 1676.0,
+     "ground_m": 1399.0,
+     "lat": 27.627,
+     "lon": 85.32721,
+     "note": "D3 start 3.0 deg (chart)",
+     "x": 530947.935,
+     "z": 156587.741
+    },
+    {
+     "alt_m": 1585.0,
+     "ground_m": 1309.0,
+     "lat": 27.64245,
+     "lon": 85.33425,
+     "note": "",
+     "x": 531624.111,
+     "z": 158306.876
+    },
+    {
+     "alt_m": 1478.0,
+     "ground_m": 1304.0,
+     "lat": 27.65789,
+     "lon": 85.34129,
+     "note": "est",
+     "x": 532300.094,
+     "z": 160024.951
+    },
+    {
+     "alt_m": 1396.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "KTM VOR (est on 3 deg)",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 1329.0,
+     "ground_m": 1313.0,
+     "lat": 27.68395,
+     "lon": 85.35341,
+     "note": "THR 02 (displaced), TCH 15 m est",
+     "x": 533464.018,
+     "z": 162925.128
+    },
+    {
+     "alt_m": 1317.0,
+     "ground_m": 1321.0,
+     "lat": 27.68896,
+     "lon": 85.3557,
+     "note": "touchdown zone ~600 m (est)",
+     "x": 533683.763,
+     "z": 163482.656
+    }
+   ],
+   "title": "VOR/DME 02 straight-in from the south"
+  },
+  "A2": {
+   "points": [
+    {
+     "alt_m": 3505.0,
+     "ground_m": 834.0,
+     "lat": 27.41,
+     "lon": 85.23,
+     "note": "GURAS, 11 500 ft",
+     "x": 521594.403,
+     "z": 132448.74
+    },
+    {
+     "alt_m": 2611.0,
+     "ground_m": 1343.0,
+     "lat": 27.48965,
+     "lon": 85.21899,
+     "note": "(est) 2.8 deg along track",
+     "x": 520419.339,
+     "z": 141261.723
+    },
+    {
+     "alt_m": 2319.0,
+     "ground_m": 1230.0,
+     "lat": 27.54204,
+     "lon": 85.23269,
+     "note": "(est) enters Bagmati gap 2.8 deg along track",
+     "x": 521715.132,
+     "z": 147078.969
+    },
+    {
+     "alt_m": 2135.0,
+     "ground_m": 1359.0,
+     "lat": 27.57123,
+     "lon": 85.25171,
+     "note": "(est) 2.8 deg along track",
+     "x": 523560.64,
+     "z": 150331.564
+    },
+    {
+     "alt_m": 1954.0,
+     "ground_m": 1331.0,
+     "lat": 27.59565,
+     "lon": 85.27737,
+     "note": "(est) RF turn starts 2.8 deg along track",
+     "x": 526065.934,
+     "z": 153062.798
+    },
+    {
+     "alt_m": 1790.0,
+     "ground_m": 1355.0,
+     "lat": 27.61259,
+     "lon": 85.3055,
+     "note": "(est) 2.8 deg along track",
+     "x": 528822.59,
+     "z": 154968.495
+    },
+    {
+     "alt_m": 1682.0,
+     "ground_m": 1419.0,
+     "lat": 27.62503,
+     "lon": 85.32291,
+     "note": "(est) RF turn ends on 022 2.8 deg along track",
+     "x": 530525.973,
+     "z": 156364.942
+    },
+    {
+     "alt_m": 1573.0,
+     "ground_m": 1309.0,
+     "lat": 27.64245,
+     "lon": 85.33425,
+     "note": "2.8 deg along track",
+     "x": 531624.111,
+     "z": 158306.876
+    },
+    {
+     "alt_m": 1392.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "2.8 deg along track",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 1329.0,
+     "ground_m": 1313.0,
+     "lat": 27.68395,
+     "lon": 85.35341,
+     "note": "THR 02 2.8 deg along track",
+     "x": 533464.018,
+     "z": 162925.128
+    }
+   ],
+   "title": "RNP-style curved variant to 02 through the Bagmati gap (geometry est)"
+  },
+  "A3": {
+   "points": [
+    {
+     "alt_m": 3200.0,
+     "ground_m": 602.0,
+     "lat": 27.75539,
+     "lon": 85.06194,
+     "note": "D16 R-288 (IF), 10 500 ft (chart)",
+     "x": 504650.864,
+     "z": 170557.825
+    },
+    {
+     "alt_m": 3200.0,
+     "ground_m": 738.0,
+     "lat": 27.74261,
+     "lon": 85.10672,
+     "note": "DARKE D13.5 (hold fix)",
+     "x": 509076.834,
+     "z": 169180.92
+    },
+    {
+     "alt_m": 2633.0,
+     "ground_m": 909.0,
+     "lat": 27.72469,
+     "lon": 85.16939,
+     "note": "3.6 deg profile (chart)",
+     "x": 515272.84,
+     "z": 167252.793
+    },
+    {
+     "alt_m": 2402.0,
+     "ground_m": 1490.0,
+     "lat": 27.71443,
+     "lon": 85.20519,
+     "note": "3.6 deg profile (chart)",
+     "x": 518813.247,
+     "z": 166150.171
+    },
+    {
+     "alt_m": 2170.0,
+     "ground_m": 1426.0,
+     "lat": 27.70417,
+     "lon": 85.24099,
+     "note": "3.6 deg profile (chart)",
+     "x": 522354.339,
+     "z": 165048.561
+    },
+    {
+     "alt_m": 1939.0,
+     "ground_m": 1309.0,
+     "lat": 27.6939,
+     "lon": 85.27677,
+     "note": "3.6 deg profile (chart)",
+     "x": 525894.153,
+     "z": 163946.832
+    },
+    {
+     "alt_m": 1707.0,
+     "ground_m": 1307.0,
+     "lat": 27.68362,
+     "lon": 85.31256,
+     "note": "3.6 deg profile (chart)",
+     "x": 529435.651,
+     "z": 162845.014
+    },
+    {
+     "alt_m": 1707.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "over VOR at MDA 5 600 ft",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 1707.0,
+     "ground_m": 1325.0,
+     "lat": 27.66304,
+     "lon": 85.3841,
+     "note": "continue 108 deg (est)",
+     "x": 536516.785,
+     "z": 160642.142
+    },
+    {
+     "alt_m": 1646.0,
+     "ground_m": 1314.0,
+     "lat": 27.63871,
+     "lon": 85.37089,
+     "note": "right downwind (est)",
+     "x": 535243.647,
+     "z": 157932.13
+    },
+    {
+     "alt_m": 1554.0,
+     "ground_m": 1340.0,
+     "lat": 27.63517,
+     "lon": 85.34456,
+     "note": "right base (est)",
+     "x": 532650.083,
+     "z": 157511.382
+    },
+    {
+     "alt_m": 1463.0,
+     "ground_m": 1329.0,
+     "lat": 27.65171,
+     "lon": 85.33847,
+     "note": "short final (est)",
+     "x": 532029.335,
+     "z": 159337.268
+    },
+    {
+     "alt_m": 1329.0,
+     "ground_m": 1313.0,
+     "lat": 27.68395,
+     "lon": 85.35341,
+     "note": "THR 02",
+     "x": 533464.018,
+     "z": 162925.128
+    }
+   ],
+   "title": "VOR/DME-A from the west (DARKE) + visual circling to 02"
+  },
+  "A4": {
+   "points": [
+    {
+     "alt_m": 3200.0,
+     "ground_m": 962.0,
+     "lat": 27.60841,
+     "lon": 85.62066,
+     "note": "IGRIS D15 (hold fix)",
+     "x": 559931.951,
+     "z": 154873.58
+    },
+    {
+     "alt_m": 2896.0,
+     "ground_m": 1457.0,
+     "lat": 27.63011,
+     "lon": 85.52992,
+     "note": "D10 R-105 (IF) 9 500 ft (chart)",
+     "x": 550946.408,
+     "z": 157163.621
+    },
+    {
+     "alt_m": 2579.0,
+     "ground_m": 1532.0,
+     "lat": 27.63877,
+     "lon": 85.49361,
+     "note": "linear descent (est)",
+     "x": 547351.882,
+     "z": 158079.218
+    },
+    {
+     "alt_m": 2262.0,
+     "ground_m": 1391.0,
+     "lat": 27.64743,
+     "lon": 85.4573,
+     "note": "linear descent (est)",
+     "x": 543757.951,
+     "z": 158995.851
+    },
+    {
+     "alt_m": 1945.0,
+     "ground_m": 1413.0,
+     "lat": 27.65607,
+     "lon": 85.42099,
+     "note": "linear descent (est)",
+     "x": 540164.64,
+     "z": 159911.307
+    },
+    {
+     "alt_m": 1786.0,
+     "ground_m": 1351.0,
+     "lat": 27.66039,
+     "lon": 85.40282,
+     "note": "linear descent (est)",
+     "x": 538366.727,
+     "z": 160369.407
+    },
+    {
+     "alt_m": 1707.0,
+     "ground_m": 1347.0,
+     "lat": 27.64656,
+     "lon": 85.38434,
+     "note": "turn to left downwind (est)",
+     "x": 536560.938,
+     "z": 158816.62
+    },
+    {
+     "alt_m": 1646.0,
+     "ground_m": 1357.0,
+     "lat": 27.63069,
+     "lon": 85.35682,
+     "note": "(est)",
+     "x": 533865.198,
+     "z": 157028.285
+    },
+    {
+     "alt_m": 1524.0,
+     "ground_m": 1317.0,
+     "lat": 27.64116,
+     "lon": 85.3386,
+     "note": "base (est)",
+     "x": 532054.833,
+     "z": 158168.606
+    },
+    {
+     "alt_m": 1448.0,
+     "ground_m": 1309.0,
+     "lat": 27.6548,
+     "lon": 85.33988,
+     "note": "short final (est)",
+     "x": 532164.719,
+     "z": 159681.108
+    },
+    {
+     "alt_m": 1329.0,
+     "ground_m": 1313.0,
+     "lat": 27.68395,
+     "lon": 85.35341,
+     "note": "THR 02",
+     "x": 533464.018,
+     "z": 162925.128
+    }
+   ],
+   "title": "VOR/DME-B from the east (IGRIS) + visual circling to 02"
+  },
+  "A5": {
+   "points": [
+    {
+     "alt_m": 2400.0,
+     "ground_m": 1532.0,
+     "lat": 27.63877,
+     "lon": 85.49361,
+     "note": "from IGRIS/D8 R-105 (est)",
+     "x": 547351.882,
+     "z": 158079.218
+    },
+    {
+     "alt_m": 1950.0,
+     "ground_m": 1326.0,
+     "lat": 27.68776,
+     "lon": 85.44095,
+     "note": "join downwind east of the runway (est)",
+     "x": 542092.69,
+     "z": 163445.07
+    },
+    {
+     "alt_m": 1800.0,
+     "ground_m": 1308.0,
+     "lat": 27.69959,
+     "lon": 85.38463,
+     "note": "downwind abeam THR 20, 1,500 ft AGL (est)",
+     "x": 536523.597,
+     "z": 164692.05
+    },
+    {
+     "alt_m": 1700.0,
+     "ground_m": 1365.0,
+     "lat": 27.72663,
+     "lon": 85.3904,
+     "note": "base turn (est)",
+     "x": 537058.764,
+     "z": 167694.195
+    },
+    {
+     "alt_m": 1500.0,
+     "ground_m": 1370.0,
+     "lat": 27.73202,
+     "lon": 85.37533,
+     "note": "final 3 km, 3.2 deg (est)",
+     "x": 535566.403,
+     "z": 168274.661
+    },
+    {
+     "alt_m": 1420.0,
+     "ground_m": 1331.0,
+     "lat": 27.71951,
+     "lon": 85.36962,
+     "note": "",
+     "x": 535018.923,
+     "z": 166882.417
+    },
+    {
+     "alt_m": 1352.0,
+     "ground_m": 1336.0,
+     "lat": 27.707,
+     "lon": 85.36391,
+     "note": "THR 20",
+     "x": 534471.309,
+     "z": 165490.206
+    }
+   ],
+   "title": "Domestic visual circuit to runway 20 (est)"
+  },
+  "D1": {
+   "points": [
+    {
+     "alt_m": 1324.0,
+     "ground_m": 1329.0,
+     "lat": 27.69396,
+     "lon": 85.35798,
+     "note": "lift-off ~1 200 m past THR (est)",
+     "x": 533902.513,
+     "z": 164039.07
+    },
+    {
+     "alt_m": 1453.0,
+     "ground_m": 1335.0,
+     "lat": 27.70931,
+     "lon": 85.36496,
+     "note": "runway end",
+     "x": 534572.007,
+     "z": 165747.274
+    },
+    {
+     "alt_m": 1539.0,
+     "ground_m": 1330.0,
+     "lat": 27.71966,
+     "lon": 85.36948,
+     "note": "D3 on R-022: turn LEFT (chart DARKE 1D)",
+     "x": 535004.936,
+     "z": 166898.882
+    },
+    {
+     "alt_m": 1699.0,
+     "ground_m": 1354.0,
+     "lat": 27.73894,
+     "lon": 85.3614,
+     "note": "4 DME arc",
+     "x": 534184.694,
+     "z": 169026.055
+    },
+    {
+     "alt_m": 1808.0,
+     "ground_m": 1348.0,
+     "lat": 27.73991,
+     "lon": 85.34571,
+     "note": "4 DME arc",
+     "x": 532636.891,
+     "z": 169116.51
+    },
+    {
+     "alt_m": 1916.0,
+     "ground_m": 1324.0,
+     "lat": 27.73797,
+     "lon": 85.33012,
+     "note": "4 DME arc",
+     "x": 531102.462,
+     "z": 168884.875
+    },
+    {
+     "alt_m": 2024.0,
+     "ground_m": 1303.0,
+     "lat": 27.73321,
+     "lon": 85.31534,
+     "note": "4 DME arc",
+     "x": 529651.168,
+     "z": 168341.869
+    },
+    {
+     "alt_m": 2133.0,
+     "ground_m": 1295.0,
+     "lat": 27.72582,
+     "lon": 85.302,
+     "note": "4 DME arc",
+     "x": 528344.792,
+     "z": 167509.173
+    },
+    {
+     "alt_m": 2241.0,
+     "ground_m": 1384.0,
+     "lat": 27.71614,
+     "lon": 85.29068,
+     "note": "R-310: turn to VOR",
+     "x": 527240.053,
+     "z": 166425.008
+    },
+    {
+     "alt_m": 2501.0,
+     "ground_m": 1287.0,
+     "lat": 27.69474,
+     "lon": 85.31951,
+     "note": "",
+     "x": 530107.895,
+     "z": 164084.281
+    },
+    {
+     "alt_m": 2760.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "over VOR, then R-038",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 3045.0,
+     "ground_m": 1337.0,
+     "lat": 27.70221,
+     "lon": 85.37381,
+     "note": "D2.2 R-038: turn LEFT",
+     "x": 535453.399,
+     "z": 164970.374
+    },
+    {
+     "alt_m": 3301.0,
+     "ground_m": 1374.0,
+     "lat": 27.73498,
+     "lon": 85.37688,
+     "note": "4 DME arc",
+     "x": 535715.536,
+     "z": 168604.305
+    },
+    {
+     "alt_m": 3443.0,
+     "ground_m": 1333.0,
+     "lat": 27.73952,
+     "lon": 85.35695,
+     "note": "4 DME arc",
+     "x": 533745.33,
+     "z": 169085.468
+    },
+    {
+     "alt_m": 3585.0,
+     "ground_m": 1345.0,
+     "lat": 27.73911,
+     "lon": 85.33637,
+     "note": "4 DME arc",
+     "x": 531717.181,
+     "z": 169017.848
+    },
+    {
+     "alt_m": 3726.0,
+     "ground_m": 1302.0,
+     "lat": 27.73378,
+     "lon": 85.31669,
+     "note": "4 DME arc",
+     "x": 529783.574,
+     "z": 168406.441
+    },
+    {
+     "alt_m": 3868.0,
+     "ground_m": 1295.0,
+     "lat": 27.72393,
+     "lon": 85.29938,
+     "note": "4 DME arc",
+     "x": 528088.709,
+     "z": 167297.057
+    },
+    {
+     "alt_m": 4010.0,
+     "ground_m": 1319.0,
+     "lat": 27.7103,
+     "lon": 85.28574,
+     "note": "4 DME arc",
+     "x": 526759.755,
+     "z": 165772.922
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 1309.0,
+     "lat": 27.6939,
+     "lon": 85.27677,
+     "note": "4 DME arc",
+     "x": 525894.153,
+     "z": 163946.832
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 1426.0,
+     "lat": 27.70417,
+     "lon": 85.24099,
+     "note": "R-288 outbound",
+     "x": 522354.339,
+     "z": 165048.561
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 909.0,
+     "lat": 27.72469,
+     "lon": 85.16939,
+     "note": "",
+     "x": 515272.84,
+     "z": 167252.793
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 738.0,
+     "lat": 27.74261,
+     "lon": 85.10672,
+     "note": "DARKE",
+     "x": 509076.834,
+     "z": 169180.92
+    }
+   ],
+   "title": "Departure 02 west (DARKE 1D shape), jet 7 % gradient (est)"
+  },
+  "D2": {
+   "points": [
+    {
+     "alt_m": 1324.0,
+     "ground_m": 1329.0,
+     "lat": 27.69396,
+     "lon": 85.35798,
+     "note": "lift-off",
+     "x": 533902.513,
+     "z": 164039.07
+    },
+    {
+     "alt_m": 1434.0,
+     "ground_m": 1335.0,
+     "lat": 27.70931,
+     "lon": 85.36496,
+     "note": "runway end",
+     "x": 534572.007,
+     "z": 165747.274
+    },
+    {
+     "alt_m": 1453.0,
+     "ground_m": 1313.0,
+     "lat": 27.71194,
+     "lon": 85.36595,
+     "note": "D2.5: turn LEFT (IGRIS 1B)",
+     "x": 534666.392,
+     "z": 166039.729
+    },
+    {
+     "alt_m": 1756.0,
+     "ground_m": 1339.0,
+     "lat": 27.74714,
+     "lon": 85.33363,
+     "note": "within 5 DME",
+     "x": 531437.449,
+     "z": 169904.547
+    },
+    {
+     "alt_m": 2014.0,
+     "ground_m": 1303.0,
+     "lat": 27.73074,
+     "lon": 85.29391,
+     "note": "R-320: turn LEFT to VOR",
+     "x": 527541.513,
+     "z": 168045.837
+    },
+    {
+     "alt_m": 2292.0,
+     "ground_m": 1297.0,
+     "lat": 27.69885,
+     "lon": 85.32415,
+     "note": "",
+     "x": 530560.569,
+     "z": 164544.523
+    },
+    {
+     "alt_m": 2514.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "over VOR, R-105 outbound",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 3070.0,
+     "ground_m": 1381.0,
+     "lat": 27.65175,
+     "lon": 85.43914,
+     "note": "",
+     "x": 541960.728,
+     "z": 159453.443
+    },
+    {
+     "alt_m": 3626.0,
+     "ground_m": 1457.0,
+     "lat": 27.63011,
+     "lon": 85.52992,
+     "note": "",
+     "x": 550946.408,
+     "z": 157163.621
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 962.0,
+     "lat": 27.60841,
+     "lon": 85.62066,
+     "note": "IGRIS",
+     "x": 559931.951,
+     "z": 154873.58
+    }
+   ],
+   "title": "Departure 02 east (IGRIS 1B), turboprop 6 % gradient"
+  },
+  "D3": {
+   "points": [
+    {
+     "alt_m": 1347.0,
+     "ground_m": 1333.0,
+     "lat": 27.697,
+     "lon": 85.35934,
+     "note": "lift-off",
+     "x": 534032.914,
+     "z": 164377.344
+    },
+    {
+     "alt_m": 1476.0,
+     "ground_m": 1313.0,
+     "lat": 27.68157,
+     "lon": 85.35233,
+     "note": "runway end",
+     "x": 533360.397,
+     "z": 162660.284
+    },
+    {
+     "alt_m": 1546.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "over VOR: turn RIGHT (DARKE 1A)",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 2000.0,
+     "ground_m": 1288.0,
+     "lat": 27.64417,
+     "lon": 85.29134,
+     "note": "within 4 DME",
+     "x": 527388.617,
+     "z": 158452.415
+    },
+    {
+     "alt_m": 2259.0,
+     "ground_m": 1365.0,
+     "lat": 27.67331,
+     "lon": 85.27311,
+     "note": "R-270: turn LEFT",
+     "x": 525556.782,
+     "z": 161662.021
+    },
+    {
+     "alt_m": 2586.0,
+     "ground_m": 1426.0,
+     "lat": 27.70417,
+     "lon": 85.24099,
+     "note": "intercept R-288",
+     "x": 522354.339,
+     "z": 165048.561
+    },
+    {
+     "alt_m": 3105.0,
+     "ground_m": 909.0,
+     "lat": 27.72469,
+     "lon": 85.16939,
+     "note": "",
+     "x": 515272.84,
+     "z": 167252.793
+    },
+    {
+     "alt_m": 3558.0,
+     "ground_m": 738.0,
+     "lat": 27.74261,
+     "lon": 85.10672,
+     "note": "DARKE",
+     "x": 509076.834,
+     "z": 169180.92
+    }
+   ],
+   "title": "Departure 20 west (DARKE 1A), jet 7 %"
+  },
+  "D4": {
+   "points": [
+    {
+     "alt_m": 1347.0,
+     "ground_m": 1333.0,
+     "lat": 27.697,
+     "lon": 85.35934,
+     "note": "lift-off",
+     "x": 534032.914,
+     "z": 164377.344
+    },
+    {
+     "alt_m": 1458.0,
+     "ground_m": 1313.0,
+     "lat": 27.68157,
+     "lon": 85.35233,
+     "note": "runway end",
+     "x": 533360.397,
+     "z": 162660.284
+    },
+    {
+     "alt_m": 1518.0,
+     "ground_m": 1306.0,
+     "lat": 27.67333,
+     "lon": 85.34833,
+     "note": "over VOR: turn RIGHT (IGRIS 1A)",
+     "x": 532975.874,
+     "z": 161743.075
+    },
+    {
+     "alt_m": 1962.0,
+     "ground_m": 1269.0,
+     "lat": 27.62572,
+     "lon": 85.29572,
+     "note": "4 DME arc",
+     "x": 527842.183,
+     "z": 156412.95
+    },
+    {
+     "alt_m": 2150.0,
+     "ground_m": 1293.0,
+     "lat": 27.64922,
+     "lon": 85.27821,
+     "note": "4 DME arc",
+     "x": 526087.447,
+     "z": 158998.401
+    },
+    {
+     "alt_m": 2338.0,
+     "ground_m": 1364.0,
+     "lat": 27.67703,
+     "lon": 85.27322,
+     "note": "4 DME arc",
+     "x": 525563.377,
+     "z": 162074.256
+    },
+    {
+     "alt_m": 2526.0,
+     "ground_m": 1300.0,
+     "lat": 27.70418,
+     "lon": 85.28165,
+     "note": "4 DME arc",
+     "x": 526363.541,
+     "z": 165090.708
+    },
+    {
+     "alt_m": 2714.0,
+     "ground_m": 1295.0,
+     "lat": 27.72582,
+     "lon": 85.302,
+     "note": "4 DME arc",
+     "x": 528344.792,
+     "z": 167509.173
+    },
+    {
+     "alt_m": 2902.0,
+     "ground_m": 1324.0,
+     "lat": 27.73809,
+     "lon": 85.33063,
+     "note": "4 DME arc",
+     "x": 531152.591,
+     "z": 168898.713
+    },
+    {
+     "alt_m": 3089.0,
+     "ground_m": 1363.0,
+     "lat": 27.73877,
+     "lon": 85.36244,
+     "note": "4 DME arc",
+     "x": 534287.42,
+     "z": 169008.355
+    },
+    {
+     "alt_m": 3277.0,
+     "ground_m": 1364.0,
+     "lat": 27.72777,
+     "lon": 85.39172,
+     "note": "4 DME arc",
+     "x": 537187.47,
+     "z": 167821.965
+    },
+    {
+     "alt_m": 3465.0,
+     "ground_m": 1330.0,
+     "lat": 27.70703,
+     "lon": 85.41324,
+     "note": "4 DME arc",
+     "x": 539335.394,
+     "z": 165548.35
+    },
+    {
+     "alt_m": 3653.0,
+     "ground_m": 1310.0,
+     "lat": 27.68028,
+     "lon": 85.42315,
+     "note": "4 DME arc",
+     "x": 540346.782,
+     "z": 162595.973
+    },
+    {
+     "alt_m": 3951.0,
+     "ground_m": 1391.0,
+     "lat": 27.64743,
+     "lon": 85.4573,
+     "note": "intercept R-105",
+     "x": 543757.951,
+     "z": 158995.851
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 1457.0,
+     "lat": 27.63011,
+     "lon": 85.52992,
+     "note": "",
+     "x": 550946.408,
+     "z": 157163.621
+    },
+    {
+     "alt_m": 4115.0,
+     "ground_m": 962.0,
+     "lat": 27.60841,
+     "lon": 85.62066,
+     "note": "IGRIS",
+     "x": 559931.951,
+     "z": 154873.58
+    }
+   ],
+   "title": "Departure 20 east (IGRIS 1A), turboprop 6 %"
+  },
+  "H-E": {
+   "points": [
+    {
+     "alt_m": 1342.0,
+     "ground_m": 1337.0,
+     "lat": 27.7065,
+     "lon": 85.36,
+     "note": "domestic apron lift-off",
+     "x": 534086.383,
+     "z": 165430.55
+    },
+    {
+     "alt_m": 1500.0,
+     "ground_m": 1306.0,
+     "lat": 27.71324,
+     "lon": 85.3732,
+     "note": "climb away from the final",
+     "x": 535379.628,
+     "z": 166191.702
+    },
+    {
+     "alt_m": 1650.0,
+     "ground_m": 1384.0,
+     "lat": 27.70178,
+     "lon": 85.42071,
+     "note": "over Thimi north",
+     "x": 540078.675,
+     "z": 164975.175
+    },
+    {
+     "alt_m": 1900.0,
+     "ground_m": 1395.0,
+     "lat": 27.68771,
+     "lon": 85.48002,
+     "note": "Bhaktapur north edge",
+     "x": 545945.95,
+     "z": 163485.179
+    },
+    {
+     "alt_m": 2600.0,
+     "ground_m": 1465.0,
+     "lat": 27.67512,
+     "lon": 85.56001,
+     "note": "Nagarkot-Banepa ridge",
+     "x": 553852.562,
+     "z": 162187.558
+    },
+    {
+     "alt_m": 3400.0,
+     "ground_m": 885.0,
+     "lat": 27.66862,
+     "lon": 85.66167,
+     "note": "onward east",
+     "x": 563889.819,
+     "z": 161598.355
+    }
+   ],
+   "title": "helicopter corridor east (Khumbu, Lukla, rescue) (est)"
+  },
+  "H-N": {
+   "points": [
+    {
+     "alt_m": 1342.0,
+     "ground_m": 1337.0,
+     "lat": 27.7065,
+     "lon": 85.36,
+     "note": "domestic apron lift-off",
+     "x": 534086.383,
+     "z": 165430.55
+    },
+    {
+     "alt_m": 1550.0,
+     "ground_m": 1330.0,
+     "lat": 27.72028,
+     "lon": 85.37306,
+     "note": "",
+     "x": 535357.129,
+     "z": 166971.501
+    },
+    {
+     "alt_m": 1850.0,
+     "ground_m": 1396.0,
+     "lat": 27.75862,
+     "lon": 85.37578,
+     "note": "Gokarna",
+     "x": 535577.815,
+     "z": 171222.151
+    },
+    {
+     "alt_m": 2900.0,
+     "ground_m": 1935.0,
+     "lat": 27.79506,
+     "lon": 85.37765,
+     "note": "Sundarijal climb",
+     "x": 535716.87,
+     "z": 175261.393
+    },
+    {
+     "alt_m": 3200.0,
+     "ground_m": 1559.0,
+     "lat": 27.83193,
+     "lon": 85.37241,
+     "note": "over the Shivapuri ridge",
+     "x": 535154.941,
+     "z": 179340.449
+    }
+   ],
+   "title": "helicopter corridor north (Langtang, Gosaikunda) (est)"
+  },
+  "H-W": {
+   "points": [
+    {
+     "alt_m": 1342.0,
+     "ground_m": 1337.0,
+     "lat": 27.7065,
+     "lon": 85.36,
+     "note": "domestic apron lift-off",
+     "x": 534086.383,
+     "z": 165430.55
+    },
+    {
+     "alt_m": 1600.0,
+     "ground_m": 1328.0,
+     "lat": 27.71549,
+     "lon": 85.3424,
+     "note": "cross north of the runway end, then west",
+     "x": 532340.111,
+     "z": 166407.501
+    },
+    {
+     "alt_m": 1700.0,
+     "ground_m": 1294.0,
+     "lat": 27.70649,
+     "lon": 85.29905,
+     "note": "Thapathali-Teku",
+     "x": 528076.553,
+     "z": 165364.592
+    },
+    {
+     "alt_m": 1800.0,
+     "ground_m": 1431.0,
+     "lat": 27.69863,
+     "lon": 85.25881,
+     "note": "Kalanki",
+     "x": 524117.716,
+     "z": 164452.631
+    },
+    {
+     "alt_m": 2000.0,
+     "ground_m": 1437.0,
+     "lat": 27.70171,
+     "lon": 85.20773,
+     "note": "Thankot pass",
+     "x": 519077.487,
+     "z": 164743.445
+    },
+    {
+     "alt_m": 2300.0,
+     "ground_m": 1685.0,
+     "lat": 27.70632,
+     "lon": 85.13653,
+     "note": "Naubise valley",
+     "x": 512052.19,
+     "z": 165187.378
+    }
+   ],
+   "title": "helicopter corridor west (Pokhara, rescue west) (est)"
+  }
+ },
+ "schedule": {
+  "arrival_share": {
+   "DOM_TP": 0.5,
+   "HELI_10_12": 0.5,
+   "HELI_after_12": 0.7,
+   "HELI_before_10": 0.3,
+   "INTL_NB": 0.5,
+   "INTL_WB": 0.5
+  },
+  "backtrack_02_m": 1200,
+  "busy_airport_max": 2.0,
+  "classes": [
+   "DOM_TP",
+   "HELI",
+   "INTL_NB",
+   "INTL_WB"
+  ],
+  "fog": {
+   "backlog_until_hour": 14,
+   "domestic_heli_factor_until_hour": 10,
+   "max_per_hour": 33,
+   "months": [
+    12,
+    1
+   ],
+   "probability": 0.4
+  },
+  "go_around": {
+   "hold_laps": [
+    1,
+    2
+   ],
+   "jet_mar_may": 0.02,
+   "jet_other": 0.005
+  },
+  "monsoon_storms": {
+   "domestic": 0.7,
+   "heli": 0.4,
+   "hours": [
+    14,
+    18
+   ],
+   "months": [
+    6,
+    7,
+    8,
+    9
+   ]
+  },
+  "month_factor": {
+   "1": 0.95,
+   "10": 1.1,
+   "11": 1.1,
+   "12": 0.95,
+   "2": 0.95,
+   "3": 1.05,
+   "4": 1.05,
+   "5": 1.05,
+   "6": 0.85,
+   "7": 0.85,
+   "8": 0.85,
+   "9": 0.85
+  },
+  "movements_per_real_hour": {
+   "0": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 0,
+    "INTL_WB": 0
+   },
+   "1": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 0,
+    "INTL_WB": 0
+   },
+   "10": {
+    "DOM_TP": 18,
+    "HELI": 5,
+    "INTL_NB": 6,
+    "INTL_WB": 1
+   },
+   "11": {
+    "DOM_TP": 17,
+    "HELI": 4,
+    "INTL_NB": 7,
+    "INTL_WB": 1
+   },
+   "12": {
+    "DOM_TP": 16,
+    "HELI": 4,
+    "INTL_NB": 7,
+    "INTL_WB": 1
+   },
+   "13": {
+    "DOM_TP": 16,
+    "HELI": 3,
+    "INTL_NB": 7,
+    "INTL_WB": 1
+   },
+   "14": {
+    "DOM_TP": 16,
+    "HELI": 3,
+    "INTL_NB": 6,
+    "INTL_WB": 1
+   },
+   "15": {
+    "DOM_TP": 16,
+    "HELI": 2,
+    "INTL_NB": 6,
+    "INTL_WB": 1
+   },
+   "16": {
+    "DOM_TP": 15,
+    "HELI": 2,
+    "INTL_NB": 5,
+    "INTL_WB": 1
+   },
+   "17": {
+    "DOM_TP": 13,
+    "HELI": 1,
+    "INTL_NB": 5,
+    "INTL_WB": 1
+   },
+   "18": {
+    "DOM_TP": 9,
+    "HELI": 0,
+    "INTL_NB": 5,
+    "INTL_WB": 0
+   },
+   "19": {
+    "DOM_TP": 4,
+    "HELI": 0,
+    "INTL_NB": 5,
+    "INTL_WB": 0
+   },
+   "2": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 0,
+    "INTL_WB": 0
+   },
+   "20": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 5,
+    "INTL_WB": 0
+   },
+   "21": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 4,
+    "INTL_WB": 0
+   },
+   "22": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 3,
+    "INTL_WB": 0
+   },
+   "23": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 2,
+    "INTL_WB": 0
+   },
+   "3": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 0,
+    "INTL_WB": 0
+   },
+   "4": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 0,
+    "INTL_WB": 0
+   },
+   "5": {
+    "DOM_TP": 0,
+    "HELI": 0,
+    "INTL_NB": 0,
+    "INTL_WB": 0
+   },
+   "6": {
+    "DOM_TP": 16,
+    "HELI": 6,
+    "INTL_NB": 2,
+    "INTL_WB": 0
+   },
+   "7": {
+    "DOM_TP": 22,
+    "HELI": 7,
+    "INTL_NB": 3,
+    "INTL_WB": 0
+   },
+   "8": {
+    "DOM_TP": 22,
+    "HELI": 7,
+    "INTL_NB": 4,
+    "INTL_WB": 0
+   },
+   "9": {
+    "DOM_TP": 20,
+    "HELI": 6,
+    "INTL_NB": 5,
+    "INTL_WB": 0
+   }
+  },
+  "runway_in_use": {
+   "02_until_hour": 12,
+   "jets_always_02": true,
+   "p20_afternoon_mar_may": 0.35,
+   "p20_afternoon_other": 0.15
+  },
+  "seed": "hash(regionSeed, dayIndex, realMinute)",
+  "separation_s": {
+   "after_narrowbody": 100,
+   "after_turboprop": 100,
+   "after_widebody": 120,
+   "heli_apron": 60
+  }
+ },
+ "sources": {
+  "procedures": "docs/research/w2/aviation.md",
+  "runway": "OpenStreetMap w340948564"
+ },
+ "version": 1
+}

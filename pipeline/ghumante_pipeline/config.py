@@ -16,7 +16,7 @@ REPO_ROOT = PIPELINE_ROOT.parent
 
 # Bump when the generated output changes for the same inputs (format or
 # algorithm change). Recorded in every tile and manifest.
-PIPELINE_DATA_VERSION = 1
+PIPELINE_DATA_VERSION = 2  # 2: W2 F1/F2 (enums v2, stable seed, parts, RATR/JNCT/BFNT/PROP)
 
 
 @dataclass(frozen=True)

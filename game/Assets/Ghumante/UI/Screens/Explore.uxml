@@ -31,6 +31,31 @@
                     <ui:Label class="gh-pedal__label" binding-path="hud.throttle" text="Go" picking-mode="Ignore" />
                 </ui:Button>
             </ui:VisualElement>
+
+            <!-- W2 buttons (W2_DESIGN 6.5): the Action button morphs Jump / Hop on / Hop off / Stop; a small "Ride as
+                 passenger" appears when a passenger seat is offered; Namaste on foot; Horn (or the bicycle bell) in a
+                 vehicle; the Stop bell riding along. Positions per orientation and layout are in Hud.uss. -->
+            <ui:Button name="hud-action" class="gh-hud__action gh-action-btn" tooltip="Jump">
+                <ui:VisualElement name="hud-action-icon" class="gh-action-btn__icon gh-action-btn__icon--jump" picking-mode="Ignore" />
+                <ui:Label name="hud-action-label" class="gh-action-btn__label" text="Jump" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="hud-passenger" class="gh-hud__passenger gh-small-btn" tooltip="Ride as passenger">
+                <ui:Label class="gh-small-btn__label" binding-path="hud.ride_passenger" text="Ride as passenger" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="hud-emote" class="gh-hud__emote gh-round-btn" tooltip="Namaste">
+                <ui:Label class="gh-round-btn__label" binding-path="hud.namaste" text="Namaste" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="hud-horn" class="gh-hud__horn gh-round-btn" tooltip="Horn">
+                <ui:Label name="hud-horn-label" class="gh-round-btn__label" binding-path="hud.horn" text="Horn" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="hud-bell" class="gh-hud__bell gh-round-btn" tooltip="Stop">
+                <ui:Label class="gh-round-btn__label" binding-path="hud.stop" text="Stop" picking-mode="Ignore" />
+            </ui:Button>
+        </ui:VisualElement>
+
+        <!-- What the Action button is about to do, or a gentle note ("Vehicles rest outside"). -->
+        <ui:VisualElement name="hud-prompt" class="gh-hud__prompt" picking-mode="Ignore">
+            <ui:Label name="hud-prompt-label" class="gh-hud__prompt-label" text="" picking-mode="Ignore" />
         </ui:VisualElement>
 
         <!-- Speedometer and the surface under the wheels. -->
@@ -74,6 +99,12 @@
                         <ui:VisualElement class="gh-hud__mode-ride gh-hud-icon" picking-mode="Ignore">
                             <ui:VisualElement class="gh-hud-icon__scooter" picking-mode="Ignore" />
                         </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:Button>
+                <ui:Button name="hud-garage" class="gh-icon-btn" tooltip="Call your vehicle">
+                    <ui:VisualElement class="gh-hud-icon" picking-mode="Ignore">
+                        <ui:VisualElement class="gh-hud-icon__garage-roof" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-hud-icon__garage-door" picking-mode="Ignore" />
                     </ui:VisualElement>
                 </ui:Button>
                 <ui:Button name="hud-menu" class="gh-icon-btn" tooltip="Menu">

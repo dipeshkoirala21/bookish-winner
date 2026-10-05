@@ -49,6 +49,18 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Quadtree level of the tile whose terrain answered (diagnostics).</summary>
         public int TileLevel;
+
+        // ---- W2 additions (W2_DESIGN 10.3) ----
+
+        /// <summary>What the foot touches: a structure's material, a paved AREA, the road surface or the biome, in
+        /// that order. Wetness is not applied here (<see cref="FootSurfaces.Effective"/>).</summary>
+        public FootSurface Foot;
+
+        /// <summary>True on a raised footpath of a W2 road profile (beside the carriageway, kerb height above it).</summary>
+        public bool OnFootpath;
+
+        /// <summary>True when a walkable structure top or ramp (<see cref="StructureColliders"/>) carries the point.</summary>
+        public bool OnStructure;
     }
 
     /// <summary>

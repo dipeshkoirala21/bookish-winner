@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
+using Ghumante.Core.Generators.Sacred;
 using Ghumante.Core.Meshing;
 using NUnit.Framework;
 
@@ -25,7 +26,7 @@ namespace Ghumante.Core.Tests
             TileData t = MeshingChecks.SyntheticTile(Leaf, f ?? ((x, z) => 1300));
             t.Buildings.Add(b);
             var m = new MeshData();
-            Assert.That(BuildingMesher.Build(t, new TileHeightSampler(t, 1), o ?? new BuildingOptions(), m), Is.EqualTo(1));
+            Assert.That(BuildingMesher.Build(t, new TileHeightSampler(t, 1), o ?? new BuildingOptions { Styled = false }, m), Is.EqualTo(1));
             MeshingChecks.AssertWellFormed(m, b.Archetype + "/" + b.RoofShape);
             Assert.That(MeshingChecks.AssertFrontFacesAgreeWithNormals(m, 0, m.TriangleCount, 0.999, b.Archetype + "/" + b.RoofShape), Is.EqualTo(0));
             return m;
@@ -110,7 +111,7 @@ namespace Ghumante.Core.Tests
             Assert.That(DeckArea(m, out deckY), Is.EqualTo(12 * 8).Within(1e-3));
             Assert.That(deckY, Is.EqualTo(Ground + 11.5).Within(1e-3));
 
-            MeshData plain = Mesh(B(BuildingArchetype.ModernUrban, RoofShape.Flat, 12, ring), new BuildingOptions { Parapets = false });
+            MeshData plain = Mesh(B(BuildingArchetype.ModernUrban, RoofShape.Flat, 12, ring), new BuildingOptions { Parapets = false, Styled = false });
             Assert.That(plain.TriangleCount, Is.EqualTo(10));
             Assert.That(DeckArea(plain, out deckY), Is.EqualTo(96).Within(1e-3));
             Assert.That(deckY, Is.EqualTo(Ground + 12).Within(1e-3));
@@ -225,8 +226,8 @@ namespace Ghumante.Core.Tests
             landmark.Flags = BuildingFlags.Landmark;
             t.Buildings.Add(landmark);
             var sampler = new TileHeightSampler(t, 1);
-            Assert.That(BuildingMesher.Build(t, sampler, new BuildingOptions(), new MeshData()), Is.EqualTo(1));
-            Assert.That(BuildingMesher.Build(t, sampler, new BuildingOptions { SkipLandmarks = true }, new MeshData()), Is.EqualTo(0));
+            Assert.That(BuildingMesher.Build(t, sampler, new BuildingOptions { Styled = false }, new MeshData()), Is.EqualTo(1));
+            Assert.That(BuildingMesher.Build(t, sampler, new BuildingOptions { SkipLandmarks = true, Styled = false }, new MeshData()), Is.EqualTo(0));
             for (int i = 0; i < 3; i++) Assert.That(BuildingMesher.IsDrawn(t.Buildings[i], null), Is.False);
             Assert.That(BuildingMesher.IsDrawn(landmark, null), Is.True);
             Assert.That(BuildingMesher.IsDrawn(landmark, new BuildingOptions { SkipLandmarks = true }), Is.False);
@@ -270,15 +271,31 @@ namespace Ghumante.Core.Tests
                 m.Clear();
                 int drawn = BuildingMesher.Build(t, s, o, m);
                 int expected = 0;
-                foreach (BuildingRecord b in t.Buildings)
-                    if (BuildingMesher.IsDrawn(b, o)) expected++;
+                for (int i = 0; i < t.Buildings.Count; i++)
+                    if (BuildingMesher.IsDrawn(t, i, o)) expected++;
                 Assert.That(drawn, Is.EqualTo(expected), id.ToString());
                 records += t.Buildings.Count;
                 drawnTotal += drawn;
                 skipped += t.Buildings.Count - drawn;
+                for (int i = 0; i < t.Buildings.Count; i++)
+                    if (SacredSelector.HostOf(t, i) >= 0) skipped--; // drawn by their sacred outline's generator
                 MeshingChecks.AssertWellFormed(m, id.ToString());
-                // Roof quads over skewed footprints may be slightly non-planar and share one (Newell) normal.
+                // Roof quads over skewed footprints may be slightly non-planar and share one (Newell) normal. Generic
+                // sacred structures (their generator's LOD1, smooth domes and spires) are only held to facing their normals.
+                var sacred = new HashSet<ulong>();
+                foreach (BuildingRecord b in t.Buildings)
+                    if (SacredSelector.DrawsGeneric(b)) sacred.Add(b.OsmRef);
+                m.Clear();
+                BuildingMesher.Build(t, s, new BuildingOptions { HiddenRefs = sacred }, m);
                 MeshingChecks.AssertFrontFacesAgreeWithNormals(m, 0, m.TriangleCount, 0.99, id.ToString());
+                m.Clear();
+                foreach (BuildingRecord b in t.Buildings)
+                    if (!SacredSelector.DrawsGeneric(b)) sacred.Add(b.OsmRef);
+                    else sacred.Remove(b.OsmRef);
+                BuildingMesher.Build(t, s, new BuildingOptions { HiddenRefs = sacred }, m);
+                MeshingChecks.AssertFrontFacesAgreeWithNormals(m, 0, m.TriangleCount, 0.0, id + " sacred");
+                m.Clear();
+                BuildingMesher.Build(t, s, o, m);
                 for (int v = 0; v < m.VertexCount; v++)
                 {
                     float y = m.Positions[3 * v + 1];
@@ -290,6 +307,7 @@ namespace Ghumante.Core.Tests
             var ds = new TileHeightSampler(dense, 2);
             foreach (BuildingRecord b in dense.Buildings)
             {
+                if (SacredSelector.DrawsGeneric(b)) continue; // drawn by the sacred generators, not extruded
                 var one = new TileData { Tile = dense.Tile, HeightsN = dense.HeightsN, HeightsQ = dense.HeightsQ };
                 one.Buildings.Add(b);
                 var bm = new MeshData();
@@ -314,6 +332,99 @@ namespace Ghumante.Core.Tests
             Assert.That(skipped, Is.LessThanOrEqualTo(records / 1000), "degenerate footprints are rare");
             Assert.That(decks, Is.GreaterThan(3000));
             Assert.That(deckMismatch, Is.LessThanOrEqualTo(decks / 1000), "self-intersecting OSM rings only");
+        }
+
+        private static bool HasColour(MeshData m, uint c)
+        {
+            for (int v = 0; v < m.VertexCount; v++)
+                if (m.Colors[4 * v] == MeshColor.R(c) && m.Colors[4 * v + 1] == MeshColor.G(c) && m.Colors[4 * v + 2] == MeshColor.B(c))
+                    return true;
+            return false;
+        }
+
+        [Test]
+        public void GenericTemplesUseTheSacredGeneratorInB1AndThePlaceholderIsNeverGilt()
+        {
+            // An unnamed 10 m temple tagged 20 m: at most two tiers without a curated record (W2_DESIGN 3.2), never gilt, in every band.
+            var temple = B(BuildingArchetype.TemplePagoda, RoofShape.Pagoda, 20, 5000, 5000, 6000, 5000, 6000, 6000, 5000, 6000);
+            temple.Flags = BuildingFlags.HeightTagged;
+            TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300);
+            t.Buildings.Add(temple);
+            var h = new TileHeightSampler(t, 1);
+            SacredKind kind;
+            SacredParams p;
+            Assert.That(SacredSelector.TrySelect(t, 0, out kind, out p), Is.True);
+            Assert.That(p.Pagoda.Tiers, Is.EqualTo(1), "unnamed 6-14 m temples get one tier");
+            Assert.That(p.Pagoda.Finish, Is.EqualTo(RoofFinish.Tile));
+            var b1 = new MeshData();
+            Assert.That(BuildingMesher.Build(t, h, new BuildingOptions(), b1), Is.EqualTo(1));
+            var lod1 = new MeshData();
+            Assert.That(SacredSelector.BuildGeneric(t, 0, h, 1, lod1, null), Is.True);
+            Assert.That(b1.TriangleCount, Is.EqualTo(lod1.TriangleCount), "B1 draws the generator's LOD1");
+            Assert.That(BuildingMesher.IsDrawn(t, 0, new BuildingOptions()), Is.True);
+            // The unstyled W1 placeholder: no gilt top and no third tier, however tall.
+            MeshData w1 = Mesh(B(BuildingArchetype.TemplePagoda, RoofShape.Pagoda, 30, 5000, 5000, 6000, 5000, 6000, 6000, 5000, 6000));
+            Assert.That(HasColour(w1, BuildingStyle.Gold), Is.False);
+        }
+
+        [Test]
+        public void TemplesMappedWithPartsTakeTiersAndHeightsFromTheirParts()
+        {
+            TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300);
+            var host = B(BuildingArchetype.TemplePagoda, RoofShape.Pagoda, 0, 5000, 5000, 6200, 5000, 6200, 6200, 5000, 6200);
+            host.Flags = BuildingFlags.HasParts;
+            t.Buildings.Add(host);
+            // Two plinth levels, then three pitched tiers (one part holds its storey and roof).
+            Func<double, double, double, double, RoofShape, BuildingRecord> part = (half, min, top, unused, roof) =>
+            {
+                int a = (int)Math.Round(5600 - half * 100), c = (int)Math.Round(5600 + half * 100);
+                return new BuildingRecord
+                {
+                    Archetype = BuildingArchetype.TemplePagoda, RoofShape = roof, Flags = BuildingFlags.Part, Seed = 9,
+                    HeightCm = (ulong)Math.Round(top * 100), MinHeightCm = (ulong)Math.Round(min * 100), Rings = new[] { new[] { a, a, c, a, c, c, a, c } },
+                };
+            };
+            t.Buildings.Add(part(6.0, 0, 0.8, 0, RoofShape.Flat));
+            t.Buildings.Add(part(5.2, 0.8, 1.6, 0, RoofShape.Flat));
+            t.Buildings.Add(part(5.5, 6.0, 8.5, 0, RoofShape.Pyramidal));
+            t.Buildings.Add(part(4.0, 9.0, 11.0, 0, RoofShape.Pyramidal));
+            t.Buildings.Add(part(2.5, 12.0, 13.5, 0, RoofShape.Pyramidal));
+            var h = new TileHeightSampler(t, 1);
+            SacredKind kind;
+            SacredParams p;
+            Assert.That(SacredSelector.TrySelect(t, 0, out kind, out p), Is.True);
+            Assert.That(kind, Is.EqualTo(SacredKind.Pagoda));
+            Assert.That(p.Pagoda.Tiers, Is.EqualTo(3), "tiers from the parts");
+            Assert.That(p.Pagoda.EaveHeights, Is.EqualTo(new[] { 6f, 9f, 12f }));
+            Assert.That(p.Pagoda.EaveWidths[0], Is.EqualTo(11f).Within(1e-3));
+            Assert.That(p.Pagoda.PlinthLevels, Is.EqualTo(2));
+            Assert.That(p.Pagoda.StepRiseM, Is.EqualTo(0.8f).Within(1e-4));
+            Assert.That(p.Pagoda.TotalHeightM * (1 - p.Pagoda.GajurFrac), Is.EqualTo(13.5f).Within(1e-3), "the roof apex at the top part; the gajur above");
+            Assert.That(p.Pagoda.Finish, Is.EqualTo(RoofFinish.Tile), "gilt only from a curated record");
+            PagodaParams p0 = p.Pagoda;
+            for (int i = 1; i < t.Buildings.Count; i++)
+            {
+                Assert.That(SacredSelector.HostOf(t, i), Is.EqualTo(0));
+                Assert.That(SacredSelector.TrySelect(t, i, out kind, out p), Is.False);
+            }
+            // B0: the host is drawn by the pagoda generator with its plinth colliders; the parts are not drawn again.
+            var m0 = new MeshData();
+            var c0 = new Ghumante.Core.Generators.GenColliders();
+            Assert.That(BuildingDetailMesher.BuildTile(t, h, new BuildingOptions { Band = BuildingBand.B0KitLite }, m0, c0), Is.EqualTo(1));
+            var gen = new MeshData();
+            Assert.That(SacredSelector.BuildGeneric(t, 0, h, 0, gen, null), Is.True);
+            Assert.That(m0.TriangleCount, Is.EqualTo(gen.TriangleCount));
+            Assert.That(c0.Boxes.Count, Is.GreaterThanOrEqualTo(2), "walkable plinth levels");
+            float min, max;
+            YRange(m0, out min, out max);
+            Assert.That(max, Is.EqualTo(Ground + p0.TotalHeightM).Within(0.05));
+            // B1: the same, at LOD1, and the record-level count agrees.
+            var o = new BuildingOptions();
+            Assert.That(BuildingMesher.Build(t, h, o, new MeshData()), Is.EqualTo(1));
+            int expected = 0;
+            for (int i = 0; i < t.Buildings.Count; i++)
+                if (BuildingMesher.IsDrawn(t, i, o)) expected++;
+            Assert.That(expected, Is.EqualTo(1));
         }
     }
 }

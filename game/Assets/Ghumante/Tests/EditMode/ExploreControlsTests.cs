@@ -191,7 +191,9 @@ namespace Ghumante.Tests.EditMode
             {
                 ChaseRigProfile landscape = ChaseRigProfile.Blend(ride, 0f);
                 ChaseRigProfile portrait = ChaseRigProfile.Blend(ride, 1f);
-                Assert.Greater(portrait.DistanceM, landscape.DistanceM);
+                // W2_DESIGN 6.4: the portrait walking camera comes closer (6.8 m) so the player reads bigger; riding pulls back.
+                if (ride > 0f) Assert.Greater(portrait.DistanceM, landscape.DistanceM);
+                else Assert.AreEqual(6.8f, portrait.DistanceM, Eps);
                 Assert.Greater(portrait.CameraHeightM, landscape.CameraHeightM);
                 Assert.Greater(portrait.PitchDeg, landscape.PitchDeg);
                 Assert.Greater(portrait.LookAhead(20f), landscape.LookAhead(20f), "more road ahead on a tall screen");

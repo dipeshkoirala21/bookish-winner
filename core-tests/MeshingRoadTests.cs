@@ -134,7 +134,7 @@ namespace Ghumante.Core.Tests
             TileData t = MeshingChecks.SyntheticTile(A, (x, z) => 1300);
             t.Roads.Add(Road(RoadClass.Residential, Surface.Brick, RoadFlags.None, 10000, 20000, 20000, 20000));
             var m = new MeshData();
-            var o = new RoadOptions();
+            var o = new RoadOptions { WidthModel = false };
             int drawn = RoadMesher.Build(t, new PlainSampler(new TileHeightSampler(t, 1)), o, m);
             Assert.That(drawn, Is.EqualTo(1));
             Assert.That(m.VertexCount, Is.EqualTo(3 * 14), "100 m at 8 m spacing: 13 segments");
@@ -212,8 +212,8 @@ namespace Ghumante.Core.Tests
             // Plain cross-sections: A's last section equals B's first, on the border line x = 1024 / 0.
             var ma = new MeshData();
             var mb = new MeshData();
-            RoadMesher.Build(ta, new PlainSampler(sa), new RoadOptions(), ma);
-            RoadMesher.Build(tb, new PlainSampler(sb), new RoadOptions(), mb);
+            RoadMesher.Build(ta, new PlainSampler(sa), new RoadOptions { WidthModel = false }, ma);
+            RoadMesher.Build(tb, new PlainSampler(sb), new RoadOptions { WidthModel = false }, mb);
             int lastA = ma.VertexCount - 3;
             for (int k = 0; k < 3; k++)
             {
@@ -230,8 +230,8 @@ namespace Ghumante.Core.Tests
             // Draped: identical vertices along the border on both sides, nothing beyond it.
             ma.Clear();
             mb.Clear();
-            RoadMesher.Build(ta, sa, new RoadOptions(), ma);
-            RoadMesher.Build(tb, sb, new RoadOptions(), mb);
+            RoadMesher.Build(ta, sa, new RoadOptions { WidthModel = false }, ma);
+            RoadMesher.Build(tb, sb, new RoadOptions { WidthModel = false }, mb);
             for (int v = 0; v < ma.VertexCount; v++) Assert.That(ma.Positions[3 * v], Is.LessThanOrEqualTo(1024.001f));
             for (int v = 0; v < mb.VertexCount; v++) Assert.That(mb.Positions[3 * v], Is.GreaterThanOrEqualTo(-0.001f));
             AssertSameBorder(BorderVertices(ma, A, true, 1024f), BorderVertices(mb, B, true, 0f), "draped join");
@@ -297,7 +297,7 @@ namespace Ghumante.Core.Tests
         [Test]
         public void SampleRoadsFollowTheRenderedSurfaceAndJoinAcrossTiles()
         {
-            var o = new RoadOptions();
+            var o = new RoadOptions { WidthModel = false };
             int pieces = 0, joins = 0, triangles = 0, looseJoins = 0;
             double worst = 0, worstJoin = 0;
             var m = new MeshData();

@@ -9,7 +9,14 @@ namespace Ghumante.Core.Tests
 {
     public class EnumsTests
     {
-        private static readonly Type[] FlagEnums = { typeof(Travel), typeof(RoadFlags), typeof(BuildingFlags), typeof(PoiFlags) };
+        /// <summary>[Flags] enums: shared/enums.json "flag_enums" (written by model.enums_json since ENUMS_VERSION 2).</summary>
+        private static HashSet<string> FlagEnums()
+        {
+            JsonElement root = GoldenFiles.SharedJson("enums.json");
+            JsonElement list;
+            if (!root.TryGetProperty("flag_enums", out list)) return new HashSet<string> { "Travel", "RoadFlags", "BuildingFlags", "PoiFlags" };
+            return new HashSet<string>(list.EnumerateArray().Select(e => e.GetString()));
+        }
 
         private static string Pascal(string name)
         {
@@ -28,7 +35,7 @@ namespace Ghumante.Core.Tests
             JsonElement members = GoldenFiles.SharedJson("enums.json").GetProperty("enums").GetProperty(enumName);
             Type t = typeof(TileId).Assembly.GetType("Ghumante.Core.Data." + enumName);
             Assert.That(t, Is.Not.Null, enumName + " missing from Enums.cs");
-            bool isFlags = FlagEnums.Contains(t);
+            bool isFlags = FlagEnums().Contains(enumName);
             Assert.That(t.IsDefined(typeof(FlagsAttribute), false), Is.EqualTo(isFlags), enumName + " [Flags]");
 
             var expected = members.EnumerateObject().ToDictionary(p => Pascal(p.Name), p => p.Value.GetInt64());

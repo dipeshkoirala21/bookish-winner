@@ -33,8 +33,31 @@ namespace Ghumante.Characters
         public float Throttle, Reverse, Brake;
         public bool Boost;
 
-        /// <summary>E / gamepad A / the HUD's Walk-Ride button: get on or off the scooter.</summary>
+        /// <summary>E / gamepad A / the HUD's Action button pressed this frame: Hop on (the offered seat), Hop off, or
+        /// Jump on foot when nothing is offered (W2_DESIGN 6.2, 6.5).</summary>
         public bool ToggleMode;
+
+        /// <summary>The Action input is held (E, gamepad A, the HUD's Action button): a 0.35 s hold rides as a passenger,
+        /// a 0.4 s hold with nothing offered hails a taxi.</summary>
+        public bool ActionHeld;
+
+        /// <summary>Space on foot / the HUD's Jump: jump (on foot only; Space brakes in a vehicle).</summary>
+        public bool Jump;
+
+        /// <summary>H / left-stick press / the HUD's Horn (held: a long horn).</summary>
+        public bool Horn;
+
+        /// <summary>N / D-pad up / the HUD's Namaste button this frame.</summary>
+        public bool Namaste;
+
+        /// <summary>G / D-pad down / the HUD's Garage whistle this frame: summon the selected garage vehicle.</summary>
+        public bool Whistle;
+
+        /// <summary>B key / D-pad right / the HUD's Stop bell this frame (riding as a passenger: stop at the next stop).</summary>
+        public bool Bell;
+
+        /// <summary>The HUD's small "Ride as passenger" button this frame.</summary>
+        public bool RidePassenger;
 
         /// <summary>M / gamepad Select (the map arrives in wave 2).</summary>
         public bool Map;
@@ -71,6 +94,13 @@ namespace Ghumante.Characters
             Brake = Math.Max(Brake, other.Brake);
             Boost |= other.Boost;
             ToggleMode |= other.ToggleMode;
+            ActionHeld |= other.ActionHeld;
+            Jump |= other.Jump;
+            Horn |= other.Horn;
+            Namaste |= other.Namaste;
+            Whistle |= other.Whistle;
+            Bell |= other.Bell;
+            RidePassenger |= other.RidePassenger;
             Map |= other.Map;
             Pause |= other.Pause;
             Search |= other.Search;

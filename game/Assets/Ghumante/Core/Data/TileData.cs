@@ -88,6 +88,12 @@ namespace Ghumante.Core.Data
     {
         None = 0,
         ClippedByTile = 1,
+
+        /// <summary>A heritage square or a curated heritage compound (CONTENT_COVERAGE F1).</summary>
+        HeritageZone = 2,
+
+        /// <summary>No motor vehicle may enter (W2_DESIGN L16, D14); the routing graph agrees.</summary>
+        SacredNoVehicle = 4,
     }
 
     public sealed class AreaRecord
@@ -133,6 +139,11 @@ namespace Ghumante.Core.Data
         }
     }
 
+    internal static class RoadAttrRecordEmpty
+    {
+        public static readonly int[] Corridor = new int[0];
+    }
+
     /// <summary>A decoded GHT1 tile. Absent chunks leave empty lists or null grids.</summary>
     public sealed class TileData
     {
@@ -158,6 +169,18 @@ namespace Ghumante.Core.Data
         public readonly List<AreaRecord> Areas = new List<AreaRecord>();
         public readonly List<PoiRecord> Pois = new List<PoiRecord>();
 
+        /// <summary>RATR: one record per <see cref="Roads"/> entry, same order; empty when the tile has no RATR.</summary>
+        public readonly List<RoadAttrRecord> RoadAttrs = new List<RoadAttrRecord>();
+
+        /// <summary>JNCT junctions; empty when absent.</summary>
+        public readonly List<JunctionRecord> Junctions = new List<JunctionRecord>();
+
+        /// <summary>BFNT: one record per <see cref="Buildings"/> entry, same order; empty when the tile has no BFNT.</summary>
+        public readonly List<BuildingFrontRecord> BuildingFronts = new List<BuildingFrontRecord>();
+
+        /// <summary>PROP real point objects; empty when absent.</summary>
+        public readonly List<PropRecord> Props = new List<PropRecord>();
+
         public bool HasSeed;
         public ulong TileSeed;
         public ushort ScatterRuleset;
@@ -168,6 +191,32 @@ namespace Ghumante.Core.Data
         public bool HasDetail
         {
             get { return (Flags & Ght.FlagHasDetail) != 0; }
+        }
+
+        /// <summary>True when the tile carries RATR (one attribute record per road).</summary>
+        public bool HasRoadAttrs
+        {
+            get { return RoadAttrs.Count > 0 && RoadAttrs.Count == Roads.Count; }
+        }
+
+        /// <summary>True when the tile carries BFNT (one front record per building).</summary>
+        public bool HasBuildingFronts
+        {
+            get { return BuildingFronts.Count > 0 && BuildingFronts.Count == Buildings.Count; }
+        }
+
+        /// <summary>The RATR record of road <paramref name="roadIndex"/>, or an empty one (area unknown, no corridor)
+        /// when the tile has no RATR.</summary>
+        public RoadAttrRecord RoadAttrOf(int roadIndex)
+        {
+            return HasRoadAttrs ? RoadAttrs[roadIndex] : new RoadAttrRecord { CorridorDm = RoadAttrRecordEmpty.Corridor };
+        }
+
+        /// <summary>The BFNT record of building <paramref name="buildingIndex"/>, or
+        /// <see cref="BuildingFrontRecord.Absent"/> when the tile has no BFNT.</summary>
+        public BuildingFrontRecord BuildingFrontOf(int buildingIndex)
+        {
+            return HasBuildingFronts ? BuildingFronts[buildingIndex] : BuildingFrontRecord.Absent;
         }
 
         /// <summary>Resolve a name_ref (0 = no name).</summary>

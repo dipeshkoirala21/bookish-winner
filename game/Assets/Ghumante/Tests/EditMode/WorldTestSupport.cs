@@ -123,6 +123,17 @@ namespace Ghumante.Tests.EditMode
         {
             Assert.IsTrue(Views.Remove(node), "released a node without a view: " + node);
             Released.Add(node);
+            Extras.Remove(node);
+        }
+
+        /// <summary>Extras handed over by ready nodes (W2: instances, heroes).</summary>
+        public readonly Dictionary<SelectedNode, TileExtras> Extras = new Dictionary<SelectedNode, TileExtras>();
+
+        public void Ready(SelectedNode node, TileExtras extras)
+        {
+            Assert.IsTrue(Views.ContainsKey(node), "ready without a view: " + node);
+            Assert.IsNotNull(extras);
+            Extras[node] = extras;
         }
 
         public List<SelectedNode> Visible()

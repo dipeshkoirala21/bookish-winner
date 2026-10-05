@@ -22,13 +22,28 @@ namespace Ghumante.Core.Driving
     /// a hard edge and its own slope, and the layered overload (<see cref="ILayeredGroundQuery"/>) picks the deck
     /// or what lies under it from the asker's height.</item>
     /// <item>Off road the surface comes from the biome (<see cref="BiomeGround"/>).</item>
+    /// <item>W2 (W2_DESIGN 10.3): raised footpaths of the road profiles stand at the kerb height; structure colliders
+    /// (<see cref="IStructureGround"/>: plinths, stairs, squares) join the ground when registered, their walkable tops
+    /// and ramps carrying anyone whose feet are within <see cref="StepUpM"/> below them, while higher tops and no-climb
+    /// boxes block like walls; <see cref="GroundSample.Foot"/> reports the structure material, a paved AREA, the road
+    /// surface or the biome, in that order.</item>
     /// </list>
     /// Not thread safe: use it from one thread (the main thread). Queries do not allocate.
     /// </summary>
-    public sealed class TileGroundQuery : ILayeredGroundQuery, IRoadQuery
+    public sealed class TileGroundQuery : ILayeredGroundQuery, IRoadQuery, IStructureGround
     {
-        /// <summary>Upper bound on any road's half width, used to look across tile edges.</summary>
-        public const float MaxRoadHalfWidthM = RoadStyle.MaxWidthM * 0.5f;
+        /// <summary>Upper bound on any road's reach from its centreline (W2 game carriageway, dual shift and
+        /// footpaths), used to look across tile edges.</summary>
+        public const float MaxRoadHalfWidthM = 0.5f * RoadStyle.MaxGameWidthM + 4f;
+
+        /// <summary>Auto step-up: a walkable top at most this far above the feet is stepped onto (W2_DESIGN 6.1:
+        /// pikha aprons, temple steps).</summary>
+        public const float StepUpM = 0.45f;
+
+        /// <summary>Height and radius of the body a blocking box must leave room for.</summary>
+        public const float BodyHeightM = 1.2f;
+
+        public const float BodyRadiusM = 0.3f;
 
         /// <summary>A bridge deck more than this above the asker's height is overhead, not underfoot.</summary>
         public const float DeckStepUpM = 1.5f;
@@ -39,7 +54,114 @@ namespace Ghumante.Core.Driving
             public TileData Source;
             public TileHeightSampler Sampler;
             public RoadSpatialIndex Roads; // exact areas with drawn roads only
+            public PavingIndex Paving; // exact areas only (null for cropped areas)
         }
+
+        /// <summary>Paved AREA triangles of one tile (squares, courtyards, compounds, car parks) in game metres, bucketed
+        /// in a 32 m grid over the tile square.</summary>
+        private sealed class PavingIndex
+        {
+            private const int Cells = 32;
+            private double[] _tri = new double[0]; // x0 z0 x1 z1 x2 z2 per triangle
+            private FootSurface[] _foot = new FootSurface[0];
+            private int[] _start = new int[Cells * Cells + 1], _items = new int[0];
+            private double _x0, _z0, _cell;
+
+            public static PavingIndex Build(TileData t)
+            {
+                var tris = new List<double>();
+                var feet = new List<FootSurface>();
+                double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+                foreach (AreaRecord a in t.Areas)
+                {
+                    FootSurface f;
+                    if (!FootSurfaces.TryOfArea(a.Kind, out f) || a.Indices == null || a.Vertices == null) continue;
+                    for (int k = 0; k + 2 < a.Indices.Length; k += 3)
+                    {
+                        for (int c = 0; c < 3; c++)
+                        {
+                            int v = a.Indices[k + c];
+                            tris.Add(x0 + a.Vertices[2 * v] / 100.0);
+                            tris.Add(z0 + a.Vertices[2 * v + 1] / 100.0);
+                        }
+                        feet.Add(f);
+                    }
+                }
+                var p = new PavingIndex { _tri = tris.ToArray(), _foot = feet.ToArray(), _x0 = x0, _z0 = z0, _cell = t.Tile.Size / Cells };
+                int n = p._foot.Length;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    int[] fill = pass == 1 ? (int[])p._start.Clone() : null;
+                    for (int i = 0; i < n; i++)
+                    {
+                        int cx0, cz0, cx1, cz1;
+                        p.Bounds(i, out cx0, out cz0, out cx1, out cz1);
+                        for (int cz = cz0; cz <= cz1; cz++)
+                        for (int cx = cx0; cx <= cx1; cx++)
+                        {
+                            if (pass == 0) p._start[cz * Cells + cx + 1]++;
+                            else p._items[fill[cz * Cells + cx]++] = i;
+                        }
+                    }
+                    if (pass == 0)
+                    {
+                        for (int c = 0; c < Cells * Cells; c++) p._start[c + 1] += p._start[c];
+                        p._items = new int[p._start[Cells * Cells]];
+                    }
+                }
+                return p;
+            }
+
+            private void Bounds(int i, out int cx0, out int cz0, out int cx1, out int cz1)
+            {
+                int o = 6 * i;
+                double minX = Math.Min(_tri[o], Math.Min(_tri[o + 2], _tri[o + 4])), maxX = Math.Max(_tri[o], Math.Max(_tri[o + 2], _tri[o + 4]));
+                double minZ = Math.Min(_tri[o + 1], Math.Min(_tri[o + 3], _tri[o + 5])), maxZ = Math.Max(_tri[o + 1], Math.Max(_tri[o + 3], _tri[o + 5]));
+                cx0 = CellOf(minX - _x0);
+                cx1 = CellOf(maxX - _x0);
+                cz0 = CellOf(minZ - _z0);
+                cz1 = CellOf(maxZ - _z0);
+            }
+
+            private int CellOf(double local)
+            {
+                int c = (int)Math.Floor(local / _cell);
+                return c < 0 ? 0 : c >= Cells ? Cells - 1 : c;
+            }
+
+            /// <summary>The paving under (x, z); the last listed area wins where they overlap (a courtyard listed after
+            /// the compound that holds it).</summary>
+            public bool TryAt(double x, double z, out FootSurface f)
+            {
+                f = FootSurface.Asphalt;
+                if (_foot.Length == 0) return false;
+                double lx = x - _x0, lz = z - _z0;
+                if (lx < 0 || lz < 0 || lx >= _cell * Cells || lz >= _cell * Cells) return false;
+                int c = CellOf(lz) * Cells + CellOf(lx);
+                int best = -1;
+                for (int k = _start[c], end = _start[c + 1]; k < end; k++)
+                {
+                    int i = _items[k], o = 6 * i;
+                    if (i > best && InTri(x, z, _tri[o], _tri[o + 1], _tri[o + 2], _tri[o + 3], _tri[o + 4], _tri[o + 5])) best = i;
+                }
+                if (best < 0) return false;
+                f = _foot[best];
+                return true;
+            }
+
+            private static bool InTri(double px, double pz, double ax, double az, double bx, double bz, double cx, double cz)
+            {
+                double d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz);
+                double d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz);
+                double d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az);
+                bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+                return !(neg && pos);
+            }
+        }
+
+        // Registered structure colliders by tile key, kept sorted by key (deterministic, allocation-free iteration).
+        private readonly List<ulong> _structureKeys = new List<ulong>();
+        private readonly List<StructureSet> _structures = new List<StructureSet>();
 
         private readonly Dictionary<TileId, Entry> _areas = new Dictionary<TileId, Entry>();
         private readonly int[] _levelCount = new int[TileId.MaxLevel + 1];
@@ -117,7 +239,12 @@ namespace Ghumante.Core.Driving
             if (roads != null && (roads.Tile != sampler.SourceTile || area != sampler.SourceTile.Tile))
                 throw new ArgumentException("a road index needs an exact area of its own tile", nameof(roads));
             Remove(area);
-            _areas[area] = new Entry { Area = area, Source = sampler.SourceTile, Sampler = sampler, Roads = roads };
+            bool exact = sampler.SourceTile != null && area == sampler.SourceTile.Tile;
+            _areas[area] = new Entry
+            {
+                Area = area, Source = sampler.SourceTile, Sampler = sampler, Roads = roads,
+                Paving = exact ? PavingIndex.Build(sampler.SourceTile) : null,
+            };
             _levelCount[area.Level]++;
             if (roads != null) _roadLevelCount[area.Level]++;
         }
@@ -144,6 +271,8 @@ namespace Ghumante.Core.Driving
         public void Clear()
         {
             _areas.Clear();
+            _structures.Clear();
+            _structureKeys.Clear();
             Array.Clear(_levelCount, 0, _levelCount.Length);
             Array.Clear(_roadLevelCount, 0, _roadLevelCount.Length);
         }
@@ -223,6 +352,13 @@ namespace Ghumante.Core.Driving
             s.TileLevel = e.Area.Level;
             s.Biome = BiomeAt(x, z, e);
             s.Surface = BiomeGround.Of(s.Biome);
+            s.Foot = FootSurfaces.OfBiome(s.Biome);
+            FootSurface paved;
+            if (TryPaving(x, z, out paved))
+            {
+                s.Foot = paved;
+                s.Surface = FootSurfaces.GroupOf(paved);
+            }
 
             // A bridge deck within reach of the asker wins; otherwise the roads that are not bridges.
             const float margin = RoadSpatialIndex.OnRoadMarginM;
@@ -233,9 +369,20 @@ namespace Ghumante.Core.Driving
                          && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade) && road <= nearY + DeckStepUpM;
             if (!found)
             {
-                found = TryNearestRoad(x, z, margin, RoadFlags.None, RoadFlags.Bridge, out hit) && hit.OnRoad
-                        && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
-                if (!found) return true;
+                found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.Bridge, out hit)
+                        && (hit.OnRoad || hit.OnFootpath);
+                if (found && hit.OnFootpath)
+                {
+                    // A raised footpath: the paver top at kerb height above the ribbon lift, never a ramp.
+                    s.Height = h + RoadLiftM(hit.Road) + _roadOptions.KerbHeightM;
+                    s.OnFootpath = true;
+                    s.Foot = FootSurface.Concrete;
+                    s.Surface = SurfaceGroup.Paved;
+                    SetRoad(ref s, ref hit);
+                    return Structures(x, z, nearY, ref s);
+                }
+                found = found && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
+                if (!found) return Structures(x, z, nearY, ref s);
             }
 
             RoadRecord r = hit.Road;
@@ -250,15 +397,115 @@ namespace Ghumante.Core.Driving
                 s.Ny = inv;
                 s.Nz = -gz * inv;
             }
+            s.Surface = SurfaceGroups.Of(r.Surface);
+            s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
+            SetRoad(ref s, ref hit);
+            return Structures(x, z, nearY, ref s);
+        }
+
+        private static void SetRoad(ref GroundSample s, ref RoadHit hit)
+        {
+            RoadRecord r = hit.Road;
             s.RoadClass = r.RoadClass;
             s.RoadSurface = r.Surface;
             s.RoadFlags = r.Flags;
-            s.Surface = SurfaceGroups.Of(r.Surface);
             s.RoadDirX = hit.DirX;
             s.RoadDirZ = hit.DirZ;
             s.RoadOffsetM = hit.LateralM;
             s.RoadHalfWidthM = hit.HalfWidthM;
+        }
+
+        /// <summary>Structure colliders over the resolved ground: a walkable top or ramp within reach raises the ground
+        /// (and takes its material); a box blocking the body makes the point a wall (false).</summary>
+        private bool Structures(double x, double z, float nearY, ref GroundSample s)
+        {
+            if (_structures.Count == 0) return true;
+            float best = s.Height, gx = 0f, gz = 0f;
+            FootSurface foot = s.Foot;
+            bool found = false, blocked = false;
+            float feet = float.IsInfinity(nearY) ? nearY : Math.Max(nearY, s.Height);
+            for (int i = 0; i < _structures.Count; i++)
+            {
+                StructureSet set = _structures[i];
+                if (!set.Covers(x, z)) continue;
+                set.Query(x, z, feet, StepUpM, BodyHeightM, BodyRadiusM, ref best, ref foot, ref gx, ref gz, ref found, ref blocked);
+            }
+            if (blocked) return false;
+            if (!found || best < s.Height - 0.02f) return true;
+            s.Height = best;
+            float inv = 1f / MathF.Sqrt(gx * gx + 1f + gz * gz);
+            s.Nx = -gx * inv;
+            s.Ny = inv;
+            s.Nz = -gz * inv;
+            s.Foot = foot;
+            s.Surface = FootSurfaces.GroupOf(foot);
+            s.OnStructure = true;
+            s.OnRoad = false;
+            s.OnFootpath = false;
             return true;
+        }
+
+        // ---- structure colliders (IStructureGround) ----
+
+        /// <summary>Adds (or replaces) a tile's structure colliders (tile-local coordinates, copied).</summary>
+        public void Register(ulong tileKey, StructureColliders c)
+        {
+            if (c == null) throw new ArgumentNullException(nameof(c));
+            var set = new StructureSet(tileKey, c, BodyRadiusM + StructureColliders.SoftMarginM);
+            int i = _structureKeys.BinarySearch(tileKey);
+            if (i >= 0)
+            {
+                _structures[i] = set;
+                return;
+            }
+            i = ~i;
+            _structureKeys.Insert(i, tileKey);
+            _structures.Insert(i, set);
+        }
+
+        public void Unregister(ulong tileKey)
+        {
+            int i = _structureKeys.BinarySearch(tileKey);
+            if (i < 0) return;
+            _structureKeys.RemoveAt(i);
+            _structures.RemoveAt(i);
+        }
+
+        /// <summary>Number of tiles with registered structure colliders.</summary>
+        public int StructureTileCount
+        {
+            get { return _structures.Count; }
+        }
+
+        /// <summary>True when a structure blocks a body standing at (x, z) with its feet at <paramref name="feetY"/>
+        /// (exit placement, spawn checks): a no-climb box or a walkable top too high to step onto spans the body.</summary>
+        public bool IsBlocked(double x, double z, float feetY)
+        {
+            float best = feetY, gx = 0f, gz = 0f;
+            FootSurface foot = FootSurface.Asphalt;
+            bool found = false, blocked = false;
+            for (int i = 0; i < _structures.Count; i++)
+            {
+                StructureSet set = _structures[i];
+                if (!set.Covers(x, z)) continue;
+                set.Query(x, z, feetY, StepUpM, BodyHeightM, BodyRadiusM, ref best, ref foot, ref gx, ref gz, ref found, ref blocked);
+            }
+            return blocked;
+        }
+
+        private bool TryPaving(double x, double z, out FootSurface f)
+        {
+            f = FootSurface.Asphalt;
+            int level = FinestRoadLevel();
+            if (level < 0) level = TileId.MaxLevel;
+            for (int l = level; l >= 0; l--)
+            {
+                if (_levelCount[l] == 0) continue;
+                Entry e;
+                if (!_areas.TryGetValue(TileId.At(l, x, z), out e) || e.Paving == null) continue;
+                return e.Paving.TryAt(x, z, out f);
+            }
+            return false;
         }
 
         /// <summary>The class part of the ribbon lift, as <see cref="RoadMesher"/>: <c>LiftM + min(priority, 8) ×

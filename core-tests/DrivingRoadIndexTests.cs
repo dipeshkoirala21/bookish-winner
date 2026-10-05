@@ -12,6 +12,9 @@ namespace Ghumante.Core.Tests
     {
         private const int Tx = 520, Ty = 160; // a level-10 tile inside the valley
 
+        /// <summary>The W1 ribbon widths (<see cref="RoadStyle.WidthM"/>): the index's geometry tests use them.</summary>
+        private static readonly RoadOptions W1 = new RoadOptions { WidthModel = false };
+
         private static TileData TileWith(params RoadRecord[] roads)
         {
             TileData t = DrivingData.Flat(10, Tx, Ty, 1300.0);
@@ -28,7 +31,7 @@ namespace Ghumante.Core.Tests
                 DrivingData.Road(RoadClass.Residential, Surface.Asphalt, 6.5, RoadFlags.None, 100, 300, 900, 300),
                 DrivingData.Road(RoadClass.Primary, Surface.Asphalt, 0, RoadFlags.Tunnel, 100, 500, 900, 500),
                 DrivingData.Road(RoadClass.Footway, Surface.Brick, 0, RoadFlags.None, 100, 700, 900, 700));
-            var all = new RoadSpatialIndex(t);
+            var all = new RoadSpatialIndex(t, W1);
             Assert.That(all.HalfWidthM(0), Is.EqualTo(0.5f * RoadStyle.WidthM(t.Roads[0])));
             Assert.That(all.HalfWidthM(1), Is.EqualTo(3.25f).Within(1e-5));
             Assert.That(all.SegmentCount, Is.EqualTo(3), "the tunnel is not indexed");
@@ -38,7 +41,7 @@ namespace Ghumante.Core.Tests
             Assert.That(all.TryNearest(x0 + 500, z0 + 500, 0.5, out hit), Is.False, "tunnels run under the terrain");
             Assert.That(all.TryNearest(x0 + 500, z0 + 700, 0.5, out hit), Is.True);
             Assert.That(hit.Road.RoadClass, Is.EqualTo(RoadClass.Footway));
-            var noTrails = new RoadSpatialIndex(t, new RoadOptions { IncludeTrails = false });
+            var noTrails = new RoadSpatialIndex(t, new RoadOptions { IncludeTrails = false, WidthModel = false });
             Assert.That(noTrails.TryNearest(x0 + 500, z0 + 700, 0.5, out hit), Is.False, "trails not drawn, not a road");
             Assert.That(noTrails.SegmentCount, Is.EqualTo(2));
         }
@@ -48,7 +51,7 @@ namespace Ghumante.Core.Tests
         {
             // East-west residential street (5 m wide) along local z = 500 from x = 100 to 900.
             TileData t = TileWith(DrivingData.Road(RoadClass.Residential, Surface.Asphalt, 0, RoadFlags.None, 100, 500, 900, 500));
-            var idx = new RoadSpatialIndex(t);
+            var idx = new RoadSpatialIndex(t, W1);
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             Assert.That(idx.SegmentCount, Is.EqualTo(1));
             Assert.That(idx.MaxHalfWidthM, Is.EqualTo(2.5f));
@@ -150,7 +153,7 @@ namespace Ghumante.Core.Tests
                 t.Roads.Add(DrivingData.Road(classes[r % classes.Length], Surface.Asphalt, rng.Next(3) == 0 ? 3 + rng.NextDouble() * 8 : 0,
                     RoadFlags.None, pts));
             }
-            var idx = new RoadSpatialIndex(t, null, 16.0);
+            var idx = new RoadSpatialIndex(t, W1, 16.0);
             for (int q = 0; q < 3000; q++)
             {
                 double x = t.Tile.X0 - 20 + rng.NextDouble() * 1064, z = t.Tile.Z0 - 20 + rng.NextDouble() * 1064;
@@ -190,9 +193,10 @@ namespace Ghumante.Core.Tests
         [Test]
         public void ThamelMargIsARoad()
         {
-            // A vertex of Thamel Marg in the pack (pipeline-decoded lon/lat of the stored point).
+            // The middle of Thamel Marg's longest segment in the pack (W2 widths: away from the junction nodes, where a
+            // wider crossing street may be the nearest surface).
             double x, z;
-            WorldFrame.LonLatToGame(85.31172094019205, 27.716693189023914, out x, out z);
+            DrivingData.ThamelMarg(out x, out z);
             TileData t = DrivingData.SampleTiles()[TileId.At(10, x, z)];
             var idx = new RoadSpatialIndex(t);
             RoadHit hit;
@@ -218,7 +222,7 @@ namespace Ghumante.Core.Tests
             {
                 if (t.Tile.Level != 10 || t.Roads.Count == 0) continue;
                 if (checkedTiles++ % 6 != 0) continue; // a spread of tiles keeps the test quick
-                var idx = new RoadSpatialIndex(t);
+                var idx = new RoadSpatialIndex(t, W1);
                 for (int q = 0; q < 300; q++)
                 {
                     double x = t.Tile.X0 + rng.NextDouble() * 1024, z = t.Tile.Z0 + rng.NextDouble() * 1024;
@@ -237,6 +241,112 @@ namespace Ghumante.Core.Tests
             Assert.That(checkedTiles, Is.GreaterThan(30));
             // Central Kathmandu is dense with streets: a fair share of random points land on one.
             Assert.That(onRoad, Is.GreaterThan(total / 20), onRoad + " of " + total);
+        }
+
+        // ---- W2 widths (RoadLayout) ----
+
+        /// <summary>Distance beyond the drawn W2 carriageway by brute force over the layout's own profile: the centred
+        /// ribbon of width <c>RoadLayout.HalfWidthAt</c>, shifted outward on a dual carriageway.</summary>
+        private static double BruteForceEdgeW2(TileData t, double x, double z)
+        {
+            RoadLayout lay = RoadLayout.For(t);
+            double best = double.PositiveInfinity;
+            for (int ri = 0; ri < t.Roads.Count; ri++)
+            {
+                RoadRecord r = t.Roads[ri];
+                int first, last;
+                RoadSpatialIndex.RenderedRange(r, out first, out last);
+                if (!RoadMesher.IsDrawn(r, new RoadOptions())) continue;
+                bool dual = lay.Attrs[ri].Has(RoadAttrFlags.Dual);
+                double s0 = 0;
+                for (int k = first; k < last; k++)
+                {
+                    double ax = t.Tile.X0 + r.Points[2 * k] / 100.0, az = t.Tile.Z0 + r.Points[2 * k + 1] / 100.0;
+                    double bx = t.Tile.X0 + r.Points[2 * k + 2] / 100.0, bz = t.Tile.Z0 + r.Points[2 * k + 3] / 100.0;
+                    double dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz, len = Math.Sqrt(l2);
+                    double raw = l2 > 0 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+                    double u = Math.Clamp(raw, 0, 1);
+                    double along = s0 + u * len;
+                    double w = lay.Profiles[ri].WidthAt(along);
+                    double shiftRight = dual ? -0.5 * (w - lay.Profiles[ri].RealM) : 0.0;
+                    double lat = len > 0 ? ((x - ax) * dz - (z - az) * dx) / len : 0;
+                    double over = Math.Max(0, Math.Max(-raw, raw - 1)) * len;
+                    double side = Math.Abs(lat - shiftRight) - 0.5 * w;
+                    double edge = side > 0 ? Math.Sqrt(side * side + over * over) : over > 0 ? over : side;
+                    best = Math.Min(best, edge);
+                    s0 += len;
+                }
+            }
+            return best;
+        }
+
+        [Test]
+        public void W2WidthsFollowTheRoadLayout()
+        {
+            // A straight residential street: the index's half width at each point is the layout's.
+            TileData t = TileWith(DrivingData.Road(RoadClass.Residential, Surface.Asphalt, 0, RoadFlags.None, 100, 500, 900, 500));
+            var idx = new RoadSpatialIndex(t);
+            Assert.That(idx.Layout, Is.SameAs(RoadLayout.For(t)));
+            RoadHit hit;
+            Assert.That(idx.TryNearest(t.Tile.X0 + 300, t.Tile.Z0 + 500, 0.5, out hit), Is.True);
+            Assert.That(hit.HalfWidthM, Is.EqualTo(RoadLayout.For(t).HalfWidthAt(0, 200.0)).Within(1e-4));
+            Assert.That(hit.HalfWidthM * 2f, Is.GreaterThanOrEqualTo(RoadLayout.For(t).Profiles[0].RealM - 1e-3f), "never narrower than real");
+            Assert.That(hit.CentreShiftM, Is.EqualTo(0f));
+        }
+
+        [Test]
+        public void W2RealTilesMatchBruteForce()
+        {
+            var rng = new Random(11);
+            int checkedTiles = 0, onRoad = 0, total = 0;
+            foreach (TileData t in DrivingData.SampleTiles().Values)
+            {
+                if (t.Tile.Level != 10 || t.Roads.Count == 0) continue;
+                if (checkedTiles++ % 8 != 0) continue;
+                var idx = new RoadSpatialIndex(t);
+                for (int q = 0; q < 250; q++)
+                {
+                    double x = t.Tile.X0 + rng.NextDouble() * 1024, z = t.Tile.Z0 + rng.NextDouble() * 1024;
+                    double best = BruteForceEdgeW2(t, x, z);
+                    RoadHit hit;
+                    bool found = idx.TryNearest(x, z, 0.5, out hit);
+                    Assert.That(found, Is.EqualTo(best <= 0.5), t.Tile + " query " + q);
+                    if (found)
+                    {
+                        Assert.That(hit.EdgeDistanceM, Is.EqualTo(best).Within(2e-3), t.Tile + " query " + q);
+                        onRoad++;
+                    }
+                    total++;
+                }
+            }
+            Assert.That(checkedTiles, Is.GreaterThan(30));
+            Assert.That(onRoad, Is.GreaterThan(total / 25), onRoad + " of " + total);
+        }
+
+        [Test]
+        public void FootpathsAreBesideTheCarriageway()
+        {
+            // An URBAN primary road with RATR attributes and both footpaths: a point just beyond the carriageway edge is
+            // on the footpath, not on the road; beyond the footpath it is off.
+            TileData t = TileWith(DrivingData.Road(RoadClass.Primary, Surface.Asphalt, 7.0, RoadFlags.None, 100, 500, 900, 500));
+            t.RoadAttrs.Add(new RoadAttrRecord { Area = AreaType.Urban, Sidewalk = (byte)Sidewalk.Both, CorridorDm = new int[0] });
+            var idx = new RoadSpatialIndex(t);
+            RoadHit hit;
+            double x = t.Tile.X0 + 500, z = t.Tile.Z0 + 500;
+            Assert.That(idx.TryNearest(x, z, 0.5, out hit), Is.True);
+            float half = hit.HalfWidthM, foot = hit.FootLeftM;
+            Assert.That(foot, Is.GreaterThan(0.9f), "URBAN primary has footpaths");
+            Assert.That(hit.FootRightM, Is.EqualTo(foot).Within(1e-4));
+            // North of an eastbound road is its left.
+            Assert.That(idx.TryNearest(x, z + half + 0.5 * foot, RoadSpatialIndex.MaxFootpathM, out hit), Is.True);
+            Assert.That(hit.OnFootpath, Is.True);
+            Assert.That(hit.OnRoad, Is.False);
+            Assert.That(idx.TryNearest(x, z - half + 0.5f, 0.5, out hit), Is.True);
+            Assert.That(hit.OnRoad, Is.True);
+            Assert.That(hit.OnFootpath, Is.False);
+            Assert.That(idx.TryNearest(x, z + half + foot + 1.0, RoadSpatialIndex.MaxFootpathM, out hit), Is.True);
+            Assert.That(hit.OnFootpath, Is.False);
+            Assert.That(hit.OnRoad, Is.False);
         }
     }
 }

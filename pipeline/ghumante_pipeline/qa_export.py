@@ -9,9 +9,10 @@ quantise, encode, decode and unproject.
 Output (``out_dir``, normally ``build/regions/<region>/qa``)::
 
     index.json                         region bbox, tile list (corners in lon/lat), layers, palette, stats
-    roads.geojson trails.geojson       ROAD records; trails are model.TRAIL_CLASSES
-    buildings.geojson                  BLDG records (also per tile: buildings/<L>/<tx>_<ty>.geojson)
+    roads.geojson trails.geojson       ROAD records (+ their RATR attributes); trails are model.TRAIL_CLASSES
+    buildings.geojson                  BLDG records (+ BFNT; also per tile: buildings/<L>/<tx>_<ty>.geojson)
     areas.geojson lines.geojson pois.geojson
+    junctions.geojson props.geojson    W2 JNCT and PROP records (points)
     hillshade/<L>/<tx>_<ty>.png        leaf tiles, from HGHT
     biome/<L>/<tx>_<ty>.png            leaf tiles, BIOM coloured with BIOME_PALETTE
 
@@ -45,9 +46,9 @@ import numpy as np
 from PIL import Image
 
 from . import projection
-from .model import (TRAIL_CLASSES, AreaKind, Biome, BuildingArchetype, BuildingUse, LineKind, PlaceKind, PoiKind,
-                    RoadClass, RoofMaterial, RoofShape, SacScale, Surface, SURFACE_GROUP, SurfaceSource,
-                    WallMaterial)
+from .model import (TRAIL_CLASSES, AreaKind, AreaType, Biome, BuildingArchetype, BuildingUse, JunctionKind, LineKind,
+                    ObjectKind, PlaceKind, PoiKind, RoadClass, RoofMaterial, RoofShape, SacScale, Sidewalk,
+                    StyleProfile, Surface, SURFACE_GROUP, SurfaceSource, TreeClass, WallMaterial)
 from .pack import PackReader
 from .projection import TileId
 from .tile_format import ROAD_HAS_NEXT_CTX, ROAD_HAS_PREV_CTX, LineFlags, TileData, decode_tile, dequantize_heights
@@ -72,7 +73,7 @@ BIOME_PALETTE: dict[str, str] = {
 SUN_AZIMUTH_DEG = 315.0
 SUN_ALTITUDE_DEG = 45.0
 
-LAYERS = ("roads", "trails", "buildings", "areas", "lines", "pois")
+LAYERS = ("roads", "trails", "buildings", "areas", "lines", "pois", "junctions", "props")
 
 
 def _enum_name(enum, v: int) -> str | int:
@@ -176,7 +177,7 @@ def _tile_features(td: TileData) -> dict[str, list[dict]]:
     proj = _Proj()
     pending: list[tuple[str, dict, str, list[int]]] = []  # layer, props, geometry type, part ids
 
-    for r in td.roads:
+    for k, r in enumerate(td.roads):
         pts = _strip_ctx(r.points, bool(r.flags & ROAD_HAS_PREV_CTX), bool(r.flags & ROAD_HAS_NEXT_CTX))
         cls = _enum_name(RoadClass, r.road_class)
         try:
@@ -193,6 +194,15 @@ def _tile_features(td: TileData) -> dict[str, list[dict]]:
         }
         ref = td.name(r.ref_ref)
         props["ref"] = ref.default if ref else ""
+        if td.road_attrs:
+            a = td.road_attrs[k]
+            cor = [int(v) for v in a.corridor_dm]
+            open_ = [v for v in cor if v > 0]
+            props.update({"area_type": _enum_name(AreaType, a.area_type), "sidewalk": _enum_name(Sidewalk, a.sidewalk),
+                          "lanes_fwd": a.lanes_fwd, "lanes_bwd": a.lanes_bwd, "maxspeed_kmh": a.maxspeed_kmh,
+                          "ratr_flags": a.flags, "partner_way_id": a.partner_way_id, "median_cm": a.median_cm,
+                          "corridor_samples": len(cor),
+                          "corridor_min_m": round(min(open_) / 10.0, 1) if open_ else None})
         props["tile"] = tid
         layer = "trails" if r.road_class in {int(c) for c in TRAIL_CLASSES} else "roads"
         pending.append((layer, props, "LineString", [proj.add(t, pts)]))
@@ -203,7 +213,7 @@ def _tile_features(td: TileData) -> dict[str, list[dict]]:
                  "width_cm": ln.width_cm, **_name_props(td, ln.name_ref), "tile": tid}
         pending.append(("lines", props, "LineString", [proj.add(t, pts)]))
 
-    for b in td.buildings:
+    for k, b in enumerate(td.buildings):
         props = {"osm_ref": b.osm_ref, "osm_type": "r" if b.osm_ref & 1 else "w", "osm_id": b.osm_ref >> 1,
                  "archetype": _enum_name(BuildingArchetype, b.archetype), "use": _enum_name(BuildingUse, b.use),
                  "levels": b.levels, "flags": b.flags, "height_cm": b.height_cm, "min_height_cm": b.min_height_cm,
@@ -211,6 +221,12 @@ def _tile_features(td: TileData) -> dict[str, list[dict]]:
                  "roof_material": _enum_name(RoofMaterial, b.roof_material),
                  "wall_material": _enum_name(WallMaterial, b.wall_material), "seed": b.seed,
                  **_name_props(td, b.name_ref), "tile": tid}
+        if td.building_fronts:
+            f = td.building_fronts[k]
+            props.update({"style_profile": _enum_name(StyleProfile, f.style_profile),
+                          "area_type": _enum_name(AreaType, f.area_type), "front_edge": f.front_edge,
+                          "front_dist_dm": f.front_dist_dm, "shop_bays": f.shop_bays & 0x0F,
+                          "front_flags": f.flags, "second_edge": f.second_edge})
         pending.append(("buildings", props, "Polygon", [proj.add(t, rg) for rg in b.rings]))
 
     for a in td.areas:
@@ -225,6 +241,24 @@ def _tile_features(td: TileData) -> dict[str, list[dict]]:
                  "importance": p.importance, "ele_dm": p.ele_dm, "search_id": p.search_id,
                  **_name_props(td, p.name_ref), "tile": tid}
         pending.append(("pois", props, "Point", [proj.add(t, np.array([[p.x_cm, p.z_cm]]))]))
+
+    for j in td.junctions:
+        props = {"osm_id": j.osm_node_id, "osm_type": "n", "kind": _enum_name(JunctionKind, j.kind), "arms": j.arms,
+                 "flags": j.flags, "ring_diameter_m": j.ring_diameter_cm / 100.0,
+                 "island_diameter_m": j.island_diameter_cm / 100.0, "island_area_osm_ref": j.island_area_osm_ref,
+                 **_name_props(td, j.name_ref), "tile": tid}
+        pending.append(("junctions", props, "Point", [proj.add(t, np.array([[j.x_cm, j.z_cm]]))]))
+
+    for p in td.props:
+        props = {"osm_ref": p.osm_ref, "osm_type": "nwr"[p.osm_ref & 3] if (p.osm_ref & 3) < 3 else "?",
+                 "osm_id": p.osm_ref >> 2, "kind": _enum_name(ObjectKind, p.kind),
+                 "subtype": _enum_name(TreeClass, p.subtype) if p.kind == ObjectKind.TREE else p.subtype,
+                 "flags": p.flags, "yaw_deg": p.yaw_cdeg / 100.0 if p.flags & 1 else None,
+                 "height_dm": p.height_dm, **_name_props(td, p.name_ref), "tile": tid}
+        r = td.name(p.ref_ref)
+        if r is not None:
+            props["ref"] = r.default
+        pending.append(("props", props, "Point", [proj.add(t, np.array([[p.x_cm, p.z_cm]]))]))
 
     coords = proj.resolve()
     out: dict[str, list[dict]] = {k: [] for k in LAYERS}

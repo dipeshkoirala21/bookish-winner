@@ -18,7 +18,7 @@ import yaml
 from PIL import Image
 
 from fixtures.synth.make_synth import PLACE_A, PLACE_B, TEMPLE_NAME, TEMPLE_NAME_NE, make_synth, synth_build
-from ghumante_pipeline import build, projection, routing, search_index
+from ghumante_pipeline import build, config, projection, routing, search_index
 from ghumante_pipeline.model import BuildingFlags, PoiFlags, RoadFlags, Travel
 from ghumante_pipeline.pack import PackReader, read_manifest, sha256_file
 from ghumante_pipeline.tile_format import decode_tile
@@ -63,7 +63,8 @@ def test_manifest(synth) -> None:
     assert m["region"] == "synth_test" and m["scale_model"] == "identity"
     assert m["detail_levels"] == [9, 10] and m["horizon_levels"] == [7, 8]
     files = {f["path"]: f for f in m["files"]}
-    assert set(files) == {"synth_test.ghpk", "synth_test.search.ghsi", "synth_test.route.ghrg"}
+    assert set(files) == {"synth_test.ghpk", "synth_test.search.ghsi", "synth_test.route.ghrg",
+                          "synth_test.transit.ghrt", "synth_test.curated.ghcd", "hero_recipes.json"}
     for name, f in files.items():
         p = synth.reg_dir / name
         assert f["bytes"] == p.stat().st_size and f["sha256"] == sha256_file(p)
@@ -93,7 +94,7 @@ def test_pack_decodes_with_crc(synth) -> None:
         n = 0
         for key in pr.keys():
             td = decode_tile(pr.get(key, verify=True))
-            assert td.tile.key == key and td.data_version == 1
+            assert td.tile.key == key and td.data_version == config.PIPELINE_DATA_VERSION
             assert td.heights_q is not None and td.biomes is not None
             n += 1
         assert n == 19

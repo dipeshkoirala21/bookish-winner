@@ -188,7 +188,7 @@ namespace Ghumante.App
                 explore.HapticsChanged += OnHapticsChanged;
                 explore.ReduceMotionChanged += OnReduceMotionChanged;
                 _current = explore;
-                _explore = ExploreSession.Begin(explore, _haptics, _motion, Localizer, Tier);
+                _explore = ExploreSession.Begin(explore, _haptics, _motion, Localizer, Tier, _save, PersistSettings);
                 _explore.ExitRequested += () => Show(StartScreen.MainMenu);
             }
             else

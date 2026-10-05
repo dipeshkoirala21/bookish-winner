@@ -9,7 +9,9 @@ Two passes over the file:
 * **Pass A** reads relations only (a few seconds for Nepal). It keeps the
   multipolygon (and protected-area boundary) relations that will become a
   building, area, POI or place, and the ``boundary=administrative`` relations
-  at the requested ``admin_levels``, and collects their member way ids.
+  at the requested ``admin_levels``, and collects their member way ids. It
+  also keeps ``type=route`` relations of the D2 modes (``tags.route_mode``)
+  and ``type=restriction`` relations, with their members.
   Relations come after ways in a PBF, so this has to happen first.
 * **Pass B** reads nodes and ways with a node-location cache. Every way is
   seen once in Python: member ways of the relations from pass A have their
@@ -34,7 +36,14 @@ Spatial filter (``box`` = region bbox grown by ``buffer_m``):
 
 An object with a ``building`` tag becomes a building, never also an area, so a
 temple footprint tagged ``amenity=place_of_worship`` does not also turn into a
-RELIGIOUS compound. Ways and areas with a ``poi_kind`` also give a POI at their
+RELIGIOUS compound. W2 additions: ``building:part`` ways become buildings with
+the ``PART`` flag (D4); closed ``man_made=stupa`` / ``tower:type=stupa`` ways
+without a building tag are stupa footprints (D1); ``aeroway=apron`` is never a
+building (D20, w1368706500 becomes an APRON area). Real point objects of the
+W2 ``PROP`` subset (``tags.prop_kind``) become ``PropFeature``s (nodes, and
+the centroid or stand end of ways); ``highway=traffic_signals`` and
+``mini_roundabout`` nodes are kept as ``JunctionNode``s; roads carry the
+``ROAD_TAG_KEYS`` subset in ``extra``. Ways and areas with a ``poi_kind`` also give a POI at their
 centroid (or a point on the surface when the centroid falls outside, or the
 midpoint of an open way). A multipolygon building with several outer parts
 keeps its largest part only, so every building has one record per OSM object
@@ -67,7 +76,17 @@ from .model import (
     AreaKind,
     BuildingFeature,
     BuildingFlags,
+    BuildingUse,
     Extract,
+    JunctionNode,
+    ObjectKind,
+    PropFeature,
+    PropFlags,
+    RestrictionFeature,
+    RouteFeature,
+    RouteMember,
+    TransitMode,
+    TurnRestriction,
     LineFeature,
     LineKind,
     NameRec,
@@ -105,8 +124,20 @@ POI_TAG_KEYS = (
 )
 AREA_TAG_KEYS = (
     "natural", "landuse", "leisure", "amenity", "water", "wetland", "religion", "place", "boundary",
-    "protect_class", "aeroway", "crop", "trees", "intermittent", "wikidata",
+    "protect_class", "aeroway", "crop", "trees", "intermittent", "wikidata", "heritage", "highway", "area:highway",
+    "historic", "tourism",
 )
+ROAD_TAG_KEYS = (
+    "sidewalk", "sidewalk:both", "sidewalk:left", "sidewalk:right", "footway", "lit", "maxspeed", "lanes:forward",
+    "lanes:backward", "motor_vehicle", "motorcar", "vehicle", "junction", "service", "area:highway",
+)
+BUILDING_TAG_KEYS = (
+    "building:structure", "start_date", "construction_date", "building:min_level", "man_made", "tower:type",
+    "heritage", "historic", "shop", "amenity", "wikidata", "building:part", "roof:levels", "roof:height",
+)
+PROP_TAG_KEYS = ("height", "direction", "ref", "species", "genus", "leaf_type", "crossing", "crossing:markings")
+ROUTE_TAG_KEYS = ("route", "ref", "name", "name:en", "name:ne", "from", "to", "operator", "network", "roundtrip",
+                  "public_transport:version", "colour", "distance")
 LINE_TAG_KEYS = (
     "waterway", "railway", "aerialway", "aeroway", "barrier", "historic", "man_made", "intermittent",
     "tunnel", "bridge", "layer", "usage", "wikidata",
@@ -342,13 +373,32 @@ class _State:
     core: _Box
     ex: Extract
     stats: Counter = field(default_factory=Counter)
+    want_nodes: set[int] = field(default_factory=set)  # route member nodes
+    node_pos: dict[int, tuple[float, float, dict]] = field(default_factory=dict)
 
 
-def _scan_relations(path: str, admin_levels: tuple[int, ...]) -> list[_Rel]:
-    """Pass A: relations that can produce features, with their way members."""
+@dataclass
+class _RouteRel:
+    id: int
+    tags: dict[str, str]
+    members: list[tuple[str, int, str]]  # (type n/w/r, ref, role)
+
+
+def _scan_relations(path: str, admin_levels: tuple[int, ...],
+                    routes: list[_RouteRel] | None = None) -> list[_Rel]:
+    """Pass A: relations that can produce features, with their way members.
+    Route (D2 modes) and restriction relations go to ``routes`` when given."""
     rels: list[_Rel] = []
     for r in osmium.FileProcessor(path, osmium.osm.RELATION):
         rtype = r.tags.get("type")
+        if routes is not None and rtype in ("route", "restriction"):
+            tags = dict(r.tags)
+            if rtype == "restriction" and T.restriction_kind(tags) == TurnRestriction.NONE:
+                continue
+            if rtype == "route" and T.route_mode(tags) == TransitMode.NONE:
+                continue
+            routes.append(_RouteRel(int(r.id), tags, [(m.type, int(m.ref), m.role) for m in r.members]))
+            continue
         if rtype not in ("multipolygon", "boundary"):
             continue
         tags = dict(r.tags)
@@ -428,7 +478,30 @@ def _building_fields(tags: dict[str, str]) -> dict:
         flags=flags,
         religion=religion.strip() if religion and religion.strip() else None,
         name=T.parse_name(tags),
+        extra=_subset(tags, BUILDING_TAG_KEYS),
     )
+
+
+def _part_fields(tags: dict[str, str]) -> dict:
+    """``_building_fields`` for a ``building:part`` way (D4): PART flag, levels from
+    ``building:levels``, ``min_height`` (else ``building:min_level`` x 3 m)."""
+    f = _building_fields(tags)
+    f["building_raw"] = tags.get("building:part", "yes")
+    f["flags"] = BuildingFlags(f["flags"]) | BuildingFlags.PART
+    if f["min_height_m"] is None and tags.get("building:min_level"):
+        lv = T.parse_levels(tags.get("building:min_level"), "building:min_level")
+        if lv is not None:
+            f["min_height_m"] = 3.0 * lv
+    return f
+
+
+def _is_stupa_footprint(tags: dict[str, str]) -> bool:
+    return (tags.get("man_made") == "stupa" or tags.get("tower:type") == "stupa") and not _has_building(tags)
+
+
+def _is_part(tags: dict[str, str]) -> bool:
+    v = tags.get("building:part")
+    return v is not None and v.strip().lower() not in ("no", "") and not _has_building(tags)
 
 
 def _road(way_id: int, tags: dict[str, str], lonlat: np.ndarray, node_ids: np.ndarray) -> RoadFeature | None:
@@ -452,6 +525,7 @@ def _road(way_id: int, tags: dict[str, str], lonlat: np.ndarray, node_ids: np.nd
         access=T.parse_access(tags, cls),
         name=T.parse_name(tags),
         ref=tags.get("ref"),
+        extra=_subset(tags, ROAD_TAG_KEYS),
     )
 
 
@@ -463,7 +537,7 @@ def _process_way(st: _State, way_id: int, tags: dict[str, str], lonlat: np.ndarr
     bb = (float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max()))
     if not box.intersects(bb):
         return
-    is_building = _has_building(tags)
+    is_building = _has_building(tags) and (tags.get("aeroway") or "").strip().lower() != "apron"
     area_tag = (tags.get("area") or "").strip().lower()
 
     if any_inside and "highway" in tags and area_tag != "yes":
@@ -478,10 +552,21 @@ def _process_way(st: _State, way_id: int, tags: dict[str, str], lonlat: np.ndarr
                                        name=T.parse_name(tags), tags=_subset(tags, LINE_TAG_KEYS)))
 
     poly = None
-    if closed and is_building:
+    stupa = closed and not is_building and _is_stupa_footprint(tags)
+    part = closed and not is_building and _is_part(tags)
+    if closed and (is_building or stupa or part):
         ring = _open_ring(lonlat)
         if len(ring) >= 3 and abs(signed_area(ring)) > 0:
-            st.ex.buildings.append(BuildingFeature("w", way_id, _orient(ring, True), **_building_fields(tags)))
+            if part:
+                fields = _part_fields(tags)
+                st.stats["building_parts"] += 1
+            else:
+                fields = _building_fields(tags)
+            if stupa:
+                fields["building_raw"] = "stupa"
+                fields["use"] = BuildingUse.RELIGIOUS
+                st.stats["stupa_footprints"] += 1
+            st.ex.buildings.append(BuildingFeature("w", way_id, _orient(ring, True), **fields))
         else:
             st.stats["buildings_degenerate_skipped"] += 1
     elif is_building:
@@ -495,6 +580,10 @@ def _process_way(st: _State, way_id: int, tags: dict[str, str], lonlat: np.ndarr
                                                tags=_subset(tags, AREA_TAG_KEYS)))
             else:
                 st.stats["areas_invalid_skipped"] += 1
+
+    ok, sub, pflags = T.prop_kind(tags)
+    if ok != ObjectKind.NONE:
+        _add_way_prop(st, way_id, ok, sub, pflags, lonlat, closed, tags)
 
     pk = T.poi_kind(tags)
     has_place = "place" in tags
@@ -512,7 +601,68 @@ def _process_way(st: _State, way_id: int, tags: dict[str, str], lonlat: np.ndarr
             _add_place(st, "w", way_id, plon, plat, tags)
 
 
+def _bearing_deg(lon0: float, lat0: float, lon1: float, lat1: float) -> float | None:
+    """Initial bearing a -> b, degrees clockwise from north (local equirectangular, fine at < 1 km)."""
+    dx = (lon1 - lon0) * math.cos(math.radians(0.5 * (lat0 + lat1)))
+    dy = lat1 - lat0
+    if dx == 0.0 and dy == 0.0:
+        return None
+    return math.degrees(math.atan2(dx, dy)) % 360.0
+
+
+def _direction_deg(raw: str | None) -> float | None:
+    """``direction=*`` as degrees (numbers or the 16 compass points)."""
+    if not raw:
+        return None
+    v = raw.strip().upper().split(";")[0]
+    pts = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    if v in pts:
+        return 22.5 * pts.index(v)
+    try:
+        return float(v) % 360.0
+    except ValueError:
+        return None
+
+
+def _prop(st: _State, osm_type: str, osm_id: int, kind: ObjectKind, sub: int, flags: PropFlags, lon: float,
+          lat: float, tags: dict[str, str], yaw: float | None = None) -> None:
+    if not st.box.contains(lon, lat):
+        return
+    if yaw is None:
+        yaw = _direction_deg(tags.get("direction"))
+    height = T.parse_length_m(tags.get("height"), "height") if tags.get("height") else None
+    if height is not None:
+        flags |= PropFlags.HEIGHT_TAGGED
+    st.ex.props.append(PropFeature(osm_type, osm_id, kind, lon, lat, subtype=int(sub), flags=flags, yaw_deg=yaw,
+                                   height_m=height, name=T.parse_name(tags), ref=tags.get("ref")))
+
+
+def _add_way_prop(st: _State, way_id: int, kind: ObjectKind, sub: int, flags: PropFlags, lonlat: np.ndarray,
+                  closed: bool, tags: dict[str, str]) -> None:
+    """A prop from a way: the stand end and its bearing for parking positions, else the centroid."""
+    flags |= PropFlags.FROM_WAY
+    ll = np.asarray(lonlat, dtype=np.float64)
+    if kind == ObjectKind.PARKING_POSITION and len(ll) >= 2:
+        # The stand is the line's last vertex; the aircraft faces along the last segment.
+        yaw = _bearing_deg(float(ll[-2, 0]), float(ll[-2, 1]), float(ll[-1, 0]), float(ll[-1, 1]))
+        _prop(st, "w", way_id, kind, sub, flags, float(ll[-1, 0]), float(ll[-1, 1]), tags, yaw)
+        return
+    geom = _ring_polygon(ll) if closed else (LineString(ll) if len(ll) >= 2 else None)
+    if geom is None:
+        return
+    lon, lat = _label_point(geom)
+    _prop(st, "w", way_id, kind, sub, flags, lon, lat, tags)
+
+
 def _process_node(st: _State, node_id: int, lon: float, lat: float, tags: dict[str, str]) -> None:
+    if node_id in st.want_nodes:
+        st.node_pos[node_id] = (lon, lat, tags)
+    ok, sub, pflags = T.prop_kind(tags)
+    if ok != ObjectKind.NONE:
+        _prop(st, "n", node_id, ok, sub, pflags, lon, lat, tags)
+    hw = (tags.get("highway") or "").strip().lower()
+    if hw in ("traffic_signals", "mini_roundabout") and st.box.contains(lon, lat):
+        st.ex.junction_nodes.append(JunctionNode(node_id, lon, lat, hw))
     pk = T.poi_kind(tags)
     if pk != PoiKind.NONE:
         _add_poi(st, "n", node_id, pk, lon, lat, tags)
@@ -555,7 +705,7 @@ def _process_relation(st: _State, rel: _Rel, geoms: dict[int, tuple[int, int, np
 
     if not st.box.intersects(geom.bounds):
         return
-    if _has_building(tags):
+    if _has_building(tags) and (tags.get("aeroway") or "").strip().lower() != "apron":
         parts = sorted(_polygon_parts(geom), key=lambda p: -p.area)
         if parts:
             if len(parts) > 1:
@@ -615,9 +765,44 @@ def _way_lonlat(way, nds, wkb) -> tuple[np.ndarray | None, np.ndarray | None]:
 _TYPE_ORDER = {"n": 0, "w": 1, "r": 2}
 
 
+def _assemble_routes(st: _State, route_rels: list[_RouteRel]) -> None:
+    """Routes and restrictions that touch the region's roads (D2)."""
+    road_ids = {int(r.osm_id) for r in st.ex.roads}
+    for rr in sorted(route_rels, key=lambda r: r.id):
+        if rr.tags.get("type") == "restriction":
+            frm = [ref for t, ref, role in rr.members if t == "w" and role == "from"]
+            to = [ref for t, ref, role in rr.members if t == "w" and role == "to"]
+            via_n = [ref for t, ref, role in rr.members if t == "n" and role == "via"]
+            via_w = [ref for t, ref, role in rr.members if t == "w" and role == "via"]
+            if len(frm) != 1 or len(to) != 1 or not (via_n or via_w):
+                st.stats["restrictions_malformed"] += 1
+                continue
+            if frm[0] not in road_ids and to[0] not in road_ids:
+                continue
+            st.ex.restrictions.append(RestrictionFeature(rr.id, T.restriction_kind(rr.tags), frm[0], to[0],
+                                                         via_node=via_n[0] if via_n else 0,
+                                                         via_way=via_w[0] if via_w and not via_n else 0))
+            continue
+        ways = [ref for t, ref, _ in rr.members if t == "w"]
+        if not any(w in road_ids for w in ways):
+            continue
+        members = []
+        for t, ref, role in rr.members:
+            m = RouteMember(t, ref, role)
+            if t == "n" and ref in st.node_pos:
+                lon, lat, ntags = st.node_pos[ref]
+                m.lon, m.lat, m.name = lon, lat, T.parse_name(ntags)
+            members.append(m)
+        st.ex.routes.append(RouteFeature(rr.id, str(rr.tags.get("route", "")), _subset(rr.tags, ROUTE_TAG_KEYS),
+                                         members))
+
+
 def extract_region(pbf_or_osm: Path, bbox_lonlat: tuple, *, buffer_m: float = 1500.0,
-                   admin_levels=(4, 6, 7), region_id: str = "") -> Extract:
-    """Extract every feature of interest around ``bbox_lonlat`` (lon_min, lat_min, lon_max, lat_max)."""
+                   admin_levels=(4, 6, 7), region_id: str = "", anchor_nodes=()) -> Extract:
+    """Extract every feature of interest around ``bbox_lonlat`` (lon_min, lat_min, lon_max, lat_max).
+
+    ``anchor_nodes``: node ids whose position (and name) the caller needs, such as the curated
+    heritage anchors (``curated.anchor_node_ids``); found ones land in ``Extract.anchor_nodes``."""
     t0 = time.perf_counter()
     path = str(pbf_or_osm)
     admin_levels = tuple(int(a) for a in admin_levels)
@@ -626,9 +811,12 @@ def extract_region(pbf_or_osm: Path, bbox_lonlat: tuple, *, buffer_m: float = 15
     st = _State(box=box, core=core, ex=Extract(region=region_id))
     unknown_before = {k: Counter(v) for k, v in T.unknown_values.items()}
 
-    # Pass A: relations.
-    rels = _scan_relations(path, admin_levels)
+    # Pass A: relations (and route/restriction relations).
+    route_rels: list[_RouteRel] = []
+    rels = _scan_relations(path, admin_levels, route_rels)
     member_ids = {wid for r in rels for wid, _ in r.members}
+    anchors = {int(n) for n in anchor_nodes}
+    st.want_nodes = {ref for rr in route_rels for t, ref, _ in rr.members if t == "n"} | anchors
     t_a = time.perf_counter()
 
     # Pass B: nodes and ways with locations.
@@ -685,15 +873,23 @@ def extract_region(pbf_or_osm: Path, bbox_lonlat: tuple, *, buffer_m: float = 15
     # Relations.
     for rel in sorted(rels, key=lambda r: r.id):
         _process_relation(st, rel, member_geoms)
+    _assemble_routes(st, route_rels)
+    for nid in sorted(anchors):
+        if nid in st.node_pos:
+            lon, lat, ntags = st.node_pos[nid]
+            st.ex.anchor_nodes[nid] = (lon, lat, T.parse_name(ntags))
     t_c = time.perf_counter()
 
     ex = st.ex
     ex.roads.sort(key=lambda f: f.osm_id)
     ex.lines.sort(key=lambda f: f.osm_id)
     ex.buildings.sort(key=lambda f: (f.osm_id << 1) | (f.osm_type == "r"))
-    for lst in (ex.pois, ex.places, ex.areas):
+    for lst in (ex.pois, ex.places, ex.areas, ex.props):
         lst.sort(key=lambda f: (_TYPE_ORDER[f.osm_type], f.osm_id, int(getattr(f, "kind", 0))))
     ex.admin.sort(key=lambda a: (a.admin_level, a.osm_id))
+    ex.junction_nodes.sort(key=lambda j: (j.osm_id, j.kind))
+    ex.routes.sort(key=lambda r: r.osm_id)
+    ex.restrictions.sort(key=lambda r: r.osm_id)
 
     ex.stats = {
         "region": region_id,
@@ -704,7 +900,10 @@ def extract_region(pbf_or_osm: Path, bbox_lonlat: tuple, *, buffer_m: float = 15
         "counts": {
             "roads": len(ex.roads), "buildings": len(ex.buildings), "pois": len(ex.pois),
             "places": len(ex.places), "areas": len(ex.areas), "lines": len(ex.lines), "admin": len(ex.admin),
+            "props": len(ex.props), "junction_nodes": len(ex.junction_nodes), "routes": len(ex.routes),
+            "restrictions": len(ex.restrictions),
         },
+        "prop_kinds": {k.name: v for k, v in sorted(Counter(p.kind for p in ex.props).items())},
         "road_classes": {k.name: v for k, v in sorted(Counter(r.cls for r in ex.roads).items())},
         "poi_kinds": {k.name: v for k, v in sorted(Counter(p.kind for p in ex.pois).items())},
         "area_kinds": {k.name: v for k, v in sorted(Counter(a.kind for a in ex.areas).items())},

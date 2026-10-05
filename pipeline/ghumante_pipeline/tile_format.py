@@ -21,6 +21,14 @@ document is terse:
 * Local coordinates must fit in i32. Deltas between them can exceed i32, so
   readers decode svarints as i64 and accumulate in i64.
 
+W2 chunks (F2, additive; old readers skip them): ``RATR`` (one road attribute
+record per ``ROAD`` record, same order), ``BFNT`` (one building front record
+per ``BLDG`` record, same order), ``JNCT`` (junctions) and ``PROP`` (real OSM
+point objects). ``RATR`` and ``BFNT`` are parallel arrays: ``canonicalize``
+sorts them together with their ``ROAD`` / ``BLDG`` records, and remaps a
+``BFNT`` edge index when it re-orients an outer ring. Either parallel list is
+empty (chunk omitted) or exactly as long as its base list.
+
 ``encode_tile`` canonicalises its input first (``canonicalize``): records are
 sorted as the spec requires (with full-content tie-breaks), the name table is
 rebuilt in first-reference order (deduplicated, NFC, unused names dropped),
@@ -61,17 +69,24 @@ DEFLATE_LEVEL = 9
 MAX_CHUNK_RAW_SIZE = 64 << 20  # decompression-bomb guard
 
 FOURCC_AREA = b"AREA"
+FOURCC_BFNT = b"BFNT"
 FOURCC_BIOM = b"BIOM"
 FOURCC_BLDG = b"BLDG"
 FOURCC_HGHT = b"HGHT"
+FOURCC_JNCT = b"JNCT"
 FOURCC_LINE = b"LINE"
 FOURCC_META = b"META"
 FOURCC_NAME = b"NAME"
 FOURCC_POIS = b"POIS"
+FOURCC_PROP = b"PROP"
+FOURCC_RATR = b"RATR"
 FOURCC_ROAD = b"ROAD"
 FOURCC_SEED = b"SEED"
-KNOWN_FOURCCS = (FOURCC_AREA, FOURCC_BIOM, FOURCC_BLDG, FOURCC_HGHT, FOURCC_LINE, FOURCC_META, FOURCC_NAME,
-                 FOURCC_POIS, FOURCC_ROAD, FOURCC_SEED)
+KNOWN_FOURCCS = (FOURCC_AREA, FOURCC_BFNT, FOURCC_BIOM, FOURCC_BLDG, FOURCC_HGHT, FOURCC_JNCT, FOURCC_LINE,
+                 FOURCC_META, FOURCC_NAME, FOURCC_POIS, FOURCC_PROP, FOURCC_RATR, FOURCC_ROAD, FOURCC_SEED)
+EDGE_NONE = 255  # BFNT front_edge / second_edge: no edge
+SHOP_BAYS_FROM_POI = 0x80  # BFNT shop_bays bit7
+YAW_CDEG_MAX = 35999
 
 # Height quantisation (section 1.1): global, never per tile.
 H_MIN_M = -100.0
@@ -98,6 +113,8 @@ class AreaFlags(IntFlag):
     """``AREA`` record flags (section 1.7)."""
 
     CLIPPED_BY_TILE = 1 << 0
+    HERITAGE_ZONE = 1 << 1  # a heritage square or a curated heritage compound (CONTENT_COVERAGE F1)
+    SACRED_NO_VEHICLE = 1 << 2  # no motor vehicle may enter (W2_DESIGN L16, D14); the routing graph agrees
 
 
 ROAD_HAS_PREV_CTX = 1 << 3  # model.RoadFlags.HAS_PREV_CTX
@@ -211,6 +228,66 @@ class PoiRec(_Record):
 
 
 @dataclass(slots=True, eq=False)
+class RoadAttrRec(_Record):
+    """``RATR`` record (W2_DESIGN 9.3): attributes of the ``ROAD`` record at the same index."""
+
+    area_type: int = 0  # model.AreaType
+    sidewalk: int = 0  # model.Sidewalk
+    lanes_fwd: int = 0
+    lanes_bwd: int = 0
+    maxspeed_kmh: int = 0
+    flags: int = 0  # model.RoadAttrFlags
+    partner_way_id: int = 0
+    median_cm: int = 0
+    corridor_dm: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+
+
+@dataclass(slots=True, eq=False)
+class JunctionRec(_Record):
+    """``JNCT`` record (W2_DESIGN 9.3)."""
+
+    osm_node_id: int = 0
+    kind: int = 0  # model.JunctionKind
+    arms: int = 0
+    flags: int = 0  # model.JunctionFlags
+    x_cm: int = 0
+    z_cm: int = 0
+    ring_diameter_cm: int = 0
+    island_diameter_cm: int = 0
+    island_area_osm_ref: int = 0  # (osm_id << 1) | is_relation of the AREA island
+    name_ref: int = 0
+
+
+@dataclass(slots=True, eq=False)
+class BuildingFrontRec(_Record):
+    """``BFNT`` record (W2_DESIGN 9.3): the front of the ``BLDG`` record at the same index."""
+
+    style_profile: int = 0  # model.StyleProfile
+    area_type: int = 0  # model.AreaType
+    front_edge: int = EDGE_NONE
+    front_dist_dm: int = 0
+    shop_bays: int = 0  # bits 0-3 count, bit7 FROM_POI
+    flags: int = 0  # model.BuildingFrontFlags
+    second_edge: int = EDGE_NONE
+
+
+@dataclass(slots=True, eq=False)
+class PropRec(_Record):
+    """``PROP`` record: a real OSM point object (CONTENT_COVERAGE D3)."""
+
+    osm_ref: int = 0  # (osm_id << 2) | type
+    kind: int = 0  # model.ObjectKind
+    subtype: int = 0  # TREE: model.TreeClass
+    flags: int = 0  # model.PropFlags
+    x_cm: int = 0
+    z_cm: int = 0
+    yaw_cdeg: int = 0  # bearing clockwise from +Z (north), 1/100 degree; valid with PropFlags.YAW
+    height_dm: int = 0
+    name_ref: int = 0
+    ref_ref: int = 0
+
+
+@dataclass(slots=True, eq=False)
 class TileData(_Record):
     tile: TileId
     data_version: int
@@ -225,6 +302,10 @@ class TileData(_Record):
     seed: tuple[int, int] | None = None  # (tile_seed, ruleset)
     meta: dict | None = None
     has_detail: bool = False
+    road_attrs: list[RoadAttrRec] = field(default_factory=list)  # RATR: empty or one per road
+    junctions: list[JunctionRec] = field(default_factory=list)  # JNCT
+    building_fronts: list[BuildingFrontRec] = field(default_factory=list)  # BFNT: empty or one per building
+    props: list[PropRec] = field(default_factory=list)  # PROP
 
     def name(self, ref: int) -> NameEntry | None:
         """Resolve a ``name_ref`` (0 = no name)."""
@@ -334,9 +415,14 @@ def from_local_cm(tile: TileId, pts_cm) -> np.ndarray:
     return np.stack([tile.x0 + p[:, 0] / 100.0, tile.z0 + p[:, 1] / 100.0], axis=1)
 
 
-def tile_seed(tile_key: int, data_version: int) -> int:
-    """SEED chunk value: FNV-1a 64 over ``(u64 tile_key, u32 data_version)``."""
-    return fnv1a64(struct.pack("<QI", tile_key, data_version))
+def tile_seed(tile_key: int, ruleset: int = DEFAULT_SCATTER_RULESET) -> int:
+    """SEED chunk value (D10, stable seed): FNV-1a 64 over ``(u64 tile_key, u32 ruleset)``.
+
+    It no longer hashes ``data_version``, so trees and props stay where they are
+    when the pipeline is rebuilt; only a new scatter ruleset re-rolls them. The
+    byte layout is the one M0 used with ``data_version`` in the u32 slot, so a
+    ruleset-1 seed equals the old seed of a data_version-1 tile."""
+    return fnv1a64(struct.pack("<QI", tile_key, ruleset))
 
 
 def building_seed(osm_ref: int) -> int:
@@ -344,8 +430,9 @@ def building_seed(osm_ref: int) -> int:
     return fnv1a32(encode_varint(osm_ref))
 
 
-def make_seed(tile: TileId, data_version: int, ruleset: int = DEFAULT_SCATTER_RULESET) -> tuple[int, int]:
-    return tile_seed(tile.key, data_version), ruleset
+def make_seed(tile: TileId, ruleset: int = DEFAULT_SCATTER_RULESET) -> tuple[int, int]:
+    """``(tile_seed, ruleset)`` for the SEED chunk (independent of ``data_version``, D10)."""
+    return tile_seed(tile.key, ruleset), ruleset
 
 
 def osm_ref_wr(osm_type: str, osm_id: int) -> int:
@@ -551,22 +638,40 @@ def _tiebreak(rec, name_fields: tuple[str, ...], resolve: Callable[[int], tuple]
     return tuple(out)
 
 
-def _sorted(recs: list, primary: Callable, name_fields: tuple[str, ...], resolve: Callable) -> list:
-    """Sort by the spec's primary key; records sharing a primary key are
-    ordered by their full content (computed only for those groups)."""
+def _sorted_idx(recs: list, primary: Callable, name_fields: tuple[str, ...], resolve: Callable,
+                extra: list | None = None) -> list[int]:
+    """Indices of ``recs`` in the spec's order: by the primary key; records
+    sharing a primary key are ordered by their full content (computed only for
+    those groups), then by the content of their ``extra`` record (a parallel
+    list such as ``RATR`` for ``ROAD``) when given."""
     keyed = sorted(((primary(r), i) for i, r in enumerate(recs)), key=lambda t: t[0])
-    out: list = []
+    out: list[int] = []
     i = 0
     while i < len(keyed):
         j = i + 1
         while j < len(keyed) and keyed[j][0] == keyed[i][0]:
             j += 1
-        group = [recs[k] for _, k in keyed[i:j]]
+        group = [k for _, k in keyed[i:j]]
         if len(group) > 1:
-            group.sort(key=lambda r: _tiebreak(r, name_fields, resolve))
+            if extra:
+                group.sort(key=lambda k: (_tiebreak(recs[k], name_fields, resolve), _tiebreak(extra[k], (), resolve)))
+            else:
+                group.sort(key=lambda k: _tiebreak(recs[k], name_fields, resolve))
         out.extend(group)
         i = j
     return out
+
+
+def _sorted(recs: list, primary: Callable, name_fields: tuple[str, ...], resolve: Callable) -> list:
+    """``recs`` in the spec's order (see ``_sorted_idx``)."""
+    return [recs[k] for k in _sorted_idx(recs, primary, name_fields, resolve)]
+
+
+def _ring_flips(ring_cm, outer: bool) -> bool:
+    """True when ``canonical_ring`` reverses this ring."""
+    r = _strip_closing(_int_points(ring_cm, "building ring"))
+    a2 = _area2(r) if len(r) >= 3 else 0
+    return a2 != 0 and (a2 > 0) != outer
 
 
 def _first_point(pts: np.ndarray) -> tuple[int, int]:
@@ -586,16 +691,37 @@ def canonicalize(td: TileData) -> TileData:
         e = names[ref - 1]
         return (_nfc(e.default), _nfc(e.en), _nfc(e.ne))
 
+    if td.road_attrs and len(td.road_attrs) != len(td.roads):
+        raise ValueError(f"{len(td.road_attrs)} RATR records for {len(td.roads)} roads")
+    if td.building_fronts and len(td.building_fronts) != len(td.buildings):
+        raise ValueError(f"{len(td.building_fronts)} BFNT records for {len(td.buildings)} buildings")
     roads = []
     for r in td.roads:
         pts = _int_points(r.points, f"road {r.osm_way_id} points")
         roads.append(dataclasses.replace(r, points=pts))
+    road_attrs = []
+    for a in td.road_attrs:
+        cor = np.asarray(a.corridor_dm)
+        if cor.size and not np.issubdtype(cor.dtype, np.integer):
+            raise TypeError("RATR corridor_dm must be integer decimetres")
+        cor = np.ascontiguousarray(cor, dtype=np.int64).reshape(-1)
+        if cor.size and cor.min() < 0:
+            raise ValueError("RATR corridor_dm must not be negative")
+        road_attrs.append(dataclasses.replace(a, corridor_dm=cor))
     lines = []
     for ln in td.lines:
         pts = _int_points(ln.points, f"line {ln.osm_way_id} points")
         lines.append(dataclasses.replace(ln, points=pts))
     buildings = []
-    for b in td.buildings:
+    fronts = [dataclasses.replace(f) for f in td.building_fronts]
+    for k, b in enumerate(td.buildings):
+        if fronts and b.rings and _ring_flips(b.rings[0], outer=True):
+            n = len(_strip_closing(_int_points(b.rings[0], "building ring")))
+            f = fronts[k]
+            for name in ("front_edge", "second_edge"):
+                e = getattr(f, name)
+                if e != EDGE_NONE and 0 <= e < n:
+                    setattr(f, name, n - 1 - e)
         rings = [canonical_ring(rg, outer=(i == 0)) for i, rg in enumerate(b.rings)]
         seed = building_seed(b.osm_ref) if b.seed is None else int(b.seed)
         buildings.append(dataclasses.replace(b, rings=rings, seed=seed))
@@ -614,11 +740,26 @@ def canonicalize(td: TileData) -> TileData:
         areas.append(dataclasses.replace(a, vertices=verts, indices=_ccw_triangles(verts, idx), rings=rings))
     pois = [dataclasses.replace(p) for p in td.pois]
 
-    roads = _sorted(roads, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref", "ref_ref"), resolve)
+    junctions = [dataclasses.replace(j) for j in td.junctions]
+    props = [dataclasses.replace(p) for p in td.props]
+    for p in props:
+        if p.flags & 1 and not 0 <= p.yaw_cdeg <= YAW_CDEG_MAX:  # PropFlags.YAW
+            raise ValueError(f"prop {p.osm_ref}: yaw_cdeg {p.yaw_cdeg} outside 0..{YAW_CDEG_MAX}")
+        if not p.flags & 1 and p.yaw_cdeg:
+            raise ValueError(f"prop {p.osm_ref}: yaw_cdeg set without the YAW flag")
+
+    order = _sorted_idx(roads, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref", "ref_ref"), resolve,
+                        road_attrs)
+    roads = [roads[k] for k in order]
+    road_attrs = [road_attrs[k] for k in order] if road_attrs else []
     lines = _sorted(lines, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref",), resolve)
-    buildings = _sorted(buildings, lambda r: (r.osm_ref,), ("name_ref",), resolve)
+    order = _sorted_idx(buildings, lambda r: (r.osm_ref,), ("name_ref",), resolve, fronts)
+    buildings = [buildings[k] for k in order]
+    fronts = [fronts[k] for k in order] if fronts else []
     areas = _sorted(areas, lambda r: (r.osm_ref, *_first_point(r.vertices)), ("name_ref",), resolve)
     pois = _sorted(pois, lambda r: (r.osm_ref, r.kind), ("name_ref",), resolve)
+    junctions = _sorted(junctions, lambda r: (r.osm_node_id, r.kind, r.x_cm, r.z_cm), ("name_ref",), resolve)
+    props = _sorted(props, lambda r: (r.osm_ref, r.kind), ("name_ref", "ref_ref"), resolve)
 
     table = NameTable()
 
@@ -630,10 +771,15 @@ def canonicalize(td: TileData) -> TileData:
         a.name_ref = remap(a.name_ref)
     for b in buildings:
         b.name_ref = remap(b.name_ref)
+    for j in junctions:
+        j.name_ref = remap(j.name_ref)
     for ln in lines:
         ln.name_ref = remap(ln.name_ref)
     for p in pois:
         p.name_ref = remap(p.name_ref)
+    for p in props:
+        p.name_ref = remap(p.name_ref)
+        p.ref_ref = remap(p.ref_ref)
     for r in roads:
         r.name_ref = remap(r.name_ref)
         r.ref_ref = remap(r.ref_ref)
@@ -646,7 +792,8 @@ def canonicalize(td: TileData) -> TileData:
     meta = None if td.meta is None else json.loads(_nfc(_meta_json(td.meta)))
     return TileData(tile=td.tile, data_version=int(td.data_version), heights_q=heights, biomes=biomes,
                     names=table.entries(), roads=roads, lines=lines, buildings=buildings, areas=areas, pois=pois,
-                    seed=seed, meta=meta, has_detail=bool(td.has_detail))
+                    seed=seed, meta=meta, has_detail=bool(td.has_detail), road_attrs=road_attrs,
+                    junctions=junctions, building_fronts=fronts, props=props)
 
 
 def _check_grid(a, dtype, vmax: int, what: str) -> np.ndarray:
@@ -864,6 +1011,73 @@ def _dec_pois(r: Reader, n_names: int) -> list[PoiRec]:
             for _ in range(_count(r))]
 
 
+def _enc_ratr(attrs: list[RoadAttrRec]) -> bytes:
+    w = Writer().varint(len(attrs))
+    for a in attrs:
+        (w.u8(a.area_type).u8(a.sidewalk).u8(a.lanes_fwd).u8(a.lanes_bwd).u8(a.maxspeed_kmh).u8(a.flags)
+         .varint(a.partner_way_id).varint(a.median_cm).varint(len(a.corridor_dm)))
+        w.raw(_varints_bytes(a.corridor_dm.astype(np.uint64)))
+    return w.bytes()
+
+
+def _dec_ratr(r: Reader) -> list[RoadAttrRec]:
+    out = []
+    for _ in range(_count(r)):
+        a = RoadAttrRec(area_type=r.u8(), sidewalk=r.u8(), lanes_fwd=r.u8(), lanes_bwd=r.u8(), maxspeed_kmh=r.u8(),
+                        flags=r.u8(), partner_way_id=r.varint(), median_cm=r.varint())
+        a.corridor_dm = _read_varints(r, _count(r)).astype(np.int64)
+        out.append(a)
+    return out
+
+
+def _enc_jnct(junctions: list[JunctionRec]) -> bytes:
+    w = Writer().varint(len(junctions))
+    for j in junctions:
+        (w.varint(j.osm_node_id).u8(j.kind).u8(j.arms).u8(j.flags).svarint(j.x_cm).svarint(j.z_cm)
+         .varint(j.ring_diameter_cm).varint(j.island_diameter_cm).varint(j.island_area_osm_ref).varint(j.name_ref))
+    return w.bytes()
+
+
+def _dec_jnct(r: Reader, n_names: int) -> list[JunctionRec]:
+    return [JunctionRec(osm_node_id=r.varint(), kind=r.u8(), arms=r.u8(), flags=r.u8(), x_cm=r.svarint(),
+                        z_cm=r.svarint(), ring_diameter_cm=r.varint(), island_diameter_cm=r.varint(),
+                        island_area_osm_ref=r.varint(), name_ref=_name_ref(r, n_names))
+            for _ in range(_count(r))]
+
+
+def _enc_bfnt(fronts: list[BuildingFrontRec]) -> bytes:
+    w = Writer().varint(len(fronts))
+    for f in fronts:
+        w.u8(f.style_profile).u8(f.area_type).u8(f.front_edge).u8(f.front_dist_dm).u8(f.shop_bays).u8(f.flags)
+        w.u8(f.second_edge)
+    return w.bytes()
+
+
+def _dec_bfnt(r: Reader) -> list[BuildingFrontRec]:
+    n = r.varint()
+    if 7 * n > r.remaining():
+        raise ValueError(f"{n} BFNT records cannot fit in {r.remaining()} bytes")
+    return [BuildingFrontRec(*r.raw(7)) for _ in range(n)]
+
+
+def _enc_prop(props: list[PropRec]) -> bytes:
+    w = Writer().varint(len(props))
+    for p in props:
+        for v, what in ((p.x_cm, "x_cm"), (p.z_cm, "z_cm")):
+            if not I32_MIN <= v <= I32_MAX:
+                raise ValueError(f"prop {p.osm_ref}: {what} outside the i32 range")
+        (w.varint(p.osm_ref).u8(p.kind).u8(p.subtype).u8(p.flags).svarint(p.x_cm).svarint(p.z_cm).u16(p.yaw_cdeg)
+         .varint(p.height_dm).varint(p.name_ref).varint(p.ref_ref))
+    return w.bytes()
+
+
+def _dec_prop(r: Reader, n_names: int) -> list[PropRec]:
+    return [PropRec(osm_ref=r.varint(), kind=r.u8(), subtype=r.u8(), flags=r.u8(), x_cm=r.svarint(), z_cm=r.svarint(),
+                    yaw_cdeg=r.u16(), height_dm=r.varint(), name_ref=_name_ref(r, n_names),
+                    ref_ref=_name_ref(r, n_names))
+            for _ in range(_count(r))]
+
+
 def _dec_meta(r: Reader) -> dict:
     meta = json.loads(r.str())
     if not isinstance(meta, dict):
@@ -958,6 +1172,14 @@ def encode_tile(td: TileData) -> bytes:
             chunks.append((FOURCC_AREA, _enc_area(c.areas)))
         if c.pois:
             chunks.append((FOURCC_POIS, _enc_pois(c.pois)))
+        if c.road_attrs:
+            chunks.append((FOURCC_RATR, _enc_ratr(c.road_attrs)))
+        if c.junctions:
+            chunks.append((FOURCC_JNCT, _enc_jnct(c.junctions)))
+        if c.building_fronts:
+            chunks.append((FOURCC_BFNT, _enc_bfnt(c.building_fronts)))
+        if c.props:
+            chunks.append((FOURCC_PROP, _enc_prop(c.props)))
         if c.seed is not None:
             chunks.append((FOURCC_SEED, _enc_seed(c.seed)))
         if c.meta is not None:
@@ -1058,4 +1280,12 @@ def decode_tile(blob: bytes) -> TileData:
     td.pois = parse(FOURCC_POIS, lambda r: _dec_pois(r, nn)) or []
     td.seed = parse(FOURCC_SEED, _dec_seed)
     td.meta = parse(FOURCC_META, _dec_meta)
+    td.road_attrs = parse(FOURCC_RATR, _dec_ratr) or []
+    td.junctions = parse(FOURCC_JNCT, lambda r: _dec_jnct(r, nn)) or []
+    td.building_fronts = parse(FOURCC_BFNT, _dec_bfnt) or []
+    td.props = parse(FOURCC_PROP, lambda r: _dec_prop(r, nn)) or []
+    if td.road_attrs and len(td.road_attrs) != len(td.roads):
+        raise ValueError(f"{len(td.road_attrs)} RATR records for {len(td.roads)} ROAD records")
+    if td.building_fronts and len(td.building_fronts) != len(td.buildings):
+        raise ValueError(f"{len(td.building_fronts)} BFNT records for {len(td.buildings)} BLDG records")
     return td

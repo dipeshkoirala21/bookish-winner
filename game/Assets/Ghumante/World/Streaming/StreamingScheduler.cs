@@ -24,6 +24,10 @@ namespace Ghumante.World.Streaming
 
         /// <summary>Destroy the node's view and meshes (also for partially uploaded nodes).</summary>
         void Release(SelectedNode node);
+
+        /// <summary>Every chunk of the node is up and it is ready (still hidden): the view takes the build's
+        /// non-mesh results (decoded tile, sampler, instances, heroes, colliders). Only for nodes with a view.</summary>
+        void Ready(SelectedNode node, TileExtras extras);
     }
 
     /// <summary>Runs tile builds off the main thread.</summary>
@@ -430,6 +434,7 @@ namespace Ghumante.World.Streaming
                 {
                     _content[b.Node] = content;
                     _stats.MeshBytes += content.Bytes;
+                    if (content.HasView) _sink.Ready(b.Node, b.TakeExtras());
                 }
                 else
                 {

@@ -207,7 +207,7 @@ namespace Ghumante.Core.Tests
             TileData t = DrivingData.Flat(10, 520, 160, 1300.0, Biome.ValleyCropland);
             t.Roads.Add(DrivingData.Road(RoadClass.Residential, Surface.Brick, 0, RoadFlags.None, 100, 500, 900, 500));
             t.Roads.Add(DrivingData.Road(RoadClass.Track, Surface.Gravel, 0, RoadFlags.Oneway, 500, 600, 500, 1000));
-            var g = new TileGroundQuery();
+            var g = new TileGroundQuery(new RoadOptions { WidthModel = false }); // W1 widths: a 5 m residential ribbon
             g.Add(t);
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             GroundSample s;
@@ -217,6 +217,7 @@ namespace Ghumante.Core.Tests
             Assert.That(s.RoadClass, Is.EqualTo(RoadClass.Residential));
             Assert.That(s.RoadSurface, Is.EqualTo(Surface.Brick));
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Paved));
+            Assert.That(s.Foot, Is.EqualTo(FootSurface.Brick), "footsteps follow the road surface");
             Assert.That(g.RoadLiftM(RoadClass.Residential), Is.EqualTo(0.25f + 4 * 0.008f).Within(1e-6), "the mesher's class lift");
             Assert.That(g.RoadLiftM(t.Roads[0]), Is.EqualTo(RoadMesher.LiftOf(t.Roads[0], new RoadOptions())), "the mesher's piece lift");
             Assert.That(s.Height, Is.EqualTo(s.TerrainHeight + g.RoadLiftM(t.Roads[0])).Within(1e-4));
@@ -231,12 +232,15 @@ namespace Ghumante.Core.Tests
 
             Assert.That(g.TrySample(x0 + 500, z0 + 800, out s), Is.True);
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Gravel));
+            Assert.That(s.Foot, Is.EqualTo(FootSurface.Gravel));
             Assert.That(s.RoadFlags, Is.EqualTo(RoadFlags.Oneway));
 
             // Off road: the biome decides (valley cropland is dirt) and there is no lift.
             Assert.That(g.TrySample(x0 + 300, z0 + 520, out s), Is.True);
             Assert.That(s.OnRoad, Is.False);
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Dirt));
+            Assert.That(s.Foot, Is.EqualTo(FootSurface.Dirt), "fields are dirt underfoot");
+            Assert.That(FootSurfaces.Effective(s.Foot, 0.6f), Is.EqualTo(FootSurface.Mud), "wet fields are mud");
             Assert.That(s.Height, Is.EqualTo(s.TerrainHeight));
             Assert.That(s.RoadClass, Is.EqualTo(RoadClass.Unknown));
 
@@ -384,7 +388,7 @@ namespace Ghumante.Core.Tests
         {
             TileGroundQuery g = DrivingData.SampleGround();
             double x, z;
-            WorldFrame.LonLatToGame(85.31172094019205, 27.716693189023914, out x, out z);
+            DrivingData.ThamelMarg(out x, out z);
             GroundSample s;
             Assert.That(g.TrySample(x, z, out s), Is.True);
             Assert.That(s.OnRoad, Is.True);

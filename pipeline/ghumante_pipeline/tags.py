@@ -30,6 +30,12 @@ from .model import (
     MOTOR_TRAVEL,
     TRAIL_CLASSES,
     AreaKind,
+    ObjectKind,
+    PropFlags,
+    Sidewalk,
+    TransitMode,
+    TreeClass,
+    TurnRestriction,
     BuildingUse,
     LineKind,
     NameRec,
@@ -1149,10 +1155,18 @@ _RELIGION_ALIASES = {
 _LODGING = frozenset({"hotel", "motel", "guest_house", "hostel", "camp_site", "caravan_site", "alpine_hut",
                       "wilderness_hut", "apartment", "chalet"})
 _HERITAGE_SQUARE_RE = re.compile(r"durbar\s*square|दरबार\s*स्क्वायर")
+# D1: a place=square is a heritage square only with a durbar-like name, a heritage tag or a wikidata id.
+_DURBAR_RE = re.compile(r"durbar|darbar|दरबार")
+# D1: historic=castle|palace is a palace only when the name says so (16 valley "castles" are houses).
+_PALACE_NAME_RE = re.compile(r"durbar|darbar|palace|mahal|\bmahal\b|दरबार|महल|राजदरबार")
+_GHAT_RE = re.compile(r"\bghat\b|घाट")
+_POKHARI_RE = re.compile(r"pokhar|pokhri|\bdaha\b|kunda?\b|पोखरी|पोखरि|दह\b|कुण्ड")
+# D1/D19: Newar courtyard names (bahal, bahi, bahil, chowk, dabali, vihar; H App. A).
+COURTYARD_NAME_RE = re.compile(r"bah(?:a|al|il|i)\b|baha\b|bahal|chowk|\bchok\b|dabali|vihar|बहाल|बही|चोक|दबली|विहार")
 _STONE_TAP_RE = re.compile(r"\bhiti\b|dhunge\s*dhara|dhungedhara|ढुङ्गे\s*धारा|हिटी")
 _HOT_SPRING_RE = re.compile(r"tatopani|tato\s*pani|hot\s*spring|तातोपानी")
 _ACTIVITY_NAME_RULES: tuple[tuple[re.Pattern, PoiKind], ...] = (
-    (re.compile(r"bunge+|bungy"), PoiKind.BUNGEE),
+    (re.compile(r"\bbung(?:ee|y)\b|\bbungee"), PoiKind.BUNGEE),
     (re.compile(r"zip\s*-?\s*lin(?:e|ing)|zip\s*-?\s*flyer"), PoiKind.ZIPLINE),
     (re.compile(r"paraglid"), PoiKind.PARAGLIDING),
     (re.compile(r"rafting"), PoiKind.RAFTING),
@@ -1257,10 +1271,22 @@ def poi_kind(tags: Mapping[str, str]) -> PoiKind:
 
     # 2. heritage
     commercial = bool(amenity or shop or g("office") or tourism in _LODGING)
-    if g("place") == "square" or (not commercial and _HERITAGE_SQUARE_RE.search(_names_text(tags))):
+    names = _names_text(tags)
+    if g("place") == "square":
+        if _DURBAR_RE.search(names) or g("heritage") or tags.get("wikidata"):
+            return PoiKind.HERITAGE_SQUARE
+    elif not commercial and _HERITAGE_SQUARE_RE.search(names):
         return PoiKind.HERITAGE_SQUARE
-    if historic in ("castle", "palace") or building == "palace" or g("castle_type") == "palace":
+    if (historic in ("castle", "palace") or building == "palace" or g("castle_type") == "palace") \
+            and (historic == "palace" or building == "palace" or g("castle_type") == "palace"
+                 or _PALACE_NAME_RE.search(names)):
         return PoiKind.PALACE
+    if amenity == "crematorium" or (not commercial and _GHAT_RE.search(names)
+                                    and (g("landuse") or amenity or historic or g("man_made") or g("leisure")
+                                         or natural or g("waterway"))):
+        return PoiKind.GHAT
+    if tourism == "artwork" or (historic == "memorial" and g("memorial") in ("statue", "bust", "sculpture")):
+        return PoiKind.STATUE
     if historic == "city_gate" or g("barrier") == "city_gate":
         return PoiKind.CITY_GATE
     if historic == "stone_tap":
@@ -1284,9 +1310,7 @@ def poi_kind(tags: Mapping[str, str]) -> PoiKind:
         return PoiKind.CAVE
     if natural == "hot_spring" or (amenity == "public_bath" and g("bath:type") == "hot_spring"):
         return PoiKind.HOT_SPRING
-    if (natural == "spring" or amenity == "public_bath") and _HOT_SPRING_RE.search(_names_text(tags)):
-        return PoiKind.HOT_SPRING
-    if natural == "glacier":
+    if natural == "glacier" and named:  # D1: the 3,629 unnamed glacier POIs are noise
         return PoiKind.GLACIER
     if g("mountain_pass") == "yes" or natural == "saddle":
         return PoiKind.PASS
@@ -1294,17 +1318,19 @@ def poi_kind(tags: Mapping[str, str]) -> PoiKind:
         return PoiKind.SPRING
     if natural == "water" and named and g("water") in ("", "lake", "oxbow", "lagoon", "reservoir"):
         return PoiKind.LAKE
+    if natural == "water" and named and g("water") == "pond" and _POKHARI_RE.search(names):
+        return PoiKind.LAKE  # D1: named sacred ponds (Rani Pokhari, Nag Daha) become searchable
     if tourism == "viewpoint":
         return PoiKind.VIEWPOINT
     if natural == "tree" and named:
         return PoiKind.NOTABLE_TREE
-    if natural == "ridge":
+    if natural == "ridge" and named:
         return PoiKind.RIDGE
 
     # 4. transport
     aeroway = g("aeroway")
-    if aeroway in ("aerodrome", "airport"):
-        return PoiKind.AIRPORT
+    if aeroway in ("aerodrome", "airport") and (tags.get("iata") or tags.get("icao") or tags.get("wikidata")):
+        return PoiKind.AIRPORT  # D1: a travel agency tagged aerodrome is not an airport
     if aeroway in ("helipad", "heliport"):
         return PoiKind.HELIPAD
     if amenity == "bus_station":
@@ -1320,13 +1346,17 @@ def poi_kind(tags: Mapping[str, str]) -> PoiKind:
 
     # 5. activities by tag
     sport = g("sport")
-    if sport == "free_flying":
+    site = g("free_flying:site")
+    attraction = g("attraction")
+    if site == "landing":
+        return PoiKind.PARAGLIDING_LANDING
+    if sport == "free_flying" or site in ("takeoff", "toplanding"):
         return PoiKind.PARAGLIDING
     if g("aerialway") == "zip_line":
         return PoiKind.ZIPLINE
-    if sport in ("bungee", "bungee_jumping"):
+    if sport in ("bungee", "bungee_jumping") or attraction in ("bungee_jumping", "bungee"):
         return PoiKind.BUNGEE
-    if sport in ("rafting", "canoe", "whitewater"):
+    if sport in ("rafting", "canoe", "whitewater") or attraction == "river_rafting" or g("whitewater"):
         return PoiKind.RAFTING
     if amenity == "boat_rental":
         return PoiKind.BOATING
@@ -1355,8 +1385,8 @@ def poi_kind(tags: Mapping[str, str]) -> PoiKind:
     if shop and shop not in ("no", "vacant"):
         return PoiKind.SHOP
 
-    # 9. activities by name
-    if named:
+    # 9. activities by name (never on offices, schools or car parks: D1)
+    if named and not (g("office") or amenity in ("school", "college", "university", "kindergarten", "parking")):
         text = _names_text(tags)
         for rx, kind in _ACTIVITY_NAME_RULES:
             if rx.search(text):
@@ -1411,7 +1441,7 @@ def _is_tea(tags: Mapping[str, str]) -> bool:
     return any(_TEA_RE.search(_norm(tags.get(k))) for k in ("crop", "trees", "produce"))
 
 
-def area_kind(tags: Mapping[str, str]) -> AreaKind:
+def area_kind(tags: Mapping[str, str], courtyard: bool = True) -> AreaKind:
     """Classify a polygon. First match wins, in this order:
 
     1. Water: ``waterway=riverbank`` and ``natural=water`` with
@@ -1419,8 +1449,12 @@ def area_kind(tags: Mapping[str, str]) -> AreaKind:
        ``landuse=reservoir|basin|aquaculture|salt_pond`` WATER_POND; other
        ``natural=water`` WATER_LAKE.
     2. ``natural=glacier`` GLACIER; ``natural=wetland|mud`` WETLAND.
-    3. Uses that restrict access: ``landuse=religious`` or
-       ``amenity=place_of_worship`` RELIGIOUS; ``place=square``, a pedestrian
+    3. ``aeroway=apron`` APRON; ``area:highway=traffic_island`` TRAFFIC_ISLAND.
+       Uses that restrict access: ``landuse=religious`` or
+       ``amenity=place_of_worship`` RELIGIOUS; with ``courtyard`` (default),
+       a named courtyard (``COURTYARD_NAME_RE``: bahal, bahi, chowk, dabali,
+       vihar) that is a square, a pedestrian area or plain/residential land
+       COURTYARD; ``place=square``, a pedestrian
        highway *area* or ``area:highway=pedestrian`` PEDESTRIAN;
        ``aeroway=aerodrome`` AERODROME; cemetery/grave_yard CEMETERY;
        ``landuse=military`` (or any ``military=*``) MILITARY;
@@ -1460,9 +1494,19 @@ def area_kind(tags: Mapping[str, str]) -> AreaKind:
     if natural in ("wetland", "mud"):
         return AreaKind.WETLAND
 
+    if g("aeroway") == "apron":
+        return AreaKind.APRON  # D20: never a building (w1368706500)
+    if g("area:highway") == "traffic_island":
+        return AreaKind.TRAFFIC_ISLAND
     if landuse == "religious" or amenity == "place_of_worship":
         return AreaKind.RELIGIOUS
     is_area = g("area") == "yes" or g("type") == "multipolygon"
+    if courtyard and not tags.get("building") and (not g("highway") or is_area) \
+            and COURTYARD_NAME_RE.search(_names_text(tags)) \
+            and (g("place") == "square" or (g("highway") == "pedestrian" and is_area)
+                 or g("area:highway") == "pedestrian" or landuse in ("", "residential")) \
+            and not (natural or leisure or amenity or g("aeroway") or g("military")):
+        return AreaKind.COURTYARD  # D19; build.py demotes chowk-named ones outside the historic cores
     if g("place") == "square" or (g("highway") == "pedestrian" and is_area) or g("area:highway") == "pedestrian":
         return AreaKind.PEDESTRIAN
     if g("aeroway") == "aerodrome":
@@ -1557,3 +1601,163 @@ def line_kind(tags: Mapping[str, str]) -> LineKind:
     if (historic == "wall" or barrier == "wall") and _MANI_RE.search(_names_text(tags)):
         return LineKind.MANI_WALL
     return LineKind.NONE
+
+
+# ---------------------------------------------------------------------------
+# W2: road attributes, props, routes and restrictions
+# ---------------------------------------------------------------------------
+def parse_maxspeed(raw: str | None) -> int:
+    """``maxspeed=*`` -> km/h (1..250), 0 when unknown. ``50``, ``50 km/h``, ``30 mph``, ``NP:urban`` (0)."""
+    if raw is None:
+        return 0
+    s = unicodedata.normalize("NFKC", str(raw)).translate(_DEVANAGARI_DIGITS).split(";", 1)[0].strip().lower()
+    m = re.fullmatch(r"(\d+(?:[.,]\d+)?)\s*(km/h|kmh|kph|mph)?", s)
+    if not m:
+        if s and s not in ("none", "signals", "walk"):
+            _record("maxspeed", raw)
+        return 0
+    v = _to_float(m.group(1)) or 0.0
+    if m.group(2) == "mph":
+        v *= 1.609344
+    v = int(round(v))
+    return v if 1 <= v <= 250 else 0
+
+
+_SIDEWALK = {"none": Sidewalk.NONE, "no": Sidewalk.NONE, "left": Sidewalk.LEFT, "right": Sidewalk.RIGHT,
+             "both": Sidewalk.BOTH, "yes": Sidewalk.BOTH, "separate": Sidewalk.SEPARATE}
+
+
+def parse_sidewalk(tags: Mapping[str, str]) -> Sidewalk:
+    """``sidewalk``, ``sidewalk:both``, ``sidewalk:left`` / ``sidewalk:right`` -> ``Sidewalk``.
+
+    Left and right are relative to the way's digitised direction (the ROAD
+    record's point order is reversed for ``oneway=-1`` ways, which also swaps
+    the sides: ``osm_extract`` does that)."""
+    v = _first(tags.get("sidewalk"))
+    if v in _SIDEWALK:
+        return _SIDEWALK[v]
+    both = _first(tags.get("sidewalk:both"))
+    if both in ("yes", "separate"):
+        return Sidewalk.SEPARATE if both == "separate" else Sidewalk.BOTH
+    if both == "no":
+        return Sidewalk.NONE
+    left = _first(tags.get("sidewalk:left")) in ("yes", "separate")
+    right = _first(tags.get("sidewalk:right")) in ("yes", "separate")
+    if left and right:
+        return Sidewalk.BOTH
+    if left:
+        return Sidewalk.LEFT
+    if right:
+        return Sidewalk.RIGHT
+    if _first(tags.get("sidewalk:left")) == "no" and _first(tags.get("sidewalk:right")) == "no":
+        return Sidewalk.NONE
+    return Sidewalk.UNKNOWN
+
+
+_PIPAL_RE = re.compile(r"religiosa|pipal|peepal|pipul|पिपल|पीपल|पिपला")
+_BAR_RE = re.compile(r"benghalensis|banyan|\bbar\b|\bbad\b|\bbargad|बर\b|वर\b|बरको")
+_CONIFER_RE = re.compile(r"pinus|\bpine\b|salla|सल्ला|cedrus|cedar|deodar|cupressus|cypress|abies|picea|thuja|"
+                         r"juniper|taxus")
+_PALM_RE = re.compile(r"palm|arecaceae|areca|cocos|phoenix|roystonea")
+CHAUTARI_RE = re.compile(r"chautari|chautara|chautaro|चौतारी|चौतारा|चौतारो")
+
+
+def tree_class(tags: Mapping[str, str]) -> TreeClass:
+    """Species class of a ``natural=tree`` from species, genus, taxon, leaf_type and name."""
+    text = " | ".join(str(tags[k]) for k in ("species", "species:en", "genus", "taxon", "taxon:en", "name",
+                                             "name:en", "name:ne", "denotation") if tags.get(k)).casefold()
+    if _PIPAL_RE.search(text):
+        return TreeClass.PIPAL
+    if _BAR_RE.search(text):
+        return TreeClass.BAR
+    if _PALM_RE.search(text):
+        return TreeClass.PALM
+    if _CONIFER_RE.search(text) or _first(tags.get("leaf_type")) == "needleleaved":
+        return TreeClass.CONIFER
+    if _first(tags.get("leaf_type")) == "broadleaved" or tags.get("species") or tags.get("genus"):
+        return TreeClass.BROADLEAF
+    return TreeClass.UNKNOWN
+
+
+_MARKED_CROSSING = frozenset({"zebra", "marked", "traffic_signals"})
+
+
+def prop_kind(tags: Mapping[str, str]) -> tuple[ObjectKind, int, PropFlags]:
+    """``(kind, subtype, flags)`` of a real point object for ``PROP`` (W2 Stage 1 subset).
+
+    Trees (``natural=tree``, species class, chautari flag), street lamps, bus
+    stops (``highway=bus_stop`` or a bus platform), traffic signals, crossings
+    (marked: ``crossing=zebra|marked|traffic_signals`` or
+    ``crossing:markings=yes|zebra|...``; anything else unmarked), storage
+    tanks, gates (``barrier=gate``), aeroway gates and parking positions,
+    windsocks, helipads and taxi stands. Everything else is ``NONE``."""
+    g = lambda k: _tv(tags, k)  # noqa: E731
+    flags = PropFlags(0)
+    if g("natural") == "tree":
+        if CHAUTARI_RE.search(_names_text(tags)) or g("tree:chautari") in ("yes",):
+            flags |= PropFlags.CHAUTARI
+        return ObjectKind.TREE, int(tree_class(tags)), flags
+    highway = g("highway")
+    if highway == "street_lamp":
+        return ObjectKind.STREET_LAMP, 0, flags
+    if highway == "traffic_signals":
+        return ObjectKind.TRAFFIC_SIGNALS, 0, flags
+    if highway == "crossing" or (g("railway") != "crossing" and g("crossing") and highway in ("", "crossing")):
+        marked = g("crossing") in _MARKED_CROSSING or g("crossing:markings") not in ("", "no")
+        return (ObjectKind.CROSSING_MARKED if marked else ObjectKind.CROSSING_UNMARKED), 0, flags
+    if highway == "bus_stop" or (g("public_transport") == "platform" and g("bus") == "yes"):
+        return ObjectKind.BUS_STOP, 0, flags
+    aeroway = g("aeroway")
+    if aeroway == "gate":
+        return ObjectKind.AEROWAY_GATE, 0, flags
+    if aeroway == "parking_position":
+        return ObjectKind.PARKING_POSITION, 0, flags
+    if aeroway == "windsock" or g("man_made") == "windsock":
+        return ObjectKind.WINDSOCK, 0, flags
+    if aeroway in ("helipad",):
+        return ObjectKind.HELIPAD, 0, flags
+    if g("man_made") == "storage_tank":
+        return ObjectKind.STORAGE_TANK, 0, flags
+    if g("barrier") == "gate":
+        return ObjectKind.GATE, 0, flags
+    if g("amenity") == "taxi":
+        return ObjectKind.TAXI_STAND, 0, flags
+    return ObjectKind.NONE, 0, flags
+
+
+_ROUTE_MODES = {
+    "bus": TransitMode.BUS, "trolleybus": TransitMode.BUS, "coach": TransitMode.BUS,
+    "minibus": TransitMode.MICROBUS, "microbus": TransitMode.MICROBUS,
+    "tempo": TransitMode.TEMPO, "safa_tempo": TransitMode.TEMPO,
+    "share_taxi": TransitMode.SHARE_TAXI,
+    "hiking": TransitMode.HIKING, "foot": TransitMode.FOOT, "walking": TransitMode.FOOT,
+    "bicycle": TransitMode.BICYCLE, "mtb": TransitMode.MTB,
+}
+
+
+def route_mode(tags: Mapping[str, str]) -> TransitMode:
+    """``type=route`` -> ``TransitMode`` (``network=safatempo`` makes any route a tempo route)."""
+    route = _first(tags.get("route"))
+    mode = _ROUTE_MODES.get(route, TransitMode.NONE)
+    if mode in (TransitMode.BUS, TransitMode.SHARE_TAXI, TransitMode.MICROBUS) \
+            and "tempo" in _norm(tags.get("network")):
+        return TransitMode.TEMPO
+    return mode
+
+
+_RESTRICTIONS = {
+    "no_left_turn": TurnRestriction.NO_LEFT_TURN, "no_right_turn": TurnRestriction.NO_RIGHT_TURN,
+    "no_straight_on": TurnRestriction.NO_STRAIGHT_ON, "no_u_turn": TurnRestriction.NO_U_TURN,
+    "only_left_turn": TurnRestriction.ONLY_LEFT_TURN, "only_right_turn": TurnRestriction.ONLY_RIGHT_TURN,
+    "only_straight_on": TurnRestriction.ONLY_STRAIGHT_ON, "no_entry": TurnRestriction.NO_ENTRY,
+    "no_exit": TurnRestriction.NO_EXIT,
+}
+
+
+def restriction_kind(tags: Mapping[str, str]) -> TurnRestriction:
+    """``restriction`` (or ``restriction:motorcar``) -> ``TurnRestriction``; ``NONE`` when unknown."""
+    for key in ("restriction", "restriction:motorcar", "restriction:motor_vehicle"):
+        v = _first(tags.get(key))
+        if v in _RESTRICTIONS:
+            return _RESTRICTIONS[v]
+    return TurnRestriction.NONE

@@ -27,6 +27,7 @@ regions:
     bbox: [85.18, 27.55, 85.58, 27.83]
     horizon_bbox: [84.60, 27.20, 86.40, 28.60]
     base_install: true
+    aviation: [tia]  # W2 D20: <region>.aviation.json (config/aviation/tia.yaml)
 
   # Tiny region used by CI and fast local iteration (Thamel + Durbar Square).
   thamel_test:
@@ -53,6 +54,7 @@ regions:
     # the full valley pack keeps L7.
     horizon_levels: [5, 6]
     base_install: true
+    aviation: [tia]
 
   # Planned, not yet built (M2+). Kept here so ids are stable.
   prithvi_corridor:

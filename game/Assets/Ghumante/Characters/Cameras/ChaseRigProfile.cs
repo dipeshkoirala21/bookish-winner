@@ -1,4 +1,5 @@
 using System;
+using Ghumante.Core.Characters;
 
 namespace Ghumante.Characters.Cameras
 {
@@ -60,11 +61,48 @@ namespace Ghumante.Characters.Cameras
             FootScreenYRest = -0.58f, FootScreenYFast = -0.62f, MinHorizontalFovDeg = 55f, FollowSeconds = 0.9f,
         };
 
+        /// <summary>W2 change (W2_DESIGN 6.4): 6.8 m / 20° / 0.9 m instead of 8.6 / 22 / 1.0, so the player grows from
+        /// about 187 px to about 240 px on a 1080 × 2340 portrait phone.</summary>
         public static readonly ChaseRigProfile WalkPortrait = new ChaseRigProfile
         {
-            DistanceM = 8.6f, PitchDeg = 22f, AimHeightM = 1.0f, LookAheadS = 0.6f, LookAheadMaxM = 4.5f,
+            DistanceM = 6.8f, PitchDeg = 20f, AimHeightM = 0.9f, LookAheadS = 0.6f, LookAheadMaxM = 4.5f,
             FootScreenYRest = -0.42f, FootScreenYFast = -0.5f, MinHorizontalFovDeg = 55f, FollowSeconds = 1.0f,
         };
+
+        /// <summary>The rig of a class in landscape or portrait from <see cref="CameraRigTable"/> (W2_DESIGN 6.4), with
+        /// the framing heights of the walk and ride rigs.</summary>
+        public static ChaseRigProfile For(RigClass rig, bool portrait)
+        {
+            return For(rig, portrait, RigClass.Car);
+        }
+
+        /// <summary>As <see cref="For(RigClass, bool)"/>; a passenger rig orbits at 1.2× the driver rig of
+        /// <paramref name="passengerOf"/> (CameraRigTable).</summary>
+        public static ChaseRigProfile For(RigClass rig, bool portrait, RigClass passengerOf)
+        {
+            RigParams r = CameraRigTable.For(rig, portrait, passengerOf);
+            bool walk = rig == RigClass.Walk;
+            return new ChaseRigProfile
+            {
+                DistanceM = r.DistanceM, PitchDeg = r.PitchDeg, AimHeightM = r.PivotM, LookAheadS = r.LookAheadS, LookAheadMaxM = r.LookAheadMaxM,
+                MinHorizontalFovDeg = r.MinHFovDeg, FollowSeconds = r.FollowS,
+                FootScreenYRest = walk ? (portrait ? -0.42f : -0.58f) : (portrait ? -0.45f : -0.48f),
+                FootScreenYFast = walk ? (portrait ? -0.5f : -0.62f) : -0.6f,
+            };
+        }
+
+        /// <summary>The rig of a class between landscape (0) and portrait (1).</summary>
+        public static ChaseRigProfile For(RigClass rig, float portrait01)
+        {
+            return For(rig, portrait01, RigClass.Car);
+        }
+
+        /// <summary>The rig of a class between landscape (0) and portrait (1), riding along in a
+        /// <paramref name="passengerOf"/> when <paramref name="rig"/> is <see cref="RigClass.Passenger"/>.</summary>
+        public static ChaseRigProfile For(RigClass rig, float portrait01, RigClass passengerOf)
+        {
+            return Lerp(For(rig, false, passengerOf), For(rig, true, passengerOf), portrait01);
+        }
 
         /// <summary>Component-wise blend; <paramref name="t"/> clamped to [0, 1].</summary>
         public static ChaseRigProfile Lerp(in ChaseRigProfile a, in ChaseRigProfile b, float t)

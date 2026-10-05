@@ -1,0 +1,106 @@
+{
+ "bytes": 506,
+ "format": "ghumante-golden-curated",
+ "records": [
+  {
+   "anchor_ref": 341881365,
+   "anchor_tile": 2882303761517417320,
+   "attrs": {
+    "guardians": "wrestlers,elephants,lions,griffins,goddesses",
+    "plinth_rise_m": "1.4"
+   },
+   "compound_ref": 0,
+   "deity": "Siddhi Lakshmi",
+   "doors": 1,
+   "entry_rule": "NONE",
+   "finish": "TILE",
+   "flags": 16,
+   "footprint_ref": 170940682,
+   "height_m": 33.2,
+   "hidden": [
+    170940682,
+    170940684
+   ],
+   "id": "her.bkt.nyatapola",
+   "kind": "PAGODA",
+   "kind_value": 1,
+   "kora": "NONE",
+   "name_en": "Nyatapola",
+   "name_ne": "न्यातपोल",
+   "plinth_levels": 5,
+   "provenance": "https://en.wikipedia.org/wiki/Nyatapola",
+   "review": "pending",
+   "stage": 1,
+   "tiers": 5,
+   "x": 612345.67,
+   "yaw_cdeg": 18000,
+   "yaw_deg": 180.0,
+   "z": -8.9
+  },
+  {
+   "anchor_ref": 0,
+   "anchor_tile": 2882303761517417320,
+   "attrs": {
+    "verify": "manual"
+   },
+   "compound_ref": 0,
+   "deity": "",
+   "doors": 0,
+   "entry_rule": "NONE",
+   "finish": "UNKNOWN",
+   "flags": 49,
+   "footprint_ref": 0,
+   "height_m": 0.0,
+   "hidden": [],
+   "id": "her.bkt.peacock_window",
+   "kind": "RELIEF",
+   "kind_value": 7,
+   "kora": "NONE",
+   "name_en": "Peacock Window",
+   "name_ne": "",
+   "plinth_levels": 0,
+   "provenance": "",
+   "review": "pending",
+   "stage": 1,
+   "tiers": 0,
+   "x": 0.0,
+   "yaw_cdeg": 65535,
+   "yaw_deg": null,
+   "z": 0.0
+  },
+  {
+   "anchor_ref": 226753181,
+   "anchor_tile": 2882303761517414472,
+   "attrs": {
+    "terraces": "3"
+   },
+   "compound_ref": 113376592,
+   "deity": "Buddhist",
+   "doors": 0,
+   "entry_rule": "NONE",
+   "finish": "WHITEWASH",
+   "flags": 30,
+   "footprint_ref": 113376590,
+   "height_m": 36.0,
+   "hidden": [
+    113376590
+   ],
+   "id": "her.ktm.boudhanath",
+   "kind": "STUPA",
+   "kind_value": 4,
+   "kora": "CLOCKWISE",
+   "name_en": "Boudhanath Stupa",
+   "name_ne": "बौद्धनाथ",
+   "plinth_levels": 0,
+   "provenance": "T section 3",
+   "review": "pending",
+   "stage": 1,
+   "tiers": 0,
+   "x": 532960.12,
+   "yaw_cdeg": 18000,
+   "yaw_deg": 180.0,
+   "z": 166588.3
+  }
+ ],
+ "version": 1
+}

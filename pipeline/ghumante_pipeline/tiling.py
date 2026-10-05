@@ -44,6 +44,13 @@ Feature assignment (leaf level)
   search index, so map labels can come from tiles. Their ``osm_ref`` uses the
   POI form ``(osm_id << 2) | type``.
 
+W2 chunks (leaf level, when ``build_tiles`` gets ``w2`` inputs): ``RATR`` (one
+record per ROAD piece, ``roadattrs.road_attr``), ``BFNT`` (one per BLDG record,
+``style.front_edges`` against every front-able road segment), ``JNCT`` (the
+region's ``junctions.find_junctions`` records, in the tile holding their
+centre), ``PROP`` (real point objects, in the tile holding them) and the AREA
+flags ``HERITAGE_ZONE`` / ``SACRED_NO_VEHICLE`` (``sacred.area_flags``).
+
 Parallelism: tiles are encoded in a ``fork`` process pool. The prepared state
 (samplers with warmed caches, projected features, buckets) is a module global
 inherited by the workers, which return ``(key, blob, stats)``; results are
@@ -72,12 +79,14 @@ from .config import PIPELINE_DATA_VERSION, Region
 from .contexts import concat_points, project_lonlat_arrays
 from .dem import DemSampler
 from .landcover import LandcoverSampler
-from .model import AreaKind, BuildingFlags, Extract, LineKind, PlaceKind, PoiFlags, RoadFlags
+from .model import AreaKind, AreaType, BuildingFlags, Extract, LineKind, NameRec, PlaceKind, PoiFlags, PropFlags, \
+    RoadFlags
 from .projection import TileId
 from .rasterize import burn_key, rasterize_at_samples
 from .tile_format import (
-    AreaFlags, AreaRec, BuildingRec, LineFlags, LineRec, NameTable, PoiRec, RoadRec, TileData, encode_tile,
-    make_seed, osm_ref_nwr, osm_ref_wr, points_to_local_cm, quantize_heights, read_header, to_local_cm,
+    YAW_CDEG_MAX, AreaFlags, AreaRec, BuildingFrontRec, BuildingRec, JunctionRec, LineFlags, LineRec, NameTable,
+    PoiRec, PropRec, RoadRec, TileData, encode_tile, make_seed, osm_ref_nwr, osm_ref_wr, points_to_local_cm,
+    quantize_heights, read_header, to_local_cm,
 )
 
 log = logging.getLogger(__name__)
@@ -125,6 +134,23 @@ def tiles_lonlat_bbox(tiles: Iterable[TileId], margin_deg: float = 0.0) -> tuple
 # Prepared state
 # ---------------------------------------------------------------------------
 @dataclass
+class W2Inputs:
+    """Region-wide W2 data the tiler needs (build.py fills it). Arrays are indexed like the extract."""
+
+    grid: object = None  # areatype.AreaTypeGrid
+    profiles: np.ndarray | None = None  # (n_buildings,) StyleProfile
+    shops: np.ndarray | None = None  # (n_buildings,) shop POI count
+    front_hints: np.ndarray | None = None  # (n_buildings,) style.hint_flags
+    area_flags: np.ndarray | None = None  # (n_areas,) AreaFlags bits
+    sacred: object = None  # sacred.SacredZones
+    heritage_front: object = None  # game-space prepared geometry (heritage squares grown by HERITAGE_FRONT_M)
+    dual: object = None  # roadattrs.DualInfo
+    bus_ways: frozenset = frozenset()
+    junctions: list = field(default_factory=list)  # junctions.Junction
+    corridors: bool = True
+
+
+@dataclass
 class _State:
     region: Region
     data_version: int
@@ -151,6 +177,14 @@ class _State:
     search_ids: Mapping[tuple[int, int], int] = field(default_factory=dict)  # (osm_ref, entry kind) ->
     search_importance: Mapping[tuple[int, int], int] = field(default_factory=dict)
     landmark_refs: frozenset[tuple[str, int]] = frozenset()
+    w2: W2Inputs | None = None
+    road_by_id: dict[int, object] = field(default_factory=dict)
+    road_segments: object = None  # style.RoadSegments
+    bld_index: object = None  # roadattrs.BuildingIndex
+    prop_xz: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
+    prop_bucket: dict[TileId, list[int]] = field(default_factory=dict)
+    jnct_bucket: dict[TileId, list[int]] = field(default_factory=dict)
+    road_nodes: frozenset = frozenset()
 
 
 _STATE: _State | None = None
@@ -251,12 +285,12 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
              zones: BiomeZones | None, tiles_by_level: dict[int, list[TileId]], data_version: int,
              meta: dict | None, search_ids: Mapping[tuple[int, int], int],
              search_importance: Mapping[tuple[int, int], int],
-             landmark_refs: Iterable[tuple[str, int]]) -> _State:
+             landmark_refs: Iterable[tuple[str, int]], w2: W2Inputs | None = None) -> _State:
     leaf = region.leaf_level
     st = _State(region=region, data_version=data_version, leaf=leaf, meta=meta, dem=dem, lc_by_level=lc_by_level,
                 zones=zones, detail_levels=frozenset(region.detail_levels), extract=extract,
                 search_ids=dict(search_ids), search_importance=dict(search_importance),
-                landmark_refs=frozenset(landmark_refs))
+                landmark_refs=frozenset(landmark_refs), w2=w2)
     ex = extract
 
     # Roads (oneway=-1 reversed so that point order is the travel direction) and lines.
@@ -303,6 +337,25 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
         x, z = projection.lonlat_to_game(np.array([p.lon for p in ex.places]), np.array([p.lat for p in ex.places]))
         st.place_xz = np.stack([np.asarray(x), np.asarray(z)], axis=1)
         st.place_bucket = _point_bucket(st.place_xz, leaf, leaf_set)
+
+    # W2: props, junctions, road segments for fronts, building outlines for corridors.
+    if w2 is not None:
+        from .roadattrs import BuildingIndex
+        from .style import RoadSegments
+
+        st.road_by_id = {int(r.osm_id): r for r in ex.roads}
+        st.road_segments = RoadSegments.build(st.roads_game, [r.osm_id for r in ex.roads], [r.cls for r in ex.roads])
+        if w2.corridors:
+            st.bld_index = BuildingIndex.build([st.bld_rings[i][0] for i, b in enumerate(ex.buildings)
+                                                if not (b.flags & BuildingFlags.PART)])
+        st.road_nodes = frozenset(int(n) for r in ex.roads for n in np.asarray(r.node_ids).tolist())
+        if ex.props:
+            x, z = projection.lonlat_to_game(np.array([p.lon for p in ex.props]), np.array([p.lat for p in ex.props]))
+            st.prop_xz = np.stack([np.asarray(x), np.asarray(z)], axis=1)
+            st.prop_bucket = _point_bucket(st.prop_xz, leaf, leaf_set)
+        if w2.junctions:
+            jxz = np.array([[j.x, j.z] for j in w2.junctions], dtype=np.float64)
+            st.jnct_bucket = _point_bucket(jxz, leaf, leaf_set)
 
     # Polyline buckets.
     if leaf_tiles:
@@ -452,7 +505,25 @@ def _piece_cm(tile: TileId, piece: geom.Piece, full: np.ndarray) -> tuple[np.nda
     return np.concatenate(parts).astype(np.int64), prev, nxt
 
 
-def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> list[RoadRec]:
+def _road_attr(st: _State, r, piece_game: np.ndarray, has_prev: bool, has_next: bool, stats: Counter):
+    from .roadattrs import length_midpoint, road_attr
+
+    w2 = st.w2
+    rendered = piece_game[(1 if has_prev else 0):len(piece_game) - (1 if has_next else 0)]
+    mx, mz = length_midpoint(rendered)
+    at = int(w2.grid.at(mx, mz)) if w2.grid is not None else int(AreaType.UNKNOWN)
+    sacred = bool(w2.sacred.contains(mx, mz)) if w2.sacred is not None else False
+    partner = st.road_by_id.get(w2.dual.partner.get(int(r.osm_id), 0)) if w2.dual is not None else None
+    from .roadattrs import DualInfo
+
+    a = road_attr(r, rendered, at, sacred, w2.dual or DualInfo(), w2.bus_ways, partner, st.bld_index)
+    if len(a.corridor_dm):
+        stats["ratr_corridor_samples"] += len(a.corridor_dm)
+    return a
+
+
+def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter,
+                  attrs: list | None = None) -> list[RoadRec]:
     out = []
     box = tile.bounds
     for i in st.road_bucket.get(tile, ()):
@@ -493,6 +564,8 @@ def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter) ->
                 sac_scale=int(r.sac_scale), trail_visibility=min(max(int(r.trail_visibility), 0), 255),
                 layer=min(max(int(r.layer), -128), 127), width_cm=width_cm, access=int(r.access) & 0xFF,
                 name_ref=name_ref, ref_ref=ref_ref, points=pts_cm))
+            if attrs is not None:
+                attrs.append(_road_attr(st, r, np.asarray(p.points, dtype=np.float64), has_prev, has_next, stats))
             stats["road_pieces"] += 1
     return out
 
@@ -569,14 +642,43 @@ def _area_records(st: _State, tile: TileId, names: NameTable, stats: Counter) ->
             if len(tris) == 0:
                 stats["area_parts_empty"] += 1
                 continue
-            out.append(AreaRec(osm_ref=osm_ref, kind=int(a.kind),
-                               flags=int(AreaFlags.CLIPPED_BY_TILE) if clipped else 0, name_ref=name_ref,
+            aflags = int(AreaFlags.CLIPPED_BY_TILE) if clipped else 0
+            if st.w2 is not None and st.w2.area_flags is not None:
+                aflags |= int(st.w2.area_flags[i])
+            out.append(AreaRec(osm_ref=osm_ref, kind=int(a.kind), flags=aflags, name_ref=name_ref,
                                vertices=vcm, indices=tris, rings=list(rings)))
             stats["area_parts"] += 1
     return out
 
 
-def _building_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> list[BuildingRec]:
+def _front(st: _State, i: int, b, stats: Counter) -> BuildingFrontRec:
+    from .style import EDGE_NONE, FROM_POI, HERITAGE_FRONT_M, front_edges  # noqa: F401
+    from .model import BuildingFrontFlags
+
+    w2 = st.w2
+    ring = np.asarray(st.bld_rings[i][0], dtype=np.float64)
+    cx, cz = float(ring[:, 0].mean()), float(ring[:, 1].mean())
+    at = int(w2.grid.at(cx, cz)) if w2.grid is not None else 0
+    prof = int(w2.profiles[i]) if w2.profiles is not None else 0
+    flags = int(w2.front_hints[i]) if w2.front_hints is not None else 0
+    shops = int(w2.shops[i]) if w2.shops is not None else 0
+    shop_bays = (min(15, shops) | FROM_POI) if shops else 0
+    if b.flags & BuildingFlags.PART:
+        return BuildingFrontRec(prof, at, EDGE_NONE, 0, shop_bays, flags, EDGE_NONE)
+    fe, fdm, se = front_edges(ring, st.road_segments)
+    if se != EDGE_NONE:
+        flags |= int(BuildingFrontFlags.CORNER)
+    if fe != EDGE_NONE:
+        stats["bfnt_fronts"] += 1
+        if w2.heritage_front is not None:
+            a, c = ring[fe], ring[(fe + 1) % len(ring)]
+            if shapely.contains_xy(w2.heritage_front, 0.5 * (a[0] + c[0]), 0.5 * (a[1] + c[1])):
+                flags |= int(BuildingFrontFlags.FACES_HERITAGE_SQUARE)
+    return BuildingFrontRec(prof, at, fe, fdm, shop_bays, flags, se)
+
+
+def _building_records(st: _State, tile: TileId, names: NameTable, stats: Counter,
+                      fronts: list | None = None) -> list[BuildingRec]:
     out = []
     for i in st.bld_bucket.get(tile, ()):
         b = st.extract.buildings[i]
@@ -596,7 +698,44 @@ def _building_records(st: _State, tile: TileId, names: NameTable, stats: Counter
             min_height_cm=max(0, int(round(b.min_height_m * 100))) if b.min_height_m else 0,
             roof_shape=int(b.roof_shape), roof_material=int(b.roof_material), wall_material=int(b.wall_material),
             name_ref=names.ref(b.name), rings=rings))
+        if fronts is not None:
+            fronts.append(_front(st, i, b, stats))
     stats["buildings"] += len(out)
+    return out
+
+
+def _junction_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> list[JunctionRec]:
+    out = []
+    for k in st.jnct_bucket.get(tile, ()):
+        j = st.w2.junctions[k]
+        xc, zc = to_local_cm(tile, j.x, j.z)
+        out.append(JunctionRec(osm_node_id=int(j.osm_node_id), kind=int(j.kind), arms=min(255, int(j.arms)),
+                               flags=int(j.flags) & 0xFF, x_cm=int(xc), z_cm=int(zc),
+                               ring_diameter_cm=int(round(j.ring_diameter_m * 100.0)),
+                               island_diameter_cm=int(round(j.island_diameter_m * 100.0)),
+                               island_area_osm_ref=int(j.island_area_osm_ref), name_ref=names.ref(j.name)))
+    stats["junctions"] += len(out)
+    return out
+
+
+def _prop_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> list[PropRec]:
+    out = []
+    for i in st.prop_bucket.get(tile, ()):
+        p = st.extract.props[i]
+        flags = int(p.flags)
+        if p.osm_type == "n" and int(p.osm_id) in st.road_nodes:
+            flags |= int(PropFlags.ON_ROAD)
+        yaw = 0
+        if p.yaw_deg is not None and math.isfinite(p.yaw_deg):
+            flags |= int(PropFlags.YAW)
+            yaw = int(round((p.yaw_deg % 360.0) * 100.0)) % 36000
+            yaw = min(yaw, YAW_CDEG_MAX)
+        h = int(round(p.height_m * 10.0)) if p.height_m is not None and math.isfinite(p.height_m) else 0
+        xc, zc = to_local_cm(tile, st.prop_xz[i, 0], st.prop_xz[i, 1])
+        out.append(PropRec(osm_ref=osm_ref_nwr(p.osm_type, p.osm_id), kind=int(p.kind), subtype=int(p.subtype),
+                           flags=flags & 0xFF, x_cm=int(xc), z_cm=int(zc), yaw_cdeg=yaw, height_dm=max(0, h),
+                           name_ref=names.ref(p.name), ref_ref=names.ref_str(p.ref)))
+    stats["props"] += len(out)
     return out
 
 
@@ -645,15 +784,23 @@ def make_tile(st: _State, tile: TileId) -> tuple[bytes, Counter]:
     heights_q, biomes = _terrain(st, tile)
     td = TileData(tile=tile, data_version=st.data_version, heights_q=heights_q, biomes=biomes)
     if tile.level in st.detail_levels:
-        td.seed = make_seed(tile, st.data_version)
+        td.seed = make_seed(tile)
         td.meta = st.meta
     if tile.level == st.leaf and tile.level in st.detail_levels:
         names = NameTable()
+        w2 = st.w2 is not None
+        fronts: list | None = [] if w2 else None
+        attrs: list | None = [] if w2 else None
         td.areas = _area_records(st, tile, names, stats)
-        td.buildings = _building_records(st, tile, names, stats)
+        td.buildings = _building_records(st, tile, names, stats, fronts)
         td.lines = _line_records(st, tile, names, stats)
         td.pois = _poi_records(st, tile, names, stats)
-        td.roads = _road_records(st, tile, names, stats)
+        td.roads = _road_records(st, tile, names, stats, attrs)
+        if w2:
+            td.building_fronts = fronts if td.buildings else []
+            td.road_attrs = attrs if td.roads else []
+            td.junctions = _junction_records(st, tile, names, stats)
+            td.props = _prop_records(st, tile, names, stats)
         td.names = names.entries()
         td.has_detail = True
     blob = encode_tile(td)
@@ -687,7 +834,7 @@ def build_tiles(region: Region, extract: Extract, dem: DemSampler, landcover: La
                 search_ids: Mapping[tuple[int, int], int] | None = None,
                 search_importance: Mapping[tuple[int, int], int] | None = None,
                 landmark_refs: Iterable[tuple[str, int]] = (), workers: int | None = None,
-                stats: dict | None = None) -> dict[int, bytes]:
+                stats: dict | None = None, w2: W2Inputs | None = None) -> dict[int, bytes]:
     """Encode every tile of ``region``: returns ``{tile key: GHT1 blob}``.
 
     ``landcover`` is one sampler, or ``{level: sampler}`` (every level needed).
@@ -707,7 +854,7 @@ def build_tiles(region: Region, extract: Extract, dem: DemSampler, landcover: La
     if missing:
         raise ValueError(f"no landcover sampler for levels {missing}")
     st = _prepare(region, extract, dem, lc_by_level, zones, tiles_by_level, data_version, meta,
-                  search_ids or {}, search_importance or {}, landmark_refs)
+                  search_ids or {}, search_importance or {}, landmark_refs, w2)
     t_prep = time.perf_counter()
     _warm_caches(st, tiles_by_level)
     t_warm = time.perf_counter()

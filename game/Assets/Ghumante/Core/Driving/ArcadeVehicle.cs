@@ -63,6 +63,10 @@ namespace Ghumante.Core.Driving
         private const float StuckMaxBrake = 0.3f;
         private const float RecoveryTurnRadPerS = 6f;
         private const float StopEpsMps = 1e-3f;
+        private const float FootDownMps = 1f / 3.6f;
+        private const float StaminaUnlock = 0.25f;
+        private const float DriftMinBrake = 0.3f;
+        private const float DriftMinSteer = 0.5f;
 
         private readonly VehicleSpec _spec;
 
@@ -89,6 +93,11 @@ namespace Ghumante.Core.Driving
         /// <summary>Road magnet assist (<see cref="VehicleSpec.RoadAssistPerS"/>); gameplay settings may switch it off.</summary>
         public bool RoadAssist = true;
 
+        /// <summary>Visual body roll and pitch from the accelerations (W2_DESIGN 6.3), radians, same signs as
+        /// <see cref="Roll"/> and <see cref="Pitch"/>: outward in a turn (a right turn rolls the left side down), nose up
+        /// when accelerating. Draw them on top of the ground pose; physics stays flat. 0 for specs without them.</summary>
+        public float VisualRoll, VisualPitch;
+
         private float _velHeading; // direction of travel
         private float _steer; // wheel angle, radians
         private float _vy; // vertical speed (airborne: ballistic; grounded: terrain-implied)
@@ -108,11 +117,26 @@ namespace Ghumante.Core.Driving
         private int _intentSign = 1; // sign of the last non-zero throttle
         private GroundSample _ground;
 
+        // W2 handling state.
+        private readonly float[] _steerLine; // delayed steer inputs (ring), with the sub-step length of each
+        private readonly float[] _steerLineDt;
+        private int _steerHead;
+        private float _rollVel, _pitchVel; // body spring velocities
+        private float _prevPathYawRate;
+        private float _wobbleT;
+        private float _stamina = 1f;
+        private bool _staminaLocked;
+        private float _driftTimer;
+        private bool _pushing;
+
         public ArcadeVehicle(VehicleSpec spec)
         {
             _spec = spec ?? throw new ArgumentNullException(nameof(spec));
             spec.Validate();
             Surface = SurfaceGroup.Paved;
+            int line = (int)Math.Ceiling(VehicleSpec.MaxSteerDelayS / MaxSubStepS) + 4;
+            _steerLine = new float[line];
+            _steerLineDt = new float[line];
         }
 
         public VehicleSpec Spec
@@ -198,6 +222,37 @@ namespace Ghumante.Core.Driving
         /// <summary>Forward top speed on the current surface (wetness and boost of the last step applied).</summary>
         public float TopSpeedMps { get; private set; }
 
+        /// <summary>What the feet (or tyres) touch, after wetness (DIRT reads as MUD from 0.5), for footsteps and
+        /// tyre sounds (W2_DESIGN 10.3).</summary>
+        public FootSurface Foot
+        {
+            get { return FootSurfaces.Effective(_ground.Foot, _lastWetness); }
+        }
+
+        /// <summary>Two-wheelers: a foot is down (below 1 km/h); they never fall over.</summary>
+        public bool FootDown
+        {
+            get { return _spec.TwoWheeler && Math.Abs(SpeedMps) < FootDownMps && !_airborne; }
+        }
+
+        /// <summary>Boost stamina in [0, 1] (<see cref="VehicleSpec.StaminaBoost"/>; always 1 otherwise).</summary>
+        public float Stamina
+        {
+            get { return _stamina; }
+        }
+
+        /// <summary>True while the rider pushes the bicycle up a steep grade (<see cref="VehicleSpec.PushGrade"/>).</summary>
+        public bool Pushing
+        {
+            get { return _pushing; }
+        }
+
+        /// <summary>True while the opt-in brake drift holds (<see cref="VehicleSpec.BrakeDriftMinKmh"/>).</summary>
+        public bool BrakeDrifting
+        {
+            get { return _driftTimer > 0f; }
+        }
+
         /// <summary>Places the vehicle at rest at (x, z) facing <paramref name="headingRad"/>, on the ground when
         /// <paramref name="g"/> knows it there (otherwise <see cref="HasGround"/> stays false and Y is kept until
         /// a step finds ground).</summary>
@@ -219,6 +274,15 @@ namespace Ghumante.Core.Driving
             _recoveryHop = false;
             _bumpCooldown = 0f;
             Lean = 0f;
+            VisualRoll = 0f;
+            VisualPitch = 0f;
+            _rollVel = 0f;
+            _pitchVel = 0f;
+            _prevPathYawRate = 0f;
+            _driftTimer = 0f;
+            _pushing = false;
+            Array.Clear(_steerLine, 0, _steerLine.Length);
+            Array.Clear(_steerLineDt, 0, _steerLineDt.Length);
             ResetStuck();
             GroundSample s;
             if (g != null && g.TrySample(x, z, out s))
@@ -272,6 +336,10 @@ namespace Ghumante.Core.Driving
                     Restore(ref snap);
                     SpeedMps = 0f;
                     _vy = 0f;
+                    VisualRoll = 0f;
+                    VisualPitch = 0f;
+                    _rollVel = 0f;
+                    _pitchVel = 0f;
                     continue;
                 }
                 ev |= e;
@@ -297,12 +365,15 @@ namespace Ghumante.Core.Driving
             SurfaceGroup raw = _ground.Surface;
             float grip = _spec.GripOf(raw, wet);
             float topFactor = _spec.TopSpeedFactorOf(raw, wet);
+            if (!_spec.TurnInPlace) boost = GateBoost(boost, throttle, h);
             float vTop = _spec.MaxSpeedMps * topFactor * (boost ? _spec.BoostSpeedFactor : 1f);
             float vRev = _spec.ReverseSpeedMps * topFactor;
+            if (!_spec.TurnInPlace) vTop = GradeLimit(vTop);
             TopSpeedMps = vTop;
 
+            float vBefore = SpeedMps;
             if (_spec.TurnInPlace) WalkerDrive(throttle, brake, steer, boost, topFactor, h);
-            else VehicleDrive(throttle, brake, steer, grip, vTop, vRev, h);
+            else VehicleDrive(throttle, brake, DelayedSteer(steer, h), steer, grip, vTop, vRev, h);
 
             // ---- move ----
             bool moved = false;
@@ -401,6 +472,7 @@ namespace Ghumante.Core.Driving
                 _onRoad = s.OnRoad;
             }
             UpdatePose(ref s, h);
+            UpdateBody(vBefore, h);
 
             // ---- stuck recovery ----
             if (_spec.StuckSeconds > 0f && !_airborne)
@@ -437,13 +509,23 @@ namespace Ghumante.Core.Driving
             return ev;
         }
 
-        private void VehicleDrive(float throttle, float brake, float steer, float grip, float vTop, float vRev, float h)
+        private void VehicleDrive(float throttle, float brake, float steer, float rawSteer, float grip, float vTop, float vRev, float h)
         {
             VehicleSpec sp = _spec;
-            float maxSteer = sp.MaxSteerDeg * Deg2Rad;
-            _steer = MoveTowards(_steer, steer * maxSteer, sp.SteerDegPerSec * Deg2Rad * h);
             float v = SpeedMps, absV = Math.Abs(v);
+            // Speed-sensitive steering: the wheel follows the (delayed) input within δmax(v) = min(δ0, atan(L·aLat/v²)).
+            float maxSteer = sp.MaxSteerAtRad(absV);
+            _steer = MoveTowards(_steer, steer * maxSteer, sp.SteerDegPerSec * Deg2Rad * h);
             float slip = WrapAngle(HeadingRad - _velHeading);
+
+            // Opt-in brake drift: brake + steer above the threshold lets the rear go for a moment.
+            if (sp.BrakeDriftMinKmh > 0f)
+            {
+                if (brake >= DriftMinBrake && Math.Abs(rawSteer) >= DriftMinSteer && absV * 3.6f >= sp.BrakeDriftMinKmh && !_airborne)
+                    _driftTimer = sp.BrakeDriftHoldS;
+                else if (_driftTimer > 0f) _driftTimer = Math.Max(0f, _driftTimer - h);
+            }
+            bool drifting = _driftTimer > 0f;
 
             if (!_airborne)
             {
@@ -455,10 +537,9 @@ namespace Ghumante.Core.Driving
                     slip = 0f;
                 }
 
-                // Yaw: kinematic bicycle, capped by the speed-dependent steering limit.
-                float sigma = _steer / maxSteer;
+                // Yaw: kinematic bicycle; the steering law already bounds it to aLat/|v| (guarded at walking pace).
                 float wGeo = v * MathF.Tan(_steer) / sp.WheelbaseM;
-                float wCap = sp.SteerLateralMps2 * Math.Abs(sigma) / Math.Max(absV, 0.5f);
+                float wCap = sp.SteerLateralMps2 / Math.Max(absV, 0.5f);
                 float w = Clamp(wGeo, -wCap, wCap);
 
                 // Road magnet: gentle steering on a road lines the heading up with the road.
@@ -476,10 +557,11 @@ namespace Ghumante.Core.Driving
 
                 // Grip: the path turns as fast as lateral grip allows; the body turns further by the drift angle,
                 // which relaxes towards a target set by how far the asked-for turn exceeds the grip.
-                float wGrip = sp.LateralGripMps2 * grip / Math.Max(absV, 0.5f);
+                float wGrip = sp.LateralGripMps2 * grip * (drifting ? sp.BrakeDriftGrip : 1f) / Math.Max(absV, 0.5f);
                 float wPath = Clamp(w, -wGrip, wGrip);
                 float over = Math.Abs(w) / wGrip - 1f;
                 float slipTarget = over > 0f ? Math.Sign(w) * maxSlip * Math.Min(1f, over) : 0f;
+                if (drifting) slipTarget *= 1f - sp.BrakeDriftCounterSteer; // counter-steer assist
                 slip += (slipTarget - slip) * (1f - MathF.Exp(-sp.DriftResponse * h));
                 float before = HeadingRad;
                 _velHeading = WrapAngle(_velHeading + wPath * h);
@@ -514,7 +596,7 @@ namespace Ghumante.Core.Driving
                         if (gradeFwd <= maxGrade)
                         {
                             float r = Math.Max(v, 0f) / target;
-                            aDrive = sp.AccelMps2 * traction * (1f - r * r);
+                            aDrive = AccelAt(absV) * traction * (1f - r * r);
                         }
                     }
                     else
@@ -537,7 +619,7 @@ namespace Ghumante.Core.Driving
                         if (-gradeFwd <= maxGrade)
                         {
                             float r = Math.Max(-v, 0f) / target;
-                            aDrive = -sp.AccelMps2 * sp.ReverseAccelFactor * traction * (1f - r * r);
+                            aDrive = -AccelAt(absV) * sp.ReverseAccelFactor * traction * (1f - r * r);
                         }
                     }
                     else
@@ -552,12 +634,18 @@ namespace Ghumante.Core.Driving
             }
             else
             {
-                resist += sp.CoastDecelMps2;
+                resist += sp.CoastDecelMps2 + sp.EngineBrakeMps2;
             }
             if (brake > 0f) resist += brake * sp.BrakeMps2 * traction;
             if (v > vTop || v < -vRev) resist += sp.OverSpeedDecelMps2;
             resist += sp.SlideDecelMps2 * Math.Abs(MathF.Sin(slip));
 
+            if (_pushing && throttle > 0f && brake <= 0f)
+            {
+                // Walking the bike up the grade: the rider sets the pace, the slope does not roll it back.
+                SpeedMps = MoveTowards(v, throttle * sp.PushSpeedMps, sp.BrakeMps2 * h);
+                return;
+            }
             SpeedMps = ApplyForces(v, aDrive + aSlope, resist, h);
             float cap = 2f * Math.Max(vTop, vRev) + 10f;
             SpeedMps = Clamp(SpeedMps, -cap, cap);
@@ -760,13 +848,117 @@ namespace Ghumante.Core.Driving
             if (_spec.MaxLeanDeg > 0f)
             {
                 float maxLean = _spec.MaxLeanDeg * Deg2Rad;
-                float lt = _airborne ? Lean : Clamp(MathF.Atan(SpeedMps * _pathYawRate / Gravity), -maxLean, maxLean);
+                // θ = atan(v·ω/g) = atan(v²/(gR)); the lead predicts the yaw rate LeanLeadS ahead.
+                float omega = _pathYawRate + _spec.LeanLeadS * (_pathYawRate - _prevPathYawRate) / h;
+                float wCap = Math.Abs(_pathYawRate) + Math.Abs(_prevPathYawRate);
+                omega = Clamp(omega, -wCap, wCap);
+                float lt = _airborne ? Lean : Clamp(MathF.Atan(SpeedMps * omega / Gravity), -maxLean, maxLean);
+                if (_spec.TwoWheeler && !_airborne)
+                {
+                    // Never tips: a gentle balance wobble at walking pace, upright with a foot down when stopped.
+                    _wobbleT += h;
+                    float vw = _spec.WobbleBelowKmh / 3.6f, av = Math.Abs(SpeedMps);
+                    if (av < vw && av >= FootDownMps)
+                        lt += _spec.WobbleDeg * Deg2Rad * MathF.Sin(TwoPi * _spec.WobbleHz * _wobbleT) * (1f - av / vw);
+                    lt = Clamp(lt, -maxLean, maxLean);
+                }
                 Lean += (lt - Lean) * (1f - MathF.Exp(-_spec.LeanResponse * h));
+                Lean = Clamp(Lean, -maxLean, maxLean);
             }
             else
             {
                 Lean = 0f;
             }
+            _prevPathYawRate = _pathYawRate;
+        }
+
+        /// <summary>Visual body roll and pitch on a damped spring towards the acceleration targets.</summary>
+        private void UpdateBody(float vBefore, float h)
+        {
+            VehicleSpec sp = _spec;
+            if (sp.VisualRollPerMps2 <= 0f && sp.VisualPitchPerMps2 <= 0f)
+            {
+                VisualRoll = 0f;
+                VisualPitch = 0f;
+                return;
+            }
+            float aLat = _airborne ? 0f : SpeedMps * _pathYawRate;
+            float aLong = _airborne ? 0f : (SpeedMps - vBefore) / h;
+            float rollCap = sp.VisualMaxRollDeg * Deg2Rad, pitchCap = sp.VisualMaxPitchDeg * Deg2Rad;
+            float rollT = Clamp(-sp.VisualRollPerMps2 * Deg2Rad * aLat, -rollCap, rollCap);
+            float pitchT = Clamp(sp.VisualPitchPerMps2 * Deg2Rad * aLong * (SpeedMps < 0f ? -1f : 1f), -pitchCap, pitchCap);
+            float w = TwoPi * sp.BodySpringHz, z = sp.BodySpringZeta;
+            _rollVel += (w * w * (rollT - VisualRoll) - 2f * z * w * _rollVel) * h;
+            VisualRoll += _rollVel * h;
+            _pitchVel += (w * w * (pitchT - VisualPitch) - 2f * z * w * _pitchVel) * h;
+            VisualPitch += _pitchVel * h;
+            // A sloshing tank may overshoot its target, never the cap by much: clamp at 1.5 × the cap.
+            VisualRoll = Clamp(VisualRoll, -1.5f * rollCap, 1.5f * rollCap);
+            VisualPitch = Clamp(VisualPitch, -1.5f * pitchCap, 1.5f * pitchCap);
+        }
+
+        /// <summary>The steer input <see cref="VehicleSpec.SteerInputDelayS"/> ago (the input itself without a delay).</summary>
+        private float DelayedSteer(float steer, float h)
+        {
+            float delay = _spec.SteerInputDelayS;
+            if (delay <= 0f) return steer;
+            int n = _steerLine.Length;
+            _steerHead = (_steerHead + 1) % n;
+            _steerLine[_steerHead] = steer;
+            _steerLineDt[_steerHead] = h;
+            float t = 0f;
+            for (int k = 0; k < n; k++)
+            {
+                int i = (_steerHead - k + n) % n;
+                float d = _steerLineDt[i];
+                if (d <= 0f) return 0f; // less history than the delay: the wheel was straight
+                t += d;
+                if (t >= delay - 1e-6f) return _steerLine[i];
+            }
+            return _steerLine[(_steerHead + 1) % n];
+        }
+
+        /// <summary>Drive acceleration at speed <paramref name="absV"/> (EV low-speed torque).</summary>
+        private float AccelAt(float absV)
+        {
+            if (_spec.LowSpeedAccelMps2 > 0f && absV * 3.6f < _spec.LowSpeedKmh) return _spec.LowSpeedAccelMps2;
+            return _spec.AccelMps2;
+        }
+
+        /// <summary>Boost gated by stamina (bicycle); updates the stamina. Without a stamina spec, boost passes.</summary>
+        private bool GateBoost(bool boost, float throttle, float h)
+        {
+            if (!_spec.StaminaBoost) return boost;
+            bool use = boost && throttle > 0f && !_staminaLocked && _stamina > 0f;
+            if (use)
+            {
+                _stamina = Math.Max(0f, _stamina - h / _spec.StaminaDrainS);
+                if (_stamina <= 0f) _staminaLocked = true;
+            }
+            else
+            {
+                _stamina = Math.Min(1f, _stamina + h / _spec.StaminaRefillS);
+                if (_staminaLocked && _stamina >= StaminaUnlock) _staminaLocked = false;
+            }
+            return use;
+        }
+
+        /// <summary>Uphill limits (bicycle): slower above <see cref="VehicleSpec.GradeSlowFromPct"/>, pushed above
+        /// <see cref="VehicleSpec.PushGrade"/>.</summary>
+        private float GradeLimit(float vTop)
+        {
+            _pushing = false;
+            if (_spec.PushGrade <= 0f && _spec.GradeSlowKmhPerPct <= 0f) return vTop;
+            float grade = GradeAlong(ref _ground, _velHeading) * (SpeedMps < 0f ? -1f : 1f);
+            float pct = grade * 100f;
+            if (_spec.GradeSlowKmhPerPct > 0f && pct > _spec.GradeSlowFromPct)
+                vTop = Math.Max(_spec.PushSpeedMps, vTop - (pct - _spec.GradeSlowFromPct) * _spec.GradeSlowKmhPerPct / 3.6f);
+            if (_spec.PushGrade > 0f && grade > _spec.PushGrade)
+            {
+                _pushing = true;
+                vTop = Math.Min(vTop, _spec.PushSpeedMps);
+            }
+            return vTop;
         }
 
         /// <summary>Pitch and roll that put the body's up axis on the ground normal at the current heading.</summary>
@@ -847,7 +1039,8 @@ namespace Ghumante.Core.Driving
         private bool IsFinite()
         {
             return Fin(X) && Fin(Z) && Fin(Y) && Fin(HeadingRad) && Fin(SpeedMps) && Fin(Pitch) && Fin(Roll) && Fin(Lean)
-                   && Fin(_velHeading) && Fin(_steer) && Fin(_vy) && Fin(_yawRate) && Fin(_pathYawRate);
+                   && Fin(_velHeading) && Fin(_steer) && Fin(_vy) && Fin(_yawRate) && Fin(_pathYawRate) && Fin(VisualRoll)
+                   && Fin(VisualPitch) && Fin(_rollVel) && Fin(_pitchVel);
         }
 
         private static bool Fin(double v)

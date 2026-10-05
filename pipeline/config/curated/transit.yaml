@@ -1,0 +1,31 @@
+# Transit defaults for the region route file `.ghrt` (docs/W2_DESIGN.md section 5.3, work items D2 + D22).
+#
+# Read by ghumante_pipeline/transit.py. Headways are [E] (W2_DESIGN 5.3): bus 8 min (peak 5),
+# micro 5 min (peak 3), tempo 6 min. Livery classes are generic presets (model.LiveryClass); an OSM
+# `operator` is read only to pick `city_green` and is never written to the route file.
+version: 1
+stop_snap_m: 25          # bus_stop props within this distance of a route are its inferred stops
+min_stop_spacing_m: 60   # inferred stops closer than this along the route are merged (the first wins)
+headway_s:               # [peak, off-peak] seconds
+  BUS: [300, 480]
+  MICROBUS: [180, 300]
+  TEMPO: [360, 360]
+  SHARE_TAXI: [300, 420]
+  HIKING: [0, 0]
+  FOOT: [0, 0]
+  BICYCLE: [0, 0]
+  MTB: [0, 0]
+livery:
+  # First match wins: a (case-insensitive) operator substring, then the mode default.
+  operator_city_green: ["sajha"]
+  mode_default:
+    BUS: MINIBUS
+    MICROBUS: MICROBUS
+    TEMPO: SAFA_TEMPO
+    SHARE_TAXI: MICROBUS
+    HIKING: NONE
+    FOOT: NONE
+    BICYCLE: NONE
+    MTB: NONE
+  # Long-distance coaches (route leaves the region's bounding box by more than this many km).
+  coach_outside_km: 15

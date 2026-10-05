@@ -3,9 +3,9 @@
     "rootNamespace": "Ghumante.Traffic",
     "references": [
         "Ghumante.Core",
-        "Unity.Burst",
-        "Unity.Collections",
-        "Unity.Mathematics"
+        "Ghumante.Platform",
+        "Ghumante.World",
+        "Ghumante.Vehicles"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

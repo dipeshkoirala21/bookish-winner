@@ -49,10 +49,10 @@ One asmdef per module (ARCHITECTURE.md 7.1), all referencing `Ghumante.Core` (wr
 
 ## How to play the M1 slice on a Mac
 
-The Explore slice of M1 wave 1: 1:1 Kathmandu streamed around a scooter or a walker, search, a route to follow,
-portrait and landscape. It runs on the committed `kathmandu_core` sample (Swayambhunath to Boudhanath); once the
-full valley is imported (`python build.py --region kathmandu_valley` in `pipeline/`, then **Ghumante → Import Region
-Pack…**), Explore opens `kathmandu_valley` instead.
+The Explore slice of M1 (wave 2, stage 1): 1:1 Kathmandu streamed around a detailed cartoon explorer who walks, jumps,
+namastes and hops on any vehicle, with traffic, crowds, temples and aircraft. It runs on the committed `kathmandu_core`
+sample (Swayambhunath to Boudhanath); once the full valley is imported (`python build.py --region kathmandu_valley` in
+`pipeline/`, then **Ghumante → Import Region Pack…**), Explore opens `kathmandu_valley` instead.
 
 **Set up once (and after pulling M1 changes)**
 
@@ -63,46 +63,99 @@ Pack…**), Explore opens `kathmandu_valley` instead.
 2. Open `Assets/Ghumante/Scenes/Bootstrap.unity`. Optional: set **Start Screen = Explore** on the *Ghumante* object to
    skip the menu.
 
-**Ride from Thamel to Boudhanath (keyboard, Game view)**
+**Keys (Game view)**
 
-1. Press **Play**, then click **Explore** on the main menu. The loading overlay shows "Opening Kathmandu Core…", then
-   "Drawing the streets around Thamel…" while the tiles around the spawn stream in (a few seconds).
-2. You start on the red scooter on a street in Thamel, facing along it ("Namaste from Thamel!"). The pill at the top
-   left names the place, the compass beside the buttons points north, the speedometer is at the bottom.
-3. Ride: **W** (or up) throttle, **A / D** steer, **S** brake then reverse, **Space** brake, **Shift** boost. The mouse
-   wheel zooms, a right-drag looks around (it swings back behind you). The chip under the speed names the surface; a
-   small white dot means OpenStreetMap does not say and the pipeline guessed it.
-4. Press **/** (or click the magnifier), type **Boudha**. The first result is *Boudhanāth Stupa* (Stupa, about 4.9 km
-   away). Click **Ride there**.
-5. A yellow chevron ribbon appears on the roads and the banner shows "To Boudhanāth Stupa", the distance left and the
-   ETA (about 7.5 km and 9 minutes), with an arrow pointing along the route ahead. Follow the ribbon east. Leave it for
-   a few seconds and it finds a new way.
-6. Within about 40 m of the end: confetti, "You made it to Boudhanāth Stupa!" and a Success haptic (in the editor the
-   debug box, top left under the place name in Explore, shows `haptic: Success (editor - not felt)`).
-7. Press **E** to hop off (at speed it brakes first) and walk around the stupa: W walks away from the camera, A/D and S
-   walk left, right and towards it; Shift sprints. **E** again hops back on (a scooter left far away rolls up to you).
-8. **Esc** pauses: Resume, Settings (Vibration, Reduce motion, Language: switch to नेपाली to see Nepali place names
-   and numerals), **Main menu** (closes the world and frees its memory).
+| Do | Keyboard | Gamepad |
+|---|---|---|
+| Walk / steer | W A S D or the arrows (walking is relative to the camera) | left stick |
+| Run, sprint | push further; **Shift** sprints (not inside temple compounds) | X |
+| Jump | **Space** on foot (apex 1 m) | A with nothing to hop on |
+| Hop on / Hop off | **E** (tap) | A |
+| Ride as passenger / hail a taxi | hold **E** (0.35 s next to a stopped bus, taxi or micro; 0.4 s with nothing near hails the nearest taxi) | hold A |
+| Throttle, brake / reverse, brake | **W**, **S**, **Space** | right trigger, left trigger, B |
+| Horn (bicycle: bell) | **H** (hold for a long horn) | left stick press |
+| Namaste | **N** | D-pad up |
+| Call your vehicle (garage whistle) | **G** | D-pad down |
+| Ring the stop bell (passenger) / a shrine bell (in a compound) | **B** | D-pad right |
+| Search, pause | **/**, **Esc** | Y, Start |
+| Camera | wheel zooms, right-drag looks | shoulders zoom, right stick looks |
 
-Shortcut while testing: each search result also has **Teleport** (editor and development builds only), which drops
-you on the nearest road to it. Other debug keys (track C): **F3** free-fly camera, **T** fast time, **[ ]** an hour
-back/forward, **P** pause the clock; the HUD's debug slider (top right) sets the time of day.
+The first time you play, the explorer gets a fresh look (a dhaka topi, a dhaka jacket over jeans, sneakers and a
+daypack; the skin swatch is random but never #1) and a starter garage (scooter, bicycle, small hatchback). Both are
+saved as `player.appearance` and `player.garage` and come back next time.
 
-**Gamepad**: left stick steers (walks), right trigger throttle, left trigger brake/reverse (squeezed while the right
-trigger is held it brakes; the same goes for W + S and the touch Go + Brake), A walk/ride, B brake, X boost, Y search
-(D-pad and A pick a result), Start pause (D-pad and A reach Settings and Main menu; Start also closes Search and
-Settings), shoulders zoom, right stick look. Touch controls hide as soon as a keyboard or gamepad drives.
+**1. Walk around Basantapur**
+
+1. Press **Play**, click **Explore**. You start on foot in Thamel ("Namaste from Thamel!") with your red scooter
+   parked beside you. The walking camera sits closer in portrait (6.8 m) than before.
+2. Press **/**, type **Basantapur** (or *Kathmandu Durbar Square*), click **Teleport** (editor and development builds;
+   in a release build use **Ride there** and follow the ribbon on foot or on the scooter).
+3. Walk around the square: the gait plants each foot, the topi wobbles, footsteps follow the ground (brick, stone,
+   asphalt). Stand still for 6 s and the explorer fidgets (looks around, stretches, tugs the topi). Press **N** for a
+   namaste (palms at the chest, a small bow). **Space** jumps.
+
+**2. Enter a temple compound**
+
+1. Walk onto the square or into a temple courtyard (Taleju's plinth steps, Kasthamandap, Kumari Ghar's courtyard). A
+   card appears ("A sacred place: walk gently", or the site's rule such as "Shoes off here, please"), sprint and comic
+   fidgets switch off (only look-around, shifting weight and hands together), and nothing can be ridden in here: the
+   chip reads **Vehicles rest outside**, and the garage whistle is refused until you are back outside the gate.
+2. Press **B** (on touch: the Action button, which now reads **Ring bell**) to ring a shrine bell (at most once every
+   3 s, three times per visit).
+3. Ride up to a compound on the scooter, at any speed: it brakes so that it stops at the edge ("Vehicles rest
+   outside"), reversing too; keep pushing at the edge and it parks itself and you hop off. A road that only bends past
+   a compound never stops you. A bicycle may cross the open Durbar squares, never a compound.
+
+**3. Take a bus**
+
+1. Teleport to **Ratna Park** (or any bus stop on a route). Green city buses, cream minibuses, white micros and Safa
+   tempos run on the real routes; one stops every few minutes with its doors open.
+2. Walk up to the open front-left door: the small **Ride as passenger** button appears (or hold **E**). You climb in
+   and sit; the camera orbits a little wider than the bus's own driving camera and the chip says "Ring the bell to get
+   off".
+3. Press **B** (or the **Stop** button): "Ding! Stopping at the next stop." The bus stops at its next stop and you hop
+   down beside it (never inside a wall or the bus).
+4. Taxis: with nothing near, hold **E** for 0.4 s: the explorer waves and the nearest taxi within 150 m pulls over
+   within 30 m. Hop in at the left rear door, ride, press **B** or **E** and it pulls over to let you out.
+
+**4. Drive a car round a roundabout**
+
+1. Press **G** (or the garage button in the top bar): your scooter drives up from out of view. Press **G** again
+   while it stands beside you to call the next garage vehicle instead (bicycle, then the small hatchback). Or look for
+   a parked car, van, truck or bus with a **green key tag** (a diamond on the roof or above the handlebar): that is
+   the community fleet, free to borrow; it
+   goes home by itself 10 minutes after you leave it or once you are 150 m away.
+2. Walk to the driver's door: the right side (Nepal drives on the left, cars are right-hand drive; a wall there sends
+   you round). **E** hops in (0.9 s for a car, 1.4 s for a truck; any move key in the first 60% steps back out).
+3. Teleport (or drive) to **Maitighar Mandala** and go round it clockwise, keeping left. Each class has its own
+   handling and camera: a bus sits 16.5 m back and swings wide, a scooter leans, a bicycle sways and stops pedalling
+   uphill. **H** honks (the bicycle rings a bell). Cows on the road slow you to 5 km/h within 4 m and stop you
+   gently at 1.6 m; they keep chewing.
+4. **E** hops off: at speed it brakes first ("Slowing down to hop off…"); buses and trucks stop fully.
+
+**5. Watch a plane land at TIA**
+
+1. Teleport to **Tribhuvan International Airport** and walk or ride to the west fence near Sinamangal. The sample
+   (south edge 27.690° N) covers the aprons and the northern part of the runway; with the valley pack you can also
+   stand in Koteshwor under the approach to runway 02.
+2. From 06:00 to midnight game time a movement comes every few real minutes: ATRs and jets descend over Koteshwor at
+   50-100 m, touch down and roll out towards you; departures climb out over Boudha; helicopters lift off the domestic
+   apron. Use the debug slider (top right) or **T** to run time faster. Airside is fenced and not drivable.
 
 **Portrait, landscape and touch (Device Simulator)**: **Window → General → Device Simulator**, pick an iPhone 15 or a
-Pixel and press Play. Mouse clicks act as touches and the touch controls appear:
+Pixel and press Play. Mouse clicks act as touches:
 
-* Landscape (two thumbs): drag in the left part of the screen for the floating stick (steering), hold **Go** and
-  **Brake** on the right.
-* Portrait (one thumb): press and hold anywhere in the lower part of the screen to throttle and slide sideways to steer;
-  **Brake** (bottom left) brakes, then reverses. On foot, a stick appears wherever your thumb lands in the lower part.
-* Drag on the open world to look around. Rotate with the simulator's rotate buttons, also mid-ride: the camera rises
-  and pulls back in portrait and blends there in 0.3 s, and the HUD re-flows.
+* On foot: a floating stick wherever the thumb lands (portrait: the lower area left of the button column; landscape:
+  the left side), the big yellow **Action** button (Jump, turning green **Hop on** when a seat is offered; hold it to
+  ride as a passenger or hail a taxi), **Namaste** beside it, **Ride as passenger** when a bus, taxi or micro offers a
+  seat, the garage button in the top bar.
+* In a vehicle: portrait holds anywhere in the lower-left area to go and slides to steer, **Brake** bottom left,
+  **Horn** and **Hop off** in the right column; landscape steers with the left stick and has **Go**, **Brake**,
+  **Horn** and **Hop off** on the right.
+* Riding along: **Stop** (the bell) and **Hop off**; no steering.
+* Drag on the open world to look around; rotate mid-ride and the camera blends in 0.3 s.
 
 If Explore says *No map installed yet*, run **Ghumante → Project Setup** (or **Import Region Pack…**) and press Play
-again. What to report: anything that feels wrong about the scooter, the camera, the HUD in either orientation, or the
-route; the debug box shows fps, memory and streaming counters.
+again. Other debug keys (track C): **F3** free-fly camera, **T** fast time, **[ ]** an hour back/forward, **P** pause
+the clock. What to report: anything that feels wrong about the character, a vehicle class, a camera, the HUD in
+either orientation, or the passenger and garage flows.

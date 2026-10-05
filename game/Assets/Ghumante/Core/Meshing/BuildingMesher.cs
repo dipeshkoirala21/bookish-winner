@@ -1,5 +1,6 @@
 using System;
 using Ghumante.Core.Data;
+using Ghumante.Core.Generators.Sacred;
 
 namespace Ghumante.Core.Meshing
 {
@@ -18,6 +19,28 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Draw the parapet lip of flat roofs (inner faces); off saves 8 triangles per building.</summary>
         public bool Parapets = true;
+
+        /// <summary>LOD band (W2_DESIGN 2.4). B1 (default) is the W1 extrusion styled from the building's
+        /// <see cref="HousePlan"/>; B0 draws the full grammar for the whole tile (the streaming path builds B0 per 64 m
+        /// cell with <see cref="BuildingDetailMesher.BuildCell"/>); B2 and B3 are the far bands.</summary>
+        public BuildingBand Band = BuildingBand.B1Styled;
+
+        /// <summary>Take heights, roofs and colours from the grammar plan (<see cref="BuildingGrammar.Plan(TileData, int)"/>:
+        /// W2 storey stacks and the profile palettes), so every band agrees with B0. Off: the plain W1 extrusion.</summary>
+        public bool Styled = true;
+
+        /// <summary>B1 street-front detail (W2_DESIGN 2.4): the front paint, a floor band and one window-row quad per
+        /// storey on the front edge (about 70 triangles a building instead of about 20). Meant for the B1 ring only
+        /// (35-120 m Low, 60-200 m Mid, 80-250 m High): off by default so whole-tile builds stay within the W1 budget
+        /// until the band scheduler draws far buildings as B2/B3.</summary>
+        public bool FrontDetail = false;
+
+        /// <summary>Buildings (BLDG osm_ref) hidden under a hero replica (D5 hide zones); null = none.</summary>
+        public System.Collections.Generic.ISet<ulong> HiddenRefs;
+
+        /// <summary>B0 triangle cap per house (W2_DESIGN 2.4): over it the grammar drops detail (lattice relief,
+        /// struts, floor bands, roof props) until it fits.</summary>
+        public int B0CapTris = 2500;
     }
 
     /// <summary>
@@ -92,20 +115,87 @@ namespace Ghumante.Core.Meshing
             if (h == null) throw new ArgumentNullException(nameof(h));
             if (m == null) throw new ArgumentNullException(nameof(m));
             if (o == null) o = new BuildingOptions();
+            switch (o.Band)
+            {
+                case BuildingBand.B0KitLite: return BuildingDetailMesher.BuildTile(t, h, o, m, null);
+                case BuildingBand.B2Prism: return BuildingBands.Prisms(t, h, o, m);
+                case BuildingBand.B3Block: return BuildingBands.Blocks(t, h, o, m);
+            }
             Scratch s = _scratch ?? (_scratch = new Scratch());
             var ground = new Ground(t, h);
             int drawn = 0;
             for (int i = 0; i < t.Buildings.Count; i++)
-                if (One(t.Buildings[i], ref ground, o, s, m)) drawn++;
+            {
+                BuildingRecord b = t.Buildings[i];
+                if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) continue;
+                if (o.Styled)
+                {
+                    // Generic temples, stupas and shrines use their generator's LOD1 in B1 (W2_DESIGN 3.2 LOD table), so
+                    // tiers and finish agree with B0; their building:parts only give the heights.
+                    if (SacredSelector.HostOf(t, i) >= 0) continue;
+                    if (SacredSelector.DrawsGeneric(b))
+                    {
+                        if (Ring(b, o, s) && SacredSelector.BuildGeneric(t, i, h, 1, m, null)) drawn++;
+                        continue;
+                    }
+                    if ((b.Flags & BuildingFlags.HasParts) != 0) continue; // its parts are drawn instead (DATA_FORMATS 1.6)
+                }
+                HousePlan plan = o.Styled ? BuildingGrammar.Plan(t, i) : default(HousePlan);
+                if (One(b, ref ground, o, s, m, o.Styled, plan)) drawn++;
+            }
             return drawn;
         }
 
-        /// <summary>True when <see cref="Build"/> draws the building (see the class remarks for the skips).</summary>
+        /// <summary>One building as a B1 styled extrusion (the B0 fallback for archetypes without a facade grammar).
+        /// Returns false when skipped.</summary>
+        internal static bool Styled(TileData t, int index, IHeightSampler h, BuildingOptions o, in HousePlan plan, MeshData m)
+        {
+            Scratch s = _scratch ?? (_scratch = new Scratch());
+            var ground = new Ground(t, h);
+            return One(t.Buildings[index], ref ground, o ?? new BuildingOptions(), s, m, true, plan);
+        }
+
+        private static RoofShape ShapeOf(PlanRoof r)
+        {
+            switch (r)
+            {
+                case PlanRoof.Gable: return RoofShape.Gabled;
+                case PlanRoof.Hip: return RoofShape.Hipped;
+                case PlanRoof.Skillion: return RoofShape.Skillion;
+                case PlanRoof.Pyramid: return RoofShape.Pyramidal;
+                case PlanRoof.Dome: return RoofShape.Dome;
+                case PlanRoof.Pagoda: return RoofShape.Pagoda;
+                case PlanRoof.Shikhara: return RoofShape.Shikhara;
+                default: return RoofShape.Flat;
+            }
+        }
+
+        /// <summary>True when <see cref="Build"/> draws the building judged from its record alone (see the class
+        /// remarks for the skips); the styled band also draws a generic sacred outline with parts and skips its parts,
+        /// which <see cref="IsDrawn(TileData, int, BuildingOptions)"/> accounts for.</summary>
         public static bool IsDrawn(BuildingRecord b, BuildingOptions o)
         {
             if (o == null) o = new BuildingOptions();
+            if (o.Styled && (b.Flags & BuildingFlags.HasParts) != 0) return false;
+            return Ring(b, o, _scratch ?? (_scratch = new Scratch()));
+        }
+
+        /// <summary>True when <see cref="Build"/> draws building <paramref name="index"/> of a tile (hidden refs, generic
+        /// sacred outlines with parts and the parts they draw included).</summary>
+        public static bool IsDrawn(TileData t, int index, BuildingOptions o)
+        {
+            if (o == null) o = new BuildingOptions();
+            BuildingRecord b = t.Buildings[index];
+            if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) return false;
+            if (o.Styled && SacredSelector.HostOf(t, index) >= 0) return false;
+            if (o.Styled && SacredSelector.DrawsGeneric(b)) return Ring(b, o, _scratch ?? (_scratch = new Scratch()));
+            return IsDrawn(b, o);
+        }
+
+        /// <summary>Landmark skip and outer-ring validity (3 distinct points, at least <see cref="BuildingOptions.MinAreaM2"/>).</summary>
+        private static bool Ring(BuildingRecord b, BuildingOptions o, Scratch s)
+        {
             if (o.SkipLandmarks && (b.Flags & BuildingFlags.Landmark) != 0) return false;
-            Scratch s = _scratch ?? (_scratch = new Scratch());
             int n = LoadRing(b.Rings[0], s, 0, 0);
             if (n < 3) return false;
             return Math.Abs(Polygon.SignedArea(s.X, s.Z, n)) >= o.MinAreaM2;
@@ -142,7 +232,7 @@ namespace Ghumante.Core.Meshing
             }
         }
 
-        private static bool One(BuildingRecord b, ref Ground g, BuildingOptions o, Scratch s, MeshData m)
+        private static bool One(BuildingRecord b, ref Ground g, BuildingOptions o, Scratch s, MeshData m, bool styled, in HousePlan plan)
         {
             if (o.SkipLandmarks && (b.Flags & BuildingFlags.Landmark) != 0) return false;
             int n = LoadRing(b.Rings[0], s, 0, 0);
@@ -162,17 +252,17 @@ namespace Ghumante.Core.Meshing
             Polygon.Centroid(x, z, n, out cx, out cz);
             groundY = Math.Min(groundY, g.At(cx, cz));
 
-            float total = BuildingStyle.HeightM(b);
+            float total = styled ? plan.TotalM : BuildingStyle.HeightM(b);
             double minH = b.MinHeightCm / 100.0;
             if (minH > total - 1.0) minH = Math.Max(0.0, total - 1.0);
             double bottom = minH > 0 ? groundY + minH : groundY - o.SinkM;
             double top = groundY + total;
 
-            RoofShape shape = BuildingStyle.ResolvedShape(b);
+            RoofShape shape = styled && BuildingGrammar.IsHouse(plan.Archetype) ? ShapeOf(plan.Roof) : BuildingStyle.ResolvedShape(b);
             bool convex = Polygon.IsConvex(x, z, n);
             Gen gen = Resolve(b, shape, n, convex);
-            uint wall = BuildingStyle.WallRgba(b);
-            uint roof = BuildingStyle.RoofRgba(b, gen == Gen.Flat ? RoofShape.Flat : shape);
+            uint wall = styled ? plan.Wall : BuildingStyle.WallRgba(b);
+            uint roof = styled ? plan.RoofColour : BuildingStyle.RoofRgba(b, gen == Gen.Flat ? RoofShape.Flat : shape);
             double meanR = 0;
             for (int i = 0; i < n; i++) meanR += Math.Sqrt((x[i] - cx) * (x[i] - cx) + (z[i] - cz) * (z[i] - cz));
             meanR /= n;
@@ -182,7 +272,8 @@ namespace Ghumante.Core.Meshing
             {
                 case Gen.Flat:
                 {
-                    double parapet = o.Parapets ? Math.Min(BuildingStyle.RoofAllowanceM(RoofShape.Flat), 0.2 * (top - groundY)) : 0;
+                    // Styled B1 is a far band: a flat deck on the wall tops, without the inner parapet faces (B0 draws them).
+                    double parapet = o.Parapets && !styled ? Math.Min(BuildingStyle.RoofAllowanceM(RoofShape.Flat), 0.2 * (top - groundY)) : 0;
                     Walls(m, x, z, n, bottom, top, wall, false);
                     double deck = top - parapet;
                     if (parapet > 0) Walls(m, x, z, n, deck, top, wall, true);
@@ -232,6 +323,8 @@ namespace Ghumante.Core.Meshing
                     break;
             }
 
+            if (styled && o.FrontDetail && BuildingGrammar.IsHouse(plan.Archetype)) StyledFront(b, plan, s, n, groundY, m);
+
             // Courtyard walls of the holes, facing into the courtyard; W1 roofs do not cut the holes out.
             double holeTop = gen == Gen.Flat ? top : Math.Max(top - BuildingStyle.RoofAllowanceM(shape), floorTop);
             for (int r = 1; r < b.Rings.Length; r++)
@@ -244,6 +337,64 @@ namespace Ghumante.Core.Meshing
                 Walls(m, s.X, s.Z, hn, bottom, holeTop, wall, false);
             }
             return true;
+        }
+
+        /// <summary>
+        /// B1 styling of the street front (W2_DESIGN 2.4): the front paint over the front edge (and a corner house's
+        /// second edge), a floor band at the G/1 line and one darker window-row quad per storey (2 triangles each).
+        /// The scratch ring must still hold the outer ring (counter-clockwise).
+        /// </summary>
+        private static void StyledFront(BuildingRecord b, in HousePlan plan, Scratch s, int n, double groundY, MeshData m)
+        {
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int e = pass == 0 ? plan.FrontEdge : plan.SecondEdge;
+                if (e < 0 && pass == 1) continue;
+                int i = EdgeIndex(b.Rings[0], e, s, n);
+                if (i < 0) continue;
+                int j = i + 1 == n ? 0 : i + 1;
+                double dx = s.X[j] - s.X[i], dz = s.Z[j] - s.Z[i], len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 2.0) continue;
+                var f = new KitFrame(s.X[i], groundY, s.Z[i], dx, dz);
+                double top = plan.WallTopM;
+                if (plan.Front != plan.Wall) MeshKit.Panel(m, f, 0, 0, len, top, 0.01, plan.Front);
+                uint band = MeshColor.Scale(plan.Front, 0.75f), window = MeshColor.Scale(plan.Front, 0.42f);
+                if (plan.Storeys >= 2) MeshKit.Panel(m, f, 0, plan.FloorBase(1) - 0.12, len, plan.FloorBase(1) + 0.12, 0.02, band);
+                for (int k = 0; k < plan.Storeys; k++)
+                {
+                    double v0 = plan.FloorBase(k), v1 = k + 1 < plan.Storeys ? plan.FloorBase(k + 1) : top;
+                    if (v1 - v0 < 1.6) continue;
+                    bool shop = k == 0 && plan.ShopGround;
+                    double a = shop ? v0 + 0.05 : v0 + 0.75, c = shop ? v0 + Math.Min(2.5, v1 - v0 - 0.3) : Math.Min(v1 - 0.35, v0 + 2.0);
+                    MeshKit.Panel(m, f, 0.1 * len, a, 0.9 * len, c, 0.03, shop ? MeshColor.FromHex(0x8C949C) : window);
+                }
+            }
+        }
+
+        /// <summary>The scratch-ring index of ring-0 edge <paramref name="e"/> (matched by its start point), else the
+        /// longest edge (for e = -1, the front fallback).</summary>
+        private static int EdgeIndex(int[] ring, int e, Scratch s, int n)
+        {
+            if (e >= 0 && e < ring.Length / 2)
+            {
+                double x = ring[2 * e] / 100.0, z = ring[2 * e + 1] / 100.0;
+                for (int i = 0; i < n; i++)
+                    if (s.X[i] == x && s.Z[i] == z) return i;
+                return -1;
+            }
+            int best = -1;
+            double bl = -1;
+            for (int i = 0; i < n; i++)
+            {
+                int j = i + 1 == n ? 0 : i + 1;
+                double l = (s.X[j] - s.X[i]) * (s.X[j] - s.X[i]) + (s.Z[j] - s.Z[i]) * (s.Z[j] - s.Z[i]);
+                if (l > bl)
+                {
+                    bl = l;
+                    best = i;
+                }
+            }
+            return best;
         }
 
         private static Gen Resolve(BuildingRecord b, RoofShape shape, int n, bool convex)
@@ -509,8 +660,10 @@ namespace Ghumante.Core.Meshing
             }
         }
 
-        /// <summary>Pagoda placeholder: sanctum walls to 35 % of the height, then 1–3 tiers (by height), each an
-        /// overhanging sloped roof band with a short wall above it, the last closing to the apex.</summary>
+        /// <summary>Pagoda placeholder (unstyled W1 extrusion and stray parts; styled bands draw temples with the sacred
+        /// generators): sanctum walls to 35 % of the height, then 1 or 2 tile tiers (by height; 3 tiers and gilt come only
+        /// from a curated record, W2_DESIGN 3.2), each an overhanging sloped roof band with a short wall above it, the
+        /// last closing to the apex.</summary>
         private static void Pagoda(MeshData m, Scratch s, int n, bool convex, double cx, double cz, double bottom, double groundY,
                                    double top, double floorTop, uint wall, uint roof)
         {
@@ -518,7 +671,7 @@ namespace Ghumante.Core.Meshing
             double h = top - groundY;
             double y = Math.Max(groundY + 0.35 * h, floorTop);
             Walls(m, x, z, n, bottom, y, wall, false);
-            int tiers = h < 9 ? 1 : h < 16 ? 2 : 3;
+            int tiers = h < 9 ? 1 : 2;
             double th = (top - y) / tiers;
             double scale = 1.0;
             for (int k = 0; k < tiers; k++)
@@ -535,7 +688,7 @@ namespace Ghumante.Core.Meshing
                 }
                 if (k == tiers - 1)
                 {
-                    Loft(m, x, z, n, cx, cz, y, eave, top, 0.0, k == 0 ? roof : BuildingStyle.Gold);
+                    Loft(m, x, z, n, cx, cz, y, eave, top, 0.0, roof);
                     break;
                 }
                 double yRoof = y + 0.6 * th;

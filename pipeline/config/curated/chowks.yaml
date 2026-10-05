@@ -1,0 +1,49 @@
+# Police-controlled chowks of the Kathmandu Valley (docs/W2_DESIGN.md section 4.7, work item D18).
+#
+# Source: docs/research/w2/vehicles_traffic.md section 5.3 (junction nodes measured in OSM;
+# Gongabu and Thapathali positions are estimates [E]). Read by ghumante_pipeline/junctions.py:
+# each entry is snapped to the junction node with the most motor arms (ties: the higher road
+# class, then the nearer node) within `snap_m` of `at`, or to a mapped roundabout ring whose
+# centre lies within `snap_m`. The JNCT record gets the HAS_POLICE flag, and OFFICERS_2_4 when
+# `officers` is "2-4" (W2_DESIGN 4.7: 1 officer at medium chowks, 2-4 at the big ones).
+#
+# `at: [lon, lat]` WGS84. `control`: P police, S OSM signals + police, R roundabout + police.
+# Names are what the JNCT record shows: English only here, because Devanagari is never machine-made
+# (ADR-005); the record's NE name comes from OSM (`name:ne` of the snapped node, else empty).
+# Never an operator or brand.
+version: 1
+snap_m: 120
+chowks:
+  - {id: kalanki, name_en: Kalanki, at: [85.28153, 27.69329], officers: "2-4", control: P}
+  - {id: balkhu, name_en: Balkhu, at: [85.29776, 27.68483], officers: "1", control: P}
+  - {id: ekantakuna, name_en: Ekantakuna, at: [85.30824, 27.66669], officers: "1", control: P}
+  - {id: satdobato, name_en: Satdobato, at: [85.32472, 27.65873], officers: "2-4", control: P}
+  - {id: mahalaxmi, name_en: Mahalaxmi Chowk, at: [85.31822, 27.66134], officers: "1", control: P}
+  - {id: koteshwor, name_en: Koteshwor, at: [85.34950, 27.67873], officers: "2-4", control: S}
+  - {id: tinkune, name_en: Tinkune, at: [85.34920, 27.68330], officers: "1", control: P}
+  - {id: sinamangal, name_en: Sinamangal, at: [85.35501, 27.69527], officers: "1", control: P}
+  - {id: chabahil, name_en: Chabahil, at: [85.34670, 27.71713], officers: "2-4", control: P}
+  - {id: sukedhara, name_en: Sukedhara, at: [85.34572, 27.72780], officers: "1", control: P}
+  - {id: narayan_gopal, name_en: Narayan Gopal Chowk, at: [85.33712, 27.74000], officers: "2-4", control: P}
+  - {id: basundhara, name_en: Basundhara, at: [85.33202, 27.74210], officers: "1", control: P}
+  - {id: samakhushi, name_en: Samakhushi, at: [85.31809, 27.73510], officers: "1", control: P}
+  - {id: gongabu, name_en: Gongabu, at: [85.31100, 27.73500], officers: "1", control: P}
+  - {id: balaju, name_en: Balaju, at: [85.30458, 27.72703], officers: "1", control: R}
+  - {id: machhapokhari, name_en: Machhapokhari, at: [85.30589, 27.73527], officers: "1", control: P}
+  - {id: sitapaila, name_en: Sitapaila, at: [85.28253, 27.70767], officers: "1", control: P}
+  - {id: maitighar, name_en: Maitighar Mandala, at: [85.32030, 27.69450], officers: "2-4", control: R}
+  - {id: thapathali, name_en: Thapathali, at: [85.31760, 27.69080], officers: "2-4", control: P}
+  - {id: tripureshwor, name_en: Tripureshwor, at: [85.31400, 27.69390], officers: "2-4", control: R}
+  - {id: jamal, name_en: Jamal, at: [85.31487, 27.70871], officers: "2-4", control: P}
+  - {id: lainchaur, name_en: Lainchaur, at: [85.31611, 27.71711], officers: "2-4", control: P}
+  - {id: putalisadak, name_en: Putalisadak, at: [85.32283, 27.70563], officers: "1", control: P}
+  - {id: bagbazar, name_en: Bagbazar, at: [85.31622, 27.70615], officers: "1", control: P}
+  - {id: new_baneshwor, name_en: New Baneshwor, at: [85.33560, 27.68837], officers: "1", control: P}
+  - {id: bhatbhateni, name_en: Bhatbhateni, at: [85.33107, 27.71917], officers: "1", control: P}
+  - {id: jawalakhel, name_en: Jawalakhel, at: [85.31350, 27.67270], officers: "1", control: R}
+  - {id: pulchowk, name_en: Pulchowk, at: [85.31630, 27.67714], officers: "1", control: P}
+  - {id: lagankhel, name_en: Lagankhel, at: [85.32264, 27.66708], officers: "1", control: P}
+  - {id: jorpati, name_en: Jorpati, at: [85.37266, 27.72174], officers: "1", control: P}
+  - {id: gatthaghar, name_en: Gatthaghar, at: [85.37402, 27.67398], officers: "1", control: P}
+  - {id: jadibuti, name_en: Jadibuti, at: [85.35278, 27.67529], officers: "1", control: P}
+  - {id: sanepa, name_en: Sanepa, at: [85.30714, 27.68532], officers: "1", control: P}

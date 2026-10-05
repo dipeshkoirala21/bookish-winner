@@ -34,7 +34,8 @@ namespace Ghumante.World.EditorTools
             Shader toon = Shader.Find(WorldShaders.ToonLit);
             Shader sky = Shader.Find(WorldShaders.SkyGradient);
             Shader route = Shader.Find(WorldShaders.RouteRibbon);
-            if (toon == null || sky == null || route == null)
+            Shader lights = Shader.Find(WorldShaders.InstancedLights);
+            if (toon == null || sky == null || route == null || lights == null)
             {
                 Debug.LogError("WorldSetup: world shaders not found (Assets/Ghumante/World/Shaders). Reimport them and run Project Setup again.");
                 return null;
@@ -55,7 +56,20 @@ namespace Ghumante.World.EditorTools
             set.areas = Ensure("GhumanteAreas", toon, set.areas, m => fresh.areas = m);
             set.route = Ensure("GhumanteRoute", route, set.route, m => fresh.route = m);
             set.sky = Ensure("GhumanteSky", sky, set.sky, m => fresh.sky = m);
+            // W2: decals, building bands, heroes, instanced dressing and lights.
+            set.decals = Ensure("GhumanteDecals", toon, set.decals, m => fresh.decals = m);
+            set.bandB0 = Ensure("GhumanteBandB0", toon, set.bandB0, m => fresh.bandB0 = m);
+            set.bandB1 = Ensure("GhumanteBandB1", toon, set.bandB1, m => fresh.bandB1 = m);
+            set.bandB1Full = Ensure("GhumanteBandB1Full", toon, set.bandB1Full, m => fresh.bandB1Full = m);
+            set.bandB2 = Ensure("GhumanteBandB2", toon, set.bandB2, m => fresh.bandB2 = m);
+            set.bandB3 = Ensure("GhumanteBandB3", toon, set.bandB3, m => fresh.bandB3 = m);
+            set.heroes = Ensure("GhumanteHeroes", toon, set.heroes, m => fresh.heroes = m);
+            set.instanced = Ensure("GhumanteInstanced", toon, set.instanced, m => fresh.instanced = m);
+            set.instancedTint = Ensure("GhumanteInstancedTint", toon, set.instancedTint, m => fresh.instancedTint = m);
+            set.trees = Ensure("GhumanteTrees", toon, set.trees, m => fresh.trees = m);
+            set.lights = Ensure("GhumanteLights", lights, set.lights, m => fresh.lights = m);
             WorldMaterialDefaults.Apply(fresh); // only the materials created now
+            WorldMaterialDefaults.ApplyExtras(fresh, false);
             MarkDirty(fresh);
             Object.DestroyImmediate(fresh);
             EditorUtility.SetDirty(set);
@@ -122,7 +136,11 @@ namespace Ghumante.World.EditorTools
 
         private static void MarkDirty(WorldMaterialSet set)
         {
-            Material[] all = { set.terrain, set.roads, set.buildings, set.areas, set.route, set.sky };
+            Material[] all =
+            {
+                set.terrain, set.roads, set.buildings, set.areas, set.route, set.sky, set.decals, set.bandB0, set.bandB1, set.bandB1Full,
+                set.bandB2, set.bandB3, set.heroes, set.instanced, set.instancedTint, set.trees, set.lights,
+            };
             for (int i = 0; i < all.Length; i++)
                 if (all[i] != null) EditorUtility.SetDirty(all[i]);
         }

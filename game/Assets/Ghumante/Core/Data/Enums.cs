@@ -119,6 +119,8 @@ namespace Ghumante.Core.Data
         Hut = 17,
         Greenhouse = 18,
         Teahouse = 19,
+        RanaPalace = 20,
+        NewarHybrid = 21,
     }
 
     public enum RoofShape : byte
@@ -255,6 +257,9 @@ namespace Ghumante.Core.Data
         Hospital = 601,
         Government = 602,
         Bank = 603,
+        Statue = 127,
+        Ghat = 128,
+        ParaglidingLanding = 506,
     }
 
     public enum AreaKind : byte
@@ -286,6 +291,19 @@ namespace Ghumante.Core.Data
         TeaGarden = 24,
         Grassland = 25,
         Scree = 26,
+        Marketplace = 27,
+        Parking = 28,
+        BusPark = 29,
+        Campus = 30,
+        Kiln = 31,
+        Quarry = 32,
+        Stadium = 33,
+        Golf = 34,
+        Pool = 35,
+        Apron = 36,
+        PowerPlant = 37,
+        Courtyard = 38,
+        TrafficIsland = 39,
     }
 
     public enum LineKind : byte
@@ -304,6 +322,19 @@ namespace Ghumante.Core.Data
         CityWall = 11,
         ManiWall = 12,
         Waterfall = 13,
+        TreeRow = 14,
+        Cliff = 15,
+        GhatEdge = 16,
+        PowerLine = 17,
+        Wall = 18,
+        Fence = 19,
+        Hedge = 20,
+        RetainingWall = 21,
+        Kerb = 22,
+        Ferry = 23,
+        Dam = 24,
+        Weir = 25,
+        Penstock = 26,
     }
 
     public enum Biome : byte
@@ -390,6 +421,9 @@ namespace Ghumante.Core.Data
         RoofTagged = 4,
         Landmark = 8,
         Part = 16,
+        HasParts = 32,
+        TagSuspect = 64,
+        OpenCanopy = 128,
     }
 
     [Flags]
@@ -400,6 +434,277 @@ namespace Ghumante.Core.Data
         Landmark = 2,
         HasEle = 4,
         Sacred = 8,
+        HasFootprint = 16,
+        LandmarkLite = 32,
+        Inferred = 64,
+    }
+
+    public enum StyleProfile : byte
+    {
+        None = 0,
+        KathmanduCore = 1,
+        Thamel = 2,
+        Patan = 3,
+        Bhaktapur = 4,
+        Kirtipur = 5,
+        Thimi = 6,
+        Bungamati = 7,
+        Khokana = 8,
+        Panauti = 9,
+        Metro = 10,
+        Rim = 11,
+        BoudhaKora = 12,
+    }
+
+    public enum AreaType : byte
+    {
+        Unknown = 0,
+        OldCore = 1,
+        Urban = 2,
+        PeriUrban = 3,
+        Rural = 4,
+        Hill = 5,
+        Forest = 6,
+    }
+
+    public enum JunctionKind : byte
+    {
+        Plain = 0,
+        Roundabout = 1,
+        Circular = 2,
+        MiniRoundabout = 3,
+        Signals = 4,
+        Police = 5,
+        SyntheticIsland = 6,
+    }
+
+    public enum Sidewalk : byte
+    {
+        Unknown = 0,
+        None = 1,
+        Left = 2,
+        Right = 3,
+        Both = 4,
+        Separate = 5,
+    }
+
+    public enum ObjectKind : byte
+    {
+        None = 0,
+        Tree = 1,
+        PowerTower = 2,
+        PowerPole = 3,
+        StreetLamp = 4,
+        BusStop = 5,
+        Shelter = 6,
+        Bench = 7,
+        WaterTap = 8,
+        Well = 9,
+        Gate = 10,
+        Chimney = 11,
+        Mast = 12,
+        Tower = 13,
+        StorageTank = 14,
+        SolarPanel = 15,
+        Artwork = 16,
+        TrafficSignals = 17,
+        CrossingMarked = 18,
+        CrossingUnmarked = 19,
+        AerowayGate = 20,
+        ParkingPosition = 21,
+        Windsock = 22,
+        Helipad = 23,
+        TaxiStand = 24,
+    }
+
+    public enum TreeClass : byte
+    {
+        Unknown = 0,
+        Pipal = 1,
+        Bar = 2,
+        Broadleaf = 3,
+        Conifer = 4,
+        Palm = 5,
+    }
+
+    public enum TransitMode : byte
+    {
+        None = 0,
+        Bus = 1,
+        Microbus = 2,
+        Tempo = 3,
+        ShareTaxi = 4,
+        Hiking = 5,
+        Foot = 6,
+        Bicycle = 7,
+        Mtb = 8,
+    }
+
+    public enum LiveryClass : byte
+    {
+        None = 0,
+        CityGreen = 1,
+        Minibus = 2,
+        Microbus = 3,
+        SafaTempo = 4,
+        Coach = 5,
+    }
+
+    public enum TurnRestriction : byte
+    {
+        None = 0,
+        NoLeftTurn = 1,
+        NoRightTurn = 2,
+        NoStraightOn = 3,
+        NoUTurn = 4,
+        OnlyLeftTurn = 5,
+        OnlyRightTurn = 6,
+        OnlyStraightOn = 7,
+        NoEntry = 8,
+        NoExit = 9,
+    }
+
+    public enum HeritageKind : byte
+    {
+        None = 0,
+        Pagoda = 1,
+        ShikharaStone = 2,
+        ShikharaPlaster = 3,
+        Stupa = 4,
+        HouseTemple = 5,
+        Mandapa = 6,
+        Relief = 7,
+        Column = 8,
+        Gate = 9,
+        Palace = 10,
+        Tower = 11,
+        Hiti = 12,
+        Pokhari = 13,
+        Gompa = 14,
+        Bahal = 15,
+    }
+
+    public enum HeritageFinish : byte
+    {
+        Unknown = 0,
+        Tile = 1,
+        GiltTop = 2,
+        GiltAll = 3,
+        Whitewash = 4,
+        Stone = 5,
+        Brick = 6,
+        Stucco = 7,
+        Terracotta = 8,
+    }
+
+    public enum EntryRule : byte
+    {
+        None = 0,
+        ShoesOff = 1,
+        QuietWorship = 2,
+        RealCompoundClosedToNonHindus = 3,
+        InteriorNoPhoto = 4,
+        KumariNotShown = 5,
+        NoLeather = 6,
+    }
+
+    public enum KoraDirection : byte
+    {
+        None = 0,
+        Clockwise = 1,
+        Anticlockwise = 2,
+    }
+
+    public enum SacredZoneKind : byte
+    {
+        None = 0,
+        Compound = 1,
+        Courtyard = 2,
+        HeritageSquare = 3,
+        StupaKora = 4,
+        Ghat = 5,
+    }
+
+    [Flags]
+    public enum RoadAttrFlags : byte
+    {
+        None = 0,
+        Dual = 1,
+        ServiceRoad = 2,
+        HeritagePedestrian = 4,
+        NoMotor = 8,
+        Lit = 16,
+        BusRoute = 32,
+        RingMember = 64,
+        Paintable = 128,
+    }
+
+    [Flags]
+    public enum JunctionFlags : byte
+    {
+        None = 0,
+        HasIslandArea = 1,
+        Officers24 = 2,
+        HeritageNoMotor = 4,
+        CrossingsMarked = 8,
+        HasPolice = 16,
+        HasSignals = 32,
+    }
+
+    [Flags]
+    public enum BuildingFrontFlags : byte
+    {
+        None = 0,
+        CourtyardHost = 1,
+        Corner = 2,
+        FacesHeritageSquare = 4,
+        RanaHint = 8,
+        StructureRcc = 16,
+        StructureMud = 32,
+        RoofFlatTagged = 64,
+    }
+
+    [Flags]
+    public enum PropFlags : byte
+    {
+        None = 0,
+        Yaw = 1,
+        HeightTagged = 2,
+        Chautari = 4,
+        FromWay = 8,
+        OnRoad = 16,
+    }
+
+    [Flags]
+    public enum RouteFlags : byte
+    {
+        None = 0,
+        Roundtrip = 1,
+        StopsFromMembers = 2,
+        StopsInferred = 4,
+        HasGaps = 8,
+        MissingWays = 16,
+    }
+
+    [Flags]
+    public enum StopFlags : byte
+    {
+        None = 0,
+        FromMember = 1,
+        Inferred = 2,
+        Terminal = 4,
+    }
+
+    [Flags]
+    public enum HeritageFlags : byte
+    {
+        None = 0,
+        ManualPosition = 1,
+        HasCompound = 2,
+        WalkableCompound = 4,
+        NoVehicles = 8,
+        SanctumClosed = 16,
+        Verify = 32,
     }
 
     /// <summary>Physics family of each surface (model.SURFACE_GROUP).</summary>

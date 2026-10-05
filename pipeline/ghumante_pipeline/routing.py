@@ -154,7 +154,8 @@ from scipy.sparse.csgraph import breadth_first_order, connected_components
 from scipy.spatial import cKDTree
 
 from .binio import Reader, Writer
-from .model import SURFACE_GROUP, TRAIL_CLASSES, NameRec, RoadClass, RoadFeature, SacScale, SurfaceGroup, Travel
+from .model import MOTOR_TRAVEL, SURFACE_GROUP, TRAIL_CLASSES, NameRec, RoadClass, RoadFeature, SacScale, SurfaceGroup, \
+    Travel
 from .projection import lonlat_to_game
 
 MAGIC = b"GHRG"
@@ -711,16 +712,20 @@ def build_graph(
     roads: Sequence[RoadFeature],
     to_game: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] = lonlat_to_game_xy,
     elev: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
+    motor_block: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
 ) -> RoutingGraph:
     """Build the routing graph of a region's roads and trails (rules in the module docstring).
 
     ``to_game`` maps an (N, 2) lon/lat array to game ``(x, z)``; ``elev`` maps
     game ``(x, z)`` arrays to metres (None: every elevation and climb is 0).
+    ``motor_block(x, z)`` (D14) says which game points lie in a no-vehicle zone
+    (sacred compounds, heritage squares): a piece whose length is at least half
+    inside (by segment midpoints) loses every motor mode in both directions.
     """
     roads = list(roads)
     info = {"roads_in": len(roads), "roads_used": 0, "skipped_unknown_class": 0, "skipped_no_access": 0,
             "skipped_degenerate": 0, "loops_split": 0, "long_split": 0, "oneway_reverse_omitted": 0,
-            "names_dropped": 0}
+            "names_dropped": 0, "sacred_pieces": 0}
 
     # 1. Select routable ways (sorted by way id so the output ignores input order).
     order = sorted(range(len(roads)), key=lambda i: int(roads[i].osm_id))
@@ -861,14 +866,21 @@ def build_graph(
     pr = road_of[a]
     p_src, p_tgt = vertex_node[a], vertex_node[b]
     p_mask = attr[pr, 4]
+    if motor_block is not None and seg.shape[0]:
+        mid_in = np.asarray(motor_block(0.5 * (x[:-1] + x[1:]), 0.5 * (z[:-1] + z[1:])), dtype=bool).reshape(-1)
+        inside_len = np.add.reduceat(np.where(mid_in, seg, 0.0), a)
+        blocked = (inside_len >= 0.5 * piece_len) & (piece_len > 0) & ((p_mask & int(MOTOR_TRAVEL)) != 0)
+        if blocked.any():
+            p_mask = np.where(blocked, p_mask & ~int(MOTOR_TRAVEL), p_mask)
+            info["sacred_pieces"] = int(blocked.sum())
     p_rev_mask = np.where(attr[pr, 5] != 0, p_mask & int(Travel.FOOT), p_mask)
     info["oneway_reverse_omitted"] = int(((attr[pr, 5] != 0) & (p_rev_mask == 0)).sum())
 
     # 5. Directed edges in canonical order.
-    n_p = a.shape[0]
+    has_fwd = np.flatnonzero(p_mask != 0)  # every piece, unless D14 emptied its mask
     has_rev = np.flatnonzero(p_rev_mask != 0)
-    pidx = np.concatenate((np.arange(n_p, dtype=np.int64), has_rev))
-    rev = np.concatenate((np.zeros(n_p, dtype=bool), np.ones(has_rev.shape[0], dtype=bool)))
+    pidx = np.concatenate((has_fwd, has_rev))
+    rev = np.concatenate((np.zeros(has_fwd.shape[0], dtype=bool), np.ones(has_rev.shape[0], dtype=bool)))
     src = np.where(rev, p_tgt[pidx], p_src[pidx])
     tgt = np.where(rev, p_src[pidx], p_tgt[pidx])
     o = np.lexsort((rev, a[pidx], tgt, src))

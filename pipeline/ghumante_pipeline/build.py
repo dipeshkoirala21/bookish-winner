@@ -20,11 +20,18 @@ Stages (ARCHITECTURE.md section 6.1):
 7. **search**: ``search_index.build_entries`` (landmark ids from
    ``config/landmarks.resolved.json``) -> ``<region>.search.ghsi``.
 8. **tiles**: ``tiling.build_tiles`` -> **pack** ``<region>.ghpk``.
-9. **routing**: ``routing.build_graph`` -> ``<region>.route.ghrg``.
-10. **manifest**: ``<region>.manifest.json`` (DATA_FORMATS.md section 2) with
+9. **routing**: ``routing.build_graph`` -> ``<region>.route.ghrg`` (motor modes
+   removed inside sacred zones, D14).
+10. **W2 side files** (``w2build``): ``<region>.transit.ghrt`` (routes and
+    turn restrictions), ``<region>.curated.ghcd`` and ``hero_recipes.json``
+    (curated heroes), ``<region>.aviation.json`` for regions that list an
+    airport. W2 also adds the RATR, JNCT, BFNT and PROP tile chunks, AREA flags,
+    building parts, hide zones and the D1 classifier fixes (``w2=False`` turns
+    the extra chunks and files off; the classifier fixes always apply).
+11. **manifest**: ``<region>.manifest.json`` (DATA_FORMATS.md section 2) with
     SHA-256 of each file, stats, timings and attribution.
-11. **qa** (``--qa``): ``qa_export.export_qa`` decodes the pack into ``qa/``.
-12. **report**: ``BUILD_REPORT.md``.
+12. **qa** (``--qa``): ``qa_export.export_qa`` decodes the pack into ``qa/``.
+13. **report**: ``BUILD_REPORT.md``.
 
 Outputs go to ``<out>/regions/<region>/``. The pack, search index and routing
 graph are byte-deterministic for the same inputs; only the manifest's
@@ -46,7 +53,7 @@ from typing import Sequence
 import numpy as np
 import shapely
 
-from . import __version__, config, contexts, osm_extract, projection, routing, search_index, tiling
+from . import __version__, config, contexts, osm_extract, projection, routing, search_index, tiling, w2build
 from .biomes import BiomeZones, load_zones
 from .buildings import infer_buildings, load_archetype_zones
 from .dem import DemSampler
@@ -295,12 +302,13 @@ def _code_hash(names: Sequence[str]) -> str:
     return h.hexdigest()[:16]
 
 
-def extract_cache_key(pbf: Path, region: config.Region, admin_levels: Sequence[int]) -> str:
+def extract_cache_key(pbf: Path, region: config.Region, admin_levels: Sequence[int],
+                      anchor_nodes: Sequence[int] = ()) -> str:
     st = pbf.stat()
     payload = json.dumps({
         "pbf": pbf.name, "size": st.st_size, "mtime_ns": st.st_mtime_ns, "bbox": list(region.bbox),
         "buffer_m": region.bbox_buffer_m, "admin_levels": list(admin_levels), "code": _code_hash(_EXTRACT_CODE),
-        "data_version": config.PIPELINE_DATA_VERSION,
+        "data_version": config.PIPELINE_DATA_VERSION, "anchor_nodes": sorted(int(n) for n in anchor_nodes),
     }, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:20]
 
@@ -387,7 +395,8 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
                  out_dir: Path | None = None, qa: bool = False, use_cache: bool = True,
                  stages: Sequence[str] | None = None, workers: int | None = None,
                  landmarks_path: Path | None = None, archetype_zones_path: Path | None = None,
-                 biome_zones_path: Path | None = None, admin_levels: Sequence[int] = DEFAULT_ADMIN_LEVELS) -> dict:
+                 biome_zones_path: Path | None = None, admin_levels: Sequence[int] = DEFAULT_ADMIN_LEVELS,
+                 w2: bool = True, w2_config: "w2build.W2Config | None" = None) -> dict:
     """Run the build for one region; returns the manifest dict (with ``stats``)."""
     t_start = time.perf_counter()
     if isinstance(region, str):
@@ -422,10 +431,13 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
     manifest_sources: dict = {}
     tile_meta: dict = {"region": rid, "sources": {}}
 
+    w2state = w2build.load(w2_config)
+    anchors = sorted(w2build.anchor_nodes(w2state))
+    w2_files: list[Path] = []
     if need_data:
         # --- extract (cached) ---------------------------------------------------
         cache_dir = out_dir / "cache" / rid
-        key = extract_cache_key(pbf, region, admin_levels)
+        key = extract_cache_key(pbf, region, admin_levels, anchors)
         cache_path = cache_dir / f"extract-{key}.pkl.gz"
         if use_cache and cache_path.exists():
             extract = timer.run("extract (cached)", osm_extract.load_extract, cache_path)
@@ -433,7 +445,8 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
             stats["extract_cached"] = True
         else:
             extract = timer.run("extract", osm_extract.extract_region, pbf, region.bbox,
-                                buffer_m=region.bbox_buffer_m, admin_levels=admin_levels, region_id=rid)
+                                buffer_m=region.bbox_buffer_m, admin_levels=admin_levels, region_id=rid,
+                                anchor_nodes=anchors)
             stats["extract_cached"] = False
             if use_cache:
                 osm_extract.save_extract(extract, cache_path)
@@ -494,10 +507,11 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
         stats["trails"] = timer.run("trails", assign_trail_difficulty, extract.roads, dem.heights_at_lonlat,
                                     _glacier_test(extract))
         azones = load_archetype_zones(archetype_zones_path)
+        timer.run("w2_hints", w2build.prepare_buildings, w2state, extract, region)
 
         def buildings_stage():
             bctx = contexts.building_contexts(extract.buildings, dem, azones, density)
-            return infer_buildings(extract.buildings, bctx)
+            return infer_buildings(extract.buildings, bctx, **w2build.infer_kwargs(w2state))
 
         stats["buildings"] = timer.run("buildings", buildings_stage)
 
@@ -514,14 +528,22 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
         if "search" in stages:
             stats["search"] = timer.run("search", search_index.write_index, index_path, entries)
 
+        # --- W2 inputs (transit, area types, profiles, zones, junctions) ------------------
+        routes = timer.run("transit", w2build.build_transit, w2state, extract, region)
+        w2in = timer.run("w2_inputs", w2build.prepare_inputs, w2state, extract, region, leaf_box, dem, lc_detail,
+                         routes)
+
         # --- tiles + pack --------------------------------------------------------------
         if "tiles" in stages:
             bzones: BiomeZones = load_zones(biome_zones_path)
             tstats: dict = {}
             tiles = timer.run("tiles", tiling.build_tiles, region, extract, dem, lc_by_level, bzones,
                               data_version=config.PIPELINE_DATA_VERSION, meta=tile_meta, search_ids=sids,
-                              search_importance=simp, landmark_refs=landmark_refs, workers=workers, stats=tstats)
+                              search_importance=simp, landmark_refs=landmark_refs, workers=workers, stats=tstats,
+                              w2=w2in if w2 else None)
             stats["tiles"] = tstats
+            if w2:
+                w2state.stats["chunks"] = timer.run("w2_chunk_stats", w2build.chunk_stats, tiles)
             stats["pack"] = timer.run("pack", write_pack, pack_path, rid, config.PIPELINE_DATA_VERSION, tiles)
             del tiles
 
@@ -532,16 +554,27 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
 
         # --- routing ----------------------------------------------------------------------
         if "routing" in stages:
+            block = w2in.sacred.motor_block if (w2in.sacred is not None and w2in.sacred.geom is not None) else None
+
             def routing_stage():
-                g = routing.build_graph(roads_in, elev=lambda x, z: dem.sample_game(x, z))
+                g = routing.build_graph(roads_in, elev=lambda x, z: dem.sample_game(x, z), motor_block=block)
                 return g, routing.write_graph(graph_path, g)
 
             graph, stats["routing"] = timer.run("routing", routing_stage)
+            stats["routing"]["sacred_pieces"] = int(graph.build_info.get("sacred_pieces", 0))
             del graph
 
+        # --- W2 side files ----------------------------------------------------------------
+        if w2 and "tiles" in stages:
+            w2_files = timer.run("w2_files", w2build.write_files, w2state, extract, region, reg_dir, routes, dem)
+        stats["w2"] = _jsonable(w2state.stats)
+
     # --- manifest -------------------------------------------------------------------------
+    if not w2_files:
+        w2_files = [p for p in (reg_dir / f"{rid}.transit.ghrt", reg_dir / f"{rid}.curated.ghcd",
+                                reg_dir / "hero_recipes.json", reg_dir / f"{rid}.aviation.json") if p.exists()]
     manifest = _manifest(region, reg_dir, pack_path, index_path, graph_path, stats, manifest_sources, sources,
-                         timer, t_start, warnings)
+                         timer, t_start, warnings, w2_files)
     if pack_path.exists():
         if not need_data and manifest_path.exists():
             # Partial run (e.g. QA only): keep what the last full build measured.
@@ -575,9 +608,25 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
     return manifest
 
 
+def _jsonable(obj):
+    """Plain JSON types (numpy scalars and sets become ints and sorted lists)."""
+    if isinstance(obj, dict):
+        return {str(k): _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, (set, frozenset)):
+        return sorted(_jsonable(v) for v in obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    return obj
+
+
 def _manifest(region: config.Region, reg_dir: Path, pack_path: Path, index_path: Path, graph_path: Path,
-              stats: dict, msources: dict, sources: dict, timer: _Timer, t_start: float, warnings: list[str]) -> dict:
-    files = [file_entry(p) for p in (pack_path, index_path, graph_path) if p.exists()]
+              stats: dict, msources: dict, sources: dict, timer: _Timer, t_start: float, warnings: list[str],
+              extra_files: Sequence[Path] = ()) -> dict:
+    files = [file_entry(p) for p in (pack_path, index_path, graph_path, *extra_files) if p.exists()]
     surf = stats.get("surface", {})
     pct = surf.get("pct_by_source", {})
     b = stats.get("buildings", {})
@@ -606,6 +655,8 @@ def _manifest(region: config.Region, reg_dir: Path, pack_path: Path, index_path:
         "pack_bytes": pack.get("bytes", 0), "max_tile_bytes": pack.get("max_tile_bytes", 0),
         "search_entries": srch.get("entries", 0), "search_keys": srch.get("keys", 0),
         "graph_nodes": rt.get("nodes", rt.get("node_count", 0)), "graph_edges": rt.get("edges", rt.get("edge_count", 0)),
+        "graph_sacred_pieces": rt.get("sacred_pieces", 0),
+        "w2": stats.get("w2", {}),
         "timings_s": dict(timer.t),
         "warnings": list(warnings),
     }
@@ -661,6 +712,18 @@ def build_report(manifest: dict, stats: dict, warnings: list[str]) -> str:
               "search_entries", "search_keys", "graph_nodes", "graph_edges"):
         v = s.get(k, 0)
         lines.append(f"| {k} | {v:,} |" if isinstance(v, int) else f"| {k} | {v} |")
+    w2 = s.get("w2") or {}
+    if w2:
+        lines += ["", "## Wave 2 data (W2_DESIGN section 9)", ""]
+        for k in ("area_types", "style_profiles", "sacred_zones", "dual", "junctions", "transit", "heritage",
+                  "parts", "poi_hints", "courtyards", "transit_file", "curated_file", "aviation", "chunks"):
+            if k in w2:
+                v = w2[k]
+                if k == "heritage":
+                    v = {kk: vv for kk, vv in v.items()}
+                lines.append(f"* **{k}**: `{json.dumps(v, ensure_ascii=False, sort_keys=True)}`")
+        lines.append(f"* **routing**: {s.get('graph_sacred_pieces', 0)} road pieces lost their motor modes inside "
+                     "sacred zones (D14).")
     lines += ["", "## Inference provenance", "", "| What | % |", "|---|---:|"]
     for k in ("surface_tagged_pct", "surface_derived_pct", "surface_inferred_pct", "surface_default_pct",
               "building_levels_tagged_pct", "building_levels_inferred_pct"):

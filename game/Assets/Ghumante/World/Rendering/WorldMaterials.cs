@@ -9,6 +9,7 @@ namespace Ghumante.World.Rendering
         public const string ToonLit = "Ghumante/ToonLit";
         public const string SkyGradient = "Ghumante/SkyGradient";
         public const string RouteRibbon = "Ghumante/RouteRibbon";
+        public const string InstancedLights = "Ghumante/InstancedLights";
 
         public static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
         public static readonly int ShadowTint = Shader.PropertyToID("_ShadowTint");
@@ -23,6 +24,17 @@ namespace Ghumante.World.Rendering
         public static readonly int OffsetFactor = Shader.PropertyToID("_OffsetFactor");
         public static readonly int OffsetUnits = Shader.PropertyToID("_OffsetUnits");
         public static readonly int Cull = Shader.PropertyToID("_Cull");
+
+        // W2: building bands, wind, instancing.
+        public static readonly int BandRange = Shader.PropertyToID("_BandRange");
+        public static readonly int Wind = Shader.PropertyToID("_Wind");
+        public static readonly int InstanceTint = Shader.PropertyToID("_InstanceTint");
+        public static readonly int InstanceColor = Shader.PropertyToID("_InstanceColor");
+        public static readonly int BandCentre = Shader.PropertyToID("_GhBandCentre");
+        public static readonly int NightLights = Shader.PropertyToID("_GhNightLights");
+        public const string KeywordBandFade = "_BAND_FADE";
+        public const string KeywordWind = "_WIND";
+        public const string KeywordInstanceTint = "_INSTANCE_TINT";
 
         // Route ribbon.
         public static readonly int RibbonColor = Shader.PropertyToID("_RibbonColor");
@@ -64,6 +76,30 @@ namespace Ghumante.World.Rendering
         [Tooltip("Skybox: Ghumante/SkyGradient (colours come from WorldSky's shader globals).")]
         public Material sky;
 
+        [Tooltip("W2 road markings (decal layer): Ghumante/ToonLit with a stronger depth pull than roads.")]
+        public Material decals;
+
+        [Tooltip("W2 building bands (B0 cells, B1, B1 standing in for B0, B2, B3): Ghumante/ToonLit with _BAND_FADE. " +
+                 "The streamer clones them per world and sets the tier's radii.")]
+        public Material bandB0, bandB1, bandB1Full, bandB2, bandB3;
+
+        [Tooltip("W2 hero replicas: Ghumante/ToonLit.")]
+        public Material heroes;
+
+        [Tooltip("W2 instanced vehicles, people, animals, aircraft: Ghumante/ToonLit with GPU instancing.")]
+        public Material instanced;
+
+        [Tooltip("W2 instanced props with a per-instance tint: Ghumante/ToonLit, instancing + _INSTANCE_TINT.")]
+        public Material instancedTint;
+
+        [Tooltip("W2 trees: Ghumante/ToonLit, instancing + _INSTANCE_TINT + _WIND.")]
+        public Material trees;
+
+        [Tooltip("W2 airport and aircraft lights: Ghumante/InstancedLights.")]
+        public Material lights;
+
+        private bool _extrasRuntime;
+
         /// <summary>True when the set was made at runtime (destroy it with the world).</summary>
         public bool RuntimeCreated { get; private set; }
 
@@ -72,16 +108,64 @@ namespace Ghumante.World.Rendering
             get { return terrain != null && roads != null && buildings != null && areas != null && route != null && sky != null; }
         }
 
-        /// <summary>The material of a <see cref="TileLayers"/> layer.</summary>
+        /// <summary>True when the W2 materials are all present.</summary>
+        public bool HasExtras
+        {
+            get
+            {
+                return decals != null && bandB0 != null && bandB1 != null && bandB1Full != null && bandB2 != null && bandB3 != null &&
+                       heroes != null && instanced != null && instancedTint != null && trees != null && lights != null;
+            }
+        }
+
+        /// <summary>The material of a <see cref="TileLayers"/> layer (band layers get the streamer's per-world clones).</summary>
         public Material ForLayer(int layer)
         {
             switch (layer)
             {
                 case TileLayers.Terrain: return terrain;
                 case TileLayers.Roads: return roads;
-                case TileLayers.Buildings: return buildings;
+                case TileLayers.Buildings: return bandB1 != null ? bandB1 : buildings;
+                case TileLayers.RoadDecals: return decals != null ? decals : roads;
+                case TileLayers.BuildingsFar: return bandB2 != null ? bandB2 : buildings;
+                case TileLayers.BuildingsBlock: return bandB3 != null ? bandB3 : buildings;
+                case TileLayers.Heroes: return heroes != null ? heroes : buildings;
                 default: return areas;
             }
+        }
+
+        /// <summary>Creates any missing W2 material at runtime (a set made before W2, or Project Setup not run again);
+        /// <see cref="DestroyRuntimeMaterials"/> destroys them with the world.</summary>
+        public void EnsureExtras()
+        {
+            if (HasExtras) return;
+            _extrasRuntime = true;
+            if (decals == null) decals = MakeExtra(WorldShaders.ToonLit, "Ghumante Decals (runtime)");
+            if (bandB0 == null) bandB0 = MakeExtra(WorldShaders.ToonLit, "Ghumante Band B0 (runtime)");
+            if (bandB1 == null) bandB1 = MakeExtra(WorldShaders.ToonLit, "Ghumante Band B1 (runtime)");
+            if (bandB1Full == null) bandB1Full = MakeExtra(WorldShaders.ToonLit, "Ghumante Band B1 full (runtime)");
+            if (bandB2 == null) bandB2 = MakeExtra(WorldShaders.ToonLit, "Ghumante Band B2 (runtime)");
+            if (bandB3 == null) bandB3 = MakeExtra(WorldShaders.ToonLit, "Ghumante Band B3 (runtime)");
+            if (heroes == null) heroes = MakeExtra(WorldShaders.ToonLit, "Ghumante Heroes (runtime)");
+            if (instanced == null) instanced = MakeExtra(WorldShaders.ToonLit, "Ghumante Instanced (runtime)");
+            if (instancedTint == null) instancedTint = MakeExtra(WorldShaders.ToonLit, "Ghumante Instanced Tint (runtime)");
+            if (trees == null) trees = MakeExtra(WorldShaders.ToonLit, "Ghumante Trees (runtime)");
+            if (lights == null) lights = MakeExtra(WorldShaders.InstancedLights, "Ghumante Lights (runtime)");
+            WorldMaterialDefaults.ApplyExtras(this, true);
+        }
+
+        private static Material DropRuntime(Material m)
+        {
+            if (m == null || (m.hideFlags & HideFlags.DontSave) == 0) return m;
+            Destroy(m);
+            return null;
+        }
+
+        private static Material MakeExtra(string shaderName, string materialName)
+        {
+            Material m = Make(shaderName, materialName);
+            if (m != null) m.hideFlags = HideFlags.DontSave;
+            return m;
         }
 
         /// <summary>The project's set, or one made at runtime when the asset is missing or incomplete (logged).</summary>
@@ -107,17 +191,36 @@ namespace Ghumante.World.Rendering
             set.route = Make(WorldShaders.RouteRibbon, "Ghumante Route");
             set.sky = Make(WorldShaders.SkyGradient, "Ghumante Sky");
             WorldMaterialDefaults.Apply(set);
+            set.EnsureExtras();
             return set;
         }
 
         /// <summary>Destroys runtime-created materials (assets are left alone).</summary>
         public void DestroyRuntimeMaterials()
         {
-            if (!RuntimeCreated) return;
-            Material[] all = { terrain, roads, buildings, areas, route, sky };
-            for (int i = 0; i < all.Length; i++)
-                if (all[i] != null) Destroy(all[i]);
-            terrain = roads = buildings = areas = route = sky = null;
+            if (RuntimeCreated)
+            {
+                Material[] all = { terrain, roads, buildings, areas, route, sky };
+                for (int i = 0; i < all.Length; i++)
+                    if (all[i] != null) Destroy(all[i]);
+                terrain = roads = buildings = areas = route = sky = null;
+            }
+            if (RuntimeCreated || _extrasRuntime)
+            {
+                // Only the extras made at runtime carry DontSave; assets are left alone.
+                decals = DropRuntime(decals);
+                bandB0 = DropRuntime(bandB0);
+                bandB1 = DropRuntime(bandB1);
+                bandB1Full = DropRuntime(bandB1Full);
+                bandB2 = DropRuntime(bandB2);
+                bandB3 = DropRuntime(bandB3);
+                heroes = DropRuntime(heroes);
+                instanced = DropRuntime(instanced);
+                instancedTint = DropRuntime(instancedTint);
+                trees = DropRuntime(trees);
+                lights = DropRuntime(lights);
+                _extrasRuntime = false;
+            }
         }
 
         private static Material Make(string shaderName, string materialName)
@@ -180,6 +283,62 @@ namespace Ghumante.World.Rendering
             }
         }
 
+        /// <summary>Depth pull of road markings: above the road ribbons.</summary>
+        public const float DecalViewPull = 0.0006f;
+
+        /// <summary>Default wind of trees (W2_DESIGN 5.8: 0.3-0.6 Hz).</summary>
+        public static readonly Vector4 TreeWind = new Vector4(0.035f, 0.45f, 0.8f, 0.6f);
+
+        /// <summary>Settings of the W2 materials; <paramref name="onlyRuntime"/> limits it to materials made at runtime.</summary>
+        public static void ApplyExtras(WorldMaterialSet set, bool onlyRuntime)
+        {
+            if (set == null) return;
+            if (Fresh(set.decals, onlyRuntime))
+            {
+                Toon(set.decals, DecalViewPull, OverlayQueue + 1);
+                set.decals.SetFloat(WorldShaders.OffsetFactor, -1f);
+                set.decals.SetFloat(WorldShaders.OffsetUnits, -3f);
+            }
+            Material[] bands = { set.bandB0, set.bandB1, set.bandB1Full, set.bandB2, set.bandB3 };
+            for (int i = 0; i < bands.Length; i++)
+            {
+                if (!Fresh(bands[i], onlyRuntime)) continue;
+                Toon(bands[i], 0f, 2000);
+                bands[i].EnableKeyword(WorldShaders.KeywordBandFade);
+                bands[i].SetFloat("_BandFade", 1f);
+                bands[i].SetVector(WorldShaders.BandRange, new Vector4(0f, 100000f, 4f, 0f));
+            }
+            if (Fresh(set.heroes, onlyRuntime)) Toon(set.heroes, 0f, 2000);
+            if (Fresh(set.instanced, onlyRuntime))
+            {
+                Toon(set.instanced, 0f, 2000);
+                set.instanced.enableInstancing = true;
+            }
+            if (Fresh(set.instancedTint, onlyRuntime))
+            {
+                Toon(set.instancedTint, 0f, 2000);
+                set.instancedTint.enableInstancing = true;
+                set.instancedTint.EnableKeyword(WorldShaders.KeywordInstanceTint);
+                set.instancedTint.SetFloat("_InstanceTintOn", 1f);
+            }
+            if (Fresh(set.trees, onlyRuntime))
+            {
+                Toon(set.trees, 0f, 2000);
+                set.trees.enableInstancing = true;
+                set.trees.EnableKeyword(WorldShaders.KeywordInstanceTint);
+                set.trees.EnableKeyword(WorldShaders.KeywordWind);
+                set.trees.SetFloat("_InstanceTintOn", 1f);
+                set.trees.SetFloat("_WindOn", 1f);
+                set.trees.SetVector(WorldShaders.Wind, TreeWind);
+            }
+            if (Fresh(set.lights, onlyRuntime)) set.lights.enableInstancing = true;
+        }
+
+        private static bool Fresh(Material m, bool onlyRuntime)
+        {
+            return m != null && (!onlyRuntime || (m.hideFlags & HideFlags.DontSave) != 0);
+        }
+
         private static void Toon(Material m, float viewPull, int queue)
         {
             if (m == null) return;
@@ -195,6 +354,7 @@ namespace Ghumante.World.Rendering
             m.SetFloat(WorldShaders.ViewPull, viewPull);
             m.SetFloat(WorldShaders.OffsetFactor, 0f);
             m.SetFloat(WorldShaders.OffsetUnits, 0f);
+            m.SetVector(WorldShaders.Wind, new Vector4(0f, 0.45f, 0.8f, 0.6f));
             m.renderQueue = queue;
         }
     }

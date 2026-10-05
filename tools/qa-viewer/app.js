@@ -86,9 +86,10 @@
     PoiFlags: { DISCOVERABLE: 1, LANDMARK: 2, HAS_ELE: 4, SACRED: 8 },
     // Not in enums.json: bit layouts written inline in DATA_FORMATS.md 1.5 / 1.7
     LineFlags: { HAS_PREV_CTX: 1, HAS_NEXT_CTX: 2, INTERMITTENT: 4, TUNNEL: 8 },
-    AreaFlags: { CLIPPED_BY_TILE: 1 },
+    AreaFlags: { CLIPPED_BY_TILE: 1, HERITAGE_ZONE: 2, SACRED_NO_VEHICLE: 4 },
   };
-  const FLAG_ENUMS = new Set(['Travel', 'RoadFlags', 'BuildingFlags', 'PoiFlags', 'LineFlags', 'AreaFlags']);
+  const FLAG_ENUMS = new Set(['Travel', 'RoadFlags', 'BuildingFlags', 'PoiFlags', 'LineFlags', 'AreaFlags',
+    'RoadAttrFlags', 'JunctionFlags', 'BuildingFrontFlags', 'PropFlags']);
 
   // Spellings that differ from the enum names (OSM raw values, short forms).
   const ALIASES = {
@@ -251,6 +252,30 @@
   function normArea(p) {
     return { kind: normEnum('AreaKind', prop(p, 'kind', 'area_kind')) || 'NONE',
       flags: flagNames('AreaFlags', prop(p, 'flags')) };
+  }
+  // W2 point layers (JNCT, PROP). Kinds are enum names in the QA export; numbers decode through enums.json.
+  function normJunction(p) {
+    const raw = prop(p, 'kind');
+    const kind = (typeof raw === 'number' ? normEnum('JunctionKind', raw) : raw) || 'PLAIN';
+    return { kind: String(kind), group: 'junction', importance: 200, flags: flagNames('JunctionFlags', prop(p, 'flags')) };
+  }
+  function normProp(p) {
+    const raw = prop(p, 'kind');
+    const kind = (typeof raw === 'number' ? normEnum('ObjectKind', raw) : raw) || 'NONE';
+    return { kind: String(kind), group: 'prop', importance: 0, flags: flagNames('PropFlags', prop(p, 'flags')) };
+  }
+  const JUNCTION_COLORS = { ROUNDABOUT: '#1f77b4', CIRCULAR: '#1f77b4', MINI_ROUNDABOUT: '#6baed6', SIGNALS: '#d62728',
+    POLICE: '#2ca02c', SYNTHETIC_ISLAND: '#ff7f0e', PLAIN: '#7f7f7f' };
+  const PROP_COLORS = { TREE: '#2e7d32', STREET_LAMP: '#f9a825', BUS_STOP: '#6a1b9a', TRAFFIC_SIGNALS: '#d62728',
+    CROSSING_MARKED: '#ffffff', CROSSING_UNMARKED: '#9e9e9e', STORAGE_TANK: '#1565c0', GATE: '#795548',
+    AEROWAY_GATE: '#00838f', PARKING_POSITION: '#00838f', WINDSOCK: '#ef6c00', HELIPAD: '#00838f', TAXI_STAND: '#fbc02d' };
+  function junctionStyle(n) {
+    return { radius: 7, fillColor: JUNCTION_COLORS[n.kind] || UNKNOWN_COLOR, fillOpacity: 0.85, fill: true,
+      color: hasFlag(n, 'HAS_POLICE') ? '#000' : '#fff', weight: 2, opacity: 1 };
+  }
+  function propStyle(n) {
+    return { radius: 3, fillColor: PROP_COLORS[n.kind] || UNKNOWN_COLOR, fillOpacity: 0.95, fill: true, color: '#333',
+      weight: 1, opacity: 1 };
   }
   function normLine(p) {
     const flags = flagNames('LineFlags', prop(p, 'flags'));
@@ -1391,19 +1416,25 @@
     { id: 'places', label: 'Places', pane: 'qa-places', defaultOn: true, optional: true, cap: 3000, drawReverse: true,
       normalize: normPlace, style: placeStyle, sortKey: (n) => -n.importance, labelMinZoom: 12,
       labelFn: (n, f) => displayName(f) },
+    { id: 'junctions', label: 'Junctions (JNCT)', pane: 'qa-junctions', defaultOn: false, optional: true, cap: 5000,
+      normalize: normJunction, style: junctionStyle, labelMinZoom: 15, labelFn: (n, f) => displayName(f) || n.kind },
+    { id: 'props', label: 'Props (PROP)', pane: 'qa-props', defaultOn: false, optional: true, cap: 20000, minZoom: 14,
+      normalize: normProp, style: propStyle },
   ];
   const SPEC_LAYERS = ['roads', 'trails', 'buildings', 'areas', 'lines', 'pois'];
   const RASTER_IDS = ['hillshade', 'biome'];
-  const ALL_TOGGLES = ['roads', 'trails', 'buildings', 'areas', 'lines', 'pois', 'places', 'hillshade', 'biome', 'grid'];
+  const ALL_TOGGLES = ['roads', 'trails', 'buildings', 'areas', 'lines', 'pois', 'places', 'junctions', 'props', 'hillshade',
+    'biome', 'grid'];
 
   const PROP_ENUMS = {
     road_class: 'RoadClass', surface: 'Surface', surface_source: 'SurfaceSource', surface_group: 'SurfaceGroup',
     sac_scale: 'SacScale', archetype: 'BuildingArchetype', use: 'BuildingUse', roof_shape: 'RoofShape',
     roof_material: 'RoofMaterial', wall_material: 'WallMaterial', access: 'Travel',
+    ratr_flags: 'RoadAttrFlags', front_flags: 'BuildingFrontFlags',
   };
   const LAYER_KIND_ENUM = { pois: 'PoiKind', places: 'PlaceKind', areas: 'AreaKind', lines: 'LineKind' };
   const LAYER_FLAG_ENUM = { roads: 'RoadFlags', trails: 'RoadFlags', buildings: 'BuildingFlags', pois: 'PoiFlags',
-    areas: 'AreaFlags', lines: 'LineFlags' };
+    areas: 'AreaFlags', lines: 'LineFlags', junctions: 'JunctionFlags', props: 'PropFlags' };
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1825,7 +1856,7 @@
       this.map = map;
       const panes = [['qa-biome', 250], ['qa-hillshade', 260], ['qa-areas', 410], ['qa-lines', 420],
         ['qa-buildings', 430], ['qa-roads', 440], ['qa-trails', 450], ['qa-grid', 460], ['qa-places', 465],
-        ['qa-pois', 470], ['qa-highlight', 480], ['qa-labels', 490]];
+        ['qa-props', 467], ['qa-junctions', 468], ['qa-pois', 470], ['qa-highlight', 480], ['qa-labels', 490]];
       for (const [name, z] of panes) {
         const p = map.createPane(name);
         p.style.zIndex = z;
@@ -1976,7 +2007,7 @@
             : this.roadMode === 'sac' ? n.sac : n.source;
         case 'buildings': return buildingCategory(n, this.buildingMode);
         case 'pois': case 'places': return n.group;
-        case 'areas': case 'lines': return n.kind;
+        case 'areas': case 'lines': case 'junctions': case 'props': return n.kind;
         default: return null;
       }
     }
@@ -2240,6 +2271,16 @@
           html.push(this.legendRow(id, c, c.toLowerCase(), sw, st));
         }
       }
+      for (const [id, label, colors, en] of [['junctions', 'Junctions · kind', JUNCTION_COLORS, 'JunctionKind'],
+        ['props', 'Props · kind', PROP_COLORS, 'ObjectKind']]) {
+        const l = this.layers[id];
+        if (!l || !l.visible || l.state !== 'ready') continue;
+        const st = this.categoryStats(id);
+        if (!st.by.size) continue;
+        html.push(`<h3>${label} <span class="hint">present in data</span></h3>`);
+        const cats = [...st.by.keys()].sort((a, c) => (enumValue(en, a) ?? 999) - (enumValue(en, c) ?? 999));
+        for (const c of cats) html.push(this.legendRow(id, c, String(c).toLowerCase(), { type: 'dot', color: colors[c] || UNKNOWN_COLOR }, st));
+      }
       if (this.rasterVisible.biome) {
         html.push('<h3>Biome overlay <span class="hint">palette from index.json</span></h3>');
         if (this.biomePalette) {
@@ -2309,7 +2350,7 @@
 
     // ---------------------------------------------------------- inspector
     onMapClick(e) {
-      const order = [['pois', 10], ['places', 10], ['trails', 6], ['roads', 6], ['lines', 6], ['buildings', 3], ['areas', 3]];
+      const order = [['junctions', 10], ['props', 8], ['pois', 10], ['places', 10], ['trails', 6], ['roads', 6], ['lines', 6], ['buildings', 3], ['areas', 3]];
       let hit = null;
       const lineHits = [];
       for (const [id, tol] of order) {

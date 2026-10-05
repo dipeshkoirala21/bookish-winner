@@ -12,7 +12,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = ROOT / "shared" / "golden"
 FILES = ("tm84_points.json", "golden.ght", "golden_unknown.ght", "golden_tile.json", "golden.ghpk", "golden_pack.json",
-         "golden.ghsi", "golden_search.json", "golden.ghrg", "golden_routes.json", "golden_profiles.json")
+         "golden.ghsi", "golden_search.json", "golden.ghrg", "golden_routes.json", "golden_profiles.json",
+         # W2 (F2 chunks and region files)
+         "golden_w2.ght", "golden_w2.json", "golden.ghrt", "golden_transit.json", "golden.ghcd", "golden_curated.json",
+         "golden_aviation.json")
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +51,7 @@ def test_committed_golden_files_are_up_to_date(generated):
 
 def test_total_size_is_commit_friendly(generated):
     a, _ = generated
-    assert sum((a / n).stat().st_size for n in FILES) < 200 * 1024
+    assert sum((a / n).stat().st_size for n in FILES) < 280 * 1024
 
 
 def test_golden_content_covers_the_formats(generated):
@@ -67,6 +70,22 @@ def test_golden_content_covers_the_formats(generated):
     assert sum(1 for q in search["queries"] if q["results"]) > 30
     names = {n[1] for n in search["names"]} | {n[0] for n in search["names"]}
     assert {"Kathmandu", "Boudhanath", "Thamel", "Pokhara", "काठमाडौं"} <= names
+
+    w2 = json.loads((a / "golden_w2.json").read_text(encoding="utf-8"))
+    assert {c["fourcc"] for c in w2["chunks"]} == {"AREA", "BFNT", "BIOM", "BLDG", "HGHT", "JNCT", "LINE", "META",
+                                                   "NAME", "POIS", "PROP", "RATR", "ROAD", "SEED"}
+    assert len(w2["road_attrs"]) == len(w2["roads"]) and len(w2["building_fronts"]) == len(w2["buildings"])
+    # The clockwise golden building is re-oriented: its front edge 1 becomes 2 and the second edge 0 becomes 3.
+    assert [f["front_edge"] for f in w2["building_fronts"]] == [255, 2]
+    assert [f["second_edge"] for f in w2["building_fronts"]] == [255, 3]
+    assert any(len(r["corridor_dm"]) for r in w2["road_attrs"])
+    transit_ = json.loads((a / "golden_transit.json").read_text(encoding="utf-8"))
+    assert {r["mode_name"] for r in transit_["routes"]} == {"BUS", "TEMPO", "HIKING"}
+    assert len(transit_["restrictions"]) == 2
+    cur = json.loads((a / "golden_curated.json").read_text(encoding="utf-8"))
+    assert [r["id"] for r in cur["records"]] == sorted(r["id"] for r in cur["records"])
+    av = json.loads((a / "golden_aviation.json").read_text(encoding="utf-8"))
+    assert set(av["procedures"]) >= {"A1", "D1", "D2", "H-E"}
 
     routes = json.loads((a / "golden_routes.json").read_text(encoding="utf-8"))
     assert 30 <= routes["node_count"] <= 50

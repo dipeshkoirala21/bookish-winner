@@ -10,15 +10,22 @@ Inputs per building are a ``BuildingContext``: the settlement density bin (as
 in ``surface.density_bin``: 0 rural, 1 village, 2 town, 3 urban core), the
 ground elevation and the archetype zone from ``config/archetype_zones.yaml``.
 
-**Archetype rules** (first match wins):
+**Archetype rules** (first match wins; a curated hero override from
+``heritage_sites.yaml`` beats them all):
 
-1. Religious (use RELIGIOUS, or a ``religion`` tag): ``building`` stupa/chaitya
-   STUPA; chorten CHORTEN; shrine SHRINE; mosque MOSQUE; church/chapel/cathedral
-   CHURCH; monastery/gompa/gumba/vihara GOMPA; temple/mandir/pagoda/dewal
-   TEMPLE_SHIKHARA in the Terai, else TEMPLE_PAGODA. Otherwise by religion:
-   muslim MOSQUE, christian CHURCH, buddhist GOMPA (TEMPLE_PAGODA in a Newar
-   core, where Buddhist shrines are pagodas), hindu a temple as above. A
-   religious building with no usable religion is a SHRINE.
+1. Religious (use RELIGIOUS, a ``religion`` tag, a temple-like ``building`` or
+   ``tower:type=stupa``): ``tower:type``/``man_made`` stupa and ``building``
+   stupa/chaitya STUPA; chorten CHORTEN; shrine SHRINE; mosque MOSQUE;
+   church/chapel/cathedral CHURCH; monastery/gompa/gumba GOMPA. Then names
+   (D1): a stupa name (stupa, chaitya, Boudha, Swayambhu) STUPA; a shikhara
+   name (Krishna Mandir, Vatsala, Siddhi Lakshmi, Pratappur, Anantapur,
+   Mahabouddha, "shikhara") or a tagged shikhara roof TEMPLE_SHIKHARA; a Newar
+   bahal/bahi/vihar name TEMPLE_PAGODA (never a GOMPA, L6); a gompa name
+   (gompa, gumba, monastery, ling) GOMPA. Then temple/mandir/pagoda/dewal
+   ``building`` TEMPLE_SHIKHARA in the Terai, else TEMPLE_PAGODA. Otherwise by
+   religion: muslim MOSQUE, christian CHURCH, buddhist GOMPA (TEMPLE_PAGODA in
+   a Newar core, where Buddhist shrines are pagodas), hindu a temple as above.
+   A religious building with no usable religion is a SHRINE.
 2. Use INDUSTRIAL -> INDUSTRIAL; EDUCATION, HEALTH, PUBLIC, OFFICE ->
    INSTITUTIONAL; HUT -> HUT; GREENHOUSE -> GREENHOUSE.
 3. HOTEL in the sherpa zone or at >= 2 500 m -> TEAHOUSE.
@@ -49,7 +56,15 @@ GENERIC            rural 1-2, village 1-2, town 2-3, core 3-4
 =================  ===============================================
 
 Use ROOF, GARAGE and CONSTRUCTION get 1 level, and so does any footprint under
-12 m2. Levels inferred from a tagged height are ``round((height - roof
+12 m2. Use ROOF also sets ``OPEN_CANOPY``.
+
+**Plausibility gate** (D4): a tagged height under 2.5 m on a building without
+parts, a tagged level count above 20, or a tagged height per level outside
+1.8-6 m sets ``TAG_SUSPECT``. Religious archetypes keep their tagged values
+(the runtime reads a temple height under 3 m as the plinth, W2_DESIGN 3.1);
+every other building drops the suspect tag(s) and infers them instead.
+``building:part`` records (``PART``) take their host's archetype when the
+host is religious (``link_parts``). Levels inferred from a tagged height are ``round((height - roof
 allowance) / 3)``, at least 1. Untagged height is ``min_height + levels * 3.0 m
 + roof allowance`` (flat 0.5 m parapet, skillion 1.0, gabled/hipped 1.5,
 pyramidal/cone/round 2.0, dome/onion 3.0, pagoda 4.0, shikhara 6.0, other 1.5).
@@ -68,6 +83,7 @@ others.
 from __future__ import annotations
 
 import math
+import re
 import struct
 from collections import Counter
 from dataclasses import dataclass
@@ -225,6 +241,17 @@ _MOSQUE = frozenset({"mosque", "eidgah"})
 _CHURCH = frozenset({"church", "chapel", "cathedral"})
 _GOMPA = frozenset({"monastery", "gompa", "gumba", "gumpa", "vihar", "vihara", "bihar"})
 _TEMPLE = frozenset({"temple", "mandir", "pagoda", "dewal", "deval"})
+_STUPA_NAME_RE = re.compile(r"stupa|chaitya|chaity|स्तूप|स्तुप|चैत्य|\bbou?dd?h?a(?:nath)?\b|baudha|bodnath|"
+                            r"swayam|swoyam|स्वयम्भू")
+_SHIKHARA_NAME_RE = re.compile(r"krishna\s*mandir|vatsala|siddhi\s*lakshmi|pratappur|anantapur|mahabou?dd?ha|"
+                               r"shikhar|शिखर|कृष्ण\s*मन्दिर")
+_BAHAL_NAME_RE = re.compile(r"bah(?:a|al|il|i)\b|baha\b|bahal|vihar|बहाल|बही|विहार")
+_GOMPA_NAME_RE = re.compile(r"gompa|gumba|gonpa|monastery|\bling\b|choling|shedrub|गुम्बा|गोम्पा")
+RELIGIOUS_ARCHETYPES = frozenset({A.TEMPLE_PAGODA, A.TEMPLE_SHIKHARA, A.STUPA, A.GOMPA, A.CHORTEN, A.SHRINE,
+                                  A.MOSQUE, A.CHURCH})
+SUSPECT_MIN_HEIGHT_M = 2.5
+SUSPECT_MAX_LEVELS = 20
+SUSPECT_STOREY_M = (1.8, 6.0)
 _RELIGIONS = {
     "hindu": "hindu", "hinduism": "hindu",
     "buddhist": "buddhist", "buddhism": "buddhist", "budhhist": "buddhist", "buddist": "buddhist",
@@ -251,12 +278,20 @@ def _temple(ctx: BuildingContext) -> A:
     return A.TEMPLE_SHIKHARA if _is_terai(ctx) else A.TEMPLE_PAGODA
 
 
+def _names(b: BuildingFeature) -> str:
+    if b.name is None:
+        return ""
+    return " | ".join(s for s in (b.name.default, b.name.en, b.name.ne) if s).casefold()
+
+
 def classify(b: BuildingFeature, ctx: BuildingContext) -> A:
     """Archetype for one building (rules in the module docstring)."""
     btype = _first_token(b.building_raw)
     religion = _religion_family(b.religion)
-    if b.use == U.RELIGIOUS or religion or btype in _TEMPLE | _STUPA | _GOMPA:
-        if btype in _STUPA:
+    extra = b.extra or {}
+    stupa_tag = "stupa" in ((extra.get("tower:type") or "").lower(), (extra.get("man_made") or "").lower())
+    if b.use == U.RELIGIOUS or religion or btype in _TEMPLE | _STUPA | _GOMPA or stupa_tag:
+        if btype in _STUPA or stupa_tag:
             return A.STUPA
         if btype in _CHORTEN:
             return A.CHORTEN
@@ -267,6 +302,15 @@ def classify(b: BuildingFeature, ctx: BuildingContext) -> A:
         if btype in _CHURCH:
             return A.CHURCH
         if btype in _GOMPA:
+            return A.GOMPA
+        names = _names(b)
+        if names and _STUPA_NAME_RE.search(names):
+            return A.STUPA
+        if b.roof_shape == RS.SHIKHARA or (names and _SHIKHARA_NAME_RE.search(names)):
+            return A.TEMPLE_SHIKHARA
+        if names and _BAHAL_NAME_RE.search(names):
+            return A.TEMPLE_PAGODA
+        if names and _GOMPA_NAME_RE.search(names):
             return A.GOMPA
         if btype in _TEMPLE:
             if religion == "buddhist" and ctx.zone != "newar_core":
@@ -434,25 +478,64 @@ def roof_allowance(shape: RS) -> float:
 # ---------------------------------------------------------------------------
 # Inference
 # ---------------------------------------------------------------------------
-def infer_buildings(buildings: list[BuildingFeature], contexts: list[BuildingContext]) -> dict:
+def plausibility(b: BuildingFeature) -> tuple[bool, bool]:
+    """``(height_suspect, levels_suspect)`` of the tagged values (D4 gate)."""
+    has_parts = bool(b.flags & BuildingFlags.HAS_PARTS) or bool(b.flags & BuildingFlags.PART)
+    h_bad = b.height_m is not None and b.height_m < SUSPECT_MIN_HEIGHT_M and not has_parts
+    l_bad = b.levels is not None and b.levels > SUSPECT_MAX_LEVELS
+    if b.height_m is not None and b.levels is not None and b.levels >= 1 and not (h_bad or l_bad):
+        per = (b.height_m - (b.min_height_m or 0.0)) / b.levels
+        if not SUSPECT_STOREY_M[0] <= per <= SUSPECT_STOREY_M[1]:
+            h_bad = l_bad = True
+    return h_bad, l_bad
+
+
+def infer_buildings(buildings: list[BuildingFeature], contexts: list[BuildingContext],
+                    overrides: dict[int, A] | None = None, part_hosts: dict[int, int] | None = None) -> dict:
     """Fill archetype, levels, height, roof and materials in place; return stats.
 
     Expects buildings as ``osm_extract`` produces them: a value present on entry
     is treated as tagged (``levels``, ``height_m``, ``roof_shape``,
     ``roof_material``, ``wall_material``), so call this once per extract.
+    ``overrides`` maps a building index to a curated archetype (hero records);
+    ``part_hosts`` maps a ``building:part`` index to its host index
+    (``poi_hints.link_parts``): parts of religious hosts take the host's archetype.
     """
     if len(buildings) != len(contexts):
         raise ValueError(f"{len(buildings)} buildings but {len(contexts)} contexts")
+    overrides = overrides or {}
+    part_hosts = part_hosts or {}
     archetypes: Counter = Counter()
     zones: Counter = Counter()
     n = Counter()
-    for b, ctx in zip(buildings, contexts):
+    # Hosts first, so parts can copy a host's archetype.
+    order = sorted(range(len(buildings)), key=lambda i: (i in part_hosts, i))
+    for i in order:
+        b, ctx = buildings[i], contexts[i]
         seed = building_seed(b)
-        arch = classify(b, ctx)
+        if i in overrides:
+            arch = overrides[i]
+            n["archetype_overrides"] += 1
+        elif i in part_hosts and buildings[part_hosts[i]].archetype in RELIGIOUS_ARCHETYPES:
+            arch = A(buildings[part_hosts[i]].archetype)
+        else:
+            arch = classify(b, ctx)
         b.archetype = arch
         archetypes[arch.name] += 1
         zones[ctx.zone] += 1
         flags = BuildingFlags(b.flags)
+        if b.use == U.ROOF:
+            flags |= BuildingFlags.OPEN_CANOPY
+        h_bad, l_bad = plausibility(b)
+        if h_bad or l_bad:
+            flags |= BuildingFlags.TAG_SUSPECT
+            n["tag_suspect"] += 1
+            if arch not in RELIGIOUS_ARCHETYPES:
+                if h_bad:
+                    b.height_m = None
+                if l_bad:
+                    b.levels = None
+                n["tag_suspect_reinferred"] += 1
 
         # Roof.
         if b.roof_shape != RS.UNKNOWN:
@@ -507,5 +590,8 @@ def infer_buildings(buildings: list[BuildingFeature], contexts: list[BuildingCon
         "tiny_footprints": n["tiny_footprints"],
         "height_tagged": n["height_tagged"],
         "roof_tagged": n["roof_tagged"],
+        "tag_suspect": n["tag_suspect"],
+        "tag_suspect_reinferred": n["tag_suspect_reinferred"],
+        "archetype_overrides": n["archetype_overrides"],
         "levels_tagged_pct": round(100.0 * n["levels_tagged"] / total, 2) if total else 0.0,
     }

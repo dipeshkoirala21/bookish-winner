@@ -131,6 +131,35 @@ namespace Ghumante.Core.Tests
             return tiles;
         }
 
+        /// <summary>The middle of the longest segment of Thamel Marg in its leaf tile (game metres): on the street and away
+        /// from junction nodes, where a wider crossing street is the nearest W2 surface.</summary>
+        public static void ThamelMarg(out double x, out double z)
+        {
+            double tx, tz;
+            Geo.WorldFrame.LonLatToGame(85.31172094019205, 27.716693189023914, out tx, out tz);
+            TileData t = SampleTiles()[TileId.At(10, tx, tz)];
+            double best = -1;
+            x = tx;
+            z = tz;
+            foreach (RoadRecord r in t.Roads)
+            {
+                NameRecord n = t.Name(r.NameRef);
+                if (n == null || n.Default != "Thamel Marg") continue;
+                int first, last;
+                RoadSpatialIndex.RenderedRange(r, out first, out last);
+                for (int k = first; k < last; k++)
+                {
+                    double dx = (r.Points[2 * k + 2] - r.Points[2 * k]) / 100.0, dz = (r.Points[2 * k + 3] - r.Points[2 * k + 1]) / 100.0;
+                    double len = Math.Sqrt(dx * dx + dz * dz);
+                    if (len <= best) continue;
+                    best = len;
+                    x = t.Tile.X0 + (r.Points[2 * k] + r.Points[2 * k + 2]) / 200.0;
+                    z = t.Tile.Z0 + (r.Points[2 * k + 1] + r.Points[2 * k + 3]) / 200.0;
+                }
+            }
+            if (best < 0) Assert.Fail("Thamel Marg not in the sample pack");
+        }
+
         /// <summary>A ground query holding every tile of the sample pack (all levels, step 1).</summary>
         public static TileGroundQuery SampleGround()
         {

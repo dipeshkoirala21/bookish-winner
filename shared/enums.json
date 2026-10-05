@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 3,
  "enums": {
   "RoadClass": {
    "UNKNOWN": 0,
@@ -99,7 +99,9 @@
    "INSTITUTIONAL": 16,
    "HUT": 17,
    "GREENHOUSE": 18,
-   "TEAHOUSE": 19
+   "TEAHOUSE": 19,
+   "RANA_PALACE": 20,
+   "NEWAR_HYBRID": 21
   },
   "RoofShape": {
    "UNKNOWN": 0,
@@ -225,7 +227,10 @@
    "SCHOOL": 600,
    "HOSPITAL": 601,
    "GOVERNMENT": 602,
-   "BANK": 603
+   "BANK": 603,
+   "STATUE": 127,
+   "GHAT": 128,
+   "PARAGLIDING_LANDING": 506
   },
   "AreaKind": {
    "NONE": 0,
@@ -254,7 +259,20 @@
    "PROTECTED": 23,
    "TEA_GARDEN": 24,
    "GRASSLAND": 25,
-   "SCREE": 26
+   "SCREE": 26,
+   "MARKETPLACE": 27,
+   "PARKING": 28,
+   "BUS_PARK": 29,
+   "CAMPUS": 30,
+   "KILN": 31,
+   "QUARRY": 32,
+   "STADIUM": 33,
+   "GOLF": 34,
+   "POOL": 35,
+   "APRON": 36,
+   "POWER_PLANT": 37,
+   "COURTYARD": 38,
+   "TRAFFIC_ISLAND": 39
   },
   "LineKind": {
    "NONE": 0,
@@ -270,7 +288,20 @@
    "TAXIWAY": 10,
    "CITY_WALL": 11,
    "MANI_WALL": 12,
-   "WATERFALL": 13
+   "WATERFALL": 13,
+   "TREE_ROW": 14,
+   "CLIFF": 15,
+   "GHAT_EDGE": 16,
+   "POWER_LINE": 17,
+   "WALL": 18,
+   "FENCE": 19,
+   "HEDGE": 20,
+   "RETAINING_WALL": 21,
+   "KERB": 22,
+   "FERRY": 23,
+   "DAM": 24,
+   "WEIR": 25,
+   "PENSTOCK": 26
   },
   "Biome": {
    "NONE": 0,
@@ -340,15 +371,246 @@
    "HEIGHT_TAGGED": 2,
    "ROOF_TAGGED": 4,
    "LANDMARK": 8,
-   "PART": 16
+   "PART": 16,
+   "HAS_PARTS": 32,
+   "TAG_SUSPECT": 64,
+   "OPEN_CANOPY": 128
   },
   "PoiFlags": {
    "DISCOVERABLE": 1,
    "LANDMARK": 2,
    "HAS_ELE": 4,
-   "SACRED": 8
+   "SACRED": 8,
+   "HAS_FOOTPRINT": 16,
+   "LANDMARK_LITE": 32,
+   "INFERRED": 64
+  },
+  "StyleProfile": {
+   "NONE": 0,
+   "KATHMANDU_CORE": 1,
+   "THAMEL": 2,
+   "PATAN": 3,
+   "BHAKTAPUR": 4,
+   "KIRTIPUR": 5,
+   "THIMI": 6,
+   "BUNGAMATI": 7,
+   "KHOKANA": 8,
+   "PANAUTI": 9,
+   "METRO": 10,
+   "RIM": 11,
+   "BOUDHA_KORA": 12
+  },
+  "AreaType": {
+   "UNKNOWN": 0,
+   "OLD_CORE": 1,
+   "URBAN": 2,
+   "PERI_URBAN": 3,
+   "RURAL": 4,
+   "HILL": 5,
+   "FOREST": 6
+  },
+  "JunctionKind": {
+   "PLAIN": 0,
+   "ROUNDABOUT": 1,
+   "CIRCULAR": 2,
+   "MINI_ROUNDABOUT": 3,
+   "SIGNALS": 4,
+   "POLICE": 5,
+   "SYNTHETIC_ISLAND": 6
+  },
+  "Sidewalk": {
+   "UNKNOWN": 0,
+   "NONE": 1,
+   "LEFT": 2,
+   "RIGHT": 3,
+   "BOTH": 4,
+   "SEPARATE": 5
+  },
+  "ObjectKind": {
+   "NONE": 0,
+   "TREE": 1,
+   "POWER_TOWER": 2,
+   "POWER_POLE": 3,
+   "STREET_LAMP": 4,
+   "BUS_STOP": 5,
+   "SHELTER": 6,
+   "BENCH": 7,
+   "WATER_TAP": 8,
+   "WELL": 9,
+   "GATE": 10,
+   "CHIMNEY": 11,
+   "MAST": 12,
+   "TOWER": 13,
+   "STORAGE_TANK": 14,
+   "SOLAR_PANEL": 15,
+   "ARTWORK": 16,
+   "TRAFFIC_SIGNALS": 17,
+   "CROSSING_MARKED": 18,
+   "CROSSING_UNMARKED": 19,
+   "AEROWAY_GATE": 20,
+   "PARKING_POSITION": 21,
+   "WINDSOCK": 22,
+   "HELIPAD": 23,
+   "TAXI_STAND": 24
+  },
+  "TreeClass": {
+   "UNKNOWN": 0,
+   "PIPAL": 1,
+   "BAR": 2,
+   "BROADLEAF": 3,
+   "CONIFER": 4,
+   "PALM": 5
+  },
+  "TransitMode": {
+   "NONE": 0,
+   "BUS": 1,
+   "MICROBUS": 2,
+   "TEMPO": 3,
+   "SHARE_TAXI": 4,
+   "HIKING": 5,
+   "FOOT": 6,
+   "BICYCLE": 7,
+   "MTB": 8
+  },
+  "LiveryClass": {
+   "NONE": 0,
+   "CITY_GREEN": 1,
+   "MINIBUS": 2,
+   "MICROBUS": 3,
+   "SAFA_TEMPO": 4,
+   "COACH": 5
+  },
+  "TurnRestriction": {
+   "NONE": 0,
+   "NO_LEFT_TURN": 1,
+   "NO_RIGHT_TURN": 2,
+   "NO_STRAIGHT_ON": 3,
+   "NO_U_TURN": 4,
+   "ONLY_LEFT_TURN": 5,
+   "ONLY_RIGHT_TURN": 6,
+   "ONLY_STRAIGHT_ON": 7,
+   "NO_ENTRY": 8,
+   "NO_EXIT": 9
+  },
+  "HeritageKind": {
+   "NONE": 0,
+   "PAGODA": 1,
+   "SHIKHARA_STONE": 2,
+   "SHIKHARA_PLASTER": 3,
+   "STUPA": 4,
+   "HOUSE_TEMPLE": 5,
+   "MANDAPA": 6,
+   "RELIEF": 7,
+   "COLUMN": 8,
+   "GATE": 9,
+   "PALACE": 10,
+   "TOWER": 11,
+   "HITI": 12,
+   "POKHARI": 13,
+   "GOMPA": 14,
+   "BAHAL": 15
+  },
+  "HeritageFinish": {
+   "UNKNOWN": 0,
+   "TILE": 1,
+   "GILT_TOP": 2,
+   "GILT_ALL": 3,
+   "WHITEWASH": 4,
+   "STONE": 5,
+   "BRICK": 6,
+   "STUCCO": 7,
+   "TERRACOTTA": 8
+  },
+  "EntryRule": {
+   "NONE": 0,
+   "SHOES_OFF": 1,
+   "QUIET_WORSHIP": 2,
+   "REAL_COMPOUND_CLOSED_TO_NON_HINDUS": 3,
+   "INTERIOR_NO_PHOTO": 4,
+   "KUMARI_NOT_SHOWN": 5,
+   "NO_LEATHER": 6
+  },
+  "KoraDirection": {
+   "NONE": 0,
+   "CLOCKWISE": 1,
+   "ANTICLOCKWISE": 2
+  },
+  "SacredZoneKind": {
+   "NONE": 0,
+   "COMPOUND": 1,
+   "COURTYARD": 2,
+   "HERITAGE_SQUARE": 3,
+   "STUPA_KORA": 4,
+   "GHAT": 5
+  },
+  "RoadAttrFlags": {
+   "DUAL": 1,
+   "SERVICE_ROAD": 2,
+   "HERITAGE_PEDESTRIAN": 4,
+   "NO_MOTOR": 8,
+   "LIT": 16,
+   "BUS_ROUTE": 32,
+   "RING_MEMBER": 64,
+   "PAINTABLE": 128
+  },
+  "JunctionFlags": {
+   "HAS_ISLAND_AREA": 1,
+   "OFFICERS_2_4": 2,
+   "HERITAGE_NO_MOTOR": 4,
+   "CROSSINGS_MARKED": 8,
+   "HAS_POLICE": 16,
+   "HAS_SIGNALS": 32
+  },
+  "BuildingFrontFlags": {
+   "COURTYARD_HOST": 1,
+   "CORNER": 2,
+   "FACES_HERITAGE_SQUARE": 4,
+   "RANA_HINT": 8,
+   "STRUCTURE_RCC": 16,
+   "STRUCTURE_MUD": 32,
+   "ROOF_FLAT_TAGGED": 64
+  },
+  "PropFlags": {
+   "YAW": 1,
+   "HEIGHT_TAGGED": 2,
+   "CHAUTARI": 4,
+   "FROM_WAY": 8,
+   "ON_ROAD": 16
+  },
+  "RouteFlags": {
+   "ROUNDTRIP": 1,
+   "STOPS_FROM_MEMBERS": 2,
+   "STOPS_INFERRED": 4,
+   "HAS_GAPS": 8,
+   "MISSING_WAYS": 16
+  },
+  "StopFlags": {
+   "FROM_MEMBER": 1,
+   "INFERRED": 2,
+   "TERMINAL": 4
+  },
+  "HeritageFlags": {
+   "MANUAL_POSITION": 1,
+   "HAS_COMPOUND": 2,
+   "WALKABLE_COMPOUND": 4,
+   "NO_VEHICLES": 8,
+   "SANCTUM_CLOSED": 16,
+   "VERIFY": 32
   }
  },
+ "flag_enums": [
+  "Travel",
+  "RoadFlags",
+  "BuildingFlags",
+  "PoiFlags",
+  "RoadAttrFlags",
+  "JunctionFlags",
+  "BuildingFrontFlags",
+  "PropFlags",
+  "RouteFlags",
+  "StopFlags",
+  "HeritageFlags"
+ ],
  "surface_group": {
   "UNKNOWN": "DIRT",
   "ASPHALT": "PAVED",

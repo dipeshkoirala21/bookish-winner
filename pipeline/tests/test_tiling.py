@@ -327,7 +327,9 @@ def test_pois_places_and_lines(unit_build) -> None:
 
 def test_pack_roundtrip(unit_build, tmp_path) -> None:
     _, _, tiles, _, _ = unit_build
-    info = write_pack(tmp_path / "unit.ghpk", "unit", 1, tiles)
+    from ghumante_pipeline.config import PIPELINE_DATA_VERSION
+
+    info = write_pack(tmp_path / "unit.ghpk", "unit", PIPELINE_DATA_VERSION, tiles)
     assert info["tile_count"] == len(tiles)
 
 

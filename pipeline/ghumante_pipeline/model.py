@@ -16,7 +16,7 @@ from enum import IntEnum, IntFlag
 
 import numpy as np
 
-ENUMS_VERSION = 1
+ENUMS_VERSION = 3  # 2: W2 F1 batch (docs/W2_DESIGN.md section 9.3, CONTENT_COVERAGE section 3.2); 3: EntryRule NO_LEATHER
 
 
 class RoadClass(IntEnum):
@@ -151,6 +151,8 @@ class BuildingArchetype(IntEnum):
     HUT = 17
     GREENHOUSE = 18
     TEAHOUSE = 19
+    RANA_PALACE = 20  # Rana-era neoclassical palaces (W2_DESIGN 2.3)
+    NEWAR_HYBRID = 21  # Newar ground floors with concrete storeys on top (W2_DESIGN 2.3)
 
 
 class RoofShape(IntEnum):
@@ -290,6 +292,11 @@ class PoiKind(IntEnum):
     GOVERNMENT = 602
     BANK = 603
 
+    # appended in ENUMS_VERSION 2 (values grouped with their families, assigned once)
+    STATUE = 127  # tourism=artwork statues, historic=memorial statues
+    GHAT = 128  # river ghats (steps to the water)
+    PARAGLIDING_LANDING = 506
+
 
 class AreaKind(IntEnum):
     NONE = 0
@@ -319,6 +326,20 @@ class AreaKind(IntEnum):
     TEA_GARDEN = 24
     GRASSLAND = 25
     SCREE = 26
+    # appended in ENUMS_VERSION 2
+    MARKETPLACE = 27
+    PARKING = 28
+    BUS_PARK = 29
+    CAMPUS = 30
+    KILN = 31
+    QUARRY = 32
+    STADIUM = 33
+    GOLF = 34
+    POOL = 35
+    APRON = 36  # aeroway=apron (never a building)
+    POWER_PLANT = 37
+    COURTYARD = 38  # named bahal / bahi / chowk courtyards (W2_DESIGN D19)
+    TRAFFIC_ISLAND = 39  # area:highway=traffic_island
 
 
 class LineKind(IntEnum):
@@ -336,6 +357,20 @@ class LineKind(IntEnum):
     CITY_WALL = 11
     MANI_WALL = 12
     WATERFALL = 13  # waterway=waterfall drawn as a way
+    # appended in ENUMS_VERSION 2 (reserved for D3; not emitted yet)
+    TREE_ROW = 14
+    CLIFF = 15
+    GHAT_EDGE = 16
+    POWER_LINE = 17
+    WALL = 18
+    FENCE = 19
+    HEDGE = 20
+    RETAINING_WALL = 21
+    KERB = 22
+    FERRY = 23
+    DAM = 24
+    WEIR = 25
+    PENSTOCK = 26
 
 
 class Biome(IntEnum):
@@ -386,6 +421,204 @@ class WorldCover(IntEnum):
     MOSS_LICHEN = 100
 
 
+class StyleProfile(IntEnum):
+    """Regional building style (W2_DESIGN 2.1); one per building in ``BFNT``."""
+
+    NONE = 0
+    KATHMANDU_CORE = 1
+    THAMEL = 2
+    PATAN = 3
+    BHAKTAPUR = 4
+    KIRTIPUR = 5
+    THIMI = 6
+    BUNGAMATI = 7
+    KHOKANA = 8
+    PANAUTI = 9
+    METRO = 10
+    RIM = 11
+    BOUDHA_KORA = 12
+
+
+class AreaType(IntEnum):
+    """250 m area-type grid (street_life 1.1 + roads 1.2): ``RATR`` and ``BFNT``."""
+
+    UNKNOWN = 0
+    OLD_CORE = 1
+    URBAN = 2
+    PERI_URBAN = 3
+    RURAL = 4
+    HILL = 5
+    FOREST = 6
+
+
+class JunctionKind(IntEnum):
+    """``JNCT`` record kind (W2_DESIGN 4.7)."""
+
+    PLAIN = 0
+    ROUNDABOUT = 1
+    CIRCULAR = 2
+    MINI_ROUNDABOUT = 3
+    SIGNALS = 4
+    POLICE = 5
+    SYNTHETIC_ISLAND = 6
+
+
+class Sidewalk(IntEnum):
+    """``RATR.sidewalk``: OSM ``sidewalk*`` (left/right relative to the point order)."""
+
+    UNKNOWN = 0
+    NONE = 1
+    LEFT = 2
+    RIGHT = 3
+    BOTH = 4
+    SEPARATE = 5
+
+
+class ObjectKind(IntEnum):
+    """``PROP`` record kind: real OSM point objects (CONTENT_COVERAGE D3, W2_DESIGN 9.3)."""
+
+    NONE = 0
+    TREE = 1
+    POWER_TOWER = 2
+    POWER_POLE = 3
+    STREET_LAMP = 4
+    BUS_STOP = 5
+    SHELTER = 6
+    BENCH = 7
+    WATER_TAP = 8
+    WELL = 9
+    GATE = 10
+    CHIMNEY = 11
+    MAST = 12
+    TOWER = 13
+    STORAGE_TANK = 14
+    SOLAR_PANEL = 15
+    ARTWORK = 16
+    TRAFFIC_SIGNALS = 17
+    CROSSING_MARKED = 18
+    CROSSING_UNMARKED = 19
+    AEROWAY_GATE = 20
+    PARKING_POSITION = 21
+    WINDSOCK = 22
+    HELIPAD = 23
+    TAXI_STAND = 24
+
+
+class TreeClass(IntEnum):
+    """``PROP.subtype`` of a TREE (species class from species/genus/leaf_type/name)."""
+
+    UNKNOWN = 0
+    PIPAL = 1  # Ficus religiosa
+    BAR = 2  # Ficus benghalensis
+    BROADLEAF = 3
+    CONIFER = 4
+    PALM = 5
+
+
+class TransitMode(IntEnum):
+    """Route mode in ``.ghrt`` (D2 + D22)."""
+
+    NONE = 0
+    BUS = 1
+    MICROBUS = 2
+    TEMPO = 3
+    SHARE_TAXI = 4
+    HIKING = 5
+    FOOT = 6
+    BICYCLE = 7
+    MTB = 8
+
+
+class LiveryClass(IntEnum):
+    """Generic livery a route's vehicles use (W2_DESIGN 5.3; never an operator's livery)."""
+
+    NONE = 0
+    CITY_GREEN = 1
+    MINIBUS = 2
+    MICROBUS = 3
+    SAFA_TEMPO = 4
+    COACH = 5
+
+
+class TurnRestriction(IntEnum):
+    """``type=restriction`` relations in ``.ghrt``."""
+
+    NONE = 0
+    NO_LEFT_TURN = 1
+    NO_RIGHT_TURN = 2
+    NO_STRAIGHT_ON = 3
+    NO_U_TURN = 4
+    ONLY_LEFT_TURN = 5
+    ONLY_RIGHT_TURN = 6
+    ONLY_STRAIGHT_ON = 7
+    NO_ENTRY = 8
+    NO_EXIT = 9
+
+
+class HeritageKind(IntEnum):
+    """Curated hero record kind (``.ghcd``; W2_DESIGN 9.4)."""
+
+    NONE = 0
+    PAGODA = 1
+    SHIKHARA_STONE = 2
+    SHIKHARA_PLASTER = 3
+    STUPA = 4
+    HOUSE_TEMPLE = 5
+    MANDAPA = 6
+    RELIEF = 7
+    COLUMN = 8
+    GATE = 9
+    PALACE = 10
+    TOWER = 11
+    HITI = 12
+    POKHARI = 13
+    GOMPA = 14
+    BAHAL = 15
+
+
+class HeritageFinish(IntEnum):
+    """Main finish of a hero (``.ghcd``)."""
+
+    UNKNOWN = 0
+    TILE = 1
+    GILT_TOP = 2
+    GILT_ALL = 3
+    WHITEWASH = 4
+    STONE = 5
+    BRICK = 6
+    STUCCO = 7
+    TERRACOTTA = 8
+
+
+class EntryRule(IntEnum):
+    """Non-blocking info card shown at a compound entrance (W2-O1; never blocks the player)."""
+
+    NONE = 0
+    SHOES_OFF = 1
+    QUIET_WORSHIP = 2
+    REAL_COMPOUND_CLOSED_TO_NON_HINDUS = 3
+    INTERIOR_NO_PHOTO = 4
+    KUMARI_NOT_SHOWN = 5
+    NO_LEATHER = 6  # ENUMS_VERSION 3: the Golden Temple's "no leather in the courtyard" (temples.md section 9)
+
+
+class KoraDirection(IntEnum):
+    NONE = 0
+    CLOCKWISE = 1
+    ANTICLOCKWISE = 2  # Bon sites
+
+
+class SacredZoneKind(IntEnum):
+    """Kind of a sacred or heritage zone (``SacredZoneIndex``, D14 routing)."""
+
+    NONE = 0
+    COMPOUND = 1
+    COURTYARD = 2
+    HERITAGE_SQUARE = 3
+    STUPA_KORA = 4
+    GHAT = 5
+
+
 class Travel(IntFlag):
     """Travel profiles; bit set in a routing edge's access mask."""
 
@@ -417,8 +650,11 @@ class BuildingFlags(IntFlag):
     LEVELS_INFERRED = 1 << 0
     HEIGHT_TAGGED = 1 << 1
     ROOF_TAGGED = 1 << 2
-    LANDMARK = 1 << 3  # replaced by a hand-made hero asset at runtime
+    LANDMARK = 1 << 3  # hidden: a hero replica stands here (inside a D5 hide zone)
     PART = 1 << 4  # building:part
+    HAS_PARTS = 1 << 5  # a building whose building:part records describe its shape
+    TAG_SUSPECT = 1 << 6  # tagged height or levels failed the plausibility gate (height kept, see buildings.py)
+    OPEN_CANOPY = 1 << 7  # open-sided roof (building=roof)
 
 
 class PoiFlags(IntFlag):
@@ -426,6 +662,84 @@ class PoiFlags(IntFlag):
     LANDMARK = 1 << 1
     HAS_ELE = 1 << 2
     SACRED = 1 << 3  # no vehicles, walk clockwise etc.
+    HAS_FOOTPRINT = 1 << 4  # a building footprint contains this POI (it passed its use to it)
+    LANDMARK_LITE = 1 << 5
+    INFERRED = 1 << 6  # kind or position inferred, not tagged
+
+
+class RoadAttrFlags(IntFlag):
+    """``RATR.flags`` (W2_DESIGN 9.3)."""
+
+    DUAL = 1 << 0  # paired with an opposite one-way carriageway (partner_way_id)
+    SERVICE_ROAD = 1 << 1  # Ring Road service carriageway
+    HERITAGE_PEDESTRIAN = 1 << 2  # inside a heritage square or sacred compound: walk and cycle only
+    NO_MOTOR = 1 << 3  # access/motor_vehicle=no
+    LIT = 1 << 4
+    BUS_ROUTE = 1 << 5  # member of a bus/microbus/tempo route relation
+    RING_MEMBER = 1 << 6  # junction=roundabout|circular
+    PAINTABLE = 1 << 7  # real width >= 5.5 m and sealed: centre line allowed
+
+
+class JunctionFlags(IntFlag):
+    """``JNCT.flags`` (W2_DESIGN 9.3; bits 4-5 added by the pipeline)."""
+
+    HAS_ISLAND_AREA = 1 << 0
+    OFFICERS_2_4 = 1 << 1
+    HERITAGE_NO_MOTOR = 1 << 2
+    CROSSINGS_MARKED = 1 << 3
+    HAS_POLICE = 1 << 4  # a curated police chowk (chowks.yaml), whatever the kind
+    HAS_SIGNALS = 1 << 5  # an OSM traffic_signals node at the junction
+
+
+class BuildingFrontFlags(IntFlag):
+    """``BFNT.flags`` (W2_DESIGN 9.3)."""
+
+    COURTYARD_HOST = 1 << 0
+    CORNER = 1 << 1
+    FACES_HERITAGE_SQUARE = 1 << 2
+    RANA_HINT = 1 << 3
+    STRUCTURE_RCC = 1 << 4
+    STRUCTURE_MUD = 1 << 5
+    ROOF_FLAT_TAGGED = 1 << 6
+
+
+class PropFlags(IntFlag):
+    """``PROP.flags``."""
+
+    YAW = 1 << 0  # yaw_cdeg is valid
+    HEIGHT_TAGGED = 1 << 1
+    CHAUTARI = 1 << 2  # a tree on a chautari platform
+    FROM_WAY = 1 << 3  # position derived from a way (centroid or stand end)
+    ON_ROAD = 1 << 4  # a node of a ROAD way (signals, crossings)
+
+
+class RouteFlags(IntFlag):
+    """``.ghrt`` route flags."""
+
+    ROUNDTRIP = 1 << 0
+    STOPS_FROM_MEMBERS = 1 << 1
+    STOPS_INFERRED = 1 << 2
+    HAS_GAPS = 1 << 3  # the way chain is broken somewhere
+    MISSING_WAYS = 1 << 4  # member ways absent from the region's roads
+
+
+class StopFlags(IntFlag):
+    """``.ghrt`` stop flags."""
+
+    FROM_MEMBER = 1 << 0
+    INFERRED = 1 << 1
+    TERMINAL = 1 << 2
+
+
+class HeritageFlags(IntFlag):
+    """``.ghcd`` heritage record flags."""
+
+    MANUAL_POSITION = 1 << 0  # no OSM anchor: curated lon/lat
+    HAS_COMPOUND = 1 << 1
+    WALKABLE_COMPOUND = 1 << 2  # W2-O1
+    NO_VEHICLES = 1 << 3
+    SANCTUM_CLOSED = 1 << 4  # always set: sanctums are never entered or modelled
+    VERIFY = 1 << 5  # some attribute still needs a human check [V]
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +781,7 @@ class RoadFeature:
     access: Travel = ALL_TRAVEL
     name: NameRec | None = None
     ref: str | None = None
+    extra: dict[str, str] = field(default_factory=dict)  # osm_extract.ROAD_TAG_KEYS subset (RATR, D17)
 
 
 @dataclass(slots=True)
@@ -487,6 +802,7 @@ class BuildingFeature:
     flags: BuildingFlags = BuildingFlags(0)
     religion: str | None = None
     name: NameRec | None = None
+    extra: dict[str, str] = field(default_factory=dict)  # osm_extract.BUILDING_TAG_KEYS subset (D4, D19)
 
 
 @dataclass(slots=True)
@@ -545,6 +861,65 @@ class AdminArea:
 
 
 @dataclass(slots=True)
+class PropFeature:
+    """A real OSM point object (``PROP`` chunk; CONTENT_COVERAGE D3, W2 PROP subset)."""
+
+    osm_type: str  # "n" or "w"
+    osm_id: int
+    kind: ObjectKind
+    lon: float
+    lat: float
+    subtype: int = 0  # TREE: TreeClass
+    flags: PropFlags = PropFlags(0)
+    yaw_deg: float | None = None  # bearing clockwise from north
+    height_m: float | None = None
+    name: NameRec | None = None
+    ref: str | None = None
+
+
+@dataclass(slots=True)
+class JunctionNode:
+    """A tagged node that shapes a junction: ``highway=traffic_signals`` or ``mini_roundabout``."""
+
+    osm_id: int
+    lon: float
+    lat: float
+    kind: str  # "traffic_signals" | "mini_roundabout"
+
+
+@dataclass(slots=True)
+class RouteMember:
+    type: str  # "n", "w" or "r"
+    ref: int
+    role: str
+    lon: float | None = None  # node members: position when the extract saw the node
+    lat: float | None = None
+    name: NameRec | None = None
+
+
+@dataclass(slots=True)
+class RouteFeature:
+    """A ``type=route`` relation (D2): bus, microbus, tempo, share taxi, hiking, foot, bicycle, mtb."""
+
+    osm_id: int
+    route: str  # the raw route=* value
+    tags: dict[str, str] = field(default_factory=dict)
+    members: list[RouteMember] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RestrictionFeature:
+    """A ``type=restriction`` relation (D2): ``from`` way, ``via`` node or way, ``to`` way."""
+
+    osm_id: int
+    kind: TurnRestriction
+    from_way: int
+    to_way: int
+    via_node: int = 0
+    via_way: int = 0
+
+
+@dataclass(slots=True)
 class Extract:
     """Everything the OSM stage produces for one region."""
 
@@ -557,12 +932,22 @@ class Extract:
     lines: list[LineFeature] = field(default_factory=list)
     admin: list[AdminArea] = field(default_factory=list)
     stats: dict = field(default_factory=dict)
+    # W2 (ENUMS_VERSION 2)
+    props: list[PropFeature] = field(default_factory=list)
+    junction_nodes: list[JunctionNode] = field(default_factory=list)
+    routes: list[RouteFeature] = field(default_factory=list)
+    restrictions: list[RestrictionFeature] = field(default_factory=list)
+    anchor_nodes: dict[int, tuple[float, float, NameRec | None]] = field(default_factory=dict)  # curated anchors
 
 
 ALL_ENUMS = (
     RoadClass, Surface, SurfaceGroup, SurfaceSource, SacScale, BuildingUse, BuildingArchetype,
     RoofShape, RoofMaterial, WallMaterial, PlaceKind, PoiKind, AreaKind, LineKind, Biome, WorldCover,
     Travel, RoadFlags, BuildingFlags, PoiFlags,
+    # ENUMS_VERSION 2
+    StyleProfile, AreaType, JunctionKind, Sidewalk, ObjectKind, TreeClass, TransitMode, LiveryClass, TurnRestriction,
+    HeritageKind, HeritageFinish, EntryRule, KoraDirection, SacredZoneKind,
+    RoadAttrFlags, JunctionFlags, BuildingFrontFlags, PropFlags, RouteFlags, StopFlags, HeritageFlags,
 )
 
 
@@ -570,6 +955,7 @@ def enums_json() -> dict:
     return {
         "version": ENUMS_VERSION,
         "enums": {e.__name__: {m.name: int(m.value) for m in e} for e in ALL_ENUMS},
+        "flag_enums": [e.__name__ for e in ALL_ENUMS if issubclass(e, IntFlag)],
         "surface_group": {s.name: SURFACE_GROUP[s].name for s in Surface},
     }
 

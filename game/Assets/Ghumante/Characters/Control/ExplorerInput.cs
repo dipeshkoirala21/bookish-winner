@@ -17,7 +17,12 @@ namespace Ghumante.Characters
     /// brake, reverse  S or down                      left trigger
     /// brake           Space                          B
     /// boost / sprint  Shift                          X
-    /// walk / ride     E                              A
+    /// hop on / off    E (hold: passenger, hail taxi) A (hold)
+    /// jump            Space (on foot)                A (nothing to hop on)
+    /// horn / bell     H                              left stick press
+    /// namaste         N                              D-pad up
+    /// garage whistle  G                              D-pad down
+    /// stop (passenger) B                             D-pad right
     /// map (later)     M                              Select
     /// search          /                              Y
     /// pause           Esc (through the UI)           Start
@@ -47,6 +52,11 @@ namespace Ghumante.Characters
         private readonly InputAction _brake;
         private readonly InputAction _boost;
         private readonly InputAction _toggle;
+        private readonly InputAction _jump;
+        private readonly InputAction _horn;
+        private readonly InputAction _namaste;
+        private readonly InputAction _whistle;
+        private readonly InputAction _bell;
         private readonly InputAction _mapButton;
         private readonly InputAction _pause;
         private readonly InputAction _search;
@@ -71,7 +81,12 @@ namespace Ghumante.Characters
             _reverse = Axis("Reverse", "<Keyboard>/s", "<Keyboard>/downArrow", "<Gamepad>/leftTrigger");
             _brake = Button("Brake", "<Keyboard>/space", "<Gamepad>/buttonEast");
             _boost = Button("Boost", "<Keyboard>/leftShift", "<Keyboard>/rightShift", "<Gamepad>/buttonWest");
-            _toggle = Button("WalkRide", "<Keyboard>/e", "<Gamepad>/buttonSouth");
+            _toggle = Button("Action", "<Keyboard>/e", "<Gamepad>/buttonSouth");
+            _jump = Button("Jump", "<Keyboard>/space");
+            _horn = Button("Horn", "<Keyboard>/h", "<Gamepad>/leftStickPress");
+            _namaste = Button("Namaste", "<Keyboard>/n", "<Gamepad>/dpad/up");
+            _whistle = Button("Whistle", "<Keyboard>/g", "<Gamepad>/dpad/down");
+            _bell = Button("Bell", "<Keyboard>/b", "<Gamepad>/dpad/right");
             _mapButton = Button("Map", "<Keyboard>/m", "<Gamepad>/select");
             // Start lives in its own map that stays enabled while search or Settings own the keys, so it can still
             // close them (ExploreScreen.TogglePause).
@@ -84,7 +99,7 @@ namespace Ghumante.Characters
             _zoomHold.AddCompositeBinding("1DAxis").With("Negative", "<Gamepad>/leftShoulder").With("Positive", "<Gamepad>/rightShoulder");
             _look = _map.AddAction("Look", InputActionType.Value, "<Gamepad>/rightStick", expectedControlLayout: "Vector2");
 
-            _deviceProbes = new[] { _move, _throttle, _reverse, _brake, _boost, _toggle, _mapButton, _pause, _search, _zoomHold, _look };
+            _deviceProbes = new[] { _move, _throttle, _reverse, _brake, _boost, _toggle, _jump, _horn, _namaste, _whistle, _bell, _mapButton, _pause, _search, _zoomHold, _look };
 #endif
         }
 
@@ -150,6 +165,12 @@ namespace Ghumante.Characters
             frame.Brake = _brake.IsPressed() ? 1f : 0f;
             frame.Boost = _boost.IsPressed();
             frame.ToggleMode = _toggle.WasPressedThisFrame();
+            frame.ActionHeld = _toggle.IsPressed();
+            frame.Jump = _jump.WasPressedThisFrame();
+            frame.Horn = _horn.IsPressed();
+            frame.Namaste = _namaste.WasPressedThisFrame();
+            frame.Whistle = _whistle.WasPressedThisFrame();
+            frame.Bell = _bell.WasPressedThisFrame();
             frame.Map = _mapButton.WasPressedThisFrame();
             frame.Search = _search.WasPressedThisFrame();
 

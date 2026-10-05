@@ -1,4 +1,5 @@
 using System;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Data;
 using Ghumante.Core.Motion;
 using Ghumante.Core.Search;
@@ -37,6 +38,16 @@ namespace Ghumante.UI.Screens
     {
         public const string RideClass = "gh-hud--ride";
         public const string WalkClass = "gh-hud--walk";
+        public const string PassengerClass = "gh-hud--passenger";
+        public const string TwoWheelerClass = "gh-hud--two";
+        public const string HeavyClass = "gh-hud--heavy";
+        public const string PassengerOnClass = "gh-hud__passenger--on";
+        public const string PromptOnClass = "gh-hud__prompt--on";
+        public const string ActionHopClass = "gh-action-btn--hop";
+        public const string ActionOffClass = "gh-action-btn--off";
+        public const string ActionIconJump = "gh-action-btn__icon--jump";
+        public const string ActionIconScooter = "gh-action-btn__icon--scooter";
+        public const string ActionIconNone = "gh-action-btn__icon--none";
         public const string RouteVisibleClass = "gh-hud__route--visible";
 
         /// <summary>On the root while the route banner shows: toasts then drop below it (Hud.uss).</summary>
@@ -86,6 +97,22 @@ namespace Ghumante.UI.Screens
         private readonly Button _searchButton;
         private readonly Button _modeButton;
         private readonly Button _menuButton;
+        private readonly Button _garageButton;
+        private readonly Button _action;
+        private readonly Label _actionLabel;
+        private readonly VisualElement _actionIcon;
+        private readonly MotionNode _actionNode;
+        private readonly Button _passenger;
+        private readonly Label _hornLabel;
+        private readonly VisualElement _prompt;
+        private readonly Label _promptLabel;
+        private string _actionKey;
+        private string _actionStyle;
+        private string _actionIconClass;
+        private string _hornKey;
+        private string _promptKey;
+        private string _promptArgKey;
+        private ControlLayout _layout = ControlLayout.TwoWheeler;
 
         private readonly VisualElement _pauseLayer;
         private readonly Button _pauseResume;
@@ -165,6 +192,14 @@ namespace Ghumante.UI.Screens
             _controlsNode = Animator.Node(_controls);
             Required<Label>("hud-attribution");
 
+            _action = Required<Button>("hud-action");
+            _actionLabel = Required<Label>("hud-action-label");
+            _actionIcon = Required<VisualElement>("hud-action-icon");
+            _actionNode = Animator.Node(_action);
+            _passenger = Required<Button>("hud-passenger");
+            _hornLabel = Required<Label>("hud-horn-label");
+            _prompt = Required<VisualElement>("hud-prompt");
+            _promptLabel = Required<Label>("hud-prompt-label");
             _touch = new TouchControls(new TouchControlsView
             {
                 Controls = _controls,
@@ -176,6 +211,11 @@ namespace Ghumante.UI.Screens
                 DriveMarker = Required<VisualElement>("hud-drive-marker"),
                 Throttle = Required<Button>("hud-throttle"),
                 Brake = Required<Button>("hud-brake"),
+                Action = _action,
+                Passenger = _passenger,
+                Emote = Required<Button>("hud-emote"),
+                Horn = Required<Button>("hud-horn"),
+                Bell = Required<Button>("hud-bell"),
             }, Animator, Haptics, Feel);
 
             _toast = new HudToast(Animator, Required<VisualElement>("toast-bubble"), Required<VisualElement>("toast-icon"),
@@ -185,6 +225,8 @@ namespace Ghumante.UI.Screens
             _searchButton = Required<Button>("hud-search");
             _modeButton = Required<Button>("hud-mode");
             _menuButton = Required<Button>("hud-menu");
+            _garageButton = Required<Button>("hud-garage");
+            Feel(_garageButton, HapticKind.LightImpact, () => Raise(GarageRequested));
             Feel(_searchButton, HapticKind.LightImpact, () => OpenSearch());
             Feel(_modeButton, HapticKind.MediumImpact, () => Raise(ModeToggleRequested));
             Feel(_menuButton, HapticKind.LightImpact, Pause);
@@ -291,8 +333,11 @@ namespace Ghumante.UI.Screens
         /// <summary>"Main menu" in the pause panel, or "Back to menu" when loading failed.</summary>
         public event Action MenuRequested;
 
-        /// <summary>The Walk/Ride button.</summary>
+        /// <summary>The Walk/Ride button (the same as the Action button: hop on or off).</summary>
         public event Action ModeToggleRequested;
+
+        /// <summary>The garage button: whistle for the selected garage vehicle.</summary>
+        public event Action GarageRequested;
 
         /// <summary>The × of the route banner.</summary>
         public event Action RouteCancelRequested;
@@ -424,8 +469,12 @@ namespace Ghumante.UI.Screens
         {
             bool changed = riding != _riding;
             _riding = riding;
+            _layout = riding ? ControlLayout.TwoWheeler : ControlLayout.Walk;
             StyledRoot.EnableInClassList(RideClass, riding);
             StyledRoot.EnableInClassList(WalkClass, !riding);
+            StyledRoot.EnableInClassList(PassengerClass, false);
+            StyledRoot.EnableInClassList(TwoWheelerClass, riding);
+            StyledRoot.EnableInClassList(HeavyClass, false);
             _touch.Riding = riding;
             _modeButton.tooltip = Localizer.Get(riding ? "hud.walk" : "hud.ride");
             if (changed)
@@ -433,6 +482,102 @@ namespace Ghumante.UI.Screens
                 _touch.ReleaseAll();
                 if (!Animator.Reduced) _modeIconNode.KickHop(320f);
             }
+        }
+
+        /// <summary>
+        /// The touch layout family (W2_DESIGN 6.5): on foot (stick, Action, Namaste), a two-wheeler, a car or a bus/truck
+        /// (steering, pedals, Hop off, Horn) or riding along (Hop off, Stop bell). Sets the <c>gh-hud--*</c> classes.
+        /// </summary>
+        public void SetLayout(ControlLayout layout)
+        {
+            if (layout == _layout) return;
+            _layout = layout;
+            bool ride = layout == ControlLayout.TwoWheeler || layout == ControlLayout.Car || layout == ControlLayout.Heavy;
+            bool walk = layout == ControlLayout.Walk;
+            StyledRoot.EnableInClassList(RideClass, ride);
+            StyledRoot.EnableInClassList(WalkClass, walk);
+            StyledRoot.EnableInClassList(PassengerClass, layout == ControlLayout.Passenger);
+            StyledRoot.EnableInClassList(TwoWheelerClass, layout == ControlLayout.TwoWheeler);
+            StyledRoot.EnableInClassList(HeavyClass, layout == ControlLayout.Heavy);
+            _riding = ride;
+            _touch.Riding = ride;
+            _modeButton.tooltip = Localizer.Get(ride ? "hud.walk" : "hud.ride");
+            _touch.ReleaseAll();
+            if (!Animator.Reduced) _modeIconNode.KickHop(320f);
+        }
+
+        public ControlLayout Layout
+        {
+            get { return _layout; }
+        }
+
+        /// <summary>
+        /// The Action button: its label (a string key: hud.action.jump, hop_on, hop_off, stop), its colour style
+        /// (null yellow, "hop" green, "off" cyan) and its icon (jump arrow, scooter, none). Pops when it changes meaning
+        /// (with a selection tick when Hop on appears, W2_DESIGN 6.5).
+        /// </summary>
+        public void SetAction(string labelKey, string style, bool scooterIcon)
+        {
+            string iconClass = labelKey == "hud.action.jump" ? ActionIconJump : scooterIcon ? ActionIconScooter : ActionIconNone;
+            if (labelKey == _actionKey && style == _actionStyle && iconClass == _actionIconClass) return;
+            bool hopOnAppears = labelKey == "hud.action.hop_on" && _actionKey != labelKey;
+            _actionKey = labelKey;
+            _actionStyle = style;
+            _action.EnableInClassList(ActionHopClass, style == "hop");
+            _action.EnableInClassList(ActionOffClass, style == "off");
+            if (_actionIconClass != null) _actionIcon.RemoveFromClassList(_actionIconClass);
+            _actionIconClass = iconClass;
+            _actionIcon.AddToClassList(iconClass);
+            ApplyActionText();
+            if (hopOnAppears) Haptics.Play(HapticKind.Selection);
+            if (!Animator.Reduced)
+            {
+                Animator.Play(_actionNode, MotionChannel.ScaleX, new Tween(0.86f, 1f, 0.12f, Ease.OutBack));
+                Animator.Play(_actionNode, MotionChannel.ScaleY, new Tween(0.86f, 1f, 0.12f, Ease.OutBack));
+            }
+        }
+
+        /// <summary>The horn button's label: "Horn", or "Bell" on a bicycle.</summary>
+        public void SetHornLabel(string key)
+        {
+            if (key == _hornKey) return;
+            _hornKey = key;
+            _hornLabel.text = Localizer.Get(key);
+        }
+
+        /// <summary>Shows the small "Ride as passenger" button (a passenger seat is offered).</summary>
+        public void SetPassengerOffered(bool offered)
+        {
+            if (_passenger.ClassListContains(PassengerOnClass) == offered) return;
+            _passenger.EnableInClassList(PassengerOnClass, offered);
+        }
+
+        /// <summary>The prompt chip: a string key (null hides it), optionally formatted with another key's text.</summary>
+        public void SetPrompt(string key, string argumentKey = null)
+        {
+            if (key == _promptKey && argumentKey == _promptArgKey) return;
+            _promptKey = key;
+            _promptArgKey = argumentKey;
+            _prompt.EnableInClassList(PromptOnClass, key != null);
+            ApplyPromptText();
+        }
+
+        private void ApplyActionText()
+        {
+            if (_actionKey == null) return;
+            string text = Localizer.Get(_actionKey);
+            _actionLabel.text = text;
+            _action.tooltip = text;
+        }
+
+        private void ApplyPromptText()
+        {
+            if (_promptKey == null)
+            {
+                _promptLabel.text = "";
+                return;
+            }
+            _promptLabel.text = _promptArgKey != null ? Localizer.Format(_promptKey, Localizer.Get(_promptArgKey)) : Localizer.Get(_promptKey);
         }
 
         /// <summary>Shows or hides the touch controls (keyboard or gamepad took over, or a finger came back).</summary>
@@ -773,6 +918,10 @@ namespace Ghumante.UI.Screens
             _inferred.tooltip = Localizer.Get("hud.surface.inferred");
             _searchButton.tooltip = Localizer.Get("hud.search");
             _menuButton.tooltip = Localizer.Get("hud.menu");
+            _garageButton.tooltip = Localizer.Get("hud.garage");
+            ApplyActionText();
+            ApplyPromptText();
+            if (_hornKey != null) _hornLabel.text = Localizer.Get(_hornKey);
             _modeButton.tooltip = Localizer.Get(_riding ? "hud.walk" : "hud.ride");
             ApplyLoadingText();
             _loadingPercentShown = -1;

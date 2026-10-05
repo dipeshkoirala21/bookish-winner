@@ -33,6 +33,12 @@ namespace Ghumante.Core.Data
         public static readonly uint Road = FourCC("ROAD");
         public static readonly uint Seed = FourCC("SEED");
 
+        // W2 chunks (W2_DESIGN 9.3, batch F2). All optional; W1 packs have none of them.
+        public static readonly uint Ratr = FourCC("RATR");
+        public static readonly uint Jnct = FourCC("JNCT");
+        public static readonly uint Bfnt = FourCC("BFNT");
+        public static readonly uint Prop = FourCC("PROP");
+
         /// <summary>A fourcc as the little-endian u32 of its four ASCII bytes.</summary>
         public static uint FourCC(string s)
         {
@@ -180,6 +186,31 @@ namespace Ghumante.Core.Data
             {
                 ReadPois(r, td.Pois, nn);
                 Done(r, "POIS");
+            }
+            // W2 chunks; RATR and BFNT come after ROAD and BLDG so their counts can be checked.
+            r = Body(blob, offset, td, Ght.Ratr);
+            if (r != null)
+            {
+                ReadRoadAttrs(r, td);
+                Done(r, "RATR");
+            }
+            r = Body(blob, offset, td, Ght.Jnct);
+            if (r != null)
+            {
+                ReadJunctions(r, td.Junctions, nn);
+                Done(r, "JNCT");
+            }
+            r = Body(blob, offset, td, Ght.Bfnt);
+            if (r != null)
+            {
+                ReadBuildingFronts(r, td);
+                Done(r, "BFNT");
+            }
+            r = Body(blob, offset, td, Ght.Prop);
+            if (r != null)
+            {
+                ReadProps(r, td.Props, nn);
+                Done(r, "PROP");
             }
             r = Body(blob, offset, td, Ght.Seed);
             if (r != null)
@@ -431,6 +462,110 @@ namespace Ghumante.Core.Data
                     a.Rings[2 * i + 1] = (int)n;
                 }
                 outList.Add(a);
+            }
+        }
+
+        private static long VarintLong(BinReader r, string what)
+        {
+            ulong v = r.Varint();
+            if (v > long.MaxValue) throw new InvalidDataException(what + " " + v + " outside the i64 range");
+            return (long)v;
+        }
+
+        private static int VarintIntChecked(BinReader r, string what)
+        {
+            ulong v = r.Varint();
+            if (v > int.MaxValue) throw new InvalidDataException(what + " " + v + " outside the i32 range");
+            return (int)v;
+        }
+
+        /// <summary>RATR (W2_DESIGN 9.3): one record per ROAD record, same order.</summary>
+        private static void ReadRoadAttrs(BinReader r, TileData td)
+        {
+            int count = Count(r);
+            if (count != td.Roads.Count)
+                throw new InvalidDataException("RATR has " + count + " records for " + td.Roads.Count + " roads");
+            for (int k = 0; k < count; k++)
+            {
+                var a = new RoadAttrRecord
+                {
+                    Area = (AreaType)r.U8(), Sidewalk = r.U8(), LanesFwd = r.U8(), LanesBwd = r.U8(), MaxspeedKmh = r.U8(),
+                    Flags = r.U8(),
+                };
+                a.PartnerWayId = VarintLong(r, "RATR partner_way_id");
+                a.MedianCm = VarintIntChecked(r, "RATR median_cm");
+                int n = Count(r);
+                if (n == 0)
+                {
+                    a.CorridorDm = RoadAttrRecordEmpty.Corridor;
+                }
+                else
+                {
+                    a.CorridorDm = new int[n];
+                    for (int i = 0; i < n; i++) a.CorridorDm[i] = VarintIntChecked(r, "RATR corridor_dm");
+                }
+                td.RoadAttrs.Add(a);
+            }
+        }
+
+        /// <summary>JNCT (W2_DESIGN 9.3).</summary>
+        private static void ReadJunctions(BinReader r, List<JunctionRecord> outList, int nn)
+        {
+            int count = Count(r);
+            for (int k = 0; k < count; k++)
+            {
+                var j = new JunctionRecord { OsmNodeId = VarintLong(r, "JNCT osm_node_id") };
+                j.Kind = (JunctionKind)r.U8();
+                j.Arms = r.U8();
+                j.Flags = r.U8();
+                j.XCm = SvarintInt(r);
+                j.ZCm = SvarintInt(r);
+                j.RingDiameterCm = VarintIntChecked(r, "JNCT ring_diameter_cm");
+                j.IslandDiameterCm = VarintIntChecked(r, "JNCT island_diameter_cm");
+                j.IslandAreaRef = VarintLong(r, "JNCT island_area_osm_ref");
+                j.NameRef = NameRef(r, nn);
+                outList.Add(j);
+            }
+        }
+
+        /// <summary>BFNT (W2_DESIGN 9.3): one 7-byte record per BLDG record, same order.</summary>
+        private static void ReadBuildingFronts(BinReader r, TileData td)
+        {
+            int count = Count(r);
+            if (count != td.Buildings.Count)
+                throw new InvalidDataException("BFNT has " + count + " records for " + td.Buildings.Count + " buildings");
+            for (int k = 0; k < count; k++)
+            {
+                var f = new BuildingFrontRecord
+                {
+                    Profile = (StyleProfile)r.U8(), Area = (AreaType)r.U8(), FrontEdge = r.U8(), FrontDistDm = r.U8(),
+                    ShopBays = r.U8(), Flags = r.U8(), SecondEdge = r.U8(),
+                };
+                int edges = td.Buildings[k].Rings[0].Length / 2;
+                if (f.FrontEdge != BuildingFrontRecord.NoEdge && f.FrontEdge >= edges)
+                    throw new InvalidDataException("BFNT front_edge " + f.FrontEdge + " outside a ring of " + edges + " edges");
+                if (f.SecondEdge != BuildingFrontRecord.NoEdge && f.SecondEdge >= edges)
+                    throw new InvalidDataException("BFNT second_edge " + f.SecondEdge + " outside a ring of " + edges + " edges");
+                td.BuildingFronts.Add(f);
+            }
+        }
+
+        /// <summary>PROP (tile_format.py): <c>varint osm_ref; u8 kind; u8 subtype; u8 flags; svarint x_cm; svarint
+        /// z_cm; u16 yaw_cdeg; varint height_dm; varint name_ref; varint ref_ref</c>.</summary>
+        private static void ReadProps(BinReader r, List<PropRecord> outList, int nn)
+        {
+            int count = Count(r);
+            for (int k = 0; k < count; k++)
+            {
+                var p = new PropRecord { OsmRef = r.Varint(), Kind = (ObjectKind)r.U8(), Subtype = r.U8(), Flags = (PropFlags)r.U8() };
+                p.XCm = SvarintInt(r);
+                p.ZCm = SvarintInt(r);
+                p.YawCdeg = r.U16();
+                if (p.YawCdeg > 35999) throw new InvalidDataException("PROP yaw_cdeg " + p.YawCdeg + " outside 0..35999");
+                p.HeightDm = VarintIntChecked(r, "PROP height_dm");
+                p.NameRef = NameRef(r, nn);
+                p.RefRef = NameRef(r, nn);
+                outList.Add(p);
             }
         }
 

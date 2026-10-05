@@ -8,7 +8,10 @@ USS
     re-derived from Unity's StylePropertyCache.cs and compared, so the list cannot silently go stale);
   * every var(--x) is declared somewhere in our USS;
   * every url("...") resolves to a file, relative to the USS file;
-  * braces balance and comments close.
+  * braces balance and comments close;
+  * no pseudo-state rule (:hover, :active, :focus, ...) overrides a display/position/size property that a layout rule
+    sets on the same UXML element: Unity counts pseudo-classes like classes in specificity, so such a state rule wins
+    while the element is hovered or pressed and the button vanishes or jumps under the finger.
 UXML
   * well-formed XML; only known elements and attributes (Unity 6.3 names);
   * <Style src> paths resolve;
@@ -185,6 +188,67 @@ def check_uxml(files: list[Path], classes: set[str], keys: set[str]) -> dict[Pat
     return names_by_file
 
 
+# Layout properties a pseudo-state rule must not take over from the layout rules (see the module doc).
+STATE_LAYOUT_PROPS = {"display", "visibility", "position", "left", "right", "top", "bottom", "width", "height",
+                      "min-width", "min-height", "max-width", "max-height", "border-radius"}
+PSEUDO_STATE = re.compile(r":(hover|active|focus|checked|disabled|enabled|selected|inactive)\b")
+
+
+def specificity(selector: str) -> int:
+    """Unity's CSSSpec order: ids 100, classes and pseudo-classes 10, types 1."""
+    ids = len(re.findall(r"#[\w-]+", selector))
+    classes = len(re.findall(r"\.[\w-]+", selector)) + len(re.findall(r":[\w-]+", selector))
+    types = len(re.findall(r"(?:^|[\s>])([A-Za-z][\w-]*)", selector))
+    return ids * 100 + classes * 10 + types
+
+
+def check_state_layout(uss: list[Path], uxml: list[Path]) -> None:
+    """Fail when a pseudo-state rule would beat a layout rule on an element both match (see the module doc)."""
+    elements: list[set[str]] = []
+    for path in uxml:
+        try:
+            root = ET.parse(path).getroot()
+        except ET.ParseError:
+            continue
+        elements += [set(el.attrib["class"].split()) for el in root.iter() if el.attrib.get("class")]
+
+    static = set().union(*elements) if elements else set()
+
+    def matches(compound: set[str], el: set[str]) -> bool:
+        # A BEM modifier class (x--on) that no UXML carries is added from code, so it matches its base class.
+        return all(c in el or (c not in static and c.split("--", 1)[0] in el) for c in compound)
+
+    rules = []  # (order, selector, specificity, last-compound classes, pseudo?, props)
+    order = 0
+    for path in uss:
+        text = re.sub(r"/\*.*?\*/", "", path.read_text(encoding="utf-8"), flags=re.S)
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text):
+            props = {d.split(":", 1)[0].strip() for d in body.split(";") if ":" in d} & STATE_LAYOUT_PROPS
+            for sel in (" ".join(x.split()) for x in selectors.split(",")):
+                if not sel or not props:
+                    continue
+                last = re.split(r"[\s>]+", sel)[-1]
+                rules.append((order, sel, specificity(sel), set(re.findall(r"\.([\w-]+)", last)),
+                              bool(PSEUDO_STATE.search(last)), props))
+                order += 1
+    by_selector = {r[1]: r[5] for r in rules}
+    for po, psel, pspec, pcls, pseudo, pprops in rules:
+        if not pseudo or not pcls:
+            continue
+        suffix = psel[psel.index(":", len(psel) - len(re.split(r"[\s>]+", psel)[-1])):]
+        for oo, osel, ospec, ocls, opseudo, oprops in rules:
+            shared = pprops & oprops
+            if opseudo or not shared or not ocls or ocls <= pcls:
+                continue
+            if shared <= by_selector.get(osel + suffix, set()):
+                continue  # the layout rule restates itself for this state, so the state keeps its layout
+            if not (pspec > ospec or (pspec == ospec and po > oo)):
+                continue
+            if any(matches(pcls | ocls, el) for el in elements):
+                fail(f"state rule '{psel}' overrides {sorted(shared)} of layout rule '{osel}' while pressed/hovered"
+                     " (keep layout in the plain selector)")
+
+
 def check_presenters(names_by_file: dict[Path, dict[str, str]]) -> None:
     for cs in sorted((UI / "Screens").glob("*Screen.cs")):
         uxml = UI / "Screens" / (cs.stem.replace("Screen", "") + ".uxml")
@@ -206,6 +270,7 @@ def main() -> int:
     classes = check_uss(uss)
     keys = set(json.loads((UI / "Localization" / "strings.en.json").read_text(encoding="utf-8")))
     names = check_uxml(sorted(UI.rglob("*.uxml")), classes, keys)
+    check_state_layout(uss, sorted(UI.rglob("*.uxml")))
     check_presenters(names)
     print("PASS" if not failures else f"{len(failures)} UI check failure(s)")
     return 0 if not failures else 1

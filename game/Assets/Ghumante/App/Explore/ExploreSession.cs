@@ -2,21 +2,30 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Ghumante.Audio;
 using Ghumante.Characters;
 using Ghumante.Characters.Cameras;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
+using Ghumante.Core.Save;
 using Ghumante.Core.Search;
 using Ghumante.Core.Services;
+using Ghumante.Core.Traffic;
 using Ghumante.Platform;
 using Ghumante.Platform.Regions;
+using Ghumante.Traffic;
 using Ghumante.UI.Hud;
 using Ghumante.UI.Localization;
 using Ghumante.UI.Motion;
 using Ghumante.UI.Screens;
+using Ghumante.Vehicles.Visuals;
 using Ghumante.World;
+using Ghumante.World.Instancing;
+using Ghumante.World.Life;
 using Ghumante.World.Rendering;
+using Ghumante.World.Streaming;
 using UnityEngine;
 
 namespace Ghumante.App.Explore
@@ -28,7 +37,13 @@ namespace Ghumante.App.Explore
     /// kathmandu_valley when imported, else the kathmandu_core sample) with progress on the loading overlay; no region
     /// shows how to install one.</item>
     /// <item><b>Spawn</b>: search "Thamel", snap to the nearest motorbike-routable node and face along its road
-    /// (<see cref="ExploreSpawn"/>); wait until the ground there has streamed in, then hop on.</item>
+    /// (<see cref="ExploreSpawn"/>); wait until the ground there has streamed in, then stand there on foot beside the
+    /// garage's scooter, in the saved appearance (<c>player.appearance</c>, a new random one on first play).</item>
+    /// <item><b>W2 play</b> (W2_DESIGN 6): the explorer walks, jumps, namastes, hops on any garage or community-fleet
+    /// vehicle, rides along in taxis and buses; the session feeds it the world (sacred zones, the traffic snapshot,
+    /// community-fleet parked vehicles near the player, the nearest cow), posts the player to the sims through
+    /// <see cref="LifeHost.Post"/> (a traffic obstacle, the pedestrians' hop-aside capsule, a taxi's pull-over), wires
+    /// the audio listener and maps the explorer's prompt and layout onto the HUD.</item>
     /// <item><b>Play</b>: every frame the merged controls (keyboard and gamepad through <see cref="ExplorerInput"/>, touch
     /// through the HUD) drive the <see cref="ExplorerController"/>, the world streams around it (its focus), the
     /// <see cref="ChaseCameraRig"/> follows, haptics answer bumps, surfaces and recoveries, and the HUD shows speed,
@@ -68,7 +83,40 @@ namespace Ghumante.App.Explore
             Closed,
         }
 
+        /// <summary>Traffic obstacle ids the session owns (the player, a taxi's pull-over point).</summary>
+        public const int PlayerObstacleId = 0x50_4C_41_59, PullOverObstacleId = 0x50_55_4C_4C;
+
+        /// <summary>Community-fleet vehicles are offered within this distance.</summary>
+        public const float FleetSearchM = 30f;
+
         private ExploreScreen _screen;
+        private SaveData _save;
+        private Action _persist;
+        private VehicleMeshCache _vehicleCache;
+        private readonly Dictionary<TileId, TileExtras> _detailTiles = new Dictionary<TileId, TileExtras>();
+        /// <summary>Parked community-fleet vehicles the player has borrowed: not drawn (TrafficPresenter.HiddenParked)
+        /// and not offered, by parked id, until the vehicle goes home, whatever happens to their tiles meanwhile.</summary>
+        private readonly HashSet<uint> _hiddenParked = new HashSet<uint>();
+        private readonly ParkedSpot[] _parked = new ParkedSpot[48];
+        private int _parkedCount;
+        private float _parkedTimer;
+        private volatile float _cowDistance = float.PositiveInfinity;
+        private double _cowX, _cowZ;
+        private Action<TrafficSim, PedestrianSim, AnimalSim> _postPlayer;
+        private double _obstacleX, _obstacleZ;
+        private float _obstacleHeading, _obstacleSpeed, _obstacleWidth, _obstacleFront, _obstacleRadius;
+        private bool _vehicleBody;
+        private volatile bool _postPassenger;
+        private float _postTimer;
+        private int _postedPull = -1;
+
+        /// <summary>The player is posted to the sims at 10 Hz (LifeHost.Post wraps each call in a closure).</summary>
+        public const float PostIntervalS = 0.1f;
+        private int _pullAgent = -1;
+        private double _pullX, _pullZ;
+        private bool _listenerAttached;
+        private Vector3 _lastListener;
+        private bool _garagePressed;
         private IHaptics _haptics;
         private MotionSettings _motion;
         private Localizer _localizer;
@@ -122,9 +170,19 @@ namespace Ghumante.App.Explore
         public static ExploreSession Begin(ExploreScreen screen, IHaptics haptics, MotionSettings motion, Localizer localizer,
                                            DeviceTier tier)
         {
+            return Begin(screen, haptics, motion, localizer, tier, null, null);
+        }
+
+        /// <summary>As above, with the save (<c>player.appearance</c> and <c>player.garage</c> are read from it and written
+        /// back) and the owner's persist call.</summary>
+        public static ExploreSession Begin(ExploreScreen screen, IHaptics haptics, MotionSettings motion, Localizer localizer,
+                                           DeviceTier tier, SaveData save, Action persist)
+        {
             if (screen == null) throw new ArgumentNullException(nameof(screen));
             var go = new GameObject("Explore Session");
             ExploreSession session = go.AddComponent<ExploreSession>();
+            session._save = save ?? new SaveData();
+            session._persist = persist;
             session._screen = screen;
             session._haptics = haptics ?? new NullHaptics();
             session._motion = motion ?? new MotionSettings();
@@ -158,17 +216,40 @@ namespace Ghumante.App.Explore
                 _input = null;
             }
             _rig.Detach();
+            if (AudioDirector.Exists)
+            {
+                // Silence the city before the menu shows (the director outlives the session).
+                AudioDirector.Instance.SetWorldActive(false);
+                if (_listenerAttached) AudioDirector.Instance.DetachListener();
+            }
+            _listenerAttached = false;
             if (_explorer != null)
             {
+                // Keep the garage selection (and any wardrobe change) for next time.
+                PlayerProfile.StoreGarage(_save, _explorer.Garage);
+                PlayerProfile.StoreAppearance(_save, _explorer.Recipe);
+                if (_persist != null) _persist();
                 _explorer.ModeChanged -= OnModeChanged;
+                _explorer.Notice -= OnNotice;
+                _explorer.FleetVehicle -= OnFleetVehicle;
+                _explorer.SacredZoneChanged -= OnSacredZone;
                 Destroy(_explorer.gameObject);
                 _explorer = null;
             }
             if (_world != null)
             {
                 _world.OriginShifted -= OnOriginShifted;
+                _world.DetailTileShown -= OnDetailShown;
+                _world.DetailTileHidden -= OnDetailHidden;
                 _world.Close();
                 _world = null;
+            }
+            _detailTiles.Clear();
+            _hiddenParked.Clear();
+            if (_vehicleCache != null)
+            {
+                _vehicleCache.Dispose();
+                _vehicleCache = null;
             }
             if (_worldObject != null) Destroy(_worldObject);
             _worldObject = null;
@@ -196,6 +277,7 @@ namespace Ghumante.App.Explore
         {
             _screen.MenuRequested += OnMenuRequested;
             _screen.ModeToggleRequested += ToggleMode;
+            _screen.GarageRequested += OnGarageRequested;
             _screen.RouteCancelRequested += CancelRoute;
             _screen.RideToRequested += RideTo;
             _screen.TeleportRequested += TeleportTo;
@@ -206,6 +288,7 @@ namespace Ghumante.App.Explore
         {
             _screen.MenuRequested -= OnMenuRequested;
             _screen.ModeToggleRequested -= ToggleMode;
+            _screen.GarageRequested -= OnGarageRequested;
             _screen.RouteCancelRequested -= CancelRoute;
             _screen.RideToRequested -= RideTo;
             _screen.TeleportRequested -= TeleportTo;
@@ -222,6 +305,8 @@ namespace Ghumante.App.Explore
             _world.Tier = _tier;
             _world.TimeOfDayHours = StartHours;
             _world.OriginShifted += OnOriginShifted;
+            _world.DetailTileShown += OnDetailShown;
+            _world.DetailTileHidden += OnDetailHidden;
             _screen.ShowLoading("explore.loading.finding", null);
             _screen.SetLoadingProgress(0.02f);
             try
@@ -237,6 +322,8 @@ namespace Ghumante.App.Explore
                     _screen.ShowNoRegion();
                     return;
                 }
+                // Audio before the world opens, so the world wires zones, clock and origin shifts to it (Track C2).
+                AudioDirector.Create(AudioDirector.DetectTier(), (uint)WorldRoot.RegionSeed(regionId));
                 // The manifest (with its Nepali name) is read only by OpenRegionAsync; until then Nepali gets a generic
                 // line rather than the id spelled out in English.
                 if (_localizer.Locale == Localizer.Nepali) _screen.ShowLoading("explore.loading.opening_map", null);
@@ -305,12 +392,30 @@ namespace Ghumante.App.Explore
 
         private void StartPlaying()
         {
+            // The world's sound starts with play, not under the loading screen.
+            if (AudioDirector.Exists) AudioDirector.Instance.SetWorldActive(true);
             _toonMaterial = CreateToonMaterial();
-            _explorer = ExplorerController.Create(_toonMaterial);
+            _vehicleCache = new VehicleMeshCache();
+            // The player's look and garage from the save; a first play draws a fresh look (random skin, never #1).
+            bool fresh = !PlayerProfile.HasAppearance(_save);
+            uint seed = (uint)(DateTime.UtcNow.Ticks ^ (DateTime.UtcNow.Ticks >> 32));
+            CharacterRecipe recipe = PlayerProfile.LoadAppearance(_save, seed);
+            Garage garage = PlayerProfile.LoadGarage(_save, recipe.Seed);
+            if (fresh)
+            {
+                PlayerProfile.StoreAppearance(_save, recipe);
+                PlayerProfile.StoreGarage(_save, garage);
+                if (_persist != null) _persist();
+            }
+            _explorer = ExplorerController.Create(_toonMaterial, _vehicleCache, recipe, garage);
             _explorer.Bind(_world.GroundQuery, _world.Origin);
             _explorer.ReducedMotion = _motion.ReduceMotion;
             _explorer.ModeChanged += OnModeChanged;
-            _explorer.Spawn(_spawn.X, _spawn.Z, _spawn.HeadingRad, ExplorerMode.Ride, _spawn.HeightHint);
+            _explorer.Notice += OnNotice;
+            _explorer.FleetVehicle += OnFleetVehicle;
+            _explorer.SacredZoneChanged += OnSacredZone;
+            _explorer.Spawn(_spawn.X, _spawn.Z, _spawn.HeadingRad, ExplorerMode.Walk, _spawn.HeightHint);
+            _postPlayer = PostPlayer;
 
             Camera camera = Camera.main;
             if (camera == null)
@@ -330,7 +435,7 @@ namespace Ghumante.App.Explore
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             _screen.EnableDebugTime(_world.TimeOfDayHours);
 #endif
-            _screen.SetMode(true);
+            _screen.SetLayout(ControlLayout.Walk);
             _screen.HideLoading();
             _phase = Phase.Playing;
             _placeTimer = 0f;
@@ -338,7 +443,7 @@ namespace Ghumante.App.Explore
             if (_spawn.Place != null)
             {
                 string name = _spawn.Place.Display(_localizer.Locale == Localizer.Nepali);
-                _screen.ShowToast(_localizer.Format("explore.spawn", name), "gh-toast__icon--scooter", 3.5f);
+                _screen.ShowToast(_localizer.Format("explore.spawn", name), "gh-toast__icon--star", 3.5f);
             }
             _haptics.Play(HapticKind.MediumImpact);
         }
@@ -381,9 +486,13 @@ namespace Ghumante.App.Explore
             if (_touchVisibility.Update(source)) _screen.SetTouchControlsVisible(_touchVisibility.Visible);
 
             if (frame.Pause) _screen.TogglePause();
+            if (_garagePressed)
+            {
+                frame.Whistle = true;
+                _garagePressed = false;
+            }
             if (!blocked && !settling)
             {
-                if (frame.ToggleMode) ToggleMode();
                 if (frame.Search) _screen.OpenSearch(frame.Device == ControlDevice.Gamepad);
                 if (frame.Map) _screen.ShowToast(_localizer.Get("menu.map_soon"), "gh-toast__icon--map");
             }
@@ -392,15 +501,24 @@ namespace Ghumante.App.Explore
             if (blocked) frame = new ControlFrame { ZoomSteps = frame.ZoomSteps };
             _frame = frame;
 
+            if (settling)
+            {
+                frame.ToggleMode = false;
+                frame.ActionHeld = false;
+            }
             _explorer.ReducedMotion = _motion.ReduceMotion;
             _rig.ReducedMotion = _motion.ReduceMotion;
-            _explorer.Tick(dt, frame, _rig.YawRad, blocked);
+            ExplorerContext context = BuildContext(dt);
+            _explorer.Tick(dt, frame, _rig.YawRad, blocked, context);
             WorldPos position = _explorer.Position;
+            PostToLife();
+            UpdateHud();
+            UpdateListener(dt, position);
             _world.Focus = position;
             _screen.Search.SetPlayerPosition(position.X, position.Z);
 
             HapticKind kind;
-            if (!blocked && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode == ExplorerMode.Ride,
+            if (!blocked && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode != ExplorerMode.Walk,
                                                       _explorer.Active.Vehicle.LastLandingSpeedMps, out kind))
             {
                 _haptics.Play(kind);
@@ -429,8 +547,8 @@ namespace Ghumante.App.Explore
             Vector3 target;
             float heading, speed, lean;
             _explorer.GetCameraTarget(out target, out heading, out speed, out lean);
-            _rig.Tick(Time.deltaTime, target, heading, speed, lean, _explorer.Mode == ExplorerMode.Ride && !_explorer.IsHopping,
-                      _frame, _world.Ground, _world.Origin);
+            _rig.PassengerOf = _explorer.PassengerRig;
+            _rig.Tick(Time.deltaTime, target, heading, speed, lean, _explorer.Rig, _frame, _world.Ground, _world.Origin);
             _screen.SetHeading(_rig.YawRad);
         }
 
@@ -459,6 +577,12 @@ namespace Ghumante.App.Explore
                 LookYawDeg = t.LookYawDeg,
                 LookPitchDeg = t.LookPitchDeg,
                 Looking = t.Looking,
+                ToggleMode = t.ActionPressed,
+                ActionHeld = t.ActionHeld,
+                Horn = t.Horn,
+                Namaste = t.Namaste,
+                Bell = t.Bell,
+                RidePassenger = t.Passenger,
                 Device = t.Active || t.Touched ? ControlDevice.Touch : ControlDevice.None,
             };
         }
@@ -482,6 +606,7 @@ namespace Ghumante.App.Explore
         {
             if (_explorer != null) _explorer.ShiftOrigin(delta);
             _rig.ShiftOrigin(delta);
+            _lastListener -= new Vector3((float)delta.X, delta.Y, (float)delta.Z);
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -496,13 +621,263 @@ namespace Ghumante.App.Explore
         private void ToggleMode()
         {
             if (_explorer == null || _phase != Phase.Playing) return;
-            if (_explorer.ToggleMode() && _explorer.DismountPending)
-                _screen.ShowToast(_localizer.Get("hud.slow_down"), "gh-toast__icon--scooter", 1.6f);
+            _explorer.ToggleMode();
+        }
+
+        private void OnGarageRequested()
+        {
+            _garagePressed = true;
         }
 
         private void OnModeChanged(ExplorerMode mode)
         {
-            if (_screen != null) _screen.SetMode(mode == ExplorerMode.Ride);
+            if (_screen == null || _explorer == null) return;
+            _screen.SetLayout(_explorer.Layout);
+            _haptics.Play(mode == ExplorerMode.Walk ? HapticKind.LightImpact : HapticKind.MediumImpact);
+        }
+
+        private void OnNotice(string key)
+        {
+            if (_screen == null || string.IsNullOrEmpty(key)) return;
+            string icon = key.StartsWith("hud.garage", StringComparison.Ordinal) ? "gh-toast__icon--scooter" : "gh-toast__icon--star";
+            _screen.ShowToast(_localizer.Get(key), icon, 2.4f);
+        }
+
+        private void OnSacredZone(SacredZone zone, bool entered)
+        {
+            if (!entered || _screen == null) return;
+            string key = CalmMode.CardKey(zone.Rule) ?? "sacred.entered";
+            _screen.ShowToast(_localizer.Get(key), "gh-toast__icon--star", 4f);
+        }
+
+        // -------------------------------------------------------------------------------------------------------------
+        // The world around the explorer (W2)
+
+        private void OnDetailShown(TileId id, TileExtras extras)
+        {
+            if (extras != null) _detailTiles[id] = extras;
+        }
+
+        private void OnDetailHidden(TileId id)
+        {
+            _detailTiles.Remove(id);
+        }
+
+        /// <summary>
+        /// A community-fleet vehicle was borrowed (its parked copy is hidden) or went home (it shows again). The shared
+        /// TileInstances are never changed: the hidden ids live in <see cref="_hiddenParked"/>, which the traffic
+        /// presenter and <see cref="GatherParked"/> consult, so hiding and re-showing (or rebuilding) a tile meanwhile
+        /// neither loses the parked copy nor shows it twice.
+        /// </summary>
+        private void OnFleetVehicle(uint id, bool borrowed)
+        {
+            TrafficPresenter traffic = _world != null ? _world.GetComponent<TrafficPresenter>() : null;
+            if (traffic != null) traffic.HiddenParked = _hiddenParked;
+            if (borrowed)
+            {
+                if (_hiddenParked.Add(id)) OnNotice("hud.fleet_borrowed");
+                return;
+            }
+            _hiddenParked.Remove(id);
+        }
+
+        /// <summary>What the explorer needs from the world this frame (no allocation).</summary>
+        private ExplorerContext BuildContext(float dt)
+        {
+            WorldPos at = _explorer.Position;
+            _parkedTimer -= dt;
+            if (_parkedTimer <= 0f)
+            {
+                _parkedTimer = 0.25f;
+                GatherParked(at.X, at.Z);
+            }
+            LifeHost life = _world.Life;
+            Camera cam = _rig.Camera;
+            return new ExplorerContext
+            {
+                Zones = _world.Zones,
+                Traffic = life != null ? life.Vehicles : null,
+                TrafficCount = life != null ? life.VehicleCount : 0,
+                Parked = _parked,
+                ParkedCount = _parkedCount,
+                NearestCowM = _cowDistance,
+                GameHour = _world.TimeOfDayHours,
+                Urban = _world.AreaTypes == null || _world.AreaTypes.At(at.X, at.Z) != AreaType.Rural,
+                Sound = _world.Sound,
+                CameraPosition = cam != null ? cam.transform.position : Vector3.zero,
+                CameraForward = cam != null ? cam.transform.forward : Vector3.forward,
+                Portrait = cam != null && cam.aspect < 1f,
+            };
+        }
+
+        private void GatherParked(double x, double z)
+        {
+            _parkedCount = 0;
+            foreach (KeyValuePair<TileId, TileExtras> kv in _detailTiles)
+            {
+                TileInstances inst = kv.Value.Instances;
+                if (inst == null || inst.Parked.Count == 0) continue;
+                TileId id = kv.Key;
+                if (x < id.X0 - FleetSearchM || x > id.X0 + id.Size + FleetSearchM || z < id.Z0 - FleetSearchM || z > id.Z0 + id.Size + FleetSearchM)
+                    continue;
+                for (int i = 0; i < inst.Parked.Count && _parkedCount < _parked.Length; i++)
+                {
+                    ParkedVehicle p = inst.Parked[i];
+                    if (!p.CommunityFleet || _hiddenParked.Contains(p.Id)) continue;
+                    double px = id.X0 + p.X, pz = id.Z0 + p.Z;
+                    double dx = px - x, dz = pz - z;
+                    if (dx * dx + dz * dz > FleetSearchM * FleetSearchM) continue;
+                    _parked[_parkedCount++] = new ParkedSpot
+                    {
+                        X = px, Z = pz, Y = p.Y, YawDeg = p.YawDeg, Variant = p.Variant, Livery = p.Livery, Id = p.Id, Fleet = true,
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// The player in the sims (only through LifeHost.Post): a traffic obstacle where the player stands or drives, the
+        /// pedestrians' hop-aside capsule ahead of the player's vehicle, a hailed taxi's pull-over point, and the
+        /// nearest-cow query for the cushion (read back next frame).
+        /// </summary>
+        private void PostToLife()
+        {
+            LifeHost life = _world.Life;
+            if (life == null) return;
+            _postTimer -= Time.deltaTime;
+            int wantPull;
+            double unusedX, unusedZ;
+            _explorer.TryGetPullOver(out wantPull, out unusedX, out unusedZ);
+            if (_postTimer > 0f && wantPull == _postedPull) return;
+            _postTimer = PostIntervalS;
+            _postedPull = wantPull;
+            WorldPos at = _explorer.Position;
+            _vehicleBody = _explorer.TryGetVehicleBody(out _obstacleX, out _obstacleZ, out _obstacleHeading, out _obstacleSpeed, out _obstacleWidth,
+                                                       out _obstacleFront);
+            if (!_vehicleBody)
+            {
+                _obstacleX = at.X;
+                _obstacleZ = at.Z;
+            }
+            _obstacleRadius = _vehicleBody ? Mathf.Max(1f, 0.5f * _obstacleFront) : 0.6f;
+            int agent;
+            double px, pz;
+            if (_explorer.TryGetPullOver(out agent, out px, out pz))
+            {
+                _pullAgent = agent;
+                _pullX = px;
+                _pullZ = pz;
+            }
+            else
+            {
+                _pullAgent = -1;
+            }
+            _cowX = at.X;
+            _cowZ = at.Z;
+            _postPassenger = _explorer.Mode == ExplorerMode.Passenger;
+            life.Post(_postPlayer);
+        }
+
+        /// <summary>Runs on the life worker at the start of its next step.</summary>
+        private void PostPlayer(TrafficSim traffic, PedestrianSim peds, AnimalSim animals)
+        {
+            // Worker thread: only plain fields written by PostToLife (never Unity objects).
+            if (!_postPassenger) traffic.AddObstacle(PlayerObstacleId, _obstacleX, _obstacleZ, _obstacleRadius, ObstacleKind.Player);
+            else traffic.RemoveObstacle(PlayerObstacleId);
+            peds.SetPlayerVehicle(_vehicleBody, _obstacleX, _obstacleZ, _obstacleHeading, _obstacleSpeed, _obstacleWidth, _obstacleFront);
+            if (_pullAgent >= 0) traffic.AddObstacle(PullOverObstacleId, _pullX, _pullZ, 1.2f, ObstacleKind.Player);
+            else traffic.RemoveObstacle(PullOverObstacleId);
+            float d;
+            _cowDistance = animals.TryNearestCow(_cowX, _cowZ, out d) ? d : float.PositiveInfinity;
+        }
+
+        /// <summary>The HUD follows the explorer: layout, the Action button, the prompt chip, the passenger button.</summary>
+        private void UpdateHud()
+        {
+            ControlLayout layout = _explorer.Layout;
+            if (layout != _screen.Layout) _screen.SetLayout(layout);
+            PlayerVehicleHorn();
+            switch (_explorer.Prompt)
+            {
+                case ExplorerPrompt.HopOn:
+                    _screen.SetAction("hud.action.hop_on", "hop", true);
+                    _screen.SetPrompt("hud.prompt.hop_on", VehicleNameKey(_explorer.PromptRig));
+                    break;
+                case ExplorerPrompt.HopOff:
+                    _screen.SetAction("hud.action.hop_off", "off", false);
+                    _screen.SetPrompt(null);
+                    break;
+                case ExplorerPrompt.VehiclesRestOutside:
+                    if (_explorer.Mode == ExplorerMode.Ride) _screen.SetAction("hud.action.hop_off", "off", false);
+                    // On foot in a compound a tap rings a shrine bell (the only touch path to it), not a jump.
+                    else if (_explorer.Calm.Active) _screen.SetAction("hud.action.ring_bell", null, false);
+                    else _screen.SetAction("hud.action.jump", null, false);
+                    _screen.SetPrompt("hud.prompt.rest_outside");
+                    break;
+                case ExplorerPrompt.TaxiComing:
+                    _screen.SetAction("hud.action.jump", null, false);
+                    _screen.SetPrompt("hud.prompt.taxi_coming");
+                    break;
+                case ExplorerPrompt.StopRequested:
+                    _screen.SetAction("hud.action.stop", "off", false);
+                    _screen.SetPrompt("hud.prompt.stop_requested");
+                    break;
+                case ExplorerPrompt.RideAlong:
+                    _screen.SetAction("hud.action.stop", "off", false);
+                    _screen.SetPrompt("hud.prompt.ride_along");
+                    break;
+                default:
+                    _screen.SetAction("hud.action.jump", null, false);
+                    _screen.SetPrompt(null);
+                    break;
+            }
+            _screen.SetPassengerOffered(_explorer.PassengerOffered && _explorer.Mode == ExplorerMode.Walk);
+        }
+
+        private void PlayerVehicleHorn()
+        {
+            Characters.Rides.PlayerVehicle v = _explorer.CurrentVehicle;
+            bool bell = v != null && VehicleRoles.HornOf(v.Entry) == Core.Synth.HornKind.BicycleBell;
+            _screen.SetHornLabel(bell ? "hud.bell" : "hud.horn");
+        }
+
+        private static string VehicleNameKey(RigClass rig)
+        {
+            switch (rig)
+            {
+                case RigClass.Bicycle: return "vehicle.bicycle";
+                case RigClass.TwoWheeler: return "vehicle.two_wheeler";
+                case RigClass.Van: return "vehicle.van";
+                case RigClass.Bus: return "vehicle.bus";
+                case RigClass.Truck: return "vehicle.truck";
+                case RigClass.Tractor: return "vehicle.tractor";
+                case RigClass.Passenger: return "vehicle.passenger";
+                default: return "vehicle.car";
+            }
+        }
+
+        /// <summary>The audio listener rides with the camera and hears from the player's head (Track C2's director).</summary>
+        private void UpdateListener(float dt, WorldPos position)
+        {
+            if (!AudioDirector.Exists) return;
+            AudioDirector audio = AudioDirector.Instance;
+            Camera cam = _rig.Camera;
+            if (!_listenerAttached && cam != null)
+            {
+                audio.AttachListener(cam.transform, _explorer.Head);
+                _listenerAttached = true;
+            }
+            Vector3 scene = _explorer.ToScene(position.X, position.Y, position.Z);
+            Vector3 velocity = dt > 0f ? (scene - _lastListener) / dt : Vector3.zero;
+            if (velocity.sqrMagnitude > 2500f) velocity = Vector3.zero; // a teleport or origin shift
+            _lastListener = scene;
+            audio.SetListenerVelocity(velocity);
+            audio.SetListenerGamePosition(position.X, position.Z, position.Y);
+            bool driving = _explorer.Mode == ExplorerMode.Ride;
+            Characters.Rides.PlayerVehicle v = _explorer.CurrentVehicle;
+            bool interior = _explorer.Mode == ExplorerMode.Passenger ||
+                            v != null && !VehicleRoles.IsTwoWheeler(v.Entry.Shape) && v.Entry.Shape != BodyShape.Tractor;
+            audio.SetPlayerState(driving, interior);
         }
 
         private void OnTimeOfDayChanged(float hours)

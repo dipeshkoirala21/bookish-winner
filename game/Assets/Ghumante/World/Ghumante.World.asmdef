@@ -4,6 +4,7 @@
     "references": [
         "Ghumante.Core",
         "Ghumante.Platform",
+        "Ghumante.Audio",
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Mathematics",

@@ -19,6 +19,10 @@ Outputs (all in shared/golden/):
   entries, ``fold``/``romanize`` cases, and ranked results for a query list.
 * ``golden.ghrg`` + ``golden_routes.json``: a ~40-node synthetic road network, its decoded arrays,
   A* routes per profile and nearest-node queries. ``golden_profiles.json`` dumps the travel tables.
+* W2 (DATA_FORMATS sections 1.11-1.14, 6, 7, 8): ``golden_w2.ght`` + ``golden_w2.json``, the golden tile
+  plus every W2 chunk (RATR, JNCT, BFNT, PROP) and the new AREA flags; ``golden.ghrt`` +
+  ``golden_transit.json`` (routes, stops, restrictions); ``golden.ghcd`` + ``golden_curated.json``
+  (heritage records); ``golden_aviation.json`` (an aviation sidecar over a synthetic runway).
 
 ``--out DIR`` writes somewhere else (tests). ``--enums-cs`` additionally rewrites
 game/Assets/Ghumante/Core/Data/Enums.cs from shared/enums.json (append-only enums, ARCHITECTURE.md).
@@ -48,8 +52,9 @@ from ghumante_pipeline.model import (AdminArea, AreaKind, Biome, BuildingArchety
                                      Surface, SurfaceSource, Travel, WallMaterial)
 from ghumante_pipeline.pack import PackReader, write_pack  # noqa: E402
 from ghumante_pipeline.projection import TileId  # noqa: E402
-from ghumante_pipeline.tile_format import (AreaRec, BuildingRec, LineRec, NameEntry, NameTable, PoiRec,  # noqa: E402
-                                           RoadRec, TileData)
+from ghumante_pipeline.tile_format import (AreaRec, BuildingFrontRec, BuildingRec, JunctionRec,  # noqa: E402
+                                           LineRec, NameEntry, NameTable, PoiRec, PropRec, RoadAttrRec, RoadRec,
+                                           TileData)
 
 DATA_VERSION = 1
 
@@ -166,7 +171,7 @@ def make_tile_data() -> TileData:
     ]
     return TileData(tile=GOLDEN_TILE, data_version=DATA_VERSION, heights_q=heights.astype(np.uint16),
                     biomes=biomes, names=names.entries(), roads=roads, lines=lines, buildings=buildings,
-                    areas=areas, pois=pois, seed=tile_format.make_seed(GOLDEN_TILE, DATA_VERSION),
+                    areas=areas, pois=pois, seed=tile_format.make_seed(GOLDEN_TILE),
                     meta={"region": "golden_region", "sources": {"osm": "d41d8cd98f00b204e9800998ecf8427e",
                                                                    "dem": "glo30", "landcover": "worldcover"},
                           "note": "नमस्ते \"quoted\""},
@@ -179,7 +184,7 @@ def horizon_tile(tile: TileId, base: int) -> TileData:
     return TileData(tile=tile, data_version=DATA_VERSION,
                     heights_q=(base + 100 * ii + 50 * jj).astype(np.uint16),
                     biomes=np.full((n, n), int(Biome.HILL_FOREST), dtype=np.uint8),
-                    seed=tile_format.make_seed(tile, DATA_VERSION))
+                    seed=tile_format.make_seed(tile))
 
 
 def _pts(a: np.ndarray) -> list[int]:
@@ -226,6 +231,91 @@ def tile_json(blob: bytes) -> dict:
         "meta": td.meta,
         "has_detail": td.has_detail,
     }
+
+
+def tile_json_w2(blob: bytes) -> dict:
+    """``tile_json`` plus the W2 chunks (RATR, JNCT, BFNT, PROP)."""
+    out = tile_json(blob)
+    td = tile_format.decode_tile(blob)
+    out["road_attrs"] = [{"area_type": a.area_type, "sidewalk": a.sidewalk, "lanes_fwd": a.lanes_fwd,
+                          "lanes_bwd": a.lanes_bwd, "maxspeed_kmh": a.maxspeed_kmh, "flags": a.flags,
+                          "partner_way_id": a.partner_way_id, "median_cm": a.median_cm,
+                          "corridor_dm": [int(v) for v in a.corridor_dm]} for a in td.road_attrs]
+    out["junctions"] = [{"osm_node_id": j.osm_node_id, "kind": j.kind, "arms": j.arms, "flags": j.flags,
+                         "x_cm": j.x_cm, "z_cm": j.z_cm, "ring_diameter_cm": j.ring_diameter_cm,
+                         "island_diameter_cm": j.island_diameter_cm, "island_area_osm_ref": j.island_area_osm_ref,
+                         "name_ref": j.name_ref} for j in td.junctions]
+    out["building_fronts"] = [{"style_profile": f.style_profile, "area_type": f.area_type, "front_edge": f.front_edge,
+                               "front_dist_dm": f.front_dist_dm, "shop_bays": f.shop_bays, "flags": f.flags,
+                               "second_edge": f.second_edge} for f in td.building_fronts]
+    out["props"] = [{"osm_ref": p.osm_ref, "kind": p.kind, "subtype": p.subtype, "flags": p.flags, "x_cm": p.x_cm,
+                     "z_cm": p.z_cm, "yaw_cdeg": p.yaw_cdeg, "height_dm": p.height_dm, "name_ref": p.name_ref,
+                     "ref_ref": p.ref_ref} for p in td.props]
+    return out
+
+
+def make_tile_data_w2() -> TileData:
+    """The golden tile plus one of every W2 record (values chosen to hit every field width)."""
+    from ghumante_pipeline.model import (AreaType, BuildingFrontFlags, JunctionFlags, JunctionKind, ObjectKind,
+                                         PropFlags, RoadAttrFlags, Sidewalk, StyleProfile, TreeClass)
+
+    td = make_tile_data()
+    names = NameTable()
+    for e in td.names:
+        names.ref(e)
+    kal = names.ref(NameRec("Kalanki", "Kalanki", ""))
+    stop = names.ref(NameRec("Ratna Park", "Ratna Park", "रत्नपार्क"))
+    gate = names.ref_str("D7")
+    td.names = names.entries()
+    s = int(GOLDEN_TILE.size * 100)
+    # One RATR per road, in the pre-canonical road order (canonicalize sorts them together).
+    td.road_attrs = [
+        RoadAttrRec(area_type=AreaType.URBAN, sidewalk=Sidewalk.BOTH, lanes_fwd=2, lanes_bwd=0, maxspeed_kmh=50,
+                    flags=RoadAttrFlags.DUAL | RoadAttrFlags.LIT | RoadAttrFlags.BUS_ROUTE | RoadAttrFlags.PAINTABLE,
+                    partner_way_id=4000000124, median_cm=100,
+                    corridor_dm=np.array([0, 186, 220, 300000, 1], dtype=np.int64)),
+        RoadAttrRec(area_type=AreaType.HILL, sidewalk=Sidewalk.UNKNOWN, flags=RoadAttrFlags.NO_MOTOR),
+        RoadAttrRec(area_type=AreaType.OLD_CORE, sidewalk=Sidewalk.LEFT, lanes_fwd=255, lanes_bwd=1,
+                    maxspeed_kmh=250, flags=RoadAttrFlags.HERITAGE_PEDESTRIAN | RoadAttrFlags.RING_MEMBER
+                    | RoadAttrFlags.SERVICE_ROAD, corridor_dm=np.array([127, 128, 16383, 16384], dtype=np.int64)),
+    ]
+    # Building 0's ring is clockwise: canonicalize reverses it and remaps front_edge 1 -> 2.
+    td.building_fronts = [
+        BuildingFrontRec(StyleProfile.KATHMANDU_CORE, AreaType.OLD_CORE, 1, 37, 3 | 0x80,
+                         BuildingFrontFlags.CORNER | BuildingFrontFlags.STRUCTURE_MUD, 0),
+        BuildingFrontRec(StyleProfile.BOUDHA_KORA, AreaType.URBAN, 255, 0, 0,
+                         BuildingFrontFlags.COURTYARD_HOST | BuildingFrontFlags.FACES_HERITAGE_SQUARE, 255),
+    ]
+    td.junctions = [
+        JunctionRec(osm_node_id=268310364, kind=JunctionKind.MINI_ROUNDABOUT, arms=4, x_cm=500, z_cm=600,
+                    ring_diameter_cm=0, island_diameter_cm=0, island_area_osm_ref=0, name_ref=0),
+        JunctionRec(osm_node_id=1 << 40, kind=JunctionKind.SYNTHETIC_ISLAND, arms=4,
+                    flags=JunctionFlags.HAS_POLICE | JunctionFlags.OFFICERS_2_4 | JunctionFlags.CROSSINGS_MARKED,
+                    x_cm=-150, z_cm=s + 10, name_ref=kal),
+        JunctionRec(osm_node_id=12, kind=JunctionKind.ROUNDABOUT, arms=3,
+                    flags=JunctionFlags.HAS_ISLAND_AREA | JunctionFlags.HAS_POLICE | JunctionFlags.HAS_SIGNALS
+                    | JunctionFlags.HERITAGE_NO_MOTOR, x_cm=40000, z_cm=40000, ring_diameter_cm=4380,
+                    island_diameter_cm=3600, island_area_osm_ref=(171020948 << 1), name_ref=0),
+    ]
+    td.props = [
+        PropRec(osm_ref=(11 << 2), kind=ObjectKind.TREE, subtype=TreeClass.PIPAL,
+                flags=PropFlags.CHAUTARI | PropFlags.HEIGHT_TAGGED, x_cm=1000, z_cm=2000, height_dm=180),
+        PropRec(osm_ref=(12 << 2), kind=ObjectKind.BUS_STOP, x_cm=3000, z_cm=4000, name_ref=stop),
+        PropRec(osm_ref=(13 << 2) | 1, kind=ObjectKind.PARKING_POSITION,
+                flags=PropFlags.YAW | PropFlags.FROM_WAY, x_cm=s - 1, z_cm=0, yaw_cdeg=35999, ref_ref=gate),
+        PropRec(osm_ref=(14 << 2), kind=ObjectKind.TRAFFIC_SIGNALS, flags=PropFlags.ON_ROAD, x_cm=-1, z_cm=-2),
+        PropRec(osm_ref=(14 << 2), kind=ObjectKind.CROSSING_MARKED, flags=PropFlags.ON_ROAD | PropFlags.YAW,
+                x_cm=-1, z_cm=-2, yaw_cdeg=0),
+    ]
+    td.areas[0].flags = int(tile_format.AreaFlags.SACRED_NO_VEHICLE | tile_format.AreaFlags.HERITAGE_ZONE)
+    td.areas[0].kind = AreaKind.COURTYARD
+    return td
+
+
+def make_tiles_w2() -> None:
+    blob = tile_format.encode_tile(make_tile_data_w2())
+    write_bytes("golden_w2.ght", blob)
+    write_json("golden_w2.json", tile_json_w2(blob))
 
 
 def make_tiles_and_pack() -> None:
@@ -523,10 +613,110 @@ def make_routing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W2 region files: .ghrt, .ghcd, aviation sidecar
+# ---------------------------------------------------------------------------
+def _w2_extract():
+    """A tiny synthetic extract: three chained roads, a bus route with member stops, an inferred-stop micro
+    route, a restriction, a runway and bus-stop props."""
+    from ghumante_pipeline.model import (Extract, LineFeature, ObjectKind, PropFeature, RestrictionFeature,
+                                         RouteFeature, RouteMember, TurnRestriction)
+
+    lon0, lat0 = 85.3000, 27.7000
+    dlon = 0.001
+
+    def road(oid, nodes, cls=RoadClass.PRIMARY, **kw):
+        ll = np.array([[lon0 + dlon * n, lat0 + 0.0001 * (n % 2)] for n in nodes], dtype=np.float64)
+        return RoadFeature(osm_id=oid, cls=cls, lonlat=ll, node_ids=np.array([1000 + n for n in nodes]), **kw)
+
+    ex = Extract(region="golden")
+    ex.roads = [road(1, [0, 1, 2]), road(2, [4, 3, 2]), road(3, [4, 5, 6], oneway=1)]
+    ex.props = [PropFeature("n", 51, ObjectKind.BUS_STOP, lon0 + 0.5 * dlon, lat0 + 0.00012,
+                            name=NameRec("Thapathali", "Thapathali", "")),
+                PropFeature("n", 52, ObjectKind.BUS_STOP, lon0 + 4.0 * dlon, lat0 - 0.0001),
+                PropFeature("n", 53, ObjectKind.BUS_STOP, lon0 + 4.03 * dlon, lat0 - 0.0001),  # merged (too close)
+                PropFeature("n", 54, ObjectKind.BUS_STOP, lon0 + 6.0 * dlon, lat0 + 0.0009)]  # too far (100 m)
+    ex.routes = [
+        RouteFeature(9001, "bus", {"route": "bus", "ref": "12", "name": "Ratnapark – Dhulikhel", "from": "Ratnapark",
+                                   "to": "Dhulikhel", "operator": "Sajha Yatayat"},
+                     [RouteMember("w", 1, ""), RouteMember("w", 2, ""), RouteMember("w", 3, ""),
+                      RouteMember("w", 777, ""),  # not a road of the region
+                      RouteMember("n", 61, "stop", lon0 + 0.1 * dlon, lat0, NameRec("Ratnapark", "Ratnapark", "")),
+                      RouteMember("n", 62, "platform", lon0 + 5.9 * dlon, lat0, None)]),
+        RouteFeature(9002, "bus", {"route": "bus", "network": "safatempo", "ref": "Annapurna A"},
+                     [RouteMember("w", 3, ""), RouteMember("w", 2, ""), RouteMember("w", 1, "")]),
+        RouteFeature(9003, "hiking", {"route": "hiking", "name": "Heritage Walk"},
+                     [RouteMember("w", 1, ""), RouteMember("w", 3, "")]),  # gap: 1 and 3 do not touch
+    ]
+    ex.restrictions = [RestrictionFeature(9100, TurnRestriction.NO_LEFT_TURN, 1, 2, via_node=1002),
+                       RestrictionFeature(9101, TurnRestriction.ONLY_STRAIGHT_ON, 2, 3, via_way=7)]
+    ex.lines = [LineFeature(340948564, LineKind.RUNWAY,
+                            np.array([[85.3639103, 27.7070042], [85.3534132, 27.6839528]]), width_m=45.0),
+                LineFeature(1453500827, LineKind.RUNWAY,
+                            np.array([[85.3534132, 27.6839528], [85.3523298, 27.6815732]]), width_m=46.0),
+                LineFeature(1453500826, LineKind.RUNWAY,
+                            np.array([[85.3649612, 27.7093117], [85.3639103, 27.7070042]]), width_m=46.0)]
+    return ex
+
+
+def make_transit() -> None:
+    from ghumante_pipeline import transit
+
+    ex = _w2_extract()
+    rs, _ = transit.build_routes(ex, transit.load_transit(), (85.29, 27.69, 85.31, 27.71))
+    data = transit.encode_ghrt(rs)
+    write_bytes("golden.ghrt", data)
+    rs2, names = transit.decode_ghrt(data)
+    write_json("golden_transit.json", {"format": "ghumante-golden-transit", "version": 1, "bytes": len(data),
+                                       "names": [list(n) for n in names], **transit.routes_json(rs2)})
+
+
+def make_curated() -> None:
+    from ghumante_pipeline import curated
+    from ghumante_pipeline.model import EntryRule, HeritageFinish, HeritageFlags, HeritageKind, KoraDirection
+
+    recs = [
+        curated.HeritageRec(
+            id="her.bkt.nyatapola", kind=HeritageKind.PAGODA, stage=1, flags=HeritageFlags.SANCTUM_CLOSED,
+            finish=HeritageFinish.TILE, tiers=5, plinth_levels=5, doors=1, entry_rule=EntryRule.NONE,
+            kora=KoraDirection.NONE, yaw_cdeg=18000, height_cm=3320, name_en="Nyatapola", name_ne="न्यातपोल",
+            deity="Siddhi Lakshmi", anchor_ref=(85470341 << 2) | 1, footprint_ref=85470341 << 1, compound_ref=0,
+            anchor_tile=TileId(10, 600, 150).key, x_cm=61234567, z_cm=-890, hidden=[85470341 << 1, (85470342 << 1)],
+            attrs=[("guardians", "wrestlers,elephants,lions,griffins,goddesses"), ("plinth_rise_m", "1.4")],
+            provenance="https://en.wikipedia.org/wiki/Nyatapola", review="pending"),
+        curated.HeritageRec(
+            id="her.bkt.peacock_window", kind=HeritageKind.RELIEF, stage=1,
+            flags=HeritageFlags.SANCTUM_CLOSED | HeritageFlags.MANUAL_POSITION | HeritageFlags.VERIFY,
+            finish=HeritageFinish.UNKNOWN, tiers=0, plinth_levels=0, doors=0, entry_rule=EntryRule.NONE,
+            kora=KoraDirection.NONE, yaw_cdeg=curated.YAW_UNKNOWN, height_cm=0, name_en="Peacock Window",
+            name_ne="", deity="", anchor_ref=0, footprint_ref=0, compound_ref=0, anchor_tile=TileId(10, 600, 150).key,
+            x_cm=0, z_cm=0, hidden=[], attrs=[("verify", "manual")], provenance="", review="pending"),
+        curated.HeritageRec(
+            id="her.ktm.boudhanath", kind=HeritageKind.STUPA, stage=1,
+            flags=HeritageFlags.SANCTUM_CLOSED | HeritageFlags.HAS_COMPOUND | HeritageFlags.WALKABLE_COMPOUND
+            | HeritageFlags.NO_VEHICLES, finish=HeritageFinish.WHITEWASH, tiers=0, plinth_levels=0, doors=0,
+            entry_rule=EntryRule.NONE, kora=KoraDirection.CLOCKWISE, yaw_cdeg=18000, height_cm=3600,
+            name_en="Boudhanath Stupa", name_ne="बौद्धनाथ", deity="Buddhist", anchor_ref=(56688295 << 2) | 1,
+            footprint_ref=56688295 << 1, compound_ref=56688296 << 1, anchor_tile=TileId(10, 520, 162).key,
+            x_cm=53296012, z_cm=16658830, hidden=[56688295 << 1], attrs=[("terraces", "3")],
+            provenance="T section 3", review="pending"),
+    ]
+    data = curated.encode_ghcd(recs)
+    write_bytes("golden.ghcd", data)
+    write_json("golden_curated.json", {"format": "ghumante-golden-curated", "version": 1, "bytes": len(data),
+                                       "records": curated.records_json(curated.decode_ghcd(data))})
+
+
+def make_aviation() -> None:
+    from ghumante_pipeline import aviation
+
+    av, _ = aviation.build_aviation(_w2_extract(), "tia")
+    write_json("golden_aviation.json", av)
+
+
+# ---------------------------------------------------------------------------
 # Enums.cs
 # ---------------------------------------------------------------------------
 ENUM_TYPES = {"PoiKind": "ushort"}
-FLAG_ENUMS = {"Travel", "RoadFlags", "BuildingFlags", "PoiFlags"}
 
 
 def pascal(name: str) -> str:
@@ -535,6 +725,7 @@ def pascal(name: str) -> str:
 
 def write_enums_cs() -> None:
     spec = json.loads((ROOT / "shared" / "enums.json").read_text(encoding="utf-8"))
+    flag_enums = set(spec.get("flag_enums", ("Travel", "RoadFlags", "BuildingFlags", "PoiFlags")))
     lines = [
         "// <auto-generated>",
         "// Generated by shared/golden/make_golden.py --enums-cs from shared/enums.json (itself exported from",
@@ -547,11 +738,11 @@ def write_enums_cs() -> None:
         "{",
     ]
     for ename, members in spec["enums"].items():
-        if ename in FLAG_ENUMS:
+        if ename in flag_enums:
             lines.append("    [Flags]")
         lines.append(f"    public enum {ename} : {ENUM_TYPES.get(ename, 'byte')}")
         lines.append("    {")
-        if ename in FLAG_ENUMS:
+        if ename in flag_enums:
             lines.append("        None = 0,")
         for m, v in members.items():
             lines.append(f"        {pascal(m)} = {v},")
@@ -599,6 +790,10 @@ def main(argv: list[str] | None = None) -> None:
     make_tiles_and_pack()
     make_search()
     make_routing()
+    make_tiles_w2()
+    make_transit()
+    make_curated()
+    make_aviation()
     total = sum(p.stat().st_size for p in OUT.iterdir() if p.is_file() and p.name != Path(__file__).name)
     print(f"golden files written to {OUT} ({total / 1024:.1f} KiB)")
 

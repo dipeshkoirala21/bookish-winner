@@ -9,6 +9,14 @@
     dem/synth_dem.tif                 float32 lon/lat DEM, 2 arc-second pixels, smooth hills
     worldcover/synth_worldcover.tif   uint8 WorldCover classes, 1/3000 degree pixels
     landmarks.resolved.json           the temple as a hero landmark
+    w2/heritage_sites.yaml, w2/chowks.yaml
+                                      W2 curated records: the temple as a hero (with a building
+                                      part), a manual record, and a police chowk at the signals
+
+W2 features (docs/W2_DESIGN.md section 9): traffic signals and a marked crossing on the primary,
+a bus stop, a chautari pipal and a storage tank, a bus route relation (with a stop member) and a
+turn restriction over the primary, sidewalk/lit/maxspeed tags, a religious compound over one street
+block (D14), the bahal courtyard hole, and a building:part on the temple.
 
 and returns a ``Synth`` with the region definition and the ground truth the
 tests check against (source coordinates, ids). Everything is deterministic: no
@@ -76,6 +84,7 @@ class Synth:
     osm: Path
     region: Region
     landmarks: Path
+    w2_dir: Path | None = None
     nodes: dict[int, tuple[float, float]] = field(default_factory=dict)
     buildings: dict[int, list[int]] = field(default_factory=dict)  # way id -> node ids (open ring)
     building_relation: int = 0
@@ -85,6 +94,16 @@ class Synth:
     places: dict[str, int] = field(default_factory=dict)  # name -> node id
     lake_way: int = 0
     border_building: int = 0
+    signal_node: int = 0
+    crossing_node: int = 0
+    primary_way: int = 0
+    tertiary_way: int = 0
+    compound_way: int = 0
+    compound_street: int = 0  # the residential street (j = 4) the compound covers a block of
+    temple_part: int = 0
+    bus_route: int = 0
+    restriction: int = 0
+    front_house: int = 0
 
     def lonlat(self, node_ids) -> np.ndarray:
         return np.array([self.nodes[n] for n in node_ids], dtype=np.float64)
@@ -194,16 +213,21 @@ def make_synth(dest: Path) -> Synth:
             if i + 1 < len(lons):
                 seq.append(o.node(0.5 * (lons[i] + lons[i + 1]), lat + 0.00012 * math.sin(i + j)))
         seq.append(o.node(85.3215, lat))
+        street_index = j
         if j == 3:
             tags = {"highway": "primary", "name": "Synth Marg", "name:ne": "सिन्थ मार्ग", "ref": "H01",
-                    "surface": "asphalt", "lanes": "2"}
+                    "surface": "asphalt", "lanes": "2", "sidewalk": "both", "lit": "yes", "maxspeed": "40"}
         elif j == 0:
             tags = {"highway": "track", "tracktype": "grade2"}
         elif j == 5:
             tags = {"highway": "residential", "oneway": "-1", "name": "Ulto Galli"}
         else:
             tags = {"highway": "residential"}
-        street(seq, tags)
+        w = street(seq, tags)
+        if street_index == 3:
+            syn.primary_way = w
+        if street_index == 4:
+            syn.compound_street = w
     for i, lon in enumerate(lons):  # north-south streets
         seq = [o.node(lon, 27.6990)]
         for j in range(len(lats)):
@@ -217,7 +241,9 @@ def make_synth(dest: Path) -> Synth:
             tags = {"highway": "residential", "oneway": "yes", "surface": "concrete"}
         else:
             tags = {"highway": "residential"}
-        street(seq, tags)
+        w = street(seq, tags)
+        if i == 4:
+            syn.tertiary_way = w
     # Trails: a path up to a viewpoint and a flight of steps.
     path_nodes = [inter[(7, 6)]] + [o.node(85.3190 + 0.0004 * k, 27.7168 + 0.0003 * k + 0.0001 * (k % 2))
                                     for k in range(1, 6)]
@@ -293,6 +319,43 @@ def make_synth(dest: Path) -> Synth:
         n = o.node(lon, lat, {"place": "neighbourhood" if name == PLACE_A[0] else "suburb", "name": name})
         syn.places[name] = n
 
+    # --- W2: signals, crossing, props, compound, part, route, restriction ---------------------
+    sig = inter[(4, 3)]
+    o.nodes[sig] = (*o.nodes[sig][:2], {"highway": "traffic_signals"})
+    syn.signal_node = sig
+    cross = o.node(lons[4] + 0.0002, lats[3])  # an extra vertex on the primary: insert it into the way
+    o.nodes[cross] = (*o.nodes[cross][:2], {"highway": "crossing", "crossing": "zebra"})
+    for k, (wid, nds, tags) in enumerate(o.ways):
+        if wid == syn.primary_way:
+            at = nds.index(sig)
+            nds.insert(at + 1, cross)
+            syn.roads[wid] = nds
+    syn.crossing_node = cross
+    stop = o.node(lons[2] + 0.0005, lats[3] + 0.00008, {"highway": "bus_stop", "name": "Synth Bus Stop"})
+    o.node(lons[1] + 0.0003, lats[1] + 0.0003, {"natural": "tree", "species": "Ficus religiosa",
+                                                 "name": "Pipal Chautari", "height": "18"})
+    o.node(lons[6] + 0.0003, lats[2] + 0.0003, {"man_made": "storage_tank"})
+    # A religious compound over the block of street j = 4 between lons[5] and lons[6].
+    cw, _ = o.ring(_rect(0.5 * (lons[5] + lons[6]), lats[4], (lons[6] - lons[5]) + 0.0003, 0.0004),
+                   {"landuse": "religious", "name": "Synth Mandir Compound"})
+    syn.compound_way = cw
+    # A building:part inside the temple (the temple's upper tier).
+    pw, pids = o.ring(_rect(lons[2] + 0.0013, lats[2] + 0.0013, 0.00008, 0.00008),
+                      {"building:part": "yes", "height": "14", "min_height": "4", "roof:shape": "pyramidal"})
+    syn.temple_part = pw
+    syn.buildings[pw] = pids
+    # A shop house fronting the primary (its south wall ~7 m from the centreline), with two shops inside.
+    hw, hids = o.ring(_rect(lons[3] + 0.0013, lats[3] + 0.00012, 0.00008, 0.00010), {"building": "yes"})
+    syn.buildings[hw] = hids
+    syn.front_house = hw
+    for dx in (-0.00002, 0.00002):
+        o.node(lons[3] + 0.0013 + dx, lats[3] + 0.00012, {"shop": "convenience", "name": "Synth Pasal"})
+    syn.bus_route = o.rel([("way", syn.primary_way, ""), ("node", stop, "platform")],
+                          {"type": "route", "route": "bus", "ref": "S1", "name": "Synth Bus 1",
+                           "operator": "Sajha Yatayat", "from": "Synthtol", "to": "Bagh Synth"})
+    syn.restriction = o.rel([("way", syn.primary_way, "from"), ("node", sig, "via"), ("way", syn.tertiary_way, "to")],
+                            {"type": "restriction", "restriction": "no_left_turn"})
+
     # --- district boundary -----------------------------------------------------------------
     bnodes = [o.node(x, y) for x, y in ((85.290, 27.690), (85.330, 27.690), (85.330, 27.728), (85.290, 27.728))]
     bway = o.way(bnodes + [bnodes[0]], {})
@@ -304,6 +367,23 @@ def make_synth(dest: Path) -> Synth:
     syn.landmarks.write_text(json.dumps([{"id": "synth_temple", "region": "synth_test", "status": "found",
                                           "osm": f"w{syn.temple_way}", "name": TEMPLE_NAME}], indent=1),
                              encoding="utf-8")
+    syn.w2_dir = dest / "w2"
+    syn.w2_dir.mkdir(parents=True, exist_ok=True)
+    (syn.w2_dir / "heritage_sites.yaml").write_text(f"""version: 1
+defaults: {{provenance: synthetic, review: pending}}
+sites:
+  - {{id: her.synth.temple, stage: 1, kind: PAGODA, name_en: Synth Temple, osm: w{syn.temple_way},
+     compound: w{syn.compound_way}, height_m: 14, tiers: 2, finish: TILE, yaw_deg: 90, deity: Bhairab,
+     attrs: {{plan_m: "16,16"}}}}
+  - {{id: her.synth.window, stage: 1, kind: RELIEF, name_en: Synth Window,
+     manual: {{lon: 85.3100, lat: 27.7100, source: synthetic}}, verify: [manual]}}
+  - {{id: her.synth.far, stage: 1, kind: STUPA, name_en: Far Stupa, manual: {{lon: 86.0, lat: 28.0, source: x}}}}
+  - {{id: her.synth.later, stage: 2, kind: STUPA, name_en: Stage Two, osm: w{syn.temple_way}}}
+""", encoding="utf-8")
+    slon, slat = o.nodes[sig][:2]
+    (syn.w2_dir / "chowks.yaml").write_text(
+        f"version: 1\nsnap_m: 120\nchowks:\n  - {{id: synth, name_en: Synth Chowk, at: [{slon}, {slat}], "
+        f"officers: '2-4', control: S}}\n", encoding="utf-8")
     _write_dem(dest / "dem" / "synth_dem.tif")
     _write_worldcover(dest / "worldcover" / "synth_worldcover.tif")
     return syn
@@ -377,8 +457,11 @@ def synth_build(base: Path, *, workers: int = 2, qa: bool = True, use_cache: boo
     if key not in _BUILDS:
         syn = make_synth(base / "src")
         out = base / "out"
+        from ghumante_pipeline.w2build import W2Config
+
+        cfg = W2Config(chowks=syn.w2_dir / "chowks.yaml", heritage=syn.w2_dir / "heritage_sites.yaml")
         m = build_region(syn.region, pbf=syn.osm, raw_dir=syn.root, out_dir=out, qa=qa, use_cache=use_cache,
-                         workers=workers, landmarks_path=syn.landmarks)
+                         workers=workers, landmarks_path=syn.landmarks, w2_config=cfg)
         _BUILDS[key] = SynthBuild(syn, out, out / "regions" / syn.region.id, m)
     return _BUILDS[key]
 

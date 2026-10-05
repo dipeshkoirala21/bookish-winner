@@ -3,16 +3,23 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Ghumante.Audio;
+using Ghumante.Core.Aviation;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Search;
 using Ghumante.Core.Services;
 using Ghumante.Core.Streaming;
+using Ghumante.Core.Synth;
 using Ghumante.Platform;
 using Ghumante.Platform.Regions;
+using Ghumante.World.Aviation;
+using Ghumante.World.Instancing;
+using Ghumante.World.Life;
 using Ghumante.World.Rendering;
 using Ghumante.World.Navigation;
+using Ghumante.World.Sacred;
 using Ghumante.World.Sky;
 using Ghumante.World.Streaming;
 using UnityEngine;
@@ -35,6 +42,12 @@ namespace Ghumante.World
     /// <item><see cref="TimeOfDayHours"/> drives the sky, light, haze and ambient (<see cref="WorldSky"/>), and
     /// <see cref="ShowRoute"/> draws the route ribbon.</item>
     /// <item><see cref="Close"/> unloads everything and restores the camera and render settings (back to the menu).</item>
+    /// <item>W2 (World/README.md): the building bands, B0 cells and hero replicas (with their hide zones) around the
+    /// camera, the instanced dressing (<see cref="DressingRenderer"/>), the life simulations (<see cref="Life"/>: traffic,
+    /// people, cows and dogs, aircraft; the Traffic and Wildlife assemblies attach their presenters through
+    /// <see cref="AnyReady"/>), the airport (<see cref="AviationPresenter"/>), the shared zone indexes
+    /// (<see cref="Zones"/>, <see cref="AreaTypes"/>) and the region sidecars (<see cref="Curated"/>,
+    /// <see cref="Transit"/>, <see cref="AviationConfig"/>).</item>
     /// </list>
     /// Main thread only. Keep this object's transform at the identity; the world builds its own scene roots.
     /// </summary>
@@ -77,6 +90,19 @@ namespace Ghumante.World
         private CameraState _camera;
         private string _debugText;
         private float _debugAt;
+        private LifeHost _life;
+        private DressingRenderer _dressing;
+        private AviationPresenter _aviation;
+        private HeroSet _heroes;
+        private CuratedDb _curated;
+        private RouteSet _transit;
+        private AviationConfig _aviationConfig;
+        private ISoundService _sound;
+        private bool _audioWired;
+        private WorldAudioPlace _audioPlace;
+        private RenderStats _renderStats;
+        private int _month = 10;
+        private bool _lifeErrorLogged;
 
         private struct CameraState
         {
@@ -101,6 +127,15 @@ namespace Ghumante.World
 
         /// <summary>The world was closed.</summary>
         public event Action Closed;
+
+        /// <summary>Any world became ready (raised after <see cref="Ready"/>). Presenter assemblies that World cannot
+        /// reference (Traffic, Wildlife) attach to it from a <c>RuntimeInitializeOnLoadMethod</c>.</summary>
+        public static event Action<WorldRoot> AnyReady;
+
+        /// <summary>A detail tile became visible (decoded tile and extras: instances, heroes) or was hidden.</summary>
+        public event Action<TileId, TileExtras> DetailTileShown;
+
+        public event Action<TileId> DetailTileHidden;
 
         /// <summary>Where regions come from. Default: the built-in source (StreamingAssets, unpacked on Android).
         /// Set before opening.</summary>
@@ -249,6 +284,104 @@ namespace Ghumante.World
             get { return _streamer != null ? _streamer.Scheduler.Stats : default(StreamingStats); }
         }
 
+        /// <summary>The life simulations of the open world (null when closed).</summary>
+        public LifeHost Life
+        {
+            get { return _life; }
+        }
+
+        /// <summary>Sacred and compound zones of the visible detail tiles (null when closed): calm mode, prompts, audio.</summary>
+        public SacredZoneIndex Zones
+        {
+            get { return _life != null ? _life.Zones : null; }
+        }
+
+        /// <summary>The 250 m area-type grid of the visible detail tiles (null when closed).</summary>
+        public AreaTypeGrid AreaTypes
+        {
+            get { return _life != null ? _life.AreaTypes : null; }
+        }
+
+        /// <summary>The region's curated heritage DB (<c>.ghcd</c>), or null when the region has none.</summary>
+        public CuratedDb Curated
+        {
+            get { return _curated; }
+        }
+
+        /// <summary>The region's transit routes (<c>.ghrt</c>), or null.</summary>
+        public RouteSet Transit
+        {
+            get { return _transit; }
+        }
+
+        /// <summary>The region's aviation sidecar, or null (no airport).</summary>
+        public AviationConfig AviationConfig
+        {
+            get { return _aviationConfig; }
+        }
+
+        /// <summary>Hero replicas and hide zones of the region (null when closed).</summary>
+        public HeroSet Heroes
+        {
+            get { return _heroes; }
+        }
+
+        /// <summary>The sound service presenters use: the one App sets, else the audio director when it exists, else
+        /// silence.</summary>
+        public ISoundService Sound
+        {
+            get
+            {
+                if (_sound != null) return _sound;
+                return AudioDirector.Exists ? AudioDirector.Instance : (ISoundService)NullSoundService.Instance;
+            }
+            set { _sound = value; }
+        }
+
+        /// <summary>Month for the seasonal palettes and the airport schedule (1-12; W2 acceptance runs in October).</summary>
+        public int Month
+        {
+            get { return _month; }
+            set
+            {
+                _month = Mathf.Clamp(value, 1, 12);
+                if (_dressing != null) _dressing.Month = _month;
+            }
+        }
+
+        /// <summary>The materials the world draws with (null when closed); presenters use its instanced materials.</summary>
+        public WorldMaterialSet Materials
+        {
+            get { return _materials; }
+        }
+
+        /// <summary>The camera the world draws for (the configured one, else Camera.main).</summary>
+        public Camera ViewCamera
+        {
+            get { return worldCamera != null ? worldCamera : Camera.main; }
+        }
+
+        /// <summary>This frame's render counters (streamer, dressing, airport, plus what presenters report).</summary>
+        public RenderStats RenderStats
+        {
+            get { return _renderStats; }
+        }
+
+        /// <summary>Presenters report what they drew this frame (the debug HUD counters, W2_DESIGN 10.4).</summary>
+        public void ReportLife(int vehicleTris, int vehicles, int peopleTris, int people, int animalTris, int animals, int parkedTris, int parked,
+                               int draws)
+        {
+            _renderStats.VehicleTris += vehicleTris;
+            _renderStats.Vehicles += vehicles;
+            _renderStats.PeopleTris += peopleTris;
+            _renderStats.People += people;
+            _renderStats.AnimalTris += animalTris;
+            _renderStats.Animals += animals;
+            _renderStats.ParkedTris += parkedTris;
+            _renderStats.Parked += parked;
+            _renderStats.InstancedDraws += draws;
+        }
+
         /// <summary>True when everything selected around the focus is loaded and shown.</summary>
         public bool IsSettled
         {
@@ -309,7 +442,8 @@ namespace Ghumante.World
                 // No cancellation token here: a task cancelled before it starts never runs LoadRegionData, and nothing
                 // would dispose the three streams. Cancellation is honoured right after (ThrowIfStale), and the catch
                 // below disposes what was loaded.
-                data = await Task.Run(() => LoadRegionData(ps, ss, rs, config));
+                string sidecarFolder = SidecarFolder(source, regionId);
+                data = await Task.Run(() => LoadRegionData(ps, ss, rs, config, manifest, sidecarFolder));
                 ThrowIfStale(version, cancellationToken);
                 for (int i = 0; i < data.Warnings.Count; i++) Debug.LogWarning("WorldRoot: " + data.Warnings[i]);
 
@@ -321,6 +455,7 @@ namespace Ghumante.World
                 Debug.Log("WorldRoot: opened region '" + regionId + "' (" + manifest.NameEn + ") for tier " + Tier + ", " +
                           _config.Rings.Length + " LOD rings to " + (_config.ViewRadiusM / 1000.0).ToString("0") + " km.");
                 Raise(Ready);
+                RaiseAnyReady(this);
             }
             catch
             {
@@ -345,11 +480,42 @@ namespace Ghumante.World
             bool wasOpen = IsOpen || IsOpening;
             IsOpen = false;
             IsOpening = false;
+            if (_life != null)
+            {
+                _life.Dispose();
+                _life = null;
+            }
+            if (_dressing != null)
+            {
+                _dressing.Dispose();
+                _dressing = null;
+            }
+            if (_aviation != null)
+            {
+                _aviation.Dispose();
+                _aviation = null;
+            }
+            if (_audioWired && AudioDirector.Exists)
+            {
+                AudioDirector audio = AudioDirector.Instance;
+                audio.SetZones(null, null);
+                audio.SetPlace(0f, 0f, 0f, 0f, 0f);
+                if (audio.Occlusion == _audioPlace) audio.Occlusion = null;
+                audio.SetWorldActive(false);
+                OriginShifted -= ShiftAudio;
+            }
+            _audioWired = false;
+            if (_audioPlace != null) _audioPlace.Clear();
+            _audioPlace = null;
             if (_streamer != null)
             {
                 _streamer.Dispose();
                 _streamer = null;
             }
+            _heroes = null;
+            _curated = null;
+            _transit = null;
+            _aviationConfig = null;
             if (_ground != null) _ground.Clear();
             _ground = null;
             _meshing = null;
@@ -368,10 +534,11 @@ namespace Ghumante.World
             Debugging.FreeFlyCamera.CloseOverlay(this); // re-enables the main camera the F3 overlay hid
 #endif
             RestoreCamera();
-            if (_materials != null && _materials.RuntimeCreated)
+            if (_materials != null)
             {
-                _materials.DestroyRuntimeMaterials();
-                Destroy(_materials);
+                bool runtime = _materials.RuntimeCreated;
+                _materials.DestroyRuntimeMaterials(); // also the W2 materials made at runtime for an older asset set
+                if (runtime) Destroy(_materials);
             }
             _materials = null;
             _progress = 0f;
@@ -386,14 +553,35 @@ namespace Ghumante.World
             _config = config;
             Search = data.Search;
             Routes = data.Routes;
+            _curated = data.Curated;
+            _transit = data.Transit;
+            _aviationConfig = data.Aviation;
+            _heroes = data.Heroes;
             _meshing = new MeshingSettings();
+            _meshing.Heroes = _heroes;
+            if (_heroes != null) _meshing.SetHiddenRefs(_heroes.HiddenRefs);
             _ground = new TileGroundQuery(_meshing.Roads);
             _materials = materials != null && materials.IsComplete ? materials : WorldMaterialSet.Load();
+            _materials.EnsureExtras();
             if (!_hasFocus) _focus = new WorldPos(manifest.CentreX, 0f, manifest.CentreZ);
             WorldPos unused;
             _origin = FloatingOrigin.Rebase(StreamingFocus, WorldPos.Zero, out unused);
-            _streamer = new WorldStreamer(transform, _materials, data.Pack, config, data.Selector, _ground, _meshing);
+            int tier = (int)Tier;
+            _streamer = new WorldStreamer(transform, _materials, data.Pack, config, data.Selector, _ground, _meshing, tier);
             _streamer.Rebase(_origin);
+            _life = new LifeHost(LifeSettings.ForTier(tier), RegionSeed(manifest.RegionId), _transit, _aviationConfig, _curated);
+            _streamer.DetailShown += OnDetailShown;
+            _streamer.DetailHidden += OnDetailHidden;
+            _dressing = new DressingRenderer(DressingConfig.ForTier(tier), _materials) { Month = _month };
+            if (_aviationConfig != null) _aviation = new AviationPresenter(tier, _materials);
+            _audioPlace = new WorldAudioPlace(this);
+            if (AudioDirector.Exists)
+            {
+                AudioDirector.Instance.SetZones(_life.AreaTypes, _life.Zones);
+                AudioDirector.Instance.Occlusion = _audioPlace;
+                OriginShifted += ShiftAudio;
+                _audioWired = true;
+            }
             WorldSky sky = EnsureSky();
             if (sky.SkyMaterial == null) sky.SkyMaterial = _materials.sky;
             sky.ViewRadiusM = (float)config.ViewRadiusM; // fog thick enough to hide the end of the last ring
@@ -433,6 +621,89 @@ namespace Ghumante.World
         {
             if (!IsOpen) return;
             _streamer.Tick(StreamingFocus);
+            Camera cam = ViewCamera;
+            Vector3 camPos = cam != null ? cam.transform.position : ToScene(StreamingFocus);
+            Vector3 camFwd = cam != null ? cam.transform.forward : Vector3.forward;
+            float fov = cam != null ? cam.fieldOfView : 60f;
+            float now = Time.time;
+            _streamer.UpdateView(camPos, fov, now);
+            _renderStats = _streamer.RenderStats;
+            int treeTris, trees, propTris, props, draws;
+            _dressing.Draw(_streamer.DetailViews, _origin, camPos, out treeTris, out trees, out propTris, out props, out draws);
+            _renderStats.TreeTris = treeTris;
+            _renderStats.Trees = trees;
+            _renderStats.PropTris = propTris;
+            _renderStats.Props = props;
+            _renderStats.InstancedDraws += draws;
+            WorldPos f = StreamingFocus;
+            var flat = new Vector2(camFwd.x, camFwd.z);
+            if (flat.sqrMagnitude < 1e-6f) flat = new Vector2(0f, 1f);
+            flat.Normalize();
+            const float wetness = 0f; // no weather source yet: dry and clear (the life sims and the audio agree)
+            _life.Tick(Time.deltaTime, f.X, f.Z, flat.x, flat.y, TimeOfDayHours, _month, wetness, WeatherKind.Clear);
+            if (_life.Error != null && !_lifeErrorLogged)
+            {
+                _lifeErrorLogged = true;
+                Debug.LogException(_life.Error);
+            }
+            if (_aviation != null)
+            {
+                _aviation.Draw(_life, _ground, _origin, camPos, TimeOfDayHours, now, Sound);
+                _renderStats.AircraftTris += _aviation.Tris;
+                _renderStats.Aircraft += _aviation.Drawn;
+            }
+            if (_audioWired && AudioDirector.Exists)
+            {
+                AudioDirector audio = AudioDirector.Instance;
+                audio.SetClock(TimeOfDayHours, _month);
+                audio.SetWeather(0f, 0f, wetness);
+                _audioPlace.Tick(Time.unscaledDeltaTime, audio, f, _ground, _aviationConfig);
+            }
+        }
+
+        private void OnDetailShown(TileId id, TileExtras extras)
+        {
+            if (_life != null && extras != null && extras.Source != null) _life.AddTile(id, extras.Source);
+            if (_audioPlace != null && extras != null && extras.Source != null) _audioPlace.AddTile(id, extras.Source);
+            Action<TileId, TileExtras> h = DetailTileShown;
+            if (h != null) h(id, extras);
+        }
+
+        private void OnDetailHidden(TileId id)
+        {
+            if (_life != null) _life.RemoveTile(id);
+            if (_audioPlace != null) _audioPlace.RemoveTile(id);
+            Action<TileId> h = DetailTileHidden;
+            if (h != null) h(id);
+        }
+
+        private static void ShiftAudio(WorldPos delta)
+        {
+            if (AudioDirector.Exists) AudioDirector.Instance.ShiftOrigin(new Vector3((float)delta.X, delta.Y, (float)delta.Z));
+        }
+
+        /// <summary>The region seed (FNV-1a 64 of the region id): life sims and audio variation.</summary>
+        public static ulong RegionSeed(string regionId)
+        {
+            byte[] b = Encoding.UTF8.GetBytes(regionId ?? "");
+            return Hashes.Fnv1a64(b, 0, b.Length);
+        }
+
+        private static void RaiseAnyReady(WorldRoot w)
+        {
+            Action<WorldRoot> handler = AnyReady;
+            if (handler == null) return;
+            foreach (Delegate d in handler.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<WorldRoot>)d)(w);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
+                }
+            }
         }
 
         private void OnDestroy()
@@ -540,6 +811,11 @@ namespace Ghumante.World
             sb.Append('\n').Append(_streamer.Scheduler.Stats.Format());
             sb.Append("\nfocus ").Append(f.X.ToString("0")).Append(", ").Append(f.Z.ToString("0"))
               .Append("  origin ").Append(_origin.X.ToString("0")).Append(", ").Append(_origin.Z.ToString("0"));
+            sb.Append('\n').Append(_renderStats.Format());
+            if (_life != null)
+                sb.Append("\nlife: veh ").Append(_life.VehicleCount).Append(" ppl ").Append(_life.PeopleCount).Append(" anim ")
+                  .Append(_life.AnimalCount).Append(" air ").Append(_life.AircraftCount).Append(" tiles ").Append(_life.TileCount)
+                  .Append(_life.Error != null ? "  sim error: " + _life.Error.Message : "");
             _debugText = sb.ToString();
             _debugAt = Time.unscaledTime;
             return _debugText;
@@ -635,10 +911,74 @@ namespace Ghumante.World
             public TileSelector Selector;
             public SearchEngine Search;
             public RouteGraph Routes;
+            public CuratedDb Curated;
+            public RouteSet Transit;
+            public AviationConfig Aviation;
+            public HeroSet Heroes;
             public readonly System.Collections.Generic.List<string> Warnings = new System.Collections.Generic.List<string>();
         }
 
-        private static RegionData LoadRegionData(Stream pack, Stream search, Stream route, StreamingConfig config)
+        /// <summary>The local folder of a region's sidecar files (W2: curated DB, transit, aviation), or null when the
+        /// source cannot give one (a URL root).</summary>
+        private static string SidecarFolder(IRegionPackSource source, string regionId)
+        {
+            var builtIn = source as BuiltInRegionSource;
+            if (builtIn == null || RegionFiles.IsUrl(builtIn.ReadRoot)) return null;
+            return RegionFiles.RegionFolder(builtIn.ReadRoot, regionId);
+        }
+
+        /// <summary>The manifest entry whose file name ends with <paramref name="suffix"/>.</summary>
+        private static string SidecarPath(RegionManifest manifest, string folder, string suffix)
+        {
+            if (folder == null) return null;
+            for (int i = 0; i < manifest.Files.Count; i++)
+            {
+                string p = manifest.Files[i].Path;
+                if (p.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    string full = RegionFiles.Join(folder, p);
+                    return File.Exists(full) ? full : null;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>The W2 sidecars: curated heritage DB (.ghcd, else hero_recipes.json), transit routes (.ghrt) and the
+        /// aviation JSON; each is optional and a broken one only disables its feature.</summary>
+        private static void LoadSidecars(RegionData d, RegionManifest manifest, string folder)
+        {
+            try
+            {
+                string ghcd = SidecarPath(manifest, folder, ".curated.ghcd") ?? SidecarPath(manifest, folder, "hero_recipes.json");
+                if (ghcd != null) d.Curated = CuratedDb.Read(File.ReadAllBytes(ghcd));
+            }
+            catch (Exception e)
+            {
+                d.Warnings.Add("curated DB unreadable, heroes from the built-in catalogue: " + e.Message);
+            }
+            try
+            {
+                string ghrt = SidecarPath(manifest, folder, ".transit.ghrt");
+                if (ghrt != null) d.Transit = RouteSet.Read(File.ReadAllBytes(ghrt));
+            }
+            catch (Exception e)
+            {
+                d.Warnings.Add("transit routes unreadable, no buses on routes: " + e.Message);
+            }
+            try
+            {
+                string av = SidecarPath(manifest, folder, ".aviation.json");
+                if (av != null) d.Aviation = AviationConfig.Parse(File.ReadAllText(av, Encoding.UTF8));
+            }
+            catch (Exception e)
+            {
+                d.Warnings.Add("aviation sidecar unreadable, no airport: " + e.Message);
+            }
+            d.Heroes = HeroSet.From(d.Curated);
+        }
+
+        private static RegionData LoadRegionData(Stream pack, Stream search, Stream route, StreamingConfig config, RegionManifest manifest,
+                                                 string sidecarFolder)
         {
             var d = new RegionData();
             try
@@ -668,6 +1008,7 @@ namespace Ghumante.World
                         d.Warnings.Add("routing graph unreadable, routing disabled: " + e.Message);
                     }
                 }
+                if (manifest != null) LoadSidecars(d, manifest, sidecarFolder);
                 return d;
             }
             catch
@@ -715,6 +1056,7 @@ namespace Ghumante.World
         private static void ResetStatics()
         {
             Active = null;
+            AnyReady = null;
         }
     }
 }

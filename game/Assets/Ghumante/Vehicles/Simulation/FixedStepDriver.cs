@@ -29,6 +29,16 @@ namespace Ghumante.Vehicles
         public bool Airborne;
         public bool HasGround;
 
+        /// <summary>Visual body roll and pitch from the accelerations (<see cref="ArcadeVehicle.VisualRoll"/>), radians,
+        /// drawn on top of <see cref="Roll"/> and <see cref="Pitch"/>.</summary>
+        public float VisualRoll, VisualPitch;
+
+        /// <summary>A two-wheeler's foot is down (<see cref="ArcadeVehicle.FootDown"/>).</summary>
+        public bool FootDown;
+
+        /// <summary>What the feet or tyres touch, after wetness (<see cref="ArcadeVehicle.Foot"/>).</summary>
+        public FootSurface Foot;
+
         /// <summary>
         /// Interpolation between two fixed steps: positions and the odometer linearly, angles (heading, wheel) along the
         /// shorter arc, flags from <paramref name="b"/>. <paramref name="t"/> is clamped to [0, 1].
@@ -51,6 +61,10 @@ namespace Ghumante.Vehicles
             p.OdometerM = a.OdometerM + (b.OdometerM - a.OdometerM) * t;
             p.Airborne = b.Airborne;
             p.HasGround = b.HasGround;
+            p.VisualRoll = a.VisualRoll + (b.VisualRoll - a.VisualRoll) * t;
+            p.VisualPitch = a.VisualPitch + (b.VisualPitch - a.VisualPitch) * t;
+            p.FootDown = b.FootDown;
+            p.Foot = b.Foot;
             return p;
         }
     }
@@ -209,6 +223,10 @@ namespace Ghumante.Vehicles
             pose.OdometerM = odometer;
             pose.Airborne = v.Airborne;
             pose.HasGround = v.HasGround;
+            pose.VisualRoll = v.VisualRoll;
+            pose.VisualPitch = v.VisualPitch;
+            pose.FootDown = v.FootDown;
+            pose.Foot = v.Foot;
         }
     }
 }

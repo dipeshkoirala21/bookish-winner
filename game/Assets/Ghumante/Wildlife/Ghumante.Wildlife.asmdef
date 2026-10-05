@@ -3,7 +3,8 @@
     "rootNamespace": "Ghumante.Wildlife",
     "references": [
         "Ghumante.Core",
-        "Unity.Mathematics"
+        "Ghumante.Platform",
+        "Ghumante.World"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

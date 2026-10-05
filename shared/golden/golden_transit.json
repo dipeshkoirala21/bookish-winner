@@ -1,0 +1,196 @@
+{
+ "bytes": 362,
+ "format": "ghumante-golden-transit",
+ "names": [
+  [
+   "Ratnapark – Dhulikhel",
+   "Ratnapark – Dhulikhel",
+   ""
+  ],
+  [
+   "12",
+   "",
+   ""
+  ],
+  [
+   "Ratnapark",
+   "",
+   ""
+  ],
+  [
+   "Dhulikhel",
+   "",
+   ""
+  ],
+  [
+   "Ratnapark",
+   "Ratnapark",
+   ""
+  ],
+  [
+   "Annapurna A",
+   "",
+   ""
+  ],
+  [
+   "Thapathali",
+   "Thapathali",
+   ""
+  ],
+  [
+   "Heritage Walk",
+   "Heritage Walk",
+   ""
+  ]
+ ],
+ "restrictions": [
+  {
+   "from_way": 1,
+   "kind": 1,
+   "osm_id": 9100,
+   "to_way": 2,
+   "via_node": 1002,
+   "via_way": 0
+  },
+  {
+   "from_way": 2,
+   "kind": 7,
+   "osm_id": 9101,
+   "to_way": 3,
+   "via_node": 0,
+   "via_way": 7
+  }
+ ],
+ "routes": [
+  {
+   "flags": 18,
+   "from": "Ratnapark",
+   "headway_off_s": 480,
+   "headway_peak_s": 300,
+   "id": "bus.r9001",
+   "length_m": 595,
+   "livery": 1,
+   "livery_name": "CITY_GREEN",
+   "mode": 1,
+   "mode_name": "BUS",
+   "name": [
+    "Ratnapark – Dhulikhel",
+    "Ratnapark – Dhulikhel",
+    ""
+   ],
+   "osm_id": 9001,
+   "ref": "12",
+   "stops": [
+    {
+     "along_dm": 98,
+     "flags": 5,
+     "name": [
+      "Ratnapark",
+      "Ratnapark",
+      ""
+     ],
+     "osm_ref": 244,
+     "x_dm": 5281877,
+     "z_dm": 1646467
+    },
+    {
+     "along_dm": 5856,
+     "flags": 5,
+     "name": null,
+     "osm_ref": 248,
+     "x_dm": 5287596,
+     "z_dm": 1646527
+    }
+   ],
+   "to": "Dhulikhel",
+   "way_forward": [
+    true,
+    false,
+    true
+   ],
+   "way_ids": [
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "flags": 4,
+   "from": "",
+   "headway_off_s": 360,
+   "headway_peak_s": 360,
+   "id": "tempo.r9002",
+   "length_m": 595,
+   "livery": 4,
+   "livery_name": "SAFA_TEMPO",
+   "mode": 3,
+   "mode_name": "TEMPO",
+   "name": null,
+   "osm_id": 9002,
+   "ref": "Annapurna A",
+   "stops": [
+    {
+     "along_dm": 1968,
+     "flags": 6,
+     "name": null,
+     "osm_ref": 212,
+     "x_dm": 5285753,
+     "z_dm": 1646397
+    },
+    {
+     "along_dm": 5449,
+     "flags": 6,
+     "name": [
+      "Thapathali",
+      "Thapathali",
+      ""
+     ],
+     "osm_ref": 204,
+     "x_dm": 5282270,
+     "z_dm": 1646604
+    }
+   ],
+   "to": "",
+   "way_forward": [
+    false,
+    true,
+    false
+   ],
+   "way_ids": [
+    3,
+    2,
+    1
+   ]
+  },
+  {
+   "flags": 8,
+   "from": "",
+   "headway_off_s": 0,
+   "headway_peak_s": 0,
+   "id": "hiking.r9003",
+   "length_m": 594,
+   "livery": 0,
+   "livery_name": "NONE",
+   "mode": 5,
+   "mode_name": "HIKING",
+   "name": [
+    "Heritage Walk",
+    "Heritage Walk",
+    ""
+   ],
+   "osm_id": 9003,
+   "ref": "",
+   "stops": [],
+   "to": "",
+   "way_forward": [
+    true,
+    true
+   ],
+   "way_ids": [
+    1,
+    3
+   ]
+  }
+ ],
+ "version": 1
+}

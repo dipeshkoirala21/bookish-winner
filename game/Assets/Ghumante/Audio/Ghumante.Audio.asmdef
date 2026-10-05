@@ -2,7 +2,8 @@
     "name": "Ghumante.Audio",
     "rootNamespace": "Ghumante.Audio",
     "references": [
-        "Ghumante.Core"
+        "Ghumante.Core",
+        "Ghumante.Platform"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
