@@ -39,6 +39,19 @@ regions:
     horizon_levels: [7, 8]
     base_install: false
 
+  # Compact M1 sample shipped in the repo so Explore works without running the pipeline:
+  # Swayambhunath, Thamel, Kathmandu Durbar Square, Pashupatinath and Boudhanath, with the
+  # valley-wide horizon so the Himalaya are on the skyline.
+  kathmandu_core:
+    name_en: Kathmandu (core)
+    name_ne: काठमाडौं (मुख्य)
+    milestone: M1
+    bbox: [85.283, 27.690, 85.375, 27.735]
+    horizon_bbox: [84.60, 27.20, 86.40, 28.60]
+    detail_levels: [8, 9, 10]
+    horizon_levels: [5, 6, 7]
+    base_install: true
+
   # Planned, not yet built (M2+). Kept here so ids are stable.
   prithvi_corridor:
     name_en: Prithvi Highway
