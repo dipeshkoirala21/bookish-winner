@@ -40,6 +40,7 @@
 ### Verification
 `dotnet test core-tests` 174/174; `run.sh --audit` PASS (Android + iOS); `check_ui.py` PASS; localisation OK; TextSpike up to date. An adversarial review found 14 issues and rejected 3 more; all 14 were fixed. Nothing has run on a phone yet.
 
+### Vision and content coverage
 * **Product-owner vision restated:** *"a GTA style open world explore game in cartoonish theme ... every place, object, landmark, monument, scenery, winding road, waterfall, building, trekking route, forest and adventure spot in their actual places."* "GTA style" is read as the open-world format (seamless roaming, hop on and off vehicles, living streets, minimap, discovery, side activities), still non-violent at 9+ / PEGI 7.
 * **Content coverage audit** → [CONTENT_COVERAGE.md](CONTENT_COVERAGE.md); evidence in [reports/content_census/](reports/content_census/README.md).
   * **What's already right:** positions. Nothing is lost between OSM and the packs: buildings to ≤ 1 cm and every road vertex kept, so hairpins survive.
