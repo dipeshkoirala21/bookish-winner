@@ -575,6 +575,9 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--gh-space-2) var(--gh-space-3);
+    /* UI Toolkit defaults to flex-shrink: 1. Without this, a tall middle section (e.g. a long ScrollView)
+       squeezes the bars below their content and their buttons spill off-screen. */
+    flex-shrink: 0;
 }
 
 .gh-bottombar {
@@ -582,6 +585,7 @@
     align-items: flex-end;
     justify-content: space-between;
     padding: var(--gh-space-2) var(--gh-space-3);
+    flex-shrink: 0; /* see .gh-topbar */
 }
 
 .gh-row {

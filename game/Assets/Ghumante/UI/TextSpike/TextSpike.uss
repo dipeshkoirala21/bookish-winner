@@ -18,9 +18,13 @@
     margin: 6px;
 }
 
+/* The panel takes exactly the height left between the top and bottom bars (flex-basis 0), and the list
+   scrolls inside it. With flex-basis auto its "natural" height would be all 27 rows (~3000 units), and the
+   overflow would be shared out with the bars instead of being scrolled. */
 .spike-panel {
     flex-grow: 1;
     flex-shrink: 1;
+    flex-basis: 0;
     margin: 0 var(--gh-space-3) 0 var(--gh-space-3);
     padding: var(--gh-space-2) var(--gh-space-3);
 }
@@ -44,6 +48,8 @@
 
 .spike-list {
     flex-grow: 1;
+    flex-shrink: 1;
+    flex-basis: 0;
 }
 
 .spike-row {
