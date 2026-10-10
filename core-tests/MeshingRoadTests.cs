@@ -148,10 +148,13 @@ namespace Ghumante.Core.Tests
                 Assert.That(m.Positions[3 * c], Is.EqualTo(100f + 100f * sec / 13).Within(1e-3));
                 Assert.That(m.Positions[3 * l + 2] - m.Positions[3 * r + 2], Is.EqualTo(5f).Within(1e-4), "left is north of an eastbound road");
                 Assert.That(m.Positions[3 * c + 1], Is.EqualTo(y).Within(1e-4));
-                Assert.That(m.Uv0[2 * l], Is.EqualTo(0f));
-                Assert.That(m.Uv0[2 * c], Is.EqualTo(0.5f));
-                Assert.That(m.Uv0[2 * r], Is.EqualTo(1f));
-                Assert.That(m.Uv0[2 * c + 1], Is.EqualTo(100f * sec / 13 / 4).Within(1e-4));
+                // UV0 is the material channel contract (u = channel, v = baked AO): brick, darker at the edges.
+                float brick = (float)MaterialChannel.Brick;
+                Assert.That(m.Uv0[2 * l], Is.EqualTo(brick));
+                Assert.That(m.Uv0[2 * c], Is.EqualTo(brick));
+                Assert.That(m.Uv0[2 * r], Is.EqualTo(brick));
+                Assert.That(m.Uv0[2 * c + 1], Is.EqualTo(1f));
+                Assert.That(m.Uv0[2 * l + 1], Is.EqualTo(0.9f).Within(1e-6));
             }
             uint edge = RoadStyle.SurfaceRgba(Surface.Brick);
             Assert.That(m.Colors[0], Is.EqualTo((byte)(edge >> 24)));
@@ -237,51 +240,55 @@ namespace Ghumante.Core.Tests
             AssertSameBorder(BorderVertices(ma, A, true, 1024f), BorderVertices(mb, B, true, 0f), "draped join");
         }
 
+        /// <summary>
+        /// W2 ribbon on a bumpy synthetic tile. Unsmoothed (<see cref="RoadOptions.SmoothProfile"/> off) every carriageway
+        /// vertex sits exactly the lift above the rendered surface; smoothed, no carriageway vertex is buried more than
+        /// <see cref="RoadGrade.MaxBuryM"/> and none floats more than the band plus the cross-fall above it. Either way the
+        /// carriageway faces up, covers the drawn width along the polyline and carries the material channel contract
+        /// (UV0 = concrete channel, AO).
+        /// </summary>
         [Test]
-        public void DrapedRibbonLiesExactlyOnTheRenderedSurface()
+        public void DrapedRibbonFollowsTheRenderedSurface()
         {
             TileData t = MeshingChecks.SyntheticTile(A, (x, z) => Smooth(x, z) + 3 * Math.Sin(x * 0.37) * Math.Cos(z * 0.23));
             t.Roads.Add(Road(RoadClass.Secondary, Surface.Concrete, RoadFlags.None, 10000, 12000, 30000, 18000, 52000, 15500, 70000, 40000));
             var s = new TileHeightSampler(t, 2);
-            var m = new MeshData();
-            var o = new RoadOptions();
-            Assert.That(RoadMesher.Build(t, s, o, m), Is.EqualTo(1));
-            MeshingChecks.AssertWellFormed(m, "draped");
-            Assert.That(m.HasUv0, Is.True);
-            float lift = RoadMesher.LiftOf(t.Roads[0], o);
-            double area = 0;
-            for (int tri = 0; tri < m.TriangleCount; tri++)
+            foreach (bool smooth in new[] { false, true })
             {
-                double fx, fy, fz;
-                MeshingChecks.Facet(m, tri, out fx, out fy, out fz);
-                Assert.That(fy, Is.GreaterThan(0), "up-facing");
-                area += 0.5 * fy;
-                // Every point of every triangle (vertices and edge midpoints) sits exactly lift above the surface.
-                for (int k = 0; k < 3; k++)
+                var m = new MeshData();
+                var o = new RoadOptions { SmoothProfile = smooth };
+                Assert.That(RoadMesher.Build(t, s, o, m), Is.EqualTo(1));
+                MeshingChecks.AssertWellFormed(m, "draped");
+                Assert.That(m.HasUv0, Is.True);
+                float lift = RoadMesher.LiftOf(t.Roads[0], o);
+                double area = 0;
+                int carriageway = 0;
+                for (int tri = 0; tri < m.TriangleCount; tri++)
                 {
-                    int a = m.Indices[3 * tri + k], b = m.Indices[3 * tri + (k + 1) % 3];
-                    for (int w = 0; w <= 1; w++)
+                    double fx, fy, fz;
+                    MeshingChecks.Facet(m, tri, out fx, out fy, out fz);
+                    double len = Math.Sqrt(fx * fx + fy * fy + fz * fz);
+                    bool road = true;
+                    for (int k = 0; k < 3; k++)
+                        road &= m.Uv0[2 * m.Indices[3 * tri + k]] == (float)MaterialChannel.Concrete && m.Uv0[2 * m.Indices[3 * tri + k] + 1] >= 0.9f;
+                    if (!road || len < 1e-9 || fy < 0.5 * len) continue;
+                    carriageway++;
+                    area += 0.5 * fy;
+                    for (int k = 0; k < 3; k++)
                     {
-                        double px = w == 0 ? m.Positions[3 * a] : 0.5 * (m.Positions[3 * a] + m.Positions[3 * b]);
-                        double pz = w == 0 ? m.Positions[3 * a + 2] : 0.5 * (m.Positions[3 * a + 2] + m.Positions[3 * b + 2]);
-                        double py = w == 0 ? m.Positions[3 * a + 1] : 0.5 * (m.Positions[3 * a + 1] + m.Positions[3 * b + 1]);
+                        int v = m.Indices[3 * tri + k];
                         float h;
-                        Assert.That(s.TryHeight(A.X0 + px, A.Z0 + pz, out h), Is.True);
-                        Assert.That(py - h, Is.EqualTo(lift).Within(1e-3));
+                        Assert.That(s.TryHeight(A.X0 + m.Positions[3 * v], A.Z0 + m.Positions[3 * v + 2], out h), Is.True);
+                        double dy = m.Positions[3 * v + 1] - h - lift;
+                        if (!smooth) Assert.That(dy, Is.EqualTo(0).Within(1e-3), "unsmoothed: exactly lift above the surface");
+                        else Assert.That(dy, Is.InRange(-RoadGrade.MaxBuryM - 1e-3, RoadGrade.BandM + RoadGrade.MaxBank * 4.0), "smoothed: on the surface");
                     }
                 }
+                Assert.That(carriageway, Is.GreaterThan(20));
+                // Plan area of the 7 m carriageway along the polyline (corners and fillets make it a little different).
+                double plen = Math.Sqrt(200 * 200 + 60 * 60) + Math.Sqrt(220 * 220 + 25 * 25) + Math.Sqrt(180 * 180 + 245 * 245);
+                Assert.That(area, Is.EqualTo(7 * plen).Within(0.05 * 7 * plen), smooth ? "smoothed" : "unsmoothed");
             }
-            // Plan area of a 7 m ribbon along the polyline (corners make it a little different).
-            double len = Math.Sqrt(200 * 200 + 60 * 60) + Math.Sqrt(220 * 220 + 25 * 25) + Math.Sqrt(180 * 180 + 245 * 245);
-            Assert.That(area, Is.EqualTo(7 * len).Within(0.03 * 7 * len));
-            // UVs: U spans 0..1 across, V grows along at a quarter unit per metre.
-            float vmax = 0;
-            for (int v = 0; v < m.VertexCount; v++)
-            {
-                Assert.That(m.Uv0[2 * v], Is.InRange(-1e-4f, 1.0001f));
-                vmax = Math.Max(vmax, m.Uv0[2 * v + 1]);
-            }
-            Assert.That(vmax, Is.EqualTo((float)(len / 4)).Within(0.01));
         }
 
         private static TileData OnlyRoad(TileData t, RoadRecord r)
