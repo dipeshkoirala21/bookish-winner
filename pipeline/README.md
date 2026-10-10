@@ -63,7 +63,7 @@ The stages run in this order. Each one is timed in the manifest and in `BUILD_RE
 4. **trails** (`trails.py`): infers `sac_scale` from slope, altitude and glacier proximity.
 5. **buildings** (`contexts.py`, `buildings.py`): infers levels, height, roof, materials and archetype from density, elevation and archetype zones.
 6. **search** (`search_index.py`): writes `<region>.search.ghsi`, with landmark ids from `config/landmarks.resolved.json`.
-7. **tiles** (`tiling.py`) and **pack** (`pack.py`): write `<region>.ghpk`. Heights and biomes cover every detail and horizon level. Vector content goes only on leaf tiles (M0).
+7. **tiles** (`tiling.py`) and **pack** (`pack.py`): write `<region>.ghpk`. Heights and biomes cover every detail and horizon level. Vector content goes only on leaf tiles (M0). Before the tiles are encoded, the W2 detail pass (docs/W2_DETAIL_CONTRACT.md) runs once per way: `structures.py` finds bridges, flyovers, underpasses, tunnels and fords and solves absolute deck heights (the `RSTR` chunk), `corridors.py` derives every road's clear corridor (`RATR.corridor_dm`, never under 4.8 m) and trims the buildings that stand in it (`BFNT` `TRIMMED_FOR_ROAD`), and the car rule feeds routing. DATA_FORMATS.md 1.11 and 1.15 hold the rules; `BUILD_REPORT.md` counts trims per tile.
 8. **routing** (`routing.py`): writes `<region>.route.ghrg`.
 9. **manifest**: writes `<region>.manifest.json` (DATA_FORMATS §2) with the SHA-256 of each file, tile counts, sources, attribution, stats and timings.
 10. **qa** (`qa_export.py`, with `--qa`): decodes the pack into `qa/`.

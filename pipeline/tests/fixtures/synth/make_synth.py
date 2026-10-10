@@ -18,6 +18,11 @@ a bus stop, a chautari pipal and a storage tank, a bus route relation (with a st
 turn restriction over the primary, sidewalk/lit/maxspeed tags, a religious compound over one street
 block (D14), the bahal courtyard hole, and a building:part on the temple.
 
+W2 detail pass (docs/W2_DETAIL_CONTRACT.md): the river crosses every north-south street untagged
+(inferred bridges), a foot overbridge (footway, bridge, layer 1, steps at both ends) spans the
+primary, a dead-end galli runs between two houses 1.4 m from its centreline (trimmed, no cars), and a
+house is mapped across the primary's centreline (trimmed back to the corridor).
+
 and returns a ``Synth`` with the region definition and the ground truth the
 tests check against (source coordinates, ids). Everything is deterministic: no
 randomness, fixed ids starting at ``ID_BASE``. Some features are placed on
@@ -104,6 +109,10 @@ class Synth:
     bus_route: int = 0
     restriction: int = 0
     front_house: int = 0
+    footbridge: int = 0  # W2 detail pass: a foot overbridge over the primary
+    galli: int = 0  # a dead-end residential galli between two houses 1.4 m from its centreline
+    galli_houses: list[int] = field(default_factory=list)
+    road_house: int = 0  # a house mapped across the primary's centreline
 
     def lonlat(self, node_ids) -> np.ndarray:
         return np.array([self.nodes[n] for n in node_ids], dtype=np.float64)
@@ -303,7 +312,8 @@ def make_synth(dest: Path) -> Synth:
            {"landuse": "residential"})
 
     # --- river -----------------------------------------------------------------------
-    river = [o.node(85.2980 + 0.0012 * t, 27.7088 + 0.0004 * math.sin(t * 0.7)) for t in range(21)]
+    # Between the primary (j = 3) and street j = 4, so it crosses every north-south street but no east-west one.
+    river = [o.node(85.2980 + 0.0012 * t, 27.7103 + 0.0003 * math.sin(t * 0.7)) for t in range(21)]
     o.way(river, {"waterway": "river", "name": "Synth Khola"})
 
     # --- POIs and places -----------------------------------------------------------------
@@ -350,6 +360,27 @@ def make_synth(dest: Path) -> Synth:
     syn.front_house = hw
     for dx in (-0.00002, 0.00002):
         o.node(lons[3] + 0.0013 + dx, lats[3] + 0.00012, {"shop": "convenience", "name": "Synth Pasal"})
+    # --- W2 detail pass ----------------------------------------------------------------------------------
+    m_lon = 1.0 / (111_320.0 * math.cos(math.radians(27.71)))  # degrees per metre
+    m_lat = 1.0 / 110_574.0
+    fb_lon = lons[6] + 0.0010
+    fb = [o.node(fb_lon, lats[3] - 18 * m_lat), o.node(fb_lon, lats[3] + 18 * m_lat)]
+    syn.footbridge = street(fb, {"highway": "footway", "bridge": "yes", "layer": "1"})
+    street([o.node(fb_lon, lats[3] - 30 * m_lat), fb[0]], {"highway": "steps"})
+    street([fb[1], o.node(fb_lon, lats[3] + 30 * m_lat)], {"highway": "steps"})
+    g_lon = lons[6] + 0.0003
+    syn.galli = street([o.node(g_lon, lats[5] + 0.0001), o.node(g_lon, lats[5] + 0.0007)],
+                       {"highway": "residential", "name": "Synth Galli"})
+    for side in (-1, 1):
+        hwid, hids = o.ring(_rect(g_lon + side * 5.4 * m_lon, lats[5] + 0.0004, 8 * m_lon, 0.00036),
+                            {"building": "yes"})
+        syn.buildings[hwid] = hids
+        syn.galli_houses.append(hwid)
+    # The primary's block-1 midpoint wiggles to lats[3] + 0.00012 sin(4); the house sits 2 m north of it.
+    rhw, rhids = o.ring(_rect(lons[1] + 0.0013, lats[3] + 0.00012 * math.sin(4) + 2.0 * m_lat, 10 * m_lon, 8 * m_lat),
+                        {"building": "yes"})
+    syn.buildings[rhw] = rhids
+    syn.road_house = rhw
     syn.bus_route = o.rel([("way", syn.primary_way, ""), ("node", stop, "platform")],
                           {"type": "route", "route": "bus", "ref": "S1", "name": "Synth Bus 1",
                            "operator": "Sajha Yatayat", "from": "Synthtol", "to": "Bagh Synth"})

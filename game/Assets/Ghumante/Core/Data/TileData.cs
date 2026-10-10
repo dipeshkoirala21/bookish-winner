@@ -181,8 +181,9 @@ namespace Ghumante.Core.Data
         /// <summary>PROP real point objects; empty when absent.</summary>
         public readonly List<PropRecord> Props = new List<PropRecord>();
 
-        /// <summary>Road structures (bridges, flyovers, underpasses, car access): one per <see cref="Roads"/> entry,
-        /// same order; empty when the tile carries none (W2 detail pass).</summary>
+        /// <summary>RSTR road structures (bridges, flyovers, underpasses, deck heights, car access): one per
+        /// <see cref="Roads"/> entry, same order; empty when the tile carries none (W2 detail pass,
+        /// DATA_FORMATS 1.15).</summary>
         public readonly List<RoadStructureRecord> RoadStructures = new List<RoadStructureRecord>();
 
         public bool HasSeed;
@@ -201,6 +202,12 @@ namespace Ghumante.Core.Data
         public bool HasRoadAttrs
         {
             get { return RoadAttrs.Count > 0 && RoadAttrs.Count == Roads.Count; }
+        }
+
+        /// <summary>True when the tile carries RSTR (one structure record per road).</summary>
+        public bool HasRoadStructures
+        {
+            get { return RoadStructures.Count > 0 && RoadStructures.Count == Roads.Count; }
         }
 
         /// <summary>True when the tile carries BFNT (one front record per building).</summary>

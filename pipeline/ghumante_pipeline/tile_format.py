@@ -29,6 +29,12 @@ sorts them together with their ``ROAD`` / ``BLDG`` records, and remaps a
 ``BFNT`` edge index when it re-orients an outer ring. Either parallel list is
 empty (chunk omitted) or exactly as long as its base list.
 
+W2 detail pass: ``RSTR`` (road structures, one record per ``ROAD`` record,
+same order, sorted with them like ``RATR``): kind, effective layer, flags,
+clearance, railing height, per-point deck heights (draped / deck / ramp) and
+per-corridor-sample lateral shifts (as many as the ``RATR`` record's corridor
+samples, or none).
+
 ``encode_tile`` canonicalises its input first (``canonicalize``): records are
 sorted as the spec requires (with full-content tie-breaks), the name table is
 rebuilt in first-reference order (deduplicated, NFC, unused names dropped),
@@ -81,10 +87,15 @@ FOURCC_POIS = b"POIS"
 FOURCC_PROP = b"PROP"
 FOURCC_RATR = b"RATR"
 FOURCC_ROAD = b"ROAD"
+FOURCC_RSTR = b"RSTR"
 FOURCC_SEED = b"SEED"
 KNOWN_FOURCCS = (FOURCC_AREA, FOURCC_BFNT, FOURCC_BIOM, FOURCC_BLDG, FOURCC_HGHT, FOURCC_JNCT, FOURCC_LINE,
-                 FOURCC_META, FOURCC_NAME, FOURCC_POIS, FOURCC_PROP, FOURCC_RATR, FOURCC_ROAD, FOURCC_SEED)
+                 FOURCC_META, FOURCC_NAME, FOURCC_POIS, FOURCC_PROP, FOURCC_RATR, FOURCC_ROAD, FOURCC_RSTR,
+                 FOURCC_SEED)
 EDGE_NONE = 255  # BFNT front_edge / second_edge: no edge
+DECK_DRAPED = 0  # RSTR deck_role: the point lies on the terrain
+DECK_DECK = 1  # RSTR deck_role: the point is on a structure deck (bridge, flyover, underpass trough)
+DECK_RAMP = 2  # RSTR deck_role: the point is on an approach ramp (embankment or cutting), not a deck
 SHOP_BAYS_FROM_POI = 0x80  # BFNT shop_bays bit7
 YAW_CDEG_MAX = 35999
 
@@ -288,6 +299,26 @@ class PropRec(_Record):
 
 
 @dataclass(slots=True, eq=False)
+class RoadStructureRec(_Record):
+    """``RSTR`` record (W2 detail pass): the structure of the ``ROAD`` record at the same index.
+
+    ``deck_role`` (uint8 per ROAD point, context points included, or empty = draped everywhere) says what each
+    point stands on (``DECK_DRAPED`` / ``DECK_DECK`` / ``DECK_RAMP``); ``deck_cm`` (int64, same length) holds the
+    absolute surface height in game centimetres where the role is not draped (ignored where it is).
+    ``shift_cm`` (int64 per RATR corridor sample, or empty) is the lateral corridor shift, + = left of the point
+    order."""
+
+    kind: int = 0  # model.RoadStructureKind
+    layer: int = 0  # effective layer
+    flags: int = 0  # model.RoadStructureFlags
+    clearance_cm: int = 0  # free height above this road, 0 = unlimited / unknown
+    railing_dm: int = 0  # railing height, 0 = none
+    deck_role: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.uint8))
+    deck_cm: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+    shift_cm: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+
+
+@dataclass(slots=True, eq=False)
 class TileData(_Record):
     tile: TileId
     data_version: int
@@ -306,6 +337,7 @@ class TileData(_Record):
     junctions: list[JunctionRec] = field(default_factory=list)  # JNCT
     building_fronts: list[BuildingFrontRec] = field(default_factory=list)  # BFNT: empty or one per building
     props: list[PropRec] = field(default_factory=list)  # PROP
+    road_structures: list[RoadStructureRec] = field(default_factory=list)  # RSTR: empty or one per road
 
     def name(self, ref: int) -> NameEntry | None:
         """Resolve a ``name_ref`` (0 = no name)."""
@@ -639,11 +671,12 @@ def _tiebreak(rec, name_fields: tuple[str, ...], resolve: Callable[[int], tuple]
 
 
 def _sorted_idx(recs: list, primary: Callable, name_fields: tuple[str, ...], resolve: Callable,
-                extra: list | None = None) -> list[int]:
+                extra: list | None = None, extra2: list | None = None) -> list[int]:
     """Indices of ``recs`` in the spec's order: by the primary key; records
     sharing a primary key are ordered by their full content (computed only for
     those groups), then by the content of their ``extra`` record (a parallel
-    list such as ``RATR`` for ``ROAD``) when given."""
+    list such as ``RATR`` for ``ROAD``) and of their ``extra2`` record (``RSTR``)
+    when given."""
     keyed = sorted(((primary(r), i) for i, r in enumerate(recs)), key=lambda t: t[0])
     out: list[int] = []
     i = 0
@@ -653,10 +686,9 @@ def _sorted_idx(recs: list, primary: Callable, name_fields: tuple[str, ...], res
             j += 1
         group = [k for _, k in keyed[i:j]]
         if len(group) > 1:
-            if extra:
-                group.sort(key=lambda k: (_tiebreak(recs[k], name_fields, resolve), _tiebreak(extra[k], (), resolve)))
-            else:
-                group.sort(key=lambda k: _tiebreak(recs[k], name_fields, resolve))
+            group.sort(key=lambda k: (_tiebreak(recs[k], name_fields, resolve),
+                                      _tiebreak(extra[k], (), resolve) if extra else (),
+                                      _tiebreak(extra2[k], (), resolve) if extra2 else ()))
         out.extend(group)
         i = j
     return out
@@ -695,6 +727,8 @@ def canonicalize(td: TileData) -> TileData:
         raise ValueError(f"{len(td.road_attrs)} RATR records for {len(td.roads)} roads")
     if td.building_fronts and len(td.building_fronts) != len(td.buildings):
         raise ValueError(f"{len(td.building_fronts)} BFNT records for {len(td.buildings)} buildings")
+    if td.road_structures and len(td.road_structures) != len(td.roads):
+        raise ValueError(f"{len(td.road_structures)} RSTR records for {len(td.roads)} roads")
     roads = []
     for r in td.roads:
         pts = _int_points(r.points, f"road {r.osm_way_id} points")
@@ -708,6 +742,9 @@ def canonicalize(td: TileData) -> TileData:
         if cor.size and cor.min() < 0:
             raise ValueError("RATR corridor_dm must not be negative")
         road_attrs.append(dataclasses.replace(a, corridor_dm=cor))
+    road_structures = [_canonical_structure(s, len(roads[k].points),
+                                            len(road_attrs[k].corridor_dm) if road_attrs else 0, k)
+                       for k, s in enumerate(td.road_structures)]
     lines = []
     for ln in td.lines:
         pts = _int_points(ln.points, f"line {ln.osm_way_id} points")
@@ -749,9 +786,10 @@ def canonicalize(td: TileData) -> TileData:
             raise ValueError(f"prop {p.osm_ref}: yaw_cdeg set without the YAW flag")
 
     order = _sorted_idx(roads, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref", "ref_ref"), resolve,
-                        road_attrs)
+                        road_attrs, road_structures)
     roads = [roads[k] for k in order]
     road_attrs = [road_attrs[k] for k in order] if road_attrs else []
+    road_structures = [road_structures[k] for k in order] if road_structures else []
     lines = _sorted(lines, lambda r: (r.osm_way_id, *_first_point(r.points)), ("name_ref",), resolve)
     order = _sorted_idx(buildings, lambda r: (r.osm_ref,), ("name_ref",), resolve, fronts)
     buildings = [buildings[k] for k in order]
@@ -793,7 +831,41 @@ def canonicalize(td: TileData) -> TileData:
     return TileData(tile=td.tile, data_version=int(td.data_version), heights_q=heights, biomes=biomes,
                     names=table.entries(), roads=roads, lines=lines, buildings=buildings, areas=areas, pois=pois,
                     seed=seed, meta=meta, has_detail=bool(td.has_detail), road_attrs=road_attrs,
-                    junctions=junctions, building_fronts=fronts, props=props)
+                    junctions=junctions, building_fronts=fronts, props=props, road_structures=road_structures)
+
+
+def _canonical_structure(s: RoadStructureRec, n_points: int, n_corridor: int, k: int) -> RoadStructureRec:
+    """Validated copy of an ``RSTR`` record (integer arrays, lengths matching the road and its RATR record;
+    deck heights zeroed where draped)."""
+    role = np.ascontiguousarray(np.asarray(s.deck_role), dtype=np.int64).reshape(-1)
+    deck = np.asarray(s.deck_cm)
+    if deck.size and not np.issubdtype(deck.dtype, np.integer):
+        raise TypeError(f"RSTR {k}: deck_cm must be integer centimetres")
+    deck = np.ascontiguousarray(deck, dtype=np.int64).reshape(-1)
+    if len(role) != len(deck):
+        raise ValueError(f"RSTR {k}: {len(role)} deck roles for {len(deck)} deck heights")
+    if len(role) and (role.min() < 0 or role.max() > DECK_RAMP):
+        raise ValueError(f"RSTR {k}: deck_role outside 0..{DECK_RAMP}")
+    if len(role) and not (role != DECK_DRAPED).any():
+        role, deck = role[:0], deck[:0]  # draped everywhere: no deck heights at all
+    if len(role) not in (0, n_points):
+        raise ValueError(f"RSTR {k}: {len(role)} deck points for a road of {n_points} points")
+    deck = np.where(role != DECK_DRAPED, deck, 0)
+    shift = np.asarray(s.shift_cm)
+    if shift.size and not np.issubdtype(shift.dtype, np.integer):
+        raise TypeError(f"RSTR {k}: shift_cm must be integer centimetres")
+    shift = np.ascontiguousarray(shift, dtype=np.int64).reshape(-1)
+    if len(shift) and not shift.any():
+        shift = shift[:0]
+    if len(shift) not in (0, n_corridor):
+        raise ValueError(f"RSTR {k}: {len(shift)} shifts for {n_corridor} RATR corridor samples")
+    for v, what, lo, hi in ((s.kind, "kind", 0, 255), (s.layer, "layer", -128, 127), (s.flags, "flags", 0, 255),
+                            (s.railing_dm, "railing_dm", 0, 255), (s.clearance_cm, "clearance_cm", 0, 1 << 32)):
+        if not lo <= int(v) <= hi:
+            raise ValueError(f"RSTR {k}: {what} {v} outside {lo}..{hi}")
+    return RoadStructureRec(kind=int(s.kind), layer=int(s.layer), flags=int(s.flags), clearance_cm=int(s.clearance_cm),
+                            railing_dm=int(s.railing_dm), deck_role=role.astype(np.uint8), deck_cm=deck,
+                            shift_cm=shift)
 
 
 def _check_grid(a, dtype, vmax: int, what: str) -> np.ndarray:
@@ -1038,6 +1110,45 @@ def _enc_jnct(junctions: list[JunctionRec]) -> bytes:
     return w.bytes()
 
 
+def _enc_rstr(structs: list[RoadStructureRec]) -> bytes:
+    w = Writer().varint(len(structs))
+    for s in structs:
+        w.u8(s.kind).i8(s.layer).u8(s.flags).varint(s.clearance_cm).u8(s.railing_dm).varint(len(s.deck_role))
+        if len(s.deck_role):
+            role = s.deck_role.astype(np.int64)
+            up = role != DECK_DRAPED
+            y = s.deck_cm[up]
+            dy = np.diff(y, prepend=np.int64(0))
+            zz = ((dy.view(np.uint64) << np.uint64(1)) ^ (dy >> np.int64(63)).view(np.uint64))
+            code = np.zeros(len(role), dtype=np.uint64)
+            code[up] = ((zz << np.uint64(1)) | (role[up] == DECK_RAMP).astype(np.uint64)) + np.uint64(1)
+            w.raw(_varints_bytes(code))
+        w.varint(len(s.shift_cm))
+        w.raw(_svarints_bytes(s.shift_cm))
+    return w.bytes()
+
+
+def _dec_rstr(r: Reader) -> list[RoadStructureRec]:
+    out = []
+    for _ in range(_count(r)):
+        s = RoadStructureRec(kind=r.u8(), layer=r.i8(), flags=r.u8(), clearance_cm=r.varint(), railing_dm=r.u8())
+        n = _count(r)
+        if n:
+            code = _read_varints(r, n)
+            up = code != 0
+            c = code[up] - np.uint64(1)
+            zz = c >> np.uint64(1)
+            dy = (zz >> np.uint64(1)).view(np.int64) ^ -(zz & np.uint64(1)).view(np.int64)
+            role = np.zeros(n, dtype=np.uint8)
+            role[up] = np.where((c & np.uint64(1)) != 0, DECK_RAMP, DECK_DECK)
+            deck = np.zeros(n, dtype=np.int64)
+            deck[up] = np.cumsum(dy)
+            s.deck_role, s.deck_cm = role, deck
+        s.shift_cm = _read_svarints(r, _count(r)).astype(np.int64)
+        out.append(s)
+    return out
+
+
 def _dec_jnct(r: Reader, n_names: int) -> list[JunctionRec]:
     return [JunctionRec(osm_node_id=r.varint(), kind=r.u8(), arms=r.u8(), flags=r.u8(), x_cm=r.svarint(),
                         z_cm=r.svarint(), ring_diameter_cm=r.varint(), island_diameter_cm=r.varint(),
@@ -1180,6 +1291,8 @@ def encode_tile(td: TileData) -> bytes:
             chunks.append((FOURCC_BFNT, _enc_bfnt(c.building_fronts)))
         if c.props:
             chunks.append((FOURCC_PROP, _enc_prop(c.props)))
+        if c.road_structures:
+            chunks.append((FOURCC_RSTR, _enc_rstr(c.road_structures)))
         if c.seed is not None:
             chunks.append((FOURCC_SEED, _enc_seed(c.seed)))
         if c.meta is not None:
@@ -1284,8 +1397,18 @@ def decode_tile(blob: bytes) -> TileData:
     td.junctions = parse(FOURCC_JNCT, lambda r: _dec_jnct(r, nn)) or []
     td.building_fronts = parse(FOURCC_BFNT, _dec_bfnt) or []
     td.props = parse(FOURCC_PROP, lambda r: _dec_prop(r, nn)) or []
+    td.road_structures = parse(FOURCC_RSTR, _dec_rstr) or []
     if td.road_attrs and len(td.road_attrs) != len(td.roads):
         raise ValueError(f"{len(td.road_attrs)} RATR records for {len(td.roads)} ROAD records")
     if td.building_fronts and len(td.building_fronts) != len(td.buildings):
         raise ValueError(f"{len(td.building_fronts)} BFNT records for {len(td.buildings)} BLDG records")
+    if td.road_structures:
+        if len(td.road_structures) != len(td.roads):
+            raise ValueError(f"{len(td.road_structures)} RSTR records for {len(td.roads)} ROAD records")
+        for k, (s, rd) in enumerate(zip(td.road_structures, td.roads)):
+            if len(s.deck_role) not in (0, len(rd.points)):
+                raise ValueError(f"RSTR {k}: {len(s.deck_role)} deck points for a road of {len(rd.points)} points")
+            nc = len(td.road_attrs[k].corridor_dm) if td.road_attrs else 0
+            if len(s.shift_cm) not in (0, nc):
+                raise ValueError(f"RSTR {k}: {len(s.shift_cm)} shifts for {nc} RATR corridor samples")
     return td

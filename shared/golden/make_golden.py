@@ -19,8 +19,8 @@ Outputs (all in shared/golden/):
   entries, ``fold``/``romanize`` cases, and ranked results for a query list.
 * ``golden.ghrg`` + ``golden_routes.json``: a ~40-node synthetic road network, its decoded arrays,
   A* routes per profile and nearest-node queries. ``golden_profiles.json`` dumps the travel tables.
-* W2 (DATA_FORMATS sections 1.11-1.14, 6, 7, 8): ``golden_w2.ght`` + ``golden_w2.json``, the golden tile
-  plus every W2 chunk (RATR, JNCT, BFNT, PROP) and the new AREA flags; ``golden.ghrt`` +
+* W2 (DATA_FORMATS sections 1.11-1.15, 6, 7, 8): ``golden_w2.ght`` + ``golden_w2.json``, the golden tile
+  plus every W2 chunk (RATR, JNCT, BFNT, PROP, RSTR) and the new AREA flags; ``golden.ghrt`` +
   ``golden_transit.json`` (routes, stops, restrictions); ``golden.ghcd`` + ``golden_curated.json``
   (heritage records); ``golden_aviation.json`` (an aviation sidecar over a synthetic runway).
 
@@ -251,6 +251,11 @@ def tile_json_w2(blob: bytes) -> dict:
     out["props"] = [{"osm_ref": p.osm_ref, "kind": p.kind, "subtype": p.subtype, "flags": p.flags, "x_cm": p.x_cm,
                      "z_cm": p.z_cm, "yaw_cdeg": p.yaw_cdeg, "height_dm": p.height_dm, "name_ref": p.name_ref,
                      "ref_ref": p.ref_ref} for p in td.props]
+    # RSTR (W2 detail pass): deck heights as metres (null = draped) and roles per road point.
+    out["road_structures"] = [{"kind": r.kind, "layer": r.layer, "flags": r.flags, "clearance_cm": r.clearance_cm,
+                               "railing_dm": r.railing_dm, "deck_role": [int(v) for v in r.deck_role],
+                               "deck_cm": [int(c) if int(v) else None for v, c in zip(r.deck_role, r.deck_cm)],
+                               "shift_cm": [int(v) for v in r.shift_cm]} for r in td.road_structures]
     return out
 
 
@@ -306,6 +311,27 @@ def make_tile_data_w2() -> TileData:
         PropRec(osm_ref=(14 << 2), kind=ObjectKind.TRAFFIC_SIGNALS, flags=PropFlags.ON_ROAD, x_cm=-1, z_cm=-2),
         PropRec(osm_ref=(14 << 2), kind=ObjectKind.CROSSING_MARKED, flags=PropFlags.ON_ROAD | PropFlags.YAW,
                 x_cm=-1, z_cm=-2, yaw_cdeg=0),
+    ]
+    # One RSTR per road (pre-canonical order, like RATR): a bridge with a ramp, deck and lowered/draped points and a
+    # corridor shift; a draped car road; a lowered underpass with a clearance (large and negative heights).
+    from ghumante_pipeline.model import RoadStructureFlags as SF, RoadStructureKind as SK
+    from ghumante_pipeline.tile_format import DECK_DECK, DECK_DRAPED, DECK_RAMP, RoadStructureRec
+
+    n0, n2 = len(td.roads[0].points), len(td.roads[2].points)
+    role0 = np.full(n0, DECK_DECK, dtype=np.uint8)
+    role0[0] = DECK_DRAPED
+    role0[1] = DECK_RAMP
+    deck0 = 131250 + 37 * np.arange(n0, dtype=np.int64)
+    role2 = np.full(n2, DECK_RAMP, dtype=np.uint8)
+    role2[-1] = DECK_DRAPED
+    deck2 = -1250 - 400 * np.arange(n2, dtype=np.int64)
+    td.road_structures = [
+        RoadStructureRec(kind=SK.BRIDGE, layer=1, flags=SF.CAR_ACCESSIBLE | SF.WATER_CROSSING | SF.DECK_FROM_TAGS
+                         | SF.OVER_ROAD, clearance_cm=0, railing_dm=11, deck_role=role0, deck_cm=deck0,
+                         shift_cm=np.array([0, -35, 120, 16384, -16385], dtype=np.int64)),
+        RoadStructureRec(kind=SK.NONE, layer=0, flags=SF.CAR_ACCESSIBLE),
+        RoadStructureRec(kind=SK.UNDERPASS, layer=-1, flags=SF.LOWERED | SF.DECK_FROM_TAGS | SF.SQUEEZED,
+                         clearance_cm=571, railing_dm=0, deck_role=role2, deck_cm=deck2),
     ]
     td.areas[0].flags = int(tile_format.AreaFlags.SACRED_NO_VEHICLE | tile_format.AreaFlags.HERITAGE_ZONE)
     td.areas[0].kind = AreaKind.COURTYARD
@@ -558,9 +584,14 @@ def make_network() -> list[RoadFeature]:
     return roads
 
 
+# W2 detail pass (decision 5): Durbar Marg (way 503, the residential top row) is a galli no car can use, so the
+# graph keeps it for walkers, bicycles and motorbikes only (routing.build_graph(no_car=...)).
+NO_CAR_WAYS = (503,)
+
+
 def make_routing() -> None:
     write_json("golden_profiles.json", routing.travel_profiles_table())
-    g = routing.build_graph(make_network(), to_game=_planar, elev=_elev)
+    g = routing.build_graph(make_network(), to_game=_planar, elev=_elev, no_car=NO_CAR_WAYS)
     data = routing.encode_graph(g)
     write_bytes("golden.ghrg", data)
     g = routing.decode_graph(data)
@@ -601,7 +632,7 @@ def make_routing() -> None:
              for t in routing.PROFILES}
 
     write_json("golden_routes.json", {
-        "format": "ghumante-golden-routes", "version": 1,
+        "format": "ghumante-golden-routes", "version": 1, "no_car_ways": list(NO_CAR_WAYS),
         "node_count": n, "edge_count": g.edge_count, "geom_bytes": len(g.geometry),
         "node_x_dm": g.node_x_dm.tolist(), "node_z_dm": g.node_z_dm.tolist(), "node_elev": g.node_elev.tolist(),
         "offsets": g.offsets.tolist(),

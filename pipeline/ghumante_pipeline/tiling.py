@@ -51,6 +51,15 @@ region's ``junctions.find_junctions`` records, in the tile holding their
 centre), ``PROP`` (real point objects, in the tile holding them) and the AREA
 flags ``HERITAGE_ZONE`` / ``SACRED_NO_VEHICLE`` (``sacred.area_flags``).
 
+W2 detail pass (``_prepare_detail``, before the pool forks): ``structures.analyse``
+classifies every way and solves deck heights (the ways that carry heights get a
+densified polyline, which is what the tiles clip), ``corridors.compute`` derives
+each way's clear corridor, the buildings are trimmed back to the corridor bands
+(``corridors.trim_buildings``; trimmed rings replace the originals before the
+tile buckets are made, removed footprints are dropped), and every piece reads
+its ``RATR`` corridor samples and its ``RSTR`` record from the way-level
+profiles (``wayprofile.piece_arcs`` maps the piece onto its way).
+
 Parallelism: tiles are encoded in a ``fork`` process pool. The prepared state
 (samplers with warmed caches, projected features, buckets) is a module global
 inherited by the workers, which return ``(key, blob, stats)``; results are
@@ -85,7 +94,7 @@ from .projection import TileId
 from .rasterize import burn_key, rasterize_at_samples
 from .tile_format import (
     YAW_CDEG_MAX, AreaFlags, AreaRec, BuildingFrontRec, BuildingRec, JunctionRec, LineFlags, LineRec, NameTable,
-    PoiRec, PropRec, RoadRec, TileData, encode_tile, make_seed, osm_ref_nwr, osm_ref_wr, points_to_local_cm,
+    PoiRec, PropRec, RoadAttrRec, RoadRec, RoadStructureRec, TileData, encode_tile, make_seed, osm_ref_nwr, osm_ref_wr, points_to_local_cm,
     quantize_heights, read_header, to_local_cm,
 )
 
@@ -148,6 +157,9 @@ class W2Inputs:
     bus_ways: frozenset = frozenset()
     junctions: list = field(default_factory=list)  # junctions.Junction
     corridors: bool = True
+    # Filled by the tiler's detail pass for the caller: "no_car_ways" (OSM way ids that fail
+    # structures.car_accessible, for routing), "report" (structures.Structures.report) and "stats".
+    detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -167,6 +179,7 @@ class _State:
     area_order: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))  # burn rank
     area_tree: object = None
     bld_rings: list[list[np.ndarray]] = field(default_factory=list)
+    bld_src: list[int] = field(default_factory=list)  # BLDG record index -> extract building (pieces of trims share one)
     poi_xz: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     place_xz: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     road_bucket: dict[TileId, list[int]] = field(default_factory=dict)
@@ -185,6 +198,13 @@ class _State:
     prop_bucket: dict[TileId, list[int]] = field(default_factory=dict)
     jnct_bucket: dict[TileId, list[int]] = field(default_factory=dict)
     road_nodes: frozenset = frozenset()
+    road_ids_game: list = field(default_factory=list)  # node ids aligned with roads_game (deduped)
+    road_cum: list = field(default_factory=list)  # arc length per roads_game vertex
+    structures: object = None  # structures.Structures
+    corridors: object = None  # corridors.Corridors
+    car_ok: np.ndarray | None = None  # (n_roads,) structures.car_accessible
+    trimmed: frozenset = frozenset()  # building indices trimmed for a road
+    detail_stats: dict = field(default_factory=dict)
 
 
 _STATE: _State | None = None
@@ -296,6 +316,14 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
     # Roads (oneway=-1 reversed so that point order is the travel direction) and lines.
     st.roads_game = project_lonlat_arrays([r.lonlat[::-1] if r.oneway == -1 else r.lonlat for r in ex.roads])
     st.lines_game = project_lonlat_arrays([ln.lonlat for ln in ex.lines])
+    if w2 is not None:
+        from .wayprofile import dedupe
+
+        ids = [np.asarray(r.node_ids, dtype=np.int64)[::-1] if r.oneway == -1 else np.asarray(r.node_ids, dtype=np.int64)
+               for r in ex.roads]
+        dd = [dedupe(p, i) for p, i in zip(st.roads_game, ids)]
+        st.roads_game = [d[0] for d in dd]
+        st.road_ids_game = [d[1] for d in dd]
 
     # Areas in game space, with a global burn rank (tier, larger first, osm_ref).
     st.area_geoms = _to_game_geoms([a.polygon for a in ex.areas])
@@ -324,9 +352,17 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
         st.bld_rings.append(proj[k:k + n])
         k += n
     size = projection.tile_size(leaf)
+    removed: set = set()
+    if w2 is not None:
+        removed = _prepare_detail(st, region, tiles_by_level)
+    if not st.bld_src:
+        st.bld_src = list(range(len(st.bld_rings)))
     if ex.buildings:
         cent = _ring_centroids([r[0] for r in st.bld_rings])
         st.bld_bucket = _point_bucket(cent, leaf, leaf_set)
+        if removed:
+            st.bld_bucket = {t: [i for i in v if i not in removed] for t, v in st.bld_bucket.items()}
+            st.bld_bucket = {t: v for t, v in st.bld_bucket.items() if v}
 
     # POIs and places.
     if ex.pois:
@@ -340,14 +376,10 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
 
     # W2: props, junctions, road segments for fronts, building outlines for corridors.
     if w2 is not None:
-        from .roadattrs import BuildingIndex
         from .style import RoadSegments
 
         st.road_by_id = {int(r.osm_id): r for r in ex.roads}
         st.road_segments = RoadSegments.build(st.roads_game, [r.osm_id for r in ex.roads], [r.cls for r in ex.roads])
-        if w2.corridors:
-            st.bld_index = BuildingIndex.build([st.bld_rings[i][0] for i, b in enumerate(ex.buildings)
-                                                if not (b.flags & BuildingFlags.PART)])
         st.road_nodes = frozenset(int(n) for r in ex.roads for n in np.asarray(r.node_ids).tolist())
         if ex.props:
             x, z = projection.lonlat_to_game(np.array([p.lon for p in ex.props]), np.array([p.lat for p in ex.props]))
@@ -367,6 +399,101 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
             setattr(st, attr, {TileId(leaf, tx, ty): idx for (tx, ty), idx in cells.items()
                                if TileId(leaf, tx, ty) in leaf_set})
     return st
+
+
+def _prepare_detail(st: _State, region: Region, tiles_by_level: dict[int, list[TileId]]) -> set:
+    """W2 detail pass (module docstring): structures, corridors and building trimming, in place on ``st``.
+    Returns the indices of buildings removed by trimming."""
+    from . import corridors as cor
+    from . import structures as sts
+    from .model import RoadStructureKind
+    from .wayprofile import cumulative, dedupe
+
+    ex = st.extract
+    w2 = st.w2
+    t0 = time.perf_counter()
+    leaf_tiles = tiles_by_level.get(st.leaf, [])
+    leaf_box = None
+    if leaf_tiles:
+        b = np.array([t.bounds for t in leaf_tiles], dtype=np.float64)
+        leaf_box = (float(b[:, 0].min()), float(b[:, 1].min()), float(b[:, 2].max()), float(b[:, 3].max()))
+
+    def area_at(x, z):
+        if w2.grid is None:
+            return np.full(len(np.atleast_1d(x)), int(AreaType.URBAN))
+        return np.asarray(w2.grid.at(np.asarray(x), np.asarray(z)), dtype=np.int64).reshape(-1)
+
+    mids = np.array([p[len(p) // 2] if len(p) else (0.0, 0.0) for p in st.roads_game], dtype=np.float64).reshape(-1, 2)
+    way_area = area_at(mids[:, 0], mids[:, 1]) if len(mids) else np.zeros(0, dtype=np.int64)
+    real = np.array([cor.real_width(r, int(way_area[i])) for i, r in enumerate(ex.roads)])
+    terrain = sts.LeafTerrain(st.dem.sample_game, projection.tile_size(st.leaf), st.region.height_grid)
+    S = sts.analyse(ex.roads, st.roads_game, st.road_ids_game, ex.lines, st.lines_game, ex.areas, st.area_geoms,
+                    terrain, real_width=lambda i: float(real[i]))
+    for i, ws in S.ways.items():
+        if ws.pts is not None:
+            st.roads_game[i] = ws.pts
+            st.road_ids_game[i] = ws.node_ids
+    st.road_cum = [cumulative(p) for p in st.roads_game]
+    t1 = time.perf_counter()
+
+    # Corridors from the raw outlines (parts excluded from the measurement).
+    outl = [np.zeros((0, 2)) if (b.flags & BuildingFlags.PART) else st.bld_rings[i][0]
+            for i, b in enumerate(ex.buildings)]
+    protected = np.array([cor.is_protected(b) or (b.osm_type, int(b.osm_id)) in st.landmark_refs
+                          for b in ex.buildings], dtype=bool)
+    heritage = None
+    if w2.sacred is not None and getattr(w2.sacred, "geom", None) is not None:
+        heritage = lambda x, z: np.asarray(shapely.contains_xy(w2.sacred.geom, x, z), dtype=bool)  # noqa: E731
+    C = cor.compute(ex.roads, st.roads_game, area_at, outl, protected,
+                    dual_partner=(w2.dual.partner if w2.dual is not None else {}), heritage_at=heritage)
+    t2 = time.perf_counter()
+    st.car_ok = np.array([sts.car_accessible(r, float(real[i]), C.galli(i), int(S.kinds[i]))
+                          for i, r in enumerate(ex.roads)], dtype=bool)
+
+    # Trim the buildings back to the bands (tunnels never trim).
+    skip = {i for i in range(len(ex.roads)) if int(S.kinds[i]) == int(RoadStructureKind.TUNNEL)}
+    bands, owners = cor.corridor_bands(C, st.roads_game, skip)
+    if leaf_box is not None and len(bands):
+        bands = shapely.clip_by_rect(bands, *leaf_box)
+        keep = ~shapely.is_empty(bands)
+        bands, owners = bands[keep], owners[keep]
+    exact, exact_owners = cor.corridor_bands(C, st.roads_game, skip, exact=True)
+    if leaf_box is not None and len(exact):
+        exact = shapely.clip_by_rect(exact, *leaf_box)
+        keep = ~shapely.is_empty(exact)
+        exact, exact_owners = exact[keep], exact_owners[keep]
+    intr = cor.protected_intrusions(st.bld_rings, protected, exact, exact_owners)
+    T = cor.trim_buildings(st.bld_rings, protected, bands, owners)
+    for bi, rings in T.rings.items():
+        st.bld_rings[bi] = rings
+    st.bld_src = list(range(len(st.bld_rings)))
+    for bi in sorted(T.parts):  # further pieces of a building a corridor cut in two: records of their own
+        for rings in T.parts[bi]:
+            st.bld_rings.append(rings)
+            st.bld_src.append(bi)
+    trimmed = set(T.trimmed) | {k for k in range(len(ex.buildings), len(st.bld_rings))}
+    st.trimmed = frozenset(trimmed)
+    st.structures, st.corridors = S, C
+    t3 = time.perf_counter()
+    kinds = {RoadStructureKind(int(k)).name: int(v) for k, v in zip(*np.unique(S.kinds, return_counts=True))}
+    prot_roads = sorted({int(ex.roads[r].osm_id) for _a, rs in intr.values() for r in rs})
+    w2.detail["no_car_ways"] = frozenset(int(r.osm_id) for i, r in enumerate(ex.roads) if not st.car_ok[i])
+    w2.detail["report"] = S.report
+    st.detail_stats = {
+        "structures": {**S.stats, "kinds": kinds}, "corridors": C.stats,
+        "trim": {**T.stats, "protected_near_bands": len(T.protected_hits),
+                 "protected_intruded": len(intr),
+                 "protected_intrusion_m2": {"total": round(sum(a for a, _ in intr.values()), 1),
+                                            "max": max((a for a, _ in intr.values()), default=0.0)},
+                 "protected_intruded_refs": sorted(f"{ex.buildings[b].osm_type}{ex.buildings[b].osm_id}"
+                                                   for b in intr)[:200],
+                 "roads_into_protected": prot_roads[:200]},
+        "car": {"ways": int(len(ex.roads)), "car_accessible": int(st.car_ok.sum()),
+                "galli": int(sum(1 for w in C.ways.values() if w.galli))},
+        "timing_s": {"structures": round(t1 - t0, 2), "corridors": round(t2 - t1, 2), "trim": round(t3 - t2, 2)},
+    }
+    w2.detail["stats"] = st.detail_stats
+    return set(T.removed)
 
 
 def _point_bucket(xz: np.ndarray, level: int, tile_set: set[TileId]) -> dict[TileId, list[int]]:
@@ -439,7 +566,8 @@ def _terrain(st: _State, tile: TileId) -> tuple[np.ndarray, np.ndarray]:
     return heights_q, biomes.astype(np.uint8)
 
 
-def _beyond_ctx(tile: TileId, full: np.ndarray, ctx: np.ndarray, cut_cm: np.ndarray, step: int) -> np.ndarray | None:
+def _beyond_ctx(tile: TileId, full: np.ndarray, ctx: np.ndarray, cut_cm: np.ndarray, step: int,
+                want_index: bool = False):
     """The first original vertex from ``ctx`` on, walking away from the tile
     (``step`` -1 before a start cut, +1 after an end cut), whose centimetre
     position differs from the cut point. None when there is none, or when that
@@ -448,24 +576,25 @@ def _beyond_ctx(tile: TileId, full: np.ndarray, ctx: np.ndarray, cut_cm: np.ndar
     pts = np.asarray(full, dtype=np.float64)
     hit = np.flatnonzero((pts[:, 0] == ctx[0]) & (pts[:, 1] == ctx[1]))
     if not hit.size:
-        return None
+        return (None, -1) if want_index else None
     closed = len(pts) > 2 and np.array_equal(pts[0], pts[-1])
     n = len(pts) - 1 if closed else len(pts)
     j = int(hit[0]) % n if closed else int(hit[0])
     for _ in range(n):
         if not closed and not 0 <= j < n:
-            return None
+            return (None, -1) if want_index else None
         c = points_to_local_cm(tile, pts[j:j + 1])[0]
         if not np.array_equal(c, cut_cm):
             sc = int(round(tile.size * 100))
             if 0 < c[0] < sc and 0 < c[1] < sc:
-                return None
-            return c
+                return (None, -1) if want_index else None
+            return (c, j) if want_index else c
         j = (j + step) % n if closed else j + step
-    return None
+    return (None, -1) if want_index else None
 
 
-def _piece_cm(tile: TileId, piece: geom.Piece, full: np.ndarray) -> tuple[np.ndarray, bool, bool] | None:
+def _piece_cm(tile: TileId, piece: geom.Piece, full: np.ndarray, arcs: np.ndarray | None = None,
+              cum: np.ndarray | None = None):
     """A clipped piece in local centimetres, fixed up for rounding (DATA_FORMATS 1.4).
 
     Rounding to whole centimetres can merge an original vertex lying within
@@ -475,34 +604,50 @@ def _piece_cm(tile: TileId, piece: geom.Piece, full: np.ndarray) -> tuple[np.nda
     original vertex further out that does not, which is the first in-tile
     point of the neighbour's piece, so both sides still see the same tangent
     at the cut. Without such a vertex the context flag is cleared.
+
+    With ``arcs`` (the way arc of every float piece point) and ``cum`` (the
+    way's vertex arcs), a fourth value gives the arc of every output point.
     """
     pc = points_to_local_cm(tile, piece.points)
     prev, nxt = bool(piece.has_prev_ctx), bool(piece.has_next_ctx)
-    raw = pc[(1 if prev else 0):len(pc) - (1 if nxt else 0)]
+    lo, hi = (1 if prev else 0), len(pc) - (1 if nxt else 0)
+    raw = pc[lo:hi]
     keep = np.ones(len(raw), dtype=bool)
     keep[1:] = np.any(raw[1:] != raw[:-1], axis=1)
     inner = raw[keep]
     if len(inner) < 2:
         return None
     parts = []
+    out_arcs = []
     if prev:
         c = pc[0]
+        a_c = None if arcs is None else float(arcs[0])
         if np.array_equal(c, inner[0]):
-            c = _beyond_ctx(tile, full, piece.points[0], inner[0], -1)
+            c, j = _beyond_ctx(tile, full, piece.points[0], inner[0], -1, want_index=True)
+            a_c = float(cum[j]) if (cum is not None and j >= 0) else a_c
         if c is None:
             prev = False
         else:
             parts.append(np.asarray(c, dtype=np.int64).reshape(1, 2))
+            out_arcs.append(a_c)
     parts.append(inner)
+    if arcs is not None:
+        out_arcs += np.asarray(arcs[lo:hi])[keep].tolist()
     if nxt:
         c = pc[-1]
+        a_c = None if arcs is None else float(arcs[-1])
         if np.array_equal(c, inner[-1]):
-            c = _beyond_ctx(tile, full, piece.points[-1], inner[-1], +1)
+            c, j = _beyond_ctx(tile, full, piece.points[-1], inner[-1], +1, want_index=True)
+            a_c = float(cum[j]) if (cum is not None and j >= 0) else a_c
         if c is None:
             nxt = False
         else:
             parts.append(np.asarray(c, dtype=np.int64).reshape(1, 2))
-    return np.concatenate(parts).astype(np.int64), prev, nxt
+            out_arcs.append(a_c)
+    pts = np.concatenate(parts).astype(np.int64)
+    if arcs is None:
+        return pts, prev, nxt
+    return pts, prev, nxt, np.asarray(out_arcs, dtype=np.float64)
 
 
 def _road_attr(st: _State, r, piece_game: np.ndarray, has_prev: bool, has_next: bool, stats: Counter):
@@ -516,14 +661,12 @@ def _road_attr(st: _State, r, piece_game: np.ndarray, has_prev: bool, has_next: 
     partner = st.road_by_id.get(w2.dual.partner.get(int(r.osm_id), 0)) if w2.dual is not None else None
     from .roadattrs import DualInfo
 
-    a = road_attr(r, rendered, at, sacred, w2.dual or DualInfo(), w2.bus_ways, partner, st.bld_index)
-    if len(a.corridor_dm):
-        stats["ratr_corridor_samples"] += len(a.corridor_dm)
+    a = road_attr(r, rendered, at, sacred, w2.dual or DualInfo(), w2.bus_ways, partner, None)
     return a
 
 
 def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter,
-                  attrs: list | None = None) -> list[RoadRec]:
+                  attrs: list | None = None, structs: list | None = None) -> list[RoadRec]:
     out = []
     box = tile.bounds
     for i in st.road_bucket.get(tile, ()):
@@ -548,11 +691,18 @@ def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter,
         ref_ref = names.ref_str(r.ref)
         width_cm = int(round(r.width_m * 100)) if r.width_m and r.width_m > 0 else 0
         for p in pieces:
-            fixed = _piece_cm(tile, p, st.roads_game[i])
+            parcs = None
+            if structs is not None and st.structures is not None:
+                from .wayprofile import piece_arcs
+
+                parcs = piece_arcs(st.roads_game[i], st.road_cum[i], p.points)
+                if parcs is None:
+                    stats["road_pieces_unmapped"] += 1
+            fixed = _piece_cm(tile, p, st.roads_game[i], parcs, st.road_cum[i] if parcs is not None else None)
             if fixed is None:
                 stats["road_pieces_dropped_rounding"] += 1
                 continue
-            pts_cm, has_prev, has_next = fixed
+            pts_cm, has_prev, has_next = fixed[:3]
             flags = int(base)
             if has_prev:
                 flags |= RoadFlags.HAS_PREV_CTX
@@ -565,9 +715,69 @@ def _road_records(st: _State, tile: TileId, names: NameTable, stats: Counter,
                 layer=min(max(int(r.layer), -128), 127), width_cm=width_cm, access=int(r.access) & 0xFF,
                 name_ref=name_ref, ref_ref=ref_ref, points=pts_cm))
             if attrs is not None:
-                attrs.append(_road_attr(st, r, np.asarray(p.points, dtype=np.float64), has_prev, has_next, stats))
+                a = _road_attr(st, r, np.asarray(p.points, dtype=np.float64), has_prev, has_next, stats)
+                rec = None
+                if structs is not None and st.structures is not None:
+                    rec = _structure_record(st, i, p, fixed[3] if len(fixed) > 3 else None, has_prev, has_next, a,
+                                            stats)
+                attrs.append(a)
+                if structs is not None:
+                    structs.append(rec if rec is not None else RoadStructureRec())
             stats["road_pieces"] += 1
     return out
+
+
+def _structure_record(st: _State, i: int, p: geom.Piece, arcs: np.ndarray | None, has_prev: bool, has_next: bool,
+                      attr: RoadAttrRec, stats: Counter) -> RoadStructureRec:
+    """RATR corridor samples (set on ``attr``) and the RSTR record of one piece (``arcs``: the way arc of every
+    output point, context points included)."""
+    from .tile_format import DECK_DRAPED
+    from .wayprofile import Profile, is_closed
+
+    S = st.structures
+    car = bool(st.car_ok[i]) if st.car_ok is not None else True
+    if arcs is None:
+        rec = S.piece_record(i, np.asarray(p.points), st.roads_game[i], st.road_cum[i], has_prev, has_next, car)
+        rec.deck_role = rec.deck_role[:0]
+        rec.deck_cm = rec.deck_cm[:0]
+        return rec
+    # The piece record from the float piece (kind, flags, clearance) ...
+    rec = S.piece_record(i, np.asarray(p.points), st.roads_game[i], st.road_cum[i], bool(p.has_prev_ctx),
+                         bool(p.has_next_ctx), car)
+    # ... with deck heights re-read at the output points (cm rounding can drop or replace points).
+    ws = S.ways.get(i)
+    if ws is not None and ws.role is not None:
+        from .structures import _roles_at
+
+        total = float(ws.cum[-1])
+        closed = is_closed(ws.pts)
+        role = _roles_at(ws.cum, ws.role, arcs, total, closed)
+        if (role != DECK_DRAPED).any():
+            h = Profile(ws.cum, ws.h, total, closed).at(arcs)
+            rec.deck_role = role.astype(np.uint8)
+            rec.deck_cm = np.rint(h * 100.0).astype(np.int64)
+        else:
+            rec.deck_role = np.zeros(0, dtype=np.uint8)
+            rec.deck_cm = np.zeros(0, dtype=np.int64)
+    else:
+        rec.deck_role = np.zeros(0, dtype=np.uint8)
+        rec.deck_cm = np.zeros(0, dtype=np.int64)
+    # Corridor samples and shifts from the way's corridor profile.
+    wc = st.corridors.ways.get(i) if st.corridors is not None else None
+    if wc is not None:
+        lo = 1 if has_prev else 0
+        hi = len(arcs) - (1 if has_next else 0)
+        a0 = float(arcs[lo])
+        length = float(abs(arcs[hi - 1] - arcs[lo]))
+        dm, sh = wc.samples(a0, length)
+        attr.corridor_dm = dm
+        rec.shift_cm = sh
+        stats["ratr_corridor_samples"] += len(dm)
+        if wc.squeezed:
+            rec.flags |= 0x40  # RoadStructureFlags.SQUEEZED
+    if len(rec.deck_role):
+        stats["rstr_deck_pieces"] += 1
+    return rec
 
 
 def _line_records(st: _State, tile: TileId, names: NameTable, stats: Counter) -> list[LineRec]:
@@ -658,11 +868,14 @@ def _front(st: _State, i: int, b, stats: Counter) -> BuildingFrontRec:
     w2 = st.w2
     ring = np.asarray(st.bld_rings[i][0], dtype=np.float64)
     cx, cz = float(ring[:, 0].mean()), float(ring[:, 1].mean())
+    src = st.bld_src[i] if st.bld_src else i
     at = int(w2.grid.at(cx, cz)) if w2.grid is not None else 0
-    prof = int(w2.profiles[i]) if w2.profiles is not None else 0
-    flags = int(w2.front_hints[i]) if w2.front_hints is not None else 0
-    shops = int(w2.shops[i]) if w2.shops is not None else 0
+    prof = int(w2.profiles[src]) if w2.profiles is not None else 0
+    flags = int(w2.front_hints[src]) if w2.front_hints is not None else 0
+    shops = int(w2.shops[src]) if (w2.shops is not None and i == src) else 0  # shops stay on the first piece
     shop_bays = (min(15, shops) | FROM_POI) if shops else 0
+    if i in st.trimmed:
+        flags |= int(BuildingFrontFlags.TRIMMED_FOR_ROAD)
     if b.flags & BuildingFlags.PART:
         return BuildingFrontRec(prof, at, EDGE_NONE, 0, shop_bays, flags, EDGE_NONE)
     fe, fdm, se = front_edges(ring, st.road_segments)
@@ -681,7 +894,7 @@ def _building_records(st: _State, tile: TileId, names: NameTable, stats: Counter
                       fronts: list | None = None) -> list[BuildingRec]:
     out = []
     for i in st.bld_bucket.get(tile, ()):
-        b = st.extract.buildings[i]
+        b = st.extract.buildings[st.bld_src[i]]
         flags = int(b.flags)
         if (b.osm_type, int(b.osm_id)) in st.landmark_refs:
             flags |= BuildingFlags.LANDMARK
@@ -700,6 +913,8 @@ def _building_records(st: _State, tile: TileId, names: NameTable, stats: Counter
             name_ref=names.ref(b.name), rings=rings))
         if fronts is not None:
             fronts.append(_front(st, i, b, stats))
+        if i in st.trimmed:
+            stats["buildings_trimmed"] += 1
     stats["buildings"] += len(out)
     return out
 
@@ -791,14 +1006,16 @@ def make_tile(st: _State, tile: TileId) -> tuple[bytes, Counter]:
         w2 = st.w2 is not None
         fronts: list | None = [] if w2 else None
         attrs: list | None = [] if w2 else None
+        structs: list | None = [] if (w2 and st.structures is not None) else None
         td.areas = _area_records(st, tile, names, stats)
         td.buildings = _building_records(st, tile, names, stats, fronts)
         td.lines = _line_records(st, tile, names, stats)
         td.pois = _poi_records(st, tile, names, stats)
-        td.roads = _road_records(st, tile, names, stats, attrs)
+        td.roads = _road_records(st, tile, names, stats, attrs, structs)
         if w2:
             td.building_fronts = fronts if td.buildings else []
             td.road_attrs = attrs if td.roads else []
+            td.road_structures = structs if (td.roads and structs is not None) else []
             td.junctions = _junction_records(st, tile, names, stats)
             td.props = _prop_records(st, tile, names, stats)
         td.names = names.entries()
@@ -882,8 +1099,12 @@ def build_tiles(region: Region, extract: Extract, dem: DemSampler, landcover: La
         for k, blob, s in batch:
             results[k] = blob
             per_key_stats.append((k, s))
+    trims_by_tile: dict[str, int] = {}
     for k, s in sorted(per_key_stats, key=lambda t: t[0]):
         agg.update(s)
+        if s.get("buildings_trimmed"):
+            t = projection.tile_from_key(k)
+            trims_by_tile[f"{t.level}/{t.tx}/{t.ty}"] = int(s["buildings_trimmed"])
     t_end = time.perf_counter()
 
     if stats is not None:
@@ -902,6 +1123,7 @@ def build_tiles(region: Region, extract: Extract, dem: DemSampler, landcover: La
             "chunk_bytes": {k[6:]: int(v) for k, v in sorted(agg.items()) if k.startswith("bytes_")},
             "tile_bytes": int(agg["bytes"]),
             "workers": workers,
+            "detail": {**st.detail_stats, "trims_by_tile": trims_by_tile} if st.w2 is not None else {},
             "timing_s": {"prepare": round(t_prep - t0, 3), "warm_caches": round(t_warm - t_prep, 3),
                          "encode": round(t_end - t_warm, 3), "total": round(t_end - t0, 3)},
         })

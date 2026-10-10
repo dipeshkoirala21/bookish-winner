@@ -39,6 +39,9 @@ namespace Ghumante.Core.Data
         public static readonly uint Bfnt = FourCC("BFNT");
         public static readonly uint Prop = FourCC("PROP");
 
+        // W2 detail pass: road structures (bridges, flyovers, underpasses, deck heights, car access).
+        public static readonly uint Rstr = FourCC("RSTR");
+
         /// <summary>A fourcc as the little-endian u32 of its four ASCII bytes.</summary>
         public static uint FourCC(string s)
         {
@@ -211,6 +214,13 @@ namespace Ghumante.Core.Data
             {
                 ReadProps(r, td.Props, nn);
                 Done(r, "PROP");
+            }
+            // RSTR after ROAD and RATR: its counts are checked against both.
+            r = Body(blob, offset, td, Ght.Rstr);
+            if (r != null)
+            {
+                ReadRoadStructures(r, td);
+                Done(r, "RSTR");
             }
             r = Body(blob, offset, td, Ght.Seed);
             if (r != null)
@@ -505,6 +515,73 @@ namespace Ghumante.Core.Data
                     for (int i = 0; i < n; i++) a.CorridorDm[i] = VarintIntChecked(r, "RATR corridor_dm");
                 }
                 td.RoadAttrs.Add(a);
+            }
+        }
+
+        /// <summary>
+        /// RSTR (DATA_FORMATS 1.15): one record per ROAD record, same order. Deck codes per point: 0 = draped, else
+        /// <c>code - 1 = (zigzag(y_cm - prev_cm) &lt;&lt; 1) | ramp</c> with <c>prev_cm</c> the previous non-draped
+        /// height (0 before the first); shifts are svarint centimetres, one per RATR corridor sample.
+        /// </summary>
+        private static void ReadRoadStructures(BinReader r, TileData td)
+        {
+            int count = Count(r);
+            if (count != td.Roads.Count)
+                throw new InvalidDataException("RSTR has " + count + " records for " + td.Roads.Count + " roads");
+            bool ratr = td.HasRoadAttrs;
+            for (int k = 0; k < count; k++)
+            {
+                var s = new RoadStructureRecord
+                {
+                    Kind = (RoadStructureKind)r.U8(), Layer = r.I8(), Flags = (RoadStructureFlags)r.U8(),
+                };
+                s.ClearanceM = VarintIntChecked(r, "RSTR clearance_cm") / 100f;
+                s.RailingHeightM = r.U8() / 10f;
+                int n = Count(r);
+                if (n != 0)
+                {
+                    int points = td.Roads[k].PointCount;
+                    if (n != points)
+                        throw new InvalidDataException("RSTR " + k + ": " + n + " deck points for a road of " + points + " points");
+                    var y = new float[n];
+                    var role = new DeckPointRole[n];
+                    long prev = 0;
+                    bool any = false;
+                    for (int i = 0; i < n; i++)
+                    {
+                        ulong code = r.Varint();
+                        if (code == 0)
+                        {
+                            y[i] = float.NaN;
+                            role[i] = DeckPointRole.Draped;
+                            continue;
+                        }
+                        ulong c = code - 1;
+                        ulong zz = c >> 1;
+                        long dy = (long)(zz >> 1) ^ -(long)(zz & 1);
+                        prev += dy;
+                        if (prev < int.MinValue || prev > int.MaxValue)
+                            throw new InvalidDataException("RSTR deck height outside the i32 range");
+                        y[i] = (float)(prev / 100.0);
+                        role[i] = (c & 1) != 0 ? DeckPointRole.Ramp : DeckPointRole.Deck;
+                        any = true;
+                    }
+                    if (any)
+                    {
+                        s.DeckY = y;
+                        s.DeckRole = role;
+                    }
+                }
+                int ns = Count(r);
+                if (ns != 0)
+                {
+                    int nc = ratr ? td.RoadAttrs[k].CorridorCount : 0;
+                    if (ns != nc)
+                        throw new InvalidDataException("RSTR " + k + ": " + ns + " shifts for " + nc + " RATR corridor samples");
+                    s.CorridorShiftCm = new int[ns];
+                    for (int i = 0; i < ns; i++) s.CorridorShiftCm[i] = SvarintInt(r);
+                }
+                td.RoadStructures.Add(s);
             }
         }
 

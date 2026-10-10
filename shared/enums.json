@@ -1,5 +1,5 @@
 {
- "version": 3,
+ "version": 4,
  "enums": {
   "RoadClass": {
    "UNKNOWN": 0,
@@ -568,7 +568,8 @@
    "RANA_HINT": 8,
    "STRUCTURE_RCC": 16,
    "STRUCTURE_MUD": 32,
-   "ROOF_FLAT_TAGGED": 64
+   "ROOF_FLAT_TAGGED": 64,
+   "TRIMMED_FOR_ROAD": 128
   },
   "PropFlags": {
    "YAW": 1,
@@ -596,6 +597,24 @@
    "NO_VEHICLES": 8,
    "SANCTUM_CLOSED": 16,
    "VERIFY": 32
+  },
+  "RoadStructureKind": {
+   "NONE": 0,
+   "BRIDGE": 1,
+   "FLYOVER": 2,
+   "UNDERPASS": 3,
+   "TUNNEL": 4,
+   "FORD": 5
+  },
+  "RoadStructureFlags": {
+   "CAR_ACCESSIBLE": 1,
+   "WATER_CROSSING": 2,
+   "DECK_FROM_TAGS": 4,
+   "FOOT_OVERBRIDGE": 8,
+   "LOWERED": 16,
+   "APPROACH": 32,
+   "SQUEEZED": 64,
+   "OVER_ROAD": 128
   }
  },
  "flag_enums": [
@@ -609,7 +628,8 @@
   "PropFlags",
   "RouteFlags",
   "StopFlags",
-  "HeritageFlags"
+  "HeritageFlags",
+  "RoadStructureFlags"
  ],
  "surface_group": {
   "UNKNOWN": "DIRT",

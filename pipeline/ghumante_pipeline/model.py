@@ -16,7 +16,8 @@ from enum import IntEnum, IntFlag
 
 import numpy as np
 
-ENUMS_VERSION = 3  # 2: W2 F1 batch (docs/W2_DESIGN.md section 9.3, CONTENT_COVERAGE section 3.2); 3: EntryRule NO_LEATHER
+ENUMS_VERSION = 4  # 2: W2 F1 batch (docs/W2_DESIGN.md section 9.3, CONTENT_COVERAGE section 3.2); 3: EntryRule NO_LEATHER;
+# 4: W2 detail pass (docs/W2_DETAIL_CONTRACT.md): RoadStructureKind, RoadStructureFlags, BuildingFrontFlags.TRIMMED_FOR_ROAD
 
 
 class RoadClass(IntEnum):
@@ -701,6 +702,31 @@ class BuildingFrontFlags(IntFlag):
     STRUCTURE_RCC = 1 << 4
     STRUCTURE_MUD = 1 << 5
     ROOF_FLAT_TAGGED = 1 << 6
+    TRIMMED_FOR_ROAD = 1 << 7  # ENUMS_VERSION 4: footprint clipped back to a road corridor edge (corridors.py)
+
+
+class RoadStructureKind(IntEnum):
+    """``RSTR.kind`` (ENUMS_VERSION 4, W2 detail pass; ``structures.py``)."""
+
+    NONE = 0  # draped on the terrain
+    BRIDGE = 1  # over water (or a tagged bridge over nothing else we know): deck, kerbs, railings, abutments, piers
+    FLYOVER = 2  # a deck over another road or a railway (flyover, overpass, foot overbridge)
+    UNDERPASS = 3  # passes under a bridge or flyover deck (lowered profile when the deck cannot clear it)
+    TUNNEL = 4  # a real tunnel (not drawn in W2, kept out of car routes)
+    FORD = 5  # ford=yes
+
+
+class RoadStructureFlags(IntFlag):
+    """``RSTR.flags`` (ENUMS_VERSION 4, W2 detail pass)."""
+
+    CAR_ACCESSIBLE = 1 << 0  # a car may use the way (W2_DETAIL_CONTRACT decision 5; structures.car_accessible)
+    WATER_CROSSING = 1 << 1  # crosses a waterway line or a water area
+    DECK_FROM_TAGS = 1 << 2  # the structure comes from OSM bridge/tunnel/layer tags (else inferred from geometry)
+    FOOT_OVERBRIDGE = 1 << 3  # a footway, path or steps deck over a road
+    LOWERED = 1 << 4  # an underpass whose deck_y is a lowered profile (a cutting below the terrain)
+    APPROACH = 1 << 5  # not a structure itself: deck_y carries the approach ramp of an adjacent structure
+    SQUEEZED = 1 << 6  # protected footprints on both sides: the corridor is narrower than MIN_CORRIDOR_M somewhere
+    OVER_ROAD = 1 << 7  # a road passes under this deck (no piers on it; clearance kept)
 
 
 class PropFlags(IntFlag):
@@ -948,6 +974,8 @@ ALL_ENUMS = (
     StyleProfile, AreaType, JunctionKind, Sidewalk, ObjectKind, TreeClass, TransitMode, LiveryClass, TurnRestriction,
     HeritageKind, HeritageFinish, EntryRule, KoraDirection, SacredZoneKind,
     RoadAttrFlags, JunctionFlags, BuildingFrontFlags, PropFlags, RouteFlags, StopFlags, HeritageFlags,
+    # ENUMS_VERSION 4
+    RoadStructureKind, RoadStructureFlags,
 )
 
 

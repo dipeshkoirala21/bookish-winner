@@ -155,7 +155,7 @@ def test_manifest_lists_w2_files_and_stats(synth):
     assert w2["transit"]["routes"] == 1 and w2["heritage"]["resolved"] == 2
     assert w2["parts"]["parts_with_host"] == 1 and w2["junctions"]["police"] == 1
     ch = w2["chunks"]
-    assert set(ch["chunk_bytes"]) == {"BFNT", "JNCT", "PROP", "RATR"} and all(v > 0 for v in ch["chunk_bytes"].values())
+    assert set(ch["chunk_bytes"]) == {"BFNT", "JNCT", "PROP", "RATR", "RSTR"} and all(v > 0 for v in ch["chunk_bytes"].values())
     assert ch["corridor"]["narrower_than_tagged"] == 0 and ch["fronts"]["with_front"] >= 1
     assert ch["props"]["TREE"] >= 1 and ch["junction_kinds"]["SIGNALS"] == 1
     assert "Wave 2 data" in (synth.reg_dir / "BUILD_REPORT.md").read_text(encoding="utf-8")
@@ -165,3 +165,72 @@ def test_w2_outputs_are_deterministic(synth, synth_again):
     for name in ("synth_test.ghpk", "synth_test.route.ghrg", "synth_test.transit.ghrt", "synth_test.curated.ghcd",
                  "hero_recipes.json"):
         assert sha256_file(synth.reg_dir / name) == sha256_file(synth_again.reg_dir / name), name
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# W2 detail pass: corridors, trimming, structures, car access (docs/W2_DETAIL_CONTRACT.md decisions 1, 3-5)
+# ---------------------------------------------------------------------------------------------------------------
+def test_every_road_has_a_structure_record_and_a_corridor(leaves):
+    from ghumante_pipeline.model import RoadStructureFlags as SF
+
+    n = 0
+    for td in leaves:
+        assert len(td.road_structures) == len(td.roads)
+        for r, a, s in zip(td.roads, td.road_attrs, td.road_structures):
+            assert len(a.corridor_dm) >= 1, r.osm_way_id
+            if not s.flags & int(SF.SQUEEZED):
+                assert int(a.corridor_dm.min()) >= 48  # RoadClearance.MinCorridorM
+            assert len(s.deck_role) in (0, len(r.points))
+            assert len(s.shift_cm) in (0, len(a.corridor_dm))
+            n += 1
+    assert n > 40
+
+
+def test_inferred_bridges_over_the_river(synth, leaves):
+    from ghumante_pipeline.model import RoadStructureFlags as SF, RoadStructureKind as SK
+
+    br = [(r, s) for td in leaves for r, s in zip(td.roads, td.road_structures)
+          if s.kind == int(SK.BRIDGE) and s.flags & int(SF.WATER_CROSSING)]
+    assert len({r.osm_way_id for r, _ in br}) >= 6  # every north-south street crosses Synth Khola
+    for r, s in br:
+        assert not s.flags & int(SF.DECK_FROM_TAGS) and s.railing_dm == 11
+        assert (s.deck_role == 1).any()
+
+
+def test_foot_overbridge_and_underpass(synth, leaves):
+    from ghumante_pipeline.model import RoadStructureFlags as SF, RoadStructureKind as SK
+
+    fb = [s for td in leaves for r, s in zip(td.roads, td.road_structures) if r.osm_way_id == synth.synth.footbridge]
+    assert fb and all(s.kind == int(SK.FLYOVER) and s.flags & int(SF.FOOT_OVERBRIDGE) for s in fb)
+    under = [s for td in leaves for r, s in zip(td.roads, td.road_structures)
+             if r.osm_way_id == synth.synth.primary_way and s.kind == int(SK.UNDERPASS)]
+    assert under and min(s.clearance_cm for s in under) >= 550
+
+
+def test_galli_and_house_in_the_road_are_trimmed(synth, leaves):
+    from ghumante_pipeline.model import BuildingFrontFlags, RoadStructureFlags as SF
+
+    syn = synth.synth
+    trimmed = {b.osm_ref >> 1 for td in leaves for b, f in zip(td.buildings, td.building_fronts)
+               if f.flags & int(BuildingFrontFlags.TRIMMED_FOR_ROAD)}
+    assert set(syn.galli_houses) <= trimmed and syn.road_house in trimmed
+    assert syn.temple_way not in trimmed  # hero footprints are never trimmed
+    g = [s for td in leaves for r, s in zip(td.roads, td.road_structures) if r.osm_way_id == syn.galli]
+    assert g and not any(s.flags & int(SF.CAR_ACCESSIBLE) for s in g)
+    prim = [s for td in leaves for r, s in zip(td.roads, td.road_structures) if r.osm_way_id == syn.primary_way]
+    assert prim and all(s.flags & int(SF.CAR_ACCESSIBLE) for s in prim)
+    stats = synth.manifest["stats"]["w2"]["detail"]
+    assert stats["trim"]["trimmed"] >= 3 and sum(stats["trims_by_tile"].values()) >= 3
+
+
+def test_routing_keeps_cars_out_of_the_galli(synth):
+    g = routing.read_graph(synth.graph)
+    assert synth.manifest["stats"].get("graph_no_car_ways", 0) >= 1
+    # The galli's edges keep two-wheelers and walkers but no car, jeep or bus.
+    names = {k: nm for k, nm in enumerate(g.names, start=1)}
+    gid = [k for k, nm in names.items() if nm.default == "Synth Galli"]
+    assert gid
+    for e in np.flatnonzero(g.edge_name == gid[0]).tolist():
+        m = int(g.edge_access[e])
+        assert m & int(Travel.MOTORBIKE) and m & int(Travel.BICYCLE) and m & int(Travel.FOOT)
+        assert not m & int(Travel.CAR | Travel.JEEP | Travel.BUS)
