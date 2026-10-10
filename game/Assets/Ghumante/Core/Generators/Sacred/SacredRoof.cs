@@ -19,6 +19,15 @@ namespace Ghumante.Core.Generators.Sacred
         public double CoursePitch;
         public bool Gilt, Fringe, Horns;
         public double FringeH;
+
+        /// <summary>Width of one fringe scallop at LOD0 (0 = 0.7 m).</summary>
+        public double FringePitch;
+
+        /// <summary>Road corridors the eave bells and fringe keep their overhead clearance over (null = none), and the
+        /// frame's ground height they stand on.</summary>
+        public SacredClearance Clear;
+
+        public double GroundY;
         public ShapeBrush Roof, Ridge, Fascia, Soffit, Horn;
     }
 
@@ -376,7 +385,8 @@ namespace Ghumante.Core.Generators.Sacred
             for (int s = 0; s < 4; s++)
             {
                 double len = 2 * (s % 2 == 0 ? r.EaveU : r.EaveW);
-                int n = Math.Max(4, (int)Math.Round(len / (lod == 0 ? 0.7 : 1.2)));
+                double pitch = r.FringePitch > 0.2 ? r.FringePitch : 0.7;
+                int n = Math.Max(4, (int)Math.Round(len / (lod == 0 ? pitch : Math.Max(1.2, pitch))));
                 double ou, ow;
                 Out(s, out ou, out ow);
                 int first = m.VertexCount;
@@ -389,6 +399,14 @@ namespace Ghumante.Core.Generators.Sacred
                         RoofPoint(r, s, a, 0, out u, out v, out w);
                         v -= r.FasciaH;
                         double drop = row == 0 ? 0 : row <= 2 ? 0.09 : (c % 2 == 0 ? r.FringeH : 0.72 * r.FringeH);
+                        if (r.Clear != null && row > 0)
+                        {
+                            // Over a road corridor the valance stops at the overhead clearance (contract §1).
+                            double x, y, z;
+                            k.Point(u + 0.035 * ou, v, w + 0.035 * ow, out x, out y, out z);
+                            double minY = r.Clear.MinHangY(x, z, r.GroundY);
+                            drop = Math.Max(0, Math.Min(drop, y - minY));
+                        }
                         ShapeBrush b = row <= 1 ? Looks.FringeWhite : Looks.FringeRed;
                         SacredDraw.V(m, k, u + 0.035 * ou, v - drop, w + 0.035 * ow, ou, -0.1, ow, b);
                     }
@@ -624,6 +642,13 @@ namespace Ghumante.Core.Generators.Sacred
                     double a = -1 + 2.0 * (q + 0.5) / n;
                     double u, v, w;
                     RoofPoint(r, s, a, 0, out u, out v, out w);
+                    if (r.Clear != null)
+                    {
+                        // No bell hangs into a road corridor's overhead clearance.
+                        double x, y, z;
+                        k.Point(u - 0.07 * ou, v - r.FasciaH - drop - 0.36 * size, w - 0.07 * ow, out x, out y, out z);
+                        if (y < r.Clear.MinHangY(x, z, r.GroundY)) continue;
+                    }
                     Affine3 xf = SacredDraw.Turn(k, u - 0.07 * ou, v - r.FasciaH, w - 0.07 * ow, s * 0.5 * Math.PI);
                     Shapes.CopyTransformed(m, proto, xf);
                     drawn++;

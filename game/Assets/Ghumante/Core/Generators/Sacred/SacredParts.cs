@@ -17,6 +17,10 @@ namespace Ghumante.Core.Generators.Sacred
         public static readonly ShapeBrush Stone = new ShapeBrush(MeshColor.FromHex(0x8F8A82), MaterialChannel.Stone);
         public static readonly ShapeBrush StoneLight = new ShapeBrush(MeshColor.FromHex(0xA39A8C), MaterialChannel.Stone);
         public static readonly ShapeBrush StoneBuff = new ShapeBrush(MeshColor.FromHex(0xA59682), MaterialChannel.Stone);
+
+        /// <summary>Carved stone of the sculptures (guardians, Garuda): the stone tint without the ashlar joints of the
+        /// Stone channel (a statue is one block), weathered by a colour jitter in <see cref="SacredFigures"/>.</summary>
+        public static readonly ShapeBrush Carved = new ShapeBrush(MeshColor.FromHex(0x8C877D), MaterialChannel.Plain);
         public static readonly ShapeBrush Gilt = new ShapeBrush(SacredPalette.Gilt, MaterialChannel.Gilt);
         public static readonly ShapeBrush GiltHi = new ShapeBrush(SacredPalette.GiltHi, MaterialChannel.Gilt);
         public static readonly ShapeBrush GiltAged = new ShapeBrush(MeshColor.FromHex(0xB58A2E), MaterialChannel.Gilt);
@@ -140,14 +144,15 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>
         /// A flight of stone steps along +W from <paramref name="wTop"/> (against the upper level) to wTop + run, rising
         /// from v0 at the foot to v1 at the top, between −halfW and +halfW, flanked by stepped balustrade walls of
-        /// <paramref name="sideW"/> (0 = none). Adds a walkable ramp collider. Returns the steps.
+        /// <paramref name="sideW"/> (0 = none). Adds a walkable ramp collider. <paramref name="stepCount"/> fixes the number of
+        /// steps (0 = a rise of at most 0.26 m each). Returns the steps.
         /// </summary>
         public static int Stair(MeshData m, GenColliders c, in KitFrame kf, in Affine3 k, double halfW, double wTop, double run, double v0, double v1,
-                                double sideW, double sideH, in ShapeBrush step, in ShapeBrush side, int lod, byte material)
+                                double sideW, double sideH, in ShapeBrush step, in ShapeBrush side, int lod, byte material, int stepCount = 0)
         {
             double rise = v1 - v0;
             if (rise <= 0.01 || run <= 0.01) return 0;
-            int steps = Math.Max(1, (int)Math.Ceiling(rise / 0.26));
+            int steps = stepCount > 0 ? stepCount : Math.Max(1, (int)Math.Ceiling(rise / 0.26));
             double tread = run / steps, sr = rise / steps;
             if (lod >= 2)
             {
@@ -301,6 +306,46 @@ namespace Ghumante.Core.Generators.Sacred
                 SacredDraw.Box(m, k, uu - bw, uu + bw, v - hv, v + hv, w + 0.01, w + 0.05, frame, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
                 SacredDraw.Box(m, k, u - hu, u + hu, vv - bw, vv + bw, w + 0.01, w + 0.05, frame, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
             }
+        }
+
+        /// <summary>
+        /// A projecting carved window (the Newar sāh jhyā of Kumari Ghar and the palace courts) centred at u on the wall
+        /// plane w from sill height v: a moulded sill board, a projecting body with carved posts dividing three lobed
+        /// arched openings over a carved lattice band, and a stepped hood; gilt for the Kumari's own window.
+        /// </summary>
+        public static void BayWindow(MeshData m, in Affine3 k, double u, double v, double w, double width, double height, bool gilt, int lod)
+        {
+            ShapeBrush wood = gilt ? Looks.Gilt : Looks.WoodDark, mid = gilt ? Looks.GiltHi : Looks.WoodMid;
+            double depth = 0.32, hu = 0.5 * width, h = Math.Min(height, 1.9);
+            BoxFaces wall = lod >= 2 ? BoxFaces.Front : BoxFaces.Wall;
+            // Sill board, the projecting body's sides and the dark openings.
+            SacredDraw.Box(m, k, u - hu - 0.12, u + hu + 0.12, v, v + 0.16, w, w + depth + 0.1, wood, wall | BoxFaces.Bottom);
+            SacredDraw.Box(m, k, u - hu, u + hu, v + 0.16, v + h - 0.22, w, w + depth, mid, BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Panel(m, k, u - hu, v + 0.16, u + hu, v + 0.48, w + depth, mid);
+            SacredDraw.Panel(m, k, u - hu + 0.05, v + 0.48, u + hu - 0.05, v + h - 0.22, w + depth - 0.06, Looks.Recess);
+            // Posts and the lobed arches over the three openings.
+            for (int q = 0; q <= 3; q++)
+            {
+                double pu = u - hu + 2 * hu * q / 3;
+                SacredDraw.Box(m, k, pu - 0.045, pu + 0.045, v + 0.16, v + h - 0.22, w + depth - 0.06, w + depth + 0.02, wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+            }
+            if (lod <= 1)
+            {
+                for (int q = 0; q < 3; q++)
+                {
+                    double cu = u - hu + 2 * hu * (q + 0.5) / 3, span = 2 * hu / 3 - 0.1;
+                    ShikharaGenerator.Arch(m, k, cu, v + h - 0.22 - 0.4 * span, w + depth - 0.05, span, 0.35 * span, 0.04, 0.03, true, wood, lod + 1);
+                }
+            }
+            if (lod == 0 && gilt)
+            {
+                // The carved lattice band: a row of small rosettes.
+                for (int q = 0; q < 6; q++)
+                    Shapes.Sphere(m, SacredDraw.At(k, u - hu + 2 * hu * (q + 0.5) / 6, v + 0.32, w + depth + 0.02), wood, 0.05, 5);
+            }
+            // The stepped hood.
+            SacredDraw.Box(m, k, u - hu - 0.14, u + hu + 0.14, v + h - 0.22, v + h - 0.08, w, w + depth + 0.1, wood, wall | BoxFaces.Bottom);
+            SacredDraw.Box(m, k, u - hu - 0.22, u + hu + 0.22, v + h - 0.08, v + h, w, w + depth + 0.16, mid, wall | BoxFaces.Bottom);
         }
 
         /// <summary>A carved wooden post from v0 to v1 at (u, w): a moulded square base, the shaft, a flared capital and a

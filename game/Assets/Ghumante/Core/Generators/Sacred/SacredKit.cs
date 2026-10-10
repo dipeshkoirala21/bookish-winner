@@ -68,11 +68,16 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Sanctum volume in frame space (u, w half extents and v range); empty when there is none.</summary>
         public float SanctumHalfU, SanctumHalfW, SanctumV0, SanctumV1;
 
+        /// <summary>Foot of a hero's great stair (tile-local metres and the absolute height of its lowest tread;
+        /// Swayambhu), 0 when there is none.</summary>
+        public float StairFootX, StairFootZ, StairFootY;
+
         public void Clear()
         {
             Tiers = PlinthLevels = Bells = Struts = Pinnacles = Rings = Terraces = Steps = Windows = Niches = FlagLines = 0;
             TopM = PlinthTopM = DoorYawDeg = 0f;
             SanctumHalfU = SanctumHalfW = SanctumV0 = SanctumV1 = 0f;
+            StairFootX = StairFootZ = StairFootY = 0f;
         }
     }
 

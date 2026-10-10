@@ -95,6 +95,9 @@ namespace Ghumante.Core.Generators.Sacred
                     pp.Doors = (byte)(Matches(name, "shiva", "mahadev", "shiv", "महादेव") ? 4 : 1);
                     pp.BellSpacingM = 0.5f;
                     if (parts != null) PagodaFromParts(t, parts, cx, cz, yaw, ref pp);
+                    // Generic detail spreads out with size (a hero keeps its real counts): bells, struts, posts and tile
+                    // courses keep their LOD0 form on a large outline at about the density of an 11 m temple.
+                    pp.DetailScale = GenericDetailScale(pp.PlinthW, pp.PlinthD, pp.Tiers);
                     p.Pagoda = pp;
                     break;
                 }
@@ -181,6 +184,19 @@ namespace Ghumante.Core.Generators.Sacred
         /// building is not sacred.</summary>
         public static bool BuildGeneric(TileData t, int buildingIndex, IHeightSampler h, int lod, MeshData m, GenColliders c)
         {
+            int built;
+            return BuildGeneric(t, buildingIndex, h, lod, m, c, out built);
+        }
+
+        /// <summary>
+        /// Build the generic structure for a building at a LOD, held to its LOD ceiling (<see cref="MaxTris"/>): when the
+        /// requested LOD is over, the repeated detail is spread out (<see cref="Thin"/>: bells, struts, posts, tile courses,
+        /// flag lines) up to three times before the structure drops to the next LOD, so a large temple near the camera
+        /// keeps its LOD0 form. <paramref name="builtLod"/> is the LOD actually built.
+        /// </summary>
+        public static bool BuildGeneric(TileData t, int buildingIndex, IHeightSampler h, int lod, MeshData m, GenColliders c, out int builtLod)
+        {
+            builtLod = -1;
             SacredKind kind;
             SacredParams p;
             if (!TrySelect(t, buildingIndex, out kind, out p)) return false;
@@ -189,21 +205,69 @@ namespace Ghumante.Core.Generators.Sacred
             double ground = double.MaxValue;
             for (int k = 0; k < ring.Length / 2; k++) ground = Math.Min(ground, g.Height(ring[2 * k] / 100.0, ring[2 * k + 1] / 100.0));
             p.Frame.GroundY = (float)ground;
+            if (kind == SacredKind.Pagoda && t.Roads.Count > 0) p.Pagoda.Clearance = SacredClearance.For(t, h);
             // Hold the structure to its LOD ceiling (3.2 LOD table): a large or richly mapped one drops a LOD instead.
             bool small = kind == SacredKind.Shrine || kind == SacredKind.Chaitya || kind == SacredKind.Hiti;
             int v0 = m.VertexCount, i0 = m.IndexCount;
             int boxes0 = c == null ? 0 : c.Boxes.Count, ramps0 = c == null ? 0 : c.Ramps.Count;
             for (int l = Math.Max(0, lod); ; l++)
             {
-                Build(p, l, m, c);
-                if (l >= 3 || (m.IndexCount - i0) / 3 <= MaxTris(small, l)) return true;
-                m.VertexCount = v0;
-                m.IndexCount = i0;
-                if (c != null)
+                SacredParams q = p;
+                for (int attempt = 0; ; attempt++)
                 {
-                    c.Boxes.RemoveRange(boxes0, c.Boxes.Count - boxes0);
-                    c.Ramps.RemoveRange(ramps0, c.Ramps.Count - ramps0);
+                    Build(q, l, m, c);
+                    int tris = (m.IndexCount - i0) / 3, cap = MaxTris(small, l);
+                    if (l >= 3 || tris <= cap)
+                    {
+                        builtLod = l;
+                        return true;
+                    }
+                    m.VertexCount = v0;
+                    m.IndexCount = i0;
+                    if (c != null)
+                    {
+                        c.Boxes.RemoveRange(boxes0, c.Boxes.Count - boxes0);
+                        c.Ramps.RemoveRange(ramps0, c.Ramps.Count - ramps0);
+                    }
+                    if (l >= 2 || attempt >= 3 || !Thin(ref q, (double)tris / cap)) break;
                 }
+            }
+        }
+
+        /// <summary>The detail spacing of a generic pagoda of a plan and tier count: 1 up to a 9 m plan, then growing with
+        /// the plan (a third more for 3 and more tiers), so its bells, struts, posts and tile courses keep the density of
+        /// a 9 m temple.</summary>
+        public static float GenericDetailScale(float w, float d, int tiers)
+        {
+            return (float)Math.Max(1.0, Math.Max(w, d) / 9.0 * (tiers >= 3 ? 1.3 : 1.0));
+        }
+
+        /// <summary>Spread a structure's repeated detail out for an overshoot of <paramref name="over"/> × its ceiling;
+        /// false when its kind has nothing left to thin.</summary>
+        internal static bool Thin(ref SacredParams p, double over)
+        {
+            float f = (float)Math.Max(1.3, 1.25 * over);
+            switch (p.Kind)
+            {
+                case SacredKind.Pagoda:
+                    if (p.Pagoda.DetailScale >= 12f) return false;
+                    p.Pagoda.DetailScale = Math.Max(1f, p.Pagoda.DetailScale) * f;
+                    return true;
+                case SacredKind.HouseTemple:
+                    if (p.House.DetailScale >= 12f) return false;
+                    p.House.DetailScale = Math.Max(1f, p.House.DetailScale) * f;
+                    return true;
+                case SacredKind.Stupa:
+                    if (p.Stupa.DetailScale >= 12f) return false;
+                    p.Stupa.DetailScale = Math.Max(1f, p.Stupa.DetailScale) * f;
+                    return true;
+                case SacredKind.ShikharaStone:
+                case SacredKind.ShikharaPlaster:
+                    if (p.Shikhara.DetailScale >= 12f) return false;
+                    p.Shikhara.DetailScale = Math.Max(1f, p.Shikhara.DetailScale) * f;
+                    return true;
+                default:
+                    return false;
             }
         }
 

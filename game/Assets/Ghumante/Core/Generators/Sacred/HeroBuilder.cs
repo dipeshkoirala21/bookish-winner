@@ -44,9 +44,10 @@ namespace Ghumante.Core.Generators.Sacred
                 double cx, cz, fyaw, fw, fd;
                 BuildingFrontRecord front = BuildingFronts.For(anchorTile).Front(building);
                 SacredSelector.Frame(ring, front.HasFront ? front.FrontEdge : -1, out cx, out cz, out fyaw, out fw, out fd);
-                // The door is square to the measured walls: a recipe yaw (often a cardinal estimate) snaps to the
-                // nearest axis of the OSM outline when it is within 30° of one.
-                yaw = float.IsNaN(recipe.YawDeg) ? fyaw : SnapYaw(recipe.YawDeg, fyaw, 30);
+                // The door is square to the measured walls: a recipe yaw (often a cardinal estimate, [V]) snaps to the
+                // nearest axis of the OSM outline's oriented box (always within 45°), so the sanctum, storeys, roofs and
+                // stair stand square on the outline plinth, and the plan is measured in that same frame (W2_DESIGN 3.1).
+                yaw = float.IsNaN(recipe.YawDeg) ? fyaw : SnapYaw(recipe.YawDeg, fyaw, 45);
                 SacredSelector.Extents(ring, x, z, yaw, out w, out d);
                 ox = new double[ring.Length / 2];
                 oz = new double[ring.Length / 2];
@@ -84,12 +85,14 @@ namespace Ghumante.Core.Generators.Sacred
                 case HeroForm.Mandapa:
                 {
                     PagodaParams p = PagodaFor(recipe, w, d, ox, oz);
+                    // Props in front, eave bells and fringes keep clear of the road corridors (contract §1).
+                    if (anchorTile.Roads.Count > 0) p.Clearance = SacredClearance.For(anchorTile, h);
                     PagodaGenerator.Build(p, f, lod, m, c, stats);
                     if (recipe.CompoundWall && lod <= 2) CompoundWall(recipe, f, w, d, lod, m);
                     break;
                 }
                 case HeroForm.Stupa:
-                    BuildStupa(recipe, f, lod, ref g, m, c, stats);
+                    BuildStupa(recipe, f, lod, anchorTile, ref g, m, c, stats);
                     break;
                 case HeroForm.ShikharaStone:
                 case HeroForm.ShikharaPlaster:
@@ -101,7 +104,8 @@ namespace Ghumante.Core.Generators.Sacred
                     HeroForms.HouseTemple(new HouseTempleParams
                     {
                         W = (float)w, D = (float)d, TotalHeightM = recipe.HeightM, Storeys = Math.Max(2, recipe.Storeys), PlinthLevels = recipe.PlinthLevels,
-                        PlinthRiseM = recipe.StepRiseM, GiltBalcony = recipe.GiltBalcony, Figures = recipe.Figures, Lions = true, RoofColour = recipe.RoofColour,
+                        PlinthRiseM = recipe.StepRiseM, GiltBalcony = recipe.GiltBalcony, Figures = recipe.Figures, Lions = true, RoofColour = recipe.RoofColour, Hero = true,
+                        Fringe = recipe.Fringe, SkirtRoof = recipe.SkirtRoof,
                     }, f, lod, m, c, stats);
                     break;
                 case HeroForm.Relief:
@@ -337,6 +341,8 @@ namespace Ghumante.Core.Generators.Sacred
             p.Hero = true;
             p.Rich = r.Centrepiece;
             p.Ambulatory = r.Ambulatory;
+            p.Grille = r.Grille;
+            p.RidgeFinials = r.RidgeFinials;
             p.Fringe = r.Fringe;
             p.GajurBell = r.GajurBell;
             p.PlasterUpper = r.PlasterUpper;
@@ -364,6 +370,7 @@ namespace Ghumante.Core.Generators.Sacred
             bool stone = recipe.Form == HeroForm.ShikharaStone;
             ShikharaParams p = stone ? ShikharaParams.StoneDefaults((float)w, (float)d) : ShikharaParams.PlasterDefaults((float)w, (float)d);
             p.TotalHeightM = recipe.HeightM;
+            p.Hero = true;
             if (recipe.PlinthLevels > 0) p.PlinthLevels = recipe.PlinthLevels;
             if (recipe.StepRiseM > 0) p.StepRiseM = recipe.StepRiseM;
             if (stone)
@@ -398,7 +405,7 @@ namespace Ghumante.Core.Generators.Sacred
             return p;
         }
 
-        private static void BuildStupa(HeroRecipe r, in GenFrame f, int lod, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
+        private static void BuildStupa(HeroRecipe r, in GenFrame f, int lod, TileData tile, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
         {
             StupaParams p = StupaFor(r);
             if (lod >= 3)
@@ -427,46 +434,194 @@ namespace Ghumante.Core.Generators.Sacred
                 return;
             }
             StupaGenerator.Build(p, f, lod, m, c, stats);
-            if (r.EastStair365) SwayambhuStair(r, f, lod, ref g, m, c, stats);
+            if (r.EastStair365) SwayambhuStair(r, f, lod, tile, ref g, m, c, stats);
         }
 
         /// <summary>
-        /// Swayambhu's eastern stairway of 365 steps: from the platform edge it runs 260 m east down the hill; the
-        /// terrain is sampled every 10 m and each 10 m flight gets the share of the 365 steps its drop needs, so the
-        /// constant rise is computed from the real hill (≈ 0.19 m) and the stair always lands on the hilltop. The gilt
-        /// vajra stands at its top.
+        /// Swayambhu's eastern stairway of 365 steps along its real line: the anchor tile's highway=steps way that starts
+        /// at the stupa platform (OSM way 24707651), continued past the tile edge by the recipe's curated points of the same
+        /// way; without either, a straight run down the hero's door yaw. The path is resampled every 10 m, each piece a
+        /// flight square to its own direction with its share of the 365 steps by the drop of the real hill (78 m: ≈ 0.21 m), with
+        /// balustrades and a walkable ramp collider. The gilt vajra stands at its head.
         /// </summary>
-        private static void SwayambhuStair(HeroRecipe r, in GenFrame f, int lod, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
+        private static void SwayambhuStair(HeroRecipe r, in GenFrame f, int lod, TileData tile, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
         {
             const int Steps = 365;
-            const double Length = 260.0, Seg = 10.0;
-            KitFrame k = KitFrame.FromYaw(f.X, f.GroundY, f.Z, 90);
-            double start = 0.5 * r.DomeDiameterM + 12.0;
-            int segs = (int)(Length / Seg);
-            var heights = new double[segs + 1];
-            for (int i = 0; i <= segs; i++)
+            const double Seg = 10.0;
+            Path3 path = StairPath(r, f, tile);
+            // Resample by arc length.
+            var pts = new Path3(64);
+            Curves.Resample(path, pts, Seg);
+            int n = pts.Count;
+            if (n < 2) return;
+            var heights = new double[n];
+            // On the anchor tile the stair follows the terrain; past its edge (the stair's lower part lies in the next tile,
+            // whose heights a hero build does not see) it follows the curated drop profile of the same line, continued from
+            // the last point on the tile, so it meets the neighbouring terrain instead of running on at the edge height.
+            double size = tile.Tile.Size;
+            int lastIn = -1;
+            for (int i = 0; i < n; i++)
             {
-                double x, y, z;
-                k.ToWorld(0, 0, start + i * Seg, out x, out y, out z);
-                heights[i] = i == 0 ? f.GroundY : g.Height(x, z);
+                bool inside = pts.X[i] >= 0 && pts.Z[i] >= 0 && pts.X[i] <= size && pts.Z[i] <= size;
+                if (inside || lastIn < 0 || r.StairDropM == null)
+                {
+                    heights[i] = g.Height(pts.X[i], pts.Z[i]);
+                    if (inside) lastIn = i;
+                }
+                else
+                {
+                    heights[i] = heights[lastIn] - (CuratedDrop(r, tile, pts.X[i], pts.Z[i]) - CuratedDrop(r, tile, pts.X[lastIn], pts.Z[lastIn]));
+                }
             }
-            double drop = heights[0] - heights[segs];
+            heights[0] = Math.Max(heights[0], f.GroundY);
+            // The stair only ever descends: a dip and rise of the ground under the line is bridged by the flights.
+            for (int i = 1; i < n; i++) heights[i] = Math.Min(heights[i], heights[i - 1]);
+            double drop = heights[0] - heights[n - 1];
             if (drop < 5) return;
             double rise = drop / Steps;
             int placed = 0;
-            for (int i = 0; i < segs; i++)
+            double top = heights[0];
+            for (int i = 0; i + 1 < n; i++)
             {
-                double hi = heights[i], lo = Math.Min(hi, heights[i + 1]);
-                int n = i == segs - 1 ? Steps - placed : (int)Math.Round((heights[0] - lo) / rise) - placed;
-                if (n <= 0) continue;
-                double v1 = heights[0] - placed * rise - f.GroundY, v0 = v1 - n * rise;
-                SacredParts.Stair(m, c, k, SacredDraw.Xf(k), 2.0, start + i * Seg, Seg, v0, v1, lod <= 1 ? 0.5 : 0, 0.6, Looks.Stone, Looks.StoneLight, lod, GenColliders.Stone);
-                placed += n;
+                int k = i == n - 2 ? Steps - placed : Math.Min(Steps - placed, (int)Math.Round((heights[0] - heights[i + 1]) / rise) - placed);
+                double dx = pts.X[i + 1] - pts.X[i], dz = pts.Z[i + 1] - pts.Z[i], run = Math.Sqrt(dx * dx + dz * dz);
+                if (run < 0.05) continue;
+                double yaw = Math.Atan2(dx, dz) * 180 / Math.PI;
+                KitFrame kf = KitFrame.FromYaw(pts.X[i], 0, pts.Z[i], yaw);
+                if (k <= 0)
+                {
+                    // A level stretch: a landing.
+                    SacredDraw.Quad(m, SacredDraw.Xf(kf), -2.0, top, 0, 2.0, top, 0, 2.0, top, run, -2.0, top, run, 0, 1, 0, Looks.StoneLight);
+                    continue;
+                }
+                double v1 = top, v0 = v1 - k * rise;
+                // Each flight runs from its upper end (local w = 0) down along +w.
+                SacredParts.Stair(m, c, kf, SacredDraw.Xf(kf), 2.0, 0, run, v0, v1, lod <= 1 ? 0.5 : 0, 0.6, Looks.Stone, Looks.StoneLight, lod, GenColliders.Stone,
+                                  lod <= 1 ? k : 0);
+                placed += k;
+                top = v0;
             }
-            double vx, vy, vz;
-            k.ToWorld(0, 0, start - 5.0, out vx, out vy, out vz);
-            HeroForms.Vajra(new GenFrame(vx, vz, f.GroundY, 90), lod, m);
-            if (stats != null) stats.Steps = placed;
+            // The vajra on its drum at the head of the stair, on the platform.
+            double hx = pts.X[1] - pts.X[0], hz = pts.Z[1] - pts.Z[0], hl = Math.Sqrt(hx * hx + hz * hz);
+            double vx = pts.X[0] - 4.5 * hx / hl, vz = pts.Z[0] - 4.5 * hz / hl;
+            HeroForms.Vajra(new GenFrame(vx, vz, (float)Math.Max(f.GroundY, g.Height(vx, vz)), (float)(Math.Atan2(hx, hz) * 180 / Math.PI)), lod, m);
+            if (stats != null)
+            {
+                stats.Steps = placed;
+                stats.StairFootX = (float)pts.X[n - 1];
+                stats.StairFootZ = (float)pts.Z[n - 1];
+                stats.StairFootY = (float)top;
+            }
+        }
+
+        /// <summary>The curated ground drop below the stair head (m) at the point of the curated line nearest to tile-local
+        /// (x, z), interpolated along it; 0 without a profile.</summary>
+        private static double CuratedDrop(HeroRecipe r, TileData tile, double x, double z)
+        {
+            if (r.StairPath == null || r.StairDropM == null) return 0;
+            int cn = Math.Min(r.StairPath.Length / 2, r.StairDropM.Length);
+            double best = double.MaxValue, drop = 0, px = 0, pz = 0;
+            for (int i = 0; i < cn; i++)
+            {
+                double gx, gz;
+                WorldFrame.LonLatToGame(r.StairPath[2 * i], r.StairPath[2 * i + 1], out gx, out gz);
+                gx -= tile.Tile.X0;
+                gz -= tile.Tile.Z0;
+                if (i > 0)
+                {
+                    double ex = gx - px, ez = gz - pz, l2 = ex * ex + ez * ez;
+                    double t = l2 > 1e-9 ? Math.Max(0, Math.Min(1, ((x - px) * ex + (z - pz) * ez) / l2)) : 0;
+                    double qx = px + t * ex - x, qz = pz + t * ez - z, d2 = qx * qx + qz * qz;
+                    if (d2 < best)
+                    {
+                        best = d2;
+                        drop = r.StairDropM[i - 1] + t * (r.StairDropM[i] - r.StairDropM[i - 1]);
+                    }
+                }
+                px = gx;
+                pz = gz;
+            }
+            return drop;
+        }
+
+        /// <summary>The stair line from its head at the stupa to its foot (tile-local metres): the tile's own steps way
+        /// starting within 50 m of the stupa (at least 60 m long), continued by the curated points beyond its last point;
+        /// else the curated line; else 260 m straight down the door yaw.</summary>
+        internal static Path3 StairPath(HeroRecipe r, in GenFrame f, TileData tile)
+        {
+            var path = new Path3(32);
+            // Curated line in tile-local metres.
+            int cn = r.StairPath != null ? r.StairPath.Length / 2 : 0;
+            var cx = new double[cn];
+            var cz = new double[cn];
+            for (int i = 0; i < cn; i++)
+            {
+                double gx, gz;
+                WorldFrame.LonLatToGame(r.StairPath[2 * i], r.StairPath[2 * i + 1], out gx, out gz);
+                cx[i] = gx - tile.Tile.X0;
+                cz[i] = gz - tile.Tile.Z0;
+            }
+            // The tile's steps way that starts at the platform.
+            int best = -1;
+            bool reverse = false;
+            double bestLen = 60;
+            for (int i = 0; i < tile.Roads.Count; i++)
+            {
+                RoadRecord rr = tile.Roads[i];
+                if (rr.RoadClass != RoadClass.Steps || rr.PointCount < 2) continue;
+                int[] p = rr.Points;
+                int last = rr.PointCount - 1;
+                double da = Dist(p[0] / 100.0, p[1] / 100.0, f.X, f.Z), db = Dist(p[2 * last] / 100.0, p[2 * last + 1] / 100.0, f.X, f.Z);
+                if (Math.Min(da, db) > 50) continue;
+                double len = 0;
+                for (int k = 0; k < last; k++) len += Dist(p[2 * k] / 100.0, p[2 * k + 1] / 100.0, p[2 * k + 2] / 100.0, p[2 * k + 3] / 100.0);
+                if (len <= bestLen) continue;
+                bestLen = len;
+                best = i;
+                reverse = db < da;
+            }
+            if (best >= 0)
+            {
+                int[] p = tile.Roads[best].Points;
+                int np = tile.Roads[best].PointCount;
+                for (int k = 0; k < np; k++)
+                {
+                    int q = reverse ? np - 1 - k : k;
+                    path.AddDistinct(p[2 * q] / 100.0, 0, p[2 * q + 1] / 100.0);
+                }
+                // Continue past the tile edge along the curated line, from the curated point after the nearest one.
+                if (cn >= 2)
+                {
+                    double ex = path.X[path.Count - 1], ez = path.Z[path.Count - 1];
+                    int near = 0;
+                    for (int i = 1; i < cn; i++)
+                        if (Dist(cx[i], cz[i], ex, ez) < Dist(cx[near], cz[near], ex, ez)) near = i;
+                    if (Dist(cx[near], cz[near], ex, ez) < 25)
+                    {
+                        // Only the points farther along the line than the way's last point.
+                        double along = Dist(cx[cn - 1], cz[cn - 1], ex, ez);
+                        for (int i = near; i < cn; i++)
+                            if (Dist(cx[cn - 1], cz[cn - 1], cx[i], cz[i]) < along - 0.5) path.AddDistinct(cx[i], 0, cz[i]);
+                    }
+                }
+                return path;
+            }
+            if (cn >= 2)
+            {
+                for (int i = 0; i < cn; i++) path.AddDistinct(cx[i], 0, cz[i]);
+                return path;
+            }
+            KitFrame k0 = KitFrame.FromYaw(f.X, 0, f.Z, f.YawDeg);
+            double sx, sy, sz, tx, ty, tz;
+            k0.ToWorld(0, 0, 0.5 * r.DomeDiameterM + 12.0, out sx, out sy, out sz);
+            k0.ToWorld(0, 0, 0.5 * r.DomeDiameterM + 272.0, out tx, out ty, out tz);
+            path.Add(sx, 0, sz).Add(tx, 0, tz);
+            return path;
+        }
+
+        private static double Dist(double ax, double az, double bx, double bz)
+        {
+            return Math.Sqrt((ax - bx) * (ax - bx) + (az - bz) * (az - bz));
         }
 
         private static void CompoundWall(HeroRecipe r, in GenFrame f, double w, double d, int lod, MeshData m)
@@ -494,7 +649,7 @@ namespace Ghumante.Core.Generators.Sacred
                 for (int sgn = -1; sgn <= 1; sgn += 2)
                 {
                     SacredParts.Pedestal(m, k, sgn * (gate + 0.8), top, hd + 0.6, 0.35, 0.42, 0.55, Looks.Stone, lod);
-                    SacredFigures.Guardian(m, k, sgn * (gate + 0.8), top + 0.55, hd + 0.6, 1.3, GuardianKind.Lion, true, true, lod);
+                    SacredFigures.Guardian(m, k, sgn * (gate + 0.8), top + 0.55, hd + 0.6, 1.3, GuardianKind.Lion, true, SacredFigures.Hero, lod, sgn);
                 }
                 for (int q = 0; q < 4; q++)
                 {
@@ -520,28 +675,16 @@ namespace Ghumante.Core.Generators.Sacred
 
         private static void KumariGhar(HeroRecipe r, in GenFrame f, double w, double d, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
-            int v0 = m.VertexCount, i0 = m.IndexCount;
+            // The quadrangle under one continuous roof with its red fringe, the carved projecting windows on the front and
+            // round the walkable court, the Kumari's gilt window on the far range (always closed: she is never shown).
             double iu, iw;
-            HeroForms.Courtyard((float)w, (float)d, 5.5f, r.HeightM - 1.6f, true, SacredPalette.BrickDachi, f, lod, m, c, out iu, out iw);
-            // The richly carved front windows, closed: the Kumari is never shown.
-            Affine3 k = SacredDraw.Xf(f.Kit);
-            int storeys = Math.Max(2, r.Storeys), windows = 0;
-            double sH = (r.HeightM - 1.6) / storeys;
-            for (int s = 1; s < storeys && lod <= 1; s++)
-            {
-                for (int b = 0; b < 5; b++)
-                {
-                    double u = -0.5 * w + w * (b + 0.5) / 5;
-                    if (Math.Abs(u) < 1.3) continue;
-                    SacredParts.LatticeWindow(m, k, u, s * sH + 1.0, 0.5 * d + 0.02, 1.1, 1.2, Looks.WoodDark, lod, 3);
-                    windows++;
-                }
-            }
-            SacredDraw.Bake(m, v0, i0, f.GroundY);
+            const int Bays = 5;
+            // The red valance along the street eaves too (refs kumari 00).
+            HeroForms.Courtyard((float)w, (float)d, 5.5f, r.HeightM - 1.6f, true, SacredPalette.BrickDachi, f, lod, m, c, out iu, out iw, Bays, true, true, false);
             if (stats != null)
             {
                 stats.TopM = r.HeightM;
-                stats.Windows = windows;
+                stats.Windows = lod <= 1 ? Bays * Math.Max(1, (int)Math.Round((r.HeightM - 1.6) / 2.8) - 1) : 0;
                 stats.DoorYawDeg = f.YawDeg;
             }
         }
@@ -549,7 +692,7 @@ namespace Ghumante.Core.Generators.Sacred
         private static void GoldenTemple(HeroRecipe r, in GenFrame f, double w, double d, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
             double iu, iw;
-            HeroForms.Courtyard((float)w, (float)d, 5f, 6.5f, true, SacredPalette.BrickDachi, f, lod, m, c, out iu, out iw);
+            HeroForms.Courtyard((float)w, (float)d, 5f, 6.5f, true, SacredPalette.BrickDachi, f, lod, m, c, out iu, out iw, 0, false);
             // The three-tier gilt shrine rises from the back (west) range and faces the gate across the court.
             KitFrame k = f.Kit;
             double sx, sy, sz;

@@ -309,7 +309,7 @@ namespace Ghumante.Core.Generators.Sacred
             if (lod <= 1)
             {
                 for (int sgn = -1; sgn <= 1; sgn += 2)
-                    SacredFigures.Guardian(m, k, sgn * (0.5 * bw + 0.24), plat, 0.5 * bd - 0.05, 0.7, GuardianKind.Lion, false, false, lod + 1);
+                    SacredFigures.Guardian(m, k, sgn * (0.5 * bw + 0.24), plat, 0.5 * bd - 0.05, 0.7, GuardianKind.Lion, false, SacredFigures.Small, lod, sgn);
             }
         }
 

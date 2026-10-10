@@ -32,6 +32,13 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Stone lions on the stair (Krishna Mandir).</summary>
         public bool Lions;
 
+        /// <summary>A hero replica (richer figures).</summary>
+        public bool Hero;
+
+        /// <summary>Spacing multiplier of the repeated detail (≥ 1; 0 = 1), raised by <see cref="SacredSelector.Thin"/>
+        /// so a large generic structure keeps its LOD0 form within the generic ceiling.</summary>
+        public float DetailScale;
+
         public static ShikharaParams StoneDefaults(float w, float d)
         {
             return new ShikharaParams
@@ -142,7 +149,7 @@ namespace Ghumante.Core.Generators.Sacred
                     for (int s = -1; s <= 1; s += 2)
                     {
                         SacredParts.Pedestal(m, k, s * (0.5 * stairW + 0.4), 0, 0.5 * d + 0.5 * run, 0.35, 0.4, plinthTop + 0.1, plinthB, lod);
-                        SacredFigures.Guardian(m, k, s * (0.5 * stairW + 0.4), plinthTop + 0.1, 0.5 * d + 0.5 * run, gh, GuardianKind.Lion, false, true, lod);
+                        SacredFigures.Guardian(m, k, s * (0.5 * stairW + 0.4), plinthTop + 0.1, 0.5 * d + 0.5 * run, gh, GuardianKind.Lion, false, p.Hero ? SacredFigures.Hero : SacredFigures.Generic, lod, s);
                     }
                 }
             }
@@ -192,9 +199,10 @@ namespace Ghumante.Core.Generators.Sacred
             SacredDraw.Box(m, k, -sanctumHalf, sanctumHalf, plinthTop, gTop, -sanctumHalf * a, sanctumHalf * a, inner, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             SacredParts.Door(m, k, 0, plinthTop, sanctumHalf * a, Math.Min(1.1, 0.3 * sanctumHalf), Math.Min(2.1, gH - 0.9), Looks.WoodDark, lod);
             SacredDraw.CapRect(m, k, 0, 0, bodyHW, bodyHW * a, gTop - 0.55, false, Looks.Ao(body, 0.55f));
-            int bays = Math.Max(3, Math.Min(9, (int)Math.Round(2 * bodyHW / 1.8)));
+            int bays = Math.Max(3, Math.Min(9, (int)Math.Round(2 * bodyHW / (1.8 * Math.Max(1.0, p.DetailScale)))));
             if (bays % 2 == 0) bays++;
-            Arcade(m, k, bodyHW, bodyHW * a, plinthTop, gTop - 0.55, bays, body, lod);
+            int arcLod = p.DetailScale >= 1.6f ? Math.Max(1, lod) : lod; // a large generic tower: coarser arches, same form
+            Arcade(m, k, bodyHW, bodyHW * a, plinthTop, gTop - 0.55, bays, body, arcLod);
             if (c != null) c.AddBox(kf.OX, kf.OZ, f.GroundY + plinthTop, f.GroundY + gTop, sanctumHalf, sanctumHalf * a, kf.UX, kf.UZ, GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, GenColliders.Stone);
 
             // Frieze beam and the balcony with its balustrade.
@@ -218,7 +226,7 @@ namespace Ghumante.Core.Generators.Sacred
             double tower = p.TowerBaseFrac * bodyHW * 2;
             double s1Half = Math.Max(0.5 * tower + 0.3, 0.72 * bodyHW), s1H = Math.Min(3.4, 0.16 * total), s1Top = gTop + s1H;
             SacredDraw.Box(m, k, -s1Half + 0.6, s1Half - 0.6, gTop, s1Top, -(s1Half - 0.6) * a, (s1Half - 0.6) * a, inner, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-            Arcade(m, k, s1Half, s1Half * a, gTop, s1Top - 0.4, 3, body, lod);
+            Arcade(m, k, s1Half, s1Half * a, gTop, s1Top - 0.4, 3, body, arcLod);
             int n1 = SacredDraw.Rect(0, 0, s1Half, s1Half * a, pu, pw);
             Mould c1 = SacredDraw.M;
             c1.Add(0, s1Top - 0.4, trim).Add(0.12, s1Top - 0.25).Add(0.25, s1Top);
@@ -226,7 +234,8 @@ namespace Ghumante.Core.Generators.Sacred
             SacredDraw.Cap(m, k, pu, pw, n1, 0.25, s1Top, true, body);
             double pav = Math.Max(1.0, 0.16 * 2 * bodyHW);
             int pin = 1;
-            pin += Pavilions(m, k, p.PavilionsStorey1, bodyHW - 0.55 * pav, gTop, pav, Math.Min(3.6, 0.2 * total), body, trim, lod);
+            bool thin = p.DetailScale >= 1.6f;
+            pin += Pavilions(m, k, thin ? Math.Min(4, p.PavilionsStorey1) : p.PavilionsStorey1, bodyHW - 0.55 * pav, gTop, pav, Math.Min(3.6, 0.2 * total), body, trim, lod);
 
             // Storey 2: smaller core and pavilions, then the spire.
             double s2Half = Math.Max(0.5 * tower + 0.2, 0.62 * s1Half), s2H = Math.Min(2.8, 0.13 * total), s2Top = s1Top + s2H;
@@ -241,7 +250,7 @@ namespace Ghumante.Core.Generators.Sacred
                     SacredParts.Torana(m, side, 0, s2Top - 0.4, half + 0.01, 0.42 * s2Half, Looks.Ao(Looks.Gilt, 0.95f), lod + 1);
                 }
             }
-            pin += Pavilions(m, k, p.PavilionsStorey2, s1Half - 0.5 * 0.8 * pav, s1Top, 0.8 * pav, Math.Min(3.0, 0.16 * total), body, trim, lod);
+            pin += Pavilions(m, k, thin ? 0 : p.PavilionsStorey2, s1Half - 0.5 * 0.8 * pav, s1Top, 0.8 * pav, Math.Min(3.0, 0.16 * total), body, trim, lod);
             double finialH = 0.07 * total, towerTop = total - finialH;
             double topHalf = Spire(m, k, 0.5 * tower, s2Top - 0.1, towerTop - s2Top + 0.1, body, trim, p.Rathas, lod);
             Crown(m, k, topHalf, towerTop, total, body, lod);
@@ -320,7 +329,7 @@ namespace Ghumante.Core.Generators.Sacred
                 }
             }
             int rows = lod == 0 ? 16 : lod == 1 ? 9 : 4;
-            double topScale = 0.36;
+            double topScale = 0.3;
             double sign = SacredDraw.Area(pu, pw, n) >= 0 ? 1 : -1;
             for (int e = 0; e < n; e++)
             {
@@ -354,8 +363,9 @@ namespace Ghumante.Core.Generators.Sacred
 
         private static double Scale(double t, double top)
         {
-            // Bulging Nagara curve: nearly vertical at the foot, closing in toward the top.
-            return 1 - (1 - top) * Math.Pow(t, 2.0);
+            // Bulging Nagara curve: nearly vertical at the foot, closing in hard toward the top (the bullet-shaped spires of
+            // Vatsala Durga and Krishna Mandir, refs vatsala 00, krishna 02).
+            return 1 - (1 - top) * Math.Pow(t, 2.5);
         }
 
         /// <summary>The spire's crown: a ribbed amalaka disc, the kalasha and a gilt finial up to <paramref name="total"/>.</summary>

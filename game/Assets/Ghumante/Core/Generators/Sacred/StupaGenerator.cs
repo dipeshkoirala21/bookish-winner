@@ -49,6 +49,10 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>A gateway on the door side at this distance from the centre (Boudha's south gate; 0 = none).</summary>
         public float GateDistM;
 
+        /// <summary>Spacing multiplier of the repeated detail (≥ 1; 0 = 1), raised by <see cref="SacredSelector.Thin"/>
+        /// so a large generic structure keeps its LOD0 form within the generic ceiling.</summary>
+        public float DetailScale;
+
         public static StupaParams Defaults(float domeDiameter, int terraces)
         {
             return new StupaParams
@@ -282,7 +286,7 @@ namespace Ghumante.Core.Generators.Sacred
             }
 
             // 3. Base rings and the dome.
-            int seg = lod == 0 ? (dia >= 25 ? 48 : dia >= 9 ? 32 : 20) : lod == 1 ? 24 : 12;
+            int seg = lod == 0 ? (dia >= 25 && p.DetailScale < 1.6f ? 48 : dia >= 9 ? 32 : 20) : lod == 1 ? 24 : 12;
             double drumR = 0.5 * (p.DrumDiameterM > 0 ? p.DrumDiameterM : 1.06 * dia);
             Profile2 pr = Prof;
             pr.Add(0, yDrum - 0.05).Add(drumR, yDrum - 0.05, true);
@@ -309,8 +313,9 @@ namespace Ghumante.Core.Generators.Sacred
             int domeV0 = m.VertexCount;
             Shapes.Lathe(m, k, white, pr, seg);
             if (boudha && lod <= 1) SaffronWash(m, kf, domeV0, f.GroundY + yDome, domeRise, 16);
-            if (boudha && lod == 0) LotusArcs(m, k, r, yDome, domeRise, 16, Math.Max(0.25, 0.022 * dia));
-            if (sway && lod == 0) Streaks(m, k, r, yDome, domeRise, 28);
+            if (boudha && lod == 0) LotusArcs(m, k, r, yDome, domeRise, 16, Math.Max(0.25, 0.022 * dia), 0.55, 0);
+            // Swayambhu: thin saffron scallops thrown round the crown of the dome, dripping down from each low point.
+            if (sway && lod == 0) LotusArcs(m, k, r, yDome, domeRise, 14, Math.Max(0.16, 0.007 * dia), 0.2, 0.16);
             if (boudha && lod <= 1) NicheBand(m, k, r, yDome, domeRise, lod == 0 ? 108 : 36);
             if (p.BuddhaNiches > 0 && lod <= 2)
             {
@@ -361,14 +366,20 @@ namespace Ghumante.Core.Generators.Sacred
             Parasol(m, k, rp, yParasol, parasolH, lod);
             SacredParts.Gajur(m, k, yFinial - 0.02, finialH + 0.02, Math.Max(0.15, 0.55 * rt), Looks.Gilt, lod);
 
-            // 6. Prayer-flag lines from below the parasol to the edge of the lowest terrace (or the dome base).
-            int lines = lod == 0 ? p.FlagLines : lod == 1 ? p.FlagLines / 3 : 0;
+            // 6. Prayer-flag lines from below the parasol to the edge of the lowest terrace (or the dome base): a cord sagging
+            //    on its catenary with small flags packed nearly edge to edge along it in the fixed colour order (ref photos:
+            //    refs/temples/boudha_flags, swayambhu2). Generic stupas space their flags out with their detail scale.
+            double ds = Math.Max(1.0, p.DetailScale);
+            int lines = (int)((lod == 0 ? p.FlagLines : lod == 1 ? p.FlagLines / 3 : 0) / ds);
             if (lines > 0)
             {
                 // Lines run in bundles of up to four (as at Boudha), fanning a little at their feet.
                 int bundle = lines >= 32 ? 4 : lines >= 12 ? 2 : 1, dirs = Math.Max(1, lines / bundle);
                 double reach = terraces > 0 ? 0.5 * widths[0] - 0.4 : r * 1.6, endY = terraces > 0 ? tops[0] + 1.6 : 1.2;
-                double flag = Math.Max(0.22, Math.Min(0.3, 0.004 * dia + 0.16));
+                bool hero = p.Style != StupaStyle.Generic;
+                // Flags: 0.3 × 0.34 m (heroes a little larger for the cartoon read), packed with a small gap; LOD1 every
+                // other one.
+                double fw = hero ? 0.42 : 0.3, fh = 1.15 * fw, pitch = (fw + (hero ? 0.2 : 0.1)) * (lod == 0 ? 1 : 2) * (hero ? 1 : ds);
                 for (int q = 0; q < lines; q++)
                 {
                     int d = q / bundle, j = q % bundle;
@@ -376,13 +387,17 @@ namespace Ghumante.Core.Generators.Sacred
                     double rr = reach * (1 - 0.06 * j);
                     double eu = rr * Math.Cos(ang), ew = rr * Math.Sin(ang), su = 0.6 * rp * Math.Cos(ang), sw = 0.6 * rp * Math.Sin(ang);
                     double span = Math.Sqrt((eu - su) * (eu - su) + (ew - sw) * (ew - sw));
-                    FlagLine(m, k, su, yParasol - 0.2, sw, eu, endY + 0.3 * j, ew, (0.07 + 0.015 * j) * span, (int)Math.Max(5, Math.Min(16, span / (3.4 * flag))), flag,
-                             lod == 0, 0.25);
+                    FlagLine(m, k, su, yParasol - 0.2, sw, eu, endY + 0.3 * j, ew, (0.07 + 0.015 * j) * span, fw, fh, pitch, lod == 0, hero ? 0.2 : 0.12, lod);
                 }
             }
 
             // 7. Boudha's south gate.
-            if (p.GateDistM > 0 && lod <= 1) Gate(m, k, p.GateDistM, lod);
+            if (p.GateDistM > 0 && lod <= 1)
+            {
+                // Beyond the foot of the lowest terrace stair (never on it).
+                double foot = terraces > 0 ? 0.5 * widths[0] * 1.07 + tops[0] / Math.Tan(36 * Math.PI / 180) : r;
+                Gate(m, k, Math.Max(p.GateDistM, foot + 4.5), lod);
+            }
 
             if (c != null) c.AddBox(cx, cz, f.GroundY + yDrum, f.GroundY + top, drumR, drumR, kf.UX, kf.UZ, GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, GenColliders.Stone);
             if (stats != null)
@@ -418,9 +433,10 @@ namespace Ghumante.Core.Generators.Sacred
 
         /// <summary>Saffron lotus-petal arcs hanging round the dome under the harmika (Boudha): each petal a ribbon of
         /// constant width scalloping down from under the harmika and back up.</summary>
-        private static void LotusArcs(MeshData m, in Affine3 k, double r, double y0, double rise, int petals, double width)
+        private static void LotusArcs(MeshData m, in Affine3 k, double r, double y0, double rise, int petals, double width, double depth, double drip)
         {
             ShapeBrush b = Looks.Of(SacredPalette.Saffron, MaterialChannel.Paint);
+            _depth = depth;
             int segs = 14;
             for (int j = 0; j < petals; j++)
             {
@@ -447,14 +463,33 @@ namespace Ghumante.Core.Generators.Sacred
                     SacredDraw.V(m, k, u + cu, v + cv, w + cw, nu, nv, nw, b);
                 }
                 SacredDraw.Grid(m, first, segs + 1, 2, false, null);
+                if (drip > 0)
+                {
+                    // A drip running down from the petal's low point, thinning out.
+                    double ac = 0.5 * (a0 + a1), e0 = Petal(0.5);
+                    int f2 = m.VertexCount;
+                    for (int q = 0; q <= 4; q++)
+                    {
+                        double e = e0 - drip * q / 4.0, taper = 1 - 0.8 * q / 4.0, da = 0.5 * width * taper / Math.Max(0.5, r * Math.Cos(0.5 * Math.PI * e));
+                        for (int side = -1; side <= 1; side += 2)
+                        {
+                            double u, v, w, nu, nv, nw;
+                            DomePoint(r, y0, rise, ac + side * da, e, 0.03, out u, out v, out w, out nu, out nv, out nw);
+                            SacredDraw.V(m, k, u, v, w, nu, nv, nw, b);
+                        }
+                    }
+                    SacredDraw.Grid(m, f2, 5, 2, false, null);
+                }
             }
         }
 
         /// <summary>Elevation fraction of the petal outline at fraction t across one petal: U-shaped scallops from just
         /// under the harmika down to the middle of the dome.</summary>
+        [ThreadStatic] private static double _depth;
+
         private static double Petal(double t)
         {
-            return 0.97 - 0.55 * Math.Pow(Math.Sin(Math.PI * t), 0.7);
+            return 0.97 - (_depth > 0 ? _depth : 0.55) * Math.Pow(Math.Sin(Math.PI * t), 0.7);
         }
 
         /// <summary>Tint the dome above the scalloped petal line a pale saffron (Boudha's painted lotus).</summary>
@@ -478,30 +513,6 @@ namespace Ghumante.Core.Generators.Sacred
                     m.Colors[4 * v + 1] = (byte)(wash >> 16);
                     m.Colors[4 * v + 2] = (byte)(wash >> 8);
                 }
-            }
-        }
-
-        /// <summary>Saffron splash streaks running down the dome from the harmika (Swayambhu).</summary>
-        private static void Streaks(MeshData m, in Affine3 k, double r, double y0, double rise, int count)
-        {
-            ShapeBrush b = Looks.Of(MeshColor.FromHex(0xF0C040), MaterialChannel.Paint);
-            for (int j = 0; j < count; j++)
-            {
-                uint h = ShapeNoise.Hash(j, 3, 11, 77u);
-                double a = 2 * Math.PI * (j + 0.3 * ((h & 255) / 255.0)) / count, len = 0.25 + 0.45 * (((h >> 8) & 255) / 255.0);
-                double wa = (0.006 + 0.01 * (((h >> 16) & 255) / 255.0)) * 2 * Math.PI;
-                int first = m.VertexCount;
-                for (int q = 0; q <= 4; q++)
-                {
-                    double e = 0.97 - len * q / 4.0, taper = 1 - 0.7 * q / 4.0;
-                    for (int side = -1; side <= 1; side += 2)
-                    {
-                        double u, v, w, nu, nv, nw;
-                        DomePoint(r, y0, rise, a + side * 0.5 * wa * taper, e, 0.025, out u, out v, out w, out nu, out nv, out nw);
-                        SacredDraw.V(m, k, u, v, w, nu, nv, nw, b);
-                    }
-                }
-                SacredDraw.Grid(m, first, 5, 2, false, null);
             }
         }
 
@@ -750,28 +761,43 @@ namespace Ghumante.Core.Generators.Sacred
             }
         }
 
-        /// <summary>A prayer-flag line in local metres: flags of size <paramref name="flag"/> hanging from a sagging line
-        /// in the fixed order blue, white, red, green, yellow, from fraction <paramref name="start"/> of the line on (the
-        /// upper part near a crown is bare string); two-sided when <paramref name="twoSided"/>.</summary>
-        public static void FlagLine(MeshData m, in Affine3 k, double u0, double v0, double w0, double u1, double v1, double w1, double sag, int flags, double flag,
-                                    bool twoSided, double start = 0)
+        /// <summary>
+        /// A prayer-flag string in local metres from (u0, v0, w0) to (u1, v1, w1) sagging <paramref name="sag"/> at
+        /// mid-span: a thin cord on its catenary (LOD0) and flags of <paramref name="fw"/> × <paramref name="fh"/> hanging
+        /// from it every <paramref name="pitch"/> metres in the fixed order blue, white, red, green, yellow (sky, air, fire,
+        /// water, earth), from fraction <paramref name="start"/> of the line on (the top near a crown is bare cord). Each
+        /// flag is a quad on the cord's two neighbouring points, two-sided when <paramref name="twoSided"/>, all in one
+        /// strip per line. Returns the flags.
+        /// </summary>
+        public static int FlagLine(MeshData m, in Affine3 k, double u0, double v0, double w0, double u1, double v1, double w1, double sag, double fw, double fh,
+                                   double pitch, bool twoSided, double start, int lod)
         {
             double du = u1 - u0, dw = w1 - w0, l = Math.Sqrt(du * du + dw * dw);
-            if (l < 1e-6) return;
+            if (l < 1e-6) return 0;
             double nu = -dw / l, nw = du / l;
+            double dv = v1 - v0, len = Math.Sqrt(l * l + dv * dv);
+            if (lod == 0)
+            {
+                // The cord.
+                Shapes.Wire(m, k, Looks.Of(MeshColor.FromHex(0xD8D2C4), MaterialChannel.Fabric), u0, v0, w0, u1, v1, w1, sag, 0.012, Math.Max(3, Math.Min(6, (int)(len / 6))), 3);
+            }
+            int flags = Math.Max(1, (int)((1 - start) * len / Math.Max(0.2, pitch)));
+            double step = (1 - start) / flags, half = 0.5 * fw / len;
             for (int q = 0; q < flags; q++)
             {
-                double a = start + (1 - start) * (q + 0.15) / flags, b = start + (1 - start) * (q + 0.85) / flags;
-                double ya = v0 + (v1 - v0) * a - 4 * sag * a * (1 - a), yb = v0 + (v1 - v0) * b - 4 * sag * b * (1 - b);
+                double c = start + (q + 0.5) * step, a = c - half, b = c + half;
+                double ya = v0 + dv * a - 4 * sag * a * (1 - a), yb = v0 + dv * b - 4 * sag * b * (1 - b);
                 double ua = u0 + du * a, wa = w0 + dw * a, ub = u0 + du * b, wb = w0 + dw * b;
-                ShapeBrush c = Looks.Of(SacredPalette.Flags[q % 5], MaterialChannel.Fabric);
-                double h = 1.15 * flag;
+                ShapeBrush col = Looks.Of(SacredPalette.Flags[q % 5], MaterialChannel.Fabric);
+                // A slight flutter: every other flag swings a little off the line.
+                double sw = (q % 2 == 0 ? 0.04 : -0.04) * fh;
                 for (int side = 0; side < (twoSided ? 2 : 1); side++)
                 {
                     double s = side == 0 ? 1 : -1;
-                    SacredDraw.Quad(m, k, ua, ya, wa, ub, yb, wb, ub, yb - h, wb, ua, ya - h, wa, s * nu, 0.1, s * nw, c);
+                    SacredDraw.Quad(m, k, ua, ya - 0.01, wa, ub, yb - 0.01, wb, ub + sw * nu, yb - fh, wb + sw * nw, ua + sw * nu, ya - fh, wa + sw * nw, s * nu, 0.1, s * nw, col);
                 }
             }
+            return flags;
         }
 
         /// <summary>The prayer-wheel niches in the kora wall round the foot: n niches (or a 0.5 m pitch of single wheels)
@@ -820,18 +846,65 @@ namespace Ghumante.Core.Generators.Sacred
             Shapes.Cone(m, SacredDraw.At(f, 0, 0.6 * h, 0), Looks.Gilt, 0.2 * r, 0.4 * h, 6, 0, 0, false);
         }
 
-        /// <summary>Boudha's main gate on the door side: two white pillars, a red lintel with a painted band, a small gilt
-        /// roof, and a string of flags.</summary>
+        /// <summary>
+        /// Boudha's main gate on the door side, beyond the foot of the terrace stair: a whitewashed gatehouse with a round
+        /// arched passage, a cornice of painted Tibetan bands (red, blue, green, yellow), a small gilt roof with the dharma
+        /// wheel and its two deer on the top, and a string of flags across the front.
+        /// </summary>
         private static void Gate(MeshData m, in Affine3 k, double dist, int lod)
         {
-            double gw = 6.0, gh = 6.5, pt = 0.8;
-            for (int s = -1; s <= 1; s += 2)
-                Shapes.RoundedSlab(m, SacredDraw.At(k, s * 0.5 * (gw + pt), 0, dist), Looks.Whitewash, pt, pt, gh, 0.08, 0.06, 1);
-            SacredDraw.Box(m, k, -0.5 * gw - pt, 0.5 * gw + pt, gh, gh + 0.9, dist - 0.55, dist + 0.55, Looks.PaintRed, BoxFaces.All);
-            SacredDraw.Box(m, k, -0.5 * gw - pt, 0.5 * gw + pt, gh + 0.3, gh + 0.6, dist + 0.55, dist + 0.58, Looks.PaintYellow, BoxFaces.Front);
-            Shapes.Frustum(m, SacredDraw.At(k, 0, gh + 0.9, dist), Looks.Gilt, 0.5 * gw + 1.5, 0.6, 1.4, 4, 0, 0, true, false);
-            SacredParts.Gajur(m, k, gh + 2.25, 0.9, 0.25, Looks.Gilt, lod + 1);
-            FlagLine(m, k, -0.5 * gw - pt, gh + 0.9, dist, 0.5 * gw + pt, gh + 0.9, dist, 0.4, 12, 0.4, lod == 0);
+            double gw = 8.0, gd = 3.0, gh = 6.2, aw = 4.6, ah = 4.4;
+            Affine3 g = SacredDraw.At(k, 0, 0, dist);
+            ShapeBrush white = Looks.Whitewash, red = Looks.Of(MeshColor.FromHex(0xA8261F), MaterialChannel.Paint);
+            // Two piers and the wall over the arch.
+            for (int s2 = -1; s2 <= 1; s2 += 2)
+            {
+                double cu = s2 * 0.25 * (gw + aw);
+                Shapes.RoundedBox(m, SacredDraw.At(g, cu, 0.5 * gh, 0), white, 0.5 * (gw - aw), gh, gd, 0.08, 1);
+            }
+            double[] x = ShapeScratch.U, z = ShapeScratch.W;
+            int n = 0, seg = lod == 0 ? 12 : 6;
+            double ar = 0.5 * aw, spring = ah - ar;
+            // The wall above the passage with the round arch cut into its underside (extruded through the gate).
+            for (int i = 0; i <= seg; i++)
+            {
+                double t = Math.PI * i / seg;
+                x[n] = -ar * Math.Cos(t);
+                z[n++] = -(spring + ar * Math.Sin(t));
+            }
+            x[n] = ar;
+            z[n++] = -gh;
+            x[n] = -ar;
+            z[n++] = -gh;
+            Shapes.BevelExtrude(m, SacredDraw.Basis(g, 0, 0, -0.5 * gd, 1, 0, 0, 0, 0, 1), white, x, z, n, gd, 0.04, 1, BevelStyle.Chamfer, true, true);
+            // Painted cornice bands and a red frieze over the arch.
+            ShapeBrush[] bands = { red, Looks.PaintBlue, Looks.PaintGreen, Looks.PaintYellow };
+            for (int i = 0; i < bands.Length; i++)
+            {
+                double y0 = gh + 0.16 * i, over = 0.1 + 0.08 * i;
+                Shapes.RoundedBox(m, SacredDraw.At(g, 0, y0 + 0.08, 0), bands[i], gw + 2 * over, 0.16, gd + 2 * over, 0.02, 1);
+            }
+            SacredDraw.Box(m, g, -0.5 * gw + 0.3, 0.5 * gw - 0.3, ah + 0.25, gh - 0.25, 0.5 * gd, 0.5 * gd + 0.04, red, BoxFaces.Front);
+            // Small gilt roof, the dharma wheel and the two deer.
+            double top = gh + 0.64;
+            SacredParts.HipRoof(m, g, 0.5 * gw - 1.0, 0.5 * gd - 0.3, top + 0.1, 0.5, 0.05, top + 1.2, true, 0, false, lod + 1);
+            Shapes.Torus(m, SacredDraw.Basis(g, 0, top + 2.0, 0.2, 1, 0, 0, 0, 0, 1), Looks.Gilt, 0.55, 0.07, lod == 0 ? 16 : 8, 4);
+            Shapes.Cylinder(m, SacredDraw.Basis(g, 0, top + 2.0, 0.15, 1, 0, 0, 0, 0, 1), Looks.GiltHi, 0.16, 0.12, 8);
+            if (lod == 0)
+            {
+                for (int i = 0; i < 8; i++)
+                {
+                    double a = Math.PI * i / 4;
+                    Shapes.Bar(m, g, Looks.Gilt, 0, top + 2.0, 0.2, 0.5 * Math.Sin(a), top + 2.0 + 0.5 * Math.Cos(a), 0.2, 0.03, 4);
+                }
+                for (int s2 = -1; s2 <= 1; s2 += 2)
+                {
+                    // A kneeling deer facing the wheel.
+                    Shapes.Ellipsoid(m, SacredDraw.At(g, s2 * 0.9, top + 1.55, 0.2), Looks.Gilt, 0.28, 0.17, 0.14, 8, false);
+                    Shapes.Ellipsoid(m, SacredDraw.At(g, s2 * 0.68, top + 1.82, 0.2), Looks.Gilt, 0.09, 0.12, 0.08, 6, false);
+                }
+            }
+            if (lod == 0) FlagLine(m, k, -0.5 * gw - 0.3, gh + 0.4, dist + 0.5 * gd + 0.3, 0.5 * gw + 0.3, gh + 0.4, dist + 0.5 * gd + 0.3, 0.5, 0.3, 0.34, 0.42, true, 0, lod);
         }
     }
 }

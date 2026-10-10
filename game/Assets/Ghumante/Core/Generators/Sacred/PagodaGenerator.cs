@@ -24,6 +24,14 @@ namespace Ghumante.Core.Generators.Sacred
         public GuardianSet Guardians;
         public float BellSpacingM;
 
+        /// <summary>
+        /// Spacing multiplier of the repeated detail (≥ 1; 0 = 1): bells, struts, ambulatory posts, tile courses, fringe
+        /// scallops and upper windows spread out by this factor while every element of the LOD0 form stays. Heroes keep 1
+        /// (their counts are the real ones); generic temples scale it with their size so a large one still fits the
+        /// generic LOD0 ceiling instead of dropping to LOD1 next to the camera (<see cref="SacredSelector.BuildGeneric"/>).
+        /// </summary>
+        public float DetailScale;
+
         public float[] PlinthWidths, EaveWidths, EaveHeights;
         public double[] OutlineX, OutlineZ;
 
@@ -43,6 +51,14 @@ namespace Ghumante.Core.Generators.Sacred
 
         /// <summary>A ring of carved wooden posts round the sanctum under the first roof (Nyatapola, Maju Dega).</summary>
         public bool Ambulatory;
+
+        /// <summary>Brass lattice screens between the ambulatory posts, open at the door bay (Annapurna at Asan: the
+        /// shrine is seen through a yellow metal grille all round).</summary>
+        public bool Grille;
+
+        /// <summary>A ridged top roof carrying this many gilt finials in a row (0 = the usual single gajur on a point;
+        /// Bhairavnath: 7, the middle one tallest).</summary>
+        public byte RidgeFinials;
 
         /// <summary>Strut pitch along a wall (the struts-per-side formula uses it; 0 = 1.1 m).</summary>
         public float StrutPitchM;
@@ -64,6 +80,9 @@ namespace Ghumante.Core.Generators.Sacred
         public bool FrontBell;
 
         public byte LampPillars;
+
+        /// <summary>Road corridors the props in front, the eave bells and fringes keep out of (null = none).</summary>
+        public SacredClearance Clearance;
 
         /// <summary>Hero detail (finer tile courses, richer guardians); <see cref="Rich"/>: the centrepiece detail of
         /// carved figure struts and leaf-clapper bells; lime-washed painted guardians; a whitewashed stair balustrade
@@ -95,6 +114,13 @@ namespace Ghumante.Core.Generators.Sacred
     /// </summary>
     public static class PagodaGenerator
     {
+        [ThreadStatic] private static Path3 _ridgePath;
+
+        private static Path3 RidgePath
+        {
+            get { return _ridgePath ?? (_ridgePath = new Path3(4)); }
+        }
+
         /// <summary>Struts per side under a wall (temples.md 2.1), corner struts excluded.</summary>
         public static int StrutsPerSide(double wallM)
         {
@@ -119,6 +145,7 @@ namespace Ghumante.Core.Generators.Sacred
             KitFrame kf = f.Kit;
             Affine3 k = SacredDraw.Xf(kf);
             int tiers = Math.Max(1, p.Tiers), levels = Math.Max(0, p.PlinthLevels);
+            double ds = Math.Max(1.0, p.DetailScale);
             double w0 = p.PlinthW, d0 = p.PlinthD > 0 ? p.PlinthD : p.PlinthW;
             double aspect = d0 / w0;
             double coreW = Math.Max(1.0, p.CoreFrac * w0), coreD = coreW * aspect;
@@ -181,6 +208,7 @@ namespace Ghumante.Core.Generators.Sacred
                 rr[tiers - 1] = total - gajur - eh[tiers - 1];
             }
             double apex = eh[tiers - 1] + rr[tiers - 1], top = apex + gajur;
+            if (p.Clearance != null) RaiseEavesOverRoads(p.Clearance, kf, f.GroundY, ew, aspect, eh, rr, tiers, apex);
 
             uint tileCol = p.RoofColour != 0 ? p.RoofColour : SacredPalette.Tile;
             ShapeBrush plinthB = p.PlinthColour != 0 ? Looks.Of(p.PlinthColour, MaterialChannel.Brick) : Looks.PlinthBrick;
@@ -247,7 +275,16 @@ namespace Ghumante.Core.Generators.Sacred
                     for (int sgn = -1; sgn <= 1; sgn += 2)
                     {
                         if (lod <= 1) SacredParts.Pedestal(m, k, sgn * gu, gv, gw, ped, 1.15 * ped, ph, Looks.Stone, lod);
-                        SacredFigures.Guardian(m, k, sgn * gu, gv + (lod <= 1 ? ph : 0), gw, gh + (lod <= 1 ? 0 : ph), (GuardianKind)kind, p.PaintedGuardians, p.Hero, lod);
+                        // The centrepiece close-up for the two lowest pairs (at the eye of a visitor at the foot of the stair); the
+                        // pairs above, smaller and farther up, at hero detail (the lions keep their face, ringlets and bells).
+                        int quality = p.Rich && i < 2 ? SacredFigures.Centrepiece : p.Hero ? SacredFigures.Hero : SacredFigures.Generic;
+                        SacredFigures.Guardian(m, k, sgn * gu, gv + (lod <= 1 ? ph : 0), gw, gh + (lod <= 1 ? 0 : ph), (GuardianKind)kind, p.PaintedGuardians, quality, lod, sgn);
+                        if (c != null)
+                        {
+                            double x, y, z;
+                            kf.ToWorld(sgn * gu, 0, gw, out x, out y, out z);
+                            c.AddBox(x, z, f.GroundY + gv, f.GroundY + gv + ph + gh, Math.Max(ped, 0.3 * gh), 1.15 * ped, kf.UX, kf.UZ, GenColliderFlags.NoClimb, GenColliders.Stone);
+                        }
                     }
                 }
             }
@@ -257,7 +294,8 @@ namespace Ghumante.Core.Generators.Sacred
                 for (int sgn = -1; sgn <= 1; sgn += 2)
                 {
                     SacredParts.Pedestal(m, k, sgn * 0.5 * coreW, 0, 0.5 * coreD + 1.0, 0.3, 0.35, 0.4, Looks.Stone, lod);
-                    SacredFigures.Guardian(m, k, sgn * 0.5 * coreW, 0.4, 0.5 * coreD + 1.0, 1.0, (GuardianKind)kind, p.PaintedGuardians, p.Hero, lod);
+                    SacredFigures.Guardian(m, k, sgn * 0.5 * coreW, 0.4, 0.5 * coreD + 1.0, 1.0, (GuardianKind)kind, p.PaintedGuardians, p.Rich ? SacredFigures.Centrepiece : p.Hero ? SacredFigures.Hero : SacredFigures.Generic, lod, sgn);
+                    PropBox(c, kf, f, sgn * 0.5 * coreW, 0.5 * coreD + 1.0, 0.32, 0.37, 1.4, GenColliders.Stone);
                 }
             }
 
@@ -277,6 +315,12 @@ namespace Ghumante.Core.Generators.Sacred
                     topU = 0.5 * sw[i + 1] - 0.03;
                     topW = 0.5 * sw[i + 1] * aspect - 0.03;
                 }
+                else if (p.RidgeFinials > 1)
+                {
+                    // A ridge along the long side for the row of finials.
+                    topU = Math.Max(hu - hw, 0.42 * hu);
+                    topW = 0.12;
+                }
                 else
                 {
                     topU = Math.Max(0.18, 0.06 * ew[i]);
@@ -289,8 +333,9 @@ namespace Ghumante.Core.Generators.Sacred
                 roofs[i] = new RoofSpec
                 {
                     EaveU = hu, EaveW = hw, EaveV = eh[i], TopU = topU, TopW = topW, TopV = topV, WallU = wallU, WallW = wallW, WallTopV = wallTop,
-                    Lift = Math.Min(0.08, Math.Max(0, p.CornerLift)) * hu, Sag = 0.02 * (hu - topU), FasciaH = fasciaH, CoursePitch = p.Rich ? 0.62 : p.Hero ? 0.8 : 1.0,
-                    Gilt = gilt, Fringe = p.Fringe, FringeH = 0.28 + 0.008 * ew[i], Horns = true,
+                    Lift = Math.Min(0.08, Math.Max(0, p.CornerLift)) * hu, Sag = 0.02 * (hu - topU), FasciaH = fasciaH, CoursePitch = (p.Rich ? 0.62 : p.Hero ? 0.8 : 1.0) * ds,
+                    FringePitch = 0.7 * ds,
+                    Gilt = gilt, Fringe = p.Fringe, FringeH = 0.28 + 0.008 * ew[i], Horns = true, Clear = p.Clearance, GroundY = f.GroundY,
                     Roof = gilt ? (p.RoofColour != 0 ? Looks.Of(p.RoofColour, MaterialChannel.Gilt) : Looks.Gilt) : Looks.Of(tileCol, MaterialChannel.RoofTile),
                     Ridge = gilt ? Looks.GiltHi : Looks.Of(MeshColor.Scale(tileCol, 0.72f), MaterialChannel.RoofTile),
                     Fascia = gilt ? Looks.GiltAged : Looks.WoodDark, Soffit = Looks.Ao(Looks.WoodDark, 0.55f), Horn = gilt ? Looks.Gilt : Looks.WoodDark,
@@ -302,7 +347,7 @@ namespace Ghumante.Core.Generators.Sacred
             double doorDh = 0;
             if (p.Open)
             {
-                OpenHall(kf, k, coreW, coreD, plinthTop, r0, wallB, lod, m, c, stats, tiers, levels, top, f);
+                OpenHall(kf, k, coreW, coreD, plinthTop, r0, wallB, lod, m, c, stats, tiers, levels, top, f, ds);
                 doorDh = 1.9;
             }
             else
@@ -328,7 +373,8 @@ namespace Ghumante.Core.Generators.Sacred
                         SacredParts.LatticeWindow(m, side, wu, plinthTop + 0.6 * dh, half, 0.7, 0.8, Looks.WoodDark, lod);
                     }
                 }
-                if (amb > 0 && lod <= 1) Ambulatory(m, k, ring0U, ring0W, plinthTop, PostTop(r0, plinthTop), r0.WallTopV, AmbPosts(2 * ring0U, p), AmbPosts(2 * ring0W, p), lod);
+                if (amb > 0 && lod <= 1) Ambulatory(m, k, ring0U, ring0W, plinthTop, PostTop(r0, plinthTop), r0.WallTopV, AmbPosts(2 * ring0U, p, ds), AmbPosts(2 * ring0W, p, ds), lod);
+                if (amb > 0 && p.Grille && lod <= 1) Grille(m, k, ring0U, ring0W, plinthTop, PostTop(r0, plinthTop), AmbPosts(2 * ring0U, p, ds), AmbPosts(2 * ring0W, p, ds), lod);
                 if (c != null)
                 {
                     double x, y, z;
@@ -341,7 +387,7 @@ namespace Ghumante.Core.Generators.Sacred
 
             // 5. Tiers: the storey wall under each upper roof, struts, the roof, bells.
             int bells = 0, struts = 0;
-            double pitchM = p.StrutPitchM > 0.2 ? p.StrutPitchM : 1.1;
+            double pitchM = (p.StrutPitchM > 0.2 ? p.StrutPitchM : 1.1) * ds, bellSpacing = Math.Max(0.1, p.BellSpacingM) * ds;
             for (int i = 0; i < tiers; i++)
             {
                 RoofSpec r = roofs[i];
@@ -350,7 +396,7 @@ namespace Ghumante.Core.Generators.Sacred
                 {
                     ShapeBrush upper = p.PlasterUpper ? Looks.Whitewash : wallB;
                     SacredParts.BandedWall(m, k, r.WallU, r.WallW, storeyBase, r.WallTopV, upper, Looks.WoodDark, lod, true, true);
-                    if (lod <= 1) UpperWindows(m, k, r, roofs[i - 1].TopV, p.Rich && lod == 0, lod);
+                    if (lod <= 1) UpperWindows(m, k, r, roofs[i - 1].TopV, p.Rich && lod == 0, ds, lod);
                     if (p.Balcony && i == 1 && lod <= 1) Balcony(m, k, r, Math.Max(roofs[i - 1].TopV + 0.3, r.WallTopV - 1.9));
                 }
                 // Struts spring from a ledge at about half the visible storey (from the posts on an open or ringed storey).
@@ -358,8 +404,8 @@ namespace Ghumante.Core.Generators.Sacred
                 bool onPosts = i == 0 && (amb > 0 || p.Open);
                 double groundH = r.EaveV - plinthTop;
                 double footV = i > 0 ? visibleBase + 0.3 : onPosts ? PostTop(r, plinthTop) + 0.3 : plinthTop + Math.Min(0.72 * groundH, Math.Max(doorDh + 0.35, 0.5 * groundH));
-                int perU = onPosts ? (p.Open ? OpenPosts(2 * r.WallU) : AmbPosts(2 * r.WallU, p)) : StrutsPerSide(2 * r.WallU, pitchM);
-                int perW = onPosts ? (p.Open ? OpenPosts(2 * r.WallW) : AmbPosts(2 * r.WallW, p)) : StrutsPerSide(2 * r.WallW, pitchM);
+                int perU = onPosts ? (p.Open ? OpenPosts(2 * r.WallU, ds) : AmbPosts(2 * r.WallU, p, ds)) : StrutsPerSide(2 * r.WallU, pitchM);
+                int perW = onPosts ? (p.Open ? OpenPosts(2 * r.WallW, ds) : AmbPosts(2 * r.WallW, p, ds)) : StrutsPerSide(2 * r.WallW, pitchM);
                 struts += 2 * perU + 2 * perW + 4;
                 if (lod <= 1)
                 {
@@ -374,42 +420,81 @@ namespace Ghumante.Core.Generators.Sacred
                     SacredParts.Struts(m, k, r, footV, perU, perW, p.Rich, Looks.WoodDark, (uint)(i * 977 + tiers), lod);
                 }
                 SacredParts.Roof(m, k, r, lod);
-                int perEave = Math.Max(1, (int)Math.Floor(ew[i] / Math.Max(0.1, p.BellSpacingM)));
-                bells += 4 * perEave;
-                SacredParts.Bells(m, k, r, p.BellSpacingM, 1.0 + 0.004 * ew[i], p.Rich, lod);
+                int perEave = Math.Max(1, (int)Math.Floor(ew[i] / bellSpacing));
+                int hung = SacredParts.Bells(m, k, r, bellSpacing, 1.0 + 0.004 * ew[i], p.Rich, lod);
+                bells += lod == 0 ? hung : 4 * perEave;
             }
 
             // 6. Gajur on the apex block and the pataka down the front.
             RoofSpec rt = roofs[tiers - 1];
-            SacredParts.Gajur(m, k, apex - 0.05, gajur + 0.05, Math.Max(0.22, 0.85 * rt.TopU), Looks.Gilt, p.Hero ? lod : lod + 1, p.GajurBell);
+            if (p.RidgeFinials > 1)
+            {
+                // The ridge roll and its row of gilt finials, the middle one tallest.
+                if (lod <= 2)
+                {
+                    Path3 rp = RidgePath;
+                    rp.Clear().Add(-rt.TopU, apex + 0.06, 0).Add(rt.TopU, apex + 0.06, 0);
+                    Shapes.Tube(m, k, rt.Ridge, rp, 0.11, lod <= 1 ? 6 : 4, true);
+                }
+                int nf = p.RidgeFinials, mid = nf / 2;
+                for (int q = 0; q < nf; q++)
+                {
+                    if (lod >= 2 && q != mid || lod == 1 && q % 2 != mid % 2) continue;
+                    double fu = -rt.TopU + 2 * rt.TopU * q / (nf - 1), fh = q == mid ? gajur : 0.62 * gajur;
+                    SacredParts.Gajur(m, SacredDraw.At(k, fu, 0, 0), apex - 0.05, fh + 0.05, q == mid ? 0.3 : 0.2, Looks.Gilt, p.Hero ? lod : lod + 1, false);
+                }
+            }
+            else
+            {
+                SacredParts.Gajur(m, k, apex - 0.05, gajur + 0.05, Math.Max(0.22, 0.85 * rt.TopU), Looks.Gilt, p.Hero ? lod : lod + 1, p.GajurBell);
+            }
             if (p.Pataka && lod <= 1) Pataka(m, k, roofs, tiers, plinthTop + doorDh + 1.2, lod);
 
-            // 7. Vahana, bell and lamp pillars in front.
+            // 7. Vahana, bell and lamp pillars in front. Each stands clear of the road corridors (it moves closer to the
+            //    plinth, or to the other side, or is left out) and is a solid NoClimb collider, so nobody rides through it.
             double frontW = 0.5 * (levels > 0 ? pd[0] : coreD);
             if (p.VahanaDistM > 0 && lod <= 2)
             {
                 double vw = frontW + p.VahanaDistM;
-                Affine3 facing = SacredDraw.Turn(k, 0, 0, vw, Math.PI);
-                if (p.VahanaGaruda)
+                double radius = p.VahanaGaruda ? 0.8 : 1.8;
+                if (!FreeSpot(p, kf, 0, vw, radius)) vw = frontW + Math.Max(radius + 0.3, 0.55 * p.VahanaDistM);
+                if (FreeSpot(p, kf, 0, vw, radius))
                 {
-                    Column(m, k, 0, vw, 2.6, lod);
-                    SacredFigures.Garuda(m, facing, 0, 2.6, 0, 1.4, Looks.Stone, lod);
-                }
-                else
-                {
-                    SacredParts.Pedestal(m, k, 0, 0, vw, 0.7, 1.1, 0.6, Looks.Stone, lod);
-                    SacredFigures.Nandi(m, facing, 0, 0.6, 0, 1.8, Looks.Gilt, lod);
+                    Affine3 facing = SacredDraw.Turn(k, 0, 0, vw, Math.PI);
+                    if (p.VahanaGaruda)
+                    {
+                        Column(m, k, 0, vw, 2.6, lod);
+                        SacredFigures.Garuda(m, facing, 0, 2.6, 0, 1.4, Looks.Stone, lod);
+                        PropBox(c, kf, f, 0, vw, 0.6, 0.6, 4.0, GenColliders.Stone);
+                    }
+                    else
+                    {
+                        // Pashupatinath's great gilt Nandi (about 3 m long) on its pedestal, facing the door.
+                        SacredParts.Pedestal(m, k, 0, 0, vw, 0.8, 1.7, 0.6, Looks.Stone, lod);
+                        SacredFigures.Nandi(m, facing, 0, 0.6, 0, 3.0, Looks.Gilt, lod);
+                        PropBox(c, kf, f, 0, vw, 0.85, 1.75, 2.8, GenColliders.Stone);
+                    }
                 }
             }
             if (p.FrontBell && lod <= 1)
             {
-                double bu = 0.5 * (levels > 0 ? pw[0] : coreW) - 1.2;
-                SacredFigures.TempleBell(m, k, bu, 0, frontW + 1.6, 0.5, true, lod);
+                double bu = 0.5 * (levels > 0 ? pw[0] : coreW) - 1.2, bw = frontW + 1.6;
+                if (!FreeSpot(p, kf, bu, bw, 1.0)) bu = -bu;
+                if (!FreeSpot(p, kf, bu, bw, 1.0)) bw = frontW + 1.0;
+                if (FreeSpot(p, kf, bu, bw, 1.0))
+                {
+                    SacredFigures.TempleBell(m, k, bu, 0, bw, 0.5, true, lod);
+                    double span = 1.6 * 0.5 + 0.5, post = 0.18 + 0.06 * 0.5;
+                    PropBox(c, kf, f, bu, bw, 0.5 * span + post, post, 1.6 * 0.5 + 1.6, GenColliders.Stone);
+                }
             }
             for (int q = 0; q < p.LampPillars && lod <= 1; q++)
             {
-                double lu = (q % 2 == 0 ? -1 : 1) * (1.6 + 1.2 * (q / 2));
-                SacredFigures.LampPillar(m, k, lu, 0, frontW + 2.4, 2.4, lod);
+                double lu = (q % 2 == 0 ? -1 : 1) * (1.6 + 1.2 * (q / 2)), lw = frontW + 2.4;
+                if (!FreeSpot(p, kf, lu, lw, 0.35)) lw = frontW + 1.0;
+                if (!FreeSpot(p, kf, lu, lw, 0.35)) continue;
+                SacredFigures.LampPillar(m, k, lu, 0, lw, 2.4, lod);
+                PropBox(c, kf, f, lu, lw, 0.33, 0.33, 2.4, GenColliders.Stone);
             }
 
             // Roofs and spire are not climbable.
@@ -426,6 +511,56 @@ namespace Ghumante.Core.Generators.Sacred
             }
             SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
+        }
+
+        /// <summary>
+        /// Raise every eave whose edge hangs over a road corridor lower than the overhead clearance (contract §1: projections
+        /// are raised or clipped): the tier keeps its plan and the roof below the next tier gets a little flatter; the apex
+        /// and the total height stay. Sampled along the four eave edges.
+        /// </summary>
+        private static void RaiseEavesOverRoads(SacredClearance clear, in KitFrame kf, double groundY, double[] ew, double aspect, double[] eh, double[] rr, int tiers,
+                                                double apex)
+        {
+            for (int i = 0; i < tiers; i++)
+            {
+                double hu = 0.5 * ew[i], hw = hu * aspect, fascia = Math.Min(0.3, Math.Max(0.14, 0.012 * ew[i]));
+                double need = 0;
+                for (int s = 0; s < 4; s++)
+                {
+                    for (int q = 0; q <= 8; q++)
+                    {
+                        double u, w, x, y, z;
+                        SacredParts.OnRect(s, -1 + q / 4.0, hu, hw, out u, out w);
+                        kf.ToWorld(u, 0, w, out x, out y, out z);
+                        double min = clear.MinHangY(x, z, groundY);
+                        if (double.IsNegativeInfinity(min)) continue;
+                        need = Math.Max(need, min - (groundY + eh[i] - fascia));
+                    }
+                }
+                if (need <= 0) continue;
+                eh[i] += need;
+                for (int j = i + 1; j < tiers; j++) eh[j] = Math.Max(eh[j], eh[j - 1] + 0.6);
+            }
+            for (int i = 0; i + 1 < tiers; i++) rr[i] = Math.Max(0.2, Math.Min(rr[i], 0.5 * (eh[i + 1] - eh[i])));
+            rr[tiers - 1] = Math.Max(0.5, apex - eh[tiers - 1]);
+        }
+
+        /// <summary>True when a round prop of <paramref name="radius"/> at local (u, w) stays out of the road corridors.</summary>
+        private static bool FreeSpot(in PagodaParams p, in KitFrame kf, double u, double w, double radius)
+        {
+            if (p.Clearance == null) return true;
+            double x, y, z;
+            kf.ToWorld(u, 0, w, out x, out y, out z);
+            return p.Clearance.Clear(x, z, radius);
+        }
+
+        /// <summary>A NoClimb collider box for a prop at local (u, w), half sizes (hu, hw), height h above the ground.</summary>
+        internal static void PropBox(GenColliders c, in KitFrame kf, in GenFrame f, double u, double w, double hu, double hw, double h, byte material)
+        {
+            if (c == null) return;
+            double x, y, z;
+            kf.ToWorld(u, 0, w, out x, out y, out z);
+            c.AddBox(x, z, f.GroundY, f.GroundY + h, hu, hw, kf.UX, kf.UZ, GenColliderFlags.NoClimb, material);
         }
 
         /// <summary>A palace block under a temple (Patan Taleju's tower rises from the palace): brick storeys with wooden
@@ -450,16 +585,16 @@ namespace Ghumante.Core.Generators.Sacred
         }
 
         /// <summary>Posts (and tier-0 struts) per side of an ambulatory ring: an even count so the door axis stays open.</summary>
-        private static int AmbPosts(double len, in PagodaParams p)
+        private static int AmbPosts(double len, in PagodaParams p, double ds)
         {
-            double pitch = Math.Max(1.7, p.StrutPitchM > 0.2 ? p.StrutPitchM : 1.1);
+            double pitch = Math.Max(1.7, p.StrutPitchM > 0.2 ? p.StrutPitchM : 1.1) * ds;
             int n = Math.Max(2, (int)Math.Round(len / pitch));
             return n % 2 == 0 ? n : n + 1;
         }
 
-        private static int OpenPosts(double len)
+        private static int OpenPosts(double len, double ds)
         {
-            int n = Math.Max(4, (int)Math.Round(len / 2.2));
+            int n = Math.Max(4, (int)Math.Round(len / (2.2 * ds)));
             return n + n % 2;
         }
 
@@ -512,15 +647,57 @@ namespace Ghumante.Core.Generators.Sacred
             SacredDraw.Ring(m, k, pu, pw, nn, b);
         }
 
+        /// <summary>
+        /// Brass lattice screens filling the bays between the ambulatory posts (the post layout of
+        /// <see cref="Ambulatory"/>) up to about 2.1 m: a sill and head rail and close vertical bars with two middle rails
+        /// (LOD0) or a flat brass panel (LOD1); the bay in front of the door stays open.
+        /// </summary>
+        private static void Grille(MeshData m, in Affine3 k, double hu, double hw, double v0, double postTop, int nu, int nw, int lod)
+        {
+            ShapeBrush brass = Looks.Of(MeshColor.FromHex(0xD2A63A), MaterialChannel.Metal), dim = Looks.Of(MeshColor.FromHex(0x7A5E22), MaterialChannel.Metal, 0.7f);
+            double top = v0 + Math.Min(2.1, Math.Max(0.9, postTop - v0 - 0.3));
+            for (int s = 0; s < 4; s++)
+            {
+                int n = s % 2 == 0 ? nu : nw;
+                double along = s % 2 == 0 ? hu : hw, wall = s % 2 == 0 ? hw : hu;
+                Affine3 side = SacredDraw.Turn(k, 0, 0, 0, s * 0.5 * Math.PI);
+                double prev = -along;
+                for (int q = 0; q <= n; q++)
+                {
+                    double x = q < n ? -along + 2 * along * (q + 0.5) / n : along;
+                    double a = prev + 0.15, b = x - 0.15;
+                    prev = x;
+                    if (b - a < 0.3 || (s == 0 && a < 0 && b > 0)) continue;
+                    SacredDraw.Box(m, side, a, b, v0, v0 + 0.12, wall - 0.04, wall + 0.04, brass, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top);
+                    SacredDraw.Box(m, side, a, b, top - 0.08, top, wall - 0.04, wall + 0.04, brass, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top | BoxFaces.Bottom);
+                    if (lod >= 1)
+                    {
+                        SacredDraw.Panel(m, side, a, v0 + 0.12, b, top - 0.08, wall, dim);
+                        continue;
+                    }
+                    for (int r = 1; r <= 2; r++)
+                    {
+                        double rv = v0 + 0.12 + (top - v0 - 0.2) * r / 3.0;
+                        SacredDraw.Box(m, side, a, b, rv - 0.03, rv + 0.03, wall - 0.03, wall + 0.03, brass, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top | BoxFaces.Bottom);
+                    }
+                    int bars = Math.Max(2, (int)Math.Round((b - a) / 0.16));
+                    for (int i = 1; i < bars; i++)
+                    {
+                        double bu = a + (b - a) * i / bars;
+                        SacredDraw.Box(m, side, bu - 0.018, bu + 0.018, v0 + 0.12, top - 0.08, wall - 0.018, wall + 0.018, brass,
+                                       BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                    }
+                }
+            }
+        }
+
         /// <summary>Kasthamandap-type open hall: an outer ring of posts on the plinth, an inner ring, the closed central
         /// shrine (a NoClimb sanctum), a low railing open at the door.</summary>
         private static void OpenHall(in KitFrame kf, in Affine3 k, double coreW, double coreD, double plinthTop, in RoofSpec r0, in ShapeBrush wallB, int lod,
-                                     MeshData m, GenColliders c, SacredStats stats, int tiers, int levels, double top, in GenFrame f)
+                                     MeshData m, GenColliders c, SacredStats stats, int tiers, int levels, double top, in GenFrame f, double ds)
         {
             double hu = 0.5 * coreW, hw = 0.5 * coreD, v1 = PostTop(r0, plinthTop);
-            int nu = Math.Max(4, (int)Math.Round(coreW / 2.2)), nw = Math.Max(4, (int)Math.Round(coreD / 2.2));
-            nu += nu % 2;
-            nw += nw % 2;
+            int nu = OpenPosts(coreW, ds), nw = OpenPosts(coreD, ds);
             Ambulatory(m, k, hu, hw, plinthTop, v1, r0.WallTopV, nu, nw, lod);
             if (lod == 0) Ambulatory(m, k, 0.62 * hu, 0.62 * hw, plinthTop, v1, v1, Math.Max(2, nu - 2), Math.Max(2, nw - 2), lod);
             // The ceiling of the hall (the floor of the upper storey).
@@ -554,7 +731,7 @@ namespace Ghumante.Core.Generators.Sacred
         }
 
         /// <summary>Carved windows in the visible band of an upper storey (1–3 per side, up to 5 on a rich centrepiece at LOD0).</summary>
-        private static void UpperWindows(MeshData m, in Affine3 k, in RoofSpec r, double baseV, bool rich, int lod)
+        private static void UpperWindows(MeshData m, in Affine3 k, in RoofSpec r, double baseV, bool rich, double ds, int lod)
         {
             double vis0 = baseV + 0.15, vis1 = r.WallTopV - 0.55;
             if (vis1 - vis0 < 0.6) return;
@@ -563,7 +740,7 @@ namespace Ghumante.Core.Generators.Sacred
             {
                 double along = s % 2 == 0 ? r.WallU : r.WallW, wall = s % 2 == 0 ? r.WallW : r.WallU;
                 // A centrepiece carries a continuous row of carved windows (Nyatapola: five a side on the lower storeys).
-                int n = rich ? Math.Max(1, Math.Min(5, (int)Math.Round(along / 1.1))) : Math.Max(1, Math.Min(3, (int)Math.Round(2 * along / 3.0)));
+                int n = rich ? Math.Max(1, Math.Min(5, (int)Math.Round(along / 1.1))) : Math.Max(1, Math.Min(3, (int)Math.Round(2 * along / (3.0 * ds))));
                 Affine3 side = SacredDraw.Turn(k, 0, 0, 0, s * 0.5 * Math.PI);
                 for (int q = 0; q < n; q++)
                 {
