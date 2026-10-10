@@ -7,12 +7,14 @@ namespace Ghumante.Core.Meshing.Bridges
 {
     /// <summary>
     /// <see cref="IBridgeDeckQuery"/> over a tile's <see cref="BridgeLayout"/>: the walkable surface of every deck
-    /// (carriageway at the record's deck height, raised walkways one kerb higher, foot decks and stair flights as
-    /// ramps) and the soffit of every structure, so ground queries pick the right level on and under bridges and
-    /// flyovers and clearance checks see the real underside. Coordinates are game metres; a tile answers only for
-    /// points inside its own square (the neighbour answers across the border, where the same span continues), so a
-    /// query must go to the tile containing the point. Built once per tile (cached); queries are allocation-free and
-    /// thread-safe.
+    /// (carriageway at the record's deck height, raised walkways one kerb higher, foot decks, stair flights as a ramp
+    /// through the tread nosings with flat landings, <see cref="BridgeStair.SurfaceAt"/>) and the soffit of every
+    /// structure, so ground queries pick the right level on and under bridges and flyovers and clearance checks see
+    /// the real underside. Where a deck leaves a road below open (<see cref="BridgeSpan.Openings"/>) there is no
+    /// soffit and no raised walkway; where a railing opens for a stair or a branch the walkable deck reaches the deck
+    /// edge, where the stair or branch starts. Coordinates are game metres; a tile answers only for points inside its
+    /// own square (the neighbour answers across the border, where the same span continues), so a query must go to
+    /// the tile containing the point. Built once per tile (cached); queries are allocation-free and thread-safe.
     /// </summary>
     public sealed class BridgeDeckIndex : IBridgeDeckQuery
     {
@@ -52,20 +54,23 @@ namespace Ghumante.Core.Meshing.Bridges
             for (int si = 0; si < layout.Spans.Count; si++)
             {
                 BridgeSpan sp = layout.Spans[si];
-                if (sp.HasPre)
+                if (!sp.Stair)
                 {
-                    span.Add(si);
-                    kk.Add(-1);
-                }
-                for (int k = 0; k + 1 < sp.Count; k++)
-                {
-                    span.Add(si);
-                    kk.Add(k);
-                }
-                if (sp.HasPost)
-                {
-                    span.Add(si);
-                    kk.Add(-2);
+                    if (sp.HasPre)
+                    {
+                        span.Add(si);
+                        kk.Add(-1);
+                    }
+                    for (int k = 0; k + 1 < sp.Count; k++)
+                    {
+                        span.Add(si);
+                        kk.Add(k);
+                    }
+                    if (sp.HasPost)
+                    {
+                        span.Add(si);
+                        kk.Add(-2);
+                    }
                 }
                 for (int i = 0; i < sp.Stairs.Count; i++)
                 {
@@ -117,7 +122,7 @@ namespace Ghumante.Core.Meshing.Bridges
                 az = st.Z;
                 bx = st.X + st.Dx * st.Length;
                 bz = st.Z + st.Dz * st.Length;
-                reach = st.HalfWidth + 1;
+                reach = st.HalfWidth + 1.5;
                 return;
             }
             int s0, s1;
@@ -258,11 +263,11 @@ namespace Ghumante.Core.Meshing.Bridges
                 double px = lx - st.X, pz = lz - st.Z;
                 double along = px * st.Dx + pz * st.Dz, across = -px * st.Dz + pz * st.Dx;
                 if (along < 0 || along > st.Length || Math.Abs(across) > st.HalfWidth) return false;
-                double g = (st.TopY - st.BottomY) / Math.Max(st.Length, 1e-6);
-                y = (float)(st.TopY - g * along);
+                y = st.SurfaceAt(along);
                 if (soffit) y -= 0.35f;
-                gx = (float)(-g * st.Dx);
-                gz = (float)(-g * st.Dz);
+                float g = st.GradeAt(along);
+                gx = (float)(g * st.Dx);
+                gz = (float)(g * st.Dz);
                 return true;
             }
             int s0, s1;
@@ -311,8 +316,13 @@ namespace Ghumante.Core.Meshing.Bridges
                 yb = sp.Path.Y[s1];
             }
             double f = s0 == s1 ? 0 : tc;
+            // Along the span: context segments stand for the structure beyond a cut end.
+            double sAt = k >= 0 ? sp.Path.S[s0] + (sp.Path.S[s1] - sp.Path.S[s0]) * tc : k == -1 ? sp.Path.Start : sp.Path.End;
+            bool structure = k < 0 || sp.HasDeck(sAt);
+            if (k >= 0 && sp.InStairZoneInterior(sAt)) return false; // the flights carry the surface there
             if (soffit)
             {
+                if (!structure) return false; // an opening over a road: nothing overhead
                 double el = sp.EdgeL(s0) + (sp.EdgeL(s1) - sp.EdgeL(s0)) * f, er = sp.EdgeR(s0) + (sp.EdgeR(s1) - sp.EdgeR(s0)) * f;
                 if (lat > el || lat < -er) return false;
                 double depth = sp.Depth[s0] + (sp.Depth[s1] - sp.Depth[s0]) * f;
@@ -320,10 +330,12 @@ namespace Ghumante.Core.Meshing.Bridges
                 return true;
             }
             double il = sp.InnerL(s0) + (sp.InnerL(s1) - sp.InnerL(s0)) * f, ir = sp.InnerR(s0) + (sp.InnerR(s1) - sp.InnerR(s0)) * f;
+            if (k >= 0 && sp.InGap(1, sAt)) il = sp.EdgeL(s0) + (sp.EdgeL(s1) - sp.EdgeL(s0)) * f;
+            if (k >= 0 && sp.InGap(-1, sAt)) ir = sp.EdgeR(s0) + (sp.EdgeR(s1) - sp.EdgeR(s0)) * f;
             if (lat > il || lat < -ir) return false;
             double cl = sp.HalfL[s0] + (sp.HalfL[s1] - sp.HalfL[s0]) * f, cr = sp.HalfR[s0] + (sp.HalfR[s1] - sp.HalfR[s0]) * f;
             double yy = ya + (yb - ya) * tc;
-            if (sp.RaisedWalk && (lat > cl + 0.05 || lat < -cr - 0.05)) yy += BridgeStyle.KerbHeightM;
+            if (structure && sp.RaisedWalk && (lat > cl + 0.05 || lat < -cr - 0.05)) yy += BridgeStyle.KerbHeightM;
             y = (float)yy;
             double g2 = (yb - ya) / len;
             gx = (float)(g2 * ux);

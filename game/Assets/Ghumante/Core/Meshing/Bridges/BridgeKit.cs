@@ -197,25 +197,46 @@ namespace Ghumante.Core.Meshing.Bridges
     /// A deck centreline for <see cref="BridgeKit.Sweep"/>: stations with tile-local plan positions, the offset
     /// vector U per metre (unit left normal × miter at a joint, or the border direction at a cut end, so a section
     /// lies on the tile border there), the unit shading normal N (left), the along distance S and the deck height Y.
-    /// Between stations the frame is interpolated linearly with the segment's own unit left normal.
+    /// Between stations the frame is interpolated linearly with the segment's own unit left normal. Key stations
+    /// (road points, zone edges) carry every change of the deck; the others only subdivide long segments, so the
+    /// sweeps run through the key stations alone. <see cref="Near"/>, <see cref="Mid"/> and <see cref="Far"/> thin the
+    /// key stations per LOD (a Douglas-Peucker pass by the layout: the stations whose removal moves the deck, its widths
+    /// or depth by more than millimetres near, a few centimetres mid, or a decimetre or two far away, stay).
     /// </summary>
     public sealed class BridgePath
     {
         public double[] X = new double[32], Z = new double[32], Ux = new double[32], Uz = new double[32];
         public double[] Nx = new double[32], Nz = new double[32], S = new double[32];
         public float[] Y = new float[32];
+        public bool[] Key = new bool[32];
+
+        /// <summary>The key stations the LOD0 (<see cref="Near"/>: collinear ones dropped), LOD1 (<see cref="Mid"/>)
+        /// and LOD2 (<see cref="Far"/>) sweeps keep (every key station until the layout thins them).</summary>
+        public bool[] Near = new bool[32], Mid = new bool[32], Far = new bool[32];
+
         public int Count;
+
+        /// <summary>The station mask of a level of detail (0: <see cref="Near"/>, 1: <see cref="Mid"/>, 2:
+        /// <see cref="Far"/>).</summary>
+        public bool[] KeysFor(int lod)
+        {
+            return lod >= 2 ? Far : lod == 1 ? Mid : Near;
+        }
 
         public void Clear()
         {
             Count = 0;
         }
 
-        public void Add(double x, double z, double ux, double uz, double nx, double nz, double s, float y)
+        public void Add(double x, double z, double ux, double uz, double nx, double nz, double s, float y, bool key = true)
         {
             if (Count == X.Length)
             {
                 int cap = Count * 2;
+                Array.Resize(ref Key, cap);
+                Array.Resize(ref Near, cap);
+                Array.Resize(ref Mid, cap);
+                Array.Resize(ref Far, cap);
                 Array.Resize(ref X, cap);
                 Array.Resize(ref Z, cap);
                 Array.Resize(ref Ux, cap);
@@ -233,6 +254,10 @@ namespace Ghumante.Core.Meshing.Bridges
             Nz[Count] = nz;
             S[Count] = s;
             Y[Count] = y;
+            Key[Count] = key;
+            Near[Count] = key;
+            Mid[Count] = key;
+            Far[Count] = key;
             Count++;
         }
 
@@ -447,16 +472,20 @@ namespace Ghumante.Core.Meshing.Bridges
             return (long)Math.Floor(a / stripe);
         }
 
-        /// <summary>The along positions of a sweep (see <see cref="Sweep"/>) in <see cref="Stations"/>; returns the count.</summary>
-        public static int BuildStations(BridgePath path, double s0, double s1, double step, double stripe, double wx0, double wz0)
+        /// <summary>The along positions of a sweep (see <see cref="Sweep"/>) in <see cref="Stations"/>; returns the count.
+        /// With <paramref name="keyOnly"/> only the key path stations (and the range ends) are used, thinned for
+        /// <paramref name="lod"/> (<see cref="BridgePath.KeysFor"/>).</summary>
+        public static int BuildStations(BridgePath path, double s0, double s1, double step, double stripe, double wx0, double wz0, bool keyOnly = false,
+                                        int lod = 0)
         {
+            bool[] keys = path.KeysFor(lod);
             int cap = path.Count + 4 + (step > 0 ? (int)((s1 - s0) / step) + 2 : 0) + (stripe > 0 ? (int)((s1 - s0) / stripe) + path.Count + 4 : 0);
             if (_sList == null || _sList.Length < cap) _sList = new double[Math.Max(cap, 256)];
             double[] sl = _sList;
             int n = 0;
             sl[n++] = s0;
             for (int k = 0; k < path.Count; k++)
-                if (path.S[k] > s0 + 1e-4 && path.S[k] < s1 - 1e-4) sl[n++] = path.S[k];
+                if (path.S[k] > s0 + 1e-4 && path.S[k] < s1 - 1e-4 && (!keyOnly || keys[k])) sl[n++] = path.S[k];
             if (step > 0)
                 for (double t = s0 + step; t < s1 - 1e-4; t += step) sl[n++] = t;
             if (stripe > 0)
@@ -823,6 +852,75 @@ namespace Ghumante.Core.Meshing.Bridges
             _la[0] = _la[1] = aoBottom;
             _la[2] = _la[3] = _la[4] = aoTop;
             return Loft(m, cx, cz, yaw, halfA, halfB, b, arcSeg, _ly, _li, _la, null, 5, true, true, c, ch);
+        }
+
+        /// <summary>A plain oriented box (the far LODs' posts, blocks and caps): centre (cx, cz), axis A at
+        /// <paramref name="yaw"/>, half extents halfA × halfB, from y0 to y1; four sides and the top (10 triangles),
+        /// the bottom too when <paramref name="bottom"/>.</summary>
+        public static void Box(MeshData m, double cx, double cz, double yaw, double halfA, double halfB, double y0, double y1, uint c, MaterialChannel ch,
+                               float aoBottom, float aoTop, bool bottom = false)
+        {
+            double ca = Math.Cos(yaw), sa = Math.Sin(yaw);
+            double ax = ca * halfA, az = sa * halfA, bx = -sa * halfB, bz = ca * halfB;
+            // Corners counter-clockwise from above: (−A −B), (+A −B), (+A +B), (−A +B).
+            double x0 = cx - ax - bx, z0 = cz - az - bz, x1 = cx + ax - bx, z1 = cz + az - bz;
+            double x2 = cx + ax + bx, z2 = cz + az + bz, x3 = cx - ax + bx, z3 = cz - az + bz;
+            Quad(m, x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0, sa, 0, -ca, c, ch, aoBottom, aoTop);
+            Quad(m, x1, y0, z1, x2, y0, z2, x2, y1, z2, x1, y1, z1, ca, 0, sa, c, ch, aoBottom, aoTop);
+            Quad(m, x2, y0, z2, x3, y0, z3, x3, y1, z3, x2, y1, z2, -sa, 0, ca, c, ch, aoBottom, aoTop);
+            Quad(m, x3, y0, z3, x0, y0, z0, x0, y1, z0, x3, y1, z3, -ca, 0, -sa, c, ch, aoBottom, aoTop);
+            Quad(m, x0, y1, z0, x1, y1, z1, x2, y1, z2, x3, y1, z3, 0, 1, 0, c, ch, aoTop, aoTop);
+            if (bottom) Quad(m, x0, y0, z0, x3, y0, z3, x2, y0, z2, x1, y0, z1, 0, -1, 0, c, ch, aoBottom, aoBottom);
+        }
+
+        /// <summary>A square post with a chamfered cap (the near LOD's railing posts): a shaft of half width
+        /// <paramref name="half"/> from y0 to y1, then a cap rising <paramref name="capH"/> to a top inset by
+        /// <paramref name="inset"/> (a pyramid when the inset reaches the half width): 12 to 18 triangles.</summary>
+        public static void CappedPost(MeshData m, double cx, double cz, double yaw, double half, double y0, double y1, double capH, double inset, uint c,
+                                      MaterialChannel ch, float aoBottom, float aoTop)
+        {
+            CappedBlock(m, cx, cz, yaw, half, half, y0, y1, capH, inset, c, ch, aoBottom, aoTop);
+        }
+
+        /// <summary>A rectangular block (axis A at <paramref name="yaw"/>, half extents halfA × halfB) from y0 to y1
+        /// with a chamfered cap rising <paramref name="capH"/> to a top inset by <paramref name="inset"/> on every side.</summary>
+        public static void CappedBlock(MeshData m, double cx, double cz, double yaw, double halfA, double halfB, double y0, double y1, double capH,
+                                       double inset, uint c, MaterialChannel ch, float aoBottom, float aoTop)
+        {
+            double ca = Math.Cos(yaw), sa = Math.Sin(yaw);
+            double ia = Math.Max(0.0, halfA - inset), ib = Math.Max(0.0, halfB - inset), yc = y1 + capH;
+            bool pyramid = ia < 1e-4 && ib < 1e-4;
+            for (int f = 0; f < 4; f++)
+            {
+                // Face f: outward along +A, +B, −A, −B.
+                double nx = f == 0 ? ca : f == 1 ? -sa : f == 2 ? -ca : sa, nz = f == 0 ? sa : f == 1 ? ca : f == 2 ? -sa : -ca;
+                double tx = -nz, tz = nx; // along the face
+                double hn = f % 2 == 0 ? halfA : halfB, ht = f % 2 == 0 ? halfB : halfA;
+                double ihn = f % 2 == 0 ? ia : ib, iht = f % 2 == 0 ? ib : ia;
+                double ox = cx + nx * hn, oz = cz + nz * hn, ix = cx + nx * ihn, iz = cz + nz * ihn;
+                Quad(m, ox - tx * ht, y0, oz - tz * ht, ox + tx * ht, y0, oz + tz * ht, ox + tx * ht, y1, oz + tz * ht, ox - tx * ht, y1, oz - tz * ht, nx, 0,
+                     nz, c, ch, aoBottom, aoTop);
+                if (capH <= 1e-6) continue;
+                double sl = (hn - ihn) / capH;
+                if (pyramid)
+                {
+                    int a = V(m, ox - tx * ht, y1, oz - tz * ht, nx, sl, nz, c, ch, aoTop);
+                    int b = V(m, ox + tx * ht, y1, oz + tz * ht, nx, sl, nz, c, ch, aoTop);
+                    int t = V(m, cx, yc, cz, nx, sl, nz, c, ch, aoTop);
+                    Tri(m, a, b, t);
+                }
+                else
+                {
+                    Quad(m, ox - tx * ht, y1, oz - tz * ht, ox + tx * ht, y1, oz + tz * ht, ix + tx * iht, yc, iz + tz * iht, ix - tx * iht, yc, iz - tz * iht, nx,
+                         sl, nz, c, ch, aoTop, aoTop);
+                }
+            }
+            double topY = capH > 1e-6 ? yc : y1;
+            if (pyramid && capH > 1e-6) return;
+            double qa = capH > 1e-6 ? ia : halfA, qb = capH > 1e-6 ? ib : halfB;
+            double ax = ca * qa, az = sa * qa, bx = -sa * qb, bz = ca * qb;
+            Quad(m, cx - ax - bx, topY, cz - az - bz, cx + ax - bx, topY, cz + az - bz, cx + ax + bx, topY, cz + az + bz, cx - ax + bx, topY, cz - az + bz, 0, 1,
+                 0, c, ch, aoTop, aoTop);
         }
 
         [ThreadStatic] private static double[] _ly, _li;
