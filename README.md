@@ -4,7 +4,37 @@
 
 Ride a motorbike from Thamel to Boudhanath along real streets. Bus up the Prithvi Highway to Pokhara, paraglide off Sarangkot, or trek to Everest Base Camp. Everything is where it really is, built from OpenStreetMap, Copernicus elevation and ESA land-cover data, and drawn as a joyful, saturated cartoon.
 
-> **Status:** M0, Foundations. See [docs/PROGRESS.md](docs/PROGRESS.md).
+> **Status:** M1, Kathmandu Valley vertical slice, in progress (Wave 2 detail pass). See [docs/PROGRESS.md](docs/PROGRESS.md).
+
+## Screenshots
+
+> These are **preview renders**, not captures from the running game. The offline mesh-preview renderer ([`tools/mesh-preview`](tools/mesh-preview/)) draws exactly the meshes the game's own generators build from the Kathmandu sample map. Captures from Unity in Play mode will replace them once they're taken on device.
+
+| | |
+|---|---|
+| ![A lane in Asan with parked motorbikes](docs/images/asan_lane.jpg) Asan: a narrow old-core lane, widened to be rideable, with parked bikes | ![New Road roundabout with its statue](docs/images/new_road_roundabout.jpg) New Road: roundabout with its statue, traffic and kerbs |
+| ![Maitighar Mandala](docs/images/maitighar_mandala.jpg) Maitighar Mandala: the island garden and mandala | ![Shahid Gate](docs/images/shahid_gate.jpg) Shahid Gate (Martyrs' Memorial) on its island |
+| ![Driving onto a Bagmati bridge](docs/images/bagmati_bridge_deck.jpg) On a Bagmati bridge: railings on both sides, lamp posts | ![A Bagmati bridge from the bank](docs/images/bagmati_bridge.jpg) The same kind of bridge from the bank: deck, piers, railings |
+
+**Landmarks and people**
+
+![Nyatapola, Bhaktapur](docs/images/nyatapola.jpg)
+*Nyatapola, Bhaktapur: five roofs on five plinths, struts under every eave, guardian pairs on the stair (33.7 m, real proportions).*
+
+![Shahid Gate front](docs/images/shahid_gate_front.jpg) ![Dhaka topi](docs/images/topi.jpg)
+*Shahid Gate front view; the player's dhaka topi from the front, three-quarter and side.*
+
+**Vehicles of today's Kathmandu streets** (generic, unbranded)
+
+![Vehicles](docs/images/vehicles.jpg)
+
+**Animals and birds**
+
+![Animals](docs/images/animals.jpg)
+
+**Seasons on the valley rim** (January, April, July, October)
+
+![Seasons](docs/images/seasons.jpg)
 
 ## Repository map
 
