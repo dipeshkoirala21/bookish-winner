@@ -159,7 +159,12 @@ namespace Ghumante.Core.Meshing
                     if (SacredSelector.HostOf(t, i) >= 0) continue;
                     if (SacredSelector.DrawsGeneric(b))
                     {
-                        if (Ring(b, o, s) && SacredSelector.BuildGeneric(t, i, h, 1, m, null)) drawn++;
+                        int vs = m.VertexCount;
+                        if (Ring(b, o, s) && SacredSelector.BuildGeneric(t, i, h, 1, m, null))
+                        {
+                            KitPaint.FillUnset(m, vs); // a generator without UV0 on a painted mesh: Plain and open
+                            drawn++;
+                        }
                         continue;
                     }
                     if ((b.Flags & BuildingFlags.HasParts) != 0) continue; // its parts are drawn instead (DATA_FORMATS 1.6)

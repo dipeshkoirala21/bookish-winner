@@ -566,6 +566,7 @@ namespace Ghumante.Core.Meshing
             }
             p.Trim = pal.Chance(0.5f) ? MeshColor.FromHex(0xFFFFFF) : MeshColor.Scale(p.Front, 0.8f);
             if (p.Gable && p.Arch != BuildingArchetype.Newar) p.Roof = BuildingGrammar.JhingatiColour(ref pal);
+            if (!p.Gable) p.Roof = BuildingGrammar.Concrete; // a flat terrace is concrete, whatever the plan's tile colour
             if (p.Gable)
             {
                 double pitch = (h.Style.RoofPitchDeg + (pal.Next() - 0.5f) * 4f) * Math.PI / 180.0;
@@ -740,8 +741,10 @@ namespace Ghumante.Core.Meshing
                 {
                     int nb = kind == Edge.PartitionLow ? p.Index - 1 : p.Index + 1;
                     Plot q = s.Plots[nb];
+                    // Only the part above the neighbour (its eave plate or its parapet) shows; a gable's end triangle above
+                    // the eave plate is drawn by the roof.
                     double from = h.Ground + Math.Max(0, q.Gable ? q.Top : q.Top + q.Parapet);
-                    if (p.Gable || top <= from + 1e-3) continue;
+                    if (top <= from + 1e-3) continue;
                     MeshKit.Quad(m, ax, from, az, bx, from, bz, bx, top, bz, ax, top, az, dz, 0, -dx, col);
                     WallPaint(ref h, ch, 1f).WithGround(from, 0.55f, 0.8f).Apply(m, v0);
                     continue;

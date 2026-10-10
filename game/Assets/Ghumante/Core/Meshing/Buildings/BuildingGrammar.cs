@@ -510,8 +510,10 @@ namespace Ghumante.Core.Meshing
                     plan.TileRoof = true;
                     break;
                 case BuildingArchetype.NewarHybrid:
-                    plan.Roof = PlanRoof.Flat;
+                    // A hybrid in a heritage zone keeps a jhingati gable over its new floors (the B0 grammar draws it on
+                    // near-rectangular plots; the far bands follow).
                     plan.TileRoof = rr.Chance(p.TileRoofShare);
+                    plan.Roof = plan.TileRoof ? PlanRoof.Gable : PlanRoof.Flat;
                     break;
                 case BuildingArchetype.ModernUrban:
                 case BuildingArchetype.Generic:

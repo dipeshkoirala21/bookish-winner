@@ -482,7 +482,7 @@ namespace Ghumante.Core.Meshing
             MeshKit.Panel(m, f, o.U0, o.V0, o.U1, o.V1, -depth, MeshColor.Scale(inside, 0.85f));
             MeshKit.QuadLocal(m, f, o.U0, o.V0 + 0.01, 0, o.U1, o.V0 + 0.01, 0, o.U1, o.V0 + 0.01, -depth, o.U0, o.V0 + 0.01, -depth, 0, 1, 0, MeshColor.FromHex(0x8A7F72));
             Recess(ref h, f, m, v0, MaterialChannel.Plaster, depth, 0.9f);
-            if (!h.Det.Small && h.Drop > 1) return;
+            if (!h.Det.Props) return; // shelves stay down to drop level 3: an empty shop reads as a hole
             v0 = m.VertexCount;
             double w = o.U1 - o.U0;
             // Shelves on the back wall stocked with boxes and bolts of cloth (front faces: seen from the street).
@@ -830,7 +830,8 @@ namespace Ghumante.Core.Meshing
                 for (int j = 0; j < windows; j++)
                 {
                     double c = u0 + (j + 0.5) * w / windows;
-                    if (bal && Math.Abs(c - uc) < 0.5 * bw + 0.3) continue;
+                    // Windows stay behind a wide balcony; only the one the balcony door replaces goes.
+                    if (bal && Math.Abs(c - uc) < Math.Min(0.5 * bw + 0.3, 1.2)) continue;
                     double ww = Math.Min(1.25, w / windows - 0.7);
                     if (ww < 0.5) continue;
                     holes[nh++] = new KitHole(c - 0.5 * ww, b0 + 0.85, c + 0.5 * ww, b0 + Math.Min(2.2, b1 - b0 - 0.5));

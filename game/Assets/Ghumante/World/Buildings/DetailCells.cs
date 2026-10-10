@@ -17,7 +17,9 @@ namespace Ghumante.World.Buildings
     /// tile uploads leave room, and kept in an LRU of 24 / 48 / 96 cells. A B1 block (2 × 2 cells) switches to its
     /// "outer" material only once every cell of it near the camera is up (<see cref="BlockReady"/>); until then B1
     /// stands in and those cells stay hidden, so there is never a hole. Shown cells contribute their structure colliders
-    /// (pikha aprons, flat roofs, temple plinths) to their tile. Main thread only, apart from the cell job.
+    /// (pikha aprons, flat roofs, stair cabins, temple plinths) to their tile. Cells build with the tier's B0 cap per
+    /// house (<see cref="BandConfig.B0CapTris"/>; the detail pass's houses drop detail to fit it) and keep footprints and
+    /// low projections out of the road corridors (BuildingOptions.RoadGuard). Main thread only, apart from the cell job.
     /// </summary>
     internal sealed class DetailCells : IDisposable
     {

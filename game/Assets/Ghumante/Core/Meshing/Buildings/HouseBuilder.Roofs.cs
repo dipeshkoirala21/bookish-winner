@@ -110,7 +110,7 @@ namespace Ghumante.Core.Meshing
                     for (int k = 0; k < count; k++)
                     {
                         double u = p.FU0 + (k + 0.5) * (p.FU1 - p.FU0) / count;
-                        Strut(m, f, u, plate + 0.04, 0.05, vTop, wTop, 0.14, MeshColor.Scale(p.Wood, 0.9f), h.Det.Segs);
+                        Strut(m, f, u, plate + 0.04, 0.06, vTop, wTop, 0.17, MeshColor.Scale(p.Wood, 0.9f), h.Det.Segs);
                     }
                     if (h.Det.Small)
                     {

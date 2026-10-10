@@ -416,7 +416,15 @@ namespace Ghumante.Core.Meshing
                 w.Z[i] = z0 + ring[2 * i + 1] / 100.0;
             }
             double depth;
-            if (!q.Overlaps(w.X, w.Z, n, out depth) || depth <= ToleranceM) return Kept;
+            if (Clear(w, n, q)) return Kept;
+            for (int k = 0; k < n; k++)
+            {
+                w.X2[k] = w.X[k];
+                w.Z2[k] = w.Z[k];
+            }
+            double dpx, dpz, dsd;
+            bool sampled = Deepest(w, n, q, out dpx, out dpz, out dsd);
+            if (sampled && dsd >= -ToleranceM && (!q.Overlaps(w.X, w.Z, n, out depth) || depth <= ToleranceM)) return Kept;
             double signed0 = Polygon.SignedArea(w.X, w.Z, n), area0 = Math.Abs(signed0);
             if (signed0 < 0)
             {
@@ -465,10 +473,15 @@ namespace Ghumante.Core.Meshing
                 // Option B: the road crosses the building: keep the part beyond the far edge instead, if larger.
                 double bxp = px, bzp = pz, areaB = 0;
                 int mb = 0;
-                for (double tt = 0.25; tt < 40; tt += 0.25)
+                for (double tt = 0.25; tt < 40;)
                 {
-                    double qx = px - gx * tt, qz = pz - gz * tt;
-                    if (q.SignedDistance(qx, qz) > 0)
+                    double qx = px - gx * tt, qz = pz - gz * tt, qs = q.SignedDistance(qx, qz);
+                    if (qs <= 0)
+                    {
+                        // Inside: |distance| to the nearest edge is a safe step in any direction.
+                        tt += Math.Max(0.2, -qs);
+                        continue;
+                    }
                     {
                         bxp = qx - gx * MarginM;
                         bzp = qz - gz * MarginM;
@@ -500,7 +513,8 @@ namespace Ghumante.Core.Meshing
             why = 1;
             if (area <= 0 || area < MinKeepShare * area0 || area < 1.0) return DroppedState;
             why = 3;
-            if (q.Overlaps(w.X2, w.Z2, m, out depth) && depth > 3 * ToleranceM) return DroppedState;
+            double lx, lz, lsd;
+            if (Deepest(w, m, q, out lx, out lz, out lsd) && lsd < -3 * ToleranceM) return DroppedState;
             why = 0;
             if (signed0 < 0)
             {
@@ -528,6 +542,31 @@ namespace Ghumante.Core.Meshing
             return TrimmedState;
         }
 
+        /// <summary>
+        /// A cheap proof that a ring is clear of every corridor: the corridor distance is 1-Lipschitz (and the
+        /// stand-in's clamp only lowers it), so an edge whose end distances sum to at least its length cannot reach a
+        /// corridor. False means "maybe": the exact <see cref="IRoadCorridorQuery.Overlaps"/> decides.
+        /// </summary>
+        private static bool Clear(Work w, int n, IRoadCorridorQuery q)
+        {
+            double cx = 0, cz = 0;
+            for (int i = 0; i < n; i++)
+            {
+                w.X2[i] = q.SignedDistance(w.X[i], w.Z[i]);
+                if (w.X2[i] < 0) return false;
+                cx += w.X[i];
+                cz += w.Z[i];
+            }
+            if (q.SignedDistance(cx / n, cz / n) < 0) return false;
+            for (int i = 0; i < n; i++)
+            {
+                int j = i + 1 == n ? 0 : i + 1;
+                double dx = w.X[j] - w.X[i], dz = w.Z[j] - w.Z[i];
+                if (w.X2[i] + w.X2[j] < Math.Sqrt(dx * dx + dz * dz)) return false;
+            }
+            return true;
+        }
+
         /// <summary>Cuts per footprint before giving up (a curving corridor takes several).</summary>
         public const int MaxCuts = 8;
 
@@ -541,7 +580,7 @@ namespace Ghumante.Core.Meshing
             {
                 int j = i + 1 == m ? 0 : i + 1;
                 double dx = w.X2[j] - w.X2[i], dz = w.Z2[j] - w.Z2[i];
-                int steps = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dz * dz) / (0.5 * StepM)));
+                int steps = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dz * dz) / (0.67 * StepM)));
                 for (int k = 0; k < steps; k++)
                 {
                     double x = w.X2[i] + dx * k / steps, z = w.Z2[i] + dz * k / steps;

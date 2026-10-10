@@ -100,21 +100,40 @@ binding: nothing below 4.5 m over a road corridor, and no footprint in a corrido
   below 4.5 m over a corridor; above it they keep their full depth. `Clearance.Clamp` then moves any remaining vertex
   below the clearance out to the corridor edge (frames and boards a few centimetres proud of a wall on the edge).
 
-## 7. Colours used (hex)
+## 7. LOD bands and budgets (as built)
+
+B0 now costs about three to four times the stage-1 grammar per house, so it ends nearer the camera and the cheap B1
+extrusion (with its front detail: paint, floor band, window rows) takes over; B2 and B3 are unchanged. Band table in
+`Core/Meshing/Buildings/BuildingBandTable.cs`, read by `World/Buildings/BandConfig.cs`:
+
+| Tier | B0 outer | B0 cap per house | B1 outer | B2 outer | B3 outer |
+|---|---|---|---|---|---|
+| Low | 22 m | 2,600 | 120 m | 350 m | 750 m |
+| Mid | 32 m | 4,000 | 200 m | 500 m | 1,250 m |
+| High | 42 m | 5,000 | 250 m | 700 m | 1,750 m |
+
+Measured at Asan (10/516/161, 40% in view, `MeshingBuildingGrammarTests.BandTotalsAtAsanFitTheBudgetTable`): Low
+about 20 k, Mid 63 k, High 115 k triangles against the W2 slice of 20 k / 63 k / 115 k (the test allows 15%). B0 houses
+at Asan average about 3,400 triangles at the High cap and 1,200 at the Low cap (stage 1: about 900). Over the cap a
+house drops detail level by level (small props and goods, then struts, tile courses and grilles, then floor bands and
+railings, then roof props; the lattice only gets coarser and the sanjhya stays), and falls back to B1 only when even the
+last level is over. The densest 64 m cell of Asan builds in about 170 ms on a desktop worker thread (Release).
+
+## 8. Colours used (hex)
 
 `newar_houses.md` §9 plus: painted green `#2F6E4E`, painted red `#9E2B25`, teal jali `#3FA39A`, hay `#C9A24E`, glass
 tints `#3E5F7A` `#2F6B6E` `#5A4A3A` `#34495E` `#4A7A9A`, ACP `#C4C9CE` `#2F6FB0` `#C23B33` `#D8C8A0` `#5B6B7A`, awnings
 `#3D7CC9` `#2FA84F` `#E8483A` `#F2C230` `#B9BEC3` `#F07A2A`, cloth `#D93A2B` `#F2C230` `#2E6FD8` `#FFFFFF` `#E85D9E`
 `#2E9E4F` `#7A1F1F` `#F59A3B`, aluminium `#C9CED3`, steel `#2E3440`, galvanised `#B9BEC3`, terracotta pots `#B5582F`.
 
-## 8. Preview comparisons
+## 9. Preview comparisons
 
 Street-level renders of the valley pack next to the photos are under `/home/user/wt/previews/buildings/` (not in the
 repository): `bhaktapur_lane_*`, `patan_lane_*`, `asan_*`, `thamel_*`, `baneshwor_*`, `kirtipur_*`, the archetype lineup
-`l_*` and the side-by-side sheets `cmp_*.png`. Regenerate with `GHUMANTE_PREVIEW_DIR=... dotnet test core-tests --filter
+`lineup_sheet.png` and the side-by-side sheets `cmp_*.png` (photo left, render right). Regenerate with `GHUMANTE_PREVIEW_DIR=... dotnet test core-tests --filter
 MeshingBuildingPreviewTests` and `tools/mesh-preview/render.py`.
 
-## 9. Photo credits (reference only, not shipped)
+## 10. Photo credits (reference only, not shipped)
 
 All from Flickr unless noted; licence as published.
 
