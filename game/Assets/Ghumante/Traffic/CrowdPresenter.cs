@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
@@ -14,13 +15,16 @@ using UnityEngine;
 namespace Ghumante.Traffic
 {
     /// <summary>
-    /// Draws the people of the open world (W2_DESIGN 5.4): every <see cref="PedPose"/> of <see cref="LifeHost.People"/>
-    /// nearest first under the tier caps (1 / 4 / 13, 3 / 10 / 39, 6 / 20 / 78 at LOD0 ≤ 15 m, LOD1 ≤ 40 m and the far
-    /// block-out ≤ 90 m), as rigid-part people (<see cref="PeopleRenderer"/>) animated by their clip
-    /// (<see cref="PersonAnimation"/>: walk, run, sit, pray, namaste, chat...) in the archetype's clothes; NPC footsteps
-    /// near the camera on the surface under the foot (<see cref="GroundSample.Foot"/>); and the traffic police officers of
-    /// the visible chowks (<see cref="OfficerPosts"/>) on their podiums, cycling the five hand signals with the police
-    /// phases. Attached to every <see cref="WorldRoot"/> by <see cref="WorldRoot.AnyReady"/>. Main thread only.
+    /// Draws the people of the open world (W2_DESIGN 5.4) with the player's own generator: every <see cref="PedPose"/> of
+    /// <see cref="LifeHost.People"/> nearest first under the tier caps (1 / 4 / 13, 3 / 10 / 39, 6 / 20 / 78 in the near
+    /// ≤ 15 m, mid ≤ 40 m and far ≤ 90 m bands) as one of the shared variant bodies of its archetype, the place it walks
+    /// in (<see cref="StreetStyles"/>: Bhadgaunle topis in Bhaktapur, trek gear in Thamel, chuba at Boudha, office wear
+    /// on Durbar Marg) and its carry prop (<see cref="CrowdVariants"/>), skinned near and mid, baked far
+    /// (<see cref="PeopleRenderer"/>), animated by its clip (<see cref="PersonAnimation"/>: walk, run, carry, sit, pray,
+    /// namaste, chat, umbrella...); NPC footsteps near the camera on the surface under the foot
+    /// (<see cref="GroundSample.Foot"/>); and the traffic police officers of the visible chowks (<see cref="OfficerPosts"/>)
+    /// on their podiums, cycling the five hand signals with the police phases. Attached to every <see cref="WorldRoot"/> by
+    /// <see cref="WorldRoot.AnyReady"/>. Main thread only.
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("Ghumante/Crowd Presenter")]
@@ -34,10 +38,11 @@ namespace Ghumante.Traffic
         private LifeLod _lod;
         private readonly Dictionary<int, float> _prevClip = new Dictionary<int, float>();
         private readonly Dictionary<int, float> _seen = new Dictionary<int, float>();
+        private readonly Dictionary<int, int> _bodyKey = new Dictionary<int, int>();
         private readonly List<int> _drop = new List<int>();
         private readonly Dictionary<TileId, List<OfficerPost>> _posts = new Dictionary<TileId, List<OfficerPost>>();
         private float[] _dist = new float[128], _keys = new float[128];
-        private int[] _level = new int[128], _order = new int[128];
+        private int[] _level = new int[128], _order = new int[128], _rank = new int[128];
         private float _clearAt;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -65,9 +70,10 @@ namespace Ghumante.Traffic
             _world = world;
             _lod = LifeLod.ForTier((int)world.Tier);
             if (_people != null) _people.Dispose();
-            _people = world.Materials != null ? new PeopleRenderer(world.Materials) : null;
+            _people = world.Materials != null ? new PeopleRenderer(world.Materials, world.transform, (int)world.Tier) : null;
             _posts.Clear();
             _prevClip.Clear();
+            _bodyKey.Clear();
             world.DetailTileShown += OnShown;
             world.DetailTileHidden += OnHidden;
             // Tiles already visible before the presenter attached.
@@ -117,10 +123,20 @@ namespace Ghumante.Traffic
                 _keys = new float[cap];
                 _level = new int[cap];
                 _order = new int[cap];
+                _rank = new int[cap];
             }
             float age = life.SnapshotAgeS;
             for (int i = 0; i < n; i++) _dist[i] = (At(poses[i], origin, age) - camPos).magnitude;
             LifeLod.Assign(_dist, n, _lod.PeopleCaps, _lod.PeopleRadii, _level, _order, _keys);
+            // Rank within each band, nearest first (the plan gives the nearest few the finest meshes).
+            int r0 = 0, r1 = 0, r2 = 0;
+            for (int k = 0; k < n; k++)
+            {
+                int i = _order[k];
+                int l = _level[i];
+                _rank[i] = l == 0 ? r0++ : l == 1 ? r1++ : l == 2 ? r2++ : 0;
+            }
+            AreaTypeGrid areas = _world.AreaTypes;
             float now = Time.time;
             for (int i = 0; i < n; i++)
             {
@@ -133,11 +149,13 @@ namespace Ghumante.Traffic
                 _prevClip[pp.AgentId] = clipTime;
                 _seen[pp.AgentId] = now;
                 if (level < 0) continue;
-                var arch = (PedArchetype)pp.Archetype;
-                PersonPose pose = PersonAnimation.Pose((PedClip)pp.ClipId, clipTime, prev, pp.SpeedMps, pp.AgentId);
+                int key = BodyKey(pp, areas);
+                var clip = (PedClip)pp.ClipId;
+                CrowdHold hold = pp.CarryProp == 5 ? CrowdHold.Umbrella : CrowdHold.None;
+                PersonPose pose = PersonAnimation.Pose(clip, clipTime, prev, pp.SpeedMps, pp.AgentId, hold);
                 Vector3 at = At(pp, origin, age);
-                _people.Add(at, pp.HeadingRad * Mathf.Rad2Deg, pose, PersonPalette.Clothes(arch, pp.Tint), PersonPalette.Lower(arch, pp.Tint),
-                            PersonPalette.Headgear(arch, pp.Tint), level, pp.CarryProp);
+                double phase = CrowdAnimation.WalkPhase(clipTime, pp.SpeedMps, clip == PedClip.Run);
+                _people.Add(at, pp.HeadingRad * Mathf.Rad2Deg, pose, key, level, _rank[i], clip, phase);
                 if (pose.Strike != 0 && _dist[i] <= _lod.FootstepRadiusM && sound != null) Footstep(pp, at, pose, ground, sound);
             }
 
@@ -156,8 +174,22 @@ namespace Ghumante.Traffic
                 {
                     _seen.Remove(_drop[i]);
                     _prevClip.Remove(_drop[i]);
+                    _bodyKey.Remove(_drop[i]);
                 }
             }
+        }
+
+        /// <summary>The variant body of an agent: its archetype, the place it first showed in, its carry prop and its variant
+        /// number (cached per agent, so a person keeps their look while walking across district edges).</summary>
+        private int BodyKey(in PedPose pp, AreaTypeGrid areas)
+        {
+            if (_bodyKey.TryGetValue(pp.AgentId, out int key)) return key;
+            AreaType area = areas != null ? areas.At(pp.X, pp.Z) : AreaType.Unknown;
+            StreetStyle style = StreetStyles.At(pp.X, pp.Z, area);
+            int carry = pp.CarryProp <= 5 ? pp.CarryProp : 0;
+            key = CrowdVariants.Key((PedArchetype)pp.Archetype, style, carry, CrowdVariants.VariantOf(pp.AgentId));
+            _bodyKey[pp.AgentId] = key;
+            return key;
         }
 
         /// <summary>Scene position of a pose, moved <paramref name="ageS"/> along its heading (LifeHost.SnapshotAgeS).</summary>
@@ -204,8 +236,10 @@ namespace Ghumante.Traffic
                     float heading = (o.Seed % 360) + signal * 90f;
                     PersonPose pose = PersonAnimation.Officer(signal, now - (float)start);
                     var at = new Vector3((float)(gx - origin.X), y - origin.Y, (float)(gz - origin.Z));
-                    int level = d <= 25f ? 0 : d <= 60f ? 1 : 2;
-                    _people.Add(at, heading, pose, 0xF2F0E8, 0x1F3A93, 2, level);
+                    int band = d <= 15f ? 0 : d <= 40f ? 1 : 2;
+                    int key = CrowdVariants.Key(PedArchetype.TrafficPolice, StreetStyle.Urban, 0, (int)(o.Seed % CrowdVariants.Variants));
+                    // Officers rank after the crowd in their band (the plan's finest meshes go to the nearest people).
+                    _people.Add(at, heading, pose, key, band, 99, signal == 0 ? PedClip.Cheer : PedClip.Idle, 0.0);
                 }
             }
         }

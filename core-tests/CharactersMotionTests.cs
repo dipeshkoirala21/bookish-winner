@@ -303,7 +303,7 @@ namespace Ghumante.Core.Tests
                 var w = new SkinWeights();
                 HumanoidMesher.Build(r, 0, m, w, input.Seat == SeatPose.Scooter || input.Seat == SeatPose.Motorbike || input.Seat == SeatPose.Bicycle ? HeadwearMode.Helmet : HeadwearMode.Outfit);
                 Skin(poser, m, w);
-                File.WriteAllText(Path.Combine(dir, name + ".obj"), CharactersMeshTests.Obj(m));
+                CharactersMeshPreviews.Write(Path.Combine(dir, name + ".obj"), m);
             }
         }
 

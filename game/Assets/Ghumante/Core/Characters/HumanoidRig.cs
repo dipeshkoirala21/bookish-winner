@@ -64,6 +64,9 @@ namespace Ghumante.Core.Characters
         public float UpperArmM, ForearmM, HandM, HandW;
         public float FootL, FootW, FootH;
 
+        /// <summary>Body outline (<see cref="CharacterRecipe.Figure"/>): 0 straight, 1 soft.</summary>
+        public byte Figure;
+
         /// <summary>Height of the hip joints above the ground.</summary>
         public float HipJointY
         {
@@ -82,8 +85,44 @@ namespace Ghumante.Core.Characters
             get { return ShoulderY + NeckM; }
         }
 
-        /// <summary>The measurements of <paramref name="build"/> (P §2.3 builds table).</summary>
+        /// <summary>Head size relative to the adult head (0.40 m): face features scale with it.</summary>
+        public float HeadScale
+        {
+            get { return HeadH / 0.40f; }
+        }
+
+        /// <summary>Hand size relative to the adult hand (0.13 m).</summary>
+        public float HandScale
+        {
+            get { return HandM / 0.13f; }
+        }
+
+        /// <summary>The measurements of <paramref name="build"/> (P §2.3 builds table) for an adult.</summary>
         public static BodyMetrics For(BodyBuild build)
+        {
+            return For(build, AgeGroup.Adult, 0);
+        }
+
+        /// <summary>The measurements of a recipe: its build, age group and height nudge.</summary>
+        public static BodyMetrics For(CharacterRecipe r)
+        {
+            return r == null ? For(BodyBuild.B) : For(r.Build, r.Age, r.HeightPct, r.Figure);
+        }
+
+        /// <summary>
+        /// The measurements of <paramref name="build"/> at an age group with a height nudge of
+        /// <paramref name="heightPct"/> percent (−6..+6). Adults follow P §2.3; a child is about 1.22 m and 3.4 heads
+        /// tall (head 0.36 m), a teen 1.45 m, an elder 1.5% shorter with a little belly. The head size is fixed per age
+        /// group; the nudge goes to the legs and torso.
+        /// </summary>
+        public static BodyMetrics For(BodyBuild build, AgeGroup age, int heightPct)
+        {
+            return For(build, age, heightPct, 0);
+        }
+
+        /// <summary>As <see cref="For(BodyBuild, AgeGroup, int)"/> with a figure: the soft figure has 6% narrower
+        /// shoulders and 6% fuller hips (the chest curve is the mesher's).</summary>
+        public static BodyMetrics For(BodyBuild build, AgeGroup age, int heightPct, int figure)
         {
             float height, shoulder, hip, belly, leg;
             switch (build)
@@ -117,30 +156,74 @@ namespace Ghumante.Core.Characters
                     leg = 1.0f;
                     break;
             }
+            float headH = 0.40f, headW = 0.36f, headD = 0.38f, neck = 0.04f, ankle = 0.075f, hand = 0.13f, foot = 0.27f;
+            switch (age)
+            {
+                case AgeGroup.Child:
+                    height = 1.22f * (height / 1.55f);
+                    headH = 0.36f;
+                    headW = 0.33f;
+                    headD = 0.345f;
+                    neck = 0.035f;
+                    ankle = 0.06f;
+                    shoulder *= 0.78f;
+                    hip *= 0.80f;
+                    belly = 0.01f;
+                    leg *= 0.78f;
+                    hand = 0.105f;
+                    foot = 0.215f;
+                    break;
+                case AgeGroup.Teen:
+                    height = 1.45f * (height / 1.55f);
+                    headH = 0.39f;
+                    headW = 0.35f;
+                    headD = 0.37f;
+                    shoulder *= 0.92f;
+                    hip *= 0.93f;
+                    leg *= 0.95f;
+                    hand = 0.123f;
+                    foot = 0.25f;
+                    break;
+                case AgeGroup.Elder:
+                    height *= 0.985f;
+                    shoulder *= 0.98f;
+                    belly += 0.012f;
+                    break;
+            }
+            if (figure != 0)
+            {
+                shoulder *= 0.94f;
+                hip *= 1.06f;
+            }
+            int pct = heightPct < -6 ? -6 : heightPct > 6 ? 6 : heightPct;
+            float nudge = 1f + pct / 100f;
+            height *= nudge;
+            leg *= nudge;
             var m = new BodyMetrics
             {
                 Build = build,
+                Figure = (byte)(figure != 0 ? 1 : 0),
                 HeightM = height,
-                HeadH = 0.40f,
-                HeadW = 0.36f,
-                HeadD = 0.38f,
+                HeadH = headH,
+                HeadW = headW,
+                HeadD = headD,
                 ShoulderW = 0.42f * shoulder,
                 HipW = 0.34f * hip,
-                ChestDepth = 0.24f * (0.5f + 0.5f * hip),
+                ChestDepth = 0.24f * (0.5f + 0.5f * hip) * (age == AgeGroup.Child ? 0.82f : 1f),
                 Belly = belly,
-                AnkleY = 0.075f,
+                AnkleY = ankle,
                 ShinM = 0.27f * leg,
                 ThighM = 0.30f * leg,
-                NeckM = 0.04f,
-                FootL = 0.27f,
-                FootW = 0.11f,
-                FootH = 0.09f,
-                HandM = 0.13f,
-                HandW = 0.09f,
+                NeckM = neck,
+                FootL = foot,
+                FootW = 0.11f * foot / 0.27f,
+                FootH = 0.09f * foot / 0.27f,
+                HandM = hand,
+                HandW = 0.09f * hand / 0.13f,
             };
             m.LegM = m.AnkleY + m.ShinM + m.ThighM;
             m.TorsoM = height - m.HeadH - m.NeckM - m.LegM;
-            float arm = 0.58f * (height / 1.55f);
+            float arm = 0.58f * (height / 1.55f) * (age == AgeGroup.Child ? 1.04f : 1f);
             m.UpperArmM = 0.40f * (arm - m.HandM);
             m.ForearmM = arm - m.HandM - m.UpperArmM;
             return m;
@@ -155,6 +238,10 @@ namespace Ghumante.Core.Characters
     public sealed class HumanoidSkeleton
     {
         public const int BoneCount = 37;
+
+        /// <summary>Distance from the wrist down to the finger knuckles and to the middle finger joints on an adult hand
+        /// (scaled by <see cref="BodyMetrics.HandScale"/>).</summary>
+        public const float HandKnuckleM = 0.074f, HandMidJointM = 0.102f;
 
         /// <summary>Parent of each bone (−1 for the root).</summary>
         public static readonly sbyte[] Parent =
@@ -196,6 +283,11 @@ namespace Ghumante.Core.Characters
         {
         }
 
+        /// <summary>The skeleton of a recipe's build, age group and height.</summary>
+        public HumanoidSkeleton(CharacterRecipe recipe) : this(BodyMetrics.For(recipe))
+        {
+        }
+
         public HumanoidSkeleton(BodyMetrics m)
         {
             Metrics = m;
@@ -222,10 +314,14 @@ namespace Ghumante.Core.Characters
                 float wristY = elbowY - m.ForearmM;
                 Set((Bone)(10 + o), s * (armX + 0.02f), wristY, 0f);
                 int f = side * 4;
-                Set((Bone)(15 + f), s * (armX + 0.005f), wristY - 0.03f, 0.035f);
-                Set((Bone)(16 + f), s * (armX + 0.005f), wristY - 0.065f, 0.045f);
-                Set((Bone)(17 + f), s * (armX + 0.02f), wristY - 0.065f, 0f);
-                Set((Bone)(18 + f), s * (armX + 0.02f), wristY - 0.10f, 0f);
+                // Thumb base and joint, and the knuckle and middle joints of the four fingers (they bend together),
+                // where HumanoidMesher's hand puts them (wrist-relative, scaled with the hand).
+                float hs = m.HandScale;
+                float wx = s * (armX + 0.02f);
+                Set((Bone)(15 + f), wx - s * 0.008f * hs, wristY - 0.024f * hs, 0.026f * hs);
+                Set((Bone)(16 + f), wx - s * 0.012f * hs, wristY - 0.05f * hs, 0.044f * hs);
+                Set((Bone)(17 + f), wx, wristY - HandKnuckleM * hs, 0.004f * hs);
+                Set((Bone)(18 + f), wx - s * 0.004f * hs, wristY - HandMidJointM * hs, 0.004f * hs);
                 int l = side * 4;
                 Set((Bone)(23 + l), s * hx, hipY, 0f);
                 Set((Bone)(24 + l), s * hx, m.AnkleY + m.ShinM, 0.005f);
