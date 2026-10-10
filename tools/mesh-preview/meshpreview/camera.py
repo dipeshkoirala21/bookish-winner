@@ -212,3 +212,25 @@ def clip_near(view: np.ndarray, attrs: np.ndarray, src: np.ndarray, near: float)
             out_a.append(t[:, :, 3:])
             out_s.append(src[two])
     return np.concatenate(out_v), np.concatenate(out_a), np.concatenate(out_s)
+
+
+def look_at(eye, look, width: int, height: int, fov_deg: float = 30.0, near: float = 0.05) -> Camera:
+    """A perspective camera at ``eye`` looking at ``look`` (OBJ coordinates), screen-up towards +Y; its ``az``/``el``
+    report the bearing and elevation of the eye as seen from ``look`` (the orbit convention)."""
+    eye = np.asarray(eye, dtype=np.float64)
+    look = np.asarray(look, dtype=np.float64)
+    fwd = look - eye
+    ln = float(np.linalg.norm(fwd))
+    if ln < 1e-9:
+        fwd = -NORTH.copy()
+    else:
+        fwd = fwd / ln
+    hint = UP if abs(fwd[1]) < 0.9999 else NORTH
+    right = np.cross(fwd, hint)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, fwd)
+    d = -fwd
+    az = math.degrees(math.atan2(d[0], -d[2])) % 360.0
+    el = math.degrees(math.asin(max(-1.0, min(1.0, d[1]))))
+    return Camera(eye=eye, right=right, up=up, fwd=fwd, width=width, height=height, fov_deg=fov_deg, ortho=False,
+                  near=near, az=az, el=el)
