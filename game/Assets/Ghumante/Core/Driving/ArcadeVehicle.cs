@@ -47,8 +47,9 @@ namespace Ghumante.Core.Driving
     /// first contact and slides along the wall with the rest of the move; its direction of travel follows the wall and
     /// the speed keeps only the part along it (a head-on hit stops it, <see cref="StepEvents.HitWall"/>), and the body
     /// turns towards the wall smoothly through the slip angle. A rotation that pushes a corner into a wall is pushed
-    /// back out, or undone. Ground more than <see cref="MaxClimbM"/> above the wheels within one sub-step is a wall too
-    /// (only small step-ups), except a deck the layered ground carries the vehicle onto.</para>
+    /// back out, or undone. Ground more than <see cref="MaxClimbM"/> above the wheels within one sub-step
+    /// (<see cref="WalkerMaxClimbM"/> on foot) is a wall too (only small step-ups), except a deck the layered ground
+    /// carries the vehicle onto.</para>
     /// </summary>
     public sealed class ArcadeVehicle
     {
@@ -60,9 +61,14 @@ namespace Ghumante.Core.Driving
         /// (a cliff or a bridge edge), not following the ground down.</summary>
         public const float StepDownM = 0.6f;
 
-        /// <summary>Ground rising more than this within one sub-step is a wall (a lowered road's retaining edge, a
-        /// terrace); kerbs, plinths and ramps are far lower. Decks under the vehicle are exempt.</summary>
-        public const float MaxClimbM = 1.0f;
+        /// <summary>Ground rising more than this within one sub-step is a wall for a vehicle (a lowered road's retaining
+        /// edge, a terrace, a low wall): only small step-ups are ridden, a plinth up to
+        /// <see cref="TileGroundQuery.StepUpM"/> and the outer edge of a raised footpath over the ground beside it (road
+        /// lift plus kerb, under half a metre). Decks under the vehicle are exempt.</summary>
+        public const float MaxClimbM = 0.5f;
+
+        /// <summary>As <see cref="MaxClimbM"/> for someone on foot (a little more: a kerb on top of a plinth step).</summary>
+        public const float WalkerMaxClimbM = 0.55f;
 
         /// <summary>Impacts closer to head-on than this (cosine between the travel direction and the wall normal) stop
         /// the vehicle instead of sliding it.</summary>
@@ -73,6 +79,10 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Penetration left after a push-out above which a rotation into a wall is undone.</summary>
         private const double MaxResidualPenM = 0.05;
+
+        /// <summary>A slide along a wall shorter than this share of the intended move does not set the direction of
+        /// travel (it is mostly the skin nudge off the wall).</summary>
+        private const double MinSlideShare = 0.2;
 
         private const float Deg2Rad = (float)(Math.PI / 180.0);
         private const float Pi = (float)Math.PI;
@@ -760,10 +770,11 @@ namespace Ghumante.Core.Driving
             return layered != null ? layered.TrySample(x, z, Y, out s) : g.TrySample(x, z, out s);
         }
 
-        /// <summary>Ground more than <see cref="MaxClimbM"/> above the wheels is a wall (not while hopping, not onto a deck).</summary>
+        /// <summary>Ground more than <see cref="MaxClimbM"/> (<see cref="WalkerMaxClimbM"/> on foot) above the wheels is a
+        /// wall (not while hopping, not onto a deck).</summary>
         private bool TooHigh(ref GroundSample s)
         {
-            return !_recoveryHop && !s.OnDeck && s.Height - Y > MaxClimbM;
+            return !_recoveryHop && !s.OnDeck && s.Height - Y > (_spec.TurnInPlace ? WalkerMaxClimbM : MaxClimbM);
         }
 
         /// <summary>
@@ -844,14 +855,16 @@ namespace Ghumante.Core.Driving
             double mx = px - X, mz = pz - Z;
             X = px;
             Z = pz;
-            if (worst > 0f) AfterContact(worst, mx, mz, ref ev);
+            if (worst > 0f) AfterContact(solids, worst, mx, mz, full, ref ev);
             return mx * mx + mz * mz > 1e-12;
         }
 
         /// <summary>Speed and direction after touching a wall at <paramref name="impact"/> (cosine to its normal): a near
         /// head-on hit stops; otherwise only the speed along the wall is kept, the direction of travel follows the move
-        /// and the body is turned at most the maximum slip angle from it (the slip then eases it along the wall).</summary>
-        private void AfterContact(float impact, double mx, double mz, ref StepEvents ev)
+        /// and the body is turned at most the maximum slip angle from it (the slip then eases it along the wall). A move
+        /// much shorter than intended (wedged in a corner) says nothing about the way along the wall, so the headings stay;
+        /// a turn that swings the body into a solid is pushed back out or undone.</summary>
+        private void AfterContact(ISolidQuery solids, float impact, double mx, double mz, double full, ref StepEvents ev)
         {
             float v = SpeedMps, av = Math.Abs(v);
             float along = (float)Math.Sqrt(Math.Max(0.0, 1.0 - impact * impact));
@@ -863,13 +876,16 @@ namespace Ghumante.Core.Driving
             }
             if (av * (1f - along) >= HitWallMinMps) LoseSpeed(v * (1f - along), ref ev);
             SpeedMps = v * along;
-            if (_spec.TurnInPlace || mx * mx + mz * mz < 1e-10) return;
+            double moved = Math.Sqrt(mx * mx + mz * mz);
+            if (_spec.TurnInPlace || moved < 1e-5 || moved < MinSlideShare * full) return;
+            float headingBefore = HeadingRad, velBefore = _velHeading;
             float travel = (float)Math.Atan2(mx, mz);
             if (v < 0f) travel = WrapAngle(travel + Pi);
             _velHeading = WrapAngle(travel);
             float maxSlip = _spec.MaxSlipDeg * Deg2Rad;
             float slip = WrapAngle(HeadingRad - _velHeading);
             if (Math.Abs(slip) > maxSlip) HeadingRad = WrapAngle(_velHeading + Math.Sign(slip) * maxSlip);
+            if (HeadingRad != headingBefore) KeepRotationClear(solids, headingBefore, velBefore);
         }
 
         private void LoseSpeed(float lost, ref StepEvents ev)

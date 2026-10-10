@@ -13,13 +13,20 @@ namespace Ghumante.Core.Driving
     /// <item><b>Building footprints</b> (the rings as the data package trimmed them): every outline wall from below its
     /// base to its top, an elevated part (<c>min_height</c>) only from that height, open canopies as corner posts and a
     /// roof slab. Sacred outlines and their parts (the temple generators emit their own walkable plinths and walls),
-    /// hidden hero footprints and outlines whose parts are drawn instead are left out. As a runtime guard a footprint
-    /// never reaches into a road corridor: points inside it are pushed out to its edge (decision 1).</item>
+    /// hidden hero footprints and outlines whose parts are drawn instead are left out. As a runtime guard
+    /// (<see cref="FootprintGuard"/>) an outline never reaches into a road: the part inside is trimmed back to the edge
+    /// of the road it intrudes into, on the building's side (decision 1).</item>
     /// <item><b>Point objects</b> (PROP): tree trunks, poles, lamps, masts, towers, chimneys, tanks, wells, taps, benches
     /// and statues (artwork), each a cylinder sized by kind; never one standing on a drawn carriageway.</item>
-    /// <item><b>Railings and parapets</b> along both edges of every bridge and flyover where its deck stands at least
-    /// <see cref="RailingMinRiseM"/> above the terrain (structure heights, or the straight deck of a bridge without
-    /// them).</item>
+    /// <item><b>Railings and parapets</b> along both edges of every bridge and flyover, walked every
+    /// <see cref="RailingStepM"/>: wherever the deck (structure heights, or the straight deck of a bridge without them)
+    /// stands at least <see cref="RailingMinRiseM"/> above the terrain beside it, and along the whole span of a bridge
+    /// over water, except where another road meets the deck at grade (<see cref="AtGradeM"/>). Each piece follows the
+    /// local deck height (its bottom and top vary by at most <see cref="RailingMaxRiseM"/>), so a railing never reaches
+    /// down over a road passing under a ramp.</item>
+    /// <item><b>Retaining walls</b> along a lowered road (an underpass trench) wherever it runs more than
+    /// <see cref="TileGroundQuery.HardEdgeM"/> below the ground beside it, from under the road to a parapet
+    /// <see cref="RetainingParapetM"/> above that ground.</item>
     /// </list>
     /// Deterministic: the same tile and options give the same solids in the same order.
     /// </summary>
@@ -38,8 +45,25 @@ namespace Ghumante.Core.Driving
         /// <summary>Half thickness of a railing or parapet.</summary>
         public const float RailingHalfM = 0.08f;
 
-        /// <summary>Longest footprint edge piece checked against the corridors (finer pieces follow a corridor edge).</summary>
-        public const double CorridorStepM = 2.0;
+        /// <summary>Railings and retaining walls are walked in steps of at most this many metres along the road.</summary>
+        public const double RailingStepM = 1.5;
+
+        /// <summary>Most a railing piece's bottom or top changes along it: on a ramp the pieces are short, so each one
+        /// hugs the local deck height.</summary>
+        public const float RailingMaxRiseM = 0.25f;
+
+        /// <summary>Longest railing piece (straight, level runs merge into one).</summary>
+        public const double RailingMaxPieceM = 24.0;
+
+        /// <summary>A railing reaches this far below the deck surface (into the slab, never under it).</summary>
+        public const float RailingBelowDeckM = 0.4f;
+
+        /// <summary>A railing station on another road's carriageway whose surface is less than this from the deck is
+        /// left open (a street joining at grade at the end of a bridge).</summary>
+        public const float AtGradeM = 1.5f;
+
+        /// <summary>Height of the parapet on a retaining wall above the ground beside a lowered road.</summary>
+        public const float RetainingParapetM = 1.0f;
 
         /// <summary>Outlines of sacred archetypes are left to the temple generators (as BuildingGrammar.IsSacred).</summary>
         public static bool IsSacred(BuildingArchetype a)
@@ -69,41 +93,10 @@ namespace Ghumante.Core.Driving
         // ---------------------------------------------------------------------------------------------------------
         // Buildings
 
-        private sealed class Scratch
-        {
-            public double[] X = new double[64], Z = new double[64];
-            public double[] X2 = new double[64], Z2 = new double[64];
-            public double[] TX = new double[64], TZ = new double[64];
-            public bool[] Inside = new bool[64];
-
-            /// <summary>Grows the densified buffers to hold n points, keeping their contents.</summary>
-            public void EnsureDense(int n)
-            {
-                if (TX.Length >= n) return;
-                int m = Math.Max(n, 2 * TX.Length);
-                Array.Resize(ref TX, m);
-                Array.Resize(ref TZ, m);
-                Array.Resize(ref Inside, m);
-            }
-
-            /// <summary>Grows the outline buffers to hold n points (the densified ones too, so a guarded ring fits).</summary>
-            public void Ensure(int n)
-            {
-                EnsureDense(n);
-                if (X.Length >= TX.Length) return;
-                int m = TX.Length;
-                X = new double[m];
-                Z = new double[m];
-                X2 = new double[m];
-                Z2 = new double[m];
-            }
-        }
-
         private static void Buildings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, IRoadCorridorQuery corridors, ISet<ulong> hidden,
                                       SolidBuilder b)
         {
             if (t.Buildings.Count == 0) return;
-            var s = new Scratch();
             List<int> sacredHosts = null;
             for (int i = 0; i < t.Buildings.Count; i++)
             {
@@ -114,6 +107,8 @@ namespace Ghumante.Core.Driving
                     sacredHosts.Add(i);
                 }
             }
+            FootprintGuard guard = roads != null && roads.SegmentCount > 0 ? new FootprintGuard(roads, corridors) : null;
+            double[] xs = new double[64], zs = new double[64], hx = new double[16], hz = new double[16];
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             for (int i = 0; i < t.Buildings.Count; i++)
             {
@@ -144,34 +139,59 @@ namespace Ghumante.Core.Driving
                 if (!(top > bottom + 0.2f)) continue;
 
                 bool canopy = (r.Flags & BuildingFlags.OpenCanopy) != 0 || r.Use == BuildingUse.Roof;
-                b.BeginGroup();
-                for (int ring = 0; ring < r.Rings.Length; ring++)
+                int n = Ring(t, outer, ref xs, ref zs);
+                bool trimmed = guard != null && guard.Trim(xs, zs, n);
+                int pieces = trimmed ? guard.PieceCount : 1;
+                for (int piece = 0; piece < pieces; piece++)
                 {
-                    int[] pts = r.Rings[ring];
-                    if (pts == null || pts.Length < 6) continue;
-                    if (ring > 0 && canopy) break;
-                    int second;
-                    int n = Outline(t, pts, roads, corridors, s, out second);
+                    if (trimmed) n = guard.CopyPiece(piece, ref xs, ref zs);
                     if (n < 3) continue;
+                    b.BeginGroup();
                     if (canopy)
                     {
-                        // Open canopy (petrol stations, pavilions): posts at the corners, the roof slab above head height.
+                        // Open canopy (petrol stations, pavilions): the roof slab above head height, posts at the corners
+                        // that stand clear of the road.
                         float slabBottom = Math.Max(bottom, top - 0.6f);
-                        b.AddRing(s.X, s.Z, n, WallHalfM, slabBottom, top, SolidFlags.None);
-                        for (int k = 0; k + 1 < pts.Length; k += 2)
-                            b.AddCylinder(x0 + pts[k] / 100.0, z0 + pts[k + 1] / 100.0, 0.2f, bottom, slabBottom, SolidFlags.NoCamera);
+                        b.AddRing(xs, zs, n, WallHalfM, slabBottom, top, SolidFlags.None);
+                        if (piece > 0) continue;
+                        for (int k = 0; k + 1 < outer.Length; k += 2)
+                        {
+                            double px = x0 + outer[k] / 100.0, pz = z0 + outer[k + 1] / 100.0;
+                            if (guard != null && guard.InRoad(px, pz)) continue;
+                            b.AddCylinder(px, pz, 0.2f, bottom, slabBottom, SolidFlags.NoCamera);
+                        }
                         continue;
                     }
-                    b.AddRing(s.X, s.Z, n, WallHalfM, bottom, top, SolidFlags.None);
-                    if (second >= 3)
+                    b.AddRing(xs, zs, n, WallHalfM, bottom, top, SolidFlags.None);
+                    if (trimmed && pieces > 1) continue; // holes of a footprint cut in two are dropped
+                    for (int ring = 1; ring < r.Rings.Length; ring++)
                     {
-                        // The other side of a road that ran through the footprint: an outline of its own.
-                        b.BeginGroup();
-                        b.AddRing(s.X2, s.Z2, second, WallHalfM, bottom, top, SolidFlags.None);
-                        break; // holes of a cut footprint are dropped
+                        // Courtyards stay as drawn, except one that opens onto a road: filled, so no wall of it stands in
+                        // the road.
+                        int[] pts = r.Rings[ring];
+                        if (pts == null || pts.Length < 6) continue;
+                        int hn = Ring(t, pts, ref hx, ref hz);
+                        if (guard != null && guard.Intrudes(hx, hz, hn)) continue;
+                        b.AddRing(hx, hz, hn, WallHalfM, bottom, top, SolidFlags.None);
                     }
                 }
             }
+        }
+
+        /// <summary>A ring of tile-local centimetre pairs in game metres, into (x, z) (grown as needed); returns its
+        /// point count.</summary>
+        private static int Ring(TileData t, int[] pts, ref double[] x, ref double[] z)
+        {
+            int n = pts.Length / 2;
+            if (x.Length < n) x = new double[Math.Max(n, 2 * x.Length)];
+            if (z.Length < x.Length) z = new double[x.Length];
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+            for (int k = 0; k < n; k++)
+            {
+                x[k] = x0 + pts[2 * k] / 100.0;
+                z[k] = z0 + pts[2 * k + 1] / 100.0;
+            }
+            return n;
         }
 
         /// <summary>True when the part's first point lies inside the outer ring of a sacred host outline.</summary>
@@ -201,144 +221,6 @@ namespace Ghumante.Core.Driving
                 if (inside) return true;
             }
             return false;
-        }
-
-        /// <summary>
-        /// The ring in game metres, in <see cref="Scratch.X"/>/<see cref="Scratch.Z"/>; returns its point count. The
-        /// runtime guard of decision 1: where the ring reaches into a road (the corridor of <paramref name="corridors"/>
-        /// when given, else the drawn carriageway), its edges are cut into pieces of at most <see cref="CorridorStepM"/>
-        /// and every point inside is moved to the corridor edge on the footprint's side, so the outline is sealed along
-        /// the corridor edge. A footprint the road runs right through becomes two outlines, one each side: the second
-        /// one goes to <see cref="Scratch.X2"/>/<see cref="Scratch.Z2"/> with its count in <paramref name="second"/>.
-        /// </summary>
-        private static int Outline(TileData t, int[] pts, RoadSpatialIndex roads, IRoadCorridorQuery corridors, Scratch s, out int second)
-        {
-            second = 0;
-            int n = pts.Length / 2;
-            s.Ensure(n);
-            double x0 = t.Tile.X0, z0 = t.Tile.Z0;
-            double minX = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxZ = double.MinValue;
-            for (int k = 0; k < n; k++)
-            {
-                s.X[k] = x0 + pts[2 * k] / 100.0;
-                s.Z[k] = z0 + pts[2 * k + 1] / 100.0;
-                minX = Math.Min(minX, s.X[k]);
-                maxX = Math.Max(maxX, s.X[k]);
-                minZ = Math.Min(minZ, s.Z[k]);
-                maxZ = Math.Max(maxZ, s.Z[k]);
-            }
-            if (roads == null) return n;
-            // Quick reject: no road within the outline's reach.
-            double cx = 0.5 * (minX + maxX), cz = 0.5 * (minZ + maxZ);
-            double rad = 0.5 * Math.Sqrt((maxX - minX) * (maxX - minX) + (maxZ - minZ) * (maxZ - minZ));
-            RoadHit hit;
-            bool near = corridors != null
-                ? corridors.SignedDistance(cx, cz) < rad
-                : roads.TryNearest(cx, cz, rad, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit);
-            if (!near) return n;
-
-            // Densify and classify: inside a corridor, or on the left (-1) / right (+1) of the nearest road.
-            int m = 0;
-            for (int k = 0; k < n; k++)
-            {
-                int j = k + 1 == n ? 0 : k + 1;
-                double dx = s.X[j] - s.X[k], dz = s.Z[j] - s.Z[k];
-                int pieces = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dz * dz) / CorridorStepM));
-                for (int q = 0; q < pieces; q++)
-                {
-                    s.EnsureDense(m + 1);
-                    double f = q / (double)pieces;
-                    s.TX[m] = s.X[k] + dx * f;
-                    s.TZ[m] = s.Z[k] + dz * f;
-                    m++;
-                }
-            }
-            s.Ensure(m);
-            bool anyInside = false, left = false, right = false;
-            for (int k = 0; k < m; k++)
-            {
-                s.Inside[k] = InsideCorridor(s.TX[k], s.TZ[k], roads, corridors);
-                anyInside |= s.Inside[k];
-                if (s.Inside[k]) continue;
-                int side = SideOf(s.TX[k], s.TZ[k], roads);
-                left |= side < 0;
-                right |= side > 0;
-            }
-            if (!anyInside) return n;
-            if (left && right && Straddles(s, m, roads))
-            {
-                // The road runs through the footprint: one outline on each side, each sealed along its corridor edge.
-                int na = Sided(s, m, -1, roads, corridors, s.X, s.Z);
-                second = Sided(s, m, +1, roads, corridors, s.X2, s.Z2);
-                return na;
-            }
-            int keep = right && !left ? 1 : -1;
-            return Sided(s, m, keep, roads, corridors, s.X, s.Z);
-        }
-
-        private static bool InsideCorridor(double x, double z, RoadSpatialIndex roads, IRoadCorridorQuery corridors)
-        {
-            if (corridors != null) return corridors.SignedDistance(x, z) < 0;
-            RoadHit hit;
-            return roads.TryNearest(x, z, 0.0, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit) && hit.EdgeDistanceM < 0f;
-        }
-
-        /// <summary>Side of a point relative to the nearest road's carriageway centre: -1 left, +1 right of its point order.</summary>
-        private static int SideOf(double x, double z, RoadSpatialIndex roads)
-        {
-            RoadHit hit;
-            if (!roads.TryNearest(x, z, 60.0, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit)) return 0;
-            return hit.LateralM - hit.CentreShiftM >= 0f ? 1 : -1;
-        }
-
-        /// <summary>True when some run of corridor points has outside neighbours on both sides of the road.</summary>
-        private static bool Straddles(Scratch s, int m, RoadSpatialIndex roads)
-        {
-            for (int k = 0; k < m; k++)
-            {
-                if (!s.Inside[k] || s.Inside[(k + m - 1) % m]) continue; // the start of a run
-                int end = k;
-                while (s.Inside[(end + 1) % m] && (end + 1) % m != k) end = (end + 1) % m;
-                int a = (k + m - 1) % m, b = (end + 1) % m;
-                if (s.Inside[a] || s.Inside[b]) continue;
-                if (SideOf(s.TX[a], s.TZ[a], roads) * SideOf(s.TX[b], s.TZ[b], roads) < 0) return true;
-            }
-            return false;
-        }
-
-        /// <summary>The densified ring with every point inside a corridor or across the road from <paramref name="side"/>
-        /// moved to the corridor edge on that side; returns the point count written to (ox, oz).</summary>
-        private static int Sided(Scratch s, int m, int side, RoadSpatialIndex roads, IRoadCorridorQuery corridors, double[] ox, double[] oz)
-        {
-            for (int k = 0; k < m; k++)
-            {
-                double x = s.TX[k], z = s.TZ[k];
-                if (s.Inside[k] || SideOf(x, z, roads) != side) ToEdge(ref x, ref z, side, roads, corridors);
-                ox[k] = x;
-                oz[k] = z;
-            }
-            return m;
-        }
-
-        /// <summary>Moves a point across to just beyond the corridor edge on <paramref name="side"/> of its nearest road.</summary>
-        private static void ToEdge(ref double x, ref double z, int side, RoadSpatialIndex roads, IRoadCorridorQuery corridors)
-        {
-            RoadHit hit;
-            if (!roads.TryNearest(x, z, 60.0, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit)) return;
-            double rx = hit.DirZ, rz = -hit.DirX; // right normal
-            double off = hit.CentreShiftM + side * (hit.HalfWidthM + 0.05);
-            double tx = hit.X + rx * off, tz = hit.Z + rz * off;
-            if (corridors != null)
-            {
-                // The corridor may reach beyond the carriageway (footpaths): step on outward until clear of it.
-                for (int it = 0; it < 40 && corridors.SignedDistance(tx, tz) < 0; it++)
-                {
-                    tx += rx * side * 0.25;
-                    tz += rz * side * 0.25;
-                }
-            }
-            x = tx;
-            z = tz;
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -397,13 +279,115 @@ namespace Ghumante.Core.Driving
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Railings
+        // Railings and retaining walls
+
+        /// <summary>Merges consecutive railing stations into straight pieces whose bottom and top each stay within
+        /// <see cref="RailingMaxRiseM"/>, and adds them as walls.</summary>
+        private sealed class RailRun
+        {
+            private readonly SolidBuilder _b;
+            private bool _open, _havePrev;
+            private double _sx, _sz, _ex, _ez, _dirX, _dirZ, _len;
+            private float _loB, _hiB, _loT, _hiT;
+            private double _px, _pz;
+            private float _pb, _pt;
+            private bool _pRaised;
+
+            public RailRun(SolidBuilder b)
+            {
+                _b = b;
+            }
+
+            public void Begin()
+            {
+                _open = false;
+                _havePrev = false;
+            }
+
+            /// <summary>The next station (x, z) with the wall's bottom and top there; a piece joins it to the previous
+            /// station when either of them needs a wall.</summary>
+            public void Add(double x, double z, float bottom, float top, bool raised)
+            {
+                if (_havePrev && (raised || _pRaised)) Piece(_px, _pz, _pb, _pt, x, z, bottom, top);
+                else Flush();
+                _px = x;
+                _pz = z;
+                _pb = bottom;
+                _pt = top;
+                _pRaised = raised;
+                _havePrev = true;
+            }
+
+            public void End()
+            {
+                Flush();
+                _havePrev = false;
+            }
+
+            private void Piece(double ax, double az, float ab, float at, double bx, double bz, float bb, float bt)
+            {
+                double dx = bx - ax, dz = bz - az, l = Math.Sqrt(dx * dx + dz * dz);
+                if (l < 1e-6) return;
+                dx /= l;
+                dz /= l;
+                if (_open)
+                {
+                    float loB = Math.Min(_loB, Math.Min(ab, bb)), hiB = Math.Max(_hiB, Math.Max(ab, bb));
+                    float loT = Math.Min(_loT, Math.Min(at, bt)), hiT = Math.Max(_hiT, Math.Max(at, bt));
+                    bool straight = dx * _dirX + dz * _dirZ > 0.99995 && Math.Abs(ax - _ex) < 1e-6 && Math.Abs(az - _ez) < 1e-6;
+                    if (straight && hiB - loB <= RailingMaxRiseM && hiT - loT <= RailingMaxRiseM && _len + l <= RailingMaxPieceM)
+                    {
+                        _ex = bx;
+                        _ez = bz;
+                        _len += l;
+                        _loB = loB;
+                        _hiB = hiB;
+                        _loT = loT;
+                        _hiT = hiT;
+                        return;
+                    }
+                    Flush();
+                }
+                _open = true;
+                _sx = ax;
+                _sz = az;
+                _ex = bx;
+                _ez = bz;
+                _dirX = dx;
+                _dirZ = dz;
+                _len = l;
+                _loB = Math.Min(ab, bb);
+                _hiB = Math.Max(ab, bb);
+                _loT = Math.Min(at, bt);
+                _hiT = Math.Max(at, bt);
+            }
+
+            private void Flush()
+            {
+                if (!_open) return;
+                _open = false;
+                _b.AddWall(_sx, _sz, _ex, _ez, RailingHalfM, _loB, _hiT, SolidFlags.None);
+            }
+        }
+
+        /// <summary>True when a bridge's railings run its whole span: a bridge over water (structure kind or flag), or a
+        /// bridge-flagged road without structure data.</summary>
+        private static bool WholeSpan(RoadRecord r, RoadStructureRecord st)
+        {
+            return st.Kind == RoadStructureKind.Bridge || st.Has(RoadStructureFlags.WaterCrossing) ||
+                   st.Kind == RoadStructureKind.None && (r.Flags & RoadFlags.Bridge) != 0;
+        }
 
         private static void Railings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, SolidBuilder b)
         {
+            var run = new RailRun(b);
+            double[] xs = new double[16], zs = new double[16], along = new double[16];
+            float[] ys = new float[16];
             for (int ri = 0; ri < t.Roads.Count; ri++)
             {
-                if (!roads.IsElevated(ri)) continue;
+                bool elevated = roads.IsElevated(ri);
+                float[] deck = roads.SurfaceHeights(ri);
+                if (!elevated && deck == null) continue;
                 RoadRecord r = t.Roads[ri];
                 if (!RoadMesher.IsDrawn(r, o)) continue;
                 int first, last;
@@ -411,18 +395,22 @@ namespace Ghumante.Core.Driving
                 if (last <= first) continue;
                 RoadStructureRecord st = t.RoadStructureOf(ri);
                 float rail = st.RailingHeightM > 0f ? st.RailingHeightM : DefaultRailingM;
-                float[] deck = roads.SurfaceHeights(ri);
+                float lift = RoadMesher.LiftOf(r, o);
+                bool whole = elevated && WholeSpan(r, st);
                 int[] p = r.Points;
                 int n = last - first + 1;
-                var xs = new double[n];
-                var zs = new double[n];
-                var ys = new float[n];
-                var along = new double[n];
+                if (xs.Length < n)
+                {
+                    xs = new double[2 * n];
+                    zs = new double[2 * n];
+                    along = new double[2 * n];
+                    ys = new float[2 * n];
+                }
                 for (int k = 0; k < n; k++)
                 {
                     int i = first + k;
                     t.LocalToGame(p[2 * i], p[2 * i + 1], out xs[k], out zs[k]);
-                    if (k > 0) along[k] = along[k - 1] + Math.Sqrt((xs[k] - xs[k - 1]) * (xs[k] - xs[k - 1]) + (zs[k] - zs[k - 1]) * (zs[k] - zs[k - 1]));
+                    along[k] = k > 0 ? along[k - 1] + Math.Sqrt((xs[k] - xs[k - 1]) * (xs[k] - xs[k - 1]) + (zs[k] - zs[k - 1]) * (zs[k] - zs[k - 1])) : 0.0;
                 }
                 if (deck != null)
                 {
@@ -430,8 +418,8 @@ namespace Ghumante.Core.Driving
                 }
                 else
                 {
-                    // The straight deck between the lifted ends (as the ground query's legacy bridge).
-                    float lift = RoadMesher.LiftOf(r, o), ha, hb;
+                    // The straight deck between the lifted ends (as the ground query's bridge without heights).
+                    float ha, hb;
                     if (!h.TryHeightClamped(xs[0], zs[0], out ha) || !h.TryHeightClamped(xs[n - 1], zs[n - 1], out hb)) continue;
                     double total = along[n - 1];
                     for (int k = 0; k < n; k++)
@@ -444,43 +432,87 @@ namespace Ghumante.Core.Driving
                 }
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    double px = 0, pz = 0;
-                    float py = 0f;
-                    bool havePrev = false;
-                    for (int k = 0; k < n; k++)
+                    run.Begin();
+                    for (int k = 0; k + 1 < n; k++)
                     {
-                        // Mitred normal at the point (right of the point order), scaled so the offset holds at bends.
-                        double nx = 0, nz = 0;
-                        if (k > 0) AddNormal(xs[k - 1], zs[k - 1], xs[k], zs[k], ref nx, ref nz);
-                        if (k < n - 1) AddNormal(xs[k], zs[k], xs[k + 1], zs[k + 1], ref nx, ref nz);
-                        double l = Math.Sqrt(nx * nx + nz * nz);
-                        if (l < 1e-9) continue;
-                        nx /= l;
-                        nz /= l;
-                        double c = 1.0;
-                        if (k > 0 && k < n - 1)
+                        double dx = xs[k + 1] - xs[k], dz = zs[k + 1] - zs[k];
+                        double len = along[k + 1] - along[k];
+                        if (len < 1e-6) continue;
+                        double nx = dz / len, nz = -dx / len; // right normal of the segment
+                        int pieces = Math.Max(1, (int)Math.Ceiling(len / RailingStepM));
+                        for (int q = k == 0 ? 0 : 1; q <= pieces; q++)
                         {
-                            double dx = xs[k] - xs[k - 1], dz = zs[k] - zs[k - 1], dl = Math.Sqrt(dx * dx + dz * dz);
-                            if (dl > 1e-9) c = Math.Max(0.5, Math.Abs(nx * (dz / dl) - nz * (dx / dl)));
+                            double f = q / (double)pieces;
+                            double cx = xs[k] + dx * f, cz = zs[k] + dz * f;
+                            float y = ys[k] + (ys[k + 1] - ys[k]) * (float)f;
+                            // At a vertex the mitred normal of both segments, so the pieces of a bend meet.
+                            double mx = nx, mz = nz, scale = 1.0;
+                            int v = q == 0 ? k : q == pieces ? k + 1 : -1;
+                            if (v >= 0) Mitre(xs, zs, n, v, out mx, out mz, out scale);
+                            float half, shift, fl, fr;
+                            roads.SectionAt(ri, along[k] + len * f, out half, out shift, out fl, out fr);
+                            double reach = elevated ? half + RoadSpatialIndex.DeckKerbM : half + (side < 0 ? fl : fr);
+                            double off = (shift + side * (reach + RailingHalfM)) * scale;
+                            double qx = cx + mx * off, qz = cz + mz * off;
+                            float ground;
+                            if (!h.TryHeightClamped(qx, qz, out ground)) ground = y;
+                            if (elevated)
+                            {
+                                bool raised = (whole || y - ground >= RailingMinRiseM) && !AtGradeRoad(t, h, roads, o, ri, qx, qz, y);
+                                run.Add(qx, qz, y - RailingBelowDeckM, y + rail, raised);
+                            }
+                            else
+                            {
+                                // A lowered road: a retaining wall where it runs below the hard edge.
+                                bool cut = ground + lift - y > TileGroundQuery.HardEdgeM;
+                                run.Add(qx, qz, y - RailingBelowDeckM, Math.Max(y + rail, ground + RetainingParapetM), cut);
+                            }
                         }
-                        float half, shift, fl, fr;
-                        roads.SectionAt(ri, along[k], out half, out shift, out fl, out fr);
-                        double off = shift + side * (half + RoadSpatialIndex.DeckKerbM + RailingHalfM);
-                        double qx = xs[k] + nx / c * off, qz = zs[k] + nz / c * off;
-                        float terrainHere;
-                        if (!h.TryHeightClamped(qx, qz, out terrainHere)) terrainHere = ys[k];
-                        bool raised = ys[k] - terrainHere >= RailingMinRiseM;
-                        if (havePrev && raised)
-                        {
-                            float lo = Math.Min(py, ys[k]), hi = Math.Max(py, ys[k]);
-                            b.AddWall(px, pz, qx, qz, RailingHalfM, lo - 0.4f, hi + rail, SolidFlags.None);
-                        }
-                        px = qx;
-                        pz = qz;
-                        py = ys[k];
-                        havePrev = raised;
                     }
+                    run.End();
                 }
+            }
+        }
+
+        /// <summary>True when (x, z) lies on the carriageway of another road whose surface is within
+        /// <see cref="AtGradeM"/> of the deck height <paramref name="y"/> there: a street meeting the bridge's end at grade,
+        /// where a railing would stand in its way (a road passing under the deck lies far lower and keeps it).</summary>
+        private static bool AtGradeRoad(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, int self, double x, double z, float y)
+        {
+            RoadHit hit;
+            if (!roads.TryNearest(x, z, 0.0, RoadFlags.None, RoadFlags.None, RoadLayer.Any, out hit) || hit.RoadIndex == self) return false;
+            float surface, grade;
+            if (!roads.TrySurfaceHeight(in hit, out surface, out grade))
+            {
+                float terrain;
+                if (!h.TryHeightClamped(x, z, out terrain)) return false;
+                surface = terrain + RoadMesher.LiftOf(hit.Road, o);
+            }
+            return Math.Abs(y - surface) < AtGradeM;
+        }
+
+        /// <summary>The mitred unit normal (right of the point order) at vertex <paramref name="v"/>, and the offset
+        /// scale that keeps a parallel line at its distance across the bend (at most 2).</summary>
+        private static void Mitre(double[] xs, double[] zs, int n, int v, out double mx, out double mz, out double scale)
+        {
+            double nx = 0, nz = 0;
+            if (v > 0) AddNormal(xs[v - 1], zs[v - 1], xs[v], zs[v], ref nx, ref nz);
+            if (v < n - 1) AddNormal(xs[v], zs[v], xs[v + 1], zs[v + 1], ref nx, ref nz);
+            double l = Math.Sqrt(nx * nx + nz * nz);
+            if (l < 1e-9)
+            {
+                // A U-turn: the normal of the incoming segment.
+                nx = nz = 0;
+                AddNormal(xs[Math.Max(0, v - 1)], zs[Math.Max(0, v - 1)], xs[Math.Min(n - 1, Math.Max(1, v))], zs[Math.Min(n - 1, Math.Max(1, v))], ref nx, ref nz);
+                l = Math.Max(1e-9, Math.Sqrt(nx * nx + nz * nz));
+            }
+            mx = nx / l;
+            mz = nz / l;
+            scale = 1.0;
+            if (v > 0 && v < n - 1)
+            {
+                double dx = xs[v] - xs[v - 1], dz = zs[v] - zs[v - 1], dl = Math.Sqrt(dx * dx + dz * dz);
+                if (dl > 1e-9) scale = 1.0 / Math.Max(0.5, Math.Abs(mx * (dz / dl) - mz * (dx / dl)));
             }
         }
 

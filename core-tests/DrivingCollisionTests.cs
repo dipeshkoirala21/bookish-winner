@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Generators;
+using Ghumante.Core.Meshing;
 using NUnit.Framework;
 
 namespace Ghumante.Core.Tests
@@ -342,6 +343,55 @@ namespace Ghumante.Core.Tests
                 Assert.That(!pen || Math.Sqrt(px * px + pz * pz) < 0.06, Is.True, "no deep overlap");
             }
             Assert.That(g.InsideSolid(v.X, v.Z, v.Y), Is.False);
+        }
+
+        [Test]
+        public void TilesWithoutRoadsAreSolidOnTheStreamingPath()
+        {
+            // The streamer builds the road index on a worker and adds the area with it: a hillside tile without drawn
+            // roads still carries its houses.
+            TileData t = FlatTile(House(100, 100, 120, 120));
+            var g = new TileGroundQuery();
+            RoadSpatialIndex idx = g.BuildRoadIndex(t);
+            Assert.That(idx, Is.Not.Null, "a carrier for the solids");
+            Assert.That(idx.SegmentCount, Is.EqualTo(0));
+            g.Add(t.Tile, new TileHeightSampler(t, 1), idx);
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+            Assert.That(g.SolidCount, Is.GreaterThan(0));
+            Assert.That(g.InsideSolid(x0 + 110, z0 + 110, (float)H), Is.True);
+            ArcadeVehicle v = At(VehicleSpec.Motorbike(), g, x0 + 110, z0 + 80, 0f);
+            v.SpeedMps = 20f;
+            for (int i = 0; i < 60 * 4; i++) v.Step(new DriveInput(1f, 0f, 0f), Dt60, g, 0f);
+            Assert.That(v.Z + FrontReach(v), Is.LessThanOrEqualTo(z0 + 100 + 1e-3), "stopped at the house");
+            // A roadless tile does not hide the roads of the level (the finest road level counts tiles with roads).
+            TileData roads = DrivingData.Flat(10, 521, 160, H);
+            roads.Roads.Add(DrivingData.Road(RoadClass.Residential, Surface.Asphalt, 6, RoadFlags.None, 100, 500, 900, 500));
+            g.Add(roads.Tile, new TileHeightSampler(roads, 1), g.BuildRoadIndex(roads));
+            RoadHit hit;
+            Assert.That(g.TryNearestRoad(roads.Tile.X0 + 500, roads.Tile.Z0 + 500, 1.0, out hit), Is.True);
+            Assert.That(g.Remove(t.Tile), Is.True);
+            Assert.That(g.TryNearestRoad(roads.Tile.X0 + 500, roads.Tile.Z0 + 500, 1.0, out hit), Is.True);
+            Assert.That(g.InsideSolid(x0 + 110, z0 + 110, (float)H), Is.False, "gone with its tile");
+        }
+
+        [Test]
+        public void ACircleSwungInsideAHouseCountsAsDeep()
+        {
+            // A hatchback beside a house whose nose, turned 60°, would sit inside it: Penetration reports it, so the turn
+            // is undone rather than accepted.
+            TileData t = FlatTile(House(100, 100, 120, 120));
+            TileGroundQuery g = Ground(t);
+            CollisionBody body = CollisionBody.For(VehicleSpec.For(HandlingPreset.Hatchback));
+            ArcadeVehicle v = At(VehicleSpec.For(HandlingPreset.Hatchback), g, t.Tile.X0 + 100 - TileSolids.WallHalfM - body.Radius - 0.1, t.Tile.Z0 + 110, 0f);
+            Assert.That(body.LastM, Is.GreaterThan(body.Radius + 0.5), "a nose long enough to swing past the wall");
+            double px, pz;
+            Assert.That(g.Penetration(v.Body, v.X, v.Z, 0f, v.Y, out px, out pz), Is.False, "clear while facing north");
+            float turned = 80f * Deg;
+            double cx, cz;
+            v.Body.Centre(v.Body.Circles - 1, v.X, v.Z, turned, out cx, out cz);
+            Assert.That(g.InsideSolid(cx, cz, v.Y), Is.True, "the nose would be inside");
+            Assert.That(g.Penetration(v.Body, v.X, v.Z, turned, v.Y, out px, out pz), Is.True);
+            Assert.That(Math.Sqrt(px * px + pz * pz), Is.GreaterThan(v.Body.Radius), "as deep as the way out");
         }
 
         [Test]

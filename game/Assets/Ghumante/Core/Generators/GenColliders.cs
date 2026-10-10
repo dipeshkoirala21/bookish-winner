@@ -39,11 +39,16 @@ namespace Ghumante.Core.Generators
     }
 
     /// <summary>A solid vertical cylinder (statue, column, bollard, pier, trunk) in tile-local metres with absolute Y0..Y1.
-    /// Never walkable.</summary>
+    /// Never walkable. It stops the chase camera too unless <see cref="CameraPasses"/> (or it is thinner than
+    /// StructureColliders.ThinCylinderM: bollards, posts).</summary>
     public struct GenCylinder
     {
         public double CX, CZ;
         public float Radius, Y0, Y1;
+
+        /// <summary>The chase camera passes through it (tree trunks, thin poles): set for clutter a camera should not
+        /// jump in front of.</summary>
+        public bool CameraPasses;
     }
 
     /// <summary>A solid thin wall (railing, parapet, fence, compound wall) from (X0, Z0) to (X1, Z1) in tile-local metres,
@@ -81,11 +86,12 @@ namespace Ghumante.Core.Generators
             Walls.Clear();
         }
 
-        /// <summary>A solid vertical cylinder (tile-local centre, absolute heights).</summary>
-        public void AddCylinder(double cx, double cz, double y0, double y1, double radius)
+        /// <summary>A solid vertical cylinder (tile-local centre, absolute heights); <paramref name="cameraPasses"/> lets
+        /// the chase camera through it (<see cref="GenCylinder.CameraPasses"/>).</summary>
+        public void AddCylinder(double cx, double cz, double y0, double y1, double radius, bool cameraPasses = false)
         {
             if (!(radius > 0) || !(y1 > y0)) return;
-            Cylinders.Add(new GenCylinder { CX = cx, CZ = cz, Radius = (float)radius, Y0 = (float)y0, Y1 = (float)y1 });
+            Cylinders.Add(new GenCylinder { CX = cx, CZ = cz, Radius = (float)radius, Y0 = (float)y0, Y1 = (float)y1, CameraPasses = cameraPasses });
         }
 
         /// <summary>A solid thin wall from (x0, z0) to (x1, z1) (tile-local), absolute heights.</summary>

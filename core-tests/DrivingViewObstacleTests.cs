@@ -55,6 +55,56 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
+        public void CastsFromBesideAWallStopAtItAndPassAlongIt()
+        {
+            // The south wall of a house at z = 100 (x 100..140); the pivot just outside it, closer than the sphere.
+            TileData t = DrivingCollisionTests.FlatTile(DrivingCollisionTests.House(100, 100, 140, 120));
+            var g = new TileGroundQuery();
+            g.Add(t);
+            IViewObstacleQuery view = g;
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0, d;
+            foreach (double gap in new[] { 0.1, 0.3, 0.5, 0.8, 1.2 })
+            {
+                // Backwards and up into the house, diagonally: never through it.
+                double oz = z0 + 100 - gap;
+                Assert.That(view.SphereCast(x0 + 120, H + 1.5, oz, -0.3, 0.2, 1.0, 0.35, 8, out d), Is.True, "gap " + gap);
+                double reach = Math.Max(0.0, gap - 0.05 - 0.35);
+                Assert.That(d, Is.LessThanOrEqualTo(reach / (1.0 / Math.Sqrt(0.09 + 0.04 + 1.0)) + 0.02), "gap " + gap);
+            }
+            // From 0.1 m off the wall: along it, or away from it, the cast is free.
+            Assert.That(view.SphereCast(x0 + 120, H + 1.5, z0 + 99.9, 1, 0, 0, 0.35, 8, out d), Is.False, "along the wall");
+            Assert.That(view.SphereCast(x0 + 120, H + 1.5, z0 + 99.9, 0, 0.2, -1, 0.35, 8, out d), Is.False, "away from it");
+        }
+
+        [Test]
+        public void StatuesColumnsAndPiersStopTheCameraButPostsAndTrunksDoNot()
+        {
+            TileData t = DrivingCollisionTests.FlatTile();
+            var g = new TileGroundQuery();
+            g.Add(t);
+            var gen = new Generators.GenColliders();
+            gen.AddCylinder(100, 150, H, H + 4, 1.0); // a roundabout statue
+            gen.AddCylinder(200, 150, H, H + 6, 0.6); // a flyover pier
+            gen.AddCylinder(300, 150, H, H + 1, 0.12); // a bollard
+            gen.AddCylinder(400, 150, H, H + 6, 0.5, true); // a trunk the generator lets cameras through
+            var c = new StructureColliders();
+            c.AddFrom(gen);
+            c.AddTree(500, 150, (float)H, 12f);
+            g.Register(t.Tile.Key, c);
+            IViewObstacleQuery view = g;
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0, d;
+            Assert.That(view.SphereCast(x0 + 100, H + 1.6, z0 + 140, 0, 0, 1, 0.3, 20, out d), Is.True, "statue");
+            Assert.That(d, Is.EqualTo(10 - 1.0 - 0.3).Within(0.02));
+            Assert.That(view.SphereCast(x0 + 200, H + 1.6, z0 + 140, 0, 0, 1, 0.3, 20, out d), Is.True, "pier");
+            Assert.That(view.SphereCast(x0 + 300, H + 0.5, z0 + 140, 0, 0, 1, 0.3, 20, out d), Is.False, "bollard");
+            Assert.That(view.SphereCast(x0 + 400, H + 1.6, z0 + 140, 0, 0, 1, 0.3, 20, out d), Is.False, "generator trunk");
+            Assert.That(view.SphereCast(x0 + 500, H + 1.6, z0 + 140, 0, 0, 1, 0.3, 20, out d), Is.False, "placed tree");
+            // All of them still stop a body.
+            foreach (double lane in new[] { 100.0, 200.0, 300.0, 400.0, 500.0 })
+                Assert.That(g.IsBlocked(x0 + lane, z0 + 150 - 0.1, (float)H), Is.True, "lane " + lane);
+        }
+
+        [Test]
         public void SphereCastsDoNotAllocate()
         {
             TileGroundQuery g = DrivingData.SampleGround();

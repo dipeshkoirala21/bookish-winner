@@ -20,6 +20,10 @@ namespace Ghumante.Core.Driving
         private readonly List<ulong> _solidKeys = new List<ulong>();
         private readonly List<SolidSet> _solidSets = new List<SolidSet>();
         private readonly double[] _cx = new double[CollisionBody.MaxCircles], _cz = new double[CollisionBody.MaxCircles];
+        private readonly float[] _cy = new float[CollisionBody.MaxCircles];
+
+        /// <summary>Longest step of the march that finds the ground under each circle of a body (<see cref="CarryAlongBody"/>).</summary>
+        public const float CarryStepM = 2f;
 
         private void AddSolids(ulong key, SolidSet set)
         {
@@ -142,13 +146,21 @@ namespace Ghumante.Core.Driving
                 if (!set.Overlaps(minX - r, minZ - r, maxX + r, maxZ + r)) continue;
                 hit |= set.Sweep(_cx, _cz, n, r, dx, dz, feetY, StepUpM, body.HeightM, ref t, ref nx, ref nz);
             }
-            // Deck slabs too low for the body (the side of a ramp, a low span): checked where the move ends.
+            // Deck slabs too low for the body (the side of a ramp, a low span): checked where the move ends, for each
+            // circle from the ground it rides on (a long body on a ramp has its nose over higher deck than its feet).
             if (!float.IsInfinity(feetY))
             {
+                bool carried = false;
                 for (int k = 0; k < n; k++)
                 {
                     double ex = _cx[k] + dx * t, ez = _cz[k] + dz * t;
                     if (!CeilingBlocks(ex, ez, feetY, body.HeightM)) continue;
+                    if (!carried)
+                    {
+                        CarryAlongBody(in body, x, z, headingRad, feetY, dx * t, dz * t);
+                        carried = true;
+                    }
+                    if (!CeilingBlocks(ex, ez, _cy[k], body.HeightM)) continue;
                     double len = Math.Sqrt(dx * dx + dz * dz);
                     t = 0f;
                     nx = (float)(-dx / len);
@@ -157,6 +169,63 @@ namespace Ghumante.Core.Driving
                 }
             }
             return hit;
+        }
+
+        /// <summary>
+        /// The ground each circle of a body rides on (into <see cref="_cy"/>) after the body moved by (mx, mz): marching
+        /// from the origin (feet at <paramref name="feetY"/>) to the moved origin and then along the body's axis in steps of
+        /// at most <see cref="CarryStepM"/>, the layered ground is followed while each step changes its height by at most
+        /// <see cref="StructureDeckStepUpM"/> (a ramp or deck continuing under the body); a larger step (the side of a
+        /// ramp, a drop) ends the march there, so beyond it the circle keeps the last height.
+        /// </summary>
+        private void CarryAlongBody(in CollisionBody body, double x, double z, float headingRad, float feetY, double mx, double mz)
+        {
+            double fx = Math.Sin(headingRad), fz = Math.Cos(headingRad);
+            float y = Carry(x, z, feetY, x + mx, z + mz);
+            double ox = x + mx, oz = z + mz;
+            // Forward from the origin to the front circle, and back to the rear one; circles in order of their along.
+            float yFwd = y, yBack = y;
+            double aFwd = 0, aBack = 0;
+            for (int k = 0; k < body.Circles; k++)
+            {
+                float along = body.Circles <= 1 ? body.FirstM : body.FirstM + (body.LastM - body.FirstM) * k / (body.Circles - 1);
+                if (along >= 0)
+                {
+                    yFwd = Carry(ox + fx * aFwd, oz + fz * aFwd, yFwd, ox + fx * along, oz + fz * along);
+                    aFwd = along;
+                    _cy[k] = yFwd;
+                }
+                else
+                {
+                    _cy[k] = float.NaN;
+                }
+            }
+            for (int k = body.Circles - 1; k >= 0; k--)
+            {
+                if (!float.IsNaN(_cy[k])) continue;
+                float along = body.Circles <= 1 ? body.FirstM : body.FirstM + (body.LastM - body.FirstM) * k / (body.Circles - 1);
+                yBack = Carry(ox + fx * aBack, oz + fz * aBack, yBack, ox + fx * along, oz + fz * along);
+                aBack = along;
+                _cy[k] = yBack;
+            }
+        }
+
+        /// <summary>Follows the layered ground from (ax, az) at height <paramref name="y"/> to (bx, bz); see
+        /// <see cref="CarryAlongBody"/>.</summary>
+        private float Carry(double ax, double az, float y, double bx, double bz)
+        {
+            double dx = bx - ax, dz = bz - az;
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            if (len < 1e-6) return y;
+            int steps = Math.Max(1, (int)Math.Ceiling(len / CarryStepM));
+            for (int k = 1; k <= steps; k++)
+            {
+                double f = k / (double)steps;
+                GroundSample s;
+                if (!SampleCore(ax + dx * f, az + dz * f, y, out s) || Math.Abs(s.Height - y) > StructureDeckStepUpM) break;
+                y = s.Height;
+            }
+            return y;
         }
 
         public bool Penetration(in CollisionBody body, double x, double z, float headingRad, float feetY, out double pushX, out double pushZ)
@@ -190,9 +259,11 @@ namespace Ghumante.Core.Driving
 
         /// <summary>
         /// Sweeps a sphere from (ox, oy, oz) along the unit direction (dx, dy, dz) up to <paramref name="maxDist"/>
-        /// against every solid (footprints, structures, railings; not thin poles and trunks), the deck slabs of bridges
-        /// and flyovers, and the rendered terrain. Solids the sphere starts in are ignored, and so is the terrain until
-        /// the sphere is above it, so a camera never locks onto what its target stands in. Allocation free.
+        /// against every solid (footprints, structures, statues, piers, railings; not trunks, poles and other thin
+        /// cylinders), the deck slabs of bridges and flyovers, and the rendered terrain. An outline the start lies inside
+        /// is ignored, and so is the terrain until the sphere is above it, so a camera never locks onto what its target
+        /// stands in; a wall the sphere already touches at the start (a pivot close to it) stops it at once when the cast
+        /// heads into it (hit at 0) and is passed when it heads along it or away. Allocation free.
         /// </summary>
         public bool SphereCast(double ox, double oy, double oz, double dx, double dy, double dz, double radius, double maxDist,
                                out double hitDist)

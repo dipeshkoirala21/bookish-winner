@@ -149,6 +149,7 @@ namespace Ghumante.Core.Driving
         private readonly int[] _gStamp;
         private readonly bool[] _gInside;
         private readonly float[] _gBottom, _gTop; // vertical span of every group (from its walls)
+        private readonly int[] _gFirst, _gLast; // range of prims holding every group's walls
         private readonly SolidFlags[] _gFlags;
         private readonly int[] _gCellStart, _gItems; // groups whose outline box touches each cell
         private int _query, _gQuery;
@@ -174,10 +175,14 @@ namespace Ghumante.Core.Driving
             _gBottom = new float[groups];
             _gTop = new float[groups];
             _gFlags = new SolidFlags[groups];
+            _gFirst = new int[groups];
+            _gLast = new int[groups];
             for (int g = 0; g < groups; g++)
             {
                 _gBottom[g] = float.PositiveInfinity;
                 _gTop[g] = float.NegativeInfinity;
+                _gFirst[g] = int.MaxValue;
+                _gLast[g] = -1;
             }
             for (int i = 0; i < _p.Length; i++)
             {
@@ -186,6 +191,8 @@ namespace Ghumante.Core.Driving
                 _gBottom[g] = Math.Min(_gBottom[g], _p[i].Bottom);
                 _gTop[g] = Math.Max(_gTop[g], _p[i].Top);
                 _gFlags[g] = _p[i].Flags;
+                _gFirst[g] = Math.Min(_gFirst[g], i);
+                _gLast[g] = i;
             }
 
             double minX = double.PositiveInfinity, minZ = double.PositiveInfinity, maxX = double.NegativeInfinity, maxZ = double.NegativeInfinity;
@@ -438,12 +445,16 @@ namespace Ghumante.Core.Driving
 
         /// <summary>
         /// Penetration of circles into solids at rest: accumulates into (pushX, pushZ) the largest push out of any
-        /// solid per axis direction (the deepest contact wins). Returns true when any circle overlaps.
+        /// solid per axis direction (the deepest contact wins). A circle whose centre lies inside an outline (it swung or
+        /// spawned in there) is as deep as the way out through that outline's nearest wall. Returns true when any circle
+        /// overlaps.
         /// </summary>
         public bool Penetration(double[] cx, double[] cz, int count, float r, float feetY, float stepUp, float bodyH,
                                 ref double pushX, ref double pushZ, ref double depth)
         {
             if (_p.Length == 0 || count <= 0) return false;
+            bool deep = false;
+            for (int k = 0; k < count; k++) deep |= InsideOutline(cx[k], cz[k], r, feetY, stepUp, bodyH, ref pushX, ref pushZ, ref depth);
             double minX = double.PositiveInfinity, minZ = double.PositiveInfinity, maxX = double.NegativeInfinity, maxZ = double.NegativeInfinity;
             for (int k = 0; k < count; k++)
             {
@@ -486,6 +497,48 @@ namespace Ghumante.Core.Driving
                         pushZ = uz * pen;
                     }
                     any = true;
+                }
+            }
+            return any || deep;
+        }
+
+        /// <summary>For a circle centred inside an outline that spans the body: the push out through that outline's
+        /// nearest wall (its depth: the distance to the wall plus the circle and wall radii), kept when deepest.</summary>
+        private bool InsideOutline(double x, double z, float r, float feetY, float stepUp, float bodyH, ref double pushX, ref double pushZ,
+                                   ref double depth)
+        {
+            if (!Overlaps(x, z, x, z)) return false;
+            NewPoint();
+            bool any = false;
+            int c = CellZ(z) * _nx + CellX(x);
+            for (int k = _gCellStart[c], end = _gCellStart[c + 1]; k < end; k++)
+            {
+                int g = _gItems[k];
+                var span = new SolidPrim { Bottom = _gBottom[g], Top = _gTop[g], Flags = _gFlags[g] };
+                if (!Spans(in span, feetY, stepUp, bodyH) || !Inside(g, x, z)) continue;
+                double best = double.PositiveInfinity, bx = 1, bz = 0;
+                for (int i = _gFirst[g]; i <= _gLast[g]; i++)
+                {
+                    if (_p[i].Group != g) continue;
+                    double qx, qz;
+                    Closest(_p[i].Ax, _p[i].Az, _p[i].Bx, _p[i].Bz, x, z, out qx, out qz);
+                    double ox = qx - x, oz = qz - z, d = Math.Sqrt(ox * ox + oz * oz);
+                    double out1 = d + r + _p[i].Radius;
+                    if (out1 >= best) continue;
+                    best = out1;
+                    if (d > 1e-9)
+                    {
+                        bx = ox / d;
+                        bz = oz / d;
+                    }
+                }
+                if (double.IsPositiveInfinity(best)) continue;
+                any = true;
+                if (best > depth)
+                {
+                    depth = best;
+                    pushX = bx * best;
+                    pushZ = bz * best;
                 }
             }
             return any;
@@ -539,7 +592,9 @@ namespace Ghumante.Core.Driving
         /// <summary>
         /// Sphere cast for cameras: a sphere of radius <paramref name="r"/> from (ox, oy, oz) along (dx, dy, dz) × len
         /// (dx, dy, dz a unit vector). Lowers <paramref name="best"/> (a distance) to the first contact with a solid's
-        /// prism. Solids the sphere starts in, and outlines containing the start, are ignored.
+        /// prism. Outlines containing the start are ignored (a camera never locks onto what its target stands in); a
+        /// solid the sphere already touches at the start stops it at once when the cast heads further into it, and is
+        /// passed when the cast heads along it or away.
         /// </summary>
         public void SphereCast(double ox, double oy, double oz, double dx, double dy, double dz, float r, double len, ref double best)
         {
@@ -560,7 +615,13 @@ namespace Ghumante.Core.Driving
                 double sx = ox - qx, sz = oz - qz;
                 bool startIn = sx * sx + sz * sz < rt * rt;
                 double yLo = p.Bottom - r, yHi = p.Top + r;
-                if (startIn && oy >= yLo && oy <= yHi) continue; // starts inside this solid
+                if (startIn && oy >= yLo && oy <= yHi)
+                {
+                    // Starts touching this solid (a pivot close to a wall): moving further into it hits at once; moving
+                    // along it or away passes.
+                    if (sx * hx + sz * hz < -1e-9 * len && best > 0) best = 0;
+                    continue;
+                }
                 // Horizontal interval inside the inflated capsule: [tIn, tOut] in fractions of len.
                 double tIn, tOut;
                 if (startIn)

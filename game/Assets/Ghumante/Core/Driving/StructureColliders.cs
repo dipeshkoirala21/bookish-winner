@@ -57,13 +57,17 @@ namespace Ghumante.Core.Driving
         public FootSurface Material;
     }
 
-    /// <summary>A vertical cylinder (tree trunk, pole, statue, bollard) centred at (<see cref="CX"/>, <see cref="CZ"/>) in
-    /// tile-local metres (game metres once registered), spanning the absolute heights <see cref="Bottom"/> to
-    /// <see cref="Top"/>. Never walkable: it blocks every body it spans.</summary>
+    /// <summary>A vertical cylinder (tree trunk, pole, statue, bollard, pier) centred at (<see cref="CX"/>,
+    /// <see cref="CZ"/>) in tile-local metres (game metres once registered), spanning the absolute heights
+    /// <see cref="Bottom"/> to <see cref="Top"/>. Never walkable: it blocks every body it spans. It stops chase cameras
+    /// too, unless <see cref="CameraPasses"/> or it is thinner than <see cref="StructureColliders.ThinCylinderM"/>.</summary>
     public struct ColliderCylinder
     {
         public double CX, CZ;
         public float Radius, Bottom, Top;
+
+        /// <summary>The chase camera passes through it (tree trunks, poles).</summary>
+        public bool CameraPasses;
     }
 
     /// <summary>A thin wall (railing, parapet, fence) from (X0, Z0) to (X1, Z1) in tile-local metres (game metres once
@@ -82,6 +86,12 @@ namespace Ghumante.Core.Driving
     /// Besides boxes and ramps it carries solid-only shapes for the instanced dressing (detail pass, collide package):
     /// <see cref="Cylinders"/> (tree trunks, poles, statues) and <see cref="Walls"/> (railings, parapets); helpers
     /// <see cref="AddTree"/>, <see cref="AddPole"/> and <see cref="AddVehicle"/> size them from the placement output.
+    /// <para><b>Wiring (integration package).</b> Nothing here reaches the game unless the streamer passes it on:
+    /// copy generator output with <see cref="AddFrom"/> (it keeps <c>GenColliders.Cylinders</c> and <c>.Walls</c>, which
+    /// a copy of only the boxes and ramps drops) and merge per tile with <see cref="AddAll"/>; register a tile's colliders
+    /// also when it has only cylinders or walls (test <see cref="Count"/>, not the box and ramp counts); and add the
+    /// placed dressing that has no PROP record (generated trees: <see cref="AddTree"/>; parked vehicles:
+    /// <see cref="AddVehicle"/>) to the tile's set before <see cref="IStructureGround.Register"/>.</para>
     /// </summary>
     public sealed class StructureColliders
     {
@@ -91,6 +101,10 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Tree trunk radius per metre of tree height, and its bounds (a cartoon trunk is a little fat).</summary>
         public const float TrunkRadiusPerM = 0.025f, MinTrunkRadiusM = 0.2f, MaxTrunkRadiusM = 0.65f;
+
+        /// <summary>Cylinders thinner than this (bollards, posts, sign poles) never stop a chase camera; statues, columns
+        /// and piers do.</summary>
+        public const float ThinCylinderM = 0.3f;
 
         public readonly List<OrientedBox> Boxes = new List<OrientedBox>();
         public readonly List<StepRamp> Ramps = new List<StepRamp>();
@@ -139,14 +153,20 @@ namespace Ghumante.Core.Driving
         {
             float h = heightM > 0f ? heightM : 8f;
             float r = Math.Min(MaxTrunkRadiusM, Math.Max(MinTrunkRadiusM, h * TrunkRadiusPerM));
-            Cylinders.Add(new ColliderCylinder { CX = x, CZ = z, Radius = r, Bottom = groundY - 0.5f, Top = groundY + Math.Max(2.5f, 0.5f * h) });
+            Cylinders.Add(new ColliderCylinder
+            {
+                CX = x, CZ = z, Radius = r, Bottom = groundY - 0.5f, Top = groundY + Math.Max(2.5f, 0.5f * h), CameraPasses = true,
+            });
         }
 
         /// <summary>A pole, mast or post of radius <paramref name="radiusM"/> and height <paramref name="heightM"/>.</summary>
         public void AddPole(double x, double z, float groundY, float heightM, float radiusM)
         {
             if (!(radiusM > 0f)) radiusM = 0.12f;
-            Cylinders.Add(new ColliderCylinder { CX = x, CZ = z, Radius = radiusM, Bottom = groundY - 0.3f, Top = groundY + Math.Max(1f, heightM) });
+            Cylinders.Add(new ColliderCylinder
+            {
+                CX = x, CZ = z, Radius = radiusM, Bottom = groundY - 0.3f, Top = groundY + Math.Max(1f, heightM), CameraPasses = true,
+            });
         }
 
         /// <summary>A parked vehicle of catalogue <paramref name="variant"/> at (x, z) (the mesh origin, on the ground under
@@ -202,7 +222,7 @@ namespace Ghumante.Core.Driving
             foreach (GenCylinder y in g.Cylinders)
             {
                 if (!(y.Radius > 0f) || !(y.Y1 > y.Y0)) continue;
-                Cylinders.Add(new ColliderCylinder { CX = y.CX, CZ = y.CZ, Radius = y.Radius, Bottom = y.Y0, Top = y.Y1 });
+                Cylinders.Add(new ColliderCylinder { CX = y.CX, CZ = y.CZ, Radius = y.Radius, Bottom = y.Y0, Top = y.Y1, CameraPasses = y.CameraPasses });
             }
             foreach (GenWall w in g.Walls)
             {
@@ -327,7 +347,8 @@ namespace Ghumante.Core.Driving
         }
 
         /// <summary>The solid view of a collider set: every box as a one-ring outline (walkable boxes are steppable,
-        /// soft-margin boxes padded by <see cref="StructureColliders.SoftMarginM"/>), cylinders and walls as they are.</summary>
+        /// soft-margin boxes padded by <see cref="StructureColliders.SoftMarginM"/>), cylinders and walls as they are
+        /// (cameras pass trunks, poles and anything thinner than <see cref="StructureColliders.ThinCylinderM"/>).</summary>
         private static SolidSet BuildSolids(StructureColliders c, double x0, double z0)
         {
             if (c.Boxes.Count + c.Cylinders.Count + c.Walls.Count == 0) return SolidSet.Empty;
@@ -340,7 +361,11 @@ namespace Ghumante.Core.Driving
                 float margin = (o.Flags & ColliderFlags.SoftMargin) != 0 ? StructureColliders.SoftMarginM : 0f;
                 b.AddBox(x0 + o.CX, z0 + o.CZ, o.HalfX, o.HalfZ, o.YawRad, o.Bottom, o.Top, margin, walk ? SolidFlags.Steppable : SolidFlags.None, sx, sz);
             }
-            foreach (ColliderCylinder y in c.Cylinders) b.AddCylinder(x0 + y.CX, z0 + y.CZ, y.Radius, y.Bottom, y.Top, SolidFlags.NoCamera);
+            foreach (ColliderCylinder y in c.Cylinders)
+            {
+                bool cameraPasses = y.CameraPasses || y.Radius < StructureColliders.ThinCylinderM;
+                b.AddCylinder(x0 + y.CX, z0 + y.CZ, y.Radius, y.Bottom, y.Top, cameraPasses ? SolidFlags.NoCamera : SolidFlags.None);
+            }
             foreach (ColliderWall w in c.Walls) b.AddWall(x0 + w.X0, z0 + w.Z0, x0 + w.X1, z0 + w.Z1, w.HalfThickness, w.Bottom, w.Top, SolidFlags.None);
             return b.Build();
         }

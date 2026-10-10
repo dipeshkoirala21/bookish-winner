@@ -41,6 +41,13 @@ namespace Ghumante.Core.Driving
     /// cylinders, walls) block swept bodies at any speed and stop chase cameras.</item>
     /// </list>
     /// Not thread safe: use it from one thread (the main thread). Queries do not allocate.
+    /// <para><b>Wiring (integration package).</b> Before streaming starts set <see cref="DeckFactory"/> to the bridges
+    /// package's <c>BridgeDeckIndex.ForTile</c>, <see cref="CorridorFactory"/> to the roads package's
+    /// <c>RoadCorridorIndex.ForTile</c> (so footprint solids are trimmed to the same corridor the buildings package trims
+    /// the drawn houses to; without it they stop at the carriageway and leave walls on the footpaths) and
+    /// <see cref="HiddenBuildingRefs"/> to the hero set's hidden refs. Pass every exact tile's
+    /// <see cref="BuildRoadIndex"/> result to <see cref="Add(TileId, TileHeightSampler, RoadSpatialIndex)"/>, also for a tile
+    /// without roads (it carries that tile's solids).</para>
     /// </summary>
     public sealed partial class TileGroundQuery : ILayeredGroundQuery, IRoadQuery, IStructureGround, ISolidQuery, IViewObstacleQuery
     {
@@ -73,7 +80,8 @@ namespace Ghumante.Core.Driving
             public TileId Area;
             public TileData Source;
             public TileHeightSampler Sampler;
-            public RoadSpatialIndex Roads; // exact areas with drawn roads only
+            public RoadSpatialIndex Roads; // exact areas only (it may have no segments: a tile without drawn roads)
+            public bool CountsRoads; // Roads has segments: the area counts for the finest road level
             public PavingIndex Paving; // exact areas only (null for cropped areas)
             public SolidSet Solids; // exact areas only (null for cropped areas)
             public IBridgeDeckQuery Decks; // the bridges package's deck index of an exact area, or null
@@ -291,9 +299,10 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Adds (or replaces) an area with a prebuilt sampler (the one its terrain/road meshes used) and road
         /// index (null: no roads). The sampler must sample <paramref name="area"/>; the index must belong to the
-        /// sampler's source, and only an exact area may carry one. An exact area's solids and decks come with a road
-        /// index from <see cref="BuildRoadIndex"/> (built on the worker); an area added without one has none (its
-        /// streets are not drawn), except through the overloads taking the tile itself, which build them here.</summary>
+        /// sampler's source, and only an exact area may carry one. An exact area's solids and decks come with the index
+        /// from <see cref="BuildRoadIndex"/> (built on the worker, also for a tile without drawn roads: then it carries
+        /// only them); an area added without one has none (its detail is not drawn), except through the overloads taking
+        /// the tile itself, which build them here.</summary>
         public void Add(TileId area, TileHeightSampler sampler, RoadSpatialIndex roads)
         {
             if (sampler == null) throw new ArgumentNullException(nameof(sampler));
@@ -306,6 +315,7 @@ namespace Ghumante.Core.Driving
             var e = new Entry
             {
                 Area = area, Source = sampler.SourceTile, Sampler = sampler, Roads = roads,
+                CountsRoads = roads != null && roads.SegmentCount > 0,
                 Paving = exact ? PavingIndex.Build(sampler.SourceTile) : null,
             };
             if (exact)
@@ -318,29 +328,29 @@ namespace Ghumante.Core.Driving
                 }
                 else if (_inlineSolids || roads != null)
                 {
-                    e.Solids = BuildSolids(sampler.SourceTile, roads);
+                    e.Solids = BuildSolids(sampler.SourceTile, roads != null && roads.SegmentCount > 0 ? roads : null);
                     e.Decks = DeckFactory != null ? DeckFactory(sampler.SourceTile) : null;
                 }
             }
             _areas[area] = e;
             _levelCount[area.Level]++;
-            if (roads != null) _roadLevelCount[area.Level]++;
+            if (e.CountsRoads) _roadLevelCount[area.Level]++;
             AddSolids(area.Key, e.Solids);
         }
 
-        /// <summary>The road index <see cref="Add(TileData, int)"/> builds: null when the tile draws no roads. It also
-        /// carries the tile's solids (<see cref="TileSolids"/>) and deck index (<see cref="DeckFactory"/>), so building
-        /// it on a worker keeps that work off the main thread (the factories and <see cref="HiddenBuildingRefs"/> are
-        /// then used from that worker: they must be safe to call there).</summary>
+        /// <summary>The road index <see cref="Add(TileData, int)"/> builds. It also carries the tile's solids
+        /// (<see cref="TileSolids"/>) and deck index (<see cref="DeckFactory"/>), so building it on a worker keeps that work
+        /// off the main thread (the factories and <see cref="HiddenBuildingRefs"/> are then used from that worker: they
+        /// must be safe to call there). A tile without drawn roads gets an index without segments that carries only its
+        /// solids and decks (its houses are solid on the streaming path too); null only when the tile has neither.</summary>
         public RoadSpatialIndex BuildRoadIndex(TileData tile)
         {
             if (tile == null) throw new ArgumentNullException(nameof(tile));
-            if (tile.Roads.Count == 0) return null;
             var idx = new RoadSpatialIndex(tile, _roadOptions);
-            if (idx.SegmentCount == 0) return null;
-            idx.Solids = BuildSolids(tile, idx);
+            idx.Solids = BuildSolids(tile, idx.SegmentCount > 0 ? idx : null);
             idx.Decks = DeckFactory != null ? DeckFactory(tile) : null;
             idx.Prepared = true;
+            if (idx.SegmentCount == 0 && idx.Solids == null && idx.Decks == null) return null;
             return idx;
         }
 
@@ -359,7 +369,7 @@ namespace Ghumante.Core.Driving
             _areas.Remove(area);
             RemoveSolids(area.Key);
             _levelCount[area.Level]--;
-            if (e.Roads != null) _roadLevelCount[area.Level]--;
+            if (e.CountsRoads) _roadLevelCount[area.Level]--;
             return true;
         }
 
@@ -438,6 +448,13 @@ namespace Ghumante.Core.Driving
         /// </summary>
         public bool TrySample(double x, double z, float nearY, out GroundSample s)
         {
+            return SampleCore(x, z, nearY, out s) && Structures(x, z, nearY, ref s);
+        }
+
+        /// <summary>The layered ground at (x, z) for feet at <paramref name="nearY"/> before structure colliders and deck
+        /// undersides: a deck within reach, else the road or terrain (false where no ground is known).</summary>
+        private bool SampleCore(double x, double z, float nearY, out GroundSample s)
+        {
             s = default(GroundSample);
             Entry e = FinestTerrain(x, z);
             if (e == null) return false;
@@ -481,7 +498,7 @@ namespace Ghumante.Core.Driving
                     s.Surface = SurfaceGroup.Paved;
                     s.Foot = FootSurface.Concrete;
                 }
-                return Structures(x, z, nearY, ref s);
+                return true;
             }
 
             // 2. The roads that are not bridges or flyovers (draped, lowered underpasses, fords) and their footpaths.
@@ -501,10 +518,10 @@ namespace Ghumante.Core.Driving
                 s.Foot = FootSurface.Concrete;
                 s.Surface = SurfaceGroup.Paved;
                 SetRoad(ref s, ref hit);
-                return Structures(x, z, nearY, ref s);
+                return true;
             }
             found = found && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
-            if (!found) return Structures(x, z, nearY, ref s);
+            if (!found) return true;
 
             RoadRecord r = hit.Road;
             s.OnRoad = true;
@@ -521,7 +538,7 @@ namespace Ghumante.Core.Driving
             s.Surface = SurfaceGroups.Of(r.Surface);
             s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
             SetRoad(ref s, ref hit);
-            return Structures(x, z, nearY, ref s);
+            return true;
         }
 
         /// <summary>The road index of the tile a hit came from (null when that tile is gone).</summary>
@@ -808,7 +825,9 @@ namespace Ghumante.Core.Driving
         /// surface has a hard edge (beside it, in the margin, this returns false and the terrain answers). A bridge
         /// without heights follows the mesher's straight deck between the lifted heights of the piece's rendered ends,
         /// never below the lifted terrain; <paramref name="spans"/> tells when that deck is above the terrain under it,
-        /// with its rise per metre along the road direction in <paramref name="grade"/>; it has a hard edge too.
+        /// with its rise per metre along the road direction in <paramref name="grade"/>; then the deck runs flat out to its
+        /// kerb (<see cref="RoadSpatialIndex.DeckKerbM"/> beyond the carriageway, where its railing stands) and has a hard
+        /// edge beyond.
         /// </summary>
         private bool TryRoadHeight(float terrain, ref RoadHit hit, out float height, out bool spans, out float grade)
         {
@@ -849,14 +868,16 @@ namespace Ghumante.Core.Driving
                     float line = ha + (hb - ha) * f + lift;
                     if (line > deck)
                     {
-                        if (hit.EdgeDistanceM > 0f)
+                        // The deck reaches its kerb (where the railing stands) flat; beyond it lies the ground below.
+                        if (hit.EdgeDistanceM > RoadSpatialIndex.DeckKerbM)
                         {
                             height = terrain;
                             return false;
                         }
-                        deck = line;
+                        height = line;
                         spans = true;
                         grade = (hb - ha) / hit.PieceLengthM;
+                        return true;
                     }
                 }
             }

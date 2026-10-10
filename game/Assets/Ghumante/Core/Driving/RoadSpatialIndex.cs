@@ -495,6 +495,158 @@ namespace Ghumante.Core.Driving
             hit.OnRoad = bestEdge <= OnRoadMarginM && !hit.OnFootpath;
         }
 
+        // ---- segment access for the footprint guard (TileSolids) ----
+
+        /// <summary>Road record index of segment <paramref name="i"/>.</summary>
+        internal int SegmentRoad(int i)
+        {
+            return _road[i];
+        }
+
+        /// <summary>
+        /// Appends to <paramref name="into"/> every segment of <paramref name="layer"/> whose drawn carriageway may reach
+        /// the game box (the cells of the box grown by <paramref name="extraM"/> plus the widest half width), each once:
+        /// <paramref name="stamp"/> (one entry per segment) marks the gathered ones with <paramref name="stampValue"/>,
+        /// which the caller changes per call.
+        /// </summary>
+        internal void GatherSegments(double minX, double minZ, double maxX, double maxZ, double extraM, RoadLayer layer, int[] stamp,
+                                     int stampValue, System.Collections.Generic.List<int> into)
+        {
+            if (_ax.Length == 0) return;
+            double reach = MaxHalfWidthM + Math.Max(0.0, extraM);
+            double size = _n * _cell;
+            double x0 = minX - _x0 - reach, x1 = maxX - _x0 + reach, z0 = minZ - _z0 - reach, z1 = maxZ - _z0 + reach;
+            if (x1 < 0 || z1 < 0 || x0 > size || z0 > size) return;
+            bool wantElevated = layer == RoadLayer.Elevated;
+            int cx0 = CellOf(x0), cx1 = CellOf(x1), cz0 = CellOf(z0), cz1 = CellOf(z1);
+            for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++)
+            {
+                int c = cz * _n + cx;
+                for (int k = _cellStart[c], end = _cellStart[c + 1]; k < end; k++)
+                {
+                    int i = _cellSegs[k];
+                    if (stamp[i] == stampValue) continue;
+                    stamp[i] = stampValue;
+                    if (layer != RoadLayer.Any && _elevated[_road[i]] != wantElevated) continue;
+                    into.Add(i);
+                }
+            }
+        }
+
+        /// <summary>The game-metre bounding box of segment <paramref name="i"/>'s centreline.</summary>
+        internal void SegmentBounds(int i, out double minX, out double minZ, out double maxX, out double maxZ)
+        {
+            minX = _x0 + Math.Min(_ax[i], _bx[i]);
+            maxX = _x0 + Math.Max(_ax[i], _bx[i]);
+            minZ = _z0 + Math.Min(_az[i], _bz[i]);
+            maxZ = _z0 + Math.Max(_az[i], _bz[i]);
+        }
+
+        /// <summary>
+        /// Signed distance from game (x, z) to the drawn carriageway of segment <paramref name="i"/> (negative inside),
+        /// as <see cref="TryNearest(double, double, double, out RoadHit)"/> measures it, with the point's offset to the
+        /// right of the centreline (<paramref name="lateral"/>), the carriageway's half width and centre shift where the
+        /// point projects, the unclamped segment parameter (outside 0..1 past an end), the clamped centreline point and the
+        /// distance to it.
+        /// </summary>
+        internal double SegmentEdge(int i, double x, double z, out double lateral, out float half, out float shift, out double tRaw,
+                                    out double footX, out double footZ, out double centreDist)
+        {
+            double px = x - _x0, pz = z - _z0;
+            double ax = _ax[i], az = _az[i];
+            double dx = _bx[i] - ax, dz = _bz[i] - az;
+            double len2 = dx * dx + dz * dz;
+            tRaw = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
+            double t = tRaw < 0 ? 0 : tRaw > 1 ? 1 : tRaw;
+            double len = Math.Sqrt(len2);
+            lateral = len > 0 ? ((px - ax) * dz - (pz - az) * dx) / len : 0.0;
+            footX = _x0 + ax + t * dx;
+            footZ = _z0 + az + t * dz;
+            double qx = ax + t * dx - px, qz = az + t * dz - pz;
+            centreDist = Math.Sqrt(qx * qx + qz * qz);
+            if (_layout == null)
+            {
+                half = _roadHalfWidth[_road[i]];
+                shift = 0f;
+                return centreDist - half;
+            }
+            int r = _road[i];
+            RoadWidthProfile prof = _layout.Profiles[r];
+            float w = prof.WidthAt(_along[i] + t * len);
+            half = 0.5f * w;
+            shift = _dual[r] ? -0.5f * (w - prof.RealM) : 0f; // as SectionAt
+            double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
+            double side = Math.Abs(lateral - shift) - half;
+            return side > 0 ? Math.Sqrt(side * side + over * over) : over > 0 ? over : side;
+        }
+
+        /// <summary>The end points of segment <paramref name="i"/>'s centreline in game metres.</summary>
+        internal void SegmentEnds(int i, out double ax, out double az, out double bx, out double bz)
+        {
+            ax = _x0 + _ax[i];
+            az = _z0 + _az[i];
+            bx = _x0 + _bx[i];
+            bz = _z0 + _bz[i];
+        }
+
+        /// <summary>Distance from game (x, z) to segment <paramref name="i"/>'s centreline; minus
+        /// <see cref="HalfWidthM"/> of its road it bounds the distance to its carriageway from below.</summary>
+        internal double SegmentDistance(int i, double x, double z)
+        {
+            double px = x - _x0, pz = z - _z0;
+            double ax = _ax[i], az = _az[i];
+            double dx = _bx[i] - ax, dz = _bz[i] - az;
+            double len2 = dx * dx + dz * dz;
+            double t = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            double qx = ax + t * dx - px, qz = az + t * dz - pz;
+            return Math.Sqrt(qx * qx + qz * qz);
+        }
+
+        /// <summary>The lateral extent of segment <paramref name="i"/>'s drawn carriageway, right of its centreline
+        /// (negative left), over the whole segment (sampled along it): the strip between <paramref name="lo"/> and
+        /// <paramref name="hi"/>.</summary>
+        internal void SegmentStrip(int i, out double lo, out double hi)
+        {
+            int r = _road[i];
+            if (_layout == null)
+            {
+                hi = _roadHalfWidth[r];
+                lo = -hi;
+                return;
+            }
+            double dx = _bx[i] - _ax[i], dz = _bz[i] - _az[i];
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            RoadWidthProfile prof = _layout.Profiles[r];
+            int samples = Math.Max(2, (int)Math.Ceiling(len / Math.Max(0.5, prof.StepM)) + 1);
+            lo = double.PositiveInfinity;
+            hi = double.NegativeInfinity;
+            for (int k = 0; k < samples; k++)
+            {
+                float w = prof.WidthAt(_along[i] + len * k / (samples - 1));
+                float shift = _dual[r] ? -0.5f * (w - prof.RealM) : 0f; // as SectionAt
+                lo = Math.Min(lo, shift - 0.5 * w);
+                hi = Math.Max(hi, shift + 0.5 * w);
+            }
+        }
+
+        /// <summary>True when a carriageway is a capsule round its centreline (W1 widths) rather than strips cut square at
+        /// each segment end (the W2 layout).</summary>
+        internal bool RoundEnds
+        {
+            get { return _layout == null; }
+        }
+
+        /// <summary>Unit direction of segment <paramref name="i"/> (from its first point to its second).</summary>
+        internal void SegmentDirection(int i, out double ux, out double uz)
+        {
+            double dx = _bx[i] - _ax[i], dz = _bz[i] - _az[i];
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            ux = len > 0 ? dx / len : 1.0;
+            uz = len > 0 ? dz / len : 0.0;
+        }
+
         /// <summary>Signed distance from local (px, pz) to the drawn carriageway of segment i (negative inside), with the
         /// segment parameter and distance to the centreline.</summary>
         private double EdgeOf(int i, double px, double pz, out double t, out double d)
