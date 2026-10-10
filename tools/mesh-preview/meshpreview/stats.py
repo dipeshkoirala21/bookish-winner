@@ -37,6 +37,18 @@ def mesh_stats(mesh: Mesh, components: bool = True) -> dict:
         out["smooth_shaded_area_pct"] = round(100.0 * float(area[smooth].sum()) / total, 1)
         inverted = d.mean(axis=1) < 0
         out["inverted_normals_area_pct"] = round(100.0 * float(area[inverted].sum()) / total, 2)
+    if mesh.uvs is not None and mesh.tri_t is not None:
+        from .materials import name
+        u = mesh.uvs[np.maximum(mesh.tri_t, 0)]
+        u[mesh.tri_t < 0] = (0.0, 1.0)
+        ch = np.clip(np.rint(np.median(u[:, :, 0], axis=1)), 0, 255).astype(np.int64)
+        tri_area = np.bincount(ch, weights=area)
+        out["channels_area_pct"] = {name(int(c)): round(100.0 * float(a) / total, 1) for c, a in enumerate(tri_area) if a > 0}
+        ao = u[:, :, 1]
+        out["ao"] = {"min": round(float(ao.min()), 3), "mean": round(float(ao.mean()), 3),
+                     "occluded_area_pct": round(100.0 * float(area[ao.mean(axis=1) < 0.7].sum()) / total, 1)}
+    else:
+        out["channels_area_pct"] = None
     theta = np.degrees(np.arccos(np.clip(unit[:, 1], -1, 1)))
     phi = np.degrees(np.arctan2(unit[:, 0], -unit[:, 2])) % 360.0
     bins = (np.minimum(theta // 5, 35) * 72 + np.minimum(phi // 5, 71)).astype(np.int64)

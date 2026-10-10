@@ -1,6 +1,7 @@
 """Scene preparation and per-view rendering: z-buffered triangles, toon or Lambert shading that mirrors
-``Ghumante/ToonLit`` (3-band ramp, cool shadow tint, trilight ambient, rim), cast shadows from a shadow map, a ground
-grid at the mesh's lowest point, cartoon outlines from depth/normal edges, an optional hidden-line wireframe and an
+``Ghumante/ToonLit`` (3-band ramp, cool shadow tint, trilight ambient, rim), the material contract (UV0 u = channel
+with a procedural pattern per channel, v = baked AO), cast shadows from a shadow map, a ground grid at the mesh's
+lowest point, cartoon outlines from depth/normal edges, distance fog, an optional hidden-line wireframe and an
 exploded layout. Everything is supersampled ``ssaa`` times and box-filtered down."""
 
 from __future__ import annotations
@@ -12,17 +13,22 @@ import numpy as np
 from PIL import Image
 
 from . import camera as cam_mod
+from . import materials
 from .objfile import Mesh, connected_components
 from .raster import Target, rasterize
 
 
 @dataclass
 class View:
-    """A named camera placement (see :mod:`meshpreview.camera` for the angle conventions)."""
+    """A named camera placement (see :mod:`meshpreview.camera` for the angle conventions): an orbit at ``az``/``el``
+    around the auto-framed target, or, with ``eye`` and ``look`` (OBJ coordinates), a free camera such as a street-level
+    eye point."""
 
     name: str
     az: float
     el: float
+    eye: tuple | None = None
+    look: tuple | None = None
 
 
 PRESETS = {
@@ -55,7 +61,9 @@ class Options:
     ssaa: int = 2
     fov: float = 30.0
     ortho: bool = False
-    shading: str = "toon"  # toon | lambert | unlit | normals
+    shading: str = "toon"  # toon | lambert | unlit | normals | channels | ao
+    materials: bool = True  # procedural pattern per material channel (UV0 u) and baked AO (UV0 v)
+    fog: float = 0.0  # distance (m) at which fog reaches 63 %; 0 = off
     flat: bool = False
     backfaces: str = "cull"  # cull (as Unity's Cull Back) | show (two-sided) | highlight (magenta)
     outline: bool = True
@@ -144,6 +152,14 @@ class Scene:
         else:
             C = np.full((T, 3, 3), 0.78, dtype=np.float32)
         self.C = C.astype(np.float32)
+        self.CH = None  # per-triangle material channel (UV0 u), None without UV0
+        self.AO = None  # per-corner baked AO (UV0 v)
+        if mesh.uvs is not None and mesh.tri_t is not None:
+            tt = mesh.tri_t
+            UV = mesh.uvs[np.maximum(tt, 0)].astype(np.float32)
+            UV[tt < 0] = (0.0, 1.0)
+            self.CH = np.clip(np.rint(np.median(UV[:, :, 0], axis=1)), 0, 255).astype(np.int32)
+            self.AO = np.clip(UV[:, :, 1], 0.0, 1.0)
         self.G = mesh.tri_group if mesh.tri_group is not None else np.zeros(T, dtype=np.int32)
         flat = P.reshape(-1, 3)
         self.lo, self.hi = flat.min(axis=0), flat.max(axis=0)
@@ -157,8 +173,10 @@ class Scene:
         self.ground_centre = 0.5 * (self.lo + self.hi)
         self.ground_radius = max(0.8 * 0.5 * math.hypot(ext[0], ext[2]), 0.45 * float(ext[1])) + 2.5 * self.grid_step
         self.shadow = None
+        self.sun_dir = cam_mod.direction(opts.sun_az, opts.sun_el).astype(np.float32)
+        self._shadows = {}
         if opts.shadows:
-            self._build_shadow_map()
+            self.use_shadow_map(None)
 
     @staticmethod
     def _explode_offsets(mesh: Mesh, factor: float) -> np.ndarray:
@@ -174,16 +192,29 @@ class Scene:
         centre = 0.5 * (mesh.positions.min(axis=0) + mesh.positions.max(axis=0))
         return (comp - centre)[labels] * factor
 
-    def _build_shadow_map(self):
-        o = self.opts
-        res = int(o.shadow_res)
-        sun = cam_mod.fit(self.points, o.sun_az, o.sun_el, res, res, ortho=True, margin=0.98)
-        tgt = Target(res, res, ids=False)
-        v = sun.to_view(self.P)
-        sx, sy, q = sun.project(v)
-        rasterize(tgt, sx, sy, q)
-        self.shadow = (sun, tgt.q.reshape(res, res))
-        self.sun_dir = cam_mod.direction(o.sun_az, o.sun_el).astype(np.float32)
+    def use_shadow_map(self, focus, radius: float = 0.0):
+        """Select (building on first use) the shadow map covering the whole mesh (``focus`` None) or the part within
+        ``radius`` metres (plan) of ``focus``: street-level views of a whole tile get sharp shadows near the eye."""
+        if not self.opts.shadows:
+            self.shadow = None
+            return
+        key = None if focus is None else (round(float(focus[0]), 1), round(float(focus[2]), 1), round(radius, 1))
+        if key not in self._shadows:
+            P = self.P
+            if focus is not None:
+                c = P.mean(axis=1)
+                near = (c[:, 0] - focus[0]) ** 2 + (c[:, 2] - focus[2]) ** 2 <= radius * radius
+                if near.sum() < 4:
+                    near[:] = True
+                P = P[near]
+            o = self.opts
+            res = int(o.shadow_res)
+            sun = cam_mod.fit(P.reshape(-1, 3), o.sun_az, o.sun_el, res, res, ortho=True, margin=0.98)
+            tgt = Target(res, res, ids=False)
+            sx, sy, q = sun.project(sun.to_view(P))
+            rasterize(tgt, sx, sy, q)
+            self._shadows[key] = (sun, tgt.q.reshape(res, res))
+        self.shadow = self._shadows[key]
 
     def shadow_factor(self, pts: np.ndarray, nrm: np.ndarray) -> np.ndarray:
         """Fraction (0..1) of light reaching world points, 2x2 PCF; points off the map are lit."""
@@ -194,25 +225,27 @@ class Scene:
         texel = 1.0 / sun.ortho_scale
         towards = np.sign(nrm @ self.sun_dir)[:, None]
         p = pts + nrm * towards * (1.5 * texel)
-        v = sun.to_view(p)
-        sx, sy, q = sun.project(v)
-        fx, fy = sx - 0.5, sy - 0.5
+        d = p - sun.eye
+        s = sun.ortho_scale
+        fx = (d @ sun.right) * s + (0.5 * res - 0.5)
+        fy = (0.5 * res - 0.5) - (d @ sun.up) * s
+        q = (-(d @ sun.fwd)).astype(np.float32)
         ix, iy = np.floor(fx).astype(np.int64), np.floor(fy).astype(np.int64)
         wx, wy = (fx - ix).astype(np.float32), (fy - iy).astype(np.float32)
-        bias = 2.0 * texel
+        qb = q + np.float32(2.0 * texel)
         lit = np.zeros(pts.shape[0], dtype=np.float32)
+        flat = qmap.reshape(-1)
         for dx, dy, w in ((0, 0, (1 - wx) * (1 - wy)), (1, 0, wx * (1 - wy)), (0, 1, (1 - wx) * wy), (1, 1, wx * wy)):
             cx, cy = ix + dx, iy + dy
             ok = (cx >= 0) & (cx < res) & (cy >= 0) & (cy < res)
-            m = np.full(pts.shape[0], -np.inf, dtype=np.float32)
-            m[ok] = qmap[cy[ok], cx[ok]]
-            lit += w * ((q + bias >= m) | ~ok)
+            m = flat[np.where(ok, cy * res + cx, 0)]
+            lit += w * ((qb >= m) | ~ok)
         return lit
 
 
 def _shade(opts, albedo_srgb, n, view_dir, shadow, sun_dir):
     """Colour (linear) of surface samples: the ToonLit ramp, Lambert, unlit or normals."""
-    if opts.shading == "unlit":
+    if opts.shading in ("unlit", "ao"):
         return srgb_to_linear(albedo_srgb)
     if opts.shading == "normals":
         return srgb_to_linear(0.5 + 0.5 * n)
@@ -230,11 +263,20 @@ def _shade(opts, albedo_srgb, n, view_dir, shadow, sun_dir):
     ambient = (AMB_SKY * np.clip(ny, 0, 1) + AMB_EQUATOR * (1 - np.abs(ny)) + AMB_GROUND * np.clip(-ny, 0, 1)) * AMBIENT_STRENGTH
     cool = SHADOW_TINT + (1.0 - SHADOW_TINT) * np.clip(ramp, 0, 1)[:, None]
     col = albedo * (ambient * cool + LIGHT * ramp[:, None])
-    if opts.shading == "toon":
+    if opts.shading in ("toon", "channels"):
         rim = np.power(np.clip(1.0 - np.clip(np.sum(n * view_dir, axis=1), 0, 1), 0, 1), 3.5) * 0.3
         rim *= np.clip(ndl + 0.35, 0, 1) * shadow
         col = col + rim[:, None] * RIM_COLOR * LIGHT
     return col
+
+
+def make_camera(scene: Scene, view: View, opts: Options, W: int, H: int):
+    """The camera of ``view`` at W x H pixels: free (eye/look) or auto-framed orbit."""
+    if view.eye is not None:
+        look = view.look if view.look is not None else 0.5 * (scene.lo + scene.hi)
+        return cam_mod.look_at(view.eye, look, W, H, fov_deg=opts.fov)
+    return cam_mod.fit(scene.points, view.az, view.el, W, H, fov_deg=opts.fov, ortho=opts.ortho, margin=opts.margin,
+                       target=opts.target, dist=opts.dist, zoom=opts.zoom)
 
 
 def render_view(scene: Scene, view: View, opts: Options):
@@ -243,8 +285,14 @@ def render_view(scene: Scene, view: View, opts: Options):
     H = int(opts.height or opts.size)
     ss = max(1, int(opts.ssaa))
     Ws, Hs = W * ss, H * ss
-    cam = cam_mod.fit(scene.points, view.az, view.el, Ws, Hs, fov_deg=opts.fov, ortho=opts.ortho, margin=opts.margin,
-                      target=opts.target, dist=opts.dist, zoom=opts.zoom)
+    cam = make_camera(scene, view, opts, Ws, Hs)
+    if view.eye is not None and opts.shadows:
+        # Sharp shadows where they matter: around the eye and the point it looks at.
+        look = np.asarray(view.look if view.look is not None else cam.eye + cam.fwd * 30.0, dtype=np.float64)
+        span = float(np.linalg.norm(look - cam.eye))
+        scene.use_shadow_map(0.5 * (cam.eye + look), max(90.0, 2.5 * span))
+    elif opts.shadows:
+        scene.use_shadow_map(None)
     P = scene.P
     if cam.ortho:
         facing = (scene.FN @ (-cam.fwd)) > 0
@@ -252,7 +300,22 @@ def render_view(scene: Scene, view: View, opts: Options):
         facing = np.einsum("ij,ij->i", scene.FN, (cam.eye[None, :] - P[:, 0]).astype(np.float32)) > 0
     sel = np.flatnonzero(facing) if opts.backfaces == "cull" else np.arange(P.shape[0])
     V = cam.to_view(P[sel])
-    attrs = np.concatenate([P[sel], scene.N[sel], scene.C[sel]], axis=2)
+    if not cam.ortho:
+        # Drop triangles wholly behind the near plane or outside the side planes before clipping.
+        z = V[:, :, 2]
+        tx = 0.5 * Ws / cam.focal
+        ty = 0.5 * Hs / cam.focal
+        out_side = ((V[:, :, 0] > tx * z + 1e-6).all(axis=1) | (V[:, :, 0] < -tx * z - 1e-6).all(axis=1) |
+                    (V[:, :, 1] > ty * z + 1e-6).all(axis=1) | (V[:, :, 1] < -ty * z - 1e-6).all(axis=1) |
+                    (z <= cam.near).all(axis=1))
+        if out_side.any():
+            keep = ~out_side
+            sel, V = sel[keep], V[keep]
+    has_ao = scene.AO is not None
+    parts = [P[sel], scene.N[sel], scene.C[sel]]
+    if has_ao:
+        parts.append(scene.AO[sel][:, :, None])
+    attrs = np.concatenate(parts, axis=2)
     V, attrs, src = cam_mod.clip_near(V, attrs, sel, cam.near)
     sx, sy, q = cam.project(V)
     if opts.pull and not cam.ortho:
@@ -267,7 +330,9 @@ def render_view(scene: Scene, view: View, opts: Options):
     qbuf = np.zeros(Hs * Ws, dtype=np.float64)
     hit = np.flatnonzero(tgt.tri >= 0)
     inv_vz = None if cam.ortho else 1.0 / V[:, :, 2]
-    sun_dir = cam_mod.direction(opts.sun_az, opts.sun_el).astype(np.float32)
+    sun_dir = scene.sun_dir
+    bg_rows = _background_rows(Hs, opts)
+    fog_col = srgb_to_linear(np.asarray(opts.bg[1], dtype=np.float32))
     for c0 in range(0, hit.size, 400_000):
         pix = hit[c0:c0 + 400_000]
         t = tgt.tri[pix]
@@ -287,25 +352,50 @@ def render_view(scene: Scene, view: View, opts: Options):
         nrm[~front] *= -1.0
         if cam.ortho:
             vdir = np.broadcast_to(-cam.fwd.astype(np.float32), nrm.shape)
+            dist = ((wpos - cam.eye[None, :]) @ cam.fwd).astype(np.float32)
+            fp = np.full(pix.size, 1.0 / cam.ortho_scale, dtype=np.float32)
         else:
             vdir = (cam.eye[None, :] - wpos).astype(np.float32)
-            vdir /= np.maximum(np.linalg.norm(vdir, axis=1, keepdims=True), 1e-12)
+            dist = np.linalg.norm(vdir, axis=1)
+            vdir /= np.maximum(dist, 1e-12)[:, None]
+            # metres per (supersampled) pixel along the surface, widened on grazing faces
+            fp = (dist / cam.focal / np.maximum(np.abs(np.sum(nrm * vdir, axis=1)), 0.25)).astype(np.float32)
         fn = scene.FN[s] * np.where(front, 1.0, -1.0)[:, None].astype(np.float32)
-        sh = scene.shadow_factor(wpos, fn) if opts.shading in ("toon", "lambert") else np.ones(pix.size, np.float32)
+        if scene.CH is not None:
+            ch = scene.CH[s]
+            if opts.shading == "channels":
+                col = materials.palette(ch)
+            elif opts.materials and opts.shading not in ("normals", "ao"):
+                for c in np.unique(ch):
+                    m = ch == c
+                    if c > 0:
+                        col[m] = materials.apply(int(c), col[m], wpos[m], fn[m], fp[m])
+        if opts.shading == "ao":
+            ao = val[:, 9].astype(np.float32) if has_ao else np.ones(pix.size, np.float32)
+            col = np.repeat(ao[:, None], 3, axis=1)
+        sh = scene.shadow_factor(wpos, fn) if opts.shading in ("toon", "lambert", "channels") else np.ones(pix.size, np.float32)
         lin = _shade(opts, col, nrm, vdir, sh, sun_dir)
+        if has_ao and opts.materials and opts.shading in ("toon", "lambert", "unlit"):
+            ao = np.clip(val[:, 9], 0.0, 1.0).astype(np.float32)
+            lin = lin * (0.3 + 0.7 * ao)[:, None]
         if opts.backfaces == "highlight" and (~front).any():
             lin[~front] = lin[~front] * 0.35 + srgb_to_linear(BACK_COLOR) * 0.65
+        if opts.fog > 0:
+            f = (1.0 - np.exp(-dist / opts.fog)).astype(np.float32)[:, None]
+            lin = lin * (1.0 - f) + fog_col * f
         out[pix] = lin
         nbuf[pix] = nrm
         qbuf[pix] = tgt.q[pix]
 
     mesh_mask = tgt.tri >= 0
-    bg = _background(Hs, Ws, opts)
     ground_mask = np.zeros(Hs * Ws, dtype=bool)
     if opts.grid:
-        ground_mask = _ground(scene, cam, opts, out, nbuf, qbuf, mesh_mask, Ws, Hs, sun_dir)
+        ground_mask = _ground(scene, cam, opts, out, nbuf, qbuf, mesh_mask, Ws, Hs, sun_dir, bg_rows)
     covered = mesh_mask | ground_mask
-    img = np.where(covered[:, None], linear_to_srgb(out), bg.reshape(-1, 3))
+    img = np.empty((Hs, Ws, 3), dtype=np.float32)
+    img[:] = bg_rows[:, None, :]
+    img = img.reshape(-1, 3)
+    img[covered] = linear_to_srgb(out[covered])
     img = img.reshape(Hs, Ws, 3)
 
     if opts.wire and hit.size:
@@ -319,69 +409,117 @@ def render_view(scene: Scene, view: View, opts: Options):
     return pil, cam
 
 
-def _background(Hs, Ws, opts):
+def _background_rows(Hs, opts):
+    """sRGB sky gradient, one colour per row (Hs, 3)."""
     top, bottom = np.array(opts.bg[0], dtype=np.float32), np.array(opts.bg[1], dtype=np.float32)
-    t = np.linspace(0.0, 1.0, Hs, dtype=np.float32)[:, None, None]
-    return np.broadcast_to(top + (bottom - top) * t, (Hs, Ws, 3))
+    t = np.linspace(0.0, 1.0, Hs, dtype=np.float32)[:, None]
+    return top + (bottom - top) * t
 
 
-def _ground(scene, cam, opts, out, nbuf, qbuf, mesh_mask, Ws, Hs, sun_dir):
-    """Shade the ground plane (grid, shadows, radial fade) where it is nearer than the mesh; returns its mask."""
+def _ground_window(scene, cam, gy, R, Ws, Hs):
+    """Pixel rectangle (x0, x1, y0, y1) that can see the ground disc; None when it is off screen."""
+    ang = np.linspace(0.0, 2.0 * np.pi, 64, endpoint=False)
+    pts = np.stack([scene.ground_centre[0] + R * np.cos(ang), np.full(ang.size, gy),
+                    scene.ground_centre[2] + R * np.sin(ang)], axis=1)
+    v = cam.to_view(pts)
+    if not cam.ortho and (v[:, 2] <= cam.near).any():
+        return 0, Ws, 0, Hs
+    sx, sy, _ = cam.project(v)
+    x0, x1 = int(max(0, np.floor(sx.min()) - 1)), int(min(Ws, np.ceil(sx.max()) + 1))
+    y0, y1 = int(max(0, np.floor(sy.min()) - 1)), int(min(Hs, np.ceil(sy.max()) + 1))
+    if x0 >= x1 or y0 >= y1:
+        return None
+    return x0, x1, y0, y1
+
+
+def _ground(scene, cam, opts, out, nbuf, qbuf, mesh_mask, Ws, Hs, sun_dir, bg_rows):
+    """Shade the ground plane (grid, shadows, radial fade) where it is nearer than the mesh; returns its mask.
+    Rays are built separably (per row and per column, float32) inside the window that can see the ground disc."""
     gy = scene.ground_y - 1e-4 * max(float(np.linalg.norm(scene.extent)), 1e-3)
-    ys, xs = np.mgrid[0:Hs, 0:Ws]
-    px = xs.reshape(-1).astype(np.float64) + 0.5
-    py = ys.reshape(-1).astype(np.float64) + 0.5
-    o, d = cam.ray(px, py)
-    dy = d[:, 1]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        t = (gy - o[:, 1]) / dy
-    ok = (dy < -1e-9) & (t > 0)
-    hitp = o + d * t[:, None]
-    with np.errstate(divide="ignore"):
-        q = -t if cam.ortho else 1.0 / t  # the view depth is t: rays start on the camera plane (ortho) or have fwd = 1
-    dx = hitp[:, 0] - scene.ground_centre[0]
-    dz = hitp[:, 2] - scene.ground_centre[2]
-    r = np.sqrt(dx * dx + dz * dz)
     R = scene.ground_radius
-    ok &= r < R
-    ok &= ~mesh_mask | (q > qbuf)
-    idx = np.flatnonzero(ok)
-    if idx.size == 0:
-        return ok
-    hp = hitp[idx]
+    ok_all = np.zeros(Hs * Ws, dtype=bool)
+    win = _ground_window(scene, cam, gy, R, Ws, Hs)
+    if win is None:
+        return ok_all
+    x0, x1, y0, y1 = win
+    f32 = np.float32
+    cx, cy = 0.5 * Ws, 0.5 * Hs
+    a = (np.arange(x0, x1, dtype=f32) + f32(0.5) - f32(cx))[None, :]
+    b = (np.arange(y0, y1, dtype=f32) + f32(0.5) - f32(cy))[:, None]
+    R_, U_, F_ = cam.right.astype(f32), cam.up.astype(f32), cam.fwd.astype(f32)
+    gc = scene.ground_centre
+    if cam.ortho:
+        k = f32(1.0 / cam.ortho_scale)
+        ox = f32(cam.eye[0] - gc[0]) + a * (k * R_[0]) - b * (k * U_[0])
+        oy = f32(cam.eye[1] - gy) + a * (k * R_[1]) - b * (k * U_[1])
+        oz = f32(cam.eye[2] - gc[2]) + a * (k * R_[2]) - b * (k * U_[2])
+        dy = np.broadcast_to(F_[1], oy.shape)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = -oy / dy
+        hx = ox + t * F_[0]
+        hz = oz + t * F_[2]
+        q = -t
+    else:
+        k = f32(1.0 / cam.focal)
+        dx = F_[0] + a * (k * R_[0]) - b * (k * U_[0])
+        dy = F_[1] + a * (k * R_[1]) - b * (k * U_[1])
+        dz = F_[2] + a * (k * R_[2]) - b * (k * U_[2])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = f32(gy - cam.eye[1]) / dy
+            q = 1.0 / t  # the view depth is t (rays have a forward component of 1)
+        hx = f32(cam.eye[0] - gc[0]) + t * dx
+        hz = f32(cam.eye[2] - gc[2]) + t * dz
+    flat = (np.arange(y0, y1)[:, None] * Ws + np.arange(x0, x1)[None, :])
+    r2 = hx * hx + hz * hz
+    ok = (dy < -1e-9) & (t > 0) & (r2 < R * R)
+    mm = mesh_mask[flat]
+    ok &= ~mm | (q > qbuf[flat])
+    sel = np.flatnonzero(ok)
+    if sel.size == 0:
+        return ok_all
+    idx = flat.reshape(-1)[sel]
+    ok_all[idx] = True
+    xw = hx.reshape(-1)[sel]  # relative to the ground centre
+    zw = hz.reshape(-1)[sel]
+    ts = t.reshape(-1)[sel]
     step = scene.grid_step
-    xw = hp[:, 0].reshape(-1)
-    zw = hp[:, 2].reshape(-1)
     # Pixel footprint (world metres per pixel) for antialiased constant-width lines.
     if cam.ortho:
-        fp = np.full(idx.size, 1.0 / cam.ortho_scale)
+        fp = np.full(sel.size, 1.0 / cam.ortho_scale, dtype=f32)
     else:
-        fp = t[idx] / cam.focal / np.maximum(np.abs(d[idx, 1]) / np.linalg.norm(d[idx], axis=1), 0.08)
-        fp = np.minimum(fp, t[idx] / cam.focal * 6)
+        ddx, ddy, ddz = (np.broadcast_to(v, ok.shape).reshape(-1)[sel] for v in (dx, dy, dz))
+        cosg = np.abs(ddy) / np.sqrt(ddx * ddx + ddy * ddy + ddz * ddz)
+        fp = ts * k / np.maximum(cosg, 0.08)
+        fp = np.minimum(fp, ts * k * 6)
+    wx, wz = xw + f32(gc[0]), zw + f32(gc[2])
+
     def line(stepm, width):
-        fx = np.abs(xw / stepm - np.round(xw / stepm)) * stepm
-        fz = np.abs(zw / stepm - np.round(zw / stepm)) * stepm
-        dmin = np.minimum(fx, fz)
-        return np.clip(1.0 - dmin / (fp * width), 0.0, 1.0)
-    base = np.array([0.86, 0.86, 0.84], dtype=np.float32)
+        fx = np.abs(wx / stepm - np.round(wx / stepm)) * stepm
+        fz = np.abs(wz / stepm - np.round(wz / stepm)) * stepm
+        return np.clip(1.0 - np.minimum(fx, fz) / (fp * width), 0.0, 1.0)
+    base = np.array([0.86, 0.86, 0.84], dtype=f32)
     minor = line(step, 0.9)[:, None]
     major = line(step * 5, 1.4)[:, None]
     col = base * (1 - 0.16 * minor) * (1 - 0.22 * major)
     # Axis lines through the mesh centre: x (east) reddish, z (north-south) bluish.
-    cx = np.clip(1.0 - np.abs(zw - scene.ground_centre[2]) / (fp * 1.6), 0, 1)[:, None]
-    cz = np.clip(1.0 - np.abs(xw - scene.ground_centre[0]) / (fp * 1.6), 0, 1)[:, None]
-    col = col * (1 - 0.5 * cx) + np.array([0.80, 0.35, 0.30], dtype=np.float32) * 0.5 * cx
-    col = col * (1 - 0.5 * cz) + np.array([0.30, 0.45, 0.80], dtype=np.float32) * 0.5 * cz
-    n = np.zeros((idx.size, 3), dtype=np.float32)
+    ax_x = np.clip(1.0 - np.abs(zw) / (fp * 1.6), 0, 1)[:, None]
+    ax_z = np.clip(1.0 - np.abs(xw) / (fp * 1.6), 0, 1)[:, None]
+    col = col * (1 - 0.5 * ax_x) + np.array([0.80, 0.35, 0.30], dtype=f32) * 0.5 * ax_x
+    col = col * (1 - 0.5 * ax_z) + np.array([0.30, 0.45, 0.80], dtype=f32) * 0.5 * ax_z
+    n = np.zeros((sel.size, 3), dtype=f32)
     n[:, 1] = 1.0
-    sh = scene.shadow_factor(hp, n) if opts.shadows else np.ones(idx.size, np.float32)
+    if opts.shadows and scene.shadow is not None:
+        hp = np.stack([wx.astype(np.float64), np.full(sel.size, gy), wz.astype(np.float64)], axis=1)
+        sh = scene.shadow_factor(hp, n)
+    else:
+        sh = np.ones(sel.size, f32)
     lin = srgb_to_linear(col) * (0.62 + 0.38 * sh[:, None]) * (SHADOW_TINT + (1 - SHADOW_TINT) * sh[:, None])
-    fade = _smoothstep(R, 0.72 * R, r[idx])[:, None]
-    bgc = srgb_to_linear(_background(Hs, Ws, opts).reshape(-1, 3)[idx])
+    fade = _smoothstep(R, 0.72 * R, np.sqrt(r2.reshape(-1)[sel]))[:, None]
+    bgc = srgb_to_linear(bg_rows[idx // Ws])
     out[idx] = lin * fade + bgc * (1 - fade)
     nbuf[idx] = n
-    qbuf[idx] = q[idx]
-    return ok
+    qbuf[idx] = q.reshape(-1)[sel]
+    return ok_all
 
 
 def _wire(img, tgt, sx, sy, ss):
