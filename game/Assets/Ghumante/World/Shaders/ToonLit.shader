@@ -7,8 +7,10 @@
 // reflection on glass and water, a soft rim on the lit side (warm at sunrise: the alpenglow), SH ambient, main-light
 // shadows, URP fog, and the earth-curvature vertex drop. Meshes without UV0 render exactly as before (Plain, no AO).
 // Cartoon outlines: an inverted-hull pass (LightMode SRPDefaultUnlit) in the LOD 300 SubShader; ToonLook selects the
-// LOD 200 SubShader (no outline pass, no extra draw) on Low. Occluder fade (_OCCLUDER_FADE): screen-door dither of
-// everything inside the camera-to-player capsule, so houses never block the view.
+// LOD 200 SubShader (no outline pass, no extra draw) on Low; per material the pass is on or off by role and tier
+// (WorldMaterialDefaults.RoleOf). Occluder fade (_OCCLUDER_FADE): screen-door dither of everything inside the
+// camera-to-player capsule, so houses never block the view; _OccluderGround limits it to structures above the player's
+// knees (the road layer: bridge railings, piers, flyover decks fade, the road surface never does).
 // Terrain, buildings, roads and areas all use it; roads and areas add a depth pull (_ViewPull) and a polygon offset so
 // they never z-fight the ground. URP 17.3 Forward, SRP Batcher compatible (UnityPerMaterial in ToonLitInput.hlsl),
 // hand-written HLSL. W2: GPU instancing for the instanced dressing (Graphics.RenderMeshInstanced, GLES3-safe),
@@ -38,6 +40,7 @@ Shader "Ghumante/ToonLit"
         _SpecularStrength("Highlight strength", Range(0, 2)) = 1
         _OutlineWidth("Outline width (x the tier width, 0 = none)", Range(0, 3)) = 1
         [Toggle(_OCCLUDER_FADE)] _OccluderFade("Fade between the camera and the player", Float) = 0
+        [ToggleUI] _OccluderGround("Occluder fade: ground layer (only structures above the player's knees)", Float) = 0
         [Toggle(_BAND_FADE)] _BandFade("Building band fade", Float) = 0
         [Toggle(_WIND)] _WindOn("Vertex wind", Float) = 0
         [Toggle(_INSTANCE_TINT)] _InstanceTintOn("Per-instance tint (instanced)", Float) = 0

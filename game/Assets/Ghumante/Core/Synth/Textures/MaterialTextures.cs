@@ -337,7 +337,8 @@ namespace Ghumante.Core.Synth.Textures
         {
             uint s = p.Seed;
             int rows = glazed ? 10 : 8, perRow = 2;
-            // Tile units (one tile = 0.6 m): joint half-width 5 mm (glazed 1.5 mm), rounded arris 6 mm.
+            // Tile units (one tile = 0.5 m, MaterialLooks): joint half-width about 4 mm (glazed 1.25 mm), rounded arris 5 mm
+            // (glazed 3 mm); 8 courses of 62.5 mm, 2 bricks of 0.25 m per row.
             float joint = glazed ? 0.0025f : 0.0085f, bevel = glazed ? 0.006f : 0.01f;
             float[] h = p.UseHeight(glazed ? 1.2f : 1.6f);
             for (int y = 0; y < p.N; y++)
@@ -466,7 +467,7 @@ namespace Ghumante.Core.Synth.Textures
         private static void RoofTile(Painter p)
         {
             uint s = p.Seed;
-            const int rows = 6, perRow = 4;
+            const int rows = 6, perRow = 4; // one tile = 0.5 m: 0.125 m tiles in 83 mm rows
             float[] h = p.UseHeight(1.4f);
             for (int y = 0; y < p.N; y++)
             for (int x = 0; x < p.N; x++)
@@ -548,7 +549,7 @@ namespace Ghumante.Core.Synth.Textures
         private static void Stone(Painter p)
         {
             uint s = p.Seed;
-            const int rows = 4, perRow = 2; // 0.3 m courses of 0.6 m blocks (an even row count keeps the bond periodic)
+            const int rows = 4, perRow = 2; // 0.25 m courses of 0.5 m blocks (an even row count keeps the bond periodic)
             const float joint = 0.006f, bevel = 0.014f;
             float[] h = p.UseHeight(1.4f);
             for (int y = 0; y < p.N; y++)

@@ -35,6 +35,22 @@ namespace Ghumante.World.Rendering
             }
         }
 
+        /// <summary>
+        /// Triangles the outline pass adds this frame on a tier (an upper bound, like the other counters: instances beyond
+        /// the outline range are dropped whole in the outline's vertex shader, and nothing is frustum-culled here): the
+        /// outlined categories of <see cref="WorldMaterialDefaults.RoleOf"/> — vehicles (moving and parked), people,
+        /// animals, aircraft, heroes, plus props and the B0 band on High. Props are counted on every outlined tier while
+        /// the dressing still draws them with the people's material (World/README.md "Look", open issues). The explorer is
+        /// not counted.
+        /// </summary>
+        public int OutlinedTris(in ToonLookTier tier)
+        {
+            if (!tier.Outlines) return 0;
+            int tris = VehicleTris + ParkedTris + PeopleTris + AnimalTris + AircraftTris + HeroTris + PropTris;
+            if (tier.OutlineNearBuildings) tris += B0Tris;
+            return tris;
+        }
+
         /// <summary>Clears the life counters (presenters report them every frame).</summary>
         public void ClearLife()
         {

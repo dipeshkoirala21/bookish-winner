@@ -5,8 +5,13 @@ namespace Ghumante.World.Rendering
     /// <summary>
     /// What the cartoon look costs per device tier (ARCHITECTURE.md 10 budgets): texture size and triplanar quality,
     /// how far the procedural textures reach before fading to the flat vertex colour, glints, and the inverted-hull
-    /// outline (Low draws none: <see cref="ShaderLod"/> 200 selects the SubShader without the outline pass, so there is no
-    /// extra draw at all). Engine-free values; <see cref="ToonLook"/> applies them.
+    /// outline. Outlines follow the ARCHITECTURE 10 "Outlines" row: Mid outlines characters, vehicles and landmarks (the
+    /// explorer, traffic, people, animals, aircraft, hero replicas); High adds street props and the near building band
+    /// (B0, inside the outline range); far bands, trees and the ground never have the pass. Low draws none at all
+    /// (<see cref="ShaderLod"/> 200 selects the SubShader without the outline pass, so there is no extra draw): a recorded
+    /// deviation from "landmarks only", which would need the outline SubShader and a second draw for every hero on the
+    /// tier with the tightest batch budget. Engine-free values; <see cref="ToonLook"/> and
+    /// <see cref="WorldMaterialDefaults.RoleOf"/> apply them.
     /// </summary>
     public struct ToonLookTier
     {
@@ -40,6 +45,12 @@ namespace Ghumante.World.Rendering
         /// <summary>Outline colour = surface colour × this × light level.</summary>
         public float OutlineDarkness;
 
+        /// <summary>Outline the near building band (B0 cells) too (High).</summary>
+        public bool OutlineNearBuildings;
+
+        /// <summary>Outline street props (High; the <c>props</c> material).</summary>
+        public bool OutlineProps;
+
         /// <summary>True when the tier draws outlines.</summary>
         public bool Outlines
         {
@@ -55,21 +66,21 @@ namespace Ghumante.World.Rendering
                     {
                         TextureSize = 128, AnisoLevel = 1, Triplanar = false, Macro = 0.8f, Glints = false, DetailFadeM = 80f,
                         ShaderLod = ToonLitLayout.LodWithoutOutline, OutlineWidthPx = 0f, OutlineFadeStartM = 0f, OutlineFadeEndM = 0f,
-                        OutlineDarkness = 0.3f,
+                        OutlineDarkness = 0.3f, OutlineNearBuildings = false, OutlineProps = false,
                     };
                 case DeviceTier.Mid:
                     return new ToonLookTier
                     {
                         TextureSize = 256, AnisoLevel = 2, Triplanar = true, Macro = 1f, Glints = true, DetailFadeM = 160f,
                         ShaderLod = ToonLitLayout.LodWithOutline, OutlineWidthPx = 1.6f, OutlineFadeStartM = 30f, OutlineFadeEndM = 80f,
-                        OutlineDarkness = 0.3f,
+                        OutlineDarkness = 0.3f, OutlineNearBuildings = false, OutlineProps = false,
                     };
                 default:
                     return new ToonLookTier
                     {
                         TextureSize = 256, AnisoLevel = 4, Triplanar = true, Macro = 1f, Glints = true, DetailFadeM = 260f,
                         ShaderLod = ToonLitLayout.LodWithOutline, OutlineWidthPx = 2f, OutlineFadeStartM = 40f, OutlineFadeEndM = 110f,
-                        OutlineDarkness = 0.3f,
+                        OutlineDarkness = 0.3f, OutlineNearBuildings = true, OutlineProps = true,
                     };
             }
         }

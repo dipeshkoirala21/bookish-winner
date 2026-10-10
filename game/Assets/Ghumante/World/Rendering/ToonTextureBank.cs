@@ -60,9 +60,20 @@ namespace Ghumante.World.Rendering
         /// <summary>Binds the neutral placeholder and starts the bake on the thread pool (once).</summary>
         public void Start()
         {
+            Start(true);
+        }
+
+        /// <summary>
+        /// Starts the bake on the thread pool (once). With <paramref name="bindPlaceholder"/> the neutral placeholder is
+        /// bound until the upload (the first bank); without it whatever is bound stays bound until <see cref="TryUpload"/>
+        /// binds this bank's array (a re-bake at another size keeps the old textures on screen meanwhile).
+        /// </summary>
+        public void Start(bool bindPlaceholder)
+        {
+            if (Volatile.Read(ref _state) != 0) return;
             // The editor keeps DontSave textures across domain reloads, while the bank that owned them is gone.
-            if (_placeholder == null && Application.isEditor) DestroyLeftovers();
-            if (_placeholder == null)
+            if (Application.isEditor) DestroyLeftovers();
+            if (bindPlaceholder && _placeholder == null)
             {
                 _placeholder = Neutral();
                 Live.Add(_placeholder);

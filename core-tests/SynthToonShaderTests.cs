@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Synth.Look;
 using Ghumante.Core.Synth.Textures;
 using NUnit.Framework;
 
@@ -14,7 +15,9 @@ namespace Ghumante.Core.Tests
     /// The shader side of the procedural look, checked from source (no Unity needed): Ghumante/ToonLit keeps the SRP
     /// Batcher layout (every material property in one UnityPerMaterial block shared by all passes, matching the C# twin
     /// ToonLitLayout), the outline pass exists only in the LOD 300 SubShader, the occluder-fade keyword is declared in every
-    /// pass that clips, and the shader's constants match the texture table (channel array size, macro tile).
+    /// pass that clips, the shader's constants match the texture table (channel array size, slice count, macro tile), every
+    /// texture period divides the tile sides, the outline never moves single vertices away, derivatives are taken before
+    /// any clip, glints are footprint-filtered, and the occluder capsule matches its C# twin.
     /// </summary>
     public class SynthToonShaderTests
     {
@@ -173,6 +176,144 @@ namespace Ghumante.Core.Tests
             string outline = Read("ToonLitOutlinePass.hlsl");
             Assert.That(outline, Does.Contain("GhOccluderClip"), "faded houses lose their outline too");
             Assert.That(outline, Does.Contain("GhBandClip"));
+        }
+    
+        private static string Function(string source, string signature)
+        {
+            int start = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0), signature);
+            int open = source.IndexOf('{', start);
+            int depth = 0;
+            for (int i = open; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                if (source[i] == '}' && --depth == 0) return source.Substring(start, i - start + 1);
+            }
+            Assert.Fail("unbalanced " + signature);
+            return null;
+        }
+
+        [Test]
+        public void UnknownChannelsAreClampedToTheRealSlices()
+        {
+            string input = Read("ToonLitInput.hlsl");
+            int slices = int.Parse(Regex.Match(input, @"#define GH_SLICE_COUNT (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
+            Assert.That(slices, Is.EqualTo(MaterialTextures.SliceCount), "GH_SLICE_COUNT = MaterialTextures.SliceCount");
+            Assert.That(slices, Is.EqualTo(MaterialLooks.Count));
+            string layout = File.ReadAllText(Path.Combine(GoldenFiles.RepoRoot, "game", "Assets", "Ghumante", "World", "Rendering", "ToonLitLayout.cs"));
+            Assert.That(layout, Does.Contain("public const int SliceCount = " + slices + ";"));
+            string channel = StripComments(Function(input, "void GhChannelAndAo("));
+            Assert.That(channel, Does.Contain("channel >= GH_SLICE_COUNT"), "channels without a slice render as Plain, not as Marking");
+            Assert.That(channel, Does.Not.Contain("GH_CHANNEL_ARRAY_SIZE"));
+        }
+
+        [Test]
+        public void EveryTexturePeriodDividesTheTileSides()
+        {
+            // Tile-local meshes are sampled in object space: a period that does not divide the tile side (and the 64 m grid
+            // of anything placed on it) shows a seam at every tile border.
+            float span = MaterialLooks.SeamFreeSpanM;
+            Assert.That(span, Is.EqualTo(64f));
+            var periods = new List<(string, float)> { ("macro", MaterialLooks.MacroTileM) };
+            for (int i = 0; i < MaterialLooks.Count; i++) periods.Add((((MaterialChannel)i).ToString(), MaterialLooks.Of((MaterialChannel)i).TileM));
+            foreach ((string name, float period) in periods)
+            {
+                double log = Math.Log(period, 2.0);
+                Assert.That(Math.Abs(log - Math.Round(log)), Is.LessThan(1e-9), name + " " + period + " m is a power of two");
+                double repeats = span / period;
+                Assert.That(Math.Abs(repeats - Math.Round(repeats)), Is.LessThan(1e-9), name + ": " + span + " m / " + period + " m");
+                // The smallest tile side the runtime draws (level 10, 1,024 m) and every coarser one.
+                Assert.That(1024.0 / period % 1.0, Is.EqualTo(0.0), name);
+            }
+        }
+
+        [Test]
+        public void OutlineNeverMovesSingleVerticesAway()
+        {
+            string outline = StripComments(Read("ToonLitOutlinePass.hlsl"));
+            string vert = Function(outline, "OutlineVaryings OutlineVert(");
+            // The old per-vertex collapse turned triangles crossing the fade-out radius into screen-wide slivers.
+            Assert.That(vert, Does.Not.Match(@"widthPx\s*>\s*0\.05\s*\?"), "no per-vertex collapse on the width");
+            // The only collapse is per instance, from the instance origin (all vertices of an instance agree).
+            Match collapse = Regex.Match(vert, @"#if defined\(UNITY_INSTANCING_ENABLED\)(.*?)#endif", RegexOptions.Singleline);
+            Assert.That(collapse.Success, "instance-level collapse");
+            Assert.That(collapse.Groups[1].Value, Does.Contain("TransformObjectToWorld(float3(0.0, 0.0, 0.0))"));
+            Assert.That(vert.Replace(collapse.Value, ""), Does.Not.Contain("float4(2.0, 2.0, 2.0, 1.0)"), "nothing else collapses");
+            Assert.That(vert, Does.Contain("o.widthPx = widthPx;"));
+            string frag = Function(outline, "half4 OutlineFrag(");
+            Assert.That(frag, Does.Contain("clip(i.widthPx - 0.05);"), "faded-out hull pixels are discarded per fragment");
+        }
+
+        [Test]
+        public void DerivativesAreTakenBeforeAnyClip()
+        {
+            string frag = StripComments(Function(Read("ToonLitForwardPass.hlsl"), "half4 ToonFrag("));
+            int albedo = frag.IndexOf("GhMaterialAlbedo(", StringComparison.Ordinal);
+            int ddx = frag.IndexOf("ddx(", StringComparison.Ordinal);
+            int band = frag.IndexOf("GhBandClip(", StringComparison.Ordinal);
+            int occluder = frag.IndexOf("GhOccluderClip(", StringComparison.Ordinal);
+            Assert.That(albedo, Is.GreaterThan(0));
+            Assert.That(ddx, Is.GreaterThan(0));
+            Assert.That(band, Is.GreaterThan(Math.Max(albedo, ddx)), "band clip after the texture gradients");
+            Assert.That(occluder, Is.GreaterThan(Math.Max(albedo, ddx)), "occluder clip after the texture gradients");
+            Assert.That(frag.LastIndexOf("ddx(", StringComparison.Ordinal), Is.LessThan(band), "no derivative after a discard");
+            Assert.That(frag.IndexOf("ddy(", StringComparison.Ordinal), Is.LessThan(band));
+            string input = StripComments(Read("ToonLitInput.hlsl"));
+            Assert.That(Function(input, "half3 GhMaterialAlbedo(").Contains("clip("), Is.False);
+        }
+
+        [Test]
+        public void GlintsAreFilteredByThePixelFootprint()
+        {
+            string frag = StripComments(Function(Read("ToonLitForwardPass.hlsl"), "half4 ToonFrag("));
+            Assert.That(frag, Does.Not.Contain("positionOS * 60.0"), "no fixed 17 mm cells");
+            Assert.That(frag, Does.Contain("footprint"));
+            Assert.That(frag, Does.Contain("exp2(max(-6.0, ceil(log2(max(2.0 * footprint, 1e-6)))))"), "cells at least two pixels wide");
+            Assert.That(frag, Does.Contain("i.matA.w * _GhLookParams.z) * detail * (half)saturate(2.0 - 16.0 * footprint)"),
+                        "fading out continuously with the footprint (1/8 to 1/4 m per two pixels) and with the texture distance fade");
+            // The view term reshuffles the glints over degrees of view change, not every centimetre of camera bob.
+            Match view = Regex.Match(frag, @"dot\(\(float3\)viewDir, float3\(([\d.]+), ([\d.]+), ([\d.]+)\)\)");
+            Assert.That(view.Success);
+            double norm = Math.Sqrt(Enumerable.Range(1, 3).Sum(k => Math.Pow(double.Parse(view.Groups[k].Value, CultureInfo.InvariantCulture), 2)));
+            Assert.That(norm, Is.LessThan(0.5));
+        }
+
+        [Test]
+        public void OccluderShaderMatchesItsTwin()
+        {
+            string input = StripComments(Read("ToonLitInput.hlsl"));
+            string fn = Function(input, "float GhOccluderOpacity(");
+            foreach (string term in new[]
+                     {
+                         "float tc = saturate(t);",
+                         "float radius = lerp(_GhOccluderA.w, _GhOccluderC.w, tc);",
+                         "float side = saturate((radius + soft - distance(positionWS, a + ab * tc)) / soft);",
+                         "float cap = saturate((1.0 - t) * len / (0.5 * soft));",
+                         "float away = saturate((distance(positionWS, _GhOccluderB.xyz) - _GhOccluderC.y) / max(0.5 * _GhOccluderC.y, 1e-3));",
+                         "float above = saturate((positionWS.y - _GhOccluderD.x) / 0.3);",
+                         "float upright = saturate((0.7 - normalY) / 0.2);",
+                         "float overhead = saturate((positionWS.y - _GhOccluderD.y) / 0.3);",
+                         "fade *= above * max(upright, overhead);",
+                         "return 1.0 - fade * (1.0 - _GhOccluderC.z);",
+                     })
+                Assert.That(fn, Does.Contain(term));
+            Assert.That(fn, Does.Contain("_OccluderGround > 0.5"));
+            Assert.That(OccluderCapsule.GroundRampM, Is.EqualTo(0.3f));
+            Assert.That(input, Does.Contain("float4 _GhOccluderD;"));
+            Assert.That(LayoutList("Globals"), Does.Contain("_GhOccluderD"));
+            // No fade-in at the camera end any more: nothing scales the fade by the distance from the camera.
+            Assert.That(fn, Does.Not.Contain("saturate(t * len"));
+            // Every pass that clips passes a normal (the ground layers need it).
+            foreach (string f in new[] { "ToonLitForwardPass.hlsl", "ToonLitDepthPasses.hlsl", "ToonLitOutlinePass.hlsl" })
+                foreach (Match m in Regex.Matches(StripComments(Read(f)), @"GhOccluderClip\(([^;]*)\);"))
+                    Assert.That(m.Groups[1].Value.Split(',').Length, Is.EqualTo(3 + (m.Groups[1].Value.Contains("float3(") ? 2 : 0)), f);
+        }
+
+        [Test]
+        public void WaterDriftIsWrapped()
+        {
+            string fn = StripComments(Function(Read("ToonLitInput.hlsl"), "half3 GhMaterialAlbedo("));
+            Assert.That(fn, Does.Contain("p.x += frac(_Time.y * matB.w * matA.x);"), "whole tiles: no precision loss after hours");
         }
     }
 }

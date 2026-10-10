@@ -146,56 +146,107 @@ Encoding: sRGB rgb + alpha = tint weight; the shader computes `albedo = lerp(rgb
 enriches the mesher's palette colour (rgb 0.5 = unchanged) and can carry absolute colours (mortar, grout, worn-through
 asphalt). Every pattern is periodic over the tile with integer noise periods (tested by rendering a shifted window), mips
 are box-filtered in linear space. `MaterialLooks` holds the per-channel shading table (tile size in metres, toon highlight
-strength and gloss, glints, metallic tint, sky reflection, macro strength, water drift). Run the core tests with
-`GHUMANTE_SWATCH_DIR=<dir>` to write every texture as PNG.
+strength and gloss, glints, metallic tint, sky reflection, macro strength, water drift). Every tile size and the 32 m
+macro period are powers of two that divide 64 m (tested): tile-local meshes (terrain, roads, areas, water) are sampled in
+object space, and tile sides are 2^(20-L) m, so the patterns run on across tile borders without a seam (brick 0.5 m per
+repeat: 0.25 m bricks in 62.5 mm courses; jhingati 0.5 m; stone and glass 1 m; grass 2 m; asphalt and water 4 m; fabric
+0.125 m; skin, hair, leather, rubber 0.25 m). Run the core tests with `GHUMANTE_SWATCH_DIR=<dir>` to write every texture
+as PNG.
 
 **`ToonLook`** (Rendering/, self-starting: `RuntimeInitializeOnLoadMethod` + `RenderPipelineManager.beginCameraRendering`,
 no scene object, no per-frame allocation) bakes the textures on worker threads (`ToonTextureBank`, ≈ 9 MB at 256², 2.3 MB
 at 128² on Low; a neutral 4 × 4 array is bound until then, which renders the flat colours), uploads one mipmapped sRGB
-`Texture2DArray`, binds the channel table as `_GhChannelA/_GhChannelB[32]`, applies the device tier (`ToonLookTier`) and
-sets the occluder capsule before the world camera renders. In the editor `ToonLookEditor` starts it on every domain load
-(Scene view shows the look) and **Ghumante > Look > Refresh Material Textures** re-bakes.
+`Texture2DArray`, binds the channel table as `_GhChannelA/_GhChannelB[32]`, applies the device tier (`ToonLookTier`),
+applies the tier's look roles to the active world's materials, and sets the occluder capsule before the world camera
+renders. A tier change with another texture size (Low 128², Mid/High 256²: a settings change, a thermal step-down)
+re-bakes in the background and swaps the arrays when the new one is uploaded; the old one stays bound meanwhile.
+`ToonLook.Refresh()` runs the same per-camera step for tools and tests. In the editor `ToonLookEditor` starts it on every
+domain load (Scene view shows the look) and **Ghumante > Look > Refresh Material Textures** re-bakes.
 
 **`Ghumante/ToonLit`** samples the channel's texture triplanar in object space (stable under the floating origin; moving
 vehicles keep their texture), adds the macro layer, fades to the flat colour with distance, multiplies by the vertex tint
 and the baked AO (full on ambient, half on direct light), then the 3-band toon ramp, a toon highlight per channel (white
 on paint and glass, tinted on metal and gilt), glints on gilt and water, sky reflection at grazing angles on glass and
-water, the warm rim and fog. Meshes without UV0 read (0, 0) and render exactly as before (Plain, no AO).
+water, the warm rim and fog. Meshes without UV0 read (0, 0) and render exactly as before (Plain, no AO); channel values
+without a texture slice (`GH_SLICE_COUNT` = `MaterialTextures.SliceCount` = 26, tested) render as Plain too. All texture
+gradients are taken before the band and occluder `clip()`s (derivatives after a discard are undefined on Vulkan and GLES).
+Glints use cells at least two pixels wide (1/64 m up close, the next power of two as the pixel footprint grows, an integer
+hash), fade out between ≈ 58 and 117 m at 1080 p and with the texture reach, and reshuffle over ≈ 3° of view change, so
+gilt roofs and rivers sparkle instead of fizzing per pixel. Water drifts by whole wrapped tiles (no precision loss).
 
 **Outlines** are an inverted hull: a second pass (`LightMode` `SRPDefaultUnlit`, which URP's opaque pass draws right after
 `UniversalForward`) pushes back faces out along the screen-space normal by a constant pixel width, fading out with
-distance; the colour is a dark shade of the surface colour, lit like the scene. Ground layers (terrain, roads, areas,
-markings) and the far bands have the pass disabled per material (`SetShaderPassEnabled`, no draw). The tier toggle is the
-shader LOD: the LOD 300 SubShader has the outline pass, the LOD 200 SubShader does not, and `ToonLook` sets
-`Shader.maximumLOD` (Low: 200, so Low pays nothing). No URP renderer feature, no depth texture.
+distance; the colour is a dark shade of the surface colour, lit like the scene. Where the width reaches zero the hull
+stays in place behind the surface (hidden by the depth test) and the fragment discards what is left below 0.05 px;
+vertices are never moved one by one (a triangle crossing the fade-out radius would become a screen-wide sliver:
+`previews/look/fix/outline_collapse_fixed.png`). Instanced draws drop whole instances whose origin lies more than 32 m
+beyond the fade-out (all vertices of an instance agree). The tier toggle is the shader LOD (the LOD 300 SubShader has the
+outline pass, the LOD 200 SubShader does not; `ToonLook` sets `Shader.maximumLOD`), and per material the pass is enabled
+by the tier's role (`WorldMaterialDefaults.RoleOf`, ARCHITECTURE 10 "Outlines"). No URP renderer feature, no depth texture.
 
-**Occluder fade** (`_OCCLUDER_FADE`, `OccluderFade`): surfaces of buildings (bands B0/B1), heroes, trees, props, people and
-animals inside a capsule from the camera to the player (1 m radius at the camera widening to 2.2 m at the player, soft
-0.9 m edges, the last 0.9 m before the player solid, 18% left) dissolve into a 4 × 4 Bayer screen door, so houses, walls,
-balconies and temples never block the view. The capsule is three global vectors set once per camera; there is no
-per-object CPU work. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a camera rig sets
-a better point that frame. The plain building material (the explorer's own material is copied from it) and traffic never
-fade; shadows of faded houses stay.
+| Tier | Textures | Triplanar | Texture reach | Glints | Outline | Outlined materials |
+|---|---|---|---|---|---|---|
+| Low | 128² | dominant axis (2 samples with macro) | 80 m | off | none (LOD 200) | none (deviation from "landmarks only": a second draw per hero on the tier with the tightest batch budget) |
+| Mid | 256², aniso 2 | blended (4 samples) | 160 m | on | 1.6 px at 1080 p, fades 30–80 m | explorer + their vehicle (`buildings`), traffic (`instanced`), people, animals, aircraft (`instancedTint`), heroes |
+| High | 256², aniso 4 | blended (4 samples) | 260 m | on | 2 px, fades 40–110 m | Mid + street props (`props`) + the near building band (`bandB0`, 80 m) |
 
-| Tier | Textures | Triplanar | Texture reach | Glints | Outline |
-|---|---|---|---|---|---|
-| Low | 128² | dominant axis (2 samples with macro) | 80 m | off | none (LOD 200) |
-| Mid | 256², aniso 2 | blended (4 samples) | 160 m | on | 1.6 px at 1080 p, fades 30–80 m |
-| High | 256², aniso 4 | blended (4 samples) | 260 m | on | 2 px, fades 40–110 m |
+Never outlined: terrain, roads, areas, markings, trees, the B1/B1-full/B2/B3 bands. **Cost**: the outline adds one draw
+per outlined renderer or instanced batch and runs its vertices again; `RenderStats.OutlinedTris(tier)` gives the
+per-frame upper bound from the streamer and presenter counters (vehicles + parked + people + animals + aircraft + heroes +
+props, + B0 on High). Estimate against ARCHITECTURE 10 (only non-empty batches draw): Mid ≈ +30–60 draws (traffic
+≈ 12–25 batches, people ≤ 30 and animals ≤ 12 batches, the hero renderers, the explorer) and at most the hero budget
+(40 k triangles) plus the people and vehicle triangles of the 60 / 30 caps; High adds the B0 cells in 80 m and ≤ 20 prop
+batches, with a 60 k hero budget. Before this fix every B0 and B1 chunk to 200–250 m, every tree batch and every prop batch
+drew it on Mid too. To validate on device (Wave 3).
 
-Material roles (`WorldMaterialDefaults.RoleOf`, applied idempotently by Project Setup to every material each run):
+**Occluder fade** (`_OCCLUDER_FADE`; the engine-free twin is `Core/Synth/Look/OccluderCapsule`, tested in
+`core-tests/SynthOccluderFadeTests`): surfaces between the camera and the player dissolve into a 4 × 4 Bayer screen door
+(18% left), so houses, walls, balconies, temples and bridge parts never block the view, also when the collision-aware
+camera is squeezed 1.5 m behind a motorbike backing down a galli. The capsule is four global vectors set once per camera;
+there is no per-object CPU work. It is fully faded within a radius growing from the camera end (at least 1 m, more when
+the view frustum 0.8 m in front of the lens is wider: landscape, wide FOV) to 1.3 m at the player, with no fade-in at the
+camera (a wall 0.1 m in front of the lens is gone), soft edges of 12% of the capsule (0.15–0.6 m) outside that radius,
+nothing at or beyond the plane through the player (the background stays), and a solid sphere of 0.5 m (at most a quarter
+of the capsule) around the player end. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a
+camera rig sets a better point that frame. The road material fades as a **ground layer** (`_OccluderGround`): only above
+the player's knees, and upward-facing surfaces only from 0.8 m above the player end, so bridge railings, piers, parapets,
+flyover undersides and decks overhead dissolve while the road surface, kerbs and footpaths never do. The plain building
+material (the explorer's own material is copied from it) and traffic never fade; shadows of faded houses stay.
 
-| Material | Outline | Occluder fade |
+| Material | Outline (tier) | Occluder fade |
 |---|---|---|
-| terrain, roads, areas, decals | — | — |
-| buildings (explorer source), instanced (traffic) | yes | — |
-| bandB0, bandB1, bandB1Full, heroes, instancedTint (props, people, animals) | yes | yes |
-| trees | 0.8 × | yes |
+| terrain, areas, decals | — | — |
+| roads (also bridge and flyover parts) | — | ground layer |
+| buildings (explorer source), instanced (traffic) | Mid, High | — |
+| instancedTint (people, animals, aircraft), heroes | Mid, High | yes |
+| props | High | yes |
+| bandB0 | High | yes |
+| bandB1, bandB1Full, trees | — | yes |
 | bandB2, bandB3 | — | — |
+
+Project Setup stores the High roles (the superset) in the material assets; `WorldMaterialSet.Load` and `ToonLook` apply
+the tier in use at runtime (before the streamer clones the band materials when a world opens).
 
 **Audio** (decision 7): the crowd walla beds are off by default (`AudioDirector.CrowdWallaEnabled`, `AmbienceInputs
 .CrowdWalla`); the bank does not even bake them, and the temple-courtyard bed is now quiet air and pigeons without
 walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN 7.1 level targets.
+
+### Open issues (look)
+
+- **Props material** (nature): `DressingRenderer` draws street props and the chautari with `WorldMaterialSet.instancedTint`
+  (the people's material), so props are outlined on Mid too. Switch those two batches to `WorldMaterialSet.props` (same
+  shader setup) to get the ARCHITECTURE 10 split (props outlined on High only).
+- **Bridge and flyover layer** (integration, bridges): structure geometry drawn with the road material fades as a ground
+  layer (above the player's knees). That puts a `clip()` in every road fragment, which costs early depth writes and
+  hidden-surface removal on mobile GPUs over a large share of the screen. Once the bridge meshes get a layer of their
+  own, draw it with a material that fades whole (like `heroes`), keep the deck surface on the road layer and turn the
+  road material's fade off again (`WorldMaterialDefaults.RoleOf`).
+- **Outline cost in the HUD** (integration): show `RenderStats.OutlinedTris(ToonLook.Tier)` next to the triangle counters
+  in the debug HUD for the Wave 3 device pass.
+- **Inspector-assigned material sets**: a `WorldRoot` with a set assigned in the inspector skips `WorldMaterialSet.Load`, so
+  its band clones keep the asset's High roles (B0 outlined on Mid) until the next open after `ToonLook` applied the tier.
+- `ToonLook.Occluder` now takes `Ghumante.Core.Synth.Look.OccluderFadeSettings` (moved to Core so the capsule is tested
+  by the core tests); `ToonLook.SetOccluderTarget` is unchanged.
 
 ## Trying it in the editor
 
@@ -212,7 +263,7 @@ overlay over gameplay (in a game scene; it closes with the world). The hotkeys i
 | `Streaming/` | `StreamingScheduler` (engine-free orchestration), `TileResidency` (swap rule), `TileBuild` (worker job), `WorldStreamer` + `TileView` + `MeshUpload` (Unity side). |
 | `Sky/` | `SkyPalette` (engine-free sun path and time-of-day palette), `WorldSky` (light, sky, fog, ambient). |
 | `Navigation/` | `RibbonBuilder` (engine-free strip geometry), `RouteRibbon`. |
-| `Rendering/` | `WorldMaterialSet`, `WorldShaders`, `EarthCurvature`; the look: `ToonLook`, `ToonLookTier`, `ToonTextureBank`, `OccluderFade`, `ToonLitLayout` (C# twin of the SRP Batcher layout). |
+| `Rendering/` | `WorldMaterialSet`, `WorldShaders`, `EarthCurvature`, `RenderStats`; the look: `ToonLook`, `ToonLookTier`, `ToonTextureBank`, `ToonLitLayout` (C# twin of the SRP Batcher layout); the occluder capsule's twin is `Core/Synth/Look/OccluderCapsule`. |
 | `Shaders/` | The shaders and their includes (`ToonLitInput`, `ToonLitForwardPass`, `ToonLitOutlinePass`, `ToonLitDepthPasses`, `GhumanteCommon`). |
 | `Debug/` | Development-only: `FreeFlyCamera`, `WorldDebugHotkeys`, `WorldPreview`. |
 | `Editor/` | `WorldSetup`: materials for Project Setup, the World Preview menu; `ToonLookEditor`: the look in edit mode. |

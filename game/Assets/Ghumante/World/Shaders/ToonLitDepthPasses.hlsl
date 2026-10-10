@@ -78,7 +78,7 @@ DepthVaryings DepthVert(DepthAttributes input)
 half DepthFrag(DepthVaryings input) : SV_TARGET
 {
     GhBandClip(input.positionWS, input.positionCS.xy);
-    GhOccluderClip(input.positionWS, input.positionCS.xy);
+    GhOccluderClip(input.positionWS, input.normalWS, input.positionCS.xy);
     return input.positionCS.z;
 }
 
@@ -86,7 +86,7 @@ half DepthFrag(DepthVaryings input) : SV_TARGET
 half4 DepthNormalsFrag(DepthVaryings input) : SV_TARGET
 {
     GhBandClip(input.positionWS, input.positionCS.xy);
-    GhOccluderClip(input.positionWS, input.positionCS.xy);
+    GhOccluderClip(input.positionWS, input.normalWS, input.positionCS.xy);
 #if defined(_GBUFFER_NORMALS_OCT)
     float3 normalWS = normalize(input.normalWS);
     float2 octNormalWS = PackNormalOctQuadEncode(normalWS);

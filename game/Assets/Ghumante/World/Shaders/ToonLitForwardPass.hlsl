@@ -50,17 +50,34 @@ Varyings ToonVert(Attributes input)
     return o;
 }
 
+// Integer hash of a glint cell to [0, 1) (stable for any coordinate, unlike sin- or frac-of-product hashes).
+float GhGlintHash(float3 cell)
+{
+    uint3 q = (uint3)(int3)cell;
+    uint h = (q.x * 1597334677u) ^ (q.y * 3812015801u) ^ (q.z * 2741598397u);
+    h = (h ^ (h >> 16)) * 2246822519u;
+    h ^= h >> 13;
+    return (float)(h & 0x00FFFFFFu) * (1.0 / 16777216.0);
+}
+
 half4 ToonFrag(Varyings i) : SV_Target
 {
     float3 positionWS = i.positionWSFog.xyz;
-    GhBandClip(positionWS, i.positionCS.xy);
-    GhOccluderClip(positionWS, i.positionCS.xy);
-
-    half3 n = normalize(i.normalWSAo.xyz);
     half3 viewDir = GetWorldSpaceNormalizeViewDir(positionWS);
     float viewDistance = distance(positionWS, _WorldSpaceCameraPos.xyz);
+
+    // Everything that needs screen-space derivatives (texture gradients, the glint footprint) runs before the band and
+    // occluder clips: after a discard the derivatives of the pixels left in a 2 × 2 quad are undefined on Vulkan and
+    // GLES (wrong mips and sparkle right in the dithered cross-fade and the occluder hole).
     half4 texel;
-    half3 albedo = GhMaterialAlbedo(i.albedo, i.positionOS, i.normalOS, i.matA, i.matB, i.channel, viewDistance, texel);
+    half detail;
+    half3 albedo = GhMaterialAlbedo(i.albedo, i.positionOS, i.normalOS, i.matA, i.matB, i.channel, viewDistance, texel, detail);
+    float footprint = max(length(ddx(i.positionOS)), length(ddy(i.positionOS))); // object-space metres per pixel
+
+    GhBandClip(positionWS, i.positionCS.xy);
+    GhOccluderClip(positionWS, i.normalWSAo.xyz, i.positionCS.xy);
+
+    half3 n = normalize(i.normalWSAo.xyz);
     half ao = lerp(1.0h, i.normalWSAo.w, _AoStrength);
 
     float4 shadowCoord = TransformWorldToShadowCoord(positionWS);
@@ -96,12 +113,16 @@ half4 ToonFrag(Varyings i) : SV_Target
         half3 specColor = lerp(half3(1.0h, 1.0h, 1.0h), albedo * 2.0h, (half)i.matB.x);
         color += disc * spec * shadow * saturate(ndl * 4.0h) * specColor * lightColor;
 
-        // Glints (gilt copper, sunlit water): sparse cells that twinkle as the view moves.
-        half glint = (half)(i.matA.w * _GhLookParams.z);
+        // Glints (gilt copper, sunlit water): sparse cells that twinkle as the view turns. A cell is at least two pixels
+        // wide (1/64 m up close, the next power of two as the pixel footprint grows), so cells never shrink below a pixel
+        // and fizz; glints fade out while two pixels grow from 1/8 to 1/4 m (≈ 58 to 117 m at 1080 p) and with the
+        // textures' distance fade. The view term reshuffles the lit cells over about 3° of view change, not every
+        // centimetre of camera bob.
+        half glint = (half)(i.matA.w * _GhLookParams.z) * detail * (half)saturate(2.0 - 16.0 * footprint);
         if (glint > 0.001h)
         {
-            float cellHash = frac(dot(floor(i.positionOS * 60.0), float3(0.1031, 0.1103, 0.0973)) * 43.7 +
-                                  dot(viewDir, half3(3.1h, 5.7h, 4.3h)));
+            float cell = exp2(max(-6.0, ceil(log2(max(2.0 * footprint, 1e-6)))));
+            float cellHash = frac(GhGlintHash(floor(i.positionOS / cell)) + dot((float3)viewDir, float3(0.11, 0.21, 0.17)));
             half g = step(0.985h, (half)cellHash) * glint * saturate(ndl) * shadow * (0.5h + texel.r);
             color += g * lightColor * 2.0h;
         }

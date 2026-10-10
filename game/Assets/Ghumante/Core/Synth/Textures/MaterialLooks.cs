@@ -10,7 +10,8 @@ namespace Ghumante.Core.Synth.Textures
     /// </summary>
     public readonly struct MaterialLook
     {
-        /// <summary>Metres per texture repeat (object space, triplanar).</summary>
+        /// <summary>Metres per texture repeat (object space, triplanar); a power of two (see
+        /// <see cref="MaterialLooks.SeamFreeSpanM"/>).</summary>
         public readonly float TileM;
 
         /// <summary>Strength of the toon highlight (0 = matte).</summary>
@@ -55,38 +56,49 @@ namespace Ghumante.Core.Synth.Textures
         public const int ArraySize = 32;
 
         /// <summary>Metres per repeat of the macro-variation layer (the <see cref="MaterialChannel.Plain"/> slice, sampled
-        /// a second time at this scale to break up the repeat of ground and wall textures).</summary>
-        public const float MacroTileM = 23f;
+        /// a second time at this scale to break up the repeat of ground and wall textures). A power of two like every
+        /// <see cref="MaterialLook.TileM"/>: see <see cref="SeamFreeSpanM"/>.</summary>
+        public const float MacroTileM = 32f;
 
-        // Indexed by MaterialChannel. Tile sizes follow the real objects with a cartoon enlargement: a 0.3 m brick with
-        // 75 mm courses, 0.15 m jhingati tiles in 0.1 m rows, 0.5 m flagstones, 4 m of asphalt per repeat.
+        /// <summary>
+        /// The shader samples tile-local meshes (terrain, roads, areas, water: every tile is placed at its own corner) in
+        /// object space, so a pattern lines up across a tile border only when its period divides the tile side
+        /// (2^(20-L) m, at least 1,024 m for the levels the runtime draws). Every <see cref="MaterialLook.TileM"/> and
+        /// <see cref="MacroTileM"/> is a power-of-two fraction or multiple of a metre that divides this span (tested), which
+        /// also covers mesh chunks placed on any 64 m grid.
+        /// </summary>
+        public const float SeamFreeSpanM = 64f;
+
+        // Indexed by MaterialChannel. Tile sizes follow the real objects with a cartoon enlargement, rounded to powers of
+        // two (seam-free across tiles): a 0.25 m brick with 62.5 mm courses, 0.125 m jhingati tiles in 83 mm rows, 0.5 m
+        // ashlar blocks in 0.25 m courses, 0.5 m flagstones, 4 m of asphalt per repeat.
         private static readonly MaterialLook[] Table =
         {
             new MaterialLook(1.0f, 0f, 8f, 0f, 0f, 0f, 0f, 0f),        // Plain (macro slice)
             new MaterialLook(2.0f, 0f, 8f, 0f, 0f, 0f, 0.6f, 0f),       // Plaster
-            new MaterialLook(0.6f, 0.05f, 12f, 0f, 0f, 0f, 0.5f, 0f),   // Brick
-            new MaterialLook(0.6f, 0.45f, 40f, 0f, 0f, 0.15f, 0.3f, 0f), // BrickGlazed (dachi apa)
+            new MaterialLook(0.5f, 0.05f, 12f, 0f, 0f, 0f, 0.5f, 0f),   // Brick
+            new MaterialLook(0.5f, 0.45f, 40f, 0f, 0f, 0.15f, 0.3f, 0f), // BrickGlazed (dachi apa)
             new MaterialLook(1.0f, 0.08f, 16f, 0f, 0f, 0f, 0.3f, 0f),   // Wood
-            new MaterialLook(0.4f, 0.10f, 16f, 0f, 0f, 0f, 0.2f, 0f),   // WoodCarved
-            new MaterialLook(0.6f, 0.05f, 12f, 0f, 0f, 0f, 0.6f, 0f),   // RoofTile (jhingati)
+            new MaterialLook(0.5f, 0.10f, 16f, 0f, 0f, 0f, 0.2f, 0f),   // WoodCarved
+            new MaterialLook(0.5f, 0.05f, 12f, 0f, 0f, 0f, 0.6f, 0f),   // RoofTile (jhingati)
             new MaterialLook(1.0f, 0.60f, 24f, 0f, 0.6f, 0.25f, 0.4f, 0f), // Metal
             new MaterialLook(0.5f, 0.90f, 32f, 1f, 1f, 0.3f, 0.2f, 0f), // Gilt
-            new MaterialLook(1.2f, 0.05f, 10f, 0f, 0f, 0f, 0.6f, 0f),   // Stone
+            new MaterialLook(1.0f, 0.05f, 10f, 0f, 0f, 0f, 0.6f, 0f),   // Stone
             new MaterialLook(4.0f, 0.03f, 10f, 0f, 0f, 0f, 1f, 0f),     // Asphalt
             new MaterialLook(2.0f, 0.03f, 10f, 0f, 0f, 0f, 0.8f, 0f),   // Concrete
-            new MaterialLook(1.5f, 0f, 8f, 0f, 0f, 0f, 1f, 0f),         // Grass
+            new MaterialLook(2.0f, 0f, 8f, 0f, 0f, 0f, 1f, 0f),         // Grass
             new MaterialLook(1.0f, 0.06f, 10f, 0f, 0f, 0f, 0.5f, 0f),   // Foliage
             new MaterialLook(1.0f, 0f, 8f, 0f, 0f, 0f, 0.3f, 0f),       // Bark
-            new MaterialLook(0.15f, 0f, 8f, 0f, 0f, 0f, 0f, 0f),        // Fabric
-            new MaterialLook(0.3f, 0.12f, 14f, 0f, 0f, 0f, 0f, 0f),     // Skin
-            new MaterialLook(1.2f, 0.90f, 64f, 0f, 0f, 0.6f, 0f, 0f),   // Glass
-            new MaterialLook(3.0f, 0.80f, 48f, 0.3f, 0f, 0.5f, 0.5f, 0.25f), // Water
+            new MaterialLook(0.125f, 0f, 8f, 0f, 0f, 0f, 0f, 0f),       // Fabric
+            new MaterialLook(0.25f, 0.12f, 14f, 0f, 0f, 0f, 0f, 0f),    // Skin
+            new MaterialLook(1.0f, 0.90f, 64f, 0f, 0f, 0.6f, 0f, 0f),   // Glass
+            new MaterialLook(4.0f, 0.80f, 48f, 0.3f, 0f, 0.5f, 0.5f, 0.25f), // Water
             new MaterialLook(1.0f, 0.35f, 28f, 0f, 0f, 0.1f, 0.3f, 0f), // Paint
             new MaterialLook(0.25f, 0.05f, 8f, 0f, 0f, 0f, 0f, 0f),     // Rubber
             new MaterialLook(2.0f, 0f, 8f, 0f, 0f, 0f, 1f, 0f),         // Dirt
             new MaterialLook(2.0f, 0.05f, 12f, 0f, 0f, 0f, 0.8f, 0f),   // Flagstone
-            new MaterialLook(0.2f, 0.25f, 20f, 0f, 0f, 0f, 0f, 0f),     // Hair
-            new MaterialLook(0.3f, 0.20f, 18f, 0f, 0f, 0f, 0f, 0f),     // Leather
+            new MaterialLook(0.25f, 0.25f, 20f, 0f, 0f, 0f, 0f, 0f),    // Hair
+            new MaterialLook(0.25f, 0.20f, 18f, 0f, 0f, 0f, 0f, 0f),    // Leather
             new MaterialLook(2.0f, 0.05f, 12f, 0f, 0f, 0f, 0.5f, 0f),   // Marking
         };
 

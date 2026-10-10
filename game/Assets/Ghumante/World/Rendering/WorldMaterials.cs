@@ -1,3 +1,4 @@
+using Ghumante.Platform;
 using Ghumante.World.Streaming;
 using UnityEngine;
 
@@ -42,6 +43,7 @@ namespace Ghumante.World.Rendering
         public static readonly int SpecularStrength = Shader.PropertyToID("_SpecularStrength");
         public static readonly int OutlineWidth = Shader.PropertyToID("_OutlineWidth");
         public static readonly int OccluderFade = Shader.PropertyToID("_OccluderFade");
+        public static readonly int OccluderGround = Shader.PropertyToID("_OccluderGround");
         public const string KeywordOccluderFade = ToonLitLayout.KeywordOccluderFade;
 
         // Route ribbon.
@@ -97,8 +99,13 @@ namespace Ghumante.World.Rendering
         [Tooltip("W2 instanced vehicles, people, animals, aircraft: Ghumante/ToonLit with GPU instancing.")]
         public Material instanced;
 
-        [Tooltip("W2 instanced props with a per-instance tint: Ghumante/ToonLit, instancing + _INSTANCE_TINT.")]
+        [Tooltip("W2 instanced people, animals, aircraft (and props until they move to 'props'): Ghumante/ToonLit, " +
+                 "instancing + _INSTANCE_TINT.")]
         public Material instancedTint;
+
+        [Tooltip("W2 detail pass: instanced street props and furniture with a per-instance tint, like instancedTint but " +
+                 "outlined only on High (ARCHITECTURE 10).")]
+        public Material props;
 
         [Tooltip("W2 trees: Ghumante/ToonLit, instancing + _INSTANCE_TINT + _WIND.")]
         public Material trees;
@@ -122,7 +129,7 @@ namespace Ghumante.World.Rendering
             get
             {
                 return decals != null && bandB0 != null && bandB1 != null && bandB1Full != null && bandB2 != null && bandB3 != null &&
-                       heroes != null && instanced != null && instancedTint != null && trees != null && lights != null;
+                       heroes != null && instanced != null && instancedTint != null && props != null && trees != null && lights != null;
             }
         }
 
@@ -157,6 +164,7 @@ namespace Ghumante.World.Rendering
             if (heroes == null) heroes = MakeExtra(WorldShaders.ToonLit, "Ghumante Heroes (runtime)");
             if (instanced == null) instanced = MakeExtra(WorldShaders.ToonLit, "Ghumante Instanced (runtime)");
             if (instancedTint == null) instancedTint = MakeExtra(WorldShaders.ToonLit, "Ghumante Instanced Tint (runtime)");
+            if (props == null) props = MakeExtra(WorldShaders.ToonLit, "Ghumante Props (runtime)");
             if (trees == null) trees = MakeExtra(WorldShaders.ToonLit, "Ghumante Trees (runtime)");
             if (lights == null) lights = MakeExtra(WorldShaders.InstancedLights, "Ghumante Lights (runtime)");
             WorldMaterialDefaults.ApplyExtras(this, true);
@@ -177,11 +185,19 @@ namespace Ghumante.World.Rendering
             return m;
         }
 
-        /// <summary>The project's set, or one made at runtime when the asset is missing or incomplete (logged).</summary>
+        /// <summary>
+        /// The project's set, or one made at runtime when the asset is missing or incomplete (logged). The look roles of the
+        /// current tier (<see cref="ToonLook.CurrentTier"/>: which materials draw the outline pass) are applied before it is
+        /// returned, so the per-world clones the streamer makes right after (building bands) inherit them.
+        /// </summary>
         public static WorldMaterialSet Load()
         {
             var set = Resources.Load<WorldMaterialSet>(ResourcePath);
-            if (set != null && set.IsComplete) return set;
+            if (set != null && set.IsComplete)
+            {
+                WorldMaterialDefaults.ApplyLook(set, false);
+                return set;
+            }
             Debug.LogWarning("WorldMaterialSet: Resources/" + ResourcePath + " missing or incomplete; using runtime materials. " +
                              "Run Ghumante > Project Setup to create the material assets (needed for player builds).");
             return CreateRuntime();
@@ -227,6 +243,7 @@ namespace Ghumante.World.Rendering
                 heroes = DropRuntime(heroes);
                 instanced = DropRuntime(instanced);
                 instancedTint = DropRuntime(instancedTint);
+                props = DropRuntime(props);
                 trees = DropRuntime(trees);
                 lights = DropRuntime(lights);
                 _extrasRuntime = false;
@@ -324,12 +341,14 @@ namespace Ghumante.World.Rendering
                 Toon(set.instanced, 0f, 2000);
                 set.instanced.enableInstancing = true;
             }
-            if (Fresh(set.instancedTint, onlyRuntime))
+            Material[] tinted = { set.instancedTint, set.props };
+            for (int i = 0; i < tinted.Length; i++)
             {
-                Toon(set.instancedTint, 0f, 2000);
-                set.instancedTint.enableInstancing = true;
-                set.instancedTint.EnableKeyword(WorldShaders.KeywordInstanceTint);
-                set.instancedTint.SetFloat("_InstanceTintOn", 1f);
+                if (!Fresh(tinted[i], onlyRuntime)) continue;
+                Toon(tinted[i], 0f, 2000);
+                tinted[i].enableInstancing = true;
+                tinted[i].EnableKeyword(WorldShaders.KeywordInstanceTint);
+                tinted[i].SetFloat("_InstanceTintOn", 1f);
             }
             if (Fresh(set.trees, onlyRuntime))
             {
@@ -372,58 +391,90 @@ namespace Ghumante.World.Rendering
         }
 
         /// <summary>How a world material takes part in the cartoon look: outline width (× the tier width; 0 = the outline
-        /// pass is disabled for it, no draw) and whether it dissolves between the camera and the player.</summary>
+        /// pass is disabled for it, no draw), whether it dissolves between the camera and the player, and whether only its
+        /// structures above the player's knees do (a ground layer).</summary>
         public struct LookRole
         {
             public float Outline;
             public bool OccluderFade;
+            public bool OccluderGround;
 
-            public LookRole(float outline, bool occluderFade)
+            public LookRole(float outline, bool occluderFade, bool occluderGround = false)
             {
                 Outline = outline;
                 OccluderFade = occluderFade;
+                OccluderGround = occluderGround;
             }
         }
 
         /// <summary>
-        /// The look role of each world material. Ground layers (terrain, roads, areas, markings) get neither (outlines on
-        /// ground read as noise, and the ground must never dissolve). Near buildings, bands B0 and B1, heroes, trees, props,
-        /// people and animals fade between the camera and the player; far bands (B2, B3) are beyond the outline range and the
-        /// capsule. The plain building material is the source the explorer's own material is copied from (the player and
-        /// their vehicle), so it keeps outlines and never fades; traffic vehicles (instanced) never fade either, so the bus a
-        /// passenger rides stays solid.
+        /// The look role of each world material on a tier (<see cref="ToonLookTier"/>; ARCHITECTURE 10 "Outlines").
+        /// <list type="bullet">
+        /// <item>Outlines, Mid and High: the plain building material (the explorer and their vehicle are copies of it),
+        /// traffic (instanced), people, animals and aircraft (instancedTint) and the hero replicas (landmarks). High adds the
+        /// street props (props) and the near building band (B0, inside the outline range). Never: the ground layers,
+        /// trees and the B1/B2/B3 bands (the B1 band reaches 200-250 m, far past the outline). Low: none.</item>
+        /// <item>Occluder fade: near buildings (B0, B1, B1 full), heroes, trees, props, people and animals; the road layer as
+        /// a ground layer (bridge railings, piers, flyover decks and the like fade above the player's knees, the road surface,
+        /// kerbs and footpaths never). Terrain, areas, markings, the far bands, the explorer and traffic never fade (the bus
+        /// a passenger rides stays solid).</item>
+        /// </list>
         /// </summary>
-        public static LookRole RoleOf(WorldMaterialSet set, Material m)
+        public static LookRole RoleOf(WorldMaterialSet set, Material m, in ToonLookTier tier)
         {
             if (set == null || m == null) return new LookRole(0f, false);
-            if (m == set.terrain || m == set.roads || m == set.areas || m == set.decals) return new LookRole(0f, false);
-            if (m == set.bandB0 || m == set.bandB1 || m == set.bandB1Full || m == set.heroes) return new LookRole(1f, true);
+            float on = tier.Outlines ? 1f : 0f;
+            if (m == set.terrain || m == set.areas || m == set.decals) return new LookRole(0f, false);
+            if (m == set.roads) return new LookRole(0f, true, true);
+            if (m == set.bandB0) return new LookRole(tier.OutlineNearBuildings ? on : 0f, true);
+            if (m == set.bandB1 || m == set.bandB1Full || m == set.trees) return new LookRole(0f, true);
             if (m == set.bandB2 || m == set.bandB3) return new LookRole(0f, false);
-            if (m == set.instancedTint) return new LookRole(1f, true);
-            if (m == set.trees) return new LookRole(0.8f, true);
-            if (m == set.buildings || m == set.instanced) return new LookRole(1f, false);
+            if (m == set.heroes || m == set.instancedTint) return new LookRole(on, true);
+            if (m == set.props) return new LookRole(tier.OutlineProps ? on : 0f, true);
+            if (m == set.buildings || m == set.instanced) return new LookRole(on, false);
             return new LookRole(0f, false);
         }
 
-        /// <summary>
-        /// Applies the look roles (outline pass on or off, outline width, occluder-fade keyword) to the set's ToonLit
-        /// materials; <paramref name="onlyRuntime"/> limits it to materials made at runtime. Idempotent: Project Setup runs it
-        /// on every material each time (these are structural choices of the look, not tuning).
-        /// </summary>
+        /// <summary>The look roles of the current tier (<see cref="ToonLook.CurrentTier"/>), see
+        /// <see cref="ApplyLook(WorldMaterialSet, bool, in ToonLookTier)"/>.</summary>
         public static void ApplyLook(WorldMaterialSet set, bool onlyRuntime)
+        {
+            ApplyLook(set, onlyRuntime, ToonLookTier.For(ToonLook.CurrentTier()));
+        }
+
+        /// <summary>
+        /// Applies the look roles of <paramref name="tier"/> (outline pass on or off, outline width, occluder-fade keyword
+        /// and ground mode) to the set's ToonLit materials; <paramref name="onlyRuntime"/> limits it to materials made at
+        /// runtime. Idempotent. Project Setup applies High (the superset) to the assets; at runtime <see cref="Load"/> and
+        /// <see cref="ToonLook"/> apply the tier in use (these are structural choices of the look, not tuning).
+        /// </summary>
+        public static void ApplyLook(WorldMaterialSet set, bool onlyRuntime, in ToonLookTier tier)
         {
             if (set == null) return;
             Material[] all =
             {
                 set.terrain, set.roads, set.buildings, set.areas, set.decals, set.bandB0, set.bandB1, set.bandB1Full, set.bandB2,
-                set.bandB3, set.heroes, set.instanced, set.instancedTint, set.trees,
+                set.bandB3, set.heroes, set.instanced, set.instancedTint, set.props, set.trees,
             };
             for (int i = 0; i < all.Length; i++)
             {
                 Material m = all[i];
                 if (!Fresh(m, onlyRuntime) || m.shader == null || m.shader.name != WorldShaders.ToonLit) continue;
-                ApplyLook(m, RoleOf(set, m));
+                ApplyLook(m, RoleOf(set, m, tier));
             }
+        }
+
+        /// <summary>Applies the roles of a tier by its <see cref="DeviceTier"/>.</summary>
+        public static void ApplyLook(WorldMaterialSet set, bool onlyRuntime, DeviceTier tier)
+        {
+            ApplyLook(set, onlyRuntime, ToonLookTier.For(tier));
+        }
+
+        /// <summary>The roles of High, the superset of the tiers, on every material (what Project Setup stores in the
+        /// assets).</summary>
+        public static void ApplyLookSuperset(WorldMaterialSet set)
+        {
+            ApplyLook(set, false, DeviceTier.High);
         }
 
         /// <summary>Applies one look role to a ToonLit material.</summary>
@@ -433,6 +484,7 @@ namespace Ghumante.World.Rendering
             m.SetFloat(WorldShaders.OutlineWidth, role.Outline);
             m.SetShaderPassEnabled(ToonLitLayout.OutlinePassLightMode, role.Outline > 0f);
             m.SetFloat(WorldShaders.OccluderFade, role.OccluderFade ? 1f : 0f);
+            m.SetFloat(WorldShaders.OccluderGround, role.OccluderFade && role.OccluderGround ? 1f : 0f);
             if (role.OccluderFade) m.EnableKeyword(WorldShaders.KeywordOccluderFade);
             else m.DisableKeyword(WorldShaders.KeywordOccluderFade);
         }

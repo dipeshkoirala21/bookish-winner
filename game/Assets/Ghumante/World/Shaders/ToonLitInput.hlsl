@@ -22,12 +22,14 @@ CBUFFER_START(UnityPerMaterial)
     float4 _BandRange;
     float4 _Wind;
     // W2 detail pass (World/README.md "Look"): procedural texture strength, baked vertex AO strength, highlight
-    // strength, outline width (× the tier's width; 0 = none) and the occluder fade switch (mirrors _OCCLUDER_FADE).
+    // strength, outline width (× the tier's width; 0 = none), the occluder fade switch (mirrors _OCCLUDER_FADE) and the
+    // ground mode of the fade (1 = a ground layer: only structures above the player's knees dissolve, see GhOccluderOpacity).
     half _DetailStrength;
     half _AoStrength;
     half _SpecularStrength;
     half _OutlineWidth;
     half _OccluderFade;
+    half _OccluderGround;
 CBUFFER_END
 
 // Per-instance tint for instanced dressing (trees, props): only in instanced variants with _INSTANCE_TINT, so the tile
@@ -52,8 +54,10 @@ TEXTURE2D_ARRAY(_GhMaterialTex);
 SAMPLER(sampler_GhMaterialTex);
 
 // Per channel (MaterialLooks.FillShaderArrays): A = (1 / tile m, specular, gloss, sparkle), B = (metallic, reflect,
-// macro, flow m/s). GH_CHANNEL_ARRAY_SIZE = MaterialLooks.ArraySize.
+// macro, flow m/s). GH_CHANNEL_ARRAY_SIZE = MaterialLooks.ArraySize; GH_SLICE_COUNT = MaterialTextures.SliceCount (the
+// channels that have a texture slice and a look: any other channel value renders as Plain).
 #define GH_CHANNEL_ARRAY_SIZE 32
+#define GH_SLICE_COUNT 26
 float4 _GhChannelA[GH_CHANNEL_ARRAY_SIZE];
 float4 _GhChannelB[GH_CHANNEL_ARRAY_SIZE];
 
@@ -65,17 +69,21 @@ float4 _GhLookParams;
 // w darkness (outline colour = albedo × w × light level).
 float4 _GhOutlineParams;
 
-// Occluder fade (C# twin: Ghumante.World.Rendering.OccluderFade.Opacity): a capsule from the camera (A.xyz) to the
-// player (B.xyz). A.w radius at the camera end, C.w radius at the player end, B.w 1 = on, C.x soft edge (m),
-// C.y solid zone before the player (m), C.z opacity left inside (screen-door).
+// Occluder fade (C# twin: Ghumante.Core.Synth.Look.OccluderCapsule, set per camera by ToonLook): a capsule from the
+// camera (A.xyz) to the player (B.xyz). A.w fully faded radius at the camera end, C.w at the player end, B.w 1 = on,
+// C.x soft edge outside the radius (m), C.y radius of the solid sphere around the player end (m), C.z opacity left
+// inside (screen-door); ground layers fade only above world y D.x (the player's knees), their upward-facing surfaces only
+// above D.y (a deck overhead).
 float4 _GhOccluderA;
 float4 _GhOccluderB;
 float4 _GhOccluderC;
+float4 _GhOccluderD;
 
 // MaterialChannel values the shader treats specially (Core/Meshing/MaterialChannel.cs).
 #define GH_CHANNEL_PLAIN 0
-// Metres per repeat of the macro layer (MaterialLooks.MacroTileM).
-#define GH_MACRO_TILE_M 23.0
+// Metres per repeat of the macro layer (MaterialLooks.MacroTileM). Like every channel's tile, a power of two that divides
+// the tile sides (2^(20-L) m), so object-space sampling of tile-local meshes lines up across tile borders.
+#define GH_MACRO_TILE_M 32.0
 
 #include "GhumanteCommon.hlsl"
 
@@ -148,32 +156,47 @@ void GhBandClipHard(float3 positionWS)
 }
 
 // Occluder fade (W2 detail pass decision: houses never block the view): the opacity of a world position against the
-// camera-to-player capsule. 1 outside the capsule, _GhOccluderC.z deep inside it, soft over _GhOccluderC.x at the
-// side and at both ends; the last _GhOccluderC.y metres before the player stay solid. C# twin: OccluderFade.Opacity.
-float GhOccluderOpacity(float3 positionWS)
+// camera-to-player capsule (C# twin: OccluderCapsule.Opacity). Fully faded (_GhOccluderC.z left) within a radius growing
+// from A.w at the camera to C.w at the player, soft over C.x outside it, with no fade-in at the camera end (a wall right in
+// front of the lens is gone); nothing at or beyond the plane through the player fades (the background stays), and a
+// sphere of C.y around the player end stays solid. Ground layers (_OccluderGround: the road material, which also draws
+// bridge railings, piers, decks and flyovers) fade only above D.x, and their upward-facing surfaces only above D.y, so
+// roads, kerbs and footpaths never dissolve.
+float GhOccluderOpacity(float3 positionWS, float3 normalWS)
 {
     float3 a = _GhOccluderA.xyz;
     float3 ab = _GhOccluderB.xyz - a;
     float len2 = max(dot(ab, ab), 1e-4);
     float len = sqrt(len2);
     float t = dot(positionWS - a, ab) / len2;
+    float tc = saturate(t);
     float soft = max(_GhOccluderC.x, 1e-3);
-    float along = saturate(t * len / soft) * saturate((len - _GhOccluderC.y - t * len) / soft);
-    float radius = lerp(_GhOccluderA.w, _GhOccluderC.w, saturate(t));
-    float d = distance(positionWS, a + ab * saturate(t));
-    float inside = saturate((radius - d) / soft);
-    float fade = along * inside * _GhOccluderB.w;
+    float radius = lerp(_GhOccluderA.w, _GhOccluderC.w, tc);
+    float side = saturate((radius + soft - distance(positionWS, a + ab * tc)) / soft);
+    float cap = saturate((1.0 - t) * len / (0.5 * soft));
+    float away = saturate((distance(positionWS, _GhOccluderB.xyz) - _GhOccluderC.y) / max(0.5 * _GhOccluderC.y, 1e-3));
+    float fade = side * cap * away * _GhOccluderB.w;
+    UNITY_BRANCH
+    if (_OccluderGround > 0.5)
+    {
+        float normalY = normalWS.y * rsqrt(max(dot(normalWS, normalWS), 1e-8));
+        float above = saturate((positionWS.y - _GhOccluderD.x) / 0.3);
+        float upright = saturate((0.7 - normalY) / 0.2);
+        float overhead = saturate((positionWS.y - _GhOccluderD.y) / 0.3);
+        fade *= above * max(upright, overhead);
+    }
     return 1.0 - fade * (1.0 - _GhOccluderC.z);
 }
 
-// Screen-door clip of the occluder fade (opaque, no sorting); only materials with _OCCLUDER_FADE pay for it.
-void GhOccluderClip(float3 positionWS, float2 pixel)
+// Screen-door clip of the occluder fade (opaque, no sorting); only materials with _OCCLUDER_FADE pay for it. Call it after
+// every texture sample that uses screen-space derivatives (derivatives after a discard are undefined on Vulkan and GLES).
+void GhOccluderClip(float3 positionWS, float3 normalWS, float2 pixel)
 {
 #if defined(_OCCLUDER_FADE)
     UNITY_BRANCH
     if (_GhOccluderB.w > 0.5)
     {
-        clip(GhOccluderOpacity(positionWS) - GhBayer4(pixel));
+        clip(GhOccluderOpacity(positionWS, normalWS) - GhBayer4(pixel));
     }
 #endif
 }
@@ -185,7 +208,9 @@ void GhOccluderClip(float3 positionWS, float2 pixel)
 void GhChannelAndAo(float2 uv0, out float channel, out half ao)
 {
     channel = floor(uv0.x + 0.5);
-    channel = (channel >= GH_CHANNEL_ARRAY_SIZE || channel < 0.0) ? GH_CHANNEL_PLAIN : channel;
+    // Only channels with a texture slice: anything else (a channel appended later, a bad u) is Plain in both the look
+    // table and the sampling (the GPU would clamp the slice to the last one, Marking).
+    channel = (channel >= GH_SLICE_COUNT || channel < 0.0) ? GH_CHANNEL_PLAIN : channel;
     ao = (channel < 0.5 && uv0.y <= 0.0) ? 1.0h : (half)saturate(uv0.y);
 }
 
@@ -241,20 +266,22 @@ half4 GhSampleTriplanar(float3 p, float3 w, float3 dpdx, float3 dpdy, float slic
 
 // The textured albedo of a surface: the channel's texture (object-space triplanar at the channel's scale, drifting for
 // water) applied to the vertex tint as albedo = lerp(rgb, tint × rgb × 2, a), the macro layer on top, faded to the
-// flat tint with distance. Plain surfaces skip the sampling. texel returns the blended sample (glints read it).
+// flat tint with distance. Plain surfaces skip the sampling. texel returns the blended sample (glints read it), detail
+// the distance fade of the textures (0 = flat colour). Uses screen-space derivatives: call it before any clip().
 half3 GhMaterialAlbedo(half3 tint, float3 positionOS, float3 normalOS, float4 matA, float4 matB, float channel,
-                       float viewDistance, out half4 texel)
+                       float viewDistance, out half4 texel, out half detail)
 {
     texel = half4(0.5h, 0.5h, 0.5h, 1.0h);
     float3 p = positionOS * matA.x;
-    p.x += _Time.y * matB.w * matA.x;
+    // Water drift in whole tiles (wrapped, so the offset never loses precision; a jump of one tile is invisible).
+    p.x += frac(_Time.y * matB.w * matA.x);
     float3 m = positionOS * (1.0 / GH_MACRO_TILE_M);
     // Gradients outside the branch: the channel is flat per triangle, so the branch diverges only at channel borders.
     float3 dpdx = ddx(p);
     float3 dpdy = ddy(p);
     float3 mdx = ddx(m);
     float3 mdy = ddy(m);
-    half detail = (half)(_DetailStrength * saturate((_GhLookParams.w - viewDistance) / max(0.25 * _GhLookParams.w, 1e-3)));
+    detail = (half)(_DetailStrength * saturate((_GhLookParams.w - viewDistance) / max(0.25 * _GhLookParams.w, 1e-3)));
     half3 albedo = tint;
     UNITY_BRANCH
     if (channel > 0.5 && detail > 0.002h)

@@ -1,3 +1,4 @@
+using Ghumante.Core.Synth.Look;
 using Ghumante.Core.Synth.Textures;
 using Ghumante.Platform;
 using UnityEngine;
@@ -9,13 +10,17 @@ namespace Ghumante.World.Rendering
     /// The runtime side of the cartoon look (World/README.md "Look"), self-starting and free of per-frame allocations:
     /// <list type="bullet">
     /// <item>bakes and binds the procedural material textures (<see cref="ToonTextureBank"/>) and the per-channel shading
-    /// table (<see cref="MaterialLooks"/>) as globals of <c>Ghumante/ToonLit</c>;</item>
+    /// table (<see cref="MaterialLooks"/>) as globals of <c>Ghumante/ToonLit</c>; a tier with another texture size re-bakes
+    /// them in the background and swaps when the new array is uploaded;</item>
     /// <item>applies the device tier (<see cref="ToonLookTier"/>): triplanar quality, texture reach, glints, and the outline
-    /// (the shader's maximum LOD selects the SubShader with or without the outline pass);</item>
-    /// <item>sets the occluder-fade capsule from the world camera to the player before the world camera renders: the
-    /// player end is <see cref="SetOccluderTarget"/> when a controller set it this frame, else the world's focus
-    /// (<see cref="WorldRoot.Focus"/>, the explorer's position) raised by the target height. Off while the debug free-fly
-    /// camera drives the world and for every other camera.</item>
+    /// (the shader's maximum LOD selects the SubShader with or without the outline pass; the tier's look roles decide
+    /// which world materials draw it, <see cref="WorldMaterialDefaults.RoleOf"/>, applied to the active world's materials
+    /// whenever the tier or the world's material set changes);</item>
+    /// <item>sets the occluder-fade capsule (<see cref="OccluderCapsule"/>) from the world camera to the player before the
+    /// world camera renders: the player end is <see cref="SetOccluderTarget"/> when a controller set it this frame, else the
+    /// world's focus (<see cref="WorldRoot.Focus"/>, the explorer's position) raised by the target height; the camera-end
+    /// radius covers the camera's view frustum just in front of the lens. Off while the debug free-fly camera drives the
+    /// world and for every other camera.</item>
     /// </list>
     /// It hooks <see cref="RenderPipelineManager.beginCameraRendering"/>, so it needs no scene object and no wiring.
     /// </summary>
@@ -28,17 +33,22 @@ namespace Ghumante.World.Rendering
         public static readonly int OccluderAId = Shader.PropertyToID("_GhOccluderA");
         public static readonly int OccluderBId = Shader.PropertyToID("_GhOccluderB");
         public static readonly int OccluderCId = Shader.PropertyToID("_GhOccluderC");
+        public static readonly int OccluderDId = Shader.PropertyToID("_GhOccluderD");
 
         private static bool _initialized;
         private static ToonTextureBank _bank;
+        private static ToonTextureBank _pendingBank;
         private static int _appliedTier = -1;
         private static int _tierOverride = -1;
-        private static ToonLookTier _tier;
+        private static ToonLookTier _tier = ToonLookTier.For(DeviceTier.Mid);
         private static OccluderFadeSettings _occluder = OccluderFadeSettings.Default;
         private static bool _occluderEnabled = true;
         private static bool _outlinesEnabled = true;
         private static Vector3 _target;
         private static int _targetFrame = -1;
+        private static WorldMaterialSet _rolesSet;
+        private static int _rolesVersion = -1;
+        private static int _tierVersion;
         private static readonly Vector4[] ChannelA = new Vector4[MaterialLooks.ArraySize];
         private static readonly Vector4[] ChannelB = new Vector4[MaterialLooks.ArraySize];
 
@@ -48,10 +58,16 @@ namespace Ghumante.World.Rendering
             get { return _tier; }
         }
 
-        /// <summary>The texture bank (null before the first camera renders).</summary>
+        /// <summary>The bound texture bank (null before the first camera renders).</summary>
         public static ToonTextureBank Bank
         {
             get { return _bank; }
+        }
+
+        /// <summary>A bank being baked at the current tier's texture size while the old one stays bound (null when none).</summary>
+        public static ToonTextureBank PendingBank
+        {
+            get { return _pendingBank; }
         }
 
         /// <summary>Occluder fade on (default) or off (a settings toggle, cutscenes).</summary>
@@ -128,10 +144,14 @@ namespace Ghumante.World.Rendering
         public static void Shutdown()
         {
             RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+            if (_pendingBank != null) _pendingBank.Dispose();
             if (_bank != null) _bank.Dispose();
+            _pendingBank = null;
             _bank = null;
             _initialized = false;
             _appliedTier = -1;
+            _rolesSet = null;
+            _rolesVersion = -1;
         }
 
         /// <summary>The tier the look follows: the override, else the active quality level (Low, Mid, High).</summary>
@@ -142,26 +162,31 @@ namespace Ghumante.World.Rendering
             return (DeviceTier)Mathf.Clamp(level, (int)DeviceTier.Low, (int)DeviceTier.High);
         }
 
-        private static void OnBeginCamera(ScriptableRenderContext context, Camera camera)
+        /// <summary>
+        /// What every camera does before it renders, minus the occluder capsule: follows a tier change, applies the tier's
+        /// look roles to the active world's materials, and drives the texture bank (start, upload, re-bake at a new size).
+        /// Editor tools and tests call it directly. Main thread.
+        /// </summary>
+        public static void Refresh()
         {
             DeviceTier tier = CurrentTier();
             if ((int)tier != _appliedTier) ApplyTier(tier);
-            if (_bank == null)
-            {
-                _bank = new ToonTextureBank(_tier.TextureSize);
-                _bank.Start();
-            }
-            else if (!_bank.IsUploaded)
-            {
-                _bank.TryUpload(_tier.AnisoLevel);
-            }
+            ApplyWorldRoles();
+            UpdateBank();
+        }
+
+        private static void OnBeginCamera(ScriptableRenderContext context, Camera camera)
+        {
+            Refresh();
             SetOccluder(camera);
         }
 
-        /// <summary>Applies a tier's look settings (shader LOD, globals) now.</summary>
+        /// <summary>Applies a tier's look settings (shader LOD, globals) now; a different texture size re-bakes the
+        /// textures in the background (<see cref="Refresh"/> swaps them when ready).</summary>
         public static void ApplyTier(DeviceTier tier)
         {
             _tier = ToonLookTier.For(tier);
+            _tierVersion++;
             bool outlines = _outlinesEnabled && _tier.Outlines;
             Shader toon = Shader.Find(WorldShaders.ToonLit);
             // Until a ToonLit material has loaded the shader (the menu), try again next camera.
@@ -171,6 +196,48 @@ namespace Ghumante.World.Rendering
             Shader.SetGlobalVector(OutlineParamsId,
                                    new Vector4(outlines ? _tier.OutlineWidthPx : 0f, _tier.OutlineFadeStartM, _tier.OutlineFadeEndM, _tier.OutlineDarkness));
             if (_bank != null) _bank.SetAniso(_tier.AnisoLevel);
+        }
+
+        // The tier's outline roles on the materials the active world draws with (the streamer's band clones are made from
+        // them when the world opens, after WorldMaterialSet.Load applied the same roles).
+        private static void ApplyWorldRoles()
+        {
+            WorldRoot world = WorldRoot.Active;
+            WorldMaterialSet set = world != null ? world.Materials : null;
+            if (set == null || (set == _rolesSet && _rolesVersion == _tierVersion)) return;
+            WorldMaterialDefaults.ApplyLook(set, false, _tier);
+            _rolesSet = set;
+            _rolesVersion = _tierVersion;
+        }
+
+        // Starts the first bake, uploads it, and re-bakes when the tier asks for another texture size: the old array stays
+        // bound until the new one is uploaded (a bank that never uploaded is simply replaced).
+        private static void UpdateBank()
+        {
+            int size = _tier.TextureSize;
+            if (_bank == null || (!_bank.IsUploaded && _bank.Size != size))
+            {
+                if (_bank != null) _bank.Dispose();
+                _bank = new ToonTextureBank(size);
+                _bank.Start(true);
+            }
+            if (!_bank.IsUploaded) _bank.TryUpload(_tier.AnisoLevel);
+            if (_pendingBank != null && _pendingBank.Size != size)
+            {
+                _pendingBank.Dispose();
+                _pendingBank = null;
+            }
+            if (_bank.IsUploaded && _bank.Size != size && _pendingBank == null)
+            {
+                _pendingBank = new ToonTextureBank(size);
+                _pendingBank.Start(false);
+            }
+            if (_pendingBank != null && _pendingBank.TryUpload(_tier.AnisoLevel))
+            {
+                _bank.Dispose();
+                _bank = _pendingBank;
+                _pendingBank = null;
+            }
         }
 
         private static void SetOccluder(Camera camera)
@@ -187,10 +254,12 @@ namespace Ghumante.World.Rendering
                 ? _target
                 : world.ToScene(world.Focus) + new Vector3(0f, _occluder.TargetHeightM, 0f);
             Vector3 eye = camera.transform.position;
-            OccluderFadeSettings s = _occluder;
-            Shader.SetGlobalVector(OccluderAId, new Vector4(eye.x, eye.y, eye.z, s.CameraRadiusM));
-            Shader.SetGlobalVector(OccluderBId, new Vector4(target.x, target.y, target.z, 1f));
-            Shader.SetGlobalVector(OccluderCId, new Vector4(s.SoftM, s.SolidBeforePlayerM, s.MinOpacity, s.PlayerRadiusM));
+            float tanHalfFov = Mathf.Tan(0.5f * camera.fieldOfView * Mathf.Deg2Rad);
+            OccluderCapsule c = OccluderCapsule.From(_occluder, eye.x, eye.y, eye.z, target.x, target.y, target.z, tanHalfFov, camera.aspect);
+            Shader.SetGlobalVector(OccluderAId, new Vector4(c.Ax, c.Ay, c.Az, c.CameraRadius));
+            Shader.SetGlobalVector(OccluderBId, new Vector4(c.Bx, c.By, c.Bz, 1f));
+            Shader.SetGlobalVector(OccluderCId, new Vector4(c.Soft, c.SolidRadius, c.MinOpacity, c.PlayerRadius));
+            Shader.SetGlobalVector(OccluderDId, new Vector4(c.KeepY, c.OverheadY, 0f, 0f));
         }
     }
 }
