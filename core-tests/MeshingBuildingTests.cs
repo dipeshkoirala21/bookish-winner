@@ -263,7 +263,7 @@ namespace Ghumante.Core.Tests
         {
             var o = new BuildingOptions();
             var m = new MeshData();
-            int records = 0, drawnTotal = 0, skipped = 0, decks = 0, deckMismatch = 0;
+            int records = 0, drawnTotal = 0, skipped = 0, decks = 0, deckMismatch = 0, inRoad = 0;
             foreach (TileId id in StreamingSampleRegion.TilesAt(10))
             {
                 TileData t = StreamingSampleRegion.Tile(id);
@@ -277,6 +277,10 @@ namespace Ghumante.Core.Tests
                 records += t.Buildings.Count;
                 drawnTotal += drawn;
                 skipped += t.Buildings.Count - drawn;
+                // Houses that stand in a road corridor are not drawn (decision 1); counted on their own.
+                BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
+                inRoad += guard.DroppedCount;
+                skipped -= guard.DroppedCount;
                 for (int i = 0; i < t.Buildings.Count; i++)
                     if (SacredSelector.HostOf(t, i) >= 0) skipped--; // drawn by their sacred outline's generator
                 MeshingChecks.AssertWellFormed(m, id.ToString());
@@ -327,9 +331,10 @@ namespace Ghumante.Core.Tests
                 decks++;
                 if (Math.Abs(deck - area) > 1e-3 * area + 1e-3) deckMismatch++;
             }
-            TestContext.WriteLine("buildings {0}, drawn {1}, skipped {2}; flat decks checked {3}, area mismatches {4}",
-                                  records, drawnTotal, skipped, decks, deckMismatch);
+            TestContext.WriteLine("buildings {0}, drawn {1}, skipped {2}, standing in a road {3}; flat decks checked {4}, area mismatches {5}",
+                                  records, drawnTotal, skipped, inRoad, decks, deckMismatch);
             Assert.That(skipped, Is.LessThanOrEqualTo(records / 1000), "degenerate footprints are rare");
+            Assert.That(inRoad, Is.LessThanOrEqualTo(records / 200), "houses in a road are rare: the rest are trimmed back");
             Assert.That(decks, Is.GreaterThan(3000));
             Assert.That(deckMismatch, Is.LessThanOrEqualTo(decks / 1000), "self-intersecting OSM rings only");
         }
