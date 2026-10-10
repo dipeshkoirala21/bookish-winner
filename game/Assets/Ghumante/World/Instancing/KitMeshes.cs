@@ -19,7 +19,7 @@ namespace Ghumante.World.Instancing
         /// <summary>Tree LODs: species LOD0 and LOD1, family volume, family impostor (<see cref="FloraMesher.Lods"/>).</summary>
         public const int TreeLods = FloraMesher.Lods;
 
-        /// <summary>Triangle caps per tree LOD (the nature kit's <see cref="FloraMesher.Budget"/>: 1 600 / 240 / 112 / 8).</summary>
+        /// <summary>Triangle caps per tree LOD (the nature kit's <see cref="FloraMesher.Budget"/>: 1 600 / 240 / 112 / 24).</summary>
         public static readonly int[] TreeBudget = FloraMesher.Budget;
 
         private const uint Tinted = 0xFFFFFFFF;

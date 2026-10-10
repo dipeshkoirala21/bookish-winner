@@ -15,10 +15,13 @@ namespace Ghumante.Core.Tests
 {
     /// <summary>
     /// Visual self-check scenes of the nature package (docs/W2_DETAIL_CONTRACT.md §6): one level-10 tile around a
-    /// real place, with the terrain, areas, roads and B1 buildings and every placed plant within the radius as the
-    /// game draws it (LOD0 near the eye, LOD1 mid, the family volume far), dumped as OBJ files with an eye point.
-    /// Environment: GHUMANTE_PREVIEW_DIR (required), GHUMANTE_NATURE_SCENE ("name:lon,lat[:eyeAzDeg:eyeDistM:eyeHeightM:month[:park]]",
-    /// "park" focusing on the centre of the nearest park area;
+    /// real place, with the terrain, areas, roads and B1 buildings and the placed plants exactly as the game's renderer
+    /// selects them (<see cref="FloraLodPlan"/> under the tier's <see cref="FloraBudget"/>: LOD0, LOD1, family volume
+    /// and impostor, nearest first under the caps and triangle budgets, in the eye's view cone), dumped as OBJ files
+    /// with an eye point. The terrain and areas take the season of the month (<see cref="BiomePalette.SeasonOf"/>).
+    /// Environment: GHUMANTE_PREVIEW_DIR (required), GHUMANTE_NATURE_SCENE
+    /// ("name:lon,lat[:eyeAzDeg:eyeDistM:eyeHeightM:month[:park|-[:tier[:hFovDeg]]]]", "park" focusing on the centre of
+    /// the nearest park area, tier 0-2 (default 1, Mid), the horizontal field of view of the culling cone (default 90°);
     /// several separated by ';'), GHUMANTE_NATURE_PACK (a .ghpk; default the kathmandu_core sample).
     /// </summary>
     public class GeneratorsPlacementScenes
@@ -42,11 +45,14 @@ namespace Ghumante.Core.Tests
                 float eyeH = parts.Length > 4 ? float.Parse(parts[4], ci) : 30f;
                 int month = parts.Length > 5 ? int.Parse(parts[5], ci) : 10;
                 bool park = parts.Length > 6 && parts[6] == "park";
-                Scene(pack, name, lon, lat, az, dist, eyeH, month, park);
+                int tier = parts.Length > 7 ? int.Parse(parts[7], ci) : 1;
+                double hFov = parts.Length > 8 ? double.Parse(parts[8], ci) : 90.0;
+                Scene(pack, name, lon, lat, az, dist, eyeH, month, park, tier, hFov);
             }
         }
 
-        private static void Scene(PackReader pack, string name, double lon, double lat, float azDeg, float dist, float eyeH, int month, bool park)
+        private static void Scene(PackReader pack, string name, double lon, double lat, float azDeg, float dist, float eyeH, int month, bool park, int tier,
+                                  double hFov)
         {
             double gx, gz;
             WorldFrame.LonLatToGame(lon, lat, out gx, out gz);
@@ -81,9 +87,10 @@ namespace Ghumante.Core.Tests
             }
             var sampler = TileHeightSampler.ForArea(t, id, 1);
             var terrain = new MeshData();
-            TerrainMesher.Build(t, id, new TerrainOptions { Step = 1, Season = SeasonOf(month) }, terrain);
+            Season season = BiomePalette.SeasonOf(month);
+            TerrainMesher.Build(t, id, new TerrainOptions { Step = 1, Season = season }, terrain);
             var areas = new MeshData();
-            AreaMesher.Build(t, sampler, new AreaOptions(), areas);
+            AreaMesher.Build(t, sampler, new AreaOptions { Season = season, MaxFieldLineTris = AreaOptions.FieldLineCap(tier, 1) }, areas);
             var roads = new MeshData();
             RoadMesher.Build(t, sampler, new RoadOptions(), roads);
             var buildings = new MeshData();
@@ -99,19 +106,37 @@ namespace Ghumante.Core.Tests
             ey += eyeH;
             var flora = new MeshData();
             var cache = new Dictionary<int, MeshData>();
-            int[] perLod = new int[4];
+            int[] perLod = new int[5];
             double radius = Math.Max(250, dist * 2.5);
-            foreach (TreeInstance tr in trees)
+            // What the game draws from this eye: the tier's budget, nearest first, in the view cone toward the focus.
+            FloraBudget budget = FloraBudget.ForTier(tier);
+            FloraView view = FloraView.Cone(ex, ez, fx - ex, fy + 4 - ey, fz - ez, hFov, budget.ViewMarginDeg, budget.ViewNearM);
+            var counters = new FloraLodCounters();
+            var order = trees.Select((tr, i) => (tr, i, d: Math.Sqrt((tr.X - ex) * (tr.X - ex) + (tr.Z - ez) * (tr.Z - ez))))
+                             .Where(q => FloraCatalog.InSeason(q.tr.Species, month) && view.Sees(q.tr.X, q.tr.Z, 0.5 * q.tr.CrownM))
+                             .OrderBy(q => q.d).ThenBy(q => q.i).ToList();
+            int[] t0 = new int[FloraCatalog.Count], t1 = new int[FloraCatalog.Count], fv = new int[FloraMesher.Families], fi = new int[FloraMesher.Families];
+            for (int s = 0; s < FloraCatalog.Count; s++)
             {
-                if (!FloraCatalog.InSeason(tr.Species, month)) continue;
-                double dx = tr.X - ex, dz = tr.Z - ez, d = Math.Sqrt(dx * dx + dz * dz);
-                double dfx = tr.X - fx, dfz = tr.Z - fz;
-                if (Math.Sqrt(dfx * dfx + dfz * dfz) > radius) continue;
+                t0[s] = FloraMesher.Build((TreeSpecies)s, 0, month, new MeshData());
+                t1[s] = FloraMesher.Build((TreeSpecies)s, 1, month, new MeshData());
+            }
+            for (int f = 0; f < FloraMesher.Families; f++)
+            {
+                fv[f] = FloraMesher.Family((TreeShape)f, 2, new MeshData());
+                fi[f] = FloraMesher.Family((TreeShape)f, 3, new MeshData());
+            }
+            foreach (var q in order)
+            {
+                TreeInstance tr = q.tr;
+                int s = (int)tr.Species;
                 bool tree = FloraCatalog.IsTree(tr.Species);
-                int lod = d < 70 ? 0 : d < 220 || !tree ? 1 : 2;
-                if (!tree && d > 120) continue;
-                perLod[lod]++;
-                int key = (int)tr.Species * 4 + lod;
+                int f = Math.Min((int)tr.Shape, FloraMesher.Families - 1);
+                int lod = tree ? FloraLodPlan.PickTree(budget, ref counters, (float)q.d, t0[s], t1[s], fv[f], fi[f])
+                               : FloraLodPlan.PickPlant(budget, ref counters, (float)q.d, FloraCatalog.DrawsFar(tr.Species), t0[s], t1[s]);
+                if (lod < 0) continue;
+                perLod[tree ? lod : 4]++;
+                int key = s * 4 + lod;
                 MeshData unit;
                 if (!cache.TryGetValue(key, out unit))
                 {
@@ -121,11 +146,11 @@ namespace Ghumante.Core.Tests
                     cache[key] = unit;
                 }
                 FloraObj.Append(flora, unit, tr.X, tr.Y - 0.1f, tr.Z, tr.YawDeg, tr.CrownM, tr.HeightM, tr.CrownM);
-                if (tr.Chautari)
+                if (tr.Chautari && lod <= 1)
                 {
                     var plat = new MeshData();
                     FloraMesher.Chautari(0, plat);
-                    float w = Math.Max(3f, Math.Min(9f, tr.CrownM * 0.45f));
+                    float w = tr.PlatformM > 0f ? tr.PlatformM : TreePlacement.DefaultPlatformM(tr.CrownM);
                     FloraObj.Append(flora, plat, tr.X, tr.Y, tr.Z, tr.YawDeg, w, 0.7f, w);
                 }
             }
@@ -140,8 +165,11 @@ namespace Ghumante.Core.Tests
             FloraObj.Write(flora, dir + "/flora.obj", directive);
             var counts = trees.GroupBy(tr => tr.Species).OrderByDescending(g => g.Count()).Select(g => g.Key + " " + g.Count());
             var sb = new StringBuilder();
-            sb.Append(name).Append(" tile ").Append(id).Append(" month ").Append(month).Append(": ").Append(trees.Count).Append(" instances; drawn LOD0 ")
-              .Append(perLod[0]).Append(", LOD1 ").Append(perLod[1]).Append(", far ").Append(perLod[2]).Append("; flora ").Append(flora.TriangleCount)
+            sb.Append(name).Append(" tile ").Append(id).Append(" month ").Append(month).Append(" tier ").Append(tier).Append(": ").Append(trees.Count)
+              .Append(" instances; drawn trees LOD0 ").Append(perLod[0]).Append(", LOD1 ").Append(perLod[1]).Append(", volume ").Append(perLod[2])
+              .Append(", impostor ").Append(perLod[3]).Append(", plants ").Append(perLod[4]).Append(" (tris ").Append(counters.Lod0Tris).Append('/')
+              .Append(counters.Lod1Tris).Append('/').Append(counters.VolumeTris).Append('/').Append(counters.ImpostorTris).Append('/').Append(counters.PlantTris)
+              .Append("); flora ").Append(flora.TriangleCount)
               .Append(" tris, terrain ").Append(terrain.TriangleCount).Append(", areas ").Append(areas.TriangleCount).Append("\n").Append(string.Join(", ", counts));
             sb.Append("\nareas: ").Append(string.Join(", ", t.Areas.GroupBy(x => x.Kind).Select(g => g.Key + " " + g.Count() + " (" + g.Sum(x => ParkArea(x)).ToString("0") + " m2)")));
             if (t.Biomes != null)
@@ -160,11 +188,6 @@ namespace Ghumante.Core.Tests
                 twice += Math.Abs((a.Vertices[2 * i1] - x0) * (a.Vertices[2 * i2 + 1] - z0) - (a.Vertices[2 * i1 + 1] - z0) * (a.Vertices[2 * i2] - x0));
             }
             return twice * 0.5 / 10000.0;
-        }
-
-        private static Season SeasonOf(int month)
-        {
-            return month >= 3 && month <= 5 ? Season.Spring : month >= 6 && month <= 9 ? Season.Monsoon : month == 10 || month == 11 ? Season.Autumn : Season.Winter;
         }
 
         /// <summary>Multiply the tinted (alpha 255) vertex colours by an sRGB colour (what the instance tint does).</summary>

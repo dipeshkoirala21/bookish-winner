@@ -295,8 +295,11 @@ namespace Ghumante.Core.Tests
                 }
             }
             Assert.That(riserArea, Is.GreaterThan(0));
-            // Over a fully drawn stretch, riser : lip = RiserM : LipM in plan.
-            Assert.That(riserArea / lipArea, Is.EqualTo(FieldPattern.RiserM / FieldPattern.LipM).Within(0.5));
+            // Thin risers: a line RiserPlanM wide in plan below every terrace level (TerraceStepM / Slope apart), the
+            // lip a thinner line on top; never wide stripes of riser colour.
+            double riserH = Math.Min(FieldPattern.RiserM, FieldPattern.RiserPlanM * Slope), lipH = Math.Min(FieldPattern.LipM, 0.3 * Slope);
+            Assert.That(riserArea / lipArea, Is.EqualTo(riserH / lipH).Within(0.05 * riserH / lipH));
+            Assert.That(riserArea / (1024.0 * 1024.0), Is.EqualTo(FieldPattern.RiserPlanM * Slope / FieldPattern.TerraceStepM).Within(0.01));
             Assert.That(riserArea + lipArea, Is.EqualTo(all).Within(1e-6 * all));
             // The bands sit at world-fixed heights: every riser vertex is within RiserM below a multiple of the step.
             for (int v = 0; v < m.VertexCount; v++)
@@ -308,9 +311,9 @@ namespace Ghumante.Core.Tests
             }
             // Over budget, whole world-fixed blocks drop their lines evenly: the kept lines still span the tile.
             var capped = new MeshData();
-            var co = new AreaOptions { MaxFieldLineTris = 8000 };
+            var co = new AreaOptions { MaxFieldLineTris = 3000 };
             AreaMesher.Build(hill, s, co, capped);
-            Assert.That(capped.TriangleCount, Is.InRange(4000, co.MaxFieldLineTris + 16), "capped near the budget");
+            Assert.That(capped.TriangleCount, Is.InRange(1500, co.MaxFieldLineTris + 16), "capped near the budget");
             int[] quarter = new int[4];
             for (int v = 0; v < capped.VertexCount; v++) quarter[Math.Min(3, (int)(capped.Positions[3 * v + 2] / 256f))]++;
             foreach (int qn in quarter) Assert.That(qn, Is.GreaterThan(capped.VertexCount / 10), "lines in every quarter of the tile");
@@ -435,6 +438,141 @@ namespace Ghumante.Core.Tests
             Assert.That(before, Is.GreaterThan(20000), "the sample has same-family overlaps");
             Assert.That(afterDifferentKinds, Is.EqualTo(0));
             Assert.That(after, Is.LessThan(before * 0.5));
+        }
+        [Test]
+        public void TerraceClassFollowsTheSmoothedSlopeNotSingleTriangles()
+        {
+            // A terraced hill at 0.26 with 2 m bumps every 40 m: single triangles range from about 0.0 to 0.55, but the
+            // hillside as a whole is terraced, so it gets riser lines only (no bund grid in patches between them).
+            TileData hill = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + 0.26 * (x - Leaf.X0) + 2.0 * Math.Sin((x - Leaf.X0) * 0.157) * Math.Cos((z - Leaf.Z0) * 0.13),
+                                                        129, Biome.HillTerraces);
+            var o = new AreaOptions { MaxFieldLineTris = 1000000 };
+            var m = new MeshData();
+            AreaMesher.Build(hill, new TileHeightSampler(hill, 1), o, m);
+            uint riser = MeshColor.FromHex(FieldPattern.RiserColour(o.Season));
+            int risers = 0, other = 0;
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                uint c = (uint)(m.Colors[4 * v] << 24 | m.Colors[4 * v + 1] << 16 | m.Colors[4 * v + 2] << 8 | m.Colors[4 * v + 3]);
+                // Within 24 m of the tile's edge the slope is taken one-sided (no heights beyond the tile).
+                float x = m.Positions[3 * v], z = m.Positions[3 * v + 2];
+                if (x < 24 || z < 24 || x > 1000 || z > 1000) continue;
+                if (c == riser) risers++;
+                else other++;
+            }
+            Assert.That(risers, Is.GreaterThan(1000));
+            Assert.That(other, Is.EqualTo(0), "no bund fragments on a terraced hillside");
+            // Gentle land (0.12, below the terrace slope) is bunded plots, not wide risers.
+            TileData gentle = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + 0.12 * (x - Leaf.X0), 129, Biome.ValleyCropland);
+            var gm = new MeshData();
+            AreaMesher.Build(gentle, new TileHeightSampler(gentle, 1), o, gm);
+            for (int v = 0; v < gm.VertexCount; v++)
+                Assert.That(gm.Colors[4 * v] << 24 | gm.Colors[4 * v + 1] << 16 | gm.Colors[4 * v + 2] << 8 | gm.Colors[4 * v + 3], Is.Not.EqualTo((int)riser));
+            Assert.That(gm.TriangleCount, Is.GreaterThan(1000), "bunds");
+        }
+
+        [Test]
+        public void RisersAreGrassInTheGreenSeasonsAndDryInWinter()
+        {
+            TileData hill = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + 0.3 * (x - Leaf.X0), 129, Biome.HillTerraces);
+            var s = new TileHeightSampler(hill, 1);
+            foreach (Season season in new[] { Season.Autumn, Season.Monsoon, Season.Winter })
+            {
+                var m = new MeshData();
+                AreaMesher.Build(hill, s, new AreaOptions { Season = season, MaxFieldLineTris = 1000000 }, m);
+                Assert.That(m.HasUv0, Is.True);
+                var want = season == Season.Winter ? MaterialChannel.Dirt : MaterialChannel.Grass;
+                for (int v = 0; v < m.VertexCount; v += 7) Assert.That((MaterialChannel)(int)m.Uv0[2 * v], Is.EqualTo(want), season.ToString());
+            }
+        }
+
+        [Test]
+        public void FieldLinesStayInsideTheTierBudget()
+        {
+            // A whole cropland tile: terraced hill in the west, flat paddy in the east.
+            TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => x - Leaf.X0 < 512 ? 1300 + 0.3 * (x - Leaf.X0) : 1453.6, 129, Biome.ValleyCropland);
+            int[] terrainBudget = { 30000, 90000, 160000 };
+            for (int tier = 0; tier < 3; tier++)
+                foreach (int step in new[] { 1, 2 })
+                {
+                    var areas = new MeshData();
+                    var sampler = TileHeightSampler.ForArea(t, Leaf, step);
+                    AreaMesher.Build(t, sampler, AreaOptions.ForTier(tier), areas);
+                    var terrain = new MeshData();
+                    TerrainMesher.Build(t, Leaf, new TerrainOptions { Step = step }, terrain);
+                    Assert.That(areas.TriangleCount, Is.LessThanOrEqualTo(AreaOptions.FieldLineCap(tier, step) + 16), "tier " + tier + " step " + step);
+                    Assert.That(areas.TriangleCount, Is.GreaterThan(AreaOptions.FieldLineCap(tier, step) / 3), "lines still drawn, tier " + tier + " step " + step);
+                    // A coarse tile of the terrain ring stays well inside the tier's terrain slice with its field lines.
+                    if (step == 2) Assert.That(terrain.TriangleCount + areas.TriangleCount, Is.LessThan(terrainBudget[tier] / 2), "tier " + tier);
+                    TestContext.WriteLine("tier " + tier + " step " + step + ": terrain " + terrain.TriangleCount + ", field lines " + areas.TriangleCount);
+                }
+            Assert.That(new AreaOptions().MaxFieldLineTris, Is.EqualTo(AreaOptions.FieldLineCap(1)), "default: Mid");
+        }
+
+        [Test]
+        public void NoFieldsUnderAParadeGroundParkOrHouses()
+        {
+            // Valley cropland by the biome raster, but a parade ground (military + meadow, as Tundikhel), a pitch and a
+            // residential block are mapped over parts of it; a farmland plot inside the residential block stays a field.
+            TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300, 129, Biome.ValleyCropland);
+            t.Areas.Add(Square(AreaKind.Military, 10000, 10000, 40000, 40000));
+            t.Areas.Add(Square(AreaKind.Meadow, 12000, 12000, 38000, 38000));
+            t.Areas.Add(Square(AreaKind.Residential, 60000, 60000, 90000, 90000));
+            t.Areas.Add(Square(AreaKind.Farmland, 70000, 70000, 80000, 80000));
+            CropLand crop = CropLand.For(t);
+            Assert.That(crop.IsCrop(Biome.ValleyCropland, 250, 250), Is.False, "parade ground");
+            Assert.That(crop.IsCrop(Biome.ValleyCropland, 650, 650), Is.False, "houses");
+            Assert.That(crop.IsCrop(Biome.ValleyCropland, 750, 750), Is.True, "a field mapped among the houses");
+            Assert.That(crop.IsCrop(Biome.ValleyCropland, 500, 200), Is.True, "open cropland");
+            Assert.That(crop.IsCrop(Biome.UrbanDense, 500, 200), Is.False);
+            // The field lines and the terrain's crop patchwork follow it.
+            var m = new MeshData();
+            AreaMesher.Build(t, new TileHeightSampler(t, 1), new AreaOptions { MaxFieldLineTris = 1000000, IncludeSubtle = false }, m);
+            uint bund = MeshColor.FromHex(0x8FB060u);
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                uint c = (uint)(m.Colors[4 * v] << 24 | m.Colors[4 * v + 1] << 16 | m.Colors[4 * v + 2] << 8 | m.Colors[4 * v + 3]);
+                if (c != bund) continue;
+                float x = m.Positions[3 * v], z = m.Positions[3 * v + 2];
+                Assert.That(x > 104 && x < 396 && z > 104 && z < 396, Is.False, "a bund on the parade ground at " + x + ", " + z);
+                Assert.That(x > 604 && x < 696 && z > 604 && z < 696, Is.False, "a bund among the houses at " + x + ", " + z);
+            }
+            var terrain = new MeshData();
+            TerrainMesher.Build(t, Leaf, new TerrainOptions { Step = 1, SkirtDepthM = 0 }, terrain);
+            var plain = new MeshData();
+            TileData open = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300, 129, Biome.ValleyCropland);
+            TerrainMesher.Build(open, Leaf, new TerrainOptions { Step = 1, SkirtDepthM = 0 }, plain);
+            int side = 129, changed = 0, inside = 0;
+            for (int k = 0; k < side; k++)
+                for (int l = 0; l < side; l++)
+                {
+                    int v = k * side + l;
+                    bool parade = l * 8 >= 100 && l * 8 <= 400 && k * 8 >= 100 && k * 8 <= 400;
+                    bool same = terrain.Colors[4 * v] == plain.Colors[4 * v] && terrain.Colors[4 * v + 1] == plain.Colors[4 * v + 1];
+                    if (parade)
+                    {
+                        inside++;
+                        if (!same) changed++;
+                    }
+                    else if (l * 8 < 90 || k * 8 < 90) Assert.That(same, Is.True, "open cropland keeps its patchwork");
+                }
+            Assert.That(changed, Is.EqualTo(inside), "no crop patchwork on the parade ground");
+        }
+
+        [Test]
+        public void CropLandAgreesOnSharedTileEdges()
+        {
+            // One residential polygon cut at the border of two tiles: both pieces cover the border points.
+            TileId east = new TileId(10, Leaf.Tx + 1, Leaf.Ty);
+            TileData a = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300, 129, Biome.ValleyCropland);
+            TileData b = MeshingChecks.SyntheticTile(east, (x, z) => 1300, 129, Biome.ValleyCropland);
+            a.Areas.Add(Square(AreaKind.Residential, 90000, 30000, 102400, 50000));
+            b.Areas.Add(Square(AreaKind.Residential, 0, 30000, 5000, 50000));
+            CropLand ca = CropLand.For(a), cb = CropLand.For(b);
+            for (double z = 0; z <= 1024; z += 8)
+                Assert.That(ca.Excluded(1024, z), Is.EqualTo(cb.Excluded(0, z)), "edge sample at z " + z);
+            Assert.That(ca.Excluded(1024, 400), Is.True);
+            Assert.That(ca.Excluded(1024, 600), Is.False);
         }
     }
 }

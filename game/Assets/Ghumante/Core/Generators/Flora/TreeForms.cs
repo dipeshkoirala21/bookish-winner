@@ -294,7 +294,8 @@ namespace Ghumante.Core.Generators.Flora
         }
 
         /// <summary>Schima (chilaune): dark fissured trunk, broad dense crown; reddish new leaves in spring and white
-        /// fragrant flowers in May-June.</summary>
+        /// fragrant flowers in May-June, studding the outer clumps where the leaf fringe thins (so the tree in bloom
+        /// stays inside its LOD0 budget).</summary>
         private static void Schima(TreeKit k, float h, float w, uint leaf, uint bark, float bloom, uint bloomRgb, int month)
         {
             var f = BroadleafForm.Default(h, w, leaf, bark);
@@ -307,6 +308,7 @@ namespace Ghumante.Core.Generators.Flora
             f.Clumps = 11;
             f.LeafTop = Sunlit(leaf, 0.3f);
             if (month == 3 || month == 4) f.FringeRgb = 0xA8503Au;
+            if (bloom > 0f) f.Fringe = 2;
             k.Broadleaf(f);
             Dots(k, (int)(Count(k, 34) * bloom), bloomRgb, 0.17f);
         }
@@ -337,16 +339,15 @@ namespace Ghumante.Core.Generators.Flora
             }
         }
 
-        /// <summary>Flower dots on the outer clumps (Schima's white flowers).</summary>
+        /// <summary>Flower dots on the outer clumps (Schima's white flowers): small round blobs (8 triangles each).</summary>
         private static void Dots(TreeKit k, int n, uint rgb, float size)
         {
-            var ps = FloraBuilder.PuffStyle.Solid(rgb, MaterialChannel.Foliage);
             for (int i = 0; i < n; i++)
             {
                 Vec3 o;
                 Vec3 p = k.OnClumps(out o, 0f);
                 float s = size * k.Rng.Range(0.8f, 1.2f);
-                k.B.Puff(p + o * (s * 0.5f), new Vec3(s, s * 0.6f, s), 0, 0.1f, k.Seed ^ (uint)(i * 23), ps);
+                k.B.Blob(p + o * (s * 0.5f), s, s * 0.6f, s, FloraBuilder.Fixed(rgb, k.Rng.Range(0.94f, 1.04f)), MaterialChannel.Foliage, 0.8f);
             }
         }
 
@@ -557,17 +558,26 @@ namespace Ghumante.Core.Generators.Flora
         }
 
         /// <summary>
-        /// Silky oak (Grevillea robusta): tall straight grey-brown furrowed trunk and a narrow, irregular, layered
-        /// crown of fern-like fronds, airy with gaps; golden-orange comb flowers on top of the fronds in April-May.
+        /// Silky oak (Grevillea robusta) of the central avenues, school and office grounds: a tall straight grey-brown
+        /// furrowed trunk running up through a narrow, ragged teardrop crown (widest a third of the way up, tapering
+        /// to a thin top), short branches ascending 25-50° and ending in hanging sprays of fern-like fronds, airy with
+        /// sky between them; golden-orange comb flowers over the outside of the crown in April-May
+        /// (docs/research/w2/ref_nature.md 2).
         /// </summary>
         private static void SilkyOak(TreeKit k, float h, float w, uint leaf, uint bark, float bloom, uint bloomRgb)
         {
             var st = FloraBuilder.TubeStyle.Bark(bark, 0.1f);
-            // In April-May the golden-orange combs cover the outside of the crown: bloom-tinted clumps and comb cards.
-            uint crown = FloraBuilder.Mix(leaf, bloomRgb, 0.3f * bloom);
-            Whorled(k, h, w, 0.017f * h, 0.3f, 5, 2, 25f, 50f, 0.09f * h, 0.8f, 0f, 0.06f, crown, FloraBuilder.Mix(crown, 0xA8C088u, 0.35f), st, 0.75f,
-                    k.D.PuffRes, bloom > 0f ? 5 : 3, 0.5f, 0.6f, 0, bloom > 0f ? bloomRgb : 0u);
-            int n = (int)(Count(k, 10) * bloom);
+            // In April-May the golden-orange combs cover the outside of the crown: bloom-tinted sprays and comb puffs.
+            uint crown = FloraBuilder.Mix(leaf, bloomRgb, 0.65f * bloom);
+            var f = new OpenCrownForm
+            {
+                TrunkR = 0.017f * h, CrownBase = 0.27f, Branches = 15, MidBranches = 8, PitchLo = 25f, PitchHi = 50f, Droop = 0.12f,
+                SprayR = 0.062f * h, SprayFlat = 0.8f, Lumps = 0.25f, Cards = 7, CardLen = 1.45f, CardWide = 0.34f, CardDroop = 0.7f,
+                Leaf = crown, LeafTop = FloraBuilder.Mix(crown, 0xA8C088u, 0.35f), CardRgb = bloom > 0f ? bloomRgb : 0u, Bark = st,
+                Envelope = SilkyEnvelope,
+            };
+            OpenCrown(k, h, w, f);
+            int n = (int)(Count(k, 6) * bloom);
             var bs = FloraBuilder.PuffStyle.Solid(bloomRgb, MaterialChannel.Foliage);
             bs.TopRgb = 0xF8C050u;
             for (int i = 0; i < n; i++)
@@ -579,6 +589,14 @@ namespace Ghumante.Core.Generators.Flora
             }
         }
 
+        /// <summary>The silky oak's teardrop: half-widths (fractions of the crown width) along the crown height, widest
+        /// about 40 % of the way up, narrowing to a thin rounded top.</summary>
+        private static float SilkyEnvelope(float t)
+        {
+            double e = Math.Pow(Math.Sin(Math.PI * (0.12 + 0.84 * t)), 0.7) * (1.0 - 0.3 * t);
+            return (float)Math.Max(0.1, e / 0.86);
+        }
+
         /// <summary>Utis (Alnus nepalensis) by streams: a straight pale trunk and a narrow oval crown, light green.</summary>
         private static void Alnus(TreeKit k, float h, float w, uint leaf, uint bark)
         {
@@ -587,17 +605,138 @@ namespace Ghumante.Core.Generators.Flora
         }
 
         /// <summary>
-        /// Chir pine (Pinus roxburghii) of the Nagarjun, Chandragiri and Kirtipur plantations and the dry south faces:
-        /// a straight trunk with thick reddish-brown plated bark, bare below, whorls of near-horizontal branches ending
-        /// in bushy tufts of long drooping needles, and an open crown that rounds off with age.
+        /// Chir pine (Pinus roxburghii) of the Nagarjun, Chandragiri and Kirtipur plantations and the dry south faces
+        /// (docs/research/w2/ref_nature.md 2, chirpine2/ref_06-07): a straight trunk with thick reddish-brown plated
+        /// bark, bare to about 40 % of its height, and an open, irregular crown that rounds off with age: many short,
+        /// near-horizontal branches spiralling up the trunk, each ending in a flattened tuft of long drooping needles,
+        /// the sky showing between the tufts (no stacked plates, no cone).
         /// </summary>
         private static void ChirPine(TreeKit k, float h, float w, uint leaf, uint bark)
         {
             var st = FloraBuilder.TubeStyle.Bark(bark, 0.16f);
             st.PatchRgb = 0x5A3422u;
             st.PatchAmount = 0.5f;
-            Whorled(k, h, w, 0.021f * h, 0.5f, 5, 3, -5f, 25f, 0.065f * h, 0.62f, 0.2f, 0.08f, leaf, FloraBuilder.Mix(leaf, 0x98B878u, 0.3f), st, 0.7f, 0, 0,
-                    0.35f, 0.42f, k.D.Near ? 6 : 0);
+            var f = new OpenCrownForm
+            {
+                TrunkR = 0.021f * h, CrownBase = 0.38f, Branches = 13, MidBranches = 8, PitchLo = -12f, PitchHi = 18f, Droop = 0.1f, InnerTufts = true,
+                SprayR = 0.09f * h, SprayFlat = 0.62f, Lumps = 0.3f, Spike = 0.2f, Cards = 5, CardLen = 1.05f, CardWide = 0.32f, CardDroop = 0.45f,
+                Leaf = leaf, LeafTop = FloraBuilder.Mix(leaf, 0x98B878u, 0.3f), Bark = st, Envelope = PineEnvelope, Needles = true,
+            };
+            OpenCrown(k, h, w, f);
+        }
+
+        /// <summary>A mature chir pine's crown: half-widths along the crown height, a broad irregular oval widest about
+        /// a third of the way up (the long lower branches) with a domed top.</summary>
+        private static float PineEnvelope(float t)
+        {
+            double a = Math.PI * (0.18 + 0.8 * t);
+            return (float)Math.Max(0.15, Math.Pow(Math.Sin(a), 0.5));
+        }
+
+        /// <summary>Numbers of an open crown of branch sprays (<see cref="OpenCrown"/>).</summary>
+        private struct OpenCrownForm
+        {
+            public float TrunkR, CrownBase, PitchLo, PitchHi, Droop;
+            public int Branches, MidBranches;
+            public float SprayR, SprayFlat, Lumps, Spike;
+            public int Cards;
+            public float CardLen, CardWide, CardDroop;
+            public uint Leaf, LeafTop, CardRgb;
+            public FloraBuilder.TubeStyle Bark;
+            public Func<float, float> Envelope;
+            public bool Needles;
+
+            /// <summary>A second, smaller tuft halfway along each branch at LOD0 (pine needles cluster along the outer
+            /// half of the branches).</summary>
+            public bool InnerTufts;
+        }
+
+        /// <summary>
+        /// An open crown: a straight leader to the top and branches spiralling up it from the crown base (golden-angle
+        /// turns, heights jittered so no two make a tier), each reaching out to the crown envelope at its height and
+        /// ending in a spray: a flattened lumpy tuft with hanging cards (needles or fern fronds) at LOD0; the leader ends
+        /// in a top tuft. LOD1 keeps the sprays as plain tufts on fewer positions (the same envelope, so the LOD switch
+        /// keeps the silhouette and the gaps).
+        /// </summary>
+        private static void OpenCrown(TreeKit k, float h, float w, in OpenCrownForm f)
+        {
+            k.ClumpCount = 0;
+            k.TipCount = 0;
+            bool near = k.D.Near;
+            var lean = new Vec3(k.Rng.Jitter(0.02f * h), 0f, k.Rng.Jitter(0.02f * h));
+            k.Trunk(Vec3.Zero, h * 0.95f, f.TrunkR, f.TrunkR * 0.18f, lean, 0, 0f, f.Bark, 0.012f * h);
+            float y0 = h * f.CrownBase, y1 = h * 0.97f;
+            var crownC = new Vec3(lean.X * 0.5f, 0.5f * (y0 + y1), lean.Z * 0.5f);
+            k.CrownC = crownC;
+            k.CrownRad = 0.5f * Math.Max(0.5f * w, 0.5f * (y1 - y0));
+            var st = FloraBuilder.PuffStyle.Foliage(f.Leaf, crownC, Math.Max(0.5f * w, 0.5f * (y1 - y0)));
+            st.TopRgb = f.LeafTop;
+            st.Spike = f.Spike;
+            st.Bend = 0.5f;
+            int n = near ? f.Branches : f.MidBranches;
+            float sr = f.SprayR * (near ? 1f : 1.25f);
+            double az = k.Rng.Range(0f, 6.283f);
+            for (int i = 0; i < n; i++)
+            {
+                // Spiral up the trunk: a golden-angle turn and a jittered height per branch.
+                float t = Math.Max(0f, Math.Min(1f, (i + 0.5f + k.Rng.Jitter(0.35f)) / n));
+                float y = y0 + (y1 - y0) * (0.04f + 0.86f * t);
+                az += 2.39996 + k.Rng.Jitter(0.35f);
+                float env = 0.5f * w * f.Envelope(t);
+                float pitch = k.Rng.Range(f.PitchLo, f.PitchHi) * (float)(Math.PI / 180);
+                float reach = Math.Max(0.06f * w, (env - 0.8f * sr) * k.Rng.Range(0.82f, 1.02f));
+                var dir = new Vec3((float)Math.Cos(az), 0f, (float)Math.Sin(az));
+                Vec3 at = TreeKit.TrunkPoint(Vec3.Zero, h * 0.95f, lean, y / (h * 0.95f), 0.012f * h, k.Seed);
+                Vec3 tip = at + dir * reach + Vec3.Up * (float)(Math.Tan(pitch) * reach);
+                if (tip.Y > y1 - 0.6f * sr * f.SprayFlat) tip = new Vec3(tip.X, y1 - 0.6f * sr * f.SprayFlat, tip.Z);
+                float r0 = f.TrunkR * (0.34f - 0.18f * t);
+                if (near || i % 3 == 0) k.Limb(at, tip - Vec3.Up * (f.Droop * reach), r0, r0 * 0.4f, 0.05f * reach, f.Bark, 0.7f, 0.6f, near ? 2 : 1, 3);
+                if (k.TipCount < k.Tips.Length) k.Tips[k.TipCount++] = tip;
+                // Smaller sprays where the envelope narrows (the top), so the outline follows it.
+                float s = sr * k.Rng.Range(0.85f, 1.15f) * (0.55f + 0.5f * Math.Min(1f, f.Envelope(t)));
+                Spray(k, tip - Vec3.Up * (f.Droop * reach * 0.6f), s, st, f, near);
+                if (near && f.InnerTufts && reach > 1.6f * s)
+                    Spray(k, Vec3.Lerp(at, tip, 0.55f) + Vec3.Up * (0.2f * s), 0.72f * s, st, f, true, 1f, 1);
+            }
+            // The leader's top tuft.
+            float topR = sr * 0.95f;
+            Spray(k, new Vec3(lean.X, y1 - topR * 0.7f, lean.Z), topR, st, f, near, 1.25f);
+        }
+
+        /// <summary>
+        /// One spray: at LOD0 one or two overlapping lumpy cores (20 triangles each) and a burst of cards round them that
+        /// make the outline: long needle bundles radiating out and drooping at the tips (pine), or arching fern fronds
+        /// hanging out and down (silky oak). LOD1 draws one rounder core of the same size.
+        /// </summary>
+        private static void Spray(TreeKit k, Vec3 c, float r, in FloraBuilder.PuffStyle st, in OpenCrownForm f, bool cards, float tall = 1f, int cores = 2)
+        {
+            if (!cards)
+            {
+                k.Clump(c, new Vec3(r * 1.05f, r * Math.Min(1f, f.SprayFlat * tall * 1.3f), r), f.Lumps, st, 0, 0);
+                return;
+            }
+            // Two overlapping cores (a lumpier mass than one), then the cards.
+            k.Clump(c, new Vec3(r * 0.95f, r * f.SprayFlat * tall * 0.9f, r * 0.85f), f.Lumps, st, 0, 0);
+            if (cores > 1)
+            {
+                double ca = k.Rng.Range(0f, 6.283f);
+                k.Clump(c + new Vec3((float)Math.Cos(ca) * 0.4f * r, -0.15f * r, (float)Math.Sin(ca) * 0.4f * r), new Vec3(r * 0.7f, r * f.SprayFlat * tall * 0.75f, r * 0.7f),
+                        f.Lumps, st, 0, 0);
+            }
+            int nc = cores > 1 ? f.Cards : Math.Max(2, f.Cards - 2);
+            if (f.Cards <= 0) return;
+            double a0 = k.Rng.Range(0f, 6.283f);
+            for (int i = 0; i < nc; i++)
+            {
+                // Round the core, a little more to the sides than up or down; the cards lean out and droop.
+                double a = a0 + i * 2 * Math.PI / nc + k.Rng.Jitter(0.35f);
+                float up = f.Needles ? k.Rng.Range(-0.35f, 0.45f) : k.Rng.Range(-0.1f, 0.5f);
+                var o = new Vec3((float)Math.Cos(a), up, (float)Math.Sin(a)).Normalized;
+                var dir = (o + new Vec3(0f, -f.CardDroop, 0f)).Normalized;
+                uint rgb = f.CardRgb != 0 && i % 2 == 0 ? f.CardRgb : i % 2 == 0 ? f.Leaf : f.LeafTop;
+                float len = r * f.CardLen * k.Rng.Range(0.85f, 1.15f);
+                k.B.LeafCard(c + o * (0.35f * r), dir, o, len, len * f.CardWide, FloraBuilder.Leaf(rgb, k.Rng.Range(0.88f, 1.05f)), 0.8f + 0.2f * Math.Max(0f, o.Y));
+            }
         }
 
         // ---------------------------------------------------------------------------------------------------------

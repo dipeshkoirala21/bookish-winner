@@ -111,5 +111,10 @@ namespace Ghumante.Core.Generators.Placement
         public bool Chautari;
         public int ClumpId;
         public ulong OsmRef;
+
+        /// <summary>Side of the chautari platform (metres) when <see cref="Chautari"/>; placement sizes it to stay out of
+        /// the road corridors (0: the renderer's default, half the crown within 3-9 m). The porter ledge is on the
+        /// platform's local −Z side (turned with <see cref="YawDeg"/>).</summary>
+        public float PlatformM;
     }
 }

@@ -52,19 +52,43 @@ namespace Ghumante.Core.Meshing
         public float BankWidthM = 2.5f, BankLiftM = 0.075f;
 
         /// <summary>
-        /// Field lines on cropland (cropland biomes and farmland areas; needs a <see cref="TileHeightSampler"/>): on
-        /// slopes the terrace risers (and, with <see cref="TerraceLips"/>, their bright lips) along world-fixed contours
-        /// every <see cref="FieldPattern.TerraceStepM"/>, on the flat the grassy bunds between plots. Exactly on the
-        /// drawn terrain triangles at <see cref="FieldLiftM"/>, at most <see cref="MaxFieldLineTris"/> triangles per call.
+        /// Field lines on farmed land (<see cref="CropLand"/>: farmland areas and cropland biome cells no other land use
+        /// covers; needs a <see cref="TileHeightSampler"/>): on terraced slopes thin riser lines (and, with
+        /// <see cref="TerraceLips"/>, their bright lips) along world-fixed contours every
+        /// <see cref="FieldPattern.TerraceStepM"/>, on the flat the grassy bunds between plots. Exactly on the drawn
+        /// terrain triangles at <see cref="FieldLiftM"/>, at most <see cref="MaxFieldLineTris"/> triangles per call
+        /// (scaled down with the terrain step).
         /// </summary>
         public bool FieldLines = true;
 
         /// <summary>Lift of the field lines above the terrain (above the green areas, below water and roads).</summary>
         public float FieldLiftM = 0.13f;
 
-        /// <summary>Triangle budget of the field lines per call; beyond it whole world-fixed blocks of fields drop
-        /// their lines evenly over the tile.</summary>
-        public int MaxFieldLineTris = 24000;
+        /// <summary>Triangle budget of the field lines per tile at terrain step 1 (a coarser step divides it by the
+        /// step: the terrain itself has a quarter of the triangles at step 2). Over it the bunds thin first, then every
+        /// second terrace level is drawn, then whole world-fixed blocks drop evenly over the tile. The default is the
+        /// Mid tier's (<see cref="FieldLineCap"/>); tile builds set the tier's.</summary>
+        public int MaxFieldLineTris = FieldLineCap(1);
+
+        /// <summary>The field-line budget per tile at terrain step 1 for a device tier (0 Low, 1 Mid, 2 High): 3 000 /
+        /// 8 000 / 16 000 triangles (W2_DESIGN 10.4: terrain and areas share the terrain slice of 30 k / 90 k / 160 k).</summary>
+        public static int FieldLineCap(int tier)
+        {
+            return tier <= 0 ? 3000 : tier == 1 ? 8000 : 16000;
+        }
+
+        /// <summary>The field-line budget of a tier for a tile drawn at terrain <paramref name="step"/> (what
+        /// <see cref="AreaMesher"/> applies when <see cref="MaxFieldLineTris"/> is <see cref="FieldLineCap(int)"/>).</summary>
+        public static int FieldLineCap(int tier, int step)
+        {
+            return FieldLineCap(tier) / Math.Max(1, step);
+        }
+
+        /// <summary>The area options of a device tier (the field-line budget; everything else the defaults).</summary>
+        public static AreaOptions ForTier(int tier)
+        {
+            return new AreaOptions { MaxFieldLineTris = FieldLineCap(tier) };
+        }
 
         /// <summary>Also draw the light lip band along each terrace edge (doubles the terrace triangles).</summary>
         public bool TerraceLips = false;
@@ -558,8 +582,6 @@ namespace Ghumante.Core.Meshing
         {
             public readonly double[] X = new double[16], Y = new double[16], Z = new double[16];
             public readonly double[] X2 = new double[16], Y2 = new double[16], Z2 = new double[16];
-            public bool[] Farm = new bool[0];
-            public int FarmN;
         }
 
         [ThreadStatic] private static Scratch _scratch;
@@ -568,53 +590,79 @@ namespace Ghumante.Core.Meshing
         private const double BlockM = 48.0;
 
         /// <summary>
-        /// Terrace and bund lines over the tile's cropland. A first pass counts the triangles the lines would take;
-        /// when the tile needs more than <see cref="AreaOptions.MaxFieldLineTris"/> only every second terrace level is
-        /// drawn (twice the step, risers half as tall again: wider terraces, still at world-fixed levels), and if that
-        /// is still too much, whole world-fixed <see cref="BlockM"/> blocks are kept by a hash below the fitting share,
-        /// so the lines thin out evenly over the tile instead of stopping at one edge.
+        /// Terrace and bund lines over the tile's farmed land. A first pass counts the triangles the risers and the
+        /// bunds would take; the budget is <see cref="AreaOptions.MaxFieldLineTris"/> divided by the terrain step. Over
+        /// it the bunds of the flat fields thin first (whole world-fixed <see cref="BlockM"/> blocks kept by a hash
+        /// below the fitting share), then only every second terrace level is drawn (wider terraces, still at
+        /// world-fixed levels), and if the risers alone still do not fit, their blocks thin the same way, so the lines
+        /// thin out evenly over the tile instead of stopping at one edge.
         /// </summary>
         public static void FieldLines(TileData t, TileHeightSampler s, AreaOptions o, MeshData m)
         {
             TerrainGrid g = s.Grid;
             if (g.SubSample || o.MaxFieldLineTris <= 0) return;
             Scratch sc = _scratch ?? (_scratch = new Scratch());
-            FarmRaster(t, sc);
-            int total = FieldPass(t, s, o, null, sc, 2f, 1);
-            if (total == 0) return;
+            CropLand crop = CropLand.For(t);
+            int cap = o.MaxFieldLineTris / Math.Max(1, g.Step);
+            int risers, bunds;
+            FieldPass(t, s, o, null, crop, sc, 2f, 2f, 1, cap, out risers, out bunds);
+            if (risers + bunds == 0) return;
             int stride = 1;
-            if (total > o.MaxFieldLineTris)
+            float keepRisers = 2f, keepBunds = 2f;
+            if (risers + bunds > cap)
             {
-                // First every second terrace level (wider terraces, taller risers), then whole blocks.
-                stride = 2;
-                total = FieldPass(t, s, o, null, sc, 2f, stride);
+                if (risers > cap)
+                {
+                    // Recount the risers at every second level (the bunds do not change).
+                    stride = 2;
+                    int ignored;
+                    FieldPass(t, s, o, null, crop, sc, 2f, 0f, stride, cap, out risers, out ignored);
+                }
+                if (risers > cap)
+                {
+                    keepRisers = 0.92f * cap / risers;
+                    keepBunds = 0f;
+                }
+                else keepBunds = bunds > 0 ? 0.92f * (cap - risers) / bunds : 0f;
             }
-            float keep = total <= o.MaxFieldLineTris ? 2f : 0.92f * o.MaxFieldLineTris / total;
-            FieldPass(t, s, o, m, sc, keep, stride);
+            FieldPass(t, s, o, m, crop, sc, keepRisers, keepBunds, stride, cap, out risers, out bunds);
         }
 
         /// <summary>
-        /// One pass over the crop quads: with <paramref name="m"/> null counts the triangles the lines would take,
-        /// else emits the lines of the blocks whose hash is below <paramref name="keep"/>, stopping at the cap.
-        /// Returns the triangles counted or added.
+        /// One pass over the farmed quads: with <paramref name="m"/> null counts the triangles the risers and bunds
+        /// would take, else emits the lines of the blocks whose hash is below <paramref name="keepRisers"/> /
+        /// <paramref name="keepBunds"/>, stopping at <paramref name="cap"/>. A quad is terraced, bunded or left wild
+        /// by its smoothed slope (over about 40 m, so a terraced hillside stays terraced across small bumps and the
+        /// lines do not stop at single triangles); each riser is the strip of a terrain triangle just below a terrace
+        /// level, <see cref="FieldPattern.RiserPlanM"/> wide in plan (at most <see cref="FieldPattern.RiserM"/> tall).
         /// </summary>
-        private static int FieldPass(TileData t, TileHeightSampler s, AreaOptions o, MeshData m, Scratch sc, float keep, int stride)
+        private static void FieldPass(TileData t, TileHeightSampler s, AreaOptions o, MeshData m, CropLand crop, Scratch sc, float keepRisers, float keepBunds,
+                                      int stride, int cap, out int risers, out int bunds)
         {
             TerrainGrid g = s.Grid;
             TileData src = s.SourceTile;
             int q = g.Quads;
             double cell = g.CellM, ox = g.X0 - t.Tile.X0, oz = g.Z0 - t.Tile.Z0;
-            int budget = o.MaxFieldLineTris, count = 0;
+            risers = bunds = 0;
             int start = m != null ? m.TriangleCount : 0;
+            bool green = o.Season == Season.Monsoon || o.Season == Season.Autumn;
             uint riser = MeshColor.FromHex(FieldPattern.RiserColour(o.Season)), lip = MeshColor.FromHex(FieldPattern.LipColour(o.Season));
             uint bund = MeshColor.FromHex(o.Season == Season.Winter ? 0xA8B070u : 0x8FB060u);
+            MaterialChannel riserCh = green ? MaterialChannel.Grass : MaterialChannel.Dirt;
+            double reach = Math.Max(20.0, 2.0 * cell);
             for (int k = 0; k < q; k++)
                 for (int l = 0; l < q; l++)
                 {
-                    if (m != null && m.TriangleCount - start >= budget) return count;
+                    if (m != null && m.TriangleCount - start >= cap) return;
                     double x0 = ox + l * cell, z0 = oz + k * cell;
                     double cx = x0 + 0.5 * cell, cz = z0 + 0.5 * cell;
-                    if (!Crop(t, sc, cx, cz)) continue;
+                    if (!Crop(t, crop, cx, cz)) continue;
+                    // The quad's class from the smoothed ground slope.
+                    double smooth = SmoothSlope(t, s, cx, cz, reach);
+                    if (smooth > FieldPattern.TerraceMaxSlope) continue;
+                    bool terraced = smooth >= FieldPattern.TerraceMinSlope;
+                    float keep = terraced ? keepRisers : keepBunds;
+                    if (keep <= 0f) continue;
                     if (keep < 1f && BlockHash((long)Math.Floor((t.Tile.X0 + cx) / BlockM), (long)Math.Floor((t.Tile.Z0 + cz) / BlockM)) >= keep) continue;
                     double h00 = g.VertexHeight(src, k, l), h10 = g.VertexHeight(src, k, l + 1), h01 = g.VertexHeight(src, k + 1, l), h11 = g.VertexHeight(src, k + 1, l + 1);
                     // The two triangles of the quad (split along (k, l)-(k+1, l+1), as the terrain draws them).
@@ -639,14 +687,16 @@ namespace Ghumante.Core.Meshing
                         if (Math.Abs(det) < 1e-9) continue;
                         double gx = (uy * vz - vy * uz) / det, gz = (vy * ux - uy * vx) / det;
                         double slope = Math.Sqrt(gx * gx + gz * gz);
-                        if (slope > FieldPattern.TerraceMaxSlope) continue;
                         float fnx, fny, fnz;
                         TileHeightSampler.FacetNormal(gx, gz, out fnx, out fny, out fnz);
-                        if (slope >= FieldPattern.TerraceMinSlope)
+                        if (terraced)
                         {
+                            // A nearly level triangle inside a terraced slope has no contour to follow.
+                            if (slope < 0.03) continue;
                             double ymin = Math.Min(ay, Math.Min(by, qy)), ymax = Math.Max(ay, Math.Max(by, qy));
-                            double step = FieldPattern.TerraceStepM * stride, riserM = FieldPattern.RiserM * (stride > 1 ? 1.5 : 1.0);
-                            double lipM = o.TerraceLips ? FieldPattern.LipM : 0.0;
+                            double step = FieldPattern.TerraceStepM * stride;
+                            double riserM = Math.Min(FieldPattern.RiserM * (stride > 1 ? 1.5 : 1.0), FieldPattern.RiserPlanM * slope);
+                            double lipM = o.TerraceLips ? Math.Min(FieldPattern.LipM, 0.3 * slope) : 0.0;
                             // The riser faces downhill: its normal leans that way; the lip faces up.
                             double dl = 1.0 / slope;
                             float rnx = (float)(fnx - gx * dl * 0.9), rny = fny * 0.7f, rnz = (float)(fnz - gz * dl * 0.9);
@@ -654,11 +704,11 @@ namespace Ghumante.Core.Meshing
                             for (long lv = (long)Math.Ceiling((ymin - lipM) / step); lv * step <= ymax + riserM; lv++)
                             {
                                 double level = lv * step;
-                                count += Band(sc, m, t, ax, ay, az, bx, by, bz, qx, qy, qz, 0, 0, 0, level - riserM, level, o.FieldLiftM, riser, rnx / rl, rny / rl,
-                                              rnz / rl, MaterialChannel.Dirt, 0.72f);
+                                risers += Band(sc, m, t, ax, ay, az, bx, by, bz, qx, qy, qz, 0, 0, 0, level - riserM, level, o.FieldLiftM, riser, rnx / rl, rny / rl,
+                                               rnz / rl, riserCh, 0.78f);
                                 if (o.TerraceLips)
-                                    count += Band(sc, m, t, ax, ay, az, bx, by, bz, qx, qy, qz, 0, 0, 0, level, level + lipM, o.FieldLiftM, lip, 0f, 1f, 0f,
-                                                  MaterialChannel.Grass, 1f);
+                                    risers += Band(sc, m, t, ax, ay, az, bx, by, bz, qx, qy, qz, 0, 0, 0, level, level + lipM, o.FieldLiftM, lip, 0f, 1f, 0f,
+                                                   MaterialChannel.Grass, 1f);
                             }
                         }
                         else
@@ -674,13 +724,39 @@ namespace Ghumante.Core.Meshing
                                 double wq = (t.Tile.X0 + qx) * dirx + (t.Tile.Z0 + qz) * dirz;
                                 double lo = Math.Min(wa, Math.Min(wb, wq)), hi = Math.Max(wa, Math.Max(wb, wq));
                                 for (long iu = (long)Math.Ceiling((lo - 0.3) / period); iu * period <= hi + 0.3; iu++)
-                                    count += Band(sc, m, t, ax, ay, az, bx, by, bz, qx, qy, qz, dirx, dirz, 1, iu * period - 0.3, iu * period + 0.3, o.FieldLiftM, bund, fnx,
+                                    bunds += Band(sc, m, t, ax, ay, az, bx, by, bz, qx, qy, qz, dirx, dirz, 1, iu * period - 0.3, iu * period + 0.3, o.FieldLiftM, bund, fnx,
                                                   fny, fnz, MaterialChannel.Grass, 0.95f);
                             }
                         }
                     }
                 }
-            return count;
+        }
+
+        /// <summary>Ground slope (rise over run) at tile-local (x, z) from differences over <paramref name="reach"/>
+        /// metres on the sampler's surface (central, one-sided where a sample falls off the sampler's area).</summary>
+        private static double SmoothSlope(TileData t, TileHeightSampler s, double x, double z, double reach)
+        {
+            double wx = t.Tile.X0 + x, wz = t.Tile.Z0 + z;
+            float c;
+            if (!s.TryHeight(wx, wz, out c)) return 0;
+            return Math.Sqrt(Square(Diff(s, wx, wz, reach, 0, c)) + Square(Diff(s, wx, wz, 0, reach, c)));
+        }
+
+        /// <summary>Height change per metre along (dx, dz) through the centre height <paramref name="c"/>.</summary>
+        private static double Diff(TileHeightSampler s, double wx, double wz, double dx, double dz, float c)
+        {
+            float p, n;
+            bool hp = s.TryHeight(wx + dx, wz + dz, out p), hn = s.TryHeight(wx - dx, wz - dz, out n);
+            double r = Math.Max(Math.Abs(dx), Math.Abs(dz));
+            if (hp && hn) return (p - (double)n) / (2 * r);
+            if (hp) return (p - (double)c) / r;
+            if (hn) return (c - (double)n) / r;
+            return 0;
+        }
+
+        private static double Square(double v)
+        {
+            return v * v;
         }
 
         /// <summary>World-fixed 0..1 hash of a field-line block.</summary>
@@ -697,41 +773,11 @@ namespace Ghumante.Core.Meshing
             return (h & 0xFFFFFF) / 16777216f;
         }
 
-        /// <summary>Cells (8 m) inside farmland or orchard areas.</summary>
-        private static void FarmRaster(TileData t, Scratch sc)
+        private static bool Crop(TileData t, CropLand crop, double x, double z)
         {
-            int n = Math.Max(1, (int)Math.Ceiling(t.Tile.Size / 8.0));
-            if (sc.Farm.Length < n * n) sc.Farm = new bool[n * n];
-            else Array.Clear(sc.Farm, 0, n * n);
-            sc.FarmN = n;
-            foreach (AreaRecord a in t.Areas)
-            {
-                if (a.Kind != AreaKind.Farmland && a.Kind != AreaKind.Orchard) continue;
-                for (int k = 0; k + 2 < a.Indices.Length; k += 3)
-                {
-                    double ax = a.Vertices[2 * a.Indices[k]] / 100.0, az = a.Vertices[2 * a.Indices[k] + 1] / 100.0;
-                    double bx = a.Vertices[2 * a.Indices[k + 1]] / 100.0, bz = a.Vertices[2 * a.Indices[k + 1] + 1] / 100.0;
-                    double cx = a.Vertices[2 * a.Indices[k + 2]] / 100.0, cz = a.Vertices[2 * a.Indices[k + 2] + 1] / 100.0;
-                    int i0 = Math.Max(0, (int)(Math.Min(ax, Math.Min(bx, cx)) / 8.0)), i1 = Math.Min(n - 1, (int)(Math.Max(ax, Math.Max(bx, cx)) / 8.0));
-                    int j0 = Math.Max(0, (int)(Math.Min(az, Math.Min(bz, cz)) / 8.0)), j1 = Math.Min(n - 1, (int)(Math.Max(az, Math.Max(bz, cz)) / 8.0));
-                    for (int j = j0; j <= j1; j++)
-                    for (int i = i0; i <= i1; i++)
-                    {
-                        double px = (i + 0.5) * 8.0, pz = (j + 0.5) * 8.0;
-                        double d1 = (bx - ax) * (pz - az) - (bz - az) * (px - ax), d2 = (cx - bx) * (pz - bz) - (cz - bz) * (px - bx), d3 = (ax - cx) * (pz - cz) - (az - cz) * (px - cx);
-                        bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
-                        if (!(neg && pos)) sc.Farm[j * n + i] = true;
-                    }
-                }
-            }
-        }
-
-        private static bool Crop(TileData t, Scratch sc, double x, double z)
-        {
-            int i = (int)(x / 8.0), j = (int)(z / 8.0);
-            if (i >= 0 && j >= 0 && i < sc.FarmN && j < sc.FarmN && sc.Farm[j * sc.FarmN + i]) return true;
+            if (crop.Farmed(x, z)) return true;
             if (t.Biomes == null || t.BiomesN < 2) return false;
-            return FieldPattern.IsCrop(TerrainMesher.BiomeAt(t, t.BiomesN, t.Tile.X0 + x, t.Tile.Z0 + z));
+            return crop.IsCrop(TerrainMesher.BiomeAt(t, t.BiomesN, t.Tile.X0 + x, t.Tile.Z0 + z), x, z);
         }
 
         /// <summary>

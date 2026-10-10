@@ -16,20 +16,26 @@ namespace Ghumante.World.Instancing
     /// Draws the instanced dressing of the visible detail tiles every frame (W2_DESIGN 5.8 trees and the nature kit's
     /// plants, 4.5 / 4.7 / 2.6 street props). Trees draw at four levels: each species' own detailed model (LOD0) and
     /// simplified model (LOD1) near the camera, then the far range as the shape family's volume (LOD2) out to
-    /// <see cref="DressingConfig.TreeVolumeM"/> and its impostor (LOD3) out to the vegetation radius. Every level is
-    /// filled nearest first under its instance cap and its triangle budget (<see cref="DressingConfig"/>, W2_DESIGN 10.4)
-    /// and what overflows steps down a level; the far pass takes the LOD1 overflow first, then whole 64 m cells by
-    /// distance, so the far cap never leaves a bald patch around the camera. Plants (flowers, shrubs, hedges, pots,
-    /// ground cover, rocks, straw stacks) draw at LOD0 then LOD1 within their own small radius, out of season kinds
-    /// skipped (straw stacks after the harvest, sunflowers in summer). The near models carry their own colours (bloom,
-    /// flush and harvest are baked per month and rebuilt progressively on a month change) with a small per-instance
-    /// brightness variation; the grey far models take the species' crown colour of the month
-    /// (<see cref="FloraCatalog.FoliageColour"/>). Swaying kinds use the wind material, rigid ones (pots, tulsi math,
-    /// rocks, straw stacks) the plain tinted one. Chautari platforms stand under the OSM trees that carry one.
-    /// Instance matrices and tints are built per tile in scene space, progressively under a per-frame budget (nearest
-    /// tile first; a tile is drawn once its cache is complete), shifted on origin rebases, re-tinted progressively on a
-    /// month change, and kept a few seconds after the tile is hidden. So a frame only selects and copies (no
-    /// allocation). One <see cref="InstanceBatch"/> per mesh. Main thread only.
+    /// <see cref="DressingConfig.TreeVolumeM"/> and its impostor (LOD3, a rounded crown on a trunk) out to the
+    /// vegetation radius. Selection follows the nature kit's shared rules (<see cref="FloraLodPlan"/> under the tier's
+    /// <see cref="FloraBudget"/>, the same code the preview scenes run): only what the camera's view cone can see
+    /// (<see cref="FloraView"/>: the horizontal field of view plus a margin, everything within a few metres; street
+    /// props are culled by the same cone, cell by cell), every
+    /// level filled nearest first under its instance cap and its triangle budget, what overflows stepping down a level;
+    /// the far pass takes the LOD1 overflow first, then whole 64 m cells by distance, so the far cap never leaves a
+    /// bald patch around the camera. Plants (flowers, shrubs, hedges, pots, ground cover, rocks, straw stacks) draw at
+    /// LOD0 then LOD1 within their own small radius, the large kinds (<see cref="FloraCatalog.DrawsFar"/>) at LOD1 on
+    /// to <see cref="DressingConfig.PlantFarM"/>; out of season kinds are skipped (straw stacks after the harvest,
+    /// sunflowers in summer). The near models carry their own colours (bloom, flush and harvest are baked per month and
+    /// rebuilt progressively on a month change) with a small per-instance brightness variation; the grey far models
+    /// take the species' crown colour of the month (<see cref="FloraCatalog.FoliageColour"/>). Swaying kinds use the
+    /// wind material, rigid ones (pots, tulsi math, rocks, straw stacks) the plain tinted one. Chautari platforms stand
+    /// under the OSM trees that carry one, at the size and turn placement fitted beside the road
+    /// (<see cref="TreeInstance.PlatformM"/>). Instance matrices and tints are built per tile in scene space,
+    /// progressively under a per-frame budget (nearest tile first; a tile is drawn once its cache is complete),
+    /// shifted on origin rebases, re-tinted progressively on a month change, and kept a few seconds after the tile is
+    /// hidden. So a frame only selects and copies (no allocation). One <see cref="InstanceBatch"/> per mesh. Main
+    /// thread only.
     /// </summary>
     public sealed class DressingRenderer : IDisposable
     {
@@ -59,8 +65,9 @@ namespace Ghumante.World.Instancing
             public int[] ChautariTree;
 
             /// <summary>Indices into <see cref="TileInstances.Trees"/> per 64 m cell: trees (far-eligible) and plants
-            /// apart, with their cell starts (cells + 1 entries).</summary>
-            public int[] TreeIdx, TreeIdxCells, PlantIdx, PlantIdxCells;
+            /// apart, with their cell starts (cells + 1 entries); in each cell the plants of the far-drawn kinds come
+            /// first, ending at <see cref="PlantFarEnd"/>[cell].</summary>
+            public int[] TreeIdx, TreeIdxCells, PlantIdx, PlantIdxCells, PlantFarEnd;
 
             public WorldPos Origin;
             public int TintMonth, TreesDone, PropsDone, TintDone, LastUsed;
@@ -72,7 +79,7 @@ namespace Ghumante.World.Instancing
         private readonly InstanceBatch[,] _species = new InstanceBatch[FloraCatalog.Count, 2];
         private readonly int[,] _speciesTris = new int[FloraCatalog.Count, 2];
         private readonly int[] _meshMonth = new int[FloraCatalog.Count];
-        private readonly bool[] _isTree = new bool[FloraCatalog.Count], _inSeason = new bool[FloraCatalog.Count];
+        private readonly bool[] _isTree = new bool[FloraCatalog.Count], _inSeason = new bool[FloraCatalog.Count], _drawsFar = new bool[FloraCatalog.Count];
         private readonly InstanceBatch[,] _family = new InstanceBatch[FarFamilies, 2];
         private readonly int[,] _familyTris = new int[FarFamilies, 2];
         private readonly InstanceBatch[] _chautari = new InstanceBatch[2];
@@ -83,17 +90,15 @@ namespace Ghumante.World.Instancing
         private float[] _near = new float[256];
         private int[] _nearIndex = new int[256];
         private TileCache[] _nearTile = new TileCache[256];
-        private float[] _mid = new float[1024];
-        private int[] _midIndex = new int[1024];
-        private TileCache[] _midTile = new TileCache[1024];
         private float[] _farKey = new float[1024];
+        private FloraLodCounters _count;
         private int[] _farCell = new int[1024];
         private TileCache[] _farTile = new TileCache[1024];
         private float[] _plant = new float[1024];
         private int[] _plantIndex = new int[1024];
         private TileCache[] _plantTile = new TileCache[1024];
         private TileCache[] _visible = new TileCache[32], _pending = new TileCache[32];
-        private int _frame, _seasonMonth, _far, _farVolumes, _farVolumeTris, _farImpostorTris;
+        private int _frame, _seasonMonth;
 
         /// <summary>Month for the seasonal colours and models (1-12; W2 acceptance runs in October).</summary>
         public int Month = 10;
@@ -101,6 +106,13 @@ namespace Ghumante.World.Instancing
         /// <summary>Triangles drawn last frame per level: tree LOD0, LOD1, volume, impostor, and plants (for the
         /// budget overlay and tests of the tier split).</summary>
         public readonly int[] LevelTris = new int[5];
+
+        /// <summary>The camera whose view cone selects the dressing (<see cref="FloraView"/>); null: the main camera,
+        /// and without one everything round the camera position is a candidate.</summary>
+        public Camera ViewCamera;
+
+        /// <summary>Select only what is in the camera's view cone (off: everything round the camera, as before).</summary>
+        public bool ViewCulling = true;
 
         public DressingRenderer(DressingConfig config, WorldMaterialSet materials)
         {
@@ -110,6 +122,7 @@ namespace Ghumante.World.Instancing
             for (int s = 0; s < FloraCatalog.Count; s++)
             {
                 _isTree[s] = FloraCatalog.IsTree((TreeSpecies)s);
+                _drawsFar[s] = FloraCatalog.DrawsFar((TreeSpecies)s);
                 BuildSpecies(s, Month);
             }
             for (int f = 0; f < FarFamilies; f++)
@@ -239,8 +252,11 @@ namespace Ghumante.World.Instancing
             }
 
             DressingConfig cfg = _config;
-            int nNear = 0, nMid = 0, nFar = 0, nPlant = 0, propCount = 0;
-            _far = _farVolumes = _farVolumeTris = _farImpostorTris = 0;
+            FloraBudget fb = cfg.Flora;
+            FloraView cone = View(camX, camZ, fb);
+            int nNear = 0, nFar = 0, nPlant = 0, propCount = 0;
+            _count = default(FloraLodCounters);
+            const double cellHalfDiag = 0.7072 * TileInstances.CellM;
             for (int v = 0; v < nVis; v++)
             {
                 TileCache c = _visible[v];
@@ -253,11 +269,13 @@ namespace Ghumante.World.Instancing
                 {
                     double x0 = (cell % n) * TileInstances.CellM, z0 = (cell / n) * TileInstances.CellM;
                     double dn = Buildings.BandConfig.NearestDistance(x0, z0, x0 + TileInstances.CellM, z0 + TileInstances.CellM, cx, cz);
+                    if (dn > fb.TreeFarM && dn > fb.PlantFarM && dn > cfg.PropM) continue;
+                    if (!cone.Sees(c.X0 + x0 + 0.5 * TileInstances.CellM, c.Z0 + z0 + 0.5 * TileInstances.CellM, cellHalfDiag)) continue;
                     // Trees: cells beyond the LOD1 radius are far candidates as a whole (O(cells), sorted below); nearer
-                    // cells sort their trees into LOD0 / LOD1 and leave their far trees to the same far pass.
-                    if (dn <= cfg.TreeLod2M && c.TreeIdxCells[cell + 1] > c.TreeIdxCells[cell])
+                    // cells sort their trees by distance and leave their far trees to the same far pass.
+                    if (dn <= fb.TreeFarM && c.TreeIdxCells[cell + 1] > c.TreeIdxCells[cell])
                     {
-                        if (dn > cfg.TreeLod1M) AddFar((float)dn, cell, c, ref nFar);
+                        if (dn > fb.TreeLod1M) AddFar((float)dn, cell, c, ref nFar);
                         else
                         {
                             bool hasFar = false;
@@ -268,26 +286,26 @@ namespace Ghumante.World.Instancing
                                 TreeInstance t = inst.Trees[i];
                                 double dx = t.X - cx, dz = t.Z - cz;
                                 float d = (float)Math.Sqrt(dx * dx + dz * dz);
-                                int lod = cfg.TreeLodAt(d);
-                                if (lod == 0) Push(ref _near, ref _nearIndex, ref _nearTile, ref nNear, d, i, c);
-                                else if (lod == 1) Push(ref _mid, ref _midIndex, ref _midTile, ref nMid, d, i, c);
-                                else hasFar = true;
+                                if (d > fb.TreeLod1M) hasFar = true;
+                                else if (cone.Sees(c.X0 + t.X, c.Z0 + t.Z, 0.5 * t.CrownM)) Push(ref _near, ref _nearIndex, ref _nearTile, ref nNear, d, i, c);
                             }
-                            if (hasFar) AddFar(cfg.TreeLod1M, cell | FineCell, c, ref nFar);
+                            if (hasFar) AddFar(fb.TreeLod1M, cell | FineCell, c, ref nFar);
                         }
                     }
-                    // Plants within their radius, in season.
-                    if (dn <= cfg.PlantM)
+                    // Plants within their radius, in season: the far-drawn kinds (first in each cell) to the far radius.
+                    if (dn <= fb.PlantFarM)
                     {
-                        int a = c.PlantIdxCells[cell], e = c.PlantIdxCells[cell + 1];
+                        int a = c.PlantIdxCells[cell], e = dn <= fb.PlantM ? c.PlantIdxCells[cell + 1] : c.PlantFarEnd[cell];
                         for (int k = a; k < e; k++)
                         {
                             int i = c.PlantIdx[k];
                             TreeInstance t = inst.Trees[i];
-                            if (!_inSeason[(int)t.Species]) continue;
+                            int s = (int)t.Species;
+                            if (!_inSeason[s]) continue;
                             double dx = t.X - cx, dz = t.Z - cz;
                             float d = (float)Math.Sqrt(dx * dx + dz * dz);
-                            if (d <= cfg.PlantM) Push(ref _plant, ref _plantIndex, ref _plantTile, ref nPlant, d, i, c);
+                            if (d <= (_drawsFar[s] ? fb.PlantFarM : fb.PlantM) && cone.Sees(c.X0 + t.X, c.Z0 + t.Z, 0.5 * t.CrownM))
+                                Push(ref _plant, ref _plantIndex, ref _plantTile, ref nPlant, d, i, c);
                         }
                     }
                     // Props.
@@ -307,104 +325,68 @@ namespace Ghumante.World.Instancing
                     }
                 }
                 // Chautari platforms follow their trees' visibility radius (LOD1): detailed near, simple beyond.
-                float nearChautari = 1.5f * cfg.TreeLod0M;
+                float nearChautari = 1.5f * fb.TreeLod0M;
                 for (int k = 0; k < c.Chautari.Length; k++)
                 {
                     TreeInstance t = inst.Trees[c.ChautariTree[k]];
                     double dx = t.X - cx, dz = t.Z - cz, d2 = dx * dx + dz * dz;
                     if (d2 <= nearChautari * nearChautari) _chautari[0].Add(c.Chautari[k], Vector4.one);
-                    else if (d2 <= cfg.TreeLod1M * cfg.TreeLod1M) _chautari[1].Add(c.Chautari[k], Vector4.one);
+                    else if (d2 <= fb.TreeLod1M * fb.TreeLod1M) _chautari[1].Add(c.Chautari[k], Vector4.one);
                 }
             }
 
-            // LOD0 nearest-first under its cap and triangle budget; the rest step down to LOD1, then LOD1 likewise to the
-            // far levels.
+            // Trees within the LOD1 radius, nearest first: LOD0, else LOD1, else a far level (FloraLodPlan).
             SortTiles(_near, _nearIndex, _nearTile, nNear);
-            int count = 0, tris = 0;
             for (int i = 0; i < nNear; i++)
             {
-                TileCache c = _nearTile[i];
-                int idx = _nearIndex[i];
-                int s = (int)c.Inst.Trees[idx].Species;
-                int t = _speciesTris[s, 0];
-                if (count < cfg.TreeLod0Cap && tris + t <= cfg.TreeLod0Tris)
-                {
-                    _species[s, 0].Add(c.Trees[idx], c.NearTint[idx]);
-                    count++;
-                    tris += t;
-                }
-                else Push(ref _mid, ref _midIndex, ref _midTile, ref nMid, _near[i], idx, c);
+                AddTree(_nearTile[i], _nearIndex[i], _near[i]);
                 _nearTile[i] = null;
             }
-            LevelTris[0] = tris;
-            if (nMid > 1) SortTiles(_mid, _midIndex, _midTile, nMid);
-            count = tris = 0;
-            for (int i = 0; i < nMid; i++)
-            {
-                TileCache c = _midTile[i];
-                int idx = _midIndex[i];
-                int s = (int)c.Inst.Trees[idx].Species;
-                int t = _speciesTris[s, 1];
-                if (count < cfg.TreeLod1Cap && tris + t <= cfg.TreeLod1Tris)
-                {
-                    _species[s, 1].Add(c.Trees[idx], c.NearTint[idx]);
-                    count++;
-                    tris += t;
-                }
-                else AddFarTree(c, idx, _mid[i]);
-                _midTile[i] = null;
-            }
-            LevelTris[1] = tris;
-            // The far levels: the LOD1 overflow above (all within the LOD1 radius), then whole cells nearest first.
+            // The far levels: whole cells nearest first after the LOD1 overflow above.
             if (nFar > 1) SortTiles(_farKey, _farCell, _farTile, nFar);
             for (int k = 0; k < nFar; k++)
             {
                 TileCache c = _farTile[k];
                 _farTile[k] = null;
-                if (_far >= cfg.TreeLod2Cap) continue;
+                if (_count.Far >= fb.TreeFarCap) continue;
                 bool fine = (_farCell[k] & FineCell) != 0;
                 int cell = _farCell[k] & ~FineCell;
                 double cx = camX - c.X0, cz = camZ - c.Z0;
                 // A whole cell beyond the volume radius is all impostors: no distance per tree.
-                bool allImpostors = !fine && _farKey[k] > cfg.TreeVolumeM;
+                bool allImpostors = !fine && _farKey[k] > fb.TreeVolumeM;
                 int a = c.TreeIdxCells[cell], e = c.TreeIdxCells[cell + 1];
-                for (int j = a; j < e && _far < cfg.TreeLod2Cap; j++)
+                for (int j = a; j < e && _count.Far < fb.TreeFarCap; j++)
                 {
                     int i = c.TreeIdx[j];
-                    float d = cfg.TreeLod2M;
+                    float d = _farKey[k];
                     if (!allImpostors)
                     {
                         TreeInstance t = c.Inst.Trees[i];
                         double dx = t.X - cx, dz = t.Z - cz;
                         double d2 = dx * dx + dz * dz;
-                        if (fine && d2 <= cfg.TreeLod1M * cfg.TreeLod1M) continue; // drawn at LOD0 / LOD1 above
+                        if (d2 <= (double)fb.TreeLod1M * fb.TreeLod1M) continue; // drawn above
                         d = (float)Math.Sqrt(d2);
                     }
-                    AddFarTree(c, i, d);
+                    AddTree(c, i, d);
                 }
             }
-            LevelTris[2] = _farVolumeTris;
-            LevelTris[3] = _farImpostorTris;
 
             // Plants: LOD0 near, LOD1 beyond, nearest first under the cap and the triangle budget.
             if (nPlant > 1) SortTiles(_plant, _plantIndex, _plantTile, nPlant);
-            count = tris = 0;
-            for (int i = 0; i < nPlant && count < cfg.PlantCap; i++)
+            for (int i = 0; i < nPlant && _count.Plants < fb.PlantCap; i++)
             {
                 TileCache c = _plantTile[i];
                 int idx = _plantIndex[i];
                 int s = (int)c.Inst.Trees[idx].Species;
-                int lod = _plant[i] <= cfg.PlantLod0M && tris + _speciesTris[s, 0] <= cfg.PlantTris ? 0 : 1;
-                int t = _speciesTris[s, lod];
-                if (tris + t <= cfg.PlantTris)
-                {
-                    _species[s, lod].Add(c.Trees[idx], c.NearTint[idx]);
-                    count++;
-                    tris += t;
-                }
+                int lod = FloraLodPlan.PickPlant(fb, ref _count, _plant[i], _drawsFar[s], _speciesTris[s, 0], _speciesTris[s, 1]);
+                if (lod >= 0) _species[s, lod].Add(c.Trees[idx], c.NearTint[idx]);
             }
             Array.Clear(_plantTile, 0, nPlant);
-            LevelTris[4] = tris;
+            LevelTris[0] = _count.Lod0Tris;
+            LevelTris[1] = _count.Lod1Tris;
+            LevelTris[2] = _count.VolumeTris;
+            LevelTris[3] = _count.ImpostorTris;
+            LevelTris[4] = _count.PlantTris;
 
             foreach (InstanceBatch b in _species) Flush(b, ref treeTris, ref trees, ref draws);
             foreach (InstanceBatch b in _family) Flush(b, ref treeTris, ref trees, ref draws);
@@ -435,28 +417,29 @@ namespace Ghumante.World.Instancing
             draws += b.Draws;
         }
 
-        /// <summary>One far tree: the family volume within <see cref="DressingConfig.TreeVolumeM"/> while its cap and
-        /// budget last, else the impostor while the impostor budget lasts (the far cap counts both).</summary>
-        private void AddFarTree(TileCache c, int idx, float d)
+        /// <summary>One tree at distance <paramref name="d"/>: the level <see cref="FloraLodPlan.PickTree"/> gives it
+        /// (its species' LOD0 or LOD1, its family's volume or impostor, or nothing).</summary>
+        private void AddTree(TileCache c, int idx, float d)
         {
-            DressingConfig cfg = _config;
-            if (_far >= cfg.TreeLod2Cap) return;
-            int f = (int)c.Inst.Trees[idx].Shape;
-            if (f >= FarFamilies) return;
-            int tv = _familyTris[f, 0], ti = _familyTris[f, 1];
-            if (d <= cfg.TreeVolumeM && _farVolumes < cfg.TreeVolumeCap && _farVolumeTris + tv <= cfg.TreeVolumeTris)
-            {
-                _family[f, 0].Add(c.Trees[idx], c.TreeTint[idx]);
-                _farVolumes++;
-                _farVolumeTris += tv;
-                _far++;
-            }
-            else if (_farImpostorTris + ti <= cfg.TreeImpostorTris)
-            {
-                _family[f, 1].Add(c.Trees[idx], c.TreeTint[idx]);
-                _farImpostorTris += ti;
-                _far++;
-            }
+            TreeInstance t = c.Inst.Trees[idx];
+            int s = (int)t.Species, f = (int)t.Shape;
+            if (f >= FarFamilies) f = 0;
+            int lvl = FloraLodPlan.PickTree(_config.Flora, ref _count, d, _speciesTris[s, 0], _speciesTris[s, 1], _familyTris[f, 0], _familyTris[f, 1]);
+            if (lvl == 0 || lvl == 1) _species[s, lvl].Add(c.Trees[idx], c.NearTint[idx]);
+            else if (lvl >= 2) _family[f, lvl - 2].Add(c.Trees[idx], c.TreeTint[idx]);
+        }
+
+        /// <summary>
+        /// The view cone of this frame in world metres, from the camera position the frame is drawn for: the view
+        /// camera's (or the main camera's) horizontal field of view plus the budget's margin, along its forward vector;
+        /// everything round the camera without a camera or with <see cref="ViewCulling"/> off.
+        /// </summary>
+        private FloraView View(double camX, double camZ, FloraBudget fb)
+        {
+            Camera cam = ViewCamera != null ? ViewCamera : Camera.main;
+            if (!ViewCulling || cam == null || cam.orthographic) return FloraView.All(camX, camZ);
+            Vector3 f = cam.transform.forward;
+            return FloraView.Cone(camX, camZ, f.x, f.y, f.z, FloraView.HorizontalFov(cam.fieldOfView, cam.aspect), fb.ViewMarginDeg, fb.ViewNearM);
         }
 
         private void AddFar(float key, int cell, TileCache c, ref int n)
@@ -541,7 +524,8 @@ namespace Ghumante.World.Instancing
         }
 
         /// <summary>Per-cell index lists of the trees and of the plants of a tile (the instance list is sorted by cell,
-        /// so each cell's entries stay together and in order).</summary>
+        /// so each cell's entries stay together and in order); in each cell the plants of the far-drawn kinds come
+        /// first, so a cell beyond the small-plant radius scans only those.</summary>
         private void SplitCells(TileCache c)
         {
             TileInstances inst = c.Inst;
@@ -552,6 +536,7 @@ namespace Ghumante.World.Instancing
             c.PlantIdx = new int[inst.Trees.Count - nTrees];
             c.TreeIdxCells = new int[cells + 1];
             c.PlantIdxCells = new int[cells + 1];
+            c.PlantFarEnd = new int[cells];
             int ti = 0, pi = 0;
             for (int cell = 0; cell < cells; cell++)
             {
@@ -559,8 +544,15 @@ namespace Ghumante.World.Instancing
                 c.PlantIdxCells[cell] = pi;
                 for (int i = inst.TreeCells[cell]; i < inst.TreeCells[cell + 1]; i++)
                 {
-                    if (_isTree[(int)inst.Trees[i].Species]) c.TreeIdx[ti++] = i;
-                    else c.PlantIdx[pi++] = i;
+                    int s = (int)inst.Trees[i].Species;
+                    if (_isTree[s]) c.TreeIdx[ti++] = i;
+                    else if (_drawsFar[s]) c.PlantIdx[pi++] = i;
+                }
+                c.PlantFarEnd[cell] = pi;
+                for (int i = inst.TreeCells[cell]; i < inst.TreeCells[cell + 1]; i++)
+                {
+                    int s = (int)inst.Trees[i].Species;
+                    if (!_isTree[s] && !_drawsFar[s]) c.PlantIdx[pi++] = i;
                 }
             }
             c.TreeIdxCells[cells] = ti;
@@ -611,7 +603,7 @@ namespace Ghumante.World.Instancing
                 {
                     TreeInstance t = inst.Trees[i];
                     if (!t.Chautari) continue;
-                    float w = Mathf.Clamp(t.CrownM * 0.45f, 3f, 9f);
+                    float w = t.PlatformM > 0f ? t.PlatformM : TreePlacement.DefaultPlatformM(t.CrownM);
                     float h = Mathf.Lerp(0.45f, 0.9f, WorldHash.Unit(t.OsmRef, 0x43484154));
                     c.ChautariTree[chautari] = i;
                     c.Chautari[chautari++] = Matrix4x4.TRS(new Vector3(ox + t.X, t.Y - oy, oz + t.Z), Quaternion.Euler(0f, t.YawDeg, 0f), new Vector3(w, h, w));

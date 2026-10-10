@@ -51,9 +51,9 @@ namespace Ghumante.Core.Generators.Flora
     /// <summary>
     /// The nature kit's catalogue (W2_DESIGN 5.8; research street_life.md 9-13; docs/research/w2/ref_nature.md):
     /// model size, placement size range, class and far-LOD family of every <see cref="TreeSpecies"/>, the leaf
-    /// colour by month, bark and bloom colours, how much of a kind is in bloom in a month (jacaranda violet March to
-    /// May, rhododendron red February to April, bottlebrush red March to May with an autumn flush, silky oak gold
-    /// April and May, Schima white May and June, poinsettia red bracts November to February, marigold peaking at
+    /// colour by month, bark and bloom colours, how much of a kind is in bloom in a month (jacaranda violet from late
+    /// March, at its peak late April and May, rhododendron red February to April, bottlebrush red March to May with an
+    /// autumn flush, silky oak gold April and May, Schima white May and June, poinsettia red bracts November to February, marigold peaking at
     /// Dashain and Tihar) and the far-LOD crown colour that mixes the two. Hex values are the design's [E] palette.
     /// Engine-free.
     /// </summary>
@@ -68,7 +68,7 @@ namespace Ghumante.Core.Generators.Flora
             new FloraInfo(18f, 18f, 15f, 25f, FloraClass.Tree, TreeShape.Umbrella), // Pipal
             new FloraInfo(16f, 24f, 15f, 20f, FloraClass.Tree, TreeShape.Umbrella), // Bar
             new FloraInfo(12f, 12f, 8f, 15f, FloraClass.Tree, TreeShape.Umbrella), // Jacaranda
-            new FloraInfo(22f, 8f, 18f, 30f, FloraClass.Tree, TreeShape.Column), // SilkyOak
+            new FloraInfo(22f, 10.5f, 18f, 30f, FloraClass.Tree, TreeShape.Column), // SilkyOak (a teardrop about half as wide as tall)
             new FloraInfo(6f, 5f, 4f, 8f, FloraClass.Tree, TreeShape.Round), // Bottlebrush
             new FloraInfo(15f, 13f, 10f, 20f, FloraClass.Tree, TreeShape.Round), // Camphor
             new FloraInfo(28f, 11f, 15f, 35f, FloraClass.Tree, TreeShape.Column), // Eucalyptus
@@ -77,7 +77,7 @@ namespace Ghumante.Core.Generators.Flora
             new FloraInfo(15f, 11f, 10f, 22f, FloraClass.Tree, TreeShape.Round), // Schima
             new FloraInfo(15f, 12f, 10f, 22f, FloraClass.Tree, TreeShape.Round), // Castanopsis
             new FloraInfo(16f, 10f, 10f, 22f, FloraClass.Tree, TreeShape.Column), // Alnus
-            new FloraInfo(20f, 8f, 12f, 25f, FloraClass.Tree, TreeShape.Cone), // ChirPine
+            new FloraInfo(20f, 12f, 12f, 25f, FloraClass.Tree, TreeShape.Cone), // ChirPine (mature: a broad rounded open crown)
             new FloraInfo(15f, 13f, 10f, 22f, FloraClass.Tree, TreeShape.Round), // Oak
             new FloraInfo(8f, 7f, 6f, 12f, FloraClass.Tree, TreeShape.Round), // Rhododendron
             new FloraInfo(14f, 12f, 10f, 20f, FloraClass.Tree, TreeShape.Round), // BrownOak
@@ -268,7 +268,9 @@ namespace Ghumante.Core.Generators.Flora
         {
             switch (s)
             {
-                case TreeSpecies.Jacaranda: return month >= 3 && month <= 5 ? 1f : month == 10 || month == 11 ? 0.12f : 0f;
+                // Kathmandu's jacarandas (Tundikhel, Ratna Park, Durbar Marg, the Ring Road) peak from late April
+                // into May: first flowers in March, the last in June, a light autumn sprinkle [E].
+                case TreeSpecies.Jacaranda: return month == 4 || month == 5 ? 1f : month == 3 ? 0.45f : month == 6 ? 0.2f : month == 10 || month == 11 ? 0.12f : 0f;
                 case TreeSpecies.SilkyOak: return month == 4 || month == 5 ? 1f : 0f;
                 case TreeSpecies.Bottlebrush: return month >= 3 && month <= 5 ? 1f : month == 10 || month == 11 ? 0.35f : 0f;
                 case TreeSpecies.Rhododendron: return month >= 2 && month <= 4 ? 1f : month == 1 || month == 5 ? 0.25f : 0f;
@@ -281,6 +283,30 @@ namespace Ghumante.Core.Generators.Flora
                 case TreeSpecies.Sunflower: return month >= 6 && month <= 10 ? 1f : 0f;
                 case TreeSpecies.PottedPlant: return 0.8f;
                 default: return 0f;
+            }
+        }
+
+        /// <summary>
+        /// True for the plants big or bright enough to read from a moving bike well past the small-plant radius
+        /// (<see cref="FloraBudget.PlantFarM"/>, drawn at LOD1): straw stacks, boulders, hedge rows, marigold beds,
+        /// bougainvillea, poinsettia, sunflowers and the tulsi math. Grass tufts, ferns, rocks, shrubs, roses and pots
+        /// stay on the short radius.
+        /// </summary>
+        public static bool DrawsFar(TreeSpecies s)
+        {
+            switch (s)
+            {
+                case TreeSpecies.StrawStack:
+                case TreeSpecies.Boulder:
+                case TreeSpecies.Hedge:
+                case TreeSpecies.MarigoldBed:
+                case TreeSpecies.Bougainvillea:
+                case TreeSpecies.Poinsettia:
+                case TreeSpecies.Sunflower:
+                case TreeSpecies.TulsiMath:
+                    return true;
+                default:
+                    return false;
             }
         }
 

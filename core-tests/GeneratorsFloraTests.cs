@@ -37,9 +37,10 @@ namespace Ghumante.Core.Tests
         {
             var m = new MeshData();
             var over = new System.Text.StringBuilder();
+            // Every month: blooms, flushes and harvests change the models (Schima's white flowers in May-June).
             for (int s = 0; s < FloraCatalog.Count; s++)
                 for (int lod = 0; lod < 2; lod++)
-                    foreach (int month in new[] { 1, 4, 10 })
+                    for (int month = 1; month <= 12; month++)
                     {
                         m.Clear();
                         var sp = (TreeSpecies)s;
@@ -49,7 +50,7 @@ namespace Ghumante.Core.Tests
                         if (tris > FloraMesher.Budget[lod]) over.Append(what).Append(": ").Append(tris).Append("; ");
                         Assert.That(tris, Is.EqualTo(m.TriangleCount));
                         AssertFloraMesh(m, 0, what);
-                        if (lod == 1)
+                        if (lod == 1 && (month == 1 || month == 4 || month == 10))
                         {
                             var m0 = new MeshData();
                             Assert.That(FloraMesher.Build(sp, 0, month, m0), Is.GreaterThan(tris), what + ": LOD1 is lighter than LOD0");
@@ -252,7 +253,7 @@ namespace Ghumante.Core.Tests
         public void DumpFloraKit()
         {
             if (FloraObj.Dir == null) Assert.Ignore("GHUMANTE_PREVIEW_DIR not set");
-            int[] months = { 4, 10, 12 };
+            int[] months = { 4, 5, 10, 12 };
             for (int s = 0; s < FloraCatalog.Count; s++)
                 foreach (int month in months)
                     for (int lod = 0; lod < 2; lod++)

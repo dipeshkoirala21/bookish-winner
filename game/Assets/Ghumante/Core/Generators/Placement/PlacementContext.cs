@@ -113,20 +113,22 @@ namespace Ghumante.Core.Generators.Placement
             if (x < 0.5 || z < 0.5 || x > Size - 0.5 || z > Size - 0.5) return false;
             // The instance stores float positions: test the rounded spot too (it may fall into the next cell).
             if (!Mask.Free(x, z) || !Mask.Free((float)x, (float)z)) return false;
-            if (Corridor != null && Corridor.SignedDistance(x, z) < roadMargin) return false;
+            if (Corridor != null && (Corridor.SignedDistance(x, z) < roadMargin || Corridor.SignedDistance((float)x, (float)z) < roadMargin)) return false;
             return !Taken(x, z, radius);
         }
 
         /// <summary>
-        /// True when a plant may stand right beside a way it lines (a park path's hedge): on the tile, not on a building
-        /// or water cell and not on a spot already taken. The road cells of the mask and the corridor margin are not
-        /// checked: the caller keeps its own clearance from the way and from every other way.
+        /// True when a plant may stand right beside a way it lines (a park path's hedge, just outside its corridor):
+        /// on the tile, not on a building or water cell, at least <paramref name="roadMargin"/> outside every road
+        /// corridor when the corridors are known, and not on a spot already taken. The mask's road cells (4 m, drawn
+        /// conservatively round each corridor) are not checked: the caller keeps its own clearance from the way and
+        /// from every other way.
         /// </summary>
-        public bool ClearBesideWay(double x, double z, double radius)
+        public bool ClearBesideWay(double x, double z, double radius, double roadMargin)
         {
             if (x < 0.5 || z < 0.5 || x > Size - 0.5 || z > Size - 0.5) return false;
             if ((Mask.At(x, z) & (PlacementMask.Building | PlacementMask.Water)) != 0) return false;
-            if (Corridor != null && Corridor.SignedDistance(x, z) < 0.3) return false;
+            if (Corridor != null && Corridor.SignedDistance(x, z) < roadMargin) return false;
             return !Taken(x, z, radius);
         }
 
@@ -150,21 +152,21 @@ namespace Ghumante.Core.Generators.Placement
         }
 
         /// <summary>
-        /// The distance a plant must keep from a road corridor (docs/W2_DETAIL_CONTRACT.md §1.1-1.2): a big tree whose
-        /// crown starts above the 4.5 m overhead clearance may overhang the road, so only its trunk keeps clear
-        /// (1.2 m); a smaller plant keeps its whole crown out.
+        /// The distance a plant's axis must keep from a road corridor (docs/W2_DETAIL_CONTRACT.md §1.1-1.2): a tree
+        /// keeps everything it has below the 4.5 m overhead clearance out of the corridor (trunk, buttresses, prop
+        /// roots, low limbs and a low crown: <see cref="FloraReach.LowReachM"/>, measured on its own meshes) plus
+        /// 0.3 m, and at least 1.2 m; a crown that starts above 4.5 m may overhang the road. A smaller plant keeps its
+        /// whole crown out.
         /// </summary>
         public static double RoadMarginFor(TreeSpecies s, float heightM, float crownM)
         {
-            FloraInfo info = FloraCatalog.Info(s);
-            float crownBase = heightM * (info.Family == TreeShape.Umbrella ? 0.4f : info.Family == TreeShape.Cone || info.Family == TreeShape.Column ? 0.3f : 0.35f);
-            if (info.Class == FloraClass.Tree && crownBase >= RoadClearance.MinOverheadClearanceM) return 1.2;
+            if (FloraCatalog.Info(s).Class == FloraClass.Tree) return Math.Max(1.2, FloraReach.LowReachM(s, heightM, crownM) + 0.3);
             return 0.5 * crownM + 0.3;
         }
 
         /// <summary>Add a plant (remembering its footprint) and return true; false when the plant budget is spent.</summary>
         public bool Add(TreeSpecies s, double x, double z, float heightM, float crownM, float yawDeg, TreeOrigin origin, int clump = 0, ulong osmRef = 0,
-                        bool chautari = false, float footprint = -1f)
+                        bool chautari = false, float footprint = -1f, float platformM = 0f)
         {
             bool tree = FloraCatalog.IsTree(s);
             if (!tree && PlantsFull) return false;
@@ -173,7 +175,7 @@ namespace Ghumante.Core.Generators.Placement
             {
                 X = (float)x, Y = y, Z = (float)z, HeightM = heightM, CrownM = crownM, YawDeg = yawDeg < 0 ? yawDeg + 360f : yawDeg, Species = s,
                 Shape = FloraCatalog.Info(s).Family, SizeClass = (byte)(heightM < 6 ? 0 : heightM < 12 ? 1 : heightM < 20 ? 2 : 3), Origin = origin,
-                Chautari = chautari, ClumpId = clump, OsmRef = osmRef,
+                Chautari = chautari, ClumpId = clump, OsmRef = osmRef, PlatformM = chautari ? platformM : 0f,
             });
             if (!tree) Plants++;
             Occupy(x, z, footprint >= 0f ? footprint : tree ? Math.Min(2.5f, 0.15f * crownM + 0.6f) : 0.35f * crownM);

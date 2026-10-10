@@ -8,7 +8,8 @@ namespace Ghumante.Core.Generators.Placement
     /// <summary>
     /// A tile-local raster (default 4 m cells) of where generated dressing may not stand: road corridors with their
     /// footpaths, building footprints and water areas; plus land rasters the placers choose from: forest (AREA
-    /// FOREST and the forest biomes), parks and gardens, fields (farmland, orchards, cropland biomes) and river banks
+    /// FOREST and the forest biomes), parks and gardens, fields (farmland, orchards, and cropland biome cells no other
+    /// land use covers: <see cref="CropLand"/>, so no straw stacks on Tundikhel or a city pitch) and river banks
     /// (cells next to water). Road cells come from the <see cref="IRoadCorridorQuery"/> when one is given (the same
     /// widened corridor the road mesher draws, docs/W2_DETAIL_CONTRACT.md §1.1), else from the
     /// <see cref="RoadLayout"/> widths, never narrower than the rideable corridor. Built once per tile; immutable after.
@@ -48,6 +49,7 @@ namespace Ghumante.Core.Generators.Placement
             if (t.Biomes != null && t.BiomesN > 1)
             {
                 int bn = t.BiomesN;
+                CropLand crop = t.Areas.Count > 0 ? CropLand.For(t) : null;
                 for (int j = 0; j < N; j++)
                 for (int i = 0; i < N; i++)
                 {
@@ -57,7 +59,7 @@ namespace Ghumante.Core.Generators.Placement
                     bj = bj < 0 ? 0 : bj >= bn ? bn - 1 : bj;
                     Biome b = t.Biomes[bj * bn + bi];
                     if (AreaTypeGrid.BiomeFamily(b) == 1) _bits[j * N + i] |= Forest;
-                    else if (IsCropBiome(b)) _bits[j * N + i] |= Field;
+                    else if (IsCropBiome(b) && (crop == null || !crop.Excluded(x, z))) _bits[j * N + i] |= Field;
                 }
             }
             // River banks: dry cells next to water.

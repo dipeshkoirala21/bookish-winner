@@ -394,7 +394,21 @@ namespace Ghumante.Core.Tests
             Assert.That(BiomePalette.Rgba((Biome)200), Is.EqualTo(BiomePalette.Rgba(Biome.HillGrassland)));
             Assert.That(BiomePalette.Rgba(Biome.UrbanDense), Is.EqualTo(MeshColor.FromHex(0xC9B9A0)));
             Assert.That(BiomePalette.Rgba(Biome.ValleyCropland, Season.Autumn), Is.EqualTo(MeshColor.FromHex(0xE2C04C)));
-            Assert.That(BiomePalette.Rgba(Biome.ValleyCropland), Is.EqualTo(MeshColor.FromHex(0x7FD457)));
+            Assert.That(BiomePalette.Rgba(Biome.ValleyCropland, Season.Monsoon), Is.EqualTo(MeshColor.FromHex(0x7FD457)));
+            // The default season is the default month's (October: harvest gold), so terrain, areas and the October
+            // flora agree when nothing sets the season.
+            Assert.That(BiomePalette.DefaultSeason, Is.EqualTo(BiomePalette.SeasonOf(BiomePalette.DefaultMonth)));
+            Assert.That(BiomePalette.Rgba(Biome.ValleyCropland), Is.EqualTo(MeshColor.FromHex(0xE2C04C)));
+            Assert.That(new TerrainOptions().Season, Is.EqualTo(Season.Autumn));
+            Assert.That(new AreaOptions().Season, Is.EqualTo(Season.Autumn));
+            Season[] expected =
+            {
+                Season.Winter, Season.Winter, Season.Spring, Season.Spring, Season.Spring, Season.Monsoon, Season.Monsoon, Season.Monsoon,
+                Season.Monsoon, Season.Autumn, Season.Autumn, Season.Winter,
+            };
+            for (int m = 1; m <= 12; m++) Assert.That(BiomePalette.SeasonOf(m), Is.EqualTo(expected[m - 1]), "month " + m);
+            Assert.That(BiomePalette.SeasonOf(0), Is.EqualTo(Season.Autumn), "out of range reads as October");
+            for (int m = 1; m <= 12; m++) Assert.That(BiomePalette.SeasonOf(m).ToString(), Is.EqualTo(Ghumante.Core.Synth.AmbienceModel.SeasonOf(m).ToString()), "the ambience agrees, month " + m);
         }
 
         /// <summary>

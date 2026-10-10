@@ -8,7 +8,7 @@ namespace Ghumante.Core.Generators.Flora
     /// Meshes of the nature kit (W2_DESIGN 5.8; docs/W2_DETAIL_CONTRACT.md §1.6 and §5): every
     /// <see cref="TreeSpecies"/> at LOD0 (detailed: trunk, limbs, twigs, layered clumps with leafy fringes, bloom; ≤ 1,600 triangles)
     /// and LOD1 (simple: ≤ 240), the shared far LODs per <see cref="TreeShape"/> family (LOD2 volume ≤ 112 triangles,
-    /// LOD3 impostor ≤ 8, both grey and tinted per instance with <see cref="FloraCatalog.FoliageColour"/>), and the
+    /// LOD3 impostor ≤ 24, both grey and tinted per instance with <see cref="FloraCatalog.FoliageColour"/>), and the
     /// chautari platform.
     /// <para>
     /// Kit meshes are <b>unit</b> models: the foot at the origin, height 1 and the largest horizontal extent 1, so an
@@ -26,7 +26,7 @@ namespace Ghumante.Core.Generators.Flora
         public const int Lods = 4;
 
         /// <summary>Triangle cap per LOD.</summary>
-        public static readonly int[] Budget = { 1600, 240, 112, 8 };
+        public static readonly int[] Budget = { 1600, 240, 112, 24 };
 
         /// <summary>Number of <see cref="TreeShape"/> families with far LODs (Round, Cone, Umbrella, Column, Fountain).</summary>
         public const int Families = 5;
@@ -58,7 +58,8 @@ namespace Ghumante.Core.Generators.Flora
 
         /// <summary>
         /// The far LOD of a family: <paramref name="lod"/> 2 is a smooth lumpy volume with a short trunk (≤ 112 triangles),
-        /// 3 an impostor (a closed bipyramid card, ≤ 8 triangles) that keeps the silhouette at a few pixels. Unit model
+        /// 3 an impostor (a lumpy rounded crown on a three-sided trunk, ≤ 24 triangles) that keeps the silhouette, crown
+        /// base and stem of the family at a few dozen pixels. Unit model
         /// scaled by (<paramref name="width"/>, <paramref name="height"/>). Foliage is grey (alpha 255) for the
         /// instance's crown colour; the trunk is fixed bark. Returns the triangles added.
         /// </summary>
@@ -90,31 +91,11 @@ namespace Ghumante.Core.Generators.Flora
                 ps.Bend = 0.2f;
                 int puff = m.VertexCount;
                 b.Puff(new Vec3(0f, crownY, 0f), new Vec3(0.5f, ry, 0.5f), 1, f == TreeShape.Cone ? 0.15f : 0.2f, 0x464Du + (uint)f, ps);
-                // Conifers and columns narrow toward the top (one mass, as their mid LOD).
-                if (f == TreeShape.Cone) b.Taper(puff, 0f, 0f, crownY - 0.5f * ry, top, 0.5f);
+                // Pines and columns narrow toward the top (one mass, as their mid LOD; a mature chir pine only a little).
+                if (f == TreeShape.Cone) b.Taper(puff, 0f, 0f, crownY - 0.5f * ry, top, 0.25f);
                 else if (f == TreeShape.Column) b.Taper(puff, 0f, 0f, crownY - 0.5f * ry, top, 0.35f);
             }
-            else
-            {
-                // Impostor: a closed triangular bipyramid (6 triangles; a pyramid of 4 for the cone).
-                float mid = f == TreeShape.Cone ? bottom : crownY;
-                uint lit = FloraBuilder.Leaf(0xFFFFFFu, 1f), shade = FloraBuilder.Leaf(0xFFFFFFu, 0.7f), dark = FloraBuilder.Leaf(0xFFFFFFu, 0.55f);
-                int tv = b.Vertex(new Vec3(0f, top, 0f), Vec3.Up, lit, MaterialChannel.Foliage, 1f);
-                int[] e = new int[3];
-                for (int i = 0; i < 3; i++)
-                {
-                    double a = i * 2 * Math.PI / 3 + 0.3;
-                    var d = new Vec3((float)Math.Cos(a), 0f, (float)Math.Sin(a));
-                    e[i] = b.Vertex(new Vec3(d.X * 0.5f, mid, d.Z * 0.5f), (d + Vec3.Up * 0.3f).Normalized, shade, MaterialChannel.Foliage, 0.8f);
-                }
-                for (int i = 0; i < 3; i++) b.Tri(tv, e[i], e[(i + 1) % 3]);
-                if (f == TreeShape.Cone) b.AddOriented(e[0], e[1], e[2], -Vec3.Up);
-                else
-                {
-                    int bv = b.Vertex(new Vec3(0f, bottom, 0f), -Vec3.Up, dark, MaterialChannel.Foliage, 0.5f);
-                    for (int i = 0; i < 3; i++) b.Tri(bv, e[(i + 1) % 3], e[i]);
-                }
-            }
+            else Impostor(b, f, crownY, ry, bottom, top);
             if (width != 1f || height != 1f)
             {
                 float[] pp = m.Positions;
@@ -128,13 +109,92 @@ namespace Ghumante.Core.Generators.Flora
             return m.TriangleCount - t0;
         }
 
+        /// <summary>Points per impostor ring (two rings: 4 × 5 crown triangles plus 3 for the trunk).</summary>
+        private const int ImpostorSides = 5;
+
+        /// <summary>
+        /// The far impostor (LOD3): a lumpy rounded crown on a trunk, ≤ <see cref="Budget"/>[3] triangles. The crown is
+        /// an icosahedron fitted to the family's crown ellipsoid (the roundest closed solid of 20 triangles: a top, two
+        /// rings of five half a step apart at ±27° of latitude, a bottom at the crown base), its rings alternately a
+        /// little in and out, up and down, so the outline is an irregular round of ten bumps; its normals are the
+        /// ellipsoid's, so it shades as one soft ball (sunlit top, dark underside). Pines and columns narrow the upper
+        /// ring (a rounded, not a pointed, top), umbrellas widen it. A three-sided trunk rises from the ground into the
+        /// crown, so a far tree still stands on a visible stem (23 triangles).
+        /// </summary>
+        private static void Impostor(FloraBuilder b, TreeShape f, float crownY, float ry, float bottom, float top)
+        {
+            const float rx = 0.5f;
+            var centre = new Vec3(0f, crownY, 0f);
+            uint lit = FloraBuilder.Leaf(0xFFFFFFu, 1.04f), side = FloraBuilder.Leaf(0xFFFFFFu, 0.84f), under = FloraBuilder.Leaf(0xFFFFFFu, 0.6f);
+            const int n = ImpostorSides;
+            // An icosahedron fitted to the crown ellipsoid (the roundest 20-triangle solid: the rings at ±26.6° of
+            // latitude), the upper ring narrowed for conifers and columns and widened for umbrellas.
+            float eqOff = -0.447f, upR = 1f, upOff = 0.447f;
+            if (f == TreeShape.Cone)
+            {
+                eqOff = -0.47f;
+                upR = 0.78f;
+            }
+            else if (f == TreeShape.Column) upR = 0.8f;
+            else if (f == TreeShape.Umbrella)
+            {
+                eqOff = -0.35f;
+                upOff = 0.5f;
+            }
+            float eqY = crownY + eqOff * ry;
+            // Trunk: three faces from the ground up into the crown (apex hidden inside it).
+            bool fountain = f == TreeShape.Fountain;
+            float apex = fountain ? crownY : 0.5f * (bottom + eqY), tr = fountain ? 0.04f : 0.03f;
+            int ap = b.Vertex(new Vec3(0f, apex, 0f), Vec3.Up, FloraBuilder.Fixed(0x5E4A3Au, 0.9f), MaterialChannel.Bark, 0.6f);
+            int[] tb = new int[3];
+            for (int i = 0; i < 3; i++)
+            {
+                double a = i * 2 * Math.PI / 3 + 0.4;
+                var d = new Vec3((float)Math.Cos(a), 0f, (float)Math.Sin(a));
+                tb[i] = b.Vertex(new Vec3(d.X * tr, -0.03f, d.Z * tr), d, FloraBuilder.Fixed(0x5E4A3Au), MaterialChannel.Bark, 0.45f);
+            }
+            for (int i = 0; i < 3; i++) b.Tri(ap, tb[i], tb[(i + 1) % 3]);
+            // Crown: a shallow underside down to the crown base, the wide ring, the upper ring, the domed top.
+            int tv = b.Vertex(new Vec3(0f, top, 0f), Vec3.Up, lit, MaterialChannel.Foliage, 1f);
+            int bv = b.Vertex(new Vec3(0f, Math.Max(bottom, crownY - ry), 0f), -Vec3.Up, under, MaterialChannel.Foliage, 0.5f);
+            int[] eq = new int[n], up = new int[n];
+            for (int k = 0; k < n; k++)
+            {
+                bool odd = (k & 1) == 1;
+                double a = k * 2 * Math.PI / n + 0.26;
+                float r = rx * (odd ? 0.92f : 1f), y = eqY + (odd ? 0.05f : -0.05f) * ry;
+                eq[k] = CrownVertex(b, new Vec3((float)Math.Cos(a) * r, y, (float)Math.Sin(a) * r), centre, rx, ry, side, 0.8f);
+                double a2 = a + Math.PI / n;
+                float r2 = rx * upR * (odd ? 0.92f : 1f), y2 = crownY + (upOff + (odd ? -0.05f : 0.05f)) * ry;
+                up[k] = CrownVertex(b, new Vec3((float)Math.Cos(a2) * r2, y2, (float)Math.Sin(a2) * r2), centre, rx, ry, FloraBuilder.Leaf(0xFFFFFFu, 0.97f), 0.93f);
+            }
+            for (int k = 0; k < n; k++)
+            {
+                int k1 = (k + 1) % n;
+                // The upper ring sits half a step round from the wide ring: up[k] between eq[k] and eq[k + 1].
+                b.Tri(tv, up[k], up[k1]);
+                b.Tri(up[k], eq[k], eq[k1]);
+                b.Tri(eq[k1], up[k1], up[k]);
+                b.Tri(bv, eq[k1], eq[k]);
+            }
+        }
+
+        /// <summary>A crown vertex with the crown ellipsoid's normal (leaning up a little: sunlit tops).</summary>
+        private static int CrownVertex(FloraBuilder b, Vec3 p, Vec3 centre, float rx, float ry, uint rgba, float ao)
+        {
+            Vec3 d = p - centre;
+            var n = new Vec3(d.X / (rx * rx), d.Y / (ry * ry), d.Z / (rx * rx)).Normalized;
+            n = (n + Vec3.Up * 0.15f).Normalized;
+            return b.Vertex(p, n, rgba, MaterialChannel.Foliage, ao);
+        }
+
         /// <summary>Unit crown proportions of a family: crown centre height, vertical radius, crown bottom and top.</summary>
         private static void Shape(TreeShape f, out float crownY, out float ry, out float bottom, out float top)
         {
             switch (f)
             {
                 case TreeShape.Umbrella: crownY = 0.68f; ry = 0.3f; bottom = 0.4f; top = 0.98f; break;
-                case TreeShape.Cone: crownY = 0.66f; ry = 0.34f; bottom = 0.32f; top = 1f; break;
+                case TreeShape.Cone: crownY = 0.69f; ry = 0.31f; bottom = 0.38f; top = 1f; break; // a mature chir pine: rounded, high
                 case TreeShape.Column: crownY = 0.69f; ry = 0.31f; bottom = 0.38f; top = 1f; break;
                 case TreeShape.Fountain: crownY = 0.68f; ry = 0.3f; bottom = 0.38f; top = 0.98f; break;
                 case TreeShape.Low: crownY = 0.5f; ry = 0.5f; bottom = 0f; top = 1f; break;

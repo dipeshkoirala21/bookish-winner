@@ -16,10 +16,11 @@ namespace Ghumante.Core.Generators.Placement
 
         public float AvenueSpacingMin = 8f, AvenueSpacingMax = 15f;
 
-        /// <summary>Forest clumps per hectare (3-7 trees each): about 150 trees per hectare.</summary>
-        public float ClumpsPerHa = 30f;
+        /// <summary>Step of the forest canopy lattice (metres): about 90 canopy trees per hectare, crowns about 1.45
+        /// steps wide.</summary>
+        public float ForestSpacingM = 10.5f;
 
-        /// <summary>Hard cap of forest trees per tile (thinned uniformly, deterministically, beyond it).</summary>
+        /// <summary>Cap of forest trees per tile: beyond it the lattice step widens evenly (crowns with it).</summary>
         public int MaxForestTrees = 10000;
 
         /// <summary>Cap of plants (everything that is not a tree: flowers, shrubs, hedges, pots, ground cover, rocks,
@@ -53,15 +54,17 @@ namespace Ghumante.Core.Generators.Placement
     /// <summary>
     /// Nature placement for a tile (W2_DESIGN 5.8; research street_life.md 9-12; docs/research/w2/ref_nature.md), in
     /// order of importance: (1) every OSM tree from PROP at its position (pipal and bar from the tree class, a chautari
-    /// platform where flagged; unnamed trees get a species from the area and the elevation band; a tree standing in a
-    /// road corridor is moved to its edge, or dropped when deep inside); (2) avenue rows on URBAN trunk, primary and
+    /// platform where flagged, its porter ledge toward the road; unnamed trees get a species from the area and the
+    /// elevation band; a tree whose low parts stand in a road corridor is moved out of it, or dropped when deep
+    /// inside); (2) avenue rows on URBAN trunk, primary and
     /// secondary roads: 30% of ways, 8-15 m apart on both sides on the verge outside the corridor, with the
     /// north/central or other district mix, never in old cores; (3) park planting (<see cref="ParkPlacement"/>);
-    /// (4) house gardens (<see cref="GardenPlacement"/>); (5) forest clumps of 3-7 trees inside AREA FOREST and the
+    /// (4) house gardens (<see cref="GardenPlacement"/>); (5) a closed forest canopy inside AREA FOREST and the
     /// forest biomes, species by elevation band and aspect (Schima-Castanopsis, chir pine on south faces, oak-laurel
     /// with rhododendron, brown oak; sal in the Terai and Chure), with an understorey; (6) wild ground cover and field
     /// straw stacks (<see cref="GroundCoverPlacement"/>). Generated plants never stand on a road corridor, building or
-    /// water. Seeded by the tile seed (D10), so everything stays put between builds. Returns the instances added.
+    /// water. Seeded by the tile seed (D10; the forest lattice by world position, so it continues across tile edges),
+    /// so everything stays put between builds. Returns the instances added.
     /// </summary>
     public static class TreePlacement
     {
@@ -112,39 +115,138 @@ namespace Ghumante.Core.Generators.Placement
                 FloraInfo info = FloraCatalog.Info(sp);
                 float hgt = p.HeightDm > 0 ? p.HeightDm / 10f : rng.Range(info.MinHeightM, info.MaxHeightM);
                 float crown = hgt * info.Aspect * rng.Range(0.9f, 1.1f);
+                float yaw = rng.Range(0f, 360f);
                 bool chautari = p.Has(PropFlags.Chautari);
-                // Rideability beats exact positions (contract §1.1): out of the corridor, platform and all.
-                double margin = chautari ? 0.5 * Math.Max(3.0, Math.Min(9.0, crown * 0.45)) + 0.6 : 1.2;
-                if (c.Corridor != null && c.Corridor.SignedDistance(x, z) < margin)
+                float platform = chautari ? DefaultPlatformM(crown) : 0f;
+                if (c.Corridor != null)
                 {
-                    if (!Nudge(c, ref x, ref z, margin, 6.0))
+                    // Rideability beats exact positions (contract §1.1): everything below 4.5 m (trunk, buttresses,
+                    // prop roots, a low crown) out of the corridor, and a chautari's whole platform with its ledge.
+                    double margin = PlacementContext.RoadMarginFor(sp, hgt, crown);
+                    // Moved at most 6 m beyond what a bare trunk would need (a bar's prop roots reach 6-8 m out).
+                    double maxMove = 6.0 + Math.Max(0.0, margin - 1.2);
+                    double x0 = x, z0 = z;
+                    if (chautari && !FitChautari(c, ref x, ref z, ref yaw, ref platform, margin, maxMove))
+                    {
+                        chautari = false; // no platform fits beside this road: the tree stands without one
+                        platform = 0f;
+                    }
+                    if (!chautari && c.Corridor.SignedDistance(x, z) < margin && !Nudge(c, ref x, ref z, margin, maxMove))
                     {
                         c.OsmDropped++;
                         continue;
                     }
-                    c.OsmMoved++;
+                    if (x != x0 || z != z0) c.OsmMoved++;
                 }
-                c.Add(sp, x, z, hgt, crown, rng.Range(0f, 360f), TreeOrigin.Osm, 0, p.OsmRef, chautari);
+                c.Add(sp, x, z, hgt, crown, yaw, TreeOrigin.Osm, 0, p.OsmRef, chautari, -1f, platform);
             }
+        }
+
+        /// <summary>The chautari platform side the renderer draws by default: 0.45 of the crown, 3-9 m.</summary>
+        public static float DefaultPlatformM(float crownM)
+        {
+            return Math.Max(3f, Math.Min(9f, crownM * 0.45f));
+        }
+
+        /// <summary>
+        /// Outline points of the chautari platform in its unit frame (side 1, centre at the origin; FloraMesher.Chautari):
+        /// the slab corners and edge middles (slab overhang included), the porter ledge's outer corners on −Z and the
+        /// step's.
+        /// </summary>
+        internal static readonly float[] PlatformOutline =
+        {
+            0.514f, 0.514f, -0.514f, 0.514f, 0.514f, -0.514f, -0.514f, -0.514f, 0.514f, 0f, -0.514f, 0f, 0f, 0.514f,
+            0.4f, -0.618f, -0.4f, -0.618f, 0.15f, -0.672f, -0.15f, -0.672f, 0f, -0.672f,
+        };
+
+        /// <summary>Least corridor distance of a chautari platform of side <paramref name="w"/> turned by
+        /// <paramref name="yawDeg"/> at (x, z).</summary>
+        internal static double PlatformClearance(IRoadCorridorQuery q, double x, double z, float yawDeg, float w)
+        {
+            double a = yawDeg * Math.PI / 180, ca = Math.Cos(a), sa = Math.Sin(a), best = double.MaxValue;
+            for (int i = 0; i + 1 < PlatformOutline.Length; i += 2)
+            {
+                double ux = PlatformOutline[i] * w, uz = PlatformOutline[i + 1] * w;
+                // Clockwise from north (Unity yaw): x' = x cos + z sin, z' = -x sin + z cos.
+                best = Math.Min(best, q.SignedDistance(x + ux * ca + uz * sa, z - ux * sa + uz * ca));
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Place a chautari beside the roads: its porter ledge turned toward the nearest road (porters back their loads
+        /// onto it from the trail), the whole platform at least 0.3 m and the tree's low reach outside every corridor,
+        /// moved at most <paramref name="maxMove"/>; when the default platform does not fit, smaller ones (down to 3 m)
+        /// are tried. False when none fits.
+        /// </summary>
+        private static bool FitChautari(PlacementContext c, ref double x, ref double z, ref float yaw, ref float platform, double margin, double maxMove)
+        {
+            for (float w = platform; w >= 3f - 1e-3f; w = w > 3f ? Math.Max(3f, w - 1.5f) : 0f)
+            {
+                double px = x, pz = z;
+                float yw = yaw;
+                for (int step = 0; step < 32; step++)
+                {
+                    double gx, gz;
+                    bool hasDir = Gradient(c, px, pz, out gx, out gz);
+                    // Local −Z (the ledge) along −gradient, toward the road: yaw = atan2(gx, gz).
+                    if (hasDir) yw = (float)(Math.Atan2(gx, gz) * 180 / Math.PI);
+                    // Measured where the instance will stand (its float position).
+                    double fx = (float)px, fz = (float)pz;
+                    double need = Math.Min(PlatformClearance(c.Corridor, fx, fz, yw, w) - 0.3, c.Corridor.SignedDistance(fx, fz) - margin);
+                    if (need >= 0)
+                    {
+                        if ((px - x) * (px - x) + (pz - z) * (pz - z) > maxMove * maxMove) break;
+                        x = px;
+                        z = pz;
+                        yaw = yw < 0 ? yw + 360f : yw;
+                        platform = w;
+                        return true;
+                    }
+                    if (!hasDir) break;
+                    double move = Math.Max(0.25, 0.01 - need);
+                    px += gx * move;
+                    pz += gz * move;
+                }
+                if (w <= 3f) break;
+            }
+            return false;
+        }
+
+        /// <summary>The unit gradient of the corridor distance at (x, z) (pointing away from the nearest road).</summary>
+        private static bool Gradient(PlacementContext c, double x, double z, out double gx, out double gz)
+        {
+            const double e = 0.25;
+            gx = c.Corridor.SignedDistance(x + e, z) - c.Corridor.SignedDistance(x - e, z);
+            gz = c.Corridor.SignedDistance(x, z + e) - c.Corridor.SignedDistance(x, z - e);
+            double gl = Math.Sqrt(gx * gx + gz * gz);
+            if (gl < 1e-9) return false;
+            gx /= gl;
+            gz /= gl;
+            return true;
         }
 
         /// <summary>Move (x, z) up the corridor distance gradient until it is <paramref name="margin"/> outside every
         /// corridor, at most <paramref name="maxMove"/> metres; false when that is not enough.</summary>
         private static bool Nudge(PlacementContext c, ref double x, ref double z, double margin, double maxMove)
         {
-            double x0 = x, z0 = z;
+            double x0 = x, z0 = z, px = x, pz = z;
             for (int step = 0; step < 24; step++)
             {
-                double d = c.Corridor.SignedDistance(x, z);
-                if (d >= margin) return (x - x0) * (x - x0) + (z - z0) * (z - z0) <= maxMove * maxMove;
-                const double e = 0.25;
-                double gx = c.Corridor.SignedDistance(x + e, z) - c.Corridor.SignedDistance(x - e, z);
-                double gz = c.Corridor.SignedDistance(x, z + e) - c.Corridor.SignedDistance(x, z - e);
-                double gl = Math.Sqrt(gx * gx + gz * gz);
-                if (gl < 1e-9) return false;
-                double move = Math.Max(0.25, margin - d);
-                x += gx / gl * move;
-                z += gz / gl * move;
+                // Measured where the instance will stand (its float position).
+                double d = c.Corridor.SignedDistance((float)px, (float)pz);
+                if (d >= margin)
+                {
+                    if ((px - x0) * (px - x0) + (pz - z0) * (pz - z0) > maxMove * maxMove) return false;
+                    x = px;
+                    z = pz;
+                    return true;
+                }
+                double gx, gz;
+                if (!Gradient(c, px, pz, out gx, out gz)) return false;
+                double move = Math.Max(0.25, margin - d + 0.01);
+                px += gx * move;
+                pz += gz * move;
             }
             return false;
         }
@@ -270,65 +372,94 @@ namespace Ghumante.Core.Generators.Placement
 
         // ---------------------------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Forest canopy (W2_DESIGN 5.8; ref_nature.md 4): trees on a world-fixed jittered lattice
+        /// (<see cref="TreePlacementOptions.ForestSpacingM"/>, widened evenly when a tile would pass
+        /// <see cref="TreePlacementOptions.MaxForestTrees"/>) over the forest cells, each crown about 1.45 lattice steps
+        /// wide so neighbouring crowns overlap into the continuous dark canopy the rim forests show from the valley,
+        /// heights following the crowns through each species' proportions. Species come by elevation band and aspect
+        /// (<see cref="ForestSpecies(float, bool, float, float)"/>) in patches about 70 m across (stands of pine,
+        /// Schima-Castanopsis, oak), with a few understorey plants under one tree in three. Trees keep their low reach
+        /// out of the road corridors (<see cref="PlacementContext.RoadMarginFor"/>) and off OSM trees, buildings and
+        /// water; the lattice continues across tile edges.
+        /// </summary>
         private static void Forest(PlacementContext c)
         {
             PlacementMask mask = c.Mask;
             TreePlacementOptions o = c.O;
             int n = mask.N;
             double cell = mask.CellM;
-            // Count forest cells first so the density can be thinned to the cap deterministically.
             int forestCells = 0;
             for (int j = 0; j < n; j++)
             for (int i = 0; i < n; i++)
                 if ((mask.At((i + 0.5) * cell, (j + 0.5) * cell) & PlacementMask.Forest) != 0) forestCells++;
-            if (forestCells == 0) return;
-            double haPerCell = cell * cell / 10000.0;
-            double clumps = forestCells * haPerCell * o.ClumpsPerHa;
-            double keep = Math.Min(1.0, o.MaxForestTrees / Math.Max(1.0, clumps * 5.0));
-            double pPerCell = o.ClumpsPerHa * haPerCell * keep;
-            int clumpId = 1, trees = 0;
-            for (int j = 0; j < n; j++)
-            for (int i = 0; i < n; i++)
+            if (forestCells == 0 || o.MaxForestTrees <= 0) return;
+            double s = Math.Max(4.0, o.ForestSpacingM);
+            double expected = forestCells * cell * cell / (s * s);
+            if (expected > o.MaxForestTrees) s *= Math.Sqrt(expected / o.MaxForestTrees);
+            double x0w = c.T.Tile.X0, z0w = c.T.Tile.Z0;
+            long i0 = (long)Math.Floor(x0w / s) - 1, i1 = (long)Math.Floor((x0w + c.Size) / s) + 1;
+            long j0 = (long)Math.Floor(z0w / s) - 1, j1 = (long)Math.Floor((z0w + c.Size) / s) + 1;
+            int trees = 0;
+            for (long j = j0; j <= j1 && trees < o.MaxForestTrees; j++)
+            for (long i = i0; i <= i1 && trees < o.MaxForestTrees; i++)
             {
-                double cx = (i + 0.5) * cell, cz = (j + 0.5) * cell;
-                if ((mask.At(cx, cz) & PlacementMask.Forest) == 0) continue;
-                var rng = new FloraRng(FloraRng.Mix(c.Seed, (uint)(j * n + i)), PurposeForest);
-                if (rng.Next() >= pPerCell) continue;
-                double x = cx + rng.Range(-0.5f, 0.5f) * (float)cell, z = cz + rng.Range(-0.5f, 0.5f) * (float)cell;
-                if (!c.Mask.Free(x, z)) continue;
+                // World-fixed seeding: the same lattice point gets the same tree from every tile.
+                var rng = new FloraRng(FloraRng.Mix((uint)i ^ (uint)(i >> 32) * 0x9E3779B9u, (uint)j ^ (uint)(j >> 32) * 0x85EBCA6Bu), PurposeForest);
+                double wx = (i + 0.5 + rng.Jitter(0.34f)) * s, wz = (j + 0.5 + rng.Jitter(0.34f)) * s;
+                double x = wx - x0w, z = wz - z0w;
+                if (x < 0 || z < 0 || x >= c.Size || z >= c.Size) continue;
+                byte m = mask.At(x, z);
+                if ((m & PlacementMask.Forest) == 0 || (m & PlacementMask.OsmTree) != 0) continue;
                 float y = c.Height(x, z), slope, aspect;
                 c.Slope(x, z, out slope, out aspect);
                 bool south = slope > 0.08f && aspect >= 135f && aspect <= 225f;
                 Biome biome = c.BiomeAt(x, z);
-                int count = rng.Int(3, 7);
-                for (int q = 0; q < count && trees < o.MaxForestTrees; q++)
-                {
-                    double a = rng.Range(0f, 6.2832f), r = rng.Range(1.5f, 5.5f);
-                    double tx = x + r * Math.Cos(a), tz = z + r * Math.Sin(a);
-                    float ty = c.Height(tx, tz);
-                    TreeSpecies sp = biome == Biome.TeraiSalForest || biome == Biome.ChureForest || ty < 1000f
-                        ? (rng.Chance(0.8f) ? TreeSpecies.Sal : TreeSpecies.Broadleaf)
-                        : ForestSpecies(ty, south, ref rng);
-                    float hgt, crown;
-                    PlacementContext.Size01(sp, ref rng, out hgt, out crown);
-                    // Forest trunks stand 2-4 m apart and the crowns interlock into a closed canopy.
-                    if (!c.Clear(tx, tz, 0.9, PlacementContext.RoadMarginFor(sp, hgt, crown))) continue;
-                    c.Add(sp, tx, tz, hgt, crown, rng.Range(0f, 360f), TreeOrigin.Forest, clumpId, 0, false, 1.1f);
-                    trees++;
-                }
-                if (o.Understorey && !c.PlantsFull) Understorey(c, x, z, y, south, ref rng);
-                clumpId++;
+                // Stands: the species draw follows a ~70 m noise patch more than the single tree.
+                float patch = 0.5f + 0.5f * FloraNoise.Value(wx / 70.0, wz / 70.0, 0x5354414Eu);
+                float patch2 = 0.5f + 0.5f * FloraNoise.Value(wx / 90.0 + 17.3, wz / 90.0 - 4.1, 0x50494E45u);
+                float r = Math.Max(0f, Math.Min(0.999f, 0.62f * patch + 0.38f * rng.Next()));
+                float r2 = Math.Max(0f, Math.Min(0.999f, 0.62f * patch2 + 0.38f * rng.Next()));
+                TreeSpecies sp = biome == Biome.TeraiSalForest || biome == Biome.ChureForest || y < 1000f
+                    ? (r < 0.8f ? TreeSpecies.Sal : TreeSpecies.Broadleaf)
+                    : ForestSpecies(y, south, r, r2);
+                float hgt, crown;
+                ForestSize(sp, s, ref rng, out hgt, out crown);
+                if (!c.Clear(x, z, 1.2, PlacementContext.RoadMarginFor(sp, hgt, crown))) continue;
+                int clump = 1 + (int)(((i >> 1) & 0x3FF) | ((j >> 1) & 0x3FF) << 10);
+                c.Add(sp, x, z, hgt, crown, rng.Range(0f, 360f), TreeOrigin.Forest, clump, 0, false, 1.1f);
+                trees++;
+                if (o.Understorey && !c.PlantsFull && rng.Chance(0.3f)) Understorey(c, x, z, y, south, ref rng);
             }
         }
 
-        /// <summary>Two to four plants round a forest clump: ferns and shrubs in the broadleaf bands, grass and rocks on
+        /// <summary>
+        /// A forest tree's size on a lattice of step <paramref name="spacing"/>: the crown about 1.45 steps wide (±12 %),
+        /// so neighbours overlap, and the height from the species' proportions (crown over height = its model aspect
+        /// × 1.1, a little wider than in the open), kept in the species' height range.
+        /// </summary>
+        internal static void ForestSize(TreeSpecies sp, double spacing, ref FloraRng rng, out float heightM, out float crownM)
+        {
+            FloraInfo info = FloraCatalog.Info(sp);
+            float ratio = info.Aspect * 1.1f * rng.Range(0.96f, 1.04f);
+            crownM = (float)(spacing * 1.45) * rng.Range(0.88f, 1.12f);
+            heightM = crownM / ratio;
+            float lo = info.MinHeightM, hi = info.MaxHeightM;
+            if (heightM < lo || heightM > hi)
+            {
+                heightM = Math.Max(lo, Math.Min(hi, heightM));
+                crownM = heightM * ratio;
+            }
+        }
+
+        /// <summary>One or two plants under a forest tree: ferns and shrubs in the broadleaf bands, grass and rocks on
         /// the open pine floor, ferns and rocks in the oak and rhododendron forest.</summary>
         private static void Understorey(PlacementContext c, double x, double z, float y, bool south, ref FloraRng rng)
         {
-            int count = rng.Int(2, 4);
+            int count = rng.Int(1, 2);
             for (int q = 0; q < count; q++)
             {
-                double a = rng.Range(0f, 6.2832f), r = rng.Range(2f, 7f);
+                double a = rng.Range(0f, 6.2832f), r = rng.Range(1.8f, 5f);
                 double px = x + r * Math.Cos(a), pz = z + r * Math.Sin(a);
                 float u = rng.Next();
                 TreeSpecies sp;
@@ -348,6 +479,13 @@ namespace Ghumante.Core.Generators.Placement
         internal static TreeSpecies ForestSpecies(float elevation, bool southFacing, ref FloraRng rng)
         {
             float r = rng.Next();
+            return ForestSpecies(elevation, southFacing, r, rng.Next());
+        }
+
+        /// <summary>The band species for draws <paramref name="r"/> (the mix) and <paramref name="pine"/> (below 0.6 a
+        /// south face at 1,400-1,800 m is chir pine), both in [0, 1).</summary>
+        internal static TreeSpecies ForestSpecies(float elevation, bool southFacing, float r, float pine)
+        {
             if (elevation >= 2400) return r < 0.8f ? TreeSpecies.BrownOak : TreeSpecies.Rhododendron;
             if (elevation >= 1800)
             {
@@ -355,7 +493,7 @@ namespace Ghumante.Core.Generators.Placement
                 if (r < 0.8f) return TreeSpecies.Rhododendron;
                 return r < 0.9f ? TreeSpecies.Bamboo : TreeSpecies.Broadleaf;
             }
-            if (southFacing && elevation >= 1400 && rng.Chance(0.6f)) return TreeSpecies.ChirPine;
+            if (southFacing && elevation >= 1400 && pine < 0.6f) return TreeSpecies.ChirPine;
             if (elevation < 1400) return r < 0.4f ? TreeSpecies.Schima : r < 0.7f ? TreeSpecies.Castanopsis : r < 0.85f ? TreeSpecies.Alnus : TreeSpecies.Broadleaf;
             if (r < 0.4f) return TreeSpecies.Schima;
             if (r < 0.7f) return TreeSpecies.Castanopsis;

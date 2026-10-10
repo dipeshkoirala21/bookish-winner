@@ -1,6 +1,7 @@
 using System;
 using Ghumante.Core.Data;
 using Ghumante.Core.Generators.Flora;
+using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Generators.Placement
 {
@@ -8,16 +9,21 @@ namespace Ghumante.Core.Generators.Placement
     /// Park planting (research street_life.md 10; ref_nature.md: Ratna Park, Garden of Dreams, Tundikhel edges):
     /// inside every park polygon, ornamental trees (jacaranda, bottlebrush, camphor, silky oak, palms, a pipal) about
     /// one per 180 m², clipped hedges lining both sides of most footpaths through the park (as the Garden of Dreams and
-    /// Ratna Park walks are lined), a formal group of marigold beds with roses round a centre point, shrubs scattered on
-    /// the lawns and clipped hedges along half of the boundary (1.2 m inside it, turned along it). Everything keeps out
-    /// of road corridors, buildings and water; path hedges keep clear of every other way (so crossings stay open).
-    /// Deterministic per park (OSM ref).
+    /// Ratna Park walks are lined) just outside the path's rideable corridor, a formal group of marigold beds with roses
+    /// round a centre point, shrubs scattered on the lawns and clipped hedges along half of the boundary (1.2 m inside
+    /// it, turned along it). Everything keeps out of road corridors (docs/W2_DETAIL_CONTRACT.md §1.1: every drawn way,
+    /// footways included, keeps <see cref="RoadClearance.MinCorridorM"/> clear), buildings and water: a hedge's whole
+    /// 3 × 0.9 m footprint, both ends included, so crossings stay open. Deterministic per park (OSM ref).
     /// </summary>
     internal static class ParkPlacement
     {
         private const uint Purpose = 0x5041524B;
 
         private static readonly float[] TreeMix = { 25, 20, 15, 10, 10, 5, 15 };
+
+        /// <summary>Half the length and half the depth of a clipped hedge segment (3 × 0.9 m) and the gap it keeps
+        /// from a road corridor.</summary>
+        internal const double HedgeHalfLength = 1.5, HedgeHalfDepth = 0.45, HedgeGap = 0.3;
 
         public static void Place(PlacementContext c)
         {
@@ -120,16 +126,18 @@ namespace Ghumante.Core.Generators.Placement
                         float h, w;
                         PlacementContext.Size01(TreeSpecies.Hedge, ref rng, out h, out w);
                         w = 3.0f;
-                        if (!c.Clear(x, z, 0.5, 0.8)) continue;
+                        if (!c.Clear(x, z, 0.5, 0.8) || !FootprintClear(c, x, z, ux, uz)) continue;
                         if (!c.Add(TreeSpecies.Hedge, x, z, h, w, yaw, TreeOrigin.Park, 0, 0, false, 0.4f)) return;
                     }
                 }
         }
 
         /// <summary>
-        /// Hedges lining the footpaths through a park: on two paths in three (by way id), both sides, 0.7 m beyond the
-        /// path edge, segments every 3.1 m turned along the path, skipping spots outside the park, on buildings or water,
-        /// or within reach of any other way (path crossings and the park's roads stay open).
+        /// Hedges lining the footpaths through a park: on two paths in three (by way id), both sides, segments every
+        /// 3.1 m turned along the path, their near face <see cref="HedgeGap"/> outside the path's rideable corridor
+        /// (half of <see cref="RoadClearance.MinCorridorM"/>, or the drawn half width when wider; with a corridor query
+        /// the corridor itself), skipping spots outside the park, on buildings or water, or where either end of the
+        /// segment would reach into the corridor of any way (path crossings and the park's roads stay open).
         /// </summary>
         private static void PathHedges(PlacementContext c, AreaRecord a)
         {
@@ -142,8 +150,7 @@ namespace Ghumante.Core.Generators.Placement
                 if (road.Points == null || road.PointCount < 2) continue;
                 var rr = new FloraRng((uint)(road.OsmWayId ^ (road.OsmWayId >> 32)), Purpose + 2);
                 if (!rr.Chance(0.67f)) continue;
-                double half = 0.5 * (road.WidthCm > 0 ? road.WidthCm / 100.0 : Meshing.RoadStyle.DefaultWidthM(rc));
-                double off = half + 0.7;
+                double off = CorridorHalf(road) + HedgeHalfDepth + HedgeGap;
                 int[] p = road.Points;
                 for (int k = 0; k + 1 < road.PointCount; k++)
                 {
@@ -156,8 +163,9 @@ namespace Ghumante.Core.Generators.Placement
                         for (double s = 2.0; s + 1.5 < len; s += 3.1)
                         {
                             double x = ax + ux * s - uz * side * off, z = az + uz * s + ux * side * off;
-                            if (!Inside(a, x, z) || !c.ClearBesideWay(x, z, 0.5)) continue;
-                            if (NearOtherWay(c.T, r, x, z, 1.6)) continue;
+                            if (!Inside(a, x, z) || !c.ClearBesideWay(x, z, 0.5, HedgeHalfDepth + HedgeGap)) continue;
+                            if (!FootprintClear(c, x, z, ux, uz)) continue;
+                            if (c.Corridor == null && NearOtherWay(c.T, r, x, z, ux, uz)) continue;
                             float h, w;
                             PlacementContext.Size01(TreeSpecies.Hedge, ref rr, out h, out w);
                             if (!c.Add(TreeSpecies.Hedge, x, z, h, 3.0f, yaw, TreeOrigin.Park, 0, 0, false, 0.4f)) return;
@@ -166,7 +174,44 @@ namespace Ghumante.Core.Generators.Placement
             }
         }
 
-        /// <summary>True when (x, z) lies within its half width plus <paramref name="clear"/> of any way but
+        /// <summary>Half the rideable corridor of a way (docs/W2_DETAIL_CONTRACT.md §1.1): half its drawn width (OSM
+        /// width or the class default), at least half of <see cref="RoadClearance.MinCorridorM"/>.</summary>
+        internal static double CorridorHalf(RoadRecord road)
+        {
+            double half = 0.5 * (road.WidthCm > 0 ? road.WidthCm / 100.0 : Meshing.RoadStyle.DefaultWidthM(road.RoadClass));
+            return Math.Max(half, 0.5 * RoadClearance.MinCorridorM);
+        }
+
+        /// <summary>True when a hedge segment centred on (x, z) and turned along (ux, uz) keeps its whole footprint
+        /// (the four corners and the end middles) <see cref="HedgeGap"/> outside every road corridor of the query;
+        /// true without one.</summary>
+        internal static bool FootprintClear(PlacementContext c, double x, double z, double ux, double uz)
+        {
+            if (c.Corridor == null) return true;
+            for (int i = -1; i <= 1; i++)
+                for (int j = -1; j <= 1; j += 1)
+                {
+                    if (i == 0 && j == 0) continue;
+                    double px = x + ux * HedgeHalfLength * i - uz * HedgeHalfDepth * j, pz = z + uz * HedgeHalfLength * i + ux * HedgeHalfDepth * j;
+                    if (c.Corridor.SignedDistance(px, pz) < HedgeGap) return false;
+                }
+            return true;
+        }
+
+        /// <summary>True when any part of a hedge segment centred on (x, z), turned along (ux, uz), lies within
+        /// <see cref="HedgeGap"/> of the rideable corridor of any way but <paramref name="skip"/> (both ends and the
+        /// middle of its centre line, widened by its half depth).</summary>
+        private static bool NearOtherWay(TileData t, int skip, double x, double z, double ux, double uz)
+        {
+            for (int e = -1; e <= 1; e++)
+            {
+                double px = x + ux * HedgeHalfLength * e, pz = z + uz * HedgeHalfLength * e;
+                if (NearOtherWay(t, skip, px, pz, HedgeHalfDepth + HedgeGap)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>True when (x, z) lies within the corridor half width plus <paramref name="clear"/> of any way but
         /// <paramref name="skip"/>.</summary>
         private static bool NearOtherWay(TileData t, int skip, double x, double z, double clear)
         {
@@ -175,7 +220,7 @@ namespace Ghumante.Core.Generators.Placement
                 if (r == skip) continue;
                 RoadRecord road = t.Roads[r];
                 if (road.Points == null) continue;
-                double reach = 0.5 * (road.WidthCm > 0 ? road.WidthCm / 100.0 : Meshing.RoadStyle.DefaultWidthM(road.RoadClass)) + clear;
+                double reach = CorridorHalf(road) + clear;
                 int[] p = road.Points;
                 for (int k = 0; k + 1 < road.PointCount; k++)
                 {

@@ -51,13 +51,15 @@ namespace Ghumante.Core.Meshing
     /// (across the source tile's border into <see cref="TerrainOptions.Neighbours"/>, one-sided where a neighbour is
     /// missing), biome colours from the nearest BIOM sample through
     /// <see cref="BiomePalette"/> with the detail look of <see cref="TerrainLook"/> (patches, field patchwork, outcrops,
-    /// micro-relief normals, UV0 channels and AO; all world-fixed, so tiles still agree on their edges), and skirts
+    /// micro-relief normals, UV0 channels and AO; all world-fixed, so tiles still agree on their edges; cropland biome
+    /// cells under a mapped non-farm land use are not farmed, <see cref="CropLand"/>), and skirts
     /// hanging down on all four edges. Positions are relative to the area's
     /// south-west corner with absolute heights; adjacent areas drawn with the same step from tiles whose shared
     /// edges match (the GHT1 no-cracks invariant) produce identical edge vertices.
     /// <para>Vertex order: the (Quads + 1)^2 grid vertices row by row from the south-west corner, then the skirt
     /// vertices. Appends to <see cref="MeshData"/>; call <see cref="MeshData.Clear"/> first for a fresh mesh.
-    /// Allocation-free apart from buffer growth; thread-safe for distinct <see cref="MeshData"/> instances.</para>
+    /// Allocation-free apart from buffer growth and the per-tile <see cref="CropLand"/> raster (built once per tile);
+    /// thread-safe for distinct <see cref="MeshData"/> instances.</para>
     /// </summary>
     public static class TerrainMesher
     {
@@ -88,6 +90,9 @@ namespace Ghumante.Core.Meshing
             int bn = source.Biomes != null && source.BiomesN >= 2 && source.Biomes.Length >= source.BiomesN * source.BiomesN
                 ? source.BiomesN : 0;
 
+            // Farmed land (CropLand): a cropland biome cell under a mapped non-farm land use (a parade ground, a park, a
+            // residential block) is coloured as urban green, not as paddy.
+            CropLand crop = o.Detail && bn > 0 && source.Areas.Count > 0 ? CropLand.For(source) : null;
             // Micro-relief: hummocks of about 30 m, full strength on 8-16 m grids, gone by 48 m (it would alias there).
             float relief = o.MicroRelief * 0.9f * (float)Math.Max(0.0, Math.Min(1.0, (48.0 - g.CellM) / 32.0));
             for (int k = 0; k <= q; k++)
@@ -104,6 +109,8 @@ namespace Ghumante.Core.Meshing
                     else if (!g.SubSample)
                         biome = source.Biomes[NearestBiomeIndex(g.SourceRow(k), n, bn) * bn + NearestBiomeIndex(g.SourceColumn(l), n, bn)];
                     else biome = BiomeAt(source, bn, area.X0 + px, area.Z0 + pz);
+                    if (crop != null && FieldPattern.IsCrop(biome) && crop.Excluded(area.X0 + px - source.Tile.X0, area.Z0 + pz - source.Tile.Z0))
+                        biome = Biome.UrbanGreen;
                     float nx, ny, nz;
                     TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
                     uint c = o.SlopeColours ? BiomePalette.Ground(biome, o.Season, ny) : BiomePalette.Rgba(biome, o.Season);
