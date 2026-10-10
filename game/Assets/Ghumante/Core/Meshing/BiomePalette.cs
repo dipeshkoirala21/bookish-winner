@@ -149,3 +149,163 @@ namespace Ghumante.Core.Meshing
         }
     }
 }
+
+namespace Ghumante.Core.Meshing
+{
+    /// <summary>
+    /// Deterministic world-coordinate value noise for the terrain and area looks (hashed with FNV-1a like every
+    /// other seeded generator, W2_DESIGN 10.2): because it is a function of game coordinates only, two tiles agree
+    /// exactly on their shared edge, and every LOD of the same ground shows the same patches. Results in [-1, 1].
+    /// Allocation-free; thread-safe.
+    /// </summary>
+    public static class TerrainNoise
+    {
+        private static float Lattice(long x, long z, uint seed)
+        {
+            unchecked
+            {
+                uint h = Data.Hashes.Fnv32Offset;
+                ulong a = (ulong)x, b = (ulong)z;
+                for (int i = 0; i < 8; i++) h = (h ^ (byte)(a >> (8 * i))) * Data.Hashes.Fnv32Prime;
+                for (int i = 0; i < 8; i++) h = (h ^ (byte)(b >> (8 * i))) * Data.Hashes.Fnv32Prime;
+                for (int i = 0; i < 4; i++) h = (h ^ (byte)(seed >> (8 * i))) * Data.Hashes.Fnv32Prime;
+                h ^= h >> 15;
+                h *= 0x2C1B3C6Du;
+                h ^= h >> 12;
+                return (h & 0xFFFFFF) * (2f / 16777215f) - 1f;
+            }
+        }
+
+        /// <summary>Smooth value noise at (x, z) in lattice units.</summary>
+        public static float Value(double x, double z, uint seed)
+        {
+            long ix = (long)Math.Floor(x), iz = (long)Math.Floor(z);
+            float fx = (float)(x - ix), fz = (float)(z - iz);
+            fx = fx * fx * (3f - 2f * fx);
+            fz = fz * fz * (3f - 2f * fz);
+            float a = Lattice(ix, iz, seed), b = Lattice(ix + 1, iz, seed), c = Lattice(ix, iz + 1, seed), d = Lattice(ix + 1, iz + 1, seed);
+            return a + (b - a) * fx + (c - a + (a - b - c + d) * fx) * fz;
+        }
+
+        /// <summary>Fractal noise: <paramref name="octaves"/> octaves from <paramref name="scaleM"/> metres per cell down.</summary>
+        public static float Fbm(double x, double z, double scaleM, int octaves, uint seed)
+        {
+            float sum = 0f, amp = 1f, norm = 0f;
+            double f = 1.0 / scaleM;
+            for (int o = 0; o < octaves; o++)
+            {
+                sum += amp * Value(x * f, z * f, seed + (uint)o * 0x9E3779B9u);
+                norm += amp;
+                amp *= 0.5f;
+                f *= 2.0;
+            }
+            return sum / norm;
+        }
+
+        /// <summary>Gradient (per metre) of <see cref="Fbm"/> by central differences over 1 m.</summary>
+        public static void FbmGradient(double x, double z, double scaleM, int octaves, uint seed, out float gx, out float gz)
+        {
+            gx = 0.5f * (Fbm(x + 1, z, scaleM, octaves, seed) - Fbm(x - 1, z, scaleM, octaves, seed));
+            gz = 0.5f * (Fbm(x, z + 1, scaleM, octaves, seed) - Fbm(x, z - 1, scaleM, octaves, seed));
+        }
+    }
+
+    /// <summary>
+    /// The field patterns of the valley floor and the terraced hills (research street_life.md 12; ref_nature.md:
+    /// paddy, mustard and wheat by season): a world-fixed grid of plots, turned per 512 m district so the fields do not
+    /// all line up, each plot carrying one crop state drawn from the season's mix; the terrace contour spacing; and
+    /// the colours of risers, bunds and lips. Shared by <see cref="TerrainMesher"/> (plot colours per vertex) and
+    /// <see cref="AreaMesher"/> (terrace risers and bunds), so they agree. Hex values are the design's [E] palette.
+    /// </summary>
+    public static class FieldPattern
+    {
+        /// <summary>Plot size along the two field axes (metres): long strips of valley paddy.</summary>
+        public const double PlotU = 26.0, PlotV = 17.0;
+
+        /// <summary>Height of one terrace step (riser plus bed) on cropland slopes.</summary>
+        public const double TerraceStepM = 1.9;
+
+        /// <summary>Height of the riser face drawn below each terrace edge, and of the bright lip on top of it.</summary>
+        public const double RiserM = 0.55, LipM = 0.16;
+
+        /// <summary>Slopes (rise over run) from which cropland is terraced, and above which it is left wild.</summary>
+        public const double TerraceMinSlope = 0.1, TerraceMaxSlope = 0.85;
+
+        /// <summary>True for the cropland biomes (plot patchwork, terraces and bunds).</summary>
+        public static bool IsCrop(Biome b)
+        {
+            return b == Biome.ValleyCropland || b == Biome.HillTerraces || b == Biome.TeraiPaddy || b == Biome.TeraiCropland || b == Biome.TransHimalayanCropland;
+        }
+
+        /// <summary>The field frame at a world point: the district's axis angle as a unit vector.</summary>
+        public static void Axis(double wx, double wz, out double ux, out double uz)
+        {
+            long dx = (long)Math.Floor(wx / 512.0), dz = (long)Math.Floor(wz / 512.0);
+            double a = (TerrainNoise.Value(dx * 0.5 + 0.25, dz * 0.5 + 0.25, 0xF1E1D5u) * 0.5 + 0.5) * Math.PI;
+            ux = Math.Cos(a);
+            uz = Math.Sin(a);
+        }
+
+        /// <summary>Plot coordinates (field-axis metres) of a world point.</summary>
+        public static void Local(double wx, double wz, out double u, out double v)
+        {
+            double ux, uz;
+            Axis(wx, wz, out ux, out uz);
+            u = wx * ux + wz * uz;
+            v = -wx * uz + wz * ux;
+        }
+
+        /// <summary>A hash in [0, 1) of the plot (or terrace bed) containing a world point; <paramref name="band"/>
+        /// selects terrace beds (one per step of height) instead of flat plots.</summary>
+        public static float PlotHash(double wx, double wz, int band = int.MinValue)
+        {
+            double u, v;
+            Local(wx, wz, out u, out v);
+            long iu = (long)Math.Floor(u / (band == int.MinValue ? PlotU : PlotU * 1.6)), iv = band == int.MinValue ? (long)Math.Floor(v / PlotV) : band;
+            return 0.5f + 0.5f * TerrainNoise.Value(iu + 0.5, iv + 0.5, 0xF1E1D6u);
+        }
+
+        /// <summary>
+        /// The crop colour (0xRRGGBB) of a plot in a season and whether it is bare soil: monsoon paddy greens (with a
+        /// lighter young paddy and maize), autumn harvest gold with green and stubble plots, winter mustard yellow,
+        /// wheat green and fallow brown, spring wheat gold, ploughed earth and green.
+        /// </summary>
+        public static uint CropColour(float plot, Season s, out bool bare)
+        {
+            bare = false;
+            switch (s)
+            {
+                case Season.Monsoon:
+                    return plot < 0.7f ? 0x5DAA3Au : plot < 0.85f ? 0x8CC84Au : 0x6E9A3Au;
+                case Season.Autumn:
+                    if (plot < 0.55f) return 0xD9B44Au;
+                    if (plot < 0.8f) return 0x8FB848u;
+                    bare = true;
+                    return 0xC9A86Au;
+                case Season.Winter:
+                    if (plot < 0.3f) return 0xF2D22Eu;
+                    if (plot < 0.65f) return 0x8DBF4Au;
+                    if (plot < 0.75f) return 0x5E8A3Au;
+                    bare = true;
+                    return 0xA88C65u;
+                default:
+                    if (plot < 0.4f) return 0xD9B65Au;
+                    if (plot < 0.7f) return 0x7FB04Au;
+                    bare = true;
+                    return 0x8C6A4Au;
+            }
+        }
+
+        /// <summary>Riser face colour (0xRRGGBB, grassy soil) of a terrace edge in a season.</summary>
+        public static uint RiserColour(Season s)
+        {
+            return s == Season.Winter || s == Season.Spring ? 0x9A8A5Au : 0x6E8C40u;
+        }
+
+        /// <summary>Lip colour (0xRRGGBB, the bright grassy top of a terrace edge) in a season.</summary>
+        public static uint LipColour(Season s)
+        {
+            return s == Season.Winter ? 0xC8C08Au : s == Season.Autumn ? 0xB8C070u : 0xA8D070u;
+        }
+    }
+}

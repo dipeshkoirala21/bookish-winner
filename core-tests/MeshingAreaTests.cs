@@ -71,8 +71,18 @@ namespace Ghumante.Core.Tests
                     Assert.That(my - h, Is.EqualTo(AreaMesher.LiftOf(t.Areas[0], o)).Within(1e-3), "edge midpoints on the lifted surface too");
                 }
             }
+            // The detail look varies the park colour by a few percent around its style colour and tags it as grass.
             uint c = AreaStyle.Rgba(AreaKind.Park);
-            Assert.That(m.Colors[0], Is.EqualTo((byte)(c >> 24)));
+            Assert.That(m.HasUv0, Is.True);
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                Assert.That((double)m.Colors[4 * v + 1], Is.EqualTo((double)(byte)(c >> 16)).Within(0.12 * 255), "park green");
+                Assert.That(m.Uv0[2 * v], Is.EqualTo((float)MaterialChannel.Grass));
+                Assert.That(m.Uv0[2 * v + 1], Is.InRange(0.75f, 1f), "AO");
+            }
+            var plain = new MeshData();
+            AreaMesher.Build(t, s, new AreaOptions { Detail = false }, plain);
+            Assert.That(plain.Colors[0], Is.EqualTo((byte)(c >> 24)), "Detail = false keeps the flat style colour");
             // Shading follows the terrain's own normals.
             float nx, ny, nz;
             s.TrySmoothNormal(Leaf.X0 + m.Positions[0], Leaf.Z0 + m.Positions[2], out nx, out ny, out nz);
@@ -102,7 +112,7 @@ namespace Ghumante.Core.Tests
             t.Areas.Add(Square(AreaKind.Protected, 0, 0, 102400, 102400));
             var s = new TileHeightSampler(t, 1);
             var m = new MeshData();
-            Assert.That(AreaMesher.Build(t, s, new AreaOptions(), m), Is.EqualTo(1), "subtle kinds are off by default");
+            Assert.That(AreaMesher.Build(t, s, new AreaOptions { WaterBanks = false }, m), Is.EqualTo(1), "subtle kinds are off by default");
             float y = Ght.Dequantize(Ght.Quantize(1300));
             // Water lift 0.14 m, plus the pond's kind rank (3 × 4 mm) and size rank (a 1 600 m² pond: 3 × 1 mm).
             Assert.That(AreaMesher.LiftOf(t.Areas[0], new AreaOptions()), Is.EqualTo(0.14f + 3 * 0.004f + 3 * 0.001f).Within(1e-6));
@@ -130,7 +140,8 @@ namespace Ghumante.Core.Tests
         [Test]
         public void SampleAreasCoverTheirTrianglesOnTheSurface()
         {
-            var o = new AreaOptions { IncludeSubtle = true };
+            // Banks and field lines are extra strips outside the records (tested on their own below).
+            var o = new AreaOptions { IncludeSubtle = true, WaterBanks = false, FieldLines = false };
             int drawnTotal = 0;
             foreach (TileId id in StreamingSampleRegion.TilesAt(10))
             {
@@ -169,6 +180,167 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine("areas drawn: " + drawnTotal);
             Assert.That(drawnTotal, Is.GreaterThan(500));
+        }
+
+        /// <summary>
+        /// Ponds get a lighter shallow rim and a mud bank strip outside every shore edge, lifted below the water and
+        /// the green areas; a river's bank is gravel (Stone channel).
+        /// </summary>
+        [Test]
+        public void WaterHasARimAndABank()
+        {
+            TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + 2 * Math.Sin((x - Leaf.X0) / 29.0));
+            t.Areas.Add(Square(AreaKind.WaterPond, 10000, 10000, 14000, 14000));
+            var s = new TileHeightSampler(t, 1);
+            var o = new AreaOptions();
+            var m = new MeshData();
+            Assert.That(AreaMesher.Build(t, s, o, m), Is.EqualTo(1));
+            MeshingChecks.AssertWellFormed(m, "pond");
+            Assert.That(o.BankLiftM, Is.LessThan(o.GreenLiftM));
+            float lift = AreaMesher.LiftOf(t.Areas[0], o);
+            double bankArea = 0, waterArea = 0;
+            int rim = -1, mid = -1;
+            for (int tri = 0; tri < m.TriangleCount; tri++)
+            {
+                double nx, ny, nz;
+                MeshingChecks.Facet(m, tri, out nx, out ny, out nz);
+                Assert.That(ny, Is.GreaterThan(0), "faces up");
+                int v = m.Indices[3 * tri];
+                float h;
+                s.TryHeightClamped(Leaf.X0 + m.Positions[3 * v], Leaf.Z0 + m.Positions[3 * v + 2], out h);
+                double above = m.Positions[3 * v + 1] - h;
+                if (Math.Abs(above - o.BankLiftM) < 1e-3)
+                {
+                    bankArea += 0.5 * ny;
+                    Assert.That(m.Uv0[2 * v], Is.EqualTo((float)MaterialChannel.Dirt));
+                    for (int k = 0; k < 3; k++)
+                    {
+                        int w = m.Indices[3 * tri + k];
+                        double x = m.Positions[3 * w], z = m.Positions[3 * w + 2];
+                        bool inside = x > 100.01 && x < 139.99 && z > 100.01 && z < 139.99;
+                        Assert.That(inside, Is.False, "the bank lies outside the water");
+                        Assert.That(x, Is.InRange(100 - o.BankWidthM - 1e-3, 140 + o.BankWidthM + 1e-3));
+                    }
+                }
+                else
+                {
+                    Assert.That(above, Is.EqualTo(lift).Within(1e-3));
+                    Assert.That(m.Uv0[2 * v], Is.EqualTo((float)MaterialChannel.Water));
+                    waterArea += 0.5 * ny;
+                    for (int k = 0; k < 3; k++)
+                    {
+                        int w = m.Indices[3 * tri + k];
+                        double x = m.Positions[3 * w], z = m.Positions[3 * w + 2];
+                        if (Math.Abs(x - 100) < 1e-3 && Math.Abs(z - 120) < 4.01) rim = w;
+                        if (Math.Abs(x - 120) < 4.01 && Math.Abs(z - 120) < 4.01) mid = w;
+                    }
+                }
+            }
+            Assert.That(waterArea, Is.EqualTo(1600).Within(0.5));
+            Assert.That(bankArea, Is.EqualTo(4 * 40 * o.BankWidthM).Within(1.0), "a strip outside each of the four shore edges");
+            Assert.That(rim, Is.GreaterThanOrEqualTo(0));
+            Assert.That(mid, Is.GreaterThanOrEqualTo(0));
+            Assert.That(m.Colors[4 * rim] + m.Colors[4 * rim + 1], Is.GreaterThan(m.Colors[4 * mid] + m.Colors[4 * mid + 1] + 40), "shallow rim lighter than the middle");
+
+            var river = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300);
+            river.Areas.Add(Square(AreaKind.WaterRiver, 10000, 10000, 30000, 14000));
+            var rm = new MeshData();
+            AreaMesher.Build(river, new TileHeightSampler(river, 1), o, rm);
+            int stone = 0;
+            for (int v = 0; v < rm.VertexCount; v++)
+                if (rm.Uv0[2 * v] == (float)MaterialChannel.Stone) stone++;
+            Assert.That(stone, Is.GreaterThan(8), "gravel river banks");
+            var none = new MeshData();
+            AreaMesher.Build(river, new TileHeightSampler(river, 1), new AreaOptions { WaterBanks = false }, none);
+            Assert.That(none.TriangleCount, Is.LessThan(rm.TriangleCount));
+        }
+
+        /// <summary>
+        /// Cropland on a slope gets terrace lines (a darker riser band under a light lip at every
+        /// <see cref="FieldPattern.TerraceStepM"/> of height, at world-fixed levels); flat cropland gets plot bunds;
+        /// all lie exactly <see cref="AreaOptions.FieldLiftM"/> above the rendered surface, face up, stay in the tile,
+        /// respect the triangle cap and are absent on non-crop ground.
+        /// </summary>
+        [Test]
+        public void CroplandGetsTerracesOnSlopesAndBundsOnTheFlat()
+        {
+            const double Slope = 0.3;
+            TileData hill = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + Slope * (x - Leaf.X0), 129, Biome.HillTerraces);
+            var s = new TileHeightSampler(hill, 1);
+            var o = new AreaOptions { TerraceLips = true, MaxFieldLineTris = 1000000 };
+            var m = new MeshData();
+            Assert.That(AreaMesher.Build(hill, s, o, m), Is.EqualTo(0), "no area records, only field lines");
+            MeshingChecks.AssertWellFormed(m, "terraces");
+            Assert.That(m.TriangleCount, Is.GreaterThan(1000));
+            uint riser = MeshColor.FromHex(FieldPattern.RiserColour(o.Season)), lip = MeshColor.FromHex(FieldPattern.LipColour(o.Season));
+            double riserArea = 0, lipArea = 0, all = 0;
+            for (int tri = 0; tri < m.TriangleCount; tri++)
+            {
+                double nx, ny, nz;
+                MeshingChecks.Facet(m, tri, out nx, out ny, out nz);
+                Assert.That(ny, Is.GreaterThan(0), "faces up");
+                int v = m.Indices[3 * tri];
+                uint c = (uint)(m.Colors[4 * v] << 24 | m.Colors[4 * v + 1] << 16 | m.Colors[4 * v + 2] << 8 | m.Colors[4 * v + 3]);
+                if (c == riser) riserArea += 0.5 * ny;
+                else if (c == lip) lipArea += 0.5 * ny;
+                all += 0.5 * ny;
+                for (int k = 0; k < 3; k++)
+                {
+                    int w = m.Indices[3 * tri + k];
+                    float x = m.Positions[3 * w], z = m.Positions[3 * w + 2], h;
+                    Assert.That(x, Is.InRange(-1e-3, 1024.001));
+                    Assert.That(z, Is.InRange(-1e-3, 1024.001));
+                    s.TryHeightClamped(Leaf.X0 + x, Leaf.Z0 + z, out h);
+                    Assert.That(m.Positions[3 * w + 1] - h, Is.EqualTo(o.FieldLiftM).Within(2e-3), "on the lifted surface");
+                }
+            }
+            Assert.That(riserArea, Is.GreaterThan(0));
+            // Over a fully drawn stretch, riser : lip = RiserM : LipM in plan.
+            Assert.That(riserArea / lipArea, Is.EqualTo(FieldPattern.RiserM / FieldPattern.LipM).Within(0.5));
+            Assert.That(riserArea + lipArea, Is.EqualTo(all).Within(1e-6 * all));
+            // The bands sit at world-fixed heights: every riser vertex is within RiserM below a multiple of the step.
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                uint c = (uint)(m.Colors[4 * v] << 24 | m.Colors[4 * v + 1] << 16 | m.Colors[4 * v + 2] << 8 | m.Colors[4 * v + 3]);
+                if (c != riser) continue;
+                double y = m.Positions[3 * v + 1] - o.FieldLiftM, level = Math.Ceiling((y - 2e-3) / FieldPattern.TerraceStepM) * FieldPattern.TerraceStepM;
+                Assert.That(level - y, Is.LessThanOrEqualTo(FieldPattern.RiserM + 2e-3));
+            }
+            // Over budget, whole world-fixed blocks drop their lines evenly: the kept lines still span the tile.
+            var capped = new MeshData();
+            var co = new AreaOptions { MaxFieldLineTris = 8000 };
+            AreaMesher.Build(hill, s, co, capped);
+            Assert.That(capped.TriangleCount, Is.InRange(4000, co.MaxFieldLineTris + 16), "capped near the budget");
+            int[] quarter = new int[4];
+            for (int v = 0; v < capped.VertexCount; v++) quarter[Math.Min(3, (int)(capped.Positions[3 * v + 2] / 256f))]++;
+            foreach (int qn in quarter) Assert.That(qn, Is.GreaterThan(capped.VertexCount / 10), "lines in every quarter of the tile");
+            var noLips = new MeshData();
+            AreaMesher.Build(hill, s, new AreaOptions { MaxFieldLineTris = 1000000 }, noLips);
+            Assert.That(noLips.TriangleCount, Is.LessThan(0.75 * m.TriangleCount), "lips off by default (fewer triangles)");
+
+            TileData flat = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300, 129, Biome.ValleyCropland);
+            var fm = new MeshData();
+            var fs = new TileHeightSampler(flat, 1);
+            AreaMesher.Build(flat, fs, new AreaOptions { MaxFieldLineTris = 1000000 }, fm);
+            double bunds = 0;
+            for (int tri = 0; tri < fm.TriangleCount; tri++)
+            {
+                double nx, ny, nz;
+                MeshingChecks.Facet(fm, tri, out nx, out ny, out nz);
+                Assert.That(ny, Is.GreaterThan(0));
+                bunds += 0.5 * ny;
+            }
+            // 0.6 m bunds every PlotU and PlotV metres: about 0.6/26 + 0.6/17 of the plan.
+            double share = bunds / (1024.0 * 1024.0), expected = 0.6 / FieldPattern.PlotU + 0.6 / FieldPattern.PlotV;
+            Assert.That(share, Is.EqualTo(expected).Within(0.25 * expected));
+
+            TileData town = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + Slope * (x - Leaf.X0));
+            var tm = new MeshData();
+            AreaMesher.Build(town, new TileHeightSampler(town, 1), o, tm);
+            Assert.That(tm.TriangleCount, Is.EqualTo(0), "no field lines in town");
+            var off = new MeshData();
+            AreaMesher.Build(hill, s, new AreaOptions { FieldLines = false }, off);
+            Assert.That(off.TriangleCount, Is.EqualTo(0));
         }
 
         /// <summary>The lift a record had before kind and size ranks (family only).</summary>

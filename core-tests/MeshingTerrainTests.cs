@@ -11,10 +11,10 @@ namespace Ghumante.Core.Tests
     {
         private static readonly TileId Leaf = new TileId(10, 516, 161);
 
-        private static MeshData Terrain(TileData src, TileId area, int step, float skirt = 0f)
+        private static MeshData Terrain(TileData src, TileId area, int step, float skirt = 0f, bool detail = true)
         {
             var m = new MeshData();
-            TerrainMesher.Build(src, area, new TerrainOptions { Step = step, SkirtDepthM = skirt }, m);
+            TerrainMesher.Build(src, area, new TerrainOptions { Step = step, SkirtDepthM = skirt, Detail = detail }, m);
             return m;
         }
 
@@ -22,7 +22,7 @@ namespace Ghumante.Core.Tests
         public void GridLayoutDiagonalAndWinding()
         {
             TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300 + 0.05 * (x - Leaf.X0) + 0.02 * (z - Leaf.Z0));
-            MeshData m = Terrain(t, Leaf, 4);
+            MeshData m = Terrain(t, Leaf, 4, 0f, false);
             int q = 32, side = 33;
             Assert.That(m.VertexCount, Is.EqualTo(side * side));
             Assert.That(m.TriangleCount, Is.EqualTo(q * q * 2));
@@ -395,6 +395,58 @@ namespace Ghumante.Core.Tests
             Assert.That(BiomePalette.Rgba(Biome.UrbanDense), Is.EqualTo(MeshColor.FromHex(0xC9B9A0)));
             Assert.That(BiomePalette.Rgba(Biome.ValleyCropland, Season.Autumn), Is.EqualTo(MeshColor.FromHex(0xE2C04C)));
             Assert.That(BiomePalette.Rgba(Biome.ValleyCropland), Is.EqualTo(MeshColor.FromHex(0x7FD457)));
+        }
+
+        /// <summary>
+        /// The detail look (W2 detail pass): every vertex has UV0 with a known channel and AO in (0, 1]; forest reads as
+        /// a mottled canopy (Foliage), cropland as a patchwork of plots in the season's crop colours (mustard yellow in
+        /// winter, harvest gold in autumn), steep ground breaks into rock (Stone), the micro-relief bends normals by a
+        /// few degrees but never past 25°, and the geometry is exactly the plain mesh's.
+        /// </summary>
+        [Test]
+        public void DetailLookAddsChannelsPatchworkAndMicroRelief()
+        {
+            Func<double, double, double> hill = (x, z) => 1400 + 260 * Math.Max(0, (x - Leaf.X0) / 1024.0 - 0.5) * Math.Max(0, (x - Leaf.X0) / 1024.0 - 0.5) * 8;
+            TileData t = MeshingChecks.SyntheticTile(Leaf, hill, 129, Biome.ValleyCropland);
+            for (int k = 0; k < t.Biomes.Length; k++)
+                if (k / 65 >= 40) t.Biomes[k] = Biome.HillForest;
+            var plain = new MeshData();
+            TerrainMesher.Build(t, Leaf, new TerrainOptions { Step = 1, SkirtDepthM = 0, Detail = false }, plain);
+            foreach (Season season in new[] { Season.Winter, Season.Autumn })
+            {
+                var m = new MeshData();
+                TerrainMesher.Build(t, Leaf, new TerrainOptions { Step = 1, SkirtDepthM = 0, Season = season }, m);
+                Assert.That(m.HasUv0, Is.True);
+                Assert.That(m.VertexCount, Is.EqualTo(plain.VertexCount));
+                var cropColours = new HashSet<uint>();
+                int foliage = 0, stone = 0, mustard = 0, gold = 0, n = 129;
+                double worst = 0;
+                for (int v = 0; v < m.VertexCount; v++)
+                {
+                    for (int c = 0; c < 3; c++) Assert.That(m.Positions[3 * v + c], Is.EqualTo(plain.Positions[3 * v + c]), "geometry unchanged");
+                    var ch = (MaterialChannel)(int)m.Uv0[2 * v];
+                    Assert.That(ch, Is.AnyOf(MaterialChannel.Grass, MaterialChannel.Dirt, MaterialChannel.Stone, MaterialChannel.Foliage, MaterialChannel.Plain));
+                    Assert.That(m.Uv0[2 * v + 1], Is.InRange(0.05f, 1f));
+                    double dot = m.Normals[3 * v] * plain.Normals[3 * v] + m.Normals[3 * v + 1] * plain.Normals[3 * v + 1] + m.Normals[3 * v + 2] * plain.Normals[3 * v + 2];
+                    worst = Math.Max(worst, Math.Acos(Math.Min(1.0, dot)) * 180 / Math.PI);
+                    int row = v / n;
+                    byte r = m.Colors[4 * v], g = m.Colors[4 * v + 1], b = m.Colors[4 * v + 2];
+                    if (row >= 82 && ch == MaterialChannel.Foliage) foliage++;
+                    if (ch == MaterialChannel.Stone) stone++;
+                    if (row < 70 && v % n < 60)
+                    {
+                        cropColours.Add((uint)(r >> 4 << 8 | g >> 4 << 4 | b >> 4));
+                        if (r > 200 && g > 170 && b < 110) mustard++;
+                        if (r > 170 && g > 140 && g < 200 && b < 110) gold++;
+                    }
+                }
+                Assert.That(worst, Is.GreaterThan(1.0).And.LessThan(25.0), "micro-relief bends normals a little");
+                Assert.That(foliage, Is.GreaterThan(1000), "forest canopy");
+                Assert.That(stone, Is.GreaterThan(50), "rock on the steep east side");
+                Assert.That(cropColours.Count, Is.GreaterThan(4), "a patchwork, not one flat colour");
+                if (season == Season.Winter) Assert.That(mustard, Is.GreaterThan(200), "mustard in winter");
+                else Assert.That(gold, Is.GreaterThan(200), "harvest gold in autumn");
+            }
         }
 
         [Test]

@@ -20,6 +20,17 @@ namespace Ghumante.Core.Meshing
         /// <summary>Blend steep ground into the biome's slope and rock colours.</summary>
         public bool SlopeColours = true;
 
+        /// <summary>
+        /// The detail look (docs/W2_DETAIL_CONTRACT.md §1.6, §5): world-fixed colour patches (dry grass, canopy mottling
+        /// on forest, rock outcrops breaking through steep ground), the field patchwork of cropland (paddy, mustard,
+        /// wheat, stubble by season), micro-relief in the normals (hummocky ground; fades out on coarse grids) and UV0
+        /// material channels with baked AO. Off: the plain W1 biome palette with exact central-difference normals.
+        /// </summary>
+        public bool Detail = true;
+
+        /// <summary>Strength of the micro-relief in the normals (0 none; 1 the default hummocks).</summary>
+        public float MicroRelief = 1f;
+
         /// <summary>Decoded edge neighbours of the source tile: border normals (and slope colours) then match the
         /// neighbouring tiles' exactly. Give the same neighbours to <see cref="TileHeightSampler.ForArea(TileData,
         /// TileId, int, TileNeighbours)"/> so overlays shade alike. None: one-sided differences on the border.</summary>
@@ -39,7 +50,9 @@ namespace Ghumante.Core.Meshing
     /// (i, j)-(i+1, j+1) diagonal, smooth normals from central differences on the source grid at the step spacing
     /// (across the source tile's border into <see cref="TerrainOptions.Neighbours"/>, one-sided where a neighbour is
     /// missing), biome colours from the nearest BIOM sample through
-    /// <see cref="BiomePalette"/>, and skirts hanging down on all four edges. Positions are relative to the area's
+    /// <see cref="BiomePalette"/> with the detail look of <see cref="TerrainLook"/> (patches, field patchwork, outcrops,
+    /// micro-relief normals, UV0 channels and AO; all world-fixed, so tiles still agree on their edges), and skirts
+    /// hanging down on all four edges. Positions are relative to the area's
     /// south-west corner with absolute heights; adjacent areas drawn with the same step from tiles whose shared
     /// edges match (the GHT1 no-cracks invariant) produce identical edge vertices.
     /// <para>Vertex order: the (Quads + 1)^2 grid vertices row by row from the south-west corner, then the skirt
@@ -75,6 +88,8 @@ namespace Ghumante.Core.Meshing
             int bn = source.Biomes != null && source.BiomesN >= 2 && source.Biomes.Length >= source.BiomesN * source.BiomesN
                 ? source.BiomesN : 0;
 
+            // Micro-relief: hummocks of about 30 m, full strength on 8-16 m grids, gone by 48 m (it would alias there).
+            float relief = o.MicroRelief * 0.9f * (float)Math.Max(0.0, Math.Min(1.0, (48.0 - g.CellM) / 32.0));
             for (int k = 0; k <= q; k++)
             {
                 float pz = (float)(k * g.CellM);
@@ -92,7 +107,22 @@ namespace Ghumante.Core.Meshing
                     float nx, ny, nz;
                     TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
                     uint c = o.SlopeColours ? BiomePalette.Ground(biome, o.Season, ny) : BiomePalette.Rgba(biome, o.Season);
-                    m.AddVertex(px, h, pz, nx, ny, nz, c);
+                    if (!o.Detail)
+                    {
+                        m.AddVertex(px, h, pz, nx, ny, nz, c);
+                        continue;
+                    }
+                    double wx = area.X0 + px, wz = area.Z0 + pz;
+                    MaterialChannel ch;
+                    float ao;
+                    c = TerrainLook.Colour(biome, o.Season, c, ny, h, wx, wz, out ch, out ao);
+                    if (relief > 0f)
+                    {
+                        float mx, mz;
+                        TerrainNoise.FbmGradient(wx, wz, 34.0, 2, 0x4D52u, out mx, out mz);
+                        TileHeightSampler.FacetNormal(gx + mx * relief, gz + mz * relief, out nx, out ny, out nz);
+                    }
+                    m.AddVertex(px, h, pz, nx, ny, nz, c, (float)ch, ao);
                 }
             }
 
@@ -126,8 +156,12 @@ namespace Ghumante.Core.Meshing
                 int top = baseV + (k0 + t * dk) * side + l0 + t * dl;
                 int p = top * 3, c = top * 4;
                 uint rgba = (uint)(m.Colors[c] << 24 | m.Colors[c + 1] << 16 | m.Colors[c + 2] << 8 | m.Colors[c + 3]);
-                m.AddVertex(m.Positions[p], m.Positions[p + 1] - depth, m.Positions[p + 2],
-                            m.Normals[p], m.Normals[p + 1], m.Normals[p + 2], rgba);
+                if (m.HasUv0)
+                    m.AddVertex(m.Positions[p], m.Positions[p + 1] - depth, m.Positions[p + 2], m.Normals[p], m.Normals[p + 1], m.Normals[p + 2], rgba,
+                                m.Uv0[2 * top], m.Uv0[2 * top + 1] * 0.6f);
+                else
+                    m.AddVertex(m.Positions[p], m.Positions[p + 1] - depth, m.Positions[p + 2],
+                                m.Normals[p], m.Normals[p + 1], m.Normals[p + 2], rgba);
             }
             for (int t = 0; t < side - 1; t++)
             {
@@ -156,6 +190,86 @@ namespace Ghumante.Core.Meshing
             if (j < 0) j = 0;
             else if (j > bn - 1) j = bn - 1;
             return t.Biomes[j * bn + i];
+        }
+    }
+
+    /// <summary>
+    /// The per-vertex detail look of the terrain (TerrainMesher with <see cref="TerrainOptions.Detail"/>), a function of
+    /// the biome, season, slope, height and world position only (so tiles and LODs agree): forest ground mottled into
+    /// a dark canopy shell as seen from the hills, grass and scrub with dry and lush patches, cropland as a patchwork
+    /// of plots (<see cref="FieldPattern"/>), rock outcrops breaking through steep ground in irregular patches, and the
+    /// material channel (Foliage on forest, Grass on green ground and crops, Dirt on bare soil and ploughed plots, Stone
+    /// on rock and gravel) with an AO that darkens steep and low-lying ground.
+    /// </summary>
+    public static class TerrainLook
+    {
+        /// <summary>
+        /// The detail colour (0xRRGGBBAA) of a terrain vertex of biome <paramref name="b"/> with base colour
+        /// <paramref name="baseRgba"/>, normal Y <paramref name="ny"/> and world position (<paramref name="wx"/>,
+        /// <paramref name="wz"/>), with its material channel and AO.
+        /// </summary>
+        public static uint Colour(Biome b, Season season, uint baseRgba, float ny, float height, double wx, double wz, out MaterialChannel ch, out float ao)
+        {
+            float patch = TerrainNoise.Fbm(wx, wz, 90.0, 2, 0x5041u), fine = TerrainNoise.Fbm(wx, wz, 23.0, 2, 0x4649u);
+            float slope = ny >= 1f ? 0f : (float)(Math.Acos(Math.Max(0f, Math.Min(1f, ny))) * (180.0 / Math.PI));
+            uint c = baseRgba;
+            ch = MaterialChannel.Grass;
+            int family = Data.AreaTypeGrid.BiomeFamily(b);
+            float start, end;
+            BiomePalette.SlopeBlendDeg(b, out start, out end);
+            // Rock outcrops: the rock colour breaks through in noisy patches before the slope band is reached.
+            float rockT = Smooth(end - 6f, end + 12f, slope + 9f * fine);
+            // Crops cover the flats and the terraced slopes (terraces are cut into hillsides up to ~38°).
+            if (FieldPattern.IsCrop(b) && slope < Math.Max(start, 38f))
+            {
+                bool bare;
+                uint crop = FieldPattern.CropColour(FieldPattern.PlotHash(wx, wz), season, out bare);
+                c = MeshColor.Lerp(c, MeshColor.FromHex(crop), 0.78f);
+                ch = bare ? MaterialChannel.Dirt : MaterialChannel.Grass;
+            }
+            else if (family == 1)
+            {
+                // Forest: a dark mottled canopy shell (seen from the rim and the hills), lighter crowns in the sun.
+                uint dark = MeshColor.Scale(c, 0.72f), light = MeshColor.Lerp(c, MeshColor.FromHex(0x7FB04A), 0.35f);
+                c = MeshColor.Lerp(dark, light, 0.5f + 0.5f * fine);
+                ch = MaterialChannel.Foliage;
+            }
+            else if (b == Biome.RiverbedGravel || b == Biome.ScreeRock || b == Biome.Moraine)
+            {
+                ch = MaterialChannel.Stone;
+            }
+            else if (b == Biome.BareSoil || b == Biome.UrbanDense || b == Biome.Water)
+            {
+                ch = MaterialChannel.Dirt;
+            }
+            else if (b == Biome.Snow || b == Biome.Glacier)
+            {
+                ch = MaterialChannel.Plain;
+            }
+            else
+            {
+                // Grass and scrub: dry straw patches and lush hollows.
+                float dry = Smooth(0.15f, 0.65f, patch);
+                c = MeshColor.Lerp(c, MeshColor.FromHex(season == Season.Monsoon ? 0x9CB850u : 0xB8A86Au), 0.35f * dry);
+                c = MeshColor.Lerp(c, MeshColor.FromHex(0x5E9A3A), 0.25f * Smooth(0.2f, 0.7f, -patch));
+            }
+            if (slope > start && ch == MaterialChannel.Grass) ch = slope > end ? MaterialChannel.Dirt : ch;
+            if (rockT > 0.01f && b != Biome.Snow && b != Biome.Glacier)
+            {
+                c = MeshColor.Lerp(c, BiomePalette.RockRgba(b), rockT);
+                if (rockT > 0.5f) ch = MaterialChannel.Stone;
+            }
+            c = MeshColor.Scale(c, 1f + 0.07f * patch + 0.04f * fine);
+            ao = 1f - 0.28f * Smooth(10f, 50f, slope) - 0.08f * Math.Max(0f, -fine);
+            return c | 0xFFu;
+        }
+
+        private static float Smooth(float e0, float e1, float x)
+        {
+            float t = (x - e0) / (e1 - e0);
+            if (t <= 0f) return 0f;
+            if (t >= 1f) return 1f;
+            return t * t * (3f - 2f * t);
         }
     }
 }

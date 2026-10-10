@@ -1,28 +1,29 @@
 using System;
+using Ghumante.Core.Generators.Flora;
 using Ghumante.Core.Generators.Placement;
 using Ghumante.Core.Meshing;
 
 namespace Ghumante.World.Instancing
 {
     /// <summary>
-    /// The procedural meshes of the instanced dressing (W2_DESIGN 5.4-5.8): cartoon trees in three shape families at
-    /// three LODs, the chautari platform, street props, people as rigid parts, cows and dogs. Everything is built in
-    /// code from MeshKit primitives (no hand-made assets). Frame: origin on the ground, +Y up, +Z forward (north at yaw
-    /// 0), +X right. Trees are unit-sized (height 1, crown diameter 1) and scaled per instance. Vertex alpha is the
-    /// per-instance tint mask of the <c>_INSTANCE_TINT</c> shaders: 255 on crowns, clothes and coats, 0 on trunks,
-    /// skin, hair and fixed parts. Deterministic; engine-free.
+    /// The procedural meshes of the instanced dressing (W2_DESIGN 5.4-5.8): trees and plants from the nature kit
+    /// (Core <see cref="FloraMesher"/>: every species at LOD0 and LOD1, the shape families' far volume and impostor),
+    /// the chautari platform, street props, people as rigid parts, cows and dogs. Everything is built in code (no
+    /// hand-made assets). Frame: origin on the ground, +Y up, +Z forward (north at yaw 0), +X right. Trees and plants
+    /// are unit-sized (height 1, crown diameter 1) and scaled per instance. Vertex alpha is the per-instance tint mask
+    /// of the <c>_INSTANCE_TINT</c> shaders: 255 on crowns, clothes and coats, 0 on trunks, skin, hair and fixed parts;
+    /// the kit's UV0 carries the material channel and baked AO. Deterministic; engine-free.
     /// </summary>
     public static class KitMeshes
     {
-        public const int TreeLods = 3;
+        /// <summary>Tree LODs: species LOD0 and LOD1, family volume, family impostor (<see cref="FloraMesher.Lods"/>).</summary>
+        public const int TreeLods = FloraMesher.Lods;
 
-        /// <summary>Triangle caps per tree LOD (W2_DESIGN 5.8: ≤ 600 / ≤ 120 / impostor).</summary>
-        public static readonly int[] TreeBudget = { 600, 120, 24 };
+        /// <summary>Triangle caps per tree LOD (the nature kit's <see cref="FloraMesher.Budget"/>: 1 600 / 240 / 112 / 8).</summary>
+        public static readonly int[] TreeBudget = FloraMesher.Budget;
 
         private const uint Tinted = 0xFFFFFFFF;
-        private const uint Trunk = 0x6B4A2E00;
         private const uint Stone = 0x9A948A00;
-        private const uint StoneTop = 0xB0AA9F00;
 
         // ---------------------------------------------------------------------------------------------------------
         // Primitives
@@ -42,94 +43,51 @@ namespace Ghumante.World.Instancing
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Trees
+        // Trees and plants (the nature kit: Core FloraMesher)
 
-        /// <summary>A unit tree of a shape family at LOD 0, 1 or 2 (height 1, crown diameter 1).</summary>
+        /// <summary>
+        /// A unit tree of a shape family (height 1, crown diameter 1): LOD 0 and 1 are the family's typical species
+        /// (round: broadleaf, cone: chir pine, umbrella: pipal, column: silky oak, fountain: bamboo, low: shrub) in
+        /// October, LOD 2 the family volume and 3 its impostor (grey foliage for the instance tint). The renderer draws
+        /// each species' own LOD0 and LOD1 (<see cref="Plant"/>); this is the per-family stand-in.
+        /// </summary>
         public static int Tree(TreeShape shape, int lod, MeshData m)
         {
-            int t0 = m.TriangleCount;
-            int sides = lod == 0 ? 10 : lod == 1 ? 6 : 4;
+            if (lod >= 2 && shape != TreeShape.Low) return FloraMesher.Family(shape, lod, m);
+            return FloraMesher.Build(Typical(shape), Math.Min(lod, 1), 10, m);
+        }
+
+        /// <summary>The species a shape family stands for in <see cref="Tree"/>.</summary>
+        public static TreeSpecies Typical(TreeShape shape)
+        {
             switch (shape)
             {
-                case TreeShape.Cone:
-                {
-                    if (lod < 2) MeshKit.Cylinder(m, 0, 0, 0.05, 0, 0.2, lod == 0 ? 6 : 4, false, Trunk);
-                    int tiers = lod == 0 ? 3 : lod == 1 ? 2 : 1;
-                    for (int k = 0; k < tiers; k++)
-                    {
-                        double y0 = 0.15 + k * (0.75 / tiers), r = 0.5 * (1.0 - 0.22 * k);
-                        double y1 = k + 1 == tiers ? 1.0 : y0 + 0.75 / tiers + 0.18;
-                        MeshKit.Frustum(m, 0, 0, r, y0, 0, y1, sides, false, Tinted);
-                        if (lod == 0) MeshKit.ConvexCap(m, RingX(r, sides), RingZ(r, sides), sides, y0, false, Tinted);
-                    }
-                    break;
-                }
-                case TreeShape.Umbrella:
-                {
-                    if (lod < 2) MeshKit.Frustum(m, 0, 0, 0.07, 0, 0.045, 0.62, lod == 0 ? 6 : 4, false, Trunk);
-                    MeshKit.Frustum(m, 0, 0, 0.18, 0.55, 0.5, 0.72, sides, false, Tinted);
-                    MeshKit.Dome(m, 0, 0, 0.5, 0.72, 0.28, sides, lod == 0 ? 3 : 1, Tinted);
-                    if (lod == 0)
-                        for (int k = 0; k < 3; k++)
-                        {
-                            double a = k * 2.0944 + 0.4;
-                            MeshKit.Dome(m, 0.3 * Math.Cos(a), 0.3 * Math.Sin(a), 0.22, 0.8, 0.18, 7, 2, Tinted);
-                        }
-                    break;
-                }
-                default:
-                {
-                    if (lod < 2) MeshKit.Frustum(m, 0, 0, 0.06, 0, 0.04, 0.45, lod == 0 ? 6 : 4, false, Trunk);
-                    MeshKit.Frustum(m, 0, 0, 0.22, 0.32, 0.5, 0.55, sides, false, Tinted);
-                    MeshKit.Dome(m, 0, 0, 0.5, 0.55, 0.45, sides, lod == 0 ? 4 : lod == 1 ? 2 : 1, Tinted);
-                    if (lod == 0)
-                        for (int k = 0; k < 3; k++)
-                        {
-                            double a = k * 2.0944;
-                            MeshKit.Dome(m, 0.32 * Math.Cos(a), 0.32 * Math.Sin(a), 0.24, 0.62, 0.26, 8, 2, Tinted);
-                        }
-                    break;
-                }
+                case TreeShape.Cone: return TreeSpecies.ChirPine;
+                case TreeShape.Umbrella: return TreeSpecies.Pipal;
+                case TreeShape.Column: return TreeSpecies.SilkyOak;
+                case TreeShape.Fountain: return TreeSpecies.Bamboo;
+                case TreeShape.Low: return TreeSpecies.Shrub;
+                default: return TreeSpecies.Broadleaf;
             }
-            return m.TriangleCount - t0;
         }
 
-        [ThreadStatic] private static double[] _rx, _rz;
-
-        private static double[] RingX(double r, int n)
+        /// <summary>A species' unit model (tree or plant) at LOD 0 or 1 in a month (bloom, flush and harvest are
+        /// baked into the near LODs).</summary>
+        public static int Plant(TreeSpecies s, int lod, int month, MeshData m)
         {
-            Ring(r, n);
-            return _rx;
+            return FloraMesher.Build(s, lod, month, m);
         }
 
-        private static double[] RingZ(double r, int n)
+        /// <summary>The chautari platform (W2_DESIGN 5.8; the nature kit's <see cref="FloraMesher.Chautari"/>): coursed
+        /// stone walls, a slab top, the porter ledge on the south side with a step and a shrine stone; unit width and
+        /// height, scaled per instance (width about half the crown, 0.45-0.9 m high). <paramref name="lod"/> 0 is the
+        /// detailed model, 1 the simple one.</summary>
+        public static int Chautari(MeshData m, int lod = 0)
         {
-            Ring(r, n);
-            return _rz;
+            return FloraMesher.Chautari(lod, m);
         }
 
-        private static void Ring(double r, int n)
-        {
-            if (_rx == null || _rx.Length < n)
-            {
-                _rx = new double[Math.Max(16, n)];
-                _rz = new double[_rx.Length];
-            }
-            MeshKit.RegularRing(0, 0, r, n, Math.PI / n, _rx, _rz);
-        }
-
-        /// <summary>The chautari platform (W2_DESIGN 5.8): a stone platform of unit width and height with a porter ledge;
-        /// scaled per instance (width about half the crown, 0.45-0.9 m high).</summary>
-        public static int Chautari(MeshData m)
-        {
-            int t0 = m.TriangleCount;
-            Box(m, -0.5, 0.5, -0.3, 1.0, -0.5, 0.5, Stone, BoxFaces.All & ~BoxFaces.Bottom & ~BoxFaces.Top);
-            Box(m, -0.53, 0.53, 0.94, 1.0, -0.53, 0.53, StoneTop, BoxFaces.All & ~BoxFaces.Bottom);
-            Box(m, -0.62, 0.62, -0.3, 0.5, -0.62, -0.5, Stone, BoxFaces.Wall); // porter ledge, south side
-            return m.TriangleCount - t0;
-        }
-
-        /// <summary>Default heights per tree class used when a tree has no height (metres).</summary>
+        /// <summary>Triangles of <see cref="Tree"/> for a family and LOD.</summary>
         public static int TreeTris(TreeShape s, int lod)
         {
             var m = new MeshData(256, 768);
