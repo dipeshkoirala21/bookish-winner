@@ -447,90 +447,96 @@
    "wall_material": 2
   }
  ],
- "bytes": 1705,
+ "bytes": 1797,
  "chunks": [
   {
    "codec": 1,
    "fourcc": "AREA",
-   "offset": 256,
+   "offset": 272,
    "stored_size": 75
   },
   {
    "codec": 0,
    "fourcc": "BFNT",
-   "offset": 331,
+   "offset": 347,
    "stored_size": 19
   },
   {
    "codec": 1,
    "fourcc": "BIOM",
-   "offset": 350,
+   "offset": 366,
    "stored_size": 73
   },
   {
    "codec": 1,
    "fourcc": "BLDG",
-   "offset": 423,
+   "offset": 439,
    "stored_size": 91
   },
   {
    "codec": 1,
    "fourcc": "HGHT",
-   "offset": 514,
+   "offset": 530,
    "stored_size": 508
   },
   {
    "codec": 1,
    "fourcc": "JNCT",
-   "offset": 1022,
+   "offset": 1038,
    "stored_size": 54
   },
   {
    "codec": 0,
    "fourcc": "LINE",
-   "offset": 1076,
+   "offset": 1092,
    "stored_size": 40
   },
   {
    "codec": 1,
    "fourcc": "META",
-   "offset": 1116,
-   "stored_size": 141
+   "offset": 1132,
+   "stored_size": 157
   },
   {
    "codec": 1,
    "fourcc": "NAME",
-   "offset": 1257,
+   "offset": 1289,
    "stored_size": 174
   },
   {
    "codec": 0,
    "fourcc": "POIS",
-   "offset": 1431,
+   "offset": 1463,
    "stored_size": 48
   },
   {
    "codec": 1,
    "fourcc": "PROP",
-   "offset": 1479,
+   "offset": 1511,
    "stored_size": 60
   },
   {
    "codec": 0,
    "fourcc": "RATR",
-   "offset": 1539,
+   "offset": 1571,
    "stored_size": 53
   },
   {
    "codec": 0,
    "fourcc": "ROAD",
-   "offset": 1592,
+   "offset": 1624,
    "stored_size": 99
+  },
+  {
+   "codec": 1,
+   "fourcc": "RSTR",
+   "offset": 1723,
+   "stored_size": 60
   },
   {
    "codec": 0,
    "fourcc": "SEED",
-   "offset": 1691,
+   "offset": 1783,
    "stored_size": 14
   }
  ],
@@ -1192,6 +1198,7 @@
  ],
  "meta": {
   "note": "नमस्ते \"quoted\"",
+  "ratr_corridor": "final",
   "region": "golden_region",
   "sources": {
    "dem": "glo30",
@@ -1199,7 +1206,7 @@
    "osm": "d41d8cd98f00b204e9800998ecf8427e"
   }
  },
- "meta_json": "{\"note\":\"नमस्ते \\\"quoted\\\"\",\"region\":\"golden_region\",\"sources\":{\"dem\":\"glo30\",\"landcover\":\"worldcover\",\"osm\":\"d41d8cd98f00b204e9800998ecf8427e\"}}",
+ "meta_json": "{\"note\":\"नमस्ते \\\"quoted\\\"\",\"ratr_corridor\":\"final\",\"region\":\"golden_region\",\"sources\":{\"dem\":\"glo30\",\"landcover\":\"worldcover\",\"osm\":\"d41d8cd98f00b204e9800998ecf8427e\"}}",
  "names": [
   [
    "बागमती",
@@ -1242,7 +1249,7 @@
    ""
   ]
  ],
- "payload_crc32": 1182187598,
+ "payload_crc32": 1062957732,
  "pois": [
   {
    "ele_dm": 88488,
@@ -1384,6 +1391,72 @@
    "median_cm": 100,
    "partner_way_id": 4000000124,
    "sidewalk": 4
+  }
+ ],
+ "road_structures": [
+  {
+   "clearance_cm": 571,
+   "deck_cm": [
+    -1250,
+    null
+   ],
+   "deck_role": [
+    2,
+    0
+   ],
+   "flags": 84,
+   "kind": 3,
+   "layer": -1,
+   "railing_dm": 0,
+   "shift_cm": []
+  },
+  {
+   "clearance_cm": 450,
+   "deck_cm": [],
+   "deck_role": [],
+   "flags": 5,
+   "kind": 6,
+   "layer": 0,
+   "railing_dm": 0,
+   "shift_cm": []
+  },
+  {
+   "clearance_cm": 0,
+   "deck_cm": [
+    null,
+    131287,
+    131324,
+    131361
+   ],
+   "deck_role": [
+    0,
+    2,
+    1,
+    1
+   ],
+   "flags": 135,
+   "kind": 1,
+   "layer": 1,
+   "railing_dm": 11,
+   "shift_cm": [
+    0,
+    -35,
+    120,
+    16384,
+    -16385,
+    7,
+    7,
+    0,
+    0,
+    -1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    64
+   ]
   }
  ],
  "roads": [

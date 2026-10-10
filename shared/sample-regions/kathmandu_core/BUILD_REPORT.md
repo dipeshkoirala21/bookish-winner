@@ -1,17 +1,17 @@
 # Build report: kathmandu_core
 
-* Built at 2026-10-05T17:06:00Z by pipeline 0.1.0 (data_version 2).
+* Built at 2026-10-10T19:59:39Z by pipeline 0.1.0 (data_version 2).
 * bbox [85.283, 27.69, 85.375, 27.735], horizon [84.6, 27.2, 86.4, 28.6]; detail levels [8, 9, 10], horizon levels [5, 6].
-* Extract read from the PBF; 4 POI kinds set from curated landmarks, 0 landmark POIs added.
+* Extract from cache; 4 POI kinds set from curated landmarks, 0 landmark POIs added.
 * road_km counts roads clipped to the leaf tiles (what the tiles and the routing graph hold); road_km_extract includes the extract's buffer zone.
 
 ## Files
 
 | File | Bytes | MB | SHA-256 |
 |---|---:|---:|---|
-| kathmandu_core.ghpk | 11,778,286 | 11.78 | `898baa10f629c3d4…` |
+| kathmandu_core.ghpk | 11,915,244 | 11.92 | `db56b4fc1334cac9…` |
 | kathmandu_core.search.ghsi | 155,776 | 0.16 | `e76829dffd0bd490…` |
-| kathmandu_core.route.ghrg | 2,274,177 | 2.27 | `443a709d62f16f52…` |
+| kathmandu_core.route.ghrg | 2,274,177 | 2.27 | `b6535114424da974…` |
 | kathmandu_core.transit.ghrt | 32,827 | 0.03 | `6aec529618567361…` |
 | kathmandu_core.curated.ghcd | 5,949 | 0.01 | `43cc35fc37b5d588…` |
 | hero_recipes.json | 18,819 | 0.02 | `51cbe65ea554733e…` |
@@ -31,23 +31,24 @@ Bytes per chunk type (stored, after DEFLATE):
 
 | Chunk | Bytes | Share |
 |---|---:|---:|
-| HGHT | 5,269,108 | 44.8% |
-| BLDG | 4,722,375 | 40.1% |
-| ROAD | 487,712 | 4.1% |
-| BFNT | 383,165 | 3.3% |
-| NAME | 281,039 | 2.4% |
-| POIS | 193,593 | 1.6% |
+| HGHT | 5,269,108 | 44.2% |
+| BLDG | 4,850,712 | 40.7% |
+| ROAD | 501,085 | 4.2% |
+| BFNT | 378,754 | 3.2% |
+| NAME | 281,041 | 2.4% |
+| POIS | 193,587 | 1.6% |
 | BIOM | 154,144 | 1.3% |
 | AREA | 134,818 | 1.1% |
-| RATR | 74,501 | 0.6% |
+| RATR | 51,686 | 0.4% |
+| RSTR | 20,272 | 0.2% |
 | PROP | 15,278 | 0.1% |
+| META | 13,884 | 0.1% |
 | LINE | 12,727 | 0.1% |
-| META | 12,638 | 0.1% |
 | SEED | 1,246 | 0.0% |
 | JNCT | 1,038 | 0.0% |
 
-Leaf tiles: 60; buildings placed 167,977 of 219,024 extracted (the rest lie in the bbox buffer).
-Feature records: {"area_parts": 1493, "bfnt_fronts": 141639, "buildings": 167977, "junctions": 53, "line_pieces": 168, "places": 216, "pois": 15252, "props": 1119, "ratr_corridor_samples": 50458, "road_pieces": 14371}
+Leaf tiles: 60; buildings placed 167,922 of 219,024 extracted (the rest lie in the bbox buffer).
+Feature records: {"area_parts": 1493, "bfnt_fronts": 141597, "buildings": 167922, "buildings_trimmed": 36544, "junctions": 53, "line_pieces": 168, "places": 216, "pois": 15252, "props": 1119, "ratr_corridor_samples": 79481, "road_pieces": 14370, "rstr_deck_pieces": 706}
 
 ## Content
 
@@ -82,8 +83,83 @@ Feature records: {"area_parts": 1493, "bfnt_fronts": 141639, "buildings": 167977
 * **transit_file**: `{"bytes": 32827, "restrictions": 45, "routes": 69}`
 * **curated_file**: `{"bytes": 5949, "records": 19}`
 * **aviation**: `{"tia": {"procedures": 12, "runway": "w340948564", "threshold_distance_m": 2755.81}}`
-* **chunks**: `{"chunk_bytes": {"BFNT": 383165, "JNCT": 1038, "PROP": 15278, "RATR": 74501}, "corridor": {"narrower_pct": 0.0, "narrower_than_tagged": 0, "open": 18084, "p25_p50_p75_m": [5.2, 8.8, 16.4], "samples": 50458, "tagged_width_samples": 6218}, "fronts": {"buildings": 167977, "corners": 20950, "with_front": 141639}, "junction_kinds": {"CIRCULAR": 2, "MINI_ROUNDABOUT": 2, "POLICE": 10, "ROUNDABOUT": 6, "SIGNALS": 25, "SYNTHETIC_ISLAND": 8}, "props": {"AEROWAY_GATE": 12, "BUS_STOP": 134, "CROSSING_MARKED": 158, "CROSSING_UNMARKED": 225, "GATE": 154, "HELIPAD": 8, "PARKING_POSITION": 10, "STORAGE_TANK": 14, "STREET_LAMP": 168, "TAXI_STAND": 17, "TRAFFIC_SIGNALS": 27, "TREE": 190, "WINDSOCK": 2}}`
+* **chunks**: `{"chunk_bytes": {"BFNT": 378754, "JNCT": 1038, "PROP": 15278, "RATR": 51686, "RSTR": 20272}, "corridor": {"narrower_pct": 0.01, "narrower_than_tagged": 2, "open": 0, "p25_p50_p75_m": [4.8, 4.8, 5.6], "samples": 79481, "tagged_width_samples": 16821}, "fronts": {"buildings": 167922, "corners": 21114, "trimmed_for_road": 36544, "with_front": 141597}, "junction_kinds": {"CIRCULAR": 2, "MINI_ROUNDABOUT": 2, "POLICE": 10, "ROUNDABOUT": 6, "SIGNALS": 25, "SYNTHETIC_ISLAND": 8}, "props": {"AEROWAY_GATE": 12, "BUS_STOP": 134, "CROSSING_MARKED": 158, "CROSSING_UNMARKED": 225, "GATE": 154, "HELIPAD": 8, "PARKING_POSITION": 10, "STORAGE_TANK": 14, "STREET_LAMP": 168, "TAXI_STAND": 17, "TRAFFIC_SIGNALS": 27, "TREE": 190, "WINDSOCK": 2}, "structures": {"corridor_samples_below_4_8_m": 49, "deck_points": 6785, "pieces_by_kind": {"BRIDGE": 248, "FLYOVER": 19, "FORD": 4, "NONE": 13928, "PASSAGE": 83, "TUNNEL": 5, "UNDERPASS": 83}}}`
 * **routing**: 23 road pieces lost their motor modes inside sacred zones (D14).
+
+## Detail pass (docs/W2_DETAIL_CONTRACT.md decisions 1, 3-5)
+
+* **structures**: `{"abutment_joins": 5, "bridges_inferred": 53, "bridges_tagged_over_water": 215, "clearance_slack": 0, "crossings": 125, "crossings_at_abutment": 5, "embankment_over_cap_vertices": 72, "fords": 7, "kinds": {"BRIDGE": 287, "FLYOVER": 22, "FORD": 7, "NONE": 17079, "PASSAGE": 85, "TUNNEL": 4, "UNDERPASS": 87}, "lp_components": 139, "lp_vertices": 56593, "passages": 85, "pins_violated": 0, "riverside_crossings": 78, "stair_steps": 0, "stations": 383143, "steep_ramp_edges": 126, "tunnels": 4, "water_not_snapped": 3, "water_snapped_to_bridge": 3, "ways_with_heights": 820}`
+* **corridors**: `{"galli_ways": 367, "stations": 240397, "stations_below_min_space": 90520, "stations_touching_protected": 3, "ways_shifted": 168, "ways_squeezed": 15}`
+* **protected_clip**: `{"metres_removed": 140.7, "motor_roads_split": 3, "roads_clipped": 13, "roads_removed": 3, "roads_split": 3}`
+* **trim**: `{"area_removed_m2": 246810.4, "extra_parts": 34, "protected_intruded": 2, "protected_intruded_refs": ["w377732314", "w904005367"], "protected_intrusion_m2": {"max": 0.31, "total": 0.5}, "protected_near_bands": 104, "protected_overlaps": 104, "removed": 88, "rings_repaired": 1, "roads_into_protected": [180206494, 377732313], "slivers_dropped": 108, "split_into_parts": 33, "trimmed": 36549}`
+* **remaining**: `{"crossings_at_abutment": [[1005237325, 1044106114], [1136873418, 172338701], [1192743662, 1525642173], [1268595057, 268851407], [1540981400, 1368711450]], "embankments_over_3m": {"111845394": 3.83, "1122233365": 3.63, "112785219": 4.29, "1156837463": 7.07, "1174194089": 6.41, "1192743665": 6.32, "1192743667": 6.36, "136445396": 3.17, "136448239": 3.17, "169984786": 5.16, "172137063": 4.0, "172325501": 6.29, "172325522": 3.13, "184712508": 6.32, "832899518": 5.7}, "steep_ramps": {"1047537056": 0.15, "1097935309": 0.15, "1097935310": 0.15, "1099697741": 0.15, "1103057010": 0.086, "111845394": 0.15, "112449586": 0.15, "1125345897": 0.093, "112783299": 0.15, "112783306": 0.15, "112783313": 0.15, "1198619516": 0.15, "120430418": 0.15, "1214231626": 0.15, "1414579283": 0.15, "1416264761": 0.15, "1416264762": 0.15, "1416264764": 0.15, "153237894": 0.15, "172137063": 0.15, "183110570": 0.15, "199430771": 0.15, "202382798": 0.15, "248967187": 0.15, "302563246": 0.15, "312110127": 0.15, "358548159": 0.15, "4825621": 0.15, "4840304": 0.15, "644044950": 0.15, "756183474": 0.15, "81146145": 0.15, "891858754": 0.15, "920068550": 0.15, "920068551": 0.15}}`
+* **car**: `{"car_accessible": 13847, "galli": 367, "ways": 17571}`
+* **routing**: 347 ways lost CAR, JEEP and BUS (structures.car_accessible); motorbikes, bicycles and walkers keep them.
+
+Buildings trimmed for a road corridor, per leaf tile (36,544 in 60 tiles):
+
+| Tile | Trimmed |
+|---|---:|
+| 10/516/161 | 2,180 |
+| 10/516/162 | 1,202 |
+| 10/516/160 | 1,128 |
+| 10/518/161 | 1,016 |
+| 10/520/160 | 979 |
+| 10/519/162 | 977 |
+| 10/520/162 | 921 |
+| 10/519/163 | 880 |
+| 10/516/164 | 877 |
+| 10/519/159 | 843 |
+| 10/520/163 | 832 |
+| 10/517/161 | 827 |
+| 10/518/160 | 809 |
+| 10/521/162 | 774 |
+| 10/514/160 | 765 |
+| 10/518/159 | 757 |
+| 10/515/160 | 755 |
+| 10/515/162 | 754 |
+| 10/521/163 | 752 |
+| 10/516/163 | 744 |
+| 10/517/163 | 727 |
+| 10/515/161 | 722 |
+| 10/519/161 | 722 |
+| 10/519/164 | 712 |
+| 10/522/160 | 707 |
+| 10/517/164 | 701 |
+| 10/519/160 | 693 |
+| 10/518/163 | 679 |
+| 10/522/163 | 679 |
+| 10/520/164 | 660 |
+| 10/520/159 | 659 |
+| 10/522/162 | 622 |
+| 10/514/163 | 563 |
+| 10/515/159 | 514 |
+| 10/515/163 | 510 |
+| 10/518/164 | 502 |
+| 10/518/162 | 489 |
+| 10/521/164 | 477 |
+| 10/523/163 | 432 |
+| 10/523/164 | 424 |
+| 10/514/161 | 423 |
+| 10/515/164 | 405 |
+| 10/520/161 | 398 |
+| 10/514/164 | 395 |
+| 10/516/159 | 389 |
+| 10/517/159 | 383 |
+| 10/514/159 | 375 |
+| 10/523/162 | 323 |
+| 10/522/164 | 320 |
+| 10/514/162 | 280 |
+| 10/521/159 | 278 |
+| 10/522/159 | 273 |
+| 10/517/162 | 268 |
+| 10/517/160 | 238 |
+| 10/523/161 | 221 |
+| 10/522/161 | 219 |
+| 10/523/159 | 147 |
+| 10/523/160 | 147 |
+| 10/521/160 | 68 |
+| 10/521/161 | 28 |
 
 ## Inference provenance
 
@@ -127,25 +203,25 @@ Surface provenance by class (% of length):
 
 | Stage | s |
 |---|---:|
-| extract | 141.36 |
-| dem | 4.03 |
-| landcover_detail | 0.04 |
-| landcover_horizon | 17.05 |
-| surface | 0.9 |
-| trails | 0.36 |
-| w2_hints | 11.2 |
-| buildings | 13.5 |
-| search_entries | 0.22 |
-| search | 0.11 |
-| transit | 0.3 |
-| w2_inputs | 6.41 |
-| tiles | 63.67 |
-| w2_chunk_stats | 5.62 |
+| extract | 4.11 |
+| dem | 3.48 |
+| landcover_detail | 0.03 |
+| landcover_horizon | 20.09 |
+| surface | 0.8 |
+| trails | 0.42 |
+| w2_hints | 11.84 |
+| buildings | 16.56 |
+| search_entries | 0.31 |
+| search | 0.17 |
+| transit | 0.39 |
+| w2_inputs | 7.8 |
+| tiles | 176.79 |
+| w2_chunk_stats | 6.22 |
 | pack | 0.04 |
 | clip_roads | 0.22 |
-| routing | 0.38 |
-| w2_files | 0.1 |
-| total | 271.34 |
+| routing | 0.41 |
+| w2_files | 0.07 |
+| total | 249.97 |
 
 ## Unrecognised tag values (top)
 

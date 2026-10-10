@@ -120,6 +120,38 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
+        public void NoCarWaysKeepTwoWheelersOnly()
+        {
+            // W2 detail pass, decision 5: way 503 (Durbar Marg, the top row) is a galli in the golden network.
+            RouteGraph g = Graph();
+            JsonElement x = GoldenFiles.Json("golden_routes.json");
+            Assert.That(x.GetProperty("no_car_ways").EnumerateArray().Select(v => v.GetInt32()), Is.EqualTo(new[] { 503 }));
+            int name = Array.FindIndex(g.Names, nm => nm.Default == "Durbar Marg") + 1;
+            Assert.That(name, Is.GreaterThan(0));
+            int[] src = g.EdgeSource;
+            var nodes = new HashSet<int>();
+            for (int e = 0; e < g.EdgeCount; e++)
+            {
+                if (g.EdgeName[e] != name) continue;
+                Assert.That(g.EdgeAccess[e] & (Travel.Car | Travel.Jeep | Travel.Bus), Is.EqualTo((Travel)0), "edge " + e);
+                Assert.That(g.EdgeAccess[e] & (Travel.Motorbike | Travel.Bicycle | Travel.Foot),
+                            Is.EqualTo(Travel.Motorbike | Travel.Bicycle | Travel.Foot), "edge " + e);
+                nodes.Add(src[e]);
+                nodes.Add(g.EdgeTarget[e]);
+            }
+            Assert.That(nodes.Count, Is.GreaterThan(2));
+            int west = nodes.OrderBy(v => g.NodeXDm[v]).First(), east = nodes.OrderBy(v => g.NodeXDm[v]).Last();
+            var astar = new AStar(g);
+            Route bike = astar.FindRoute(west, east, Travel.Motorbike);
+            Route car = astar.FindRoute(west, east, Travel.Car);
+            Assert.That(bike, Is.Not.Null);
+            Assert.That(bike.Edges.Any(e => g.EdgeName[e] == name), Is.True, "the motorbike takes the galli");
+            Assert.That(car, Is.Not.Null, "the car goes round");
+            Assert.That(car.Edges.Any(e => g.EdgeName[e] == name), Is.False, "the car never enters the galli");
+            Assert.That(car.LengthM, Is.GreaterThan(bike.LengthM));
+        }
+
+        [Test]
         public void RoutesIdenticalToPython()
         {
             var astar = new AStar(Graph());

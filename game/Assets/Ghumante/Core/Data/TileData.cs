@@ -181,8 +181,9 @@ namespace Ghumante.Core.Data
         /// <summary>PROP real point objects; empty when absent.</summary>
         public readonly List<PropRecord> Props = new List<PropRecord>();
 
-        /// <summary>Road structures (bridges, flyovers, underpasses, car access): one per <see cref="Roads"/> entry,
-        /// same order; empty when the tile carries none (W2 detail pass).</summary>
+        /// <summary>RSTR road structures (bridges, flyovers, underpasses, deck heights, car access): one per
+        /// <see cref="Roads"/> entry, same order; empty when the tile carries none (W2 detail pass,
+        /// DATA_FORMATS 1.15).</summary>
         public readonly List<RoadStructureRecord> RoadStructures = new List<RoadStructureRecord>();
 
         public bool HasSeed;
@@ -191,6 +192,12 @@ namespace Ghumante.Core.Data
 
         /// <summary>The META chunk's JSON text, or null.</summary>
         public string MetaJson;
+
+        /// <summary>True when META says <c>"ratr_corridor": "final"</c> (W2 detail pass, DATA_FORMATS 1.10 and 1.11):
+        /// <see cref="RoadAttrRecord.CorridorDm"/> holds the final game corridor of every drawn road (never 0, never
+        /// reduced by a further clearance). False for older packs, where it is the stage-1 space between buildings
+        /// (2 x min(dLeft, dRight), 0 = open). Readers use this marker, not the presence of RSTR.</summary>
+        public bool FinalCorridors;
 
         public bool HasDetail
         {
@@ -201,6 +208,12 @@ namespace Ghumante.Core.Data
         public bool HasRoadAttrs
         {
             get { return RoadAttrs.Count > 0 && RoadAttrs.Count == Roads.Count; }
+        }
+
+        /// <summary>True when the tile carries RSTR (one structure record per road).</summary>
+        public bool HasRoadStructures
+        {
+            get { return RoadStructures.Count > 0 && RoadStructures.Count == Roads.Count; }
         }
 
         /// <summary>True when the tile carries BFNT (one front record per building).</summary>

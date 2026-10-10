@@ -662,6 +662,7 @@ namespace Ghumante.Core.Data
         StructureRcc = 16,
         StructureMud = 32,
         RoofFlatTagged = 64,
+        TrimmedForRoad = 128,
     }
 
     [Flags]
@@ -705,6 +706,31 @@ namespace Ghumante.Core.Data
         NoVehicles = 8,
         SanctumClosed = 16,
         Verify = 32,
+    }
+
+    public enum RoadStructureKind : byte
+    {
+        None = 0,
+        Bridge = 1,
+        Flyover = 2,
+        Underpass = 3,
+        Tunnel = 4,
+        Ford = 5,
+        Passage = 6,
+    }
+
+    [Flags]
+    public enum RoadStructureFlags : byte
+    {
+        None = 0,
+        CarAccessible = 1,
+        WaterCrossing = 2,
+        DeckFromTags = 4,
+        FootOverbridge = 8,
+        Lowered = 16,
+        Approach = 32,
+        Squeezed = 64,
+        OverRoad = 128,
     }
 
     /// <summary>Physics family of each surface (model.SURFACE_GROUP).</summary>

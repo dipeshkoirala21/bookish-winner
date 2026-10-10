@@ -45,6 +45,19 @@ def _metres(lonlat_a: np.ndarray, lonlat_b: np.ndarray) -> np.ndarray:
     return np.hypot(dx, dy)
 
 
+def _to_polyline_m(pts: np.ndarray, line: np.ndarray) -> np.ndarray:
+    """Distance (m) from each lon/lat point to a lon/lat polyline (local equirectangular metres)."""
+    lat0 = np.radians(float(np.mean(line[:, 1])))
+    k = np.array([111_320.0 * np.cos(lat0), 110_574.0])
+    p = np.asarray(pts, dtype=float) * k
+    a, b = np.asarray(line[:-1], dtype=float) * k, np.asarray(line[1:], dtype=float) * k
+    d = b - a
+    ll = np.maximum((d * d).sum(axis=1), 1e-12)
+    t = np.clip((((p[:, None, :] - a[None]) * d[None]).sum(axis=2)) / ll[None], 0.0, 1.0)
+    q = a[None] + t[..., None] * d[None]
+    return np.hypot(*(p[:, None, :] - q).transpose(2, 0, 1)).min(axis=1)
+
+
 def _geojson(path: Path) -> list[dict]:
     return json.loads(path.read_text(encoding="utf-8"))["features"]
 
@@ -209,8 +222,12 @@ def test_qa_buildings_roundtrip(synth) -> None:
     feats = _geojson(synth.qa_dir / "buildings.geojson")
     assert len(feats) == len(syn.buildings) + 1
     worst = 0.0
+    trimmed = 0
     for f in feats:
         if f["properties"]["osm_type"] != "w":
+            continue
+        if f["properties"].get("front_flags", 0) & 0x80:  # BuildingFrontFlags.TRIMMED_FOR_ROAD: clipped to a corridor
+            trimmed += 1
             continue
         src = syn.lonlat(syn.buildings[f["properties"]["osm_id"]])
         ring = np.array(f["geometry"]["coordinates"][0][:-1])
@@ -218,6 +235,7 @@ def test_qa_buildings_roundtrip(synth) -> None:
         d = _metres(ring[:, None, :], src[None, :, :]).min(axis=1)
         worst = max(worst, float(d.max()))
     assert worst < TOL_M, worst
+    assert trimmed >= 3  # the galli houses and the house mapped across the primary (W2 detail pass)
     # Per-tile files hold the same buildings.
     per_tile = sum(len(_geojson(p)) for p in (synth.qa_dir / "buildings").rglob("*.geojson"))
     assert per_tile == len(feats)
@@ -247,9 +265,11 @@ def test_qa_roads_roundtrip(synth) -> None:
         src = syn.lonlat(syn.roads[f["properties"]["osm_way_id"]])
         pts = np.array(f["geometry"]["coordinates"])
         d = _metres(pts[:, None, :], src[None, :, :]).min(axis=1)
-        # Interior vertices are source vertices; the two ends may be cut points on a tile border.
+        # Interior vertices are source vertices, or (W2 detail pass) stations inserted on the source polyline where a
+        # way carries deck or ramp heights; the two ends may be cut points on a tile border.
         inner = d[1:-1]
-        assert (inner < TOL_M).all() or len(inner) == 0
+        on_line = _to_polyline_m(pts, src)[1:-1]
+        assert (on_line < TOL_M).all() or len(inner) == 0
         matched += int((d < TOL_M).sum())
     assert matched > 100
 

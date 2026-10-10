@@ -168,6 +168,7 @@ ELEV_UNKNOWN = -32768
 MAX_GEOM_POINTS = 0xFFFF
 MAX_NAMES = 0xFFFF
 
+NO_CAR_MODES = Travel.CAR | Travel.JEEP | Travel.BUS  # what a way that fails structures.car_accessible loses
 EDGE_BRIDGE = 1 << 0
 EDGE_TUNNEL = 1 << 1
 EDGE_FORD = 1 << 2
@@ -713,6 +714,7 @@ def build_graph(
     to_game: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] = lonlat_to_game_xy,
     elev: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
     motor_block: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
+    no_car: Iterable[int] | None = None,
 ) -> RoutingGraph:
     """Build the routing graph of a region's roads and trails (rules in the module docstring).
 
@@ -721,11 +723,15 @@ def build_graph(
     ``motor_block(x, z)`` (D14) says which game points lie in a no-vehicle zone
     (sacred compounds, heritage squares): a piece whose length is at least half
     inside (by segment midpoints) loses every motor mode in both directions.
+    ``no_car`` (W2 detail pass, decision 5) holds the OSM way ids a car cannot use
+    (``structures.car_accessible``: footways, gallis, under 3 m real, motorcar=no,
+    tunnels): they lose CAR, JEEP and BUS; motorbikes, bicycles and walkers keep them.
     """
     roads = list(roads)
     info = {"roads_in": len(roads), "roads_used": 0, "skipped_unknown_class": 0, "skipped_no_access": 0,
             "skipped_degenerate": 0, "loops_split": 0, "long_split": 0, "oneway_reverse_omitted": 0,
-            "names_dropped": 0, "sacred_pieces": 0}
+            "names_dropped": 0, "sacred_pieces": 0, "no_car_ways": 0}
+    no_car_set = frozenset(int(w) for w in no_car) if no_car is not None else frozenset()
 
     # 1. Select routable ways (sorted by way id so the output ignores input order).
     order = sorted(range(len(roads)), key=lambda i: int(roads[i].osm_id))
@@ -740,6 +746,9 @@ def build_graph(
             info["skipped_unknown_class"] += 1
             continue
         mask = int(r.access) & usable_mask(cls, int(r.sac_scale))
+        if int(r.osm_id) in no_car_set and mask & int(NO_CAR_MODES):
+            mask &= ~int(NO_CAR_MODES)
+            info["no_car_ways"] += 1
         if not mask:
             info["skipped_no_access"] += 1
             continue

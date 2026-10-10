@@ -120,6 +120,20 @@ def make_tile(seed: int = 0, n_roads=40, n_lines=10, n_bldg=200, n_areas=12, n_p
                 flags=int(rng.integers(0, 256)), partner_way_id=int(rng.integers(0, 1 << 40)) * int(rng.random() < 0.2),
                 median_cm=int(rng.integers(0, 400)),
                 corridor_dm=rng.integers(0, 900, int(rng.integers(0, 30))).astype(np.int64)))
+        from ghumante_pipeline.tile_format import RoadStructureRec
+
+        for rd, a in zip(td.roads, td.road_attrs):
+            n = len(rd.points)
+            deck = rng.random() < 0.5
+            role = rng.integers(0, 3, n).astype(np.uint8) if deck else np.zeros(0, dtype=np.uint8)
+            if deck:
+                role[0] = 1  # never all draped
+            td.road_structures.append(RoadStructureRec(
+                kind=int(rng.integers(0, 6)), layer=int(rng.integers(-3, 4)), flags=int(rng.integers(0, 256)),
+                clearance_cm=int(rng.integers(0, 900)) * int(rng.random() < 0.3), railing_dm=int(rng.integers(0, 15)),
+                deck_role=role, deck_cm=rng.integers(120000, 140000, len(role)).astype(np.int64),
+                shift_cm=(rng.integers(-300, 300, 4 * len(a.corridor_dm) - int(rng.integers(0, 4))).astype(np.int64)
+                          if rng.random() < 0.3 and len(a.corridor_dm) else np.zeros(0, dtype=np.int64))))
         for b in td.buildings:
             n = len(b.rings[0])
             fe = int(rng.integers(0, n)) if rng.random() < 0.8 else 255
@@ -266,6 +280,7 @@ def test_encoding_independent_of_record_and_name_order():
         td, names=new_names + [NameEntry("unused", "", "")],
         roads=[remap(td.roads[i], "name_ref", "ref_ref") for i in rp],
         road_attrs=[td.road_attrs[i] for i in rp],  # parallel lists move with their records
+        road_structures=[td.road_structures[i] for i in rp],
         lines=[remap(td.lines[i], "name_ref") for i in rng.permutation(len(td.lines))],
         buildings=[remap(td.buildings[i], "name_ref") for i in bp],
         building_fronts=[td.building_fronts[i] for i in bp],
@@ -779,3 +794,76 @@ def test_real_dem_window_round_trip():
     assert np.array_equal(out.heights_q, q)
     assert np.abs(dequantize_heights(out.heights_q) - h).max() <= 0.0751
     assert len(blob) < 0.75 * q.nbytes  # the prediction filter + DEFLATE actually compress real terrain
+
+
+# ---------------------------------------------------------------------------
+# RSTR (W2 detail pass)
+# ---------------------------------------------------------------------------
+def _rstr_tile():
+    from ghumante_pipeline.tile_format import RoadAttrRec, RoadStructureRec
+
+    roads = [RoadRec(osm_way_id=7, road_class=3, points=np.array([[0, 0], [1000, 0], [2000, 0], [3000, 0]])),
+             RoadRec(osm_way_id=5, road_class=13, points=np.array([[100, 100], [900, 100]]))]
+    attrs = [RoadAttrRec(corridor_dm=np.array([90, 96])), RoadAttrRec(corridor_dm=np.array([48]))]
+    structs = [RoadStructureRec(kind=1, layer=1, flags=0x07, railing_dm=11, deck_role=np.array([0, 2, 1, 1]),
+                                deck_cm=np.array([0, 130120, 130480, 130475]),
+                                shift_cm=np.array([0, -35, -40, -40, 0])),  # every 5 m: 2 corridor samples -> 5..8
+               RoadStructureRec(kind=0, flags=0)]
+    return TileData(tile=TILE, data_version=2, roads=roads, road_attrs=attrs, road_structures=structs, has_detail=True)
+
+
+def test_rstr_round_trip_and_order():
+    td = _rstr_tile()
+    out = decode_tile(encode_tile(td))
+    assert [r.osm_way_id for r in out.roads] == [5, 7]  # sorted with ROAD, like RATR
+    s0, s1 = out.road_structures
+    assert s0.kind == 0 and len(s0.deck_role) == 0 and len(s0.shift_cm) == 0
+    assert s1.kind == 1 and s1.layer == 1 and s1.flags == 7 and s1.railing_dm == 11
+    assert s1.deck_role.tolist() == [0, 2, 1, 1] and s1.deck_cm.tolist() == [0, 130120, 130480, 130475]
+    assert s1.shift_cm.tolist() == [0, -35, -40, -40, 0]
+    assert out == canonicalize(td)
+
+
+def test_rstr_shift_count_ties_to_the_corridor_samples():
+    from ghumante_pipeline.tile_format import shift_count_ok
+
+    assert shift_count_ok(0, 0) and shift_count_ok(0, 3)
+    assert shift_count_ok(1, 1) and shift_count_ok(4, 1) and not shift_count_ok(5, 1)
+    assert not shift_count_ok(4, 2) and shift_count_ok(5, 2) and shift_count_ok(8, 2) and not shift_count_ok(9, 2)
+    assert not shift_count_ok(1, 0)
+
+
+def test_rstr_validation():
+    import dataclasses
+
+    td = _rstr_tile()
+    bad = dataclasses.replace(td, road_structures=td.road_structures[:1])
+    with pytest.raises(ValueError, match="RSTR"):
+        encode_tile(bad)
+    s = dataclasses.replace(td.road_structures[0], deck_role=np.array([1, 1]), deck_cm=np.array([1, 2]))
+    with pytest.raises(ValueError, match="deck points"):
+        encode_tile(dataclasses.replace(td, road_structures=[s, td.road_structures[1]]))
+    s = dataclasses.replace(td.road_structures[0], shift_cm=np.array([1, 2, 3, 4]))
+    with pytest.raises(ValueError, match="shifts"):
+        encode_tile(dataclasses.replace(td, road_structures=[s, td.road_structures[1]]))
+    # All-draped deck arrays and all-zero shifts are written as none.
+    s = dataclasses.replace(td.road_structures[0], deck_role=np.zeros(4, dtype=np.uint8), deck_cm=np.ones(4, dtype=np.int64),
+                            shift_cm=np.zeros(5, dtype=np.int64))
+    out = decode_tile(encode_tile(dataclasses.replace(td, road_structures=[s, td.road_structures[1]])))
+    assert len(out.road_structures[1].deck_role) == 0 and len(out.road_structures[1].shift_cm) == 0
+
+
+def test_rstr_decoder_rejects_mismatches():
+    from ghumante_pipeline.tile_format import FOURCC_RATR, FOURCC_ROAD, FOURCC_RSTR, _enc_ratr, _enc_road, _enc_rstr, \
+        encode_chunks
+
+    td = canonicalize(_rstr_tile())
+    good = [(FOURCC_ROAD, _enc_road(td.roads)), (FOURCC_RATR, _enc_ratr(td.road_attrs))]
+    one = _enc_rstr(td.road_structures[:1])
+    with pytest.raises(ValueError, match="RSTR"):
+        decode_tile(encode_chunks(good + [(FOURCC_RSTR, one)], TILE, 2, True))
+    import dataclasses
+
+    s = dataclasses.replace(td.road_structures[1], deck_role=np.array([1, 1], dtype=np.uint8), deck_cm=np.array([5, 6]))
+    with pytest.raises(ValueError, match="deck points"):
+        decode_tile(encode_chunks(good + [(FOURCC_RSTR, _enc_rstr([td.road_structures[0], s]))], TILE, 2, True))

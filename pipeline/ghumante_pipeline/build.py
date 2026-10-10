@@ -21,11 +21,14 @@ Stages (ARCHITECTURE.md section 6.1):
    ``config/landmarks.resolved.json``) -> ``<region>.search.ghsi``.
 8. **tiles**: ``tiling.build_tiles`` -> **pack** ``<region>.ghpk``.
 9. **routing**: ``routing.build_graph`` -> ``<region>.route.ghrg`` (motor modes
-   removed inside sacred zones, D14).
+   removed inside sacred zones, D14; CAR, JEEP and BUS removed from the ways the
+   tiler's detail pass finds no car can use, ``structures.car_accessible``).
 10. **W2 side files** (``w2build``): ``<region>.transit.ghrt`` (routes and
     turn restrictions), ``<region>.curated.ghcd`` and ``hero_recipes.json``
     (curated heroes), ``<region>.aviation.json`` for regions that list an
-    airport. W2 also adds the RATR, JNCT, BFNT and PROP tile chunks, AREA flags,
+    airport. W2 also adds the RATR, JNCT, BFNT, PROP and RSTR tile chunks, AREA flags,
+    road corridors with building trimming (``corridors.py``), road structures
+    with deck heights (``structures.py``),
     building parts, hide zones and the D1 classifier fixes (``w2=False`` turns
     the extra chunks and files off; the classifier fixes always apply).
 11. **manifest**: ``<region>.manifest.json`` (DATA_FORMATS.md section 2) with
@@ -544,6 +547,7 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
             stats["tiles"] = tstats
             if w2:
                 w2state.stats["chunks"] = timer.run("w2_chunk_stats", w2build.chunk_stats, tiles)
+                w2state.stats["detail"] = tstats.get("detail", {})
             stats["pack"] = timer.run("pack", write_pack, pack_path, rid, config.PIPELINE_DATA_VERSION, tiles)
             del tiles
 
@@ -556,12 +560,16 @@ def build_region(region: config.Region | str, *, pbf: Path | None = None, raw_di
         if "routing" in stages:
             block = w2in.sacred.motor_block if (w2in.sacred is not None and w2in.sacred.geom is not None) else None
 
+            no_car = w2in.detail.get("no_car_ways") if w2 else None
+
             def routing_stage():
-                g = routing.build_graph(roads_in, elev=lambda x, z: dem.sample_game(x, z), motor_block=block)
+                g = routing.build_graph(roads_in, elev=lambda x, z: dem.sample_game(x, z), motor_block=block,
+                                        no_car=no_car)
                 return g, routing.write_graph(graph_path, g)
 
             graph, stats["routing"] = timer.run("routing", routing_stage)
             stats["routing"]["sacred_pieces"] = int(graph.build_info.get("sacred_pieces", 0))
+            stats["routing"]["no_car_ways"] = int(graph.build_info.get("no_car_ways", 0))
             del graph
 
         # --- W2 side files ----------------------------------------------------------------
@@ -656,6 +664,7 @@ def _manifest(region: config.Region, reg_dir: Path, pack_path: Path, index_path:
         "search_entries": srch.get("entries", 0), "search_keys": srch.get("keys", 0),
         "graph_nodes": rt.get("nodes", rt.get("node_count", 0)), "graph_edges": rt.get("edges", rt.get("edge_count", 0)),
         "graph_sacred_pieces": rt.get("sacred_pieces", 0),
+        "graph_no_car_ways": rt.get("no_car_ways", 0),
         "w2": stats.get("w2", {}),
         "timings_s": dict(timer.t),
         "warnings": list(warnings),
@@ -724,6 +733,20 @@ def build_report(manifest: dict, stats: dict, warnings: list[str]) -> str:
                 lines.append(f"* **{k}**: `{json.dumps(v, ensure_ascii=False, sort_keys=True)}`")
         lines.append(f"* **routing**: {s.get('graph_sacred_pieces', 0)} road pieces lost their motor modes inside "
                      "sacred zones (D14).")
+        det = w2.get("detail") or {}
+        if det:
+            lines += ["", "## Detail pass (docs/W2_DETAIL_CONTRACT.md decisions 1, 3-5)", ""]
+            for k in ("structures", "corridors", "protected_clip", "trim", "remaining", "car"):
+                if k in det:
+                    lines.append(f"* **{k}**: `{json.dumps(det[k], ensure_ascii=False, sort_keys=True)}`")
+            lines.append(f"* **routing**: {s.get('graph_no_car_ways', 0)} ways lost CAR, JEEP and BUS "
+                         "(structures.car_accessible); motorbikes, bicycles and walkers keep them.")
+            tt = det.get("trims_by_tile") or {}
+            if tt:
+                lines += ["", f"Buildings trimmed for a road corridor, per leaf tile ({sum(tt.values()):,} in "
+                          f"{len(tt)} tiles):", "", "| Tile | Trimmed |", "|---|---:|"]
+                for t, v in sorted(tt.items(), key=lambda kv: (-kv[1], kv[0])):
+                    lines.append(f"| {t} | {v:,} |")
     lines += ["", "## Inference provenance", "", "| What | % |", "|---|---:|"]
     for k in ("surface_tagged_pct", "surface_derived_pct", "surface_inferred_pct", "surface_default_pct",
               "building_levels_tagged_pct", "building_levels_inferred_pct"):

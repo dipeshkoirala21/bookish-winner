@@ -179,10 +179,12 @@ def chunk_stats(tiles) -> dict:
     junctions by kind."""
     from collections import Counter
 
-    from .model import JunctionKind, ObjectKind
-    from .tile_format import FOURCC_BFNT, FOURCC_JNCT, FOURCC_PROP, FOURCC_RATR, decode_tile, read_header
+    from .model import BuildingFrontFlags, JunctionKind, ObjectKind, RoadStructureKind
+    from .tile_format import FOURCC_BFNT, FOURCC_JNCT, FOURCC_PROP, FOURCC_RATR, FOURCC_RSTR, decode_tile, read_header
 
-    names = {FOURCC_RATR: "RATR", FOURCC_JNCT: "JNCT", FOURCC_BFNT: "BFNT", FOURCC_PROP: "PROP"}
+    names = {FOURCC_RATR: "RATR", FOURCC_JNCT: "JNCT", FOURCC_BFNT: "BFNT", FOURCC_PROP: "PROP", FOURCC_RSTR: "RSTR"}
+    rk: Counter = Counter()
+    deck_pts = trimmed = below_min = 0
     chunk_bytes = Counter()
     samples = open_ = tagged = narrower = 0
     vals: list[np.ndarray] = []
@@ -208,7 +210,14 @@ def chunk_stats(tiles) -> dict:
             if r.width_cm:
                 tagged += int((c > 0).sum())
                 narrower += int(((c > 0) & (c * 10 < int(r.width_cm))).sum())
+        for s_ in td.road_structures:
+            rk[RoadStructureKind(int(s_.kind)).name if int(s_.kind) in RoadStructureKind._value2member_map_
+               else str(int(s_.kind))] += 1
+            deck_pts += int((s_.deck_role != 0).sum())
+        for a in td.road_attrs:
+            below_min += int((np.asarray(a.corridor_dm) < 48).sum())
         for f in td.building_fronts:
+            trimmed += bool(f.flags & int(BuildingFrontFlags.TRIMMED_FOR_ROAD))
             nb += 1
             fronts += f.front_edge != 255
             corners += f.second_edge != 255
@@ -220,7 +229,9 @@ def chunk_stats(tiles) -> dict:
             "corridor": {"samples": samples, "open": open_, "p25_p50_p75_m": pct, "tagged_width_samples": tagged,
                          "narrower_than_tagged": narrower,
                          "narrower_pct": round(100.0 * narrower / tagged, 2) if tagged else 0.0},
-            "fronts": {"buildings": nb, "with_front": fronts, "corners": corners},
+            "fronts": {"buildings": nb, "with_front": fronts, "corners": corners, "trimmed_for_road": trimmed},
+            "structures": {"pieces_by_kind": dict(sorted(rk.items())), "deck_points": deck_pts,
+                           "corridor_samples_below_4_8_m": below_min},
             "props": dict(sorted(props.items())), "junction_kinds": dict(sorted(jk.items()))}
 
 

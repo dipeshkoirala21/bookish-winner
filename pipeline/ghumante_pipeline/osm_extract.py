@@ -130,6 +130,9 @@ AREA_TAG_KEYS = (
 ROAD_TAG_KEYS = (
     "sidewalk", "sidewalk:both", "sidewalk:left", "sidewalk:right", "footway", "lit", "maxspeed", "lanes:forward",
     "lanes:backward", "motor_vehicle", "motorcar", "vehicle", "junction", "service", "area:highway",
+    # W2 detail pass (structures.py, corridors.py): raw structure tags
+    "bridge", "bridge:structure", "bridge:name", "tunnel", "covered", "indoor", "location", "level", "maxheight",
+    "est_width", "man_made", "embankment",
 )
 BUILDING_TAG_KEYS = (
     "building:structure", "start_date", "construction_date", "building:min_level", "man_made", "tower:type",

@@ -49,7 +49,8 @@ namespace Ghumante.Core.Tests
         {
             var names = new HashSet<string>(EnumNames());
             var ours = typeof(TileId).Assembly.GetTypes()
-                .Where(t => t.IsEnum && t.Namespace == "Ghumante.Core.Data" && t.Name != "LineFlags" && t.Name != "AreaFlags")
+                .Where(t => t.IsEnum && t.Namespace == "Ghumante.Core.Data" && t.Name != "LineFlags" && t.Name != "AreaFlags" &&
+                            t.Name != "DeckPointRole") // tile_format-only views (RSTR deck codes), not model.py enums
                 .Select(t => t.Name);
             Assert.That(ours, Is.EquivalentTo(names));
         }

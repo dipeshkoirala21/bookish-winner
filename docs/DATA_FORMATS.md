@@ -6,6 +6,8 @@ These are the binary formats the offline pipeline (`/pipeline`, Python) writes a
 
 **W2 additions are additive** (batch F2): the new tile chunks `RATR`, `JNCT`, `BFNT` and `PROP` (sections 1.11–1.14) are skipped by readers that do not know them, so `GHT1` stays version 1; the new region files `.ghrt`, `.ghcd` and `<region>.aviation.json` (sections 6–8) are listed in the manifest's `files`. `PIPELINE_DATA_VERSION` is 2 for packs that carry them.
 
+**W2 detail pass** (docs/W2_DETAIL_CONTRACT.md decisions 1, 3, 4 and 5; `ENUMS_VERSION` 4 appended `RoadStructureKind`, `RoadStructureFlags` and `BuildingFrontFlags.TRIMMED_FOR_ROAD`): the new tile chunk `RSTR` (section 1.15: bridges, flyovers, underpasses, tunnels and fords with absolute deck heights, car access and corridor shifts), the **final game corridor** in `RATR.corridor_dm` (section 1.11, a changed meaning, same layout), building footprints **trimmed** back to the corridors (sections 1.6 and 1.13), roads densified where they carry deck heights (section 1.4), and the car rule in the routing graph (section 4). All of it is additive for old readers (`RSTR` is skipped; the other layouts are unchanged), so `GHT1` stays version 1. The rules live in `pipeline/ghumante_pipeline/corridors.py` and `structures.py`.
+
 ## 0. Conventions
 
 * All multi-byte integers and floats are **little-endian**.
@@ -114,6 +116,8 @@ A way is clipped to the tile's square. Each clipped piece stores its in-tile ver
 
 `ONEWAY` means traffic flows in point order: the writer reverses `oneway=-1` ways.
 
+Since the W2 detail pass a way that carries deck, ramp or lowered heights (section 1.15) is **densified** before it is clipped: stations every 5 m are inserted on the way's own segments (collinear points, the original vertices stay) over its non-draped stretches and one station either side, so the per-point heights describe decks, crests and ramp ends. Consecutive duplicate vertices are dropped first (what `geom.clip_polyline` does anyway).
+
 ### 1.5 `LINE`: other linear features (waterways, rail, aerialways, runways, walls)
 
 ```
@@ -153,7 +157,9 @@ count × Building:
     n × { svarint dx_cm, svarint dz_cm }  ring's first point relative to tile origin, then deltas
 ```
 
-Buildings are **not clipped**. Each is stored once, in the leaf-level tile that contains its outer-ring centroid. Outer rings are counter-clockwise and holes clockwise, both in the X-east/Z-north plane. Records are sorted by `osm_ref`.
+Buildings are **not clipped** at tile borders: each record is stored in the leaf-level tile that contains its outer-ring centroid. Outer rings are counter-clockwise and holes clockwise, both in the X-east/Z-north plane. Records are sorted by `osm_ref` (ties by content). **`osm_ref` is not unique** since the W2 detail pass: a building that a road corridor cuts in two is stored as several records with the same `osm_ref` and attributes (below), so a reader that looks buildings up by `osm_ref` (hero hide sets, curated records) must expect all of them.
+
+**Trimmed for roads** (W2 detail pass, decision 1; `corridors.trim_buildings`): before tiling, every building and `building:part` is clipped out of the road corridor bands (section 1.11). Every remaining polygon of at least 4 m² is kept: the largest stays the original record, every further piece becomes an **extra record with the same `osm_ref`** and the same attributes (largest first), each stored in the leaf tile that holds its own centroid. Holes under 1 m² are filled, rings stay counter-clockwise (holes clockwise) and are simplified by 3 cm, and a footprint left with no piece of 4 m² (or entirely inside a corridor) is removed from the pack. Intrusions under 0.01 m² are ignored. The bands come from every drawn road except `TUNNEL` and `PASSAGE` structures (a passage runs under a house that stays whole, section 1.15): each sub-segment between corridor stations and vertices is buffered by half the larger corridor width of its two ends plus 5 cm (+0.5 m where the corridor is shifted, section 1.15), flat at the way's two ends and round at every other joint, and clipped to the region's leaf coverage. The centroid (and so the storing tile) is that of the trimmed ring. **Protected** footprints are never trimmed: `LANDMARK` records (hero hide zones and the curated landmarks) and the TEMPLE_PAGODA, TEMPLE_SHIKHARA, STUPA, CHORTEN and SHRINE archetypes. A road beside one shifts its corridor away (section 1.15); a road that runs into or through one is **clipped** before the corridors are measured (`corridors.clip_at_protected`): it stops 0.3 m outside the outline and is pulled back until its flat corridor end clears it, and a road cut in two continues on the far side as a further ROAD piece with the same `osm_way_id` (decks passing over keep their middle; tunnels and passages pass under). The build **fails** when a corridor still enters a protected footprint by more than 1 m² (curated exceptions: `config/curated/protected_intrusions.yaml`), and the build report lists every smaller touch. Trimmed records carry `BuildingFrontFlags.TRIMMED_FOR_ROAD` in `BFNT`, and the build report counts trims per leaf tile.
 
 Since W2 (D4) `building:part` ways are records too, with the `PART` flag (height, `min_height` or `building:min_level` × 3 m, roof shape from their own tags; a part of a religious host takes the host's archetype). A host footprint that contains a part's centroid has `HAS_PARTS`; the runtime draws the parts instead of the host. `TAG_SUSPECT`: a tagged height under 2.5 m without parts, more than 20 tagged levels, a tagged height per level outside 1.8–6 m, or more than 6 tagged levels in the Bhaktapur, Kirtipur and Panauti profiles. Religious archetypes keep the suspect tagged height (a temple height under 3 m is its plinth, W2_DESIGN 3.1); other buildings have it re-inferred. `LANDMARK` marks every building and part inside a hero's hide zone (section 7): the hero replica stands there and the record is not drawn. `OPEN_CANOPY` is set on `building=roof`. Closed `man_made=stupa` / `tower:type=stupa` ways without a building tag are STUPA footprints; `aeroway=apron` is never a building (it is an APRON area).
 
@@ -210,10 +216,12 @@ The runtime generates vegetation and props from `tile_seed`, the `BIOM` map and 
 ### 1.10 `META`
 
 ```
-str json   small UTF-8 JSON object: {"region": "...", "sources": {"osm": "<md5>", "dem": "...", "landcover": "..."}}
+str json   small UTF-8 JSON object: {"region": "...", "sources": {"osm": "<md5>", "dem": "...", "landcover": "..."}, ...}
 ```
 
 `META` must not contain timestamps, so that builds stay deterministic.
+
+* `"ratr_corridor": "final"` (W2 detail pass): `RATR.corridor_dm` holds each road's **final game corridor** (section 1.11): never 0, at least 4.8 m except where `SQUEEZED`, with no further clearance to subtract. Without the key a tile carries the stage-1 meaning (`2 × min(dLeft, dRight)` to the first building, 0 = open, the reader subtracts its own clearance). Readers decide by this key (C# `TileData.FinalCorridors`), **not** by the presence of `RSTR`.
 
 ### 1.11 `RATR`: road attributes (W2, D17)
 
@@ -232,14 +240,35 @@ count × RoadAttr:
   varint partner_way_id            0 = none
   varint median_cm                 0 = none
   varint corridor_count            0 = unknown; else samples every 20 m from the piece's first rendered point
-  corridor_count × varint corridor_dm   2 × min(dLeft, dRight) at the sample; 0 = open on one side (unbounded)
+  corridor_count × varint corridor_dm   the final GAME corridor width at the sample, decimetres (W2 detail pass, below)
 ```
 
+* **Corridor** (W2 detail pass, decision 1; `corridors.py`; replaces the W2 stage-1 meaning "2 × min(dLeft, dRight)" in tiles whose `META` has `"ratr_corridor": "final"`, section 1.10): `corridor_dm` is the full width of the road's **clear corridor**, centred on the centreline (moved sideways only by the `RSTR` shift, section 1.15). The runtime draws the carriageway, shoulders and footpaths inside it, and no building or building part stands in it (the pipeline trims them, section 1.6), so the road mesher, the corridor query, buildings, props and physics all read the same band. **Every** drawn road piece has samples now (footways, paths, steps, bridges, rural roads included; a piece shorter than 20 m has one). Per OSM way, along its whole polyline, at stations every 10 m:
+
+  ```text
+  S    = 2 x d     d: the distance from the centreline within +-5 m of the station to the nearest building outline
+                   (parts excluded), measured before trimming; inf when none lies within 20 m; 0 when the
+                   centreline runs through a footprint
+  R    = W2_DESIGN 4.1 real width: the plausible width tag (0.5 x class floor .. 40 m), else the class x area default
+  N    = min(max(R x Scale, Min), R + 6)       W2_DESIGN 4.2-4.3: Scale 1.25 motor classes, 1.15 pedestrian streets,
+                                               1.0 footway/path/steps/cycleway/bridleway; Min by class, oneway, dual
+  E    = 2 x shoulder + footpath room          shoulders per W2_DESIGN 4.1; footpath room = the widest footpath the
+                                               runtime may draw on each side (trunk 3.0, primary 3.5, secondary and
+                                               tertiary 2.0, else 1.5 m, x 1.15, + 0.15 m kerb) where a sidewalk is
+                                               tagged, or both sides on URBAN trunk to tertiary; none on tracks,
+                                               non-motor classes, inside SACRED_NO_VEHICLE zones, or on a dual
+                                               carriageway's median side
+  lim  = S - 1.0                                              (0.5 m to the building on each side)
+  F    = max(MinCorridorM 4.8 m, R if the width is tagged else the class floor)
+  C    = max(F, min(N + E, lim)), then a 1:20 taper (lower envelope along the way, never under F)
+  ```
+
+  So the corridor is the real width widened per W2_DESIGN 4, **never below 4.8 m** (`RoadClearance.MinCorridorM`: three motorbikes side by side, old-core gallis included) and never below a surveyed width; where buildings stand closer, they are trimmed. Only a corridor squeezed between two protected footprints (`RSTR` flag `SQUEEZED`) may go under 4.8 m. The stored sample at arc `a` (from the piece's first rendered point, every 20 m) is the **minimum** of `C` over `[a − 20 m, a + 20 m]`, rounded down to the decimetre (at least 1), so a reader that interpolates linearly between samples, holds the nearest one or takes the smallest one near a point (`RoadWidthModel.LimitAt`, a 30 m moving minimum, which is also the only smoothing there is) always stays inside the trimmed band. The stored value is final: a reader subtracts no further clearance (the 1 m above is already in it). Values are computed per way, so the two pieces at a tile border read the same profile. In open country `C` is simply `max(4.8, N + E)`.
 * **Area type**: the 250 m grid of `areatype.py` (street_life 1.1 + roads 1.2): OLD_CORE (a curated core, or building coverage ≥ 0.45 with ≥ 180 buildings), URBAN (coverage ≥ 0.22), FOREST (OSM forest or WorldCover tree cover ≥ 50 %, coverage < 0.05), PERI_URBAN (≥ 0.06), RURAL; PERI_URBAN, RURAL and FOREST cells above 1,650 m or steeper than 12 % to a neighbouring cell centre are HILL. Cells are aligned to multiples of 250 m in game space.
 * For `oneway=-1` ways the ROAD record is reversed, so `sidewalk` left/right and `lanes_fwd`/`lanes_bwd` are swapped from the OSM tags.
 * **Dual carriageways** (`DUAL`, `partner_way_id`): two one-way trunk to tertiary ways (not links) with the same `ref` or name, running in opposite directions with centrelines at most 15 m apart on at least half of the 10 m samples. `median_cm` = median centreline spacing − the two real half-widths, at least 100 cm. A one-way primary or secondary that runs alongside a dual trunk carriageway in the same direction, 6–15 m away, is a `SERVICE_ROAD` (Ring Road south).
 * **Real width** (for `PAINTABLE` and the median) is the W2_DESIGN 4.1 table, the same rule as `RoadWidthModel.RealWidthM`.
-* **Corridor samples** (roads 1.3) exist only for OLD_CORE and URBAN pieces of motor classes and pedestrian streets that are not bridges, tunnels or on a non-zero layer. At each sample two rays, 40 m each side, perpendicular to the centreline, stop at the first building outline (parts excluded). A sample whose point lies inside a footprint (mapping offset) repeats the previous valid sample (else the next, else 0). **Mapping-offset guard**: on a way with a tagged `width`, a bounded sample is never narrower than that width (rounded up to the decimetre): OSM building outlines and centrelines are often a few metres apart from each other, and the surveyed width wins (W2_DESIGN 9.5, at most 1 % of samples narrower than the tagged width).
+* The surveyed width still wins (W2_DESIGN 9.5): `F` includes a plausible tagged width, so no sample is narrower than it.
 * `HERITAGE_PEDESTRIAN`: the piece's length midpoint lies in a `SACRED_NO_VEHICLE` area.
 
 ### 1.12 `JNCT`: junctions (W2, D18)
@@ -281,7 +310,8 @@ count × BuildingFront:
   u8     shop_bays                 bits 0-3 shop count from shop POIs inside (0..15); bit7 FROM_POI
   u8     flags                     model.BuildingFrontFlags: bit0 COURTYARD_HOST, bit1 CORNER (second road-facing edge),
                                    bit2 FACES_HERITAGE_SQUARE, bit3 RANA_HINT, bit4 STRUCTURE_RCC, bit5 STRUCTURE_MUD,
-                                   bit6 ROOF_FLAT_TAGGED
+                                   bit6 ROOF_FLAT_TAGGED, bit7 TRIMMED_FOR_ROAD (W2 detail pass: the footprint was
+                                   clipped back to a road corridor, section 1.6)
   u8     second_edge               255 = none (corner houses)
 ```
 
@@ -308,6 +338,55 @@ count × Prop:
 ```
 
 Records sorted by `(osm_ref, kind)`, each in the leaf tile holding it. Stage 1 kinds: TREE (every `natural=tree`, species class from species/genus/taxon/leaf_type/name, CHAUTARI from the name), STREET_LAMP, BUS_STOP (`highway=bus_stop` or a bus platform), TRAFFIC_SIGNALS, CROSSING_MARKED (`crossing=zebra|marked|traffic_signals` or `crossing:markings` other than `no`) and CROSSING_UNMARKED, STORAGE_TANK, GATE (`barrier=gate`), AEROWAY_GATE, PARKING_POSITION (a line: the record sits on its last vertex with the yaw of its last segment), WINDSOCK, HELIPAD, TAXI_STAND. Ways become one record at their label point (`FROM_WAY`). `ON_ROAD` marks nodes that are vertices of a ROAD way. `YAW` also comes from a `direction` tag. Procedural dressing is never stored (section 1.9); everything here is a real OSM object at its real position.
+
+### 1.15 `RSTR`: road structures (W2 detail pass, decisions 3-5)
+
+One record per `ROAD` record, in the same order (the chunk is absent, or its count equals the ROAD count); written by `structures.py` (way-level analysis) and `tiling.py` (per piece). Readers: `tile_format._dec_rstr`, C# `TileReader` (`TileData.RoadStructures`, `RoadStructureRecord`).
+
+```text
+varint count                       == ROAD count
+count × RoadStructure:
+  u8      kind                     model.RoadStructureKind: 0 NONE (draped), 1 BRIDGE, 2 FLYOVER, 3 UNDERPASS, 4 TUNNEL, 5 FORD,
+                                   6 PASSAGE (under a building that stays intact)
+  i8      layer                    effective layer: the OSM layer; else +1 for a bridge and -1 for a tunnel; else 0
+  u8      flags                    model.RoadStructureFlags: bit0 CAR_ACCESSIBLE, bit1 WATER_CROSSING, bit2 DECK_FROM_TAGS,
+                                   bit3 FOOT_OVERBRIDGE, bit4 LOWERED, bit5 APPROACH, bit6 SQUEEZED, bit7 OVER_ROAD
+  varint  clearance_cm             free height above this road's surface (an underpass: the lowest deck underside
+                                   above it; a passage: the gateway's free height); 0 = unlimited / unknown
+  u8      railing_dm               railing height of a bridge or flyover deck, decimetres; 0 = none
+  varint  deck_count               0 = draped everywhere; else == the ROAD record's point_count (context points included)
+  deck_count × varint code         per point: 0 = draped on the terrain; else code - 1 = (zigzag(y_cm - prev_cm) << 1) | ramp,
+                                   y_cm = the absolute surface height in game centimetres (metres above sea level × 100,
+                                   the same frame as HGHT), prev_cm = the previous non-draped point's y_cm (0 before the
+                                   first); ramp = 1 for an approach ramp (embankment or cutting), 0 for a structure deck
+  varint  shift_count              0, or one sample every 5 m from the piece's first rendered point: floor(length / 5) + 1,
+                                   so with c = the RATR record's corridor_count, 4(c - 1) + 1 <= shift_count <= 4c
+  shift_count × svarint shift_cm   lateral corridor shift, centimetres, + = left of the point order
+```
+
+**Kinds and flags** (`structures.analyse`, per OSM way, then per piece):
+
+* **Effective layer**: `tunnel=building_passage` and any tunnel of at most 60 m on layer ≥ 0 are passages (ground roads, below); other tunnels are -1 without a `layer` tag; bridges +1.
+* **BRIDGE** (`WATER_CROSSING`): a tagged bridge (`bridge` other than `no`) that crosses a waterway line (river, stream, canal, ditch or drain; lines tagged `tunnel`/`culvert` never) or a water area (riverbank, lake, pond); and every **untagged** road crossing a river, stream or canal line, which gets an **inferred span** there: the water area's inside interval when the crossing lies in one, else the line's width (tagged, else river 15, canal 5, stream 3 m) + 2 m each side divided by the sine of the crossing angle (at least 0.33); roads running ≥ 3 m over a lake or pond get one too. An untagged crossing within 20 m of a tagged bridge belongs to that bridge (a mapping offset) only when the bridge is the **same road**: it shares a node with the crossing way, or runs parallel to it (|cos| ≥ 0.9) with the same class and name; a motor road never hands its river to a foot bridge, and a bridge that crosses the same water line itself never takes the road's crossing. Fords never get spans. A tagged bridge that crosses neither water nor a road is a BRIDGE without `WATER_CROSSING` (gullies). `DECK_FROM_TAGS` marks structures that come from OSM `bridge`/`tunnel`/`layer` tags (inferred spans lack it).
+* **FLYOVER** (`OVER_ROAD`, `FOOT_OVERBRIDGE` for footway, path, steps, cycleway, bridleway and pedestrian-street decks, which also take the foot deck depth and the 1.3 m railing): two ways whose lines cross at a point that is not a shared OSM node, on different effective layers; the higher one is the upper. A tagged bridge over a road, or an untagged way on layer > 0 over one, is a deck; without water it is a FLYOVER (with water it stays a BRIDGE and gets `OVER_ROAD`). A crossing within **2 m** (across the lower road, i.e. along the deck × sin) of a deck end that no other deck way continues is where the bridge lands on that road (a junction mapped without a shared node, a bank road at the bridge head): no grade separation.
+* **UNDERPASS**: the lower way of such a crossing; `clearance_cm` = the lowest deck underside above this road over the whole stretch under the upper road's corridor. A crossing needs a deck above (a bridge, or a way on layer > 0) or a `tunnel` below: a layer < 0 way meeting a ground road without a shared node and without a tunnel tag is an at-grade crossing and ignored. A **tunnel-tagged** lower way under a **ground** road gets a **lowered profile** (`LOWERED`, its heights are a cutting below the terrain), and so do the tunnel-tagged ways chained to it (the approach cuttings, e.g. the Ring Road at Kalanki), which are UNDERPASS too, not TUNNEL. A riverside road under a river bridge may be lowered as well (heights, step 2).
+* **TUNNEL**: a real tunnel that passes under no road (not drawn in W2; kept out of car routes). **FORD**: `ford=yes`.
+* **PASSAGE**: a way that runs under a building that stays whole: `tunnel=building_passage`, `covered` or `indoor` (any value but `no`), or a tunnel of at most 60 m on layer ≥ 0 (`corridors.passages`; the dhoka passages into the Newar bahal courtyards). Its corridor never trims the buildings it passes under (section 1.6); the buildings package meshes a gateway there. `clearance_cm` = the gateway's free height: `RoadClearance.MinOverheadClearanceM` 4.5 m, or the tagged `building:min_height` of a footprint it runs under when that is higher. Draped, `DECK_FROM_TAGS`.
+* `APPROACH`: the piece is not a structure but carries the approach ramp (or cutting) of one (its `kind` is NONE).
+* A piece's kind is the highest-ranked structure (BRIDGE > FLYOVER > UNDERPASS > TUNNEL > FORD > PASSAGE) whose interval overlaps its rendered arc range; a bridge or flyover piece without any deck point is reported as NONE + `APPROACH`. `railing_dm` is 11 on vehicle decks and 13 on foot decks.
+
+**Heights** (`structures._solve`): every way carrying a deck or a lowered profile, and every way within 600 m of path from one, is cut into stations every 5 m (plus vertices and interval ends); stations at one OSM node are one graph vertex. Terrain is the runtime's: the leaf tiles' quantised `HGHT` samples, bilinear inside the cell.
+
+1. **Base deck line**: each connected run of deck stations is interpolated harmonically (linearly along a chain) between its **abutments** (deck stations touching a ground road, or ending a way), which sit on the terrain; a deck never runs below that line or below the terrain under it.
+2. **Water**: over water a deck is at least the **water surface + clearance**: the surface is the lowest terrain along the waterway within 40 m (river; 20 m stream and canal, 10 m ditch) of the crossing, or along the road inside the water area, minus the channel depth; (depth, clearance) = river and riverbank (1.5, 3.0 m), canal (1.0, 2.0), stream (0.75, 1.5), ditch (0.5, 1.0), lake and pond (0.5, 1.0). Rivers, riverbanks and streams crossing **URBAN or OLD_CORE** ground are **incised**: depth 4.5 m (streams 2.5 m), because the 30 m DEM smooths away the channels sand mining has cut (the Bagmati at Thapathali runs in a canyon), and the valley's bridges stand at street level. A **riverside road** (inside the river's corridor: within half its width + 80 m of a river line, 30 m of a stream or canal, 30 m of a riverbank area) under a bridge that crosses that water may sink into a cutting (`LOWERED`), within 300 m of the crossing along the bank roads, but never below the water surface + 1 m; it sinks first, and the deck rises only for what remains.
+3. **Clearance**: over a road, every station of the upper road's stretch over the lower road's corridor is at least **5.5 m** (`RoadClearance.MinUnderpassClearanceM`) + the deck depth (`DeckDepthM` 1.2 m; foot decks, i.e. footway, path, steps, cycleway, bridleway and pedestrian-street classes over water too, `FootDeckDepthM` 0.6 m) above **every** station of the lower road's stretch under the upper road's corridor, so the clearance holds under the deck's whole width. The stretches are `(0.5 × w_lower + 1) / sin + 0.5 × w_upper × cot` (upper) and `(0.5 × w_upper + 1) / sin + 0.5 × w_lower × cot` (lower) either side of the crossing, at most 60 m, with `w` the widest final corridor within ±20 m.
+4. **One linear programme** per connected neighbourhood chooses every station's offset from the terrain: along the ground the offset changes by at most the class grade per metre (trunk and primary 5 %, secondary and tertiary 6 %, pedestrian streets and other motor roads 8 %, tracks 10 %, foot classes 50 %: stairs), along a deck the height itself does, so **no road ever steps** and the roads at a node share one height. It minimises the raising (per metre of offset and metre of road), the sinking (cheap for tunnel-tagged underpasses, the roads their cuttings run on into within 300 m, and riverside roads; prohibitive elsewhere), URBAN and OLD_CORE embankments higher than 3 m (a heavy penalty; the cases that remain are listed in the build report and docs/research/w2/data_detail_pass.md), lifting a motor road with a foot structure (its stairs end at the road instead), and stations leaving the terrain where the solved neighbourhood meets unsolved ways. Where the class grade cannot close the loop between a deck and the road under it (a riverside cutting joined to the bridge approach a few metres away), a motor-road ramp may steepen up to **15 %** (`RoadStructureRecord.SteepestRampGrade`), at a high cost. Missing clearance costs more than anything else (in effect never). The neighbourhood grows until no solution presses against its boundary.
+
+A point between two vertices is draped only when both are; otherwise a deck when either is, else a ramp. Pieces of the same way read the same way-level profile, so heights agree across tile borders.
+
+**Corridor shift** (`corridors.compute`, `_fit_between`): next to a protected footprint (section 1.6) that would enter the corridor, the band moves sideways (+ = left) until it clears it by 0.5 m, the shift changing by at most 1:20 along the way and staying as close to 0 as that allows; with protected footprints on both sides it narrows to the space between them, centred there (`SQUEEZED`, the only case where `corridor_dm` may go under 48). `shift_cm` samples the way-level shift every **5 m** from the piece's first rendered point; each sample is the largest shift (on its side) within ±5 m, so a reader that interpolates linearly between samples (C# `RoadStructureRecord.ShiftAtM`) never shifts less than the band the buildings were trimmed to. A road that runs into or through a protected footprint is clipped there instead (section 1.6).
+
+**Car access** (decision 5, `structures.car_accessible`; `CAR_ACCESSIBLE`): a motor class (motorway to service, track, road), an access mask with CAR or JEEP, a real width of at least 3.0 m (the plausible `width` tag **as surveyed**, not the class floor the drawing clamps a narrow tag to; else the W2_DESIGN 4.1 default), not a TUNNEL, and not a **galli**: an untagged way of a minor class (unclassified, residential, living street, service, track, road; trunk to tertiary are always car roads) whose space between buildings, measured with rays perpendicular to the centreline (30 m each side, both sides bounded; a station inside a footprint repeats its neighbour), stays under 4.0 m (3.0 m + 1.0 m clearance) for at least 20 m. Footways, paths, steps, pedestrian streets and `motorcar=no` ways are never car-accessible. The flag is way-level (every piece of a way agrees) and the routing graph uses the same rule (section 4).
 
 ## 2. Region pack (`.ghpk`): magic `GHPK`
 
@@ -447,6 +526,8 @@ Names: name_count × { str default, str en, str ne }
 The graph holds the region's roads clipped to its leaf-tile coverage; cut points become synthetic end nodes on the coverage edge. Nodes are OSM nodes that are an endpoint or that are shared by two or more routable ways. Ways are split at those nodes. Each edge is stored once per direction it can be travelled in. For a `oneway` road, the reverse edge keeps only `FOOT`, and it is omitted when its mask would be empty. `oneway:bicycle=no` (contraflow cycling) is not modelled yet, because the extract does not carry the tag (future work).
 
 **Sacred zones (D14).** A piece of road whose length (by segment midpoints) lies at least half inside a `SACRED_NO_VEHICLE` area (section 1.7) loses every motor mode (MOTORBIKE, CAR, JEEP, BUS) in both directions; FOOT, BICYCLE and HORSE stay. A forward edge whose mask becomes empty is omitted like a reverse one.
+
+**Car access (W2 detail pass, decision 5).** Every way that fails the car rule of section 1.15 (`CAR_ACCESSIBLE` clear: gallis, real width under 3 m, footways, paths, steps, pedestrian streets, `motorcar=no`, tunnels) loses CAR, JEEP and BUS (`routing.NO_CAR_MODES`) in both directions; MOTORBIKE, BICYCLE, FOOT and HORSE keep it. So the car and bus profiles avoid the streets a car cannot use, while motorbikes and bicycles may take them. The build report counts these ways (`graph_no_car_ways`).
 
 Travel cost for profile `p` is `length / speed(p, class, surface) × climb_factor`, with the tables in `routing.py` / `Routing/TravelProfiles.cs`. The reference query is A* with the straight-line distance divided by the profile's maximum speed as the heuristic.
 
