@@ -78,6 +78,7 @@ sample (Swayambhunath to Boudhanath); once the full valley is imported (`python 
 | Call your vehicle (garage whistle) | **G** | D-pad down |
 | Ring the stop bell (passenger) / a shrine bell (in a compound) | **B** | D-pad right |
 | Search, pause | **/**, **Esc** | Y, Start |
+| Next camera angle (per vehicle class, remembered) | **C** | right stick press |
 | Camera | wheel zooms, right-drag looks | shoulders zoom, right stick looks |
 
 The first time you play, the explorer gets a fresh look (a dhaka topi, a dhaka jacket over jeans, sneakers and a
@@ -153,9 +154,121 @@ Pixel and press Play. Mouse clicks act as touches:
   **Horn** and **Hop off** in the right column; landscape steers with the left stick and has **Go**, **Brake**,
   **Horn** and **Hop off** on the right.
 * Riding along: **Stop** (the bell) and **Hop off**; no steering.
-* Drag on the open world to look around; rotate mid-ride and the camera blends in 0.3 s.
+* Drag on the open world to look around; rotate mid-ride and the camera blends in 0.3 s. The camera button in the top
+  bar (a little camera, left of Search) cycles the camera angles.
 
 If Explore says *No map installed yet*, run **Ghumante → Project Setup** (or **Import Region Pack…**) and press Play
 again. Other debug keys (track C): **F3** free-fly camera, **T** fast time, **[ ]** an hour back/forward, **P** pause
 the clock. What to report: anything that feels wrong about the character, a vehicle class, a camera, the HUD in
 either orientation, or the passenger and garage flows.
+
+## The detail pass on a Mac (camera, HUD and routes)
+
+The owner's detail-pass feedback (`docs/W2_DETAIL_CONTRACT.md` §0) asked for a camera that is not blocked when backing
+up in narrow streets or by houses, several camera angles per vehicle, buses, direction info that does not cover the
+view, cars that keep off streets they cannot use, proper bridges and flyovers, and detailed roundabouts. The camera, HUD
+and route parts live in `Characters/Cameras`, `UI/Hud`, `UI/Screens` and `App/Explore`; the bridges, flyovers,
+roundabouts and buses come from their own packages and are checked here from the player's seat.
+
+**Set up**: pull, open `game/` in Unity 6000.3.25f1, run **Ghumante → Project Setup**, open
+`Assets/Ghumante/Scenes/Bootstrap.unity`, press **Play**, click **Explore**. Steps 1 to 6 work on the committed
+`kathmandu_core` sample; the Kalanki underpass and Jawalakhel need the valley pack (see above). Use **/** and
+**Teleport** (editor and development builds) to jump between places.
+
+**1. Camera angles per vehicle (C, right stick press, or the camera button in the top bar)**
+
+1. On foot press **C** three times: *Far chase* (farther and higher), *Over the shoulder* (close behind the right
+   shoulder, looking where you look), back to *Near chase*. Each press shows a short toast with the angle's name.
+2. **G** for the scooter, **E** to hop on, then **C**: *Near chase*, *Far chase*, *Low cinematic* (low behind the
+   rear wheel), *Handlebar* (first person over the handlebar; it leans half as much as the bike). Do the same on the
+   bicycle (**G** again while it stands beside you calls the next garage vehicle).
+3. In the small hatchback (or a community-fleet car or taxi): *Near*, *Far*, *Bonnet* (on the bonnet), *Driver's
+   view* (the driver's eyes). The vehicle meshes have no interior yet, so inside a closed body the camera package shows
+   a stand-in cockpit (`Characters/Rides/CockpitMesher.cs`): the dashboard with two gauges in a binnacle, vents, a
+   console, the steering column and a wheel that turns with your steering, A-pillars, the windscreen header with the
+   rear-view mirror and a little mala, side mirrors, door cards, a sunroof over you, a string of marigolds along the
+   screen. The shell's outline is switched off while you sit inside it. Look down (right-drag, right stick) to see the
+   wheel. The vehicles package's interior LOD will replace the stand-in.
+4. In a bus, truck or tractor (community fleet: the green key tag; or step 5): *High chase*, *Far*, *Driver's seat*.
+   The bus and truck driver's seat shows the same stand-in cab: a flat dash with four gauges, the split windscreen
+   (bus), wipers, a tinsel garland, prayer flags and a framed picture along the header (tilt the view up, or rotate to
+   portrait, to see them), the bus's seat rows with white covers and its grab rails behind you. The tractor is open:
+   its own bonnet is the view.
+5. Riding along as a passenger (step 5): *Near*, *Far*, *Window seat*: the camera leans out of the window beside
+   your seat and looks ahead along the bus's flank (the vehicle you ride is drawn by traffic and cannot be hidden from
+   inside, so there is no view from inside it yet). Next to a wall it leans out only as far as the wall allows.
+6. Every class remembers its own angle: pick *Handlebar* on the scooter, hop off (walking keeps its own angle), hop
+   back on: *Handlebar* again. Stop Play and press Play again: still *Handlebar* (saved as
+   `settings.camera_views` in the save).
+7. Rotate the Device Simulator (below) mid-ride: every angle keeps the minimum horizontal field of view in portrait and
+   landscape (driving 62°, walking 55°, bus and truck 64°, first-person views 68-72°; the vertical FOV stops at 100°).
+
+**2. Reversing in Thamel (the blocked camera)**
+
+1. Teleport to **Thamel Chowk**, take the scooter (**G**, **E**) and ride into one of the narrow side lanes (4.8 m
+   between the houses at the narrowest after the detail pass).
+2. In the lane the chase camera goes about 15° steeper and 15% closer ("lane mode") and looks over the eaves instead of
+   into the walls.
+3. Stop, then hold **S** to back up. After 0.3 s the camera rises and shortens so the lane behind you shows under the
+   bike; keep reversing for 1 s and it swings round to look along the way you are going. Never inside a house,
+   never behind one: where a house is in the way the camera pulls in at once and eases back out over about 0.6 s.
+4. Back up towards a corner or a dead end: the camera lifts over low walls and stays above the bike. Ride forwards
+   again: the swing undoes at once and the camera settles back behind you.
+5. Back right up to the house at the end of a dead-end lane (or stand with your back to a house front) and wait 3 s:
+   when the reversing frame lets go there is no room for the camera behind you. It never goes into the house or into
+   the rider: it rises straight up over your head (less under a balcony) and looks down the lane ahead, the front of
+   the bike at the bottom of the view. Ride or walk about 2 m away from the wall and it comes back down behind you.
+6. Walk along a house front in *Over the shoulder*, brushing the wall: the shoulder offset shrinks to nothing, so the
+   camera never enters the wall.
+
+**3. Houses in the way**
+
+1. Teleport to **Indra Chowk** and ride the lanes towards Asan. Turn sharp corners: the camera never shows the inside
+   of a house or the back of a wall; it pulls in and eases out. What still sits between the camera and you (an eave,
+   a strut, a wire) fades out with a dither (look package).
+
+**4. Bridges and flyovers**
+
+1. Teleport to **Kalopul** (the Black Bridge over the Dhobi Khola) and ride across: a real deck with kerbs and
+   railings on both sides. Do the same at **Nilo pul (Blue Bridge)** and **Balaju Bridge** (Bishnumati).
+2. Ride along the river under a bridge where a road passes beneath: at least 5.5 m of clearance, nothing gets stuck,
+   and the camera stays under the deck (it is an obstacle for the boom).
+3. Valley pack: teleport to **Kalanki underground bridge** and drive through the underpass and over the junction above
+   it; pedestrian overbridges stand where OpenStreetMap maps them. Try every camera angle on a deck.
+
+**5. Buses**
+
+1. Teleport to **Ratna Park bus station**. Buses run on the real routes; hold **E** at the open front-left door to ride
+   along. **C** cycles *Near*, *Far*, *Window seat*; **B** rings the bell, you get off at the next stop.
+2. Borrow a community-fleet bus (green key tag) and drive it: *High chase*, *Far*, *Driver's seat*.
+
+**6. Roundabouts and routes for each vehicle**
+
+1. Teleport to **Maitighar Mandala** and drive round it (keep left, clockwise): the island, its kerbs and its centre
+   piece come from the roundabout package; the camera keeps the island out of its boom.
+2. Routes: on the scooter press **/**, type **Indra Chowk**, press **Ride there**. The direction info is now a small
+   chip that never covers the road ahead and never sits under a thumb: in landscape under the top bar on the left
+   (or right of the speedometer on a tablet; left of it while riding along, when there is no stick), in portrait under
+   the top bar. It shows the next turn's arrow and how far it is ("240 m", or "Straight on"), then the distance and
+   time left ("2.4 km · 6 min"); off the route it reads "Back to the route" and its arrow points back to it; **×**
+   stops the route. Ride up to a corner: the distance counts down to the corner itself ("20 m" when it is 20 m away,
+   however many map nodes lead up to it) and turns at the junction, and on a roundabout it points to the middle of
+   your way round.
+3. Hop into the car (**G** until the hatchback comes, **E**): the route is planned again for the car ("Car route: only
+   streets a car fits through.") and goes round by streets a car can use (the GHRG car profile, which leaves out gallis,
+   streets under about 3 m, footways, paths, steps and `motorcar=no`). Hop back on the scooter: a new route that may take
+   the lanes again ("Scooter route: finding a new way…"). On foot the route uses footways and steps and its time
+   is a walking time.
+4. Valley pack: **Jawalakhel** roundabout in Patan, and **Ride there** from Thamel to Patan Durbar Square by car and by
+   scooter to compare.
+
+**Device Simulator (portrait, landscape, notches)**: **Window → General → Device Simulator**, pick an iPhone 15 (Dynamic
+Island) and a Pixel, press Play and ride a route in both orientations. The chip stays inside the safe area (clear of
+the notch, the punch hole and the home indicator), clear of the speedometer, the top bar and every touch control,
+including the whole floating-stick zone on the left in landscape and the lower stick or drive zone in portrait (the
+stick jumps to wherever the thumb lands). It moves to its next slot whenever the controls change: hop from the car
+into a bus, hop off, ride along, or plug in a gamepad (the touch controls hide) and watch it settle in the next
+frame.
+
+What to report: an angle that frames badly for a vehicle, any frame where the camera is inside or behind a house, the
+chip covering anything, or a car route that still enters a lane a car cannot fit.

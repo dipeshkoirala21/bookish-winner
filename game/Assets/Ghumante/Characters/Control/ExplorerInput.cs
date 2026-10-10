@@ -25,6 +25,7 @@ namespace Ghumante.Characters
     /// stop (passenger) B                             D-pad right
     /// map (later)     M                              Select
     /// search          /                              Y
+    /// camera angle    C                              right stick press
     /// pause           Esc (through the UI)           Start
     /// camera          scroll zooms, right-drag looks shoulders zoom, right stick looks
     /// </code>
@@ -60,6 +61,7 @@ namespace Ghumante.Characters
         private readonly InputAction _mapButton;
         private readonly InputAction _pause;
         private readonly InputAction _search;
+        private readonly InputAction _camera;
         private readonly InputAction _zoomHold;
         private readonly InputAction _look;
         private readonly InputAction[] _deviceProbes;
@@ -94,12 +96,13 @@ namespace Ghumante.Characters
             _pause = _systemMap.AddAction("Pause", InputActionType.Button, "<Gamepad>/start");
             _systemMap.Enable();
             _search = Button("Search", "<Keyboard>/slash", "<Gamepad>/buttonNorth");
+            _camera = Button("Camera", "<Keyboard>/c", "<Gamepad>/rightStickPress");
 
             _zoomHold = _map.AddAction("ZoomHold", InputActionType.Value, expectedControlLayout: "Axis");
             _zoomHold.AddCompositeBinding("1DAxis").With("Negative", "<Gamepad>/leftShoulder").With("Positive", "<Gamepad>/rightShoulder");
             _look = _map.AddAction("Look", InputActionType.Value, "<Gamepad>/rightStick", expectedControlLayout: "Vector2");
 
-            _deviceProbes = new[] { _move, _throttle, _reverse, _brake, _boost, _toggle, _jump, _horn, _namaste, _whistle, _bell, _mapButton, _pause, _search, _zoomHold, _look };
+            _deviceProbes = new[] { _move, _throttle, _reverse, _brake, _boost, _toggle, _jump, _horn, _namaste, _whistle, _bell, _mapButton, _pause, _search, _camera, _zoomHold, _look };
 #endif
         }
 
@@ -173,6 +176,7 @@ namespace Ghumante.Characters
             frame.Bell = _bell.WasPressedThisFrame();
             frame.Map = _mapButton.WasPressedThisFrame();
             frame.Search = _search.WasPressedThisFrame();
+            frame.CameraCycle = _camera.WasPressedThisFrame();
 
             Mouse mouse = Mouse.current;
             float scroll = mouse != null ? mouse.scroll.ReadValue().y : 0f;

@@ -1,7 +1,7 @@
 /*
  * Explore HUD (M1 track D; ARCHITECTURE.md 7.9, 7.10a). Builds on Styles/Ghumante.uss (tokens, pills, round icon
  * buttons, panels, sheets, toast, particles) and adds the in-world HUD: place name, compass, speedometer and surface
- * chip, route banner, touch controls (floating stick, pedals, portrait drive zone), the pause panel and the loading
+ * chip, route chip, touch controls (floating stick, pedals, portrait drive zone), the pause panel and the loading
  * overlay. The same motion rules apply: code animates translate / scale / rotate / opacity only, so nothing here
  * puts a static value or a transition on those properties of an element code moves (see UI/README.md, "Motion").
  *
@@ -240,45 +240,42 @@
     display: flex;
 }
 
-/* ----- Route banner ------------------------------------------------------------------------------------- */
+/* ----- Route chip (W2 detail pass) ----------------------------------------------------------------------- */
 
+/* A compact chip: the next turn's arrow, the distance to it (big) and the distance and time left (small), with x to
+ * stop. ExploreScreen places it with RouteChipLayout (inline left/top) inside the safe area, never over the road ahead
+ * and never in a thumb zone: under the top bar, or beside the speedometer on the bottom edge where no stick zone is;
+ * these left/top values (under the top bar on the left, clear of the stick zone) are the fallback until the HUD has
+ * been laid out. Children that must keep their size say flex-shrink: 0
+ * (UI Toolkit shrinks by default); the text column shrinks and ellipsises instead. */
 .gh-hud__route {
     position: absolute;
-    top: 128px;
-    align-self: center;
+    left: 24px;
+    top: 146px;
     flex-direction: row;
     align-items: center;
-    max-width: 70%;
-    padding: 6px 8px 8px 8px;
+    max-width: 36%;
+    padding: 4px 2px 6px 6px;
     border-radius: 40px;
     background-color: var(--gh-cream);
     border-width: 3px;
-    border-bottom-width: 7px;
+    border-bottom-width: 6px;
     border-color: var(--gh-cream-edge);
     display: none;
-    transform-origin: 50% 0%;
+    transform-origin: 50% 50%;
 }
 
 .gh-hud__route--visible {
     display: flex;
 }
 
-/* While a route shows, toasts drop below its banner instead of covering it (ExploreScreen.RoutingClass). */
-.gh-root.gh-hud--routing .gh-toast {
-    top: 240px;
-}
-
-.gh-root.orient-portrait.gh-hud--routing .gh-toast {
-    top: 352px;
-}
-
 .gh-hud__route-arrow {
-    width: 72px;
-    height: 72px;
-    border-radius: 36px;
+    width: 64px;
+    height: 64px;
+    border-radius: 32px;
     background-color: var(--gh-yellow);
     border-width: 3px;
-    border-bottom-width: 6px;
+    border-bottom-width: 5px;
     border-color: var(--gh-yellow-dark);
     align-items: center;
     justify-content: center;
@@ -296,47 +293,95 @@
 }
 
 .gh-hud__route-chevron {
-    margin-top: 16px;
-    width: 26px;
-    height: 26px;
-    border-top-width: 9px;
-    border-left-width: 9px;
+    margin-top: 13px;
+    width: 22px;
+    height: 22px;
+    border-top-width: 8px;
+    border-left-width: 8px;
     border-color: var(--gh-white);
     rotate: 45deg;
 }
 
 .gh-hud__route-stem {
-    width: 9px;
-    height: 20px;
-    margin-top: -14px;
+    width: 8px;
+    height: 18px;
+    margin-top: -12px;
     border-radius: 3px;
     background-color: var(--gh-white);
 }
 
 .gh-hud__route-text {
     flex-shrink: 1;
-    margin: 0 16px;
+    min-width: 0;
+    margin: 0 10px 0 12px;
 }
 
-.gh-hud__route-to,
-.gh-root .gh-hud__route-to {
-    -unity-font-definition: url("../Fonts/Baloo2-Bold.ttf");
-    font-size: 30px;
+.gh-hud__route-step,
+.gh-root .gh-hud__route-step {
+    -unity-font-definition: url("../Fonts/Baloo2-ExtraBold.ttf");
+    font-size: 34px;
     color: var(--gh-ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex-shrink: 1;
     margin: 0;
     padding: 0;
+}
+
+.gh-lang-ne .gh-hud__route-step {
+    font-size: 30px;
 }
 
 .gh-hud__route-info,
 .gh-root .gh-hud__route-info {
     -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
-    font-size: 26px;
+    font-size: 22px;
     color: var(--gh-cyan-dark);
-    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    margin: -4px 0 0 0;
     padding: 0;
+}
+
+/* The x keeps its 72-unit touch target in a squeezed chip. */
+.gh-hud__route-cancel {
+    flex-shrink: 0;
+}
+
+/* The camera-angle button's icon: a little camera (body, lens, viewfinder bump). */
+.gh-hud-icon__cam-top {
+    position: absolute;
+    left: 15px;
+    top: 7px;
+    width: 18px;
+    height: 12px;
+    border-radius: 4px;
+    background-color: var(--gh-ink);
+}
+
+.gh-hud-icon__cam-body {
+    position: absolute;
+    left: 4px;
+    top: 14px;
+    width: 48px;
+    height: 34px;
+    border-radius: 9px;
+    background-color: var(--gh-ink);
+    align-items: center;
+    justify-content: center;
+}
+
+.gh-hud-icon__cam-lens {
+    width: 22px;
+    height: 22px;
+    border-radius: 11px;
+    background-color: var(--gh-cyan);
+    border-width: 4px;
+    border-color: var(--gh-white);
+    flex-shrink: 0;
 }
 
 /* ----- Speedometer and surface chip ---------------------------------------------------------------------- */
@@ -690,8 +735,9 @@
 }
 
 .orient-portrait .gh-hud__route {
-    top: 240px;
-    max-width: 94%;
+    left: 16px;
+    top: 236px;
+    max-width: 66%;
 }
 
 .orient-portrait .gh-hud__speedo {

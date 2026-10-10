@@ -22,9 +22,10 @@ namespace Ghumante.UI.Screens
     /// <item><b>Loading</b>: a progress overlay while the region opens and the streets around the spawn stream in; or a
     /// friendly explanation with "Back to menu" when no region is installed or opening failed.</item>
     /// <item><b>HUD</b>: speed (km/h, Devanagari digits in Nepali), the surface under the wheels with a subtle dot when
-    /// the road's surface is inferred, the place you are in (EN/NE), a compass, the route banner (direction arrow,
-    /// distance, ETA), Search, Walk/Ride and Menu buttons, the OpenStreetMap credit, a debug time-of-day slider in
-    /// development builds.</item>
+    /// the road's surface is inferred, the place you are in (EN/NE), a compass, the camera-angle button, the compact
+    /// route chip (the next turn's arrow, how far to it, distance and time left; placed by <see cref="RouteChipLayout"/>
+    /// beside the speedometer or under the top bar, never over the road ahead), Search, Walk/Ride and Menu buttons, the
+    /// OpenStreetMap credit, a debug time-of-day slider in development builds.</item>
     /// <item><b>Touch controls</b> (<see cref="TouchControls"/>), hidden while a keyboard or gamepad drives.</item>
     /// <item><b>Panels</b>: search (<see cref="SearchSheet"/>), pause (Resume, Settings, Main menu) and the shared
     /// <see cref="SettingsSheet"/>. Escape and Android back close the top panel, or pause.</item>
@@ -50,7 +51,7 @@ namespace Ghumante.UI.Screens
         public const string ActionIconNone = "gh-action-btn__icon--none";
         public const string RouteVisibleClass = "gh-hud__route--visible";
 
-        /// <summary>On the root while the route banner shows: toasts then drop below it (Hud.uss).</summary>
+        /// <summary>On the root while the route chip shows.</summary>
         public const string RoutingClass = "gh-hud--routing";
         public const string InferredOnClass = "gh-hud__inferred--on";
         public const string OffRoadClass = "gh-hud__surface--offroad";
@@ -88,8 +89,12 @@ namespace Ghumante.UI.Screens
         private readonly VisualElement _route;
         private readonly MotionNode _routeNode;
         private readonly VisualElement _routePointer;
-        private readonly Label _routeTo;
+        private readonly Label _routeStep;
         private readonly Label _routeInfo;
+        private readonly VisualElement _actionsRow;
+        private readonly VisualElement _attribution;
+        private readonly VisualElement[] _chipObstacles;
+        private readonly HudRect[] _chipRects;
         private readonly VisualElement _debug;
         private readonly Label _debugClock;
         private readonly VisualElement _controls;
@@ -98,6 +103,7 @@ namespace Ghumante.UI.Screens
         private readonly Button _modeButton;
         private readonly Button _menuButton;
         private readonly Button _garageButton;
+        private readonly Button _cameraButton;
         private readonly Button _action;
         private readonly Label _actionLabel;
         private readonly VisualElement _actionIcon;
@@ -154,6 +160,12 @@ namespace Ghumante.UI.Screens
         private int _routeMinutes = -1;
         private string _routeStatusKey;
         private bool _routeStatusOnly;
+        private RouteStepKind _stepKind = RouteStepKind.None;
+        private long _stepBucket = -1;
+        private double _stepM;
+        private bool _placingChip;
+        private readonly Action _placeChip;
+        private RouteChipSlot _chipSlot = RouteChipSlot.Fallback;
         private float _loadingProgress = -1f;
         private int _loadingPercentShown = -1;
         private string _loadingStatusKey;
@@ -184,13 +196,13 @@ namespace Ghumante.UI.Screens
             _route = Required<VisualElement>("hud-route");
             _routeNode = Animator.Node(_route);
             _routePointer = Required<VisualElement>("hud-route-pointer");
-            _routeTo = Required<Label>("hud-route-to");
+            _routeStep = Required<Label>("hud-route-step");
             _routeInfo = Required<Label>("hud-route-info");
             _debug = Required<VisualElement>("hud-debug");
             _debugClock = Required<Label>("hud-debug-clock");
             _controls = Required<VisualElement>("hud-controls");
             _controlsNode = Animator.Node(_controls);
-            Required<Label>("hud-attribution");
+            _attribution = Required<Label>("hud-attribution");
 
             _action = Required<Button>("hud-action");
             _actionLabel = Required<Label>("hud-action-label");
@@ -218,10 +230,27 @@ namespace Ghumante.UI.Screens
                 Bell = Required<Button>("hud-bell"),
             }, Animator, Haptics, Feel);
 
+            // What the route chip must keep clear of (besides the speedometer and the top bar): every touch control, the
+            // prompt chip and the debug panel, as laid out. The floating stick counts by its whole touch zone (and the
+            // portrait drive zone by its own), not by its resting ring: the stick jumps to wherever the thumb lands, and
+            // the chip's x under a thumb would stop the route. Any of them moving (a layout or orientation change, the
+            // touch controls shown or hidden) places the chip again.
+            _chipObstacles = new[]
+            {
+                Required<VisualElement>("hud-stick-zone"), Required<VisualElement>("hud-drive-zone"), Required<VisualElement>("hud-pedals"), _action,
+                _passenger, Required<VisualElement>("hud-emote"), Required<VisualElement>("hud-horn"), Required<VisualElement>("hud-bell"), _prompt,
+                _debug, _attribution,
+            };
+            _chipRects = new HudRect[_chipObstacles.Length];
+            _placeChip = PlaceRouteChip;
+
             _toast = new HudToast(Animator, Required<VisualElement>("toast-bubble"), Required<VisualElement>("toast-icon"),
                                   Required<Label>("toast"));
             _particles = new ParticleBurst(Animator, Required<VisualElement>("fx-layer"), Motion.LowPower ? 16 : 36, 5309u);
 
+            _actionsRow = Required<VisualElement>("hud-actions");
+            _cameraButton = Required<Button>("hud-camera");
+            Feel(_cameraButton, HapticKind.Selection, () => Raise(CameraRequested));
             _searchButton = Required<Button>("hud-search");
             _modeButton = Required<Button>("hud-mode");
             _menuButton = Required<Button>("hud-menu");
@@ -314,6 +343,12 @@ namespace Ghumante.UI.Screens
             Animator.OnUpdate(DropStaleFocus);
 
             Root.RegisterCallback<AttachToPanelEvent>(OnAttach);
+            // The route chip is placed whenever the HUD's geometry changes (rotation, safe area, the chip's own size).
+            StyledRoot.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            _route.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            _speedo.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            _top.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            for (int i = 0; i < _chipObstacles.Length; i++) _chipObstacles[i].RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
             if (Root.panel != null) ListenForBack();
             Animator.OnIdle(UpdateIdle, () =>
             {
@@ -339,8 +374,11 @@ namespace Ghumante.UI.Screens
         /// <summary>The garage button: whistle for the selected garage vehicle.</summary>
         public event Action GarageRequested;
 
-        /// <summary>The × of the route banner.</summary>
+        /// <summary>The × of the route chip.</summary>
         public event Action RouteCancelRequested;
+
+        /// <summary>The camera button: the next camera angle of the current vehicle class.</summary>
+        public event Action CameraRequested;
 
         /// <summary>"Ride there" on a search result.</summary>
         public event Action<SearchEntry> RideToRequested;
@@ -504,6 +542,9 @@ namespace Ghumante.UI.Screens
             _modeButton.tooltip = Localizer.Get(ride ? "hud.walk" : "hud.ride");
             _touch.ReleaseAll();
             if (!Animator.Reduced) _modeIconNode.KickHop(320f);
+            // Pedals, horn, zones and the action button move or appear: place the chip again once the new layout has
+            // resolved (a car-to-bus switch keeps the route profile, so nothing else would).
+            SchedulePlaceRouteChip();
         }
 
         public ControlLayout Layout
@@ -587,6 +628,7 @@ namespace Ghumante.UI.Screens
             _touch.Visible = visible;
             if (visible && !Animator.Reduced) Animator.Play(_controlsNode, MotionChannel.Opacity, new Tween(0f, 1f, 0.3f, Ease.OutCubic));
             else _controlsNode.Set(MotionChannel.Opacity, 1f);
+            SchedulePlaceRouteChip();
         }
 
         /// <summary>The speedometer, from metres per second (written only when the whole km/h changes).</summary>
@@ -660,7 +702,7 @@ namespace Ghumante.UI.Screens
             _compassRose.style.rotate = new Rotate(new Angle(deg, AngleUnit.Degree));
         }
 
-        /// <summary>Shows the route banner for <paramref name="destination"/> with a status line (e.g. finding the way).
+        /// <summary>Shows the route chip for <paramref name="destination"/> with a status line (e.g. finding the way).
         /// The name follows the language: a switch mid-route re-renders it.</summary>
         public void ShowRoute(NameRecord destination, string statusKey)
         {
@@ -668,7 +710,8 @@ namespace Ghumante.UI.Screens
             _routeRecord = destination;
         }
 
-        /// <summary>Shows the route banner for a fixed <paramref name="destination"/> text with a status line.</summary>
+        /// <summary>Shows the route chip for a fixed <paramref name="destination"/> text with a status line: the big line
+        /// names the destination ("To Boudhanath Stupa"), the small one says what is happening.</summary>
         public void ShowRoute(string destination, string statusKey)
         {
             _routeRecord = null;
@@ -678,18 +721,24 @@ namespace Ghumante.UI.Screens
             _routeStatusOnly = statusKey != null;
             _routeBucket = -1;
             _routeMinutes = -1;
+            _stepKind = RouteStepKind.None;
+            _stepBucket = -1;
             bool wasVisible = _route.ClassListContains(RouteVisibleClass);
             _route.AddToClassList(RouteVisibleClass);
             ApplyRouteText();
             if (!wasVisible && !Animator.Reduced)
             {
-                Animator.Play(_routeNode, MotionChannel.TranslateY, new Tween(-60f, 0f, 0.4f, Ease.OutBack));
+                // In from the edge it sits on: up from the bottom edge, down from under the top bar.
+                bool bottom = _chipSlot == RouteChipSlot.BesideSpeedoLeft || _chipSlot == RouteChipSlot.BesideSpeedoRight;
+                Animator.Play(_routeNode, MotionChannel.TranslateY, new Tween(bottom ? 50f : -50f, 0f, 0.4f, Ease.OutBack));
                 Animator.Play(_routeNode, MotionChannel.Opacity, new Tween(0f, 1f, 0.2f, Ease.Linear));
             }
+            PlaceRouteChip();
         }
 
-        /// <summary>Route progress: remaining metres, ETA seconds and the direction to go relative to the camera
-        /// (radians, 0 = straight ahead, clockwise). Text changes only when the rounded values change.</summary>
+        /// <summary>Route progress: remaining metres, ETA seconds and the arrow's direction relative to the camera
+        /// (radians, 0 = straight up the screen, clockwise): the next turn, or the way back to the route. The small line
+        /// changes only when the rounded values change.</summary>
         public void SetRouteProgress(double remainingM, double etaSeconds, float arrowRad)
         {
             long bucket = HudFormat.DistanceBucket(remainingM);
@@ -711,12 +760,40 @@ namespace Ghumante.UI.Screens
             }
         }
 
+        /// <summary>
+        /// The chip's big line: the distance to the next turn (<see cref="RouteStepKind.Turn"/>), "Straight on" when none
+        /// is near, or "Back to the route" when off it. Text changes only when the rounded distance or the kind changes.
+        /// </summary>
+        public void SetRouteStep(RouteStepKind kind, double distanceM)
+        {
+            if (_routeStatusOnly) return;
+            long bucket = kind == RouteStepKind.Turn ? HudFormat.DistanceBucket(distanceM) : -1;
+            if (kind == _stepKind && bucket == _stepBucket) return;
+            _stepKind = kind;
+            _stepBucket = bucket;
+            _stepM = distanceM;
+            ApplyRouteText();
+        }
+
+        /// <summary>What the big line shows (<see cref="SetRouteStep"/>).</summary>
+        public RouteStepKind RouteStep
+        {
+            get { return _stepKind; }
+        }
+
         public void HideRoute()
         {
             _routeDestination = null;
             _routeRecord = null;
+            _stepKind = RouteStepKind.None;
             _route.RemoveFromClassList(RouteVisibleClass);
             StyledRoot.RemoveFromClassList(RoutingClass);
+        }
+
+        /// <summary>The slot <see cref="RouteChipLayout"/> chose for the chip (Fallback until the HUD is laid out).</summary>
+        public RouteChipSlot RouteChipSlot
+        {
+            get { return _chipSlot; }
         }
 
         public bool RouteVisible
@@ -899,6 +976,11 @@ namespace Ghumante.UI.Screens
         {
             StopListeningForBack();
             Root.UnregisterCallback<AttachToPanelEvent>(OnAttach);
+            StyledRoot.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            _route.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            _speedo.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            _top.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            for (int i = 0; i < _chipObstacles.Length; i++) _chipObstacles[i].UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _touch.Dispose();
             _search.Dispose();
             _settings.Dispose();
@@ -919,6 +1001,7 @@ namespace Ghumante.UI.Screens
             _searchButton.tooltip = Localizer.Get("hud.search");
             _menuButton.tooltip = Localizer.Get("hud.menu");
             _garageButton.tooltip = Localizer.Get("hud.garage");
+            _cameraButton.tooltip = Localizer.Get("hud.camera");
             ApplyActionText();
             ApplyPromptText();
             if (_hornKey != null) _hornLabel.text = Localizer.Get(_hornKey);
@@ -951,11 +1034,29 @@ namespace Ghumante.UI.Screens
         {
             if (_routeDestination == null) return;
             if (_routeRecord != null) _routeDestination = _routeRecord.Display(Localizer.Locale == Localizer.Nepali);
-            _routeTo.text = Localizer.Format("hud.route.to", _routeDestination);
+            bool devanagari = Localizer.UsesDevanagariDigits;
             if (_routeStatusOnly && _routeStatusKey != null)
             {
-                _routeInfo.text = Localizer.Get(_routeStatusKey);
+                _routeStep.text = Localizer.Format("hud.route.to", _routeDestination);
+                _routeInfo.text = Localizer.Format(_routeStatusKey, _routeDestination);
                 return;
+            }
+            switch (_stepKind)
+            {
+                case RouteStepKind.Turn:
+                    bool stepKm;
+                    string step = HudFormat.Distance(_stepM, devanagari, out stepKm);
+                    _routeStep.text = Localizer.Format(stepKm ? "hud.distance_km" : "hud.distance_m", step);
+                    break;
+                case RouteStepKind.Straight:
+                    _routeStep.text = Localizer.Get("hud.route.straight");
+                    break;
+                case RouteStepKind.BackToRoute:
+                    _routeStep.text = Localizer.Get("hud.route.back");
+                    break;
+                default:
+                    _routeStep.text = Localizer.Format("hud.route.to", _routeDestination);
+                    break;
             }
             if (_routeBucket < 0)
             {
@@ -964,10 +1065,102 @@ namespace Ghumante.UI.Screens
             }
             // Re-derived from the metres, so a language switch also switches the digits.
             bool km;
-            string number = HudFormat.Distance(_routeRemainingM, Localizer.UsesDevanagariDigits, out km);
+            string number = HudFormat.Distance(_routeRemainingM, devanagari, out km);
             string distance = Localizer.Format(km ? "hud.distance_km" : "hud.distance_m", number);
-            string eta = Localizer.Format("hud.eta_min", HudFormat.Number(_routeMinutes, Localizer.UsesDevanagariDigits));
+            string eta = Localizer.Format("hud.eta_min", HudFormat.Number(_routeMinutes, devanagari));
             _routeInfo.text = Localizer.Format("hud.route.info", distance, eta);
+        }
+
+        // ----- Route chip placement ---------------------------------------------------------------------------------
+
+        private void OnHudGeometry(GeometryChangedEvent evt)
+        {
+            PlaceRouteChip();
+        }
+
+        /// <summary>Places the chip on the next panel update, after a change of classes or visibility has been laid out
+        /// (no allocation: the callback is cached).</summary>
+        private void SchedulePlaceRouteChip()
+        {
+            if (!_route.ClassListContains(RouteVisibleClass)) return;
+            StyledRoot.schedule.Execute(_placeChip).StartingIn(0);
+        }
+
+        /// <summary>
+        /// Puts the route chip where <see cref="RouteChipLayout"/> says (inline left/top in the HUD root), from the laid-out
+        /// rectangles of the screen, the safe area (the HUD root), the speedometer, the top bar and every touch control.
+        /// Runs on geometry changes only; skipped until the chip and the HUD have been laid out (USS fallback until then).
+        /// </summary>
+        private void PlaceRouteChip()
+        {
+            if (_placingChip || !_route.ClassListContains(RouteVisibleClass)) return;
+            Rect chip = _route.worldBound;
+            Rect safeRect = StyledRoot.worldBound;
+            Rect screenRect = Root.panel != null ? Root.panel.visualTree.worldBound : Root.worldBound;
+            if (!Valid(chip) || !Valid(safeRect) || !Valid(screenRect)) return;
+            int count = 0;
+            for (int i = 0; i < _chipObstacles.Length; i++)
+            {
+                VisualElement e = _chipObstacles[i];
+                if (!Shown(e)) continue;
+                Rect r = e.worldBound;
+                if (Valid(r)) _chipRects[count++] = ToHud(r);
+            }
+            HudRect topBar = default(HudRect);
+            if (Shown(_place) && Valid(_place.worldBound)) topBar = ToHud(_place.worldBound);
+            if (Shown(_actionsRow) && Valid(_actionsRow.worldBound))
+            {
+                HudRect actions = ToHud(_actionsRow.worldBound);
+                topBar = topBar.IsEmpty ? actions
+                    : HudRect.Edges(Mathf.Min(topBar.X, actions.X), Mathf.Min(topBar.Y, actions.Y), Mathf.Max(topBar.Right, actions.Right),
+                                    Mathf.Max(topBar.Bottom, actions.Bottom));
+            }
+            // The speedometer cluster: the digits and surface chip, and the map credit under them.
+            HudRect speedo = Shown(_speedo) && Valid(_speedo.worldBound) ? ToHud(_speedo.worldBound) : default(HudRect);
+            if (!speedo.IsEmpty && Shown(_attribution) && Valid(_attribution.worldBound))
+            {
+                HudRect a = ToHud(_attribution.worldBound);
+                speedo = HudRect.Edges(Mathf.Min(speedo.X, a.X), Mathf.Min(speedo.Y, a.Y), Mathf.Max(speedo.Right, a.Right), Mathf.Max(speedo.Bottom, a.Bottom));
+            }
+            bool portrait = StyledRoot.ClassListContains(OrientationWatcher.PortraitClass);
+            RouteChipSlot slot;
+            HudRect at = RouteChipLayout.Place(ToHud(screenRect), ToHud(safeRect), portrait, chip.width, chip.height, speedo, topBar, _chipRects,
+                                               count, out slot);
+            _chipSlot = slot;
+            float left = at.X - safeRect.xMin, top = at.Y - safeRect.yMin;
+            if (float.IsNaN(left) || float.IsNaN(top)) return;
+            IStyle style = _route.style;
+            bool same = style.left.keyword == StyleKeyword.Undefined && Mathf.Abs(style.left.value.value - left) < 0.5f &&
+                        style.top.keyword == StyleKeyword.Undefined && Mathf.Abs(style.top.value.value - top) < 0.5f;
+            if (same) return;
+            _placingChip = true;
+            style.left = left;
+            style.top = top;
+            style.right = StyleKeyword.Auto;
+            style.bottom = StyleKeyword.Auto;
+            _placingChip = false;
+        }
+
+        /// <summary>True when <paramref name="e"/> is displayed: neither it nor any ancestor is display: none (hidden
+        /// touch controls hide their zones and buttons with them), and it is not hidden.</summary>
+        private static bool Shown(VisualElement e)
+        {
+            if (e == null || e.resolvedStyle.visibility == Visibility.Hidden) return false;
+            for (VisualElement a = e; a != null; a = a.parent)
+            {
+                if (a.resolvedStyle.display == DisplayStyle.None) return false;
+            }
+            return true;
+        }
+
+        private static bool Valid(Rect r)
+        {
+            return !float.IsNaN(r.x) && !float.IsNaN(r.y) && r.width > 0f && r.height > 0f && !float.IsInfinity(r.width);
+        }
+
+        private static HudRect ToHud(Rect r)
+        {
+            return new HudRect(r.xMin, r.yMin, r.width, r.height);
         }
 
         private void ApplyLoadingText()

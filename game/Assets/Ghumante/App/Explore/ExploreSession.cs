@@ -9,6 +9,7 @@ using Ghumante.Core.Characters;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
+using Ghumante.Core.Routing;
 using Ghumante.Core.Save;
 using Ghumante.Core.Search;
 using Ghumante.Core.Services;
@@ -46,9 +47,13 @@ namespace Ghumante.App.Explore
     /// the audio listener and maps the explorer's prompt and layout onto the HUD.</item>
     /// <item><b>Play</b>: every frame the merged controls (keyboard and gamepad through <see cref="ExplorerInput"/>, touch
     /// through the HUD) drive the <see cref="ExplorerController"/>, the world streams around it (its focus), the
-    /// <see cref="ChaseCameraRig"/> follows, haptics answer bumps, surfaces and recoveries, and the HUD shows speed,
-    /// surface, place, compass and the route. "Ride there" plans with Core's A* (motorbike) and draws the world's route
-    /// ribbon; arriving within about 40 m celebrates.</item>
+    /// <see cref="ChaseCameraRig"/> follows (W2 detail pass: collision-aware over the world's
+    /// <see cref="IViewObstacleQuery"/>, a camera angle per vehicle class cycled with C, the right-stick press or the HUD
+    /// camera button and remembered in the save), haptics answer bumps, surfaces and recoveries, and the HUD shows speed,
+    /// surface, place, compass and the route chip. "Ride there" plans with Core's A* for how the explorer travels
+    /// (<see cref="RoutePlanner.ProfileFor"/>: the GHRG car profile in any four-wheeler, so car routes keep off streets a
+    /// car cannot use; motorbike, bicycle or foot otherwise), re-plans when the explorer changes vehicle, draws the world's
+    /// route ribbon and shows the next turn; arriving within about 40 m celebrates.</item>
     /// <item><b>Close</b>: the world closes, everything is destroyed and unused assets are unloaded before the menu
     /// comes back (<see cref="ExitRequested"/>).</item>
     /// </list>
@@ -72,6 +77,12 @@ namespace Ghumante.App.Explore
         public const float SurfaceInterval = 0.2f;
         public const float PlaceInterval = 0.5f;
         public const float RerouteCooldownS = 6f;
+
+        /// <summary>A new vehicle class must hold this long before the route is re-planned for it (hopping on and off).</summary>
+        public const float ProfileSettleS = 0.6f;
+
+        /// <summary>Farther than this from the route, the chip's arrow points back to it.</summary>
+        public const double OffRouteChipM = 25.0;
 
         private enum Phase
         {
@@ -145,6 +156,10 @@ namespace Ghumante.App.Explore
         private int _routeToken;
         private bool _planning;
         private ControlFrame _frame;
+        private CameraViewMemory _views;
+        private bool _cameraPressed;
+        private Travel _routeProfile = Travel.Motorbike;
+        private float _profileSettle;
 
         /// <summary>The player wants the main menu back (Main menu in the pause panel, Back on the loading overlay).
         /// The owner calls <see cref="Close"/> and shows the menu.</summary>
@@ -282,6 +297,7 @@ namespace Ghumante.App.Explore
             _screen.RideToRequested += RideTo;
             _screen.TeleportRequested += TeleportTo;
             _screen.TimeOfDayChanged += OnTimeOfDayChanged;
+            _screen.CameraRequested += OnCameraRequested;
         }
 
         private void Unwire()
@@ -293,6 +309,7 @@ namespace Ghumante.App.Explore
             _screen.RideToRequested -= RideTo;
             _screen.TeleportRequested -= TeleportTo;
             _screen.TimeOfDayChanged -= OnTimeOfDayChanged;
+            _screen.CameraRequested -= OnCameraRequested;
         }
 
         private async void Open()
@@ -425,6 +442,9 @@ namespace Ghumante.App.Explore
             }
             _rig.Attach(camera, _world.Config);
             _rig.ReducedMotion = _motion.ReduceMotion;
+            _views = CameraViewMemory.Load(_save);
+            _rig.Views = _views;
+            _rig.Obstacles = ViewObstacles();
             _rig.Snap();
 
             _input = new ExplorerInput { Enabled = true };
@@ -491,10 +511,16 @@ namespace Ghumante.App.Explore
                 frame.Whistle = true;
                 _garagePressed = false;
             }
+            if (_cameraPressed)
+            {
+                frame.CameraCycle = true;
+                _cameraPressed = false;
+            }
             if (!blocked && !settling)
             {
                 if (frame.Search) _screen.OpenSearch(frame.Device == ControlDevice.Gamepad);
                 if (frame.Map) _screen.ShowToast(_localizer.Get("menu.map_soon"), "gh-toast__icon--map");
+                if (frame.CameraCycle) CycleCamera();
             }
             blocked = _screen.BlocksGameplay;
             _blockedLastFrame = blocked;
@@ -544,11 +570,19 @@ namespace Ghumante.App.Explore
         private void LateUpdate()
         {
             if (_phase != Phase.Playing || _explorer == null) return;
-            Vector3 target;
+            Vector3 ground;
             float heading, speed, lean;
-            _explorer.GetCameraTarget(out target, out heading, out speed, out lean);
-            _rig.PassengerOf = _explorer.PassengerRig;
-            _rig.Tick(Time.deltaTime, target, heading, speed, lean, _explorer.Rig, _frame, _world.Ground, _world.Origin);
+            _explorer.GetCameraTarget(out ground, out heading, out speed, out lean);
+            var target = new CameraTarget
+            {
+                Ground = ground, HeadingRad = heading, SpeedMps = speed, LeanRad = lean, Rig = _explorer.Rig, PassengerOf = _explorer.PassengerRig,
+            };
+            target.HasMount = _explorer.TryGetCameraMount(out target.Mount);
+            _rig.Obstacles = ViewObstacles();
+            _rig.Tick(Time.deltaTime, target, _frame, _world.Ground, _world.Origin);
+            // The driver's eye inside a closed body: the vehicle shows its stand-in cockpit (no outline hull around us).
+            bool eyeView = _rig.Mounted && CameraViews.Spec(_rig.View).Kind == CameraViewKind.Eye;
+            _explorer.UpdateCockpit(eyeView, _rig.Camera.transform.position);
             _screen.SetHeading(_rig.YawRad);
         }
 
@@ -627,6 +661,38 @@ namespace Ghumante.App.Explore
         private void OnGarageRequested()
         {
             _garagePressed = true;
+        }
+
+        private void OnCameraRequested()
+        {
+            _cameraPressed = true;
+        }
+
+        /// <summary>
+        /// C, the right-stick press or the HUD camera button: the next camera angle of the class the explorer is in
+        /// (walking, two-wheeler, car, bus...), remembered per class in the save, named in a short toast.
+        /// </summary>
+        private void CycleCamera()
+        {
+            if (_explorer == null || _views == null) return;
+            RigClass rig = _explorer.Rig;
+            CameraView view = _views.Cycle(rig);
+            _views.Store(_save);
+            if (_persist != null) _persist();
+            _screen.ShowToast(_localizer.Format("hud.camera.toast", _localizer.Get(CameraViews.Key(view))), "gh-toast__icon--star", 1.6f);
+            _haptics.Play(HapticKind.Selection);
+        }
+
+        /// <summary>
+        /// The world's solid geometry for the camera boom (Track COLLIDE implements <see cref="IViewObstacleQuery"/> over
+        /// structure colliders, decks and terrain): the ground query when it implements it; null otherwise (the camera
+        /// then only keeps above the ground).
+        /// </summary>
+        private IViewObstacleQuery ViewObstacles()
+        {
+            if (_world == null) return null;
+            object query = _world.GroundQuery;
+            return query as IViewObstacleQuery ?? _world.Ground as IViewObstacleQuery;
         }
 
         private void OnModeChanged(ExplorerMode mode)
@@ -895,6 +961,8 @@ namespace Ghumante.App.Explore
             }
             _destination = entry;
             _guide = null;
+            _routeProfile = CurrentProfile();
+            _profileSettle = 0f;
             _world.ClearRoute();
             // The name record, not a string: the banner and the arrival toast follow a language switch mid-route.
             _screen.ShowRoute(entry.Name, "hud.route.finding");
@@ -909,10 +977,11 @@ namespace Ghumante.App.Explore
             WorldPos from = _explorer.Position;
             double tx = _destination.X, tz = _destination.Z;
             RoutePlanner planner = _planner;
+            Travel profile = _routeProfile;
             PlannedRoute route = null;
             try
             {
-                route = await Task.Run(() => planner.Plan(from.X, from.Z, tx, tz));
+                route = await Task.Run(() => planner.Plan(from.X, from.Z, tx, tz, profile));
             }
             catch (Exception e)
             {
@@ -926,16 +995,47 @@ namespace Ghumante.App.Explore
                 CancelRoute();
                 return;
             }
+            bool fresh = _guide == null;
             _guide = new RouteGuide(route);
             _world.ShowRoute(route.Polyline);
             _rerouteCooldown = RerouteCooldownS;
             _haptics.Play(HapticKind.Selection);
-            Debug.Log("ExploreSession: route to " + DestinationName() + ": " + (route.LengthM / 1000.0).ToString("0.0") + " km, " +
-                      (route.TimeS / 60.0).ToString("0") + " min, " + route.Polyline.Length / 2 + " points.");
+            if (fresh && profile == Travel.Car) _screen.ShowToast(_localizer.Get("hud.route.car_roads"), "gh-toast__icon--map", 2.6f);
+            Debug.Log("ExploreSession: " + TravelProfiles.NameOf(profile) + " route to " + DestinationName() + ": " +
+                      (route.LengthM / 1000.0).ToString("0.0") + " km, " + (route.TimeS / 60.0).ToString("0") + " min, " +
+                      route.Polyline.Length / 2 + " points.");
         }
 
         private void UpdateRoute(float dt, WorldPos position)
         {
+            if (_destination == null) return;
+            // A new vehicle (or none): plan again with its profile once it has settled, so a car never keeps a route
+            // through lanes it cannot fit, and a scooter gets its shortcuts back.
+            Travel want = CurrentProfile();
+            if (want != _routeProfile)
+            {
+                _profileSettle += dt;
+                if (_profileSettle >= ProfileSettleS && !_planning)
+                {
+                    _routeProfile = want;
+                    _profileSettle = 0f;
+                    _guide = null;
+                    _world.ClearRoute();
+                    _screen.ShowRoute(_destination.Name, "hud.route.rerouting");
+                    // A car says why its route differs when it is found (hud.route.car_roads); other vehicles name themselves.
+                    RigClass rig = _explorer.Rig;
+                    if (want != Travel.Car && rig != RigClass.Walk && rig != RigClass.Passenger)
+                    {
+                        _screen.ShowToast(_localizer.Format("hud.route.replan", _localizer.Get(VehicleNameKey(rig))), "gh-toast__icon--map", 2f);
+                    }
+                    PlanRoute();
+                    return;
+                }
+            }
+            else
+            {
+                _profileSettle = 0f;
+            }
             if (_guide == null) return;
             _rerouteCooldown -= dt;
             RouteStatus status = _guide.Update(position.X, position.Z, _screen.BlocksGameplay ? 0f : dt);
@@ -952,7 +1052,22 @@ namespace Ghumante.App.Explore
                 PlanRoute();
                 return;
             }
-            if (!_planning) _screen.SetRouteProgress(_guide.RemainingM, _guide.EtaSeconds, _guide.RelativeBearing(_rig.YawRad));
+            if (_planning) return;
+            // The chip: the next turn's arrow and distance (or straight on), or the way back while off the route.
+            float turnRad;
+            double turnM;
+            bool turn = _guide.NextTurn(out turnRad, out turnM);
+            bool off = _guide.DistanceToRouteM > OffRouteChipM;
+            RouteStepKind step = off ? RouteStepKind.BackToRoute : turn ? RouteStepKind.Turn : RouteStepKind.Straight;
+            float arrow = off ? _guide.RelativeBearing(_rig.YawRad) : turn ? turnRad : 0f;
+            _screen.SetRouteProgress(_guide.RemainingM, _guide.EtaSeconds, arrow);
+            _screen.SetRouteStep(step, turnM);
+        }
+
+        /// <summary>The routing profile for how the explorer travels now (<see cref="RoutePlanner.ProfileFor"/>).</summary>
+        private Travel CurrentProfile()
+        {
+            return _explorer != null ? RoutePlanner.ProfileFor(_explorer.Rig, _explorer.PassengerRig) : Travel.Motorbike;
         }
 
         /// <summary>The destination's name in the current language ("" without one).</summary>
