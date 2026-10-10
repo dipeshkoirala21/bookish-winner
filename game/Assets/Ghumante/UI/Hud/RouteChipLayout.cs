@@ -161,7 +161,8 @@ namespace Ghumante.UI.Hud
     /// the distance and time left goes to the first slot that
     /// <list type="number">
     /// <item>lies inside the safe area (notches, punch holes, rounded corners, the home indicator),</item>
-    /// <item>keeps <see cref="Gap"/> from every other HUD element (speedometer, top bar, touch controls, prompt), and</item>
+    /// <item>keeps <see cref="Gap"/> from every other HUD element (speedometer, top bar, touch controls and their whole
+    /// touch zones, prompt), and</item>
     /// <item>never covers the road ahead (<see cref="RoadAheadZone"/>);</item>
     /// </list>
     /// trying, in landscape, on the bottom edge beside the speedometer cluster (left, then right: below the explorer,

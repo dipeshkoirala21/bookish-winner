@@ -77,11 +77,16 @@ namespace Ghumante.Core.Tests
 
         private static void Camera(ChaseBoom boom, double px, double py, double pz, float yawDeg, out double cx, out double cy, out double cz)
         {
-            double dx, dy, dz;
-            ChaseBoom.Direction(yawDeg, boom.PitchDeg, out dx, out dy, out dz);
-            cx = px + dx * boom.DistanceM;
-            cy = py + dy * boom.DistanceM;
-            cz = pz + dz * boom.DistanceM;
+            double ox, oy, oz;
+            boom.CameraOffset(yawDeg, out ox, out oy, out oz);
+            cx = px + ox;
+            cy = py + oy;
+            cz = pz + oz;
+        }
+
+        private static double Length(double x, double y, double z)
+        {
+            return Math.Sqrt(x * x + y * y + z * z);
         }
 
         // ----- Views per class --------------------------------------------------------------------------------------------
@@ -187,6 +192,10 @@ namespace Ghumante.Core.Tests
             }
             Assert.AreEqual(CameraViewKind.Hood, CameraViews.Spec(CameraView.Hood).Kind);
             Assert.AreEqual(CameraViewKind.Eye, CameraViews.Spec(CameraView.Handlebar).Kind);
+            Assert.AreEqual(CameraViewKind.Eye, CameraViews.Spec(CameraView.Interior).Kind);
+            Assert.AreEqual(CameraViewKind.Eye, CameraViews.Spec(CameraView.DriverSeat).Kind);
+            Assert.AreEqual(CameraViewKind.Window, CameraViews.Spec(CameraView.PassengerSeat).Kind,
+                            "riding along, the camera leans out of the window: traffic's body cannot be hidden from inside");
             Assert.Less(CameraViews.Spec(CameraView.Handlebar).RollShare, 1f, "the handlebar view leans only partly");
             foreach (CameraView v in new[] { CameraView.Near, CameraView.Far, CameraView.OverShoulder, CameraView.LowCinematic, CameraView.HighChase })
             {
@@ -199,6 +208,33 @@ namespace Ghumante.Core.Tests
             CameraViews.HoodEye(2.5f, 0.9f, 1.5f, out y, out z);
             Assert.That(z, Is.InRange(2.5f, 3.4f), "on the bonnet, ahead of the front axle");
             Assert.That(y, Is.InRange(0.9f, 1.5f), "just above the bonnet line, below the roof");
+        }
+
+        [Test]
+        public void TheWindowViewLeansOutOfTheNearerSide()
+        {
+            float side;
+            float x = CameraViews.WindowX(0.45f, 1.25f, out side);
+            Assert.AreEqual(1f, side, "a right-hand seat looks out on the right");
+            Assert.AreEqual(1.25f + CameraViews.WindowOutM, x, 1e-5f, "just outside the body");
+            x = CameraViews.WindowX(-0.4f, 0.85f, out side);
+            Assert.AreEqual(-1f, side);
+            Assert.AreEqual(-(0.85f + CameraViews.WindowOutM), x, 1e-5f);
+            x = CameraViews.WindowX(0f, 1.25f, out side);
+            Assert.AreEqual(-1f, side, "a seat in the middle (a standing place) leans out on the kerb side");
+            x = CameraViews.WindowX(0f, float.NaN, out side);
+            Assert.IsFalse(float.IsNaN(x));
+            Assert.Less(x, -0.3f);
+        }
+
+        [Test]
+        public void MountedViewsLookLevelerInPortrait()
+        {
+            CameraViewSpec bar = CameraViews.Spec(CameraView.Handlebar);
+            Assert.AreEqual(bar.LookDownDeg, CameraViews.LookDownDeg(bar, 0f), 1e-5f, "landscape: the view's own tilt");
+            Assert.AreEqual(bar.LookDownDeg * CameraViews.PortraitLookDownShare, CameraViews.LookDownDeg(bar, 1f), 1e-5f);
+            Assert.Less(CameraViews.LookDownDeg(bar, 1f), CameraViews.LookDownDeg(bar, 0.5f));
+            Assert.AreEqual(CameraViews.LookDownDeg(bar, 1f), CameraViews.LookDownDeg(bar, 7f), 1e-5f, "clamped");
         }
 
         [Test]
@@ -434,13 +470,212 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void ASweepThatStartsInsideIsIgnored()
+        public void ASweepThatStartsInsideIsNeverTakenAsClear()
         {
-            // The pivot sits inside a balcony slab: a hit at 0 m means "started inside", not "a wall at the pivot".
+            // The pivot sits inside a slab (a fake that answers 0 for a start inside): that is not a clear boom of 8 m
+            // behind it, it is no room at all, and the camera falls back instead of trusting the sweep.
             var world = new BoxWorld().Add(-5, 0.5, -0.5, 5, 1.5, 0.5);
             var boom = new ChaseBoom();
             boom.Solve(world, 0, 1, 0, 0f, 13f, 8f, 4f, 0.016f);
-            Assert.AreEqual(8f, boom.DistanceM, 1e-4f);
+            Assert.IsTrue(boom.Blocked);
+            Assert.Less(boom.DistanceM, 0.01f);
+            Assert.IsTrue(boom.Overhead, "the fallback takes over");
+        }
+
+        [TestCase(0.25)]
+        [TestCase(0.30)]
+        [TestCase(0.40)]
+        [TestCase(0.80)]
+        [TestCase(1.50)]
+        [TestCase(3.00)]
+        public void ReachMeetsAWallTheStartIsBackedAgainst(double wall)
+        {
+            // A wall face `wall` metres behind the start along the sweep: the probe (0.3 m) would start inside it at
+            // under 0.3 m, which the real query ignores. Reach backs off first, so it always meets the wall.
+            var world = new BoxWorld().Add(-10, -5, -wall - 10, 10, 10, -wall);
+            var boom = new ChaseBoom();
+            float reach = boom.Reach(world, 0, 1, 0, 0, 0, -1, 8f);
+            double expected = Math.Max(0.0, wall - ChaseBoom.ProbeRadiusM - ChaseBoom.SkinM);
+            Assert.AreEqual(expected, reach, 0.03, "wall at " + wall);
+
+            // Something on the player's side of the start (a wall in front, touching the backed-off probe) is ignored.
+            var front = new BoxWorld().Add(-10, -5, 0.2, 10, 10, 5);
+            Assert.AreEqual(8f, boom.Reach(front, 0, 1, 0, 0, 0, -1, 8f), 1e-4f);
+        }
+
+        /// <summary>Runs the boom for a pivot backed against a house wall and checks every frame: the camera is never
+        /// inside or behind the house, and never within 0.5 m of the pivot (inside the rider) unless the fallback runs.</summary>
+        private static ChaseBoom BackedAgainst(BoxWorld world, double px, double py, double pz, float pitch, float want, float min, int frames)
+        {
+            var boom = new ChaseBoom();
+            for (int f = 0; f < frames; f++)
+            {
+                boom.Solve(world, px, py, pz, 0f, pitch, want, min, f == 0 ? 0.016f : 1f / 60f);
+                double cx, cy, cz;
+                Camera(boom, px, py, pz, 0f, out cx, out cy, out cz);
+                string when = "frame " + f + " (d " + boom.DistanceM.ToString("0.00") + ", rise " + boom.RiseM.ToString("0.00") + ")";
+                Assert.Greater(world.Distance(cx, cy, cz), 0.2, when + ": the camera is inside the house");
+                // The camera's path from the pivot (straight up by the fallback's rise, then along the boom) is clear.
+                double ry = py + boom.RiseM;
+                Assert.IsFalse(world.Blocks(px, py, pz, px, ry, pz) || world.Blocks(px, ry, pz, cx, cy, cz),
+                               when + ": the camera is behind a wall");
+                Assert.IsTrue(boom.FallbackActive || Length(cx - px, cy - py, cz - pz) >= 0.5, when + ": the camera is inside the rider");
+            }
+            return boom;
+        }
+
+        [TestCase(0.25)]
+        [TestCase(0.30)]
+        [TestCase(0.31)]
+        [TestCase(0.33)]
+        [TestCase(0.36)]
+        [TestCase(0.40)]
+        [TestCase(0.60)]
+        [TestCase(1.00)]
+        [TestCase(1.60)]
+        [TestCase(3.00)]
+        public void AWalkerBackedAgainstAHouseNeverHasTheCameraInsideIt(double gap)
+        {
+            // Reviewer's case: the walker's back 0.30-0.33 m from an 8 m house put the camera 8 m inside it; at 0.36-0.6 m
+            // the boom collapsed into the walker's torso. Landscape walking rig: 8.4 m, 12°, pivot 1 m, minimum 2.5 m.
+            var world = new BoxWorld().Add(-10, 0, -10.3 - gap, 10, 8, -gap).Add(-50, -1, -50, 50, 0, 50);
+            ChaseBoom boom = BackedAgainst(world, 0, 1.0, 0, 12f, 8.4f, 2.5f, 90);
+            double cx, cy, cz;
+            Camera(boom, 0, 1.0, 0, 0f, out cx, out cy, out cz);
+            if (gap <= 1.0)
+            {
+                Assert.IsTrue(boom.Overhead, "no room behind: the overhead fallback");
+                Assert.AreEqual(1f, boom.Overhead01, 1e-4f);
+                if (gap <= 0.6) Assert.AreEqual(1f, boom.OverheadLook01, 1e-4f, "straight over the walker: looking down the way ahead");
+                else Assert.Greater(boom.OverheadLook01, 0.3f, "nearly over the walker: mostly looking down the way ahead");
+                Assert.Greater(cy - 1.0, 2.0, "high over the walker's head");
+            }
+            else
+            {
+                Assert.IsFalse(boom.Overhead);
+                Assert.GreaterOrEqual(Length(cx, cy - 1.0, cz), ChaseBoom.FallbackClearM - 0.01, "a real boom behind");
+            }
+        }
+
+        [Test]
+        public void BackedAgainstALowWallTheRaisedBoomLooksBackAtThePlayer()
+        {
+            // A 1.6 m garden wall 0.3 m behind the walker: no boom fits behind at the walker's height, but from the raised
+            // pivot the boom clears the wall, so the camera sits high behind it and aims at the walker as usual.
+            var world = new BoxWorld().Add(-10, 0, -1.0, 10, 1.6, -0.3).Add(-50, -1, -50, 50, 0, 50);
+            ChaseBoom boom = BackedAgainst(world, 0, 1.0, 0, 12f, 8.4f, 2.5f, 120);
+            Assert.IsTrue(boom.Overhead, "no room at the walker's height");
+            Assert.Greater(boom.DistanceM, 3f, "over the wall from the raised pivot");
+            Assert.AreEqual(0f, boom.OverheadLook01, 1e-4f, "aiming at the walker, not straight down");
+        }
+
+        [Test]
+        public void TheFallbackRisesOnlyAsFarAsAnEaveAllows()
+        {
+            // Backed against a house with a balcony 3.2 m up reaching over the walker: the pivot rises only under it.
+            var world = new BoxWorld().Add(-10, 0, -10.3, 10, 8, -0.3).Add(-10, 3.2, -0.3, 10, 3.5, 1.5).Add(-50, -1, -50, 50, 0, 50);
+            ChaseBoom boom = BackedAgainst(world, 0, 1.0, 0, 12f, 8.4f, 2.5f, 60);
+            Assert.IsTrue(boom.Overhead);
+            Assert.That(boom.RiseM, Is.InRange(1.4f, 3.2f - 1.0f - ChaseBoom.ProbeRadiusM - ChaseBoom.SkinM + 0.02f), "under the balcony");
+        }
+
+        [Test]
+        public void TheFallbackEndsOnceThereIsRoomAgain()
+        {
+            // Backed against the wall, then the walker steps 3 m away from it: the boom comes back, smoothly and never
+            // through the walker.
+            var world = new BoxWorld().Add(-10, 0, -10.3, 10, 8, -0.3).Add(-50, -1, -50, 50, 0, 50);
+            var boom = new ChaseBoom();
+            double pz = 0;
+            bool left = false;
+            for (int f = 0; f < 240; f++)
+            {
+                if (f >= 60) pz = Math.Min(3.0, pz + 1.5 / 60.0);
+                boom.Solve(world, 0, 1.0, pz, 0f, 12f, 8.4f, 2.5f, f == 0 ? 0.016f : 1f / 60f);
+                double cx, cy, cz;
+                Camera(boom, 0, 1.0, pz, 0f, out cx, out cy, out cz);
+                Assert.Greater(world.Distance(cx, cy, cz), 0.2, "frame " + f + ": inside the house");
+                Assert.IsTrue(boom.FallbackActive || Length(cx, cy - 1.0, cz - pz) >= 0.5, "frame " + f + ": inside the walker");
+                if (f == 59) Assert.IsTrue(boom.Overhead, "backed against the wall");
+                if (!boom.Overhead && f > 60) left = true;
+            }
+            Assert.IsTrue(left, "the fallback ended");
+            Assert.AreEqual(0f, boom.RiseM, 1e-4f, "the pivot is back down");
+            Assert.Greater(boom.DistanceM, 2.4f, "a boom behind again");
+        }
+
+        [TestCase(0.30)]
+        [TestCase(0.32)]
+        [TestCase(0.50)]
+        public void AScooterReversedIntoADeadEndKeepsAUsefulViewWhileItWaits(double gap)
+        {
+            // Reviewer's case: reverse at 1.5 m/s to `gap` metres from the house that closes a 4.8 m lane, then wait. Once
+            // the reversing frame lets go (2 s standing) the swing unwinds and the boom points into that house: it used to
+            // stay 7.5 m inside it. Landscape two-wheeler rig: 8.0 m, 13°, pivot 1 m, minimum 4 m.
+            var world = new BoxWorld()
+                        .Add(-12.4, 0, -40, -2.4, 9, 40).Add(2.4, 0, -40, 12.4, 9, 40).Add(-2.4, 0, -20, 2.4, 9, 0)
+                        .Add(-50, -1, -50, 50, 0, 50);
+            RigParams rig = CameraRigTable.For(RigClass.TwoWheeler, false);
+            var boom = new ChaseBoom();
+            var reverse = new ReverseFraming();
+            double z = 8.0;
+            const float dt = 1f / 60f;
+            for (int f = 0; f < 60 * 10; f++)
+            {
+                float speed = 0f;
+                if (z > gap)
+                {
+                    speed = -1.5f;
+                    z = Math.Max(gap, z + speed * dt);
+                }
+                reverse.Update(dt, speed, true);
+                float yaw = reverse.SwingYawDeg;
+                boom.Solve(world, 0, rig.PivotM, z, yaw, rig.PitchDeg + reverse.PitchAddDeg, rig.DistanceM * reverse.DistanceScale,
+                           rig.MinDistanceM, f == 0 ? 0.016f : dt);
+                double cx, cy, cz;
+                Camera(boom, 0, rig.PivotM, z, yaw, out cx, out cy, out cz);
+                string when = "t = " + (f * dt).ToString("0.00") + " s (z " + z.ToString("0.00") + ", swing " +
+                              reverse.Swing01.ToString("0.00") + ")";
+                Assert.Greater(world.Distance(cx, cy, cz), 0.2, when + ": the camera is inside a house");
+                Assert.IsFalse(world.Blocks(0, rig.PivotM, z, cx, cy, cz), when + ": a house hides the bike");
+                Assert.IsTrue(boom.FallbackActive || Length(cx, cy - rig.PivotM, cz - z) >= 0.5, when + ": the camera is inside the rider");
+            }
+            Assert.IsFalse(reverse.Reversing, "waiting: the reversing frame has let go");
+            Assert.AreEqual(0f, reverse.Swing01, "and the swing has unwound");
+            double ex, ey, ez;
+            Camera(boom, 0, rig.PivotM, z, 0f, out ex, out ey, out ez);
+            Assert.IsTrue(boom.Overhead, "against the end house: the overhead fallback");
+            Assert.Greater(ey - rig.PivotM, 2.0, "over the rider, looking down the lane ahead");
+        }
+
+        [TestCase(0.25)]
+        [TestCase(0.30)]
+        [TestCase(0.33)]
+        [TestCase(0.45)]
+        [TestCase(1.00)]
+        public void OverTheShoulderAlongAHouseFrontStaysOutOfTheWall(double gap)
+        {
+            // A house front `gap` metres right of the walker (camera looking north, right = +x): the shoulder step is cut
+            // so the probe stays out of the wall; the reviewer's 0.30-0.33 m used to step the pivot into it.
+            var world = new BoxWorld().Add(gap, 0, -30, gap + 10, 8, 30).Add(-50, -1, -50, 50, 0, 50);
+            var boom = new ChaseBoom();
+            const double py = 1.55;
+            float reach = boom.Reach(world, 0, py, 0, 1, 0, 0, 0.55f);
+            Assert.LessOrEqual(reach, Math.Max(0.0, gap - ChaseBoom.ProbeRadiusM - ChaseBoom.SkinM) + 0.02, "the shoulder pivot keeps out");
+            Assert.GreaterOrEqual(gap - reach, Math.Min(gap, ChaseBoom.ProbeRadiusM) - 0.01, "the shoulder never steps towards a wall it touches");
+            RigParams shoulder = CameraViews.Chase(RigClass.Walk, CameraView.OverShoulder, false, RigClass.Car);
+            ChaseBoom b = BackedAgainst(world, reach, py, 0, shoulder.PitchDeg, shoulder.DistanceM, shoulder.MinDistanceM, 60);
+            Assert.IsFalse(b.Overhead, "the lane behind is open");
+            Assert.Greater(b.DistanceM, 2.5f);
+        }
+
+        [Test]
+        public void TheOverheadLookFollowsTheOrientation()
+        {
+            Assert.AreEqual(ChaseBoom.OverheadLookDownLandscapeDeg, ChaseBoom.OverheadLookDownDeg(0f), 1e-4f);
+            Assert.AreEqual(ChaseBoom.OverheadLookDownPortraitDeg, ChaseBoom.OverheadLookDownDeg(1f), 1e-4f);
+            Assert.Greater(ChaseBoom.OverheadLookDownDeg(0f), ChaseBoom.OverheadLookDownDeg(1f), "portrait's tall view needs less tilt");
+            Assert.AreEqual(ChaseBoom.OverheadLookDownPortraitDeg, ChaseBoom.OverheadLookDownDeg(3f), 1e-4f);
         }
 
         [Test]

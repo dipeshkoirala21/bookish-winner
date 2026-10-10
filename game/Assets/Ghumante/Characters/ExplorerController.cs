@@ -174,6 +174,7 @@ namespace Ghumante.Characters
         private WorldPos _origin;
         private ExplorerMode _mode = ExplorerMode.Walk;
         private PlayerVehicle _current;
+        private PlayerVehicle _cockpitVehicle;
         private Transition _tr;
         private Garage _garage;
         private bool _exitPending;
@@ -626,9 +627,10 @@ namespace Ghumante.Characters
                 mount.HeadingDeg = p.HeadingRad * rad2Deg;
                 mount.PitchDeg = pitch * rad2Deg;
                 mount.RollDeg = roll * rad2Deg;
+                VehicleMesher.Dims d = VehicleMesher.DimsOf(e);
+                mount.HalfWidthM = d.Half;
                 if (!VehicleRoles.IsTwoWheeler(e.Shape) && e.Shape != BodyShape.Tractor)
                 {
-                    VehicleMesher.Dims d = VehicleMesher.DimsOf(e);
                     float y, z;
                     CameraViews.HoodEye(d.Wheelbase, d.Front, d.Height, out y, out z);
                     mount.HoodLocal = new Vector3(0f, y, z);
@@ -641,9 +643,25 @@ namespace Ghumante.Characters
                 mount.Head = _avatar.Head.position;
                 mount.Origin = ToScene(_ridePose.X, _ridePose.Y, _ridePose.Z);
                 mount.HeadingDeg = _ridePose.HeadingRad * rad2Deg;
+                int variant = _ridePose.Variant;
+                mount.HalfWidthM = variant >= 0 && variant < VehicleCatalog.Count ? 0.5f * VehicleCatalog.At(variant).WidthM : 1f;
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// After the camera moved: the vehicle the player drives shows its stand-in cockpit while
+        /// <paramref name="eyeView"/> (a mounted eye view) has put the camera at <paramref name="cameraPosition"/> inside
+        /// its closed body (<see cref="DrivenVehicleView.UpdateCockpit"/>); a vehicle left behind hides its cockpit.
+        /// </summary>
+        public void UpdateCockpit(bool eyeView, Vector3 cameraPosition)
+        {
+            PlayerVehicle v = _mode == ExplorerMode.Ride ? _current : null;
+            if (_cockpitVehicle != null && _cockpitVehicle != v && _cockpitVehicle.View != null)
+                _cockpitVehicle.View.UpdateCockpit(false, cameraPosition);
+            _cockpitVehicle = v;
+            if (v != null && v.View != null) v.View.UpdateCockpit(eyeView, cameraPosition);
         }
 
         // -------------------------------------------------------------------------------------------------------------

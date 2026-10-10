@@ -82,10 +82,11 @@ namespace Ghumante.Tests.EditMode
             speedo = HudRect.Edges(Math.Min(digits.X, credit.X), digits.Y, Math.Max(digits.Right, credit.Right), credit.Bottom);
             obstacles.Add(credit);
 
-            // Touch controls (resting places) per layout.
+            // Touch controls per layout: the floating stick's whole zone (the stick jumps to wherever the thumb lands),
+            // the portrait drive zone, and the buttons where they rest.
             if (!portrait)
             {
-                if (layout != Layout.Passenger) obstacles.Add(new HudRect(safe.X + 70f, safe.Bottom - 60f - 230f, 230f, 230f)); // stick
+                if (layout != Layout.Passenger) obstacles.Add(StickZone(safe, false)); // stick zone, walking and riding
                 switch (layout)
                 {
                     case Layout.Walk:
@@ -105,7 +106,7 @@ namespace Ghumante.Tests.EditMode
             }
             else
             {
-                if (layout == Layout.Walk) obstacles.Add(new HudRect(cx - 115f, safe.Bottom - 120f - 230f, 230f, 230f)); // stick
+                if (layout != Layout.Passenger) obstacles.Add(StickZone(safe, true)); // stick zone (walking) or drive zone (riding)
                 if (layout == Layout.Ride) obstacles.Add(new HudRect(safe.X + 36f, safe.Bottom - 140f - 150f, 150f, 150f)); // brake
                 float action = layout == Layout.Ride ? 120f : 166f;
                 obstacles.Add(new HudRect(safe.Right - (layout == Layout.Ride ? 0.03f : 0.06f) * safe.W - action,
@@ -114,6 +115,15 @@ namespace Ghumante.Tests.EditMode
                 obstacles.Add(new HudRect(safe.X + 0.08f * safe.W, safe.Bottom - 0.54f * safe.H - 60f, 0.84f * safe.W, 60f)); // prompt
             }
             obstacles.Add(digits);
+        }
+
+        /// <summary>The floating stick's touch zone (Hud.uss .gh-hud__stick-zone): landscape the left 42% from 30% of the
+        /// height down; portrait the lower 42% left of the button column (26%), which the drive zone shares riding.</summary>
+        private static HudRect StickZone(in HudRect safe, bool portrait)
+        {
+            return portrait
+                ? HudRect.Edges(safe.X, safe.Bottom - 0.42f * safe.H, safe.Right - 0.26f * safe.W, safe.Bottom)
+                : HudRect.Edges(safe.X, safe.Y + 0.3f * safe.H, safe.X + 0.42f * safe.W, safe.Bottom);
         }
 
         [Test]
@@ -147,25 +157,61 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
-        public void PhonesPutItBesideTheSpeedometerInLandscapeAndUnderTheTopBarInPortrait()
+        public void PhonesKeepTheChipOutOfTheThumbsAndUnderTheTopBarInPortrait()
         {
+            // Reviewer: the landscape chip went left of the speedometer, inside the floating stick's zone, so its x sat
+            // under the left thumb. Walking and riding keep it out of the zone; riding along (no stick) it may go there.
             var obstacles = new List<HudRect>();
             foreach (Device d in Devices)
             {
                 if (d.LongOverShort < 1.7f) continue; // phones
                 HudRect screen, safe, speedo, topBar;
-                Hud(d, false, Layout.Ride, out screen, out safe, out speedo, out topBar, obstacles);
                 RouteChipSlot slot;
-                HudRect chip = RouteChipLayout.Place(screen, safe, false, 360f, 92f, speedo, topBar, obstacles.ToArray(), obstacles.Count, out slot);
-                Assert.AreEqual(RouteChipSlot.BesideSpeedoLeft, slot, d + " landscape");
+                HudRect chip;
+                foreach (Layout layout in new[] { Layout.Walk, Layout.Ride })
+                {
+                    foreach (float chipW in new[] { 330f, 470f })
+                    {
+                        Hud(d, false, layout, out screen, out safe, out speedo, out topBar, obstacles);
+                        chip = RouteChipLayout.Place(screen, safe, false, chipW, 92f, speedo, topBar, obstacles.ToArray(), obstacles.Count, out slot);
+                        string what = d + " landscape " + layout + " chip " + chipW + ": " + chip + " in " + slot;
+                        Assert.AreNotEqual(RouteChipSlot.BesideSpeedoLeft, slot, what);
+                        Assert.AreNotEqual(RouteChipSlot.Fallback, slot, what);
+                        Assert.IsFalse(chip.Overlaps(StickZone(safe, false)), what + " lies in the stick zone");
+                    }
+                }
+
+                Hud(d, false, Layout.Passenger, out screen, out safe, out speedo, out topBar, obstacles);
+                chip = RouteChipLayout.Place(screen, safe, false, 360f, 92f, speedo, topBar, obstacles.ToArray(), obstacles.Count, out slot);
+                Assert.AreEqual(RouteChipSlot.BesideSpeedoLeft, slot, d + " landscape, riding along: no stick, the bottom edge is free");
                 Assert.Less(chip.Right, speedo.X, "left of the speedometer");
                 Assert.Greater(chip.Y, screen.H * 0.75f, d + ": on the bottom edge, below the explorer");
 
-                Hud(d, true, Layout.Ride, out screen, out safe, out speedo, out topBar, obstacles);
-                chip = RouteChipLayout.Place(screen, safe, true, 360f, 92f, speedo, topBar, obstacles.ToArray(), obstacles.Count, out slot);
-                Assert.AreEqual(RouteChipSlot.UnderTopBarLeft, slot, d + " portrait");
-                Assert.Less(chip.Bottom, screen.H * 0.3f, d + ": high above the horizon");
+                foreach (Layout layout in new[] { Layout.Walk, Layout.Ride, Layout.Passenger })
+                {
+                    Hud(d, true, layout, out screen, out safe, out speedo, out topBar, obstacles);
+                    chip = RouteChipLayout.Place(screen, safe, true, 360f, 92f, speedo, topBar, obstacles.ToArray(), obstacles.Count, out slot);
+                    Assert.AreEqual(RouteChipSlot.UnderTopBarLeft, slot, d + " portrait " + layout);
+                    Assert.Less(chip.Bottom, screen.H * 0.3f, d + ": high above the horizon");
+                }
             }
+        }
+
+        [Test]
+        public void TheReviewersIPhoneLandscapeChipWouldHaveSatInTheStickZone()
+        {
+            // The placement the reviewer measured (iPhone landscape, riding: x 470-831, y 784-876) lies in the zone the
+            // layout now keeps clear; the same chip now lands elsewhere.
+            Device iphone = Devices[0];
+            var obstacles = new List<HudRect>();
+            HudRect screen, safe, speedo, topBar;
+            Hud(iphone, false, Layout.Ride, out screen, out safe, out speedo, out topBar, obstacles);
+            var old = HudRect.Edges(470f, 784f, 831f, 876f);
+            Assert.IsTrue(old.Overlaps(StickZone(safe, false)), "the old place was under the left thumb");
+            RouteChipSlot slot;
+            HudRect chip = RouteChipLayout.Place(screen, safe, false, old.W, old.H, speedo, topBar, obstacles.ToArray(), obstacles.Count, out slot);
+            Assert.IsFalse(chip.Overlaps(StickZone(safe, false)), chip + " in " + slot);
+            Assert.IsFalse(chip.Overlaps(old));
         }
 
         [Test]

@@ -170,6 +170,62 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void ATurnAfterManyStraightNodesIsReportedAtTheCorner()
+        {
+            // A* polylines carry every OSM node: north 100 m with a vertex every 5 m (the corner node twice, as a joined
+            // way gives it), then a right turn east. The chip used to say "5 m" with the corner still 20 m away.
+            var pts = new List<double>();
+            for (int i = 0; i <= 20; i++)
+            {
+                pts.Add(0);
+                pts.Add(5 * i);
+            }
+            pts.Add(0);
+            pts.Add(100);
+            for (int i = 1; i <= 20; i++)
+            {
+                pts.Add(5 * i);
+                pts.Add(100);
+            }
+            RouteGuide g = Guide(pts.ToArray());
+            float turn;
+            double d;
+            foreach (double at in new[] { 0.0, 50.0, 80.0, 86.0, 88.0, 92.0, 95.0, 97.0 })
+            {
+                g.Update(0, at, 0.1f);
+                Assert.IsTrue(g.NextTurn(out turn, out d), "at " + at);
+                Assert.AreEqual(Math.PI / 2, turn, 0.05, "one right turn, counted once, at " + at);
+                Assert.AreEqual(100.0 - at, d, 3.0, "the corner's own distance at " + at);
+            }
+            g.Update(8, 100, 0.1f);
+            Assert.IsFalse(g.NextTurn(out turn, out d), "past the corner the road runs on to the end");
+
+            // A dense roundabout (1 m steps) after dense straight nodes: one turn, at the middle of the arc.
+            var ring = new List<double>();
+            for (int i = 0; i <= 50; i++)
+            {
+                ring.Add(0);
+                ring.Add(2 * i);
+            }
+            for (int i = 1; i <= 31; i++)
+            {
+                double a = i * (Math.PI / 2) / 31;
+                ring.Add(20 - 20 * Math.Cos(a));
+                ring.Add(100 + 20 * Math.Sin(a));
+            }
+            for (int i = 1; i <= 50; i++)
+            {
+                ring.Add(20 + 4 * i);
+                ring.Add(120);
+            }
+            RouteGuide r = Guide(ring.ToArray());
+            r.Update(0, 0, 0.1f);
+            Assert.IsTrue(r.NextTurn(out turn, out d));
+            Assert.AreEqual(Math.PI / 2, turn, 0.1, "a right turn");
+            Assert.AreEqual(100.0 + 0.5 * Math.PI * 20 / 2, d, 4.0, "half way round the arc");
+        }
+
+        [Test]
         public void ACarCrossesTheSampleRegionOnCarStreetsOnly()
         {
             SearchEntry thamel = ExploreSpawn.Best(ExploreSample.Search, "Thamel");

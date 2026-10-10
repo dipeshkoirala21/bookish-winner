@@ -580,6 +580,9 @@ namespace Ghumante.App.Explore
             target.HasMount = _explorer.TryGetCameraMount(out target.Mount);
             _rig.Obstacles = ViewObstacles();
             _rig.Tick(Time.deltaTime, target, _frame, _world.Ground, _world.Origin);
+            // The driver's eye inside a closed body: the vehicle shows its stand-in cockpit (no outline hull around us).
+            bool eyeView = _rig.Mounted && CameraViews.Spec(_rig.View).Kind == CameraViewKind.Eye;
+            _explorer.UpdateCockpit(eyeView, _rig.Camera.transform.position);
             _screen.SetHeading(_rig.YawRad);
         }
 

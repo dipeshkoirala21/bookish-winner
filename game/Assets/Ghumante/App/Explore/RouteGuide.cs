@@ -39,8 +39,9 @@ namespace Ghumante.App.Explore
         /// <summary>A bend at least this sharp is a turn worth an arrow, degrees.</summary>
         public const float TurnMinDeg = 35f;
 
-        /// <summary>A turn's apex is searched this far past where the bend first passes <see cref="TurnMinDeg"/>.</summary>
-        private const double ApexSearchM = 25.0;
+        /// <summary>A bend window (the vertices whose bend passes <see cref="TurnMinDeg"/>) is cut after this long, so a
+        /// winding hill road gives one turn per bend, not one for the whole climb.</summary>
+        private const double TurnWindowMaxM = 80.0;
 
         /// <summary>The cached next turn is recomputed after this much progress.</summary>
         private const double TurnRecomputeM = 2.0;
@@ -177,7 +178,9 @@ namespace Ghumante.App.Explore
         /// The next turn along the route ahead of the explorer (the HUD's turn arrow): <paramref name="turnRad"/> is its
         /// signed angle (radians, positive to the right, ±π a U-turn) and <paramref name="distanceM"/> how far ahead its
         /// apex is. A turn is a bend of at least <see cref="TurnMinDeg"/> between the route's headings
-        /// <see cref="TurnArmM"/> before and after a vertex; its apex is the sharpest vertex just after. False when the
+        /// <see cref="TurnArmM"/> before and after a vertex; its apex is where the heading actually changes inside that
+        /// window of vertices (the corner itself, however many collinear nodes lead up to it; the middle of a curve or a
+        /// roundabout arc), and its angle is the window's whole change of heading. False when the
         /// route runs on without a turn for <see cref="TurnScanM"/> or to its end: then the angle is 0 and the distance is
         /// to the end (or the scan limit). Cached between small moves; no allocation.
         /// </summary>
@@ -207,30 +210,72 @@ namespace Ghumante.App.Explore
             _turnFound = false;
             double limit = Math.Min(TotalM, ProgressM + TurnScanM);
             double minRad = TurnMinDeg * Math.PI / 180.0;
-            for (int i = Math.Max(1, _segment + 1); i < _points - 1; i++)
+            int i = Math.Max(1, _segment + 1);
+            while (i < _points - 1)
             {
                 double s = _cumulative[i];
-                if (s <= ProgressM + 1e-6) continue;
+                if (s <= ProgressM + 1e-6)
+                {
+                    i++;
+                    continue;
+                }
                 if (s > limit) break;
                 double a = BendAt(s);
-                if (Math.Abs(a) < minRad) continue;
-                // The apex: the sharpest vertex a short way on (a roundabout's arc crosses the threshold before its middle).
-                int best = i;
-                double bestA = a;
-                for (int j = i + 1; j < _points - 1 && _cumulative[j] <= s + ApexSearchM; j++)
+                if (Math.Abs(a) < minRad)
                 {
-                    double b = BendAt(_cumulative[j]);
-                    if (Math.Abs(b) > Math.Abs(bestA) + 1e-6)
+                    i++;
+                    continue;
+                }
+                // The bend window: every vertex on from here whose ±TurnArmM bend stays past the threshold. A* polylines
+                // carry every OSM node, so the vertices up to TurnArmM before a sharp corner all measure its full bend; the
+                // turn itself is where the heading really changes inside the window: the centre of the window's vertex
+                // turns (the corner for a sharp turn, the middle of the arc for a curve or a roundabout). The sign comes
+                // from the window's total (a U-turn's bend wraps between ±π).
+                int j = i;
+                double total = 0.0;
+                while (j < _points - 1)
+                {
+                    double sj = _cumulative[j];
+                    if (j > i && (sj - s > TurnWindowMaxM || Math.Abs(BendAt(sj)) < minRad)) break;
+                    total += VertexTurn(j);
+                    j++;
+                }
+                // Mostly behind the explorer already (they are in or past the corner): not the next turn.
+                if (Math.Abs(total) >= 0.5 * minRad)
+                {
+                    double sign = total > 0.0 ? 1.0 : -1.0, weight = 0.0, weighted = 0.0;
+                    for (int k = i; k < j; k++)
                     {
-                        bestA = b;
-                        best = j;
+                        double w = Math.Max(0.0, VertexTurn(k) * sign);
+                        weight += w;
+                        weighted += w * _cumulative[k];
+                    }
+                    if (weight > 1e-9)
+                    {
+                        _turnFound = true;
+                        _turnS = Math.Max(weighted / weight, ProgressM + 1e-3);
+                        _turnRad = Wrap((float)total);
+                        return;
                     }
                 }
-                _turnFound = true;
-                _turnS = _cumulative[best];
-                _turnRad = (float)bestA;
-                return;
+                i = Math.Max(j, i + 1);
             }
+        }
+
+        /// <summary>Signed change of heading at vertex <paramref name="j"/> (radians, positive right): the next real
+        /// segment's heading minus the previous one's. A vertex that repeats the one before it turns nothing (its twin
+        /// carries the turn), so duplicated nodes are not counted twice.</summary>
+        private double VertexTurn(int j)
+        {
+            if (j <= 0 || j >= _points - 1) return 0.0;
+            double ix = _xz[2 * j] - _xz[2 * j - 2], iz = _xz[2 * j + 1] - _xz[2 * j - 1];
+            if (ix * ix + iz * iz <= 1e-8) return 0.0;
+            for (int k = j; k < _points - 1; k++)
+            {
+                double ox = _xz[2 * k + 2] - _xz[2 * k], oz = _xz[2 * k + 3] - _xz[2 * k + 1];
+                if (ox * ox + oz * oz > 1e-8) return Wrap((float)(Math.Atan2(ox, oz) - Math.Atan2(ix, iz)));
+            }
+            return 0.0;
         }
 
         /// <summary>Signed change of heading between the route <see cref="TurnArmM"/> before and after the distance

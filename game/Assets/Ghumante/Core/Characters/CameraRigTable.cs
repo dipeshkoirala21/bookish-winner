@@ -171,7 +171,8 @@ namespace Ghumante.Core.Characters
         /// <summary>Bus, truck and tractor: from the driver's seat.</summary>
         DriverSeat = 8,
 
-        /// <summary>Riding along: from the passenger's own seat.</summary>
+        /// <summary>Riding along: from the passenger's seat, leaning out of its window to look ahead along the flank
+        /// (<see cref="CameraViewKind.Window"/>; the save name stays "passenger_seat").</summary>
         PassengerSeat = 9,
     }
 
@@ -187,10 +188,16 @@ namespace Ghumante.Core.Characters
 
         /// <summary>A fixed point on the vehicle body (<see cref="CameraViews.HoodEye"/>).</summary>
         Hood = 2,
+
+        /// <summary>Riding along: at the passenger's eye height just outside the window beside their seat
+        /// (<see cref="CameraViews.WindowX"/>), looking ahead along the flank. The ridden vehicle is drawn by traffic,
+        /// whose body cannot be hidden from inside (a culled shell shows floating passengers, the outline pass a dark
+        /// hull), so the camera leans out of the open window instead.</summary>
+        Window = 3,
     }
 
-    /// <summary>The numbers of one <see cref="CameraView"/>: chase views modify the class rig, mounted views (eye, hood)
-    /// carry their own field of view, downward tilt and how much of the body's roll or lean they follow.</summary>
+    /// <summary>The numbers of one <see cref="CameraView"/>: chase views modify the class rig, mounted views (eye, hood,
+    /// window) carry their own field of view, downward tilt and how much of the body's roll or lean they follow.</summary>
     public struct CameraViewSpec
     {
         public CameraView View;
@@ -236,7 +243,7 @@ namespace Ghumante.Core.Characters
         /// <summary>Near clip plane, metres (0.4 behind the player, 0.1 on board).</summary>
         public float NearClipM;
 
-        /// <summary>True for the eye and hood views (no boom, no collision, no reverse framing).</summary>
+        /// <summary>True for the eye, hood and window views (no boom, no reverse framing).</summary>
         public bool Mounted
         {
             get { return Kind != CameraViewKind.Chase; }
@@ -264,6 +271,16 @@ namespace Ghumante.Core.Characters
 
         /// <summary>A change of view blends over this long (smoothstep).</summary>
         public const float BlendSeconds = 0.5f;
+
+        /// <summary>The window view sits this far outside the body's side ...</summary>
+        public const float WindowOutM = 0.22f;
+
+        /// <summary>... and turns this far in towards the body, degrees, so the flank runs along the edge of the frame.</summary>
+        public const float WindowInYawDeg = 4f;
+
+        /// <summary>Mounted views tilt down this share of their <see cref="CameraViewSpec.LookDownDeg"/> in portrait (the
+        /// tall view already reaches the dashboard and the handlebar; looking level keeps the road in its middle).</summary>
+        public const float PortraitLookDownShare = 0.3f;
 
         /// <summary>Over-the-shoulder distance in portrait relative to landscape (the tall screen is narrower).</summary>
         public const float PortraitAbsoluteScale = 0.92f;
@@ -410,7 +427,7 @@ namespace Ghumante.Core.Characters
                     Mount(ref s, CameraViewKind.Eye, 70f, 5f, 1f);
                     break;
                 case CameraView.PassengerSeat:
-                    Mount(ref s, CameraViewKind.Eye, 68f, 3f, 1f);
+                    Mount(ref s, CameraViewKind.Window, 70f, 2f, 0.6f);
                     break;
             }
             return s;
@@ -426,7 +443,7 @@ namespace Ghumante.Core.Characters
             s.LookAheadScale = 0f;
         }
 
-        /// <summary>True for the eye and hood views.</summary>
+        /// <summary>True for the eye, hood and window views.</summary>
         public static bool IsMounted(CameraView view)
         {
             return Spec(view).Mounted;
@@ -461,6 +478,23 @@ namespace Ghumante.Core.Characters
         {
             z = wheelbaseM + Math.Max(0f, frontM) * 0.35f;
             y = 0.62f * Math.Max(0.8f, heightM) + 0.22f;
+        }
+
+        /// <summary>The window view's sideways place in the vehicle frame (x, metres, right positive) for a head at
+        /// <paramref name="headX"/> in a body <paramref name="halfWidthM"/> wide on each side: out through the nearer side,
+        /// the kerb (left) side for a seat in the middle. <paramref name="side"/> is +1 right, −1 left.</summary>
+        public static float WindowX(float headX, float halfWidthM, out float side)
+        {
+            side = headX > 0.1f ? 1f : -1f;
+            if (float.IsNaN(halfWidthM)) halfWidthM = 0f;
+            return side * (Math.Max(0.3f, halfWidthM) + WindowOutM);
+        }
+
+        /// <summary>A mounted view's downward tilt at an orientation blend (0 landscape, 1 portrait), degrees.</summary>
+        public static float LookDownDeg(in CameraViewSpec spec, float portrait01)
+        {
+            float t = CharMath.Clamp01(portrait01);
+            return spec.LookDownDeg * (1f + (PortraitLookDownShare - 1f) * t);
         }
 
         /// <summary>The localisation key of a view's name ("hud.camera.far").</summary>
@@ -690,27 +724,47 @@ namespace Ghumante.Core.Characters
     }
 
     /// <summary>
-    /// The collision-aware boom of the chase camera (W2_DESIGN 6.4; owner feedback: "houses block the view"). Each frame
-    /// it sweeps a <see cref="ProbeRadiusM"/> sphere from the pivot over the player towards where the camera wants to be
-    /// (<see cref="IViewObstacleQuery"/>, game metres with absolute heights) and:
+    /// The collision-aware boom of the chase camera (W2_DESIGN 6.4; owner feedback: "houses block the view", "camera view
+    /// gets blocked if I try to back up my motorbike in the narrower streets"). Each frame it sweeps a
+    /// <see cref="ProbeRadiusM"/> sphere from the pivot over the player towards where the camera wants to be
+    /// (<see cref="IViewObstacleQuery"/>, game metres with absolute heights; see <see cref="Reach"/>) and:
     /// <list type="bullet">
     /// <item>pulls in at once to stay <see cref="SkinM"/> short of the first hit, so the camera is never inside or behind a
     /// wall, then eases back out over about <see cref="EaseOutSeconds"/> after a short <see cref="HoldSeconds"/>;</item>
     /// <item>when that leaves less than the rig's minimum distance (a low wall right behind), tries steeper booms in
     /// <see cref="LiftStepDeg"/> steps and lifts over the wall smoothly;</item>
+    /// <item>when even that leaves less than <see cref="FallbackClearM"/> (the player backed against a house, a scooter
+    /// stopped at the end of a dead-end lane), where any boom would sit inside the player's own body, switches to the
+    /// <b>overhead fallback</b>: the pivot rises straight up by up to <see cref="OverheadRiseM"/> (less under a ceiling)
+    /// over <see cref="OverheadSeconds"/>, the boom is swept again from there, and the camera looks down the way ahead
+    /// (<see cref="OverheadLook01"/>, <see cref="OverheadLookDownDeg"/>; over a low wall it looks back at the player);
+    /// it returns once the boom has <see cref="FallbackExitM"/> of room again;</item>
     /// <item>in a lane with walls within <see cref="LaneProbeM"/> on both sides (old-core lanes, about 4.8 m wide) blends
     /// to the lane frame: <see cref="LanePitchDeg"/> steeper and <see cref="LaneDistanceScale"/> as long, so it looks
     /// over the eaves instead of into the walls.</item>
     /// </list>
-    /// A hit closer than <see cref="StartInsideM"/> means the sweep started inside something (a pivot under an eave) and
-    /// is ignored. Without a query it only eases towards the wanted length. Engine-free; no allocation; one to seven
-    /// sweeps per frame.
+    /// A sweep that starts inside or touching something is never taken as clear (<see cref="Reach"/>). The camera sits at
+    /// the pivot plus <see cref="CameraOffset"/>. Without a query it only eases towards the wanted length. Engine-free; no
+    /// allocation; usually one or two sweeps per frame (at most about sixteen while lifting into the fallback).
     /// </summary>
     public sealed class ChaseBoom
     {
         public const float ProbeRadiusM = 0.3f;
+
+        /// <summary>Every sweep starts this far back along its direction, on the player's side of its origin, so a wall
+        /// the origin is backed against (closer than <see cref="ProbeRadiusM"/>) is met, not started in.</summary>
+        public const float BackOffM = 0.35f;
+
+        /// <summary>When the backed-off sweep meets something before it reaches its origin, a thin sweep of this radius
+        /// from the origin itself (always clear of the player's 0.3 m body) tells a wall right behind from something on
+        /// the player's side.</summary>
+        public const float CoreRadiusM = 0.12f;
+
         public const float SkinM = 0.1f;
-        public const float StartInsideM = 0.05f;
+
+        /// <summary>A thin sweep that meets something within this of its start started inside it: blocked at once.</summary>
+        public const float StartInsideM = 0.02f;
+
         public const float EaseOutSeconds = 0.6f;
         public const float HoldSeconds = 0.2f;
         public const float LiftStepDeg = 15f;
@@ -728,6 +782,25 @@ namespace Ghumante.Core.Characters
         /// <summary>The side probes run at 10 Hz (the lane blend is slow anyway).</summary>
         public const float LaneIntervalS = 0.1f;
 
+        /// <summary>The overhead fallback starts when the clear boom (after lifting) is shorter than this: about the
+        /// player's own size, where the camera would sit inside the rider.</summary>
+        public const float FallbackClearM = 1.2f;
+
+        /// <summary>... and ends once the boom from the pivot has this much room again for <see cref="FallbackExitS"/>.</summary>
+        public const float FallbackExitM = 1.8f;
+
+        public const float FallbackExitS = 0.25f;
+
+        /// <summary>The fallback raises the pivot this far straight up (less under a ceiling or an eave).</summary>
+        public const float OverheadRiseM = 2.4f;
+
+        /// <summary>The fallback blends in and out over this long.</summary>
+        public const float OverheadSeconds = 0.3f;
+
+        /// <summary>In the fallback the camera looks this far down from level along the boom's heading, degrees: the lane
+        /// ahead with the vehicle's front (landscape) or the whole rider (portrait's tall view) at the bottom.</summary>
+        public const float OverheadLookDownLandscapeDeg = 58f, OverheadLookDownPortraitDeg = 48f;
+
         private const double Deg2Rad = Math.PI / 180.0;
 
         private float _distance = -1f;
@@ -736,12 +809,45 @@ namespace Ghumante.Core.Characters
         private float _lane;
         private float _laneTimer;
         private bool _laneWalls;
+        private bool _overhead;
+        private float _over;
+        private float _overExit;
 
-        /// <summary>The boom length this frame, metres.</summary>
+        /// <summary>The boom length this frame, metres (from the raised pivot in the fallback).</summary>
         public float DistanceM { get; private set; }
 
         /// <summary>The boom pitch this frame (wanted pitch + lane + lift), degrees.</summary>
         public float PitchDeg { get; private set; }
+
+        /// <summary>How far the overhead fallback raised the pivot this frame, metres (0 outside it).</summary>
+        public float RiseM { get; private set; }
+
+        /// <summary>True while the overhead fallback is wanted (the boom has no room behind the player).</summary>
+        public bool Overhead
+        {
+            get { return _overhead; }
+        }
+
+        /// <summary>Overhead fallback blend, 0 to 1 (eased): the camera's aim turns to look down the way ahead.</summary>
+        public float Overhead01
+        {
+            get { return CharMath.SmoothStep(_over); }
+        }
+
+        /// <summary>How far the camera's aim turns to the overhead look (<see cref="OverheadLookDownDeg"/>), 0 to 1: the
+        /// fallback's blend, fading out again where the boom from the raised pivot finds room (backed against a low
+        /// garden wall the camera rises over it and looks back at the player as usual).</summary>
+        public float OverheadLook01
+        {
+            get { return Overhead01 * (1f - CharMath.Clamp01((DistanceM - 0.3f) / 1.5f)); }
+        }
+
+        /// <summary>True while the fallback is wanted or still blending: only then may the camera come closer to the
+        /// pivot than <see cref="FallbackClearM"/> (crossing over the rider's head).</summary>
+        public bool FallbackActive
+        {
+            get { return _overhead || _over > 0f; }
+        }
 
         /// <summary>Extra pitch to clear a low wall, degrees (smoothed).</summary>
         public float LiftDeg
@@ -764,20 +870,30 @@ namespace Ghumante.Core.Characters
         /// <summary>Sweeps made by the last <see cref="Solve"/>.</summary>
         public int Casts { get; private set; }
 
-        /// <summary>Next solve starts fresh (spawn, teleport): no smoothing from the old length, lift or lane.</summary>
+        /// <summary>The overhead fallback's downward look for an orientation blend (0 landscape, 1 portrait), degrees.</summary>
+        public static float OverheadLookDownDeg(float portrait01)
+        {
+            float t = CharMath.Clamp01(portrait01);
+            return OverheadLookDownLandscapeDeg + (OverheadLookDownPortraitDeg - OverheadLookDownLandscapeDeg) * t;
+        }
+
+        /// <summary>Next solve starts fresh (spawn, teleport): no smoothing from the old length, lift, lane or fallback.</summary>
         public void Snap()
         {
             _distance = -1f;
             _lift = 0f;
             _hold = 0f;
             _laneTimer = 0f;
+            _overhead = false;
+            _over = 0f;
+            _overExit = 0f;
         }
 
         /// <summary>
         /// Places the boom for this frame: pivot (<paramref name="px"/>, <paramref name="py"/>, <paramref name="pz"/>) in
         /// game metres, boom yaw (degrees, 0 = north, clockwise: the camera sits behind, at −forward) and pitch
-        /// (degrees, camera above the pivot), the wanted length and the rig's minimum. Read <see cref="DistanceM"/> and
-        /// <see cref="PitchDeg"/> afterwards.
+        /// (degrees, camera above the pivot), the wanted length and the rig's minimum. Read <see cref="CameraOffset"/>
+        /// (or <see cref="RiseM"/>, <see cref="DistanceM"/> and <see cref="PitchDeg"/>) afterwards.
         /// </summary>
         public void Solve(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float wantedM,
                           float minM, float dt)
@@ -785,6 +901,7 @@ namespace Ghumante.Core.Characters
             Casts = 0;
             if (!(dt >= 0f) || float.IsInfinity(dt)) dt = 0f;
             if (float.IsNaN(wantedM) || wantedM < 0f) wantedM = 0f;
+            if (float.IsNaN(pitchDeg)) pitchDeg = 0f;
             bool snap = _distance < 0f;
 
             UpdateLane(query, px, py, pz, yawDeg, dt, snap);
@@ -817,8 +934,18 @@ namespace Ghumante.Core.Characters
             if (_lift < 0.01f && liftTarget <= 0f) _lift = 0f;
 
             float finalPitch = Math.Min(MaxPitchDeg, pitch + _lift);
-            float clear = clear0;
-            if (query != null && _lift > 0f) clear = Clear(query, px, py, pz, yawDeg, finalPitch, want);
+            float clearBase = clear0;
+            if (query != null && _lift > 0f) clearBase = Clear(query, px, py, pz, yawDeg, finalPitch, want);
+
+            // The overhead fallback: no room for a boom behind the player. In at once, out after a short hold.
+            UpdateOverhead(query != null, clearBase, want, dt, snap);
+            float rise = 0f, clear = clearBase;
+            if (_over > 0f && query != null)
+            {
+                rise = Reach(query, px, py, pz, 0.0, 1.0, 0.0, OverheadRiseM) * CharMath.SmoothStep(_over);
+                if (rise > 1e-3f) clear = Clear(query, px, py + rise, pz, yawDeg, finalPitch, want);
+                else rise = 0f;
+            }
 
             float target = Math.Min(want, clear);
             if (snap)
@@ -846,18 +973,47 @@ namespace Ghumante.Core.Characters
             ClearM = clear;
             DistanceM = _distance;
             PitchDeg = finalPitch;
+            RiseM = rise;
         }
 
-        /// <summary>Free length (minus <see cref="SkinM"/>) of a sphere sweep from a point along a direction, up to
-        /// <paramref name="length"/>: <paramref name="length"/> when nothing is hit or the sweep started inside.</summary>
+        /// <summary>The camera's offset from the pivot this frame (game metres, absolute y): up by <see cref="RiseM"/>,
+        /// then <see cref="DistanceM"/> along the boom at <paramref name="yawDeg"/> and <see cref="PitchDeg"/>.</summary>
+        public void CameraOffset(float yawDeg, out double ox, out double oy, out double oz)
+        {
+            double dx, dy, dz;
+            Direction(yawDeg, PitchDeg, out dx, out dy, out dz);
+            ox = dx * DistanceM;
+            oy = RiseM + dy * DistanceM;
+            oz = dz * DistanceM;
+        }
+
+        /// <summary>
+        /// Free length (minus <see cref="SkinM"/>) for a <see cref="ProbeRadiusM"/> sphere moved from a point along a unit
+        /// direction, up to <paramref name="length"/>. The sweep starts <see cref="BackOffM"/> back, on the player's side
+        /// of the point, so a wall the point is backed against is met instead of started in (a sphere that starts in a
+        /// solid ignores it, which would put the camera inside the house). When it meets something before reaching the
+        /// point, a thin <see cref="CoreRadiusM"/> sweep from the point itself decides: a wall right behind gives 0, a thing
+        /// on the player's side is ignored, and a thin sweep that starts inside something is blocked at once. Never
+        /// takes a start inside as clear.
+        /// </summary>
         public float Reach(IViewObstacleQuery query, double ox, double oy, double oz, double dx, double dy, double dz, float length)
         {
             if (query == null || !(length > 0f)) return Math.Max(0f, length);
             Casts++;
             double hit;
-            if (!query.SphereCast(ox, oy, oz, dx, dy, dz, ProbeRadiusM, length + SkinM, out hit)) return length;
-            if (double.IsNaN(hit) || hit < StartInsideM) return length;
-            return (float)Math.Max(0.0, Math.Min(length, hit - SkinM));
+            const double back = BackOffM;
+            if (!query.SphereCast(ox - dx * back, oy - dy * back, oz - dz * back, dx, dy, dz, ProbeRadiusM, length + back + SkinM, out hit))
+                return length;
+            if (double.IsNaN(hit)) hit = 0.0;
+            if (hit >= back - 1e-6) return Free(hit - back, length);
+
+            // Contact before the probe reached the point: a wall closer behind it than the probe radius, or something on
+            // the player's side of it. The thin sweep from the point sees only what lies ahead along the direction.
+            Casts++;
+            const double widen = ProbeRadiusM - CoreRadiusM;
+            if (!query.SphereCast(ox, oy, oz, dx, dy, dz, CoreRadiusM, length + SkinM + widen, out hit)) return length;
+            if (double.IsNaN(hit) || hit < StartInsideM) return 0f;
+            return Free(hit - widen, length);
         }
 
         /// <summary>The camera offset from the pivot for a boom of unit length at (<paramref name="yawDeg"/>,
@@ -871,11 +1027,46 @@ namespace Ghumante.Core.Characters
             dz = -Math.Cos(yaw) * c;
         }
 
+        private static float Free(double travelled, float length)
+        {
+            return (float)Math.Max(0.0, Math.Min(length, travelled - SkinM));
+        }
+
         private float Clear(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float length)
         {
             double dx, dy, dz;
             Direction(yawDeg, pitchDeg, out dx, out dy, out dz);
             return Reach(query, px, py, pz, dx, dy, dz, length);
+        }
+
+        private void UpdateOverhead(bool hasQuery, float clearBase, float want, float dt, bool snap)
+        {
+            if (!hasQuery)
+            {
+                _overhead = false;
+                _overExit = 0f;
+            }
+            else if (!_overhead)
+            {
+                _overhead = clearBase < Math.Min(FallbackClearM, want - 1e-3f);
+                _overExit = 0f;
+            }
+            else if (clearBase < Math.Min(FallbackExitM, want - 1e-3f))
+            {
+                _overExit = 0f;
+            }
+            else
+            {
+                _overExit += dt;
+                if (_overExit >= FallbackExitS || snap) _overhead = false;
+            }
+            float goal = _overhead ? 1f : 0f;
+            if (snap) _over = goal;
+            else
+            {
+                float step = dt / OverheadSeconds;
+                _over = _over < goal ? Math.Min(goal, _over + step) : Math.Max(goal, _over - step);
+            }
         }
 
         private void UpdateLane(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float dt, bool snap)

@@ -164,6 +164,7 @@ namespace Ghumante.UI.Screens
         private long _stepBucket = -1;
         private double _stepM;
         private bool _placingChip;
+        private readonly Action _placeChip;
         private RouteChipSlot _chipSlot = RouteChipSlot.Fallback;
         private float _loadingProgress = -1f;
         private int _loadingPercentShown = -1;
@@ -230,13 +231,18 @@ namespace Ghumante.UI.Screens
             }, Animator, Haptics, Feel);
 
             // What the route chip must keep clear of (besides the speedometer and the top bar): every touch control, the
-            // prompt chip and the debug panel, as laid out.
+            // prompt chip and the debug panel, as laid out. The floating stick counts by its whole touch zone (and the
+            // portrait drive zone by its own), not by its resting ring: the stick jumps to wherever the thumb lands, and
+            // the chip's x under a thumb would stop the route. Any of them moving (a layout or orientation change, the
+            // touch controls shown or hidden) places the chip again.
             _chipObstacles = new[]
             {
-                Required<VisualElement>("hud-stick"), Required<VisualElement>("hud-pedals"), _action, _passenger, Required<VisualElement>("hud-emote"),
-                Required<VisualElement>("hud-horn"), Required<VisualElement>("hud-bell"), _prompt, _debug, _attribution,
+                Required<VisualElement>("hud-stick-zone"), Required<VisualElement>("hud-drive-zone"), Required<VisualElement>("hud-pedals"), _action,
+                _passenger, Required<VisualElement>("hud-emote"), Required<VisualElement>("hud-horn"), Required<VisualElement>("hud-bell"), _prompt,
+                _debug, _attribution,
             };
             _chipRects = new HudRect[_chipObstacles.Length];
+            _placeChip = PlaceRouteChip;
 
             _toast = new HudToast(Animator, Required<VisualElement>("toast-bubble"), Required<VisualElement>("toast-icon"),
                                   Required<Label>("toast"));
@@ -342,6 +348,7 @@ namespace Ghumante.UI.Screens
             _route.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _speedo.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _top.RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            for (int i = 0; i < _chipObstacles.Length; i++) _chipObstacles[i].RegisterCallback<GeometryChangedEvent>(OnHudGeometry);
             if (Root.panel != null) ListenForBack();
             Animator.OnIdle(UpdateIdle, () =>
             {
@@ -535,6 +542,9 @@ namespace Ghumante.UI.Screens
             _modeButton.tooltip = Localizer.Get(ride ? "hud.walk" : "hud.ride");
             _touch.ReleaseAll();
             if (!Animator.Reduced) _modeIconNode.KickHop(320f);
+            // Pedals, horn, zones and the action button move or appear: place the chip again once the new layout has
+            // resolved (a car-to-bus switch keeps the route profile, so nothing else would).
+            SchedulePlaceRouteChip();
         }
 
         public ControlLayout Layout
@@ -618,6 +628,7 @@ namespace Ghumante.UI.Screens
             _touch.Visible = visible;
             if (visible && !Animator.Reduced) Animator.Play(_controlsNode, MotionChannel.Opacity, new Tween(0f, 1f, 0.3f, Ease.OutCubic));
             else _controlsNode.Set(MotionChannel.Opacity, 1f);
+            SchedulePlaceRouteChip();
         }
 
         /// <summary>The speedometer, from metres per second (written only when the whole km/h changes).</summary>
@@ -969,6 +980,7 @@ namespace Ghumante.UI.Screens
             _route.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _speedo.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _top.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            for (int i = 0; i < _chipObstacles.Length; i++) _chipObstacles[i].UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _touch.Dispose();
             _search.Dispose();
             _settings.Dispose();
@@ -1066,6 +1078,14 @@ namespace Ghumante.UI.Screens
             PlaceRouteChip();
         }
 
+        /// <summary>Places the chip on the next panel update, after a change of classes or visibility has been laid out
+        /// (no allocation: the callback is cached).</summary>
+        private void SchedulePlaceRouteChip()
+        {
+            if (!_route.ClassListContains(RouteVisibleClass)) return;
+            StyledRoot.schedule.Execute(_placeChip).StartingIn(0);
+        }
+
         /// <summary>
         /// Puts the route chip where <see cref="RouteChipLayout"/> says (inline left/top in the HUD root), from the laid-out
         /// rectangles of the screen, the safe area (the HUD root), the speedometer, the top bar and every touch control.
@@ -1121,10 +1141,16 @@ namespace Ghumante.UI.Screens
             _placingChip = false;
         }
 
+        /// <summary>True when <paramref name="e"/> is displayed: neither it nor any ancestor is display: none (hidden
+        /// touch controls hide their zones and buttons with them), and it is not hidden.</summary>
         private static bool Shown(VisualElement e)
         {
-            return e != null && e.resolvedStyle.display != DisplayStyle.None && e.resolvedStyle.visibility != Visibility.Hidden &&
-                   (e.parent == null || e.parent.resolvedStyle.display != DisplayStyle.None);
+            if (e == null || e.resolvedStyle.visibility == Visibility.Hidden) return false;
+            for (VisualElement a = e; a != null; a = a.parent)
+            {
+                if (a.resolvedStyle.display == DisplayStyle.None) return false;
+            }
+            return true;
         }
 
         private static bool Valid(Rect r)

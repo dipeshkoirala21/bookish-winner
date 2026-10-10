@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using Ghumante.Characters;
 using Ghumante.Characters.Cameras;
+using Ghumante.Characters.Rides;
 using Ghumante.Core.Characters;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Streaming;
+using Ghumante.Vehicles;
+using Ghumante.Vehicles.Visuals;
 using Ghumante.World.Cameras;
 using NUnit.Framework;
 using UnityEngine;
@@ -44,7 +47,6 @@ namespace Ghumante.Tests.EditMode
                 }
                 return best;
             }
-
             public bool SphereCast(double ox, double oy, double oz, double dx, double dy, double dz, double radius, double maxDist, out double hitDist)
             {
                 double t = 0.0;
@@ -95,7 +97,6 @@ namespace Ghumante.Tests.EditMode
             _rig.Detach();
             UnityEngine.Object.DestroyImmediate(_go);
         }
-
         private void Tick(float dt, Vector3 ground, float headingRad, float speed, RigClass rig, bool mount = false, CameraMount m = default(CameraMount))
         {
             var t = new CameraTarget { Ground = ground, HeadingRad = headingRad, SpeedMps = speed, Rig = rig, PassengerOf = RigClass.Car, HasMount = mount, Mount = m };
@@ -126,6 +127,116 @@ namespace Ghumante.Tests.EditMode
             }
             Assert.IsTrue(_rig.Reverse.Reversing, "the reversing frame is on");
             Assert.Greater(_rig.Reverse.Raise01, 0.9f);
+        }
+
+        [Test]
+        public void WaitingAtADeadEndTheCameraRisesOverTheRider()
+        {
+            // Reviewer's case: reverse into a 4.8 m lane closed by a house, stop 0.3 m from it and wait. Once the reversing
+            // frame lets go the boom has no room behind: the camera must neither sit inside the house nor inside the
+            // rider; it rises over the rider and looks down the lane ahead.
+            Boxes houses = new Boxes().Add(-12.4, 0, -40, -2.4, 9, 40).Add(2.4, 0, -40, 12.4, 9, 40).Add(-2.4, 0, -20, 2.4, 9, 0);
+            _rig.Obstacles = houses;
+            _rig.Snap();
+            float z = 8f;
+            for (int f = 0; f < 600; f++)
+            {
+                float speed = z > 0.3f ? -1.5f : 0f;
+                z = Mathf.Max(0.3f, z + speed / 60f);
+                var ground = new Vector3(0f, 0f, z);
+                Tick(1f / 60f, ground, 0f, speed, RigClass.TwoWheeler);
+                Vector3 cam = _camera.transform.position;
+                string when = "t = " + (f / 60f).ToString("0.00") + " s, z = " + z.ToString("0.00");
+                Assert.Greater(houses.Distance(cam.x, cam.y, cam.z), 0.15, when + ": inside a house at " + cam);
+                Assert.IsTrue(_rig.Boom.FallbackActive || Vector3.Distance(cam, ground + Vector3.up) > 0.5f, when + ": inside the rider at " + cam);
+            }
+            Assert.IsFalse(_rig.Reverse.Reversing, "waiting: the reversing frame let go");
+            Assert.IsTrue(_rig.Boom.Overhead, "no room behind: the overhead fallback");
+            Vector3 at = _camera.transform.position, forward = _camera.transform.forward;
+            Assert.Greater(at.y, 2.5f, "high over the rider's head");
+            Assert.Greater(forward.z, 0.3f, "looking up the lane, away from the house");
+            Assert.Less(forward.y, -0.5f, "and down at it");
+        }
+
+        [Test]
+        public void RidingAlongTheCameraLeansOutOfTheWindow()
+        {
+            var memory = new CameraViewMemory();
+            Assert.IsTrue(memory.Set(RigClass.Passenger, CameraView.PassengerSeat));
+            _rig.Views = memory;
+            var mount = new CameraMount { Head = new Vector3(0.5f, 2.0f, 1.0f), Origin = Vector3.zero, HeadingDeg = 0f, HalfWidthM = 1.25f };
+            _rig.Snap();
+            for (int i = 0; i < 60; i++) Tick(1f / 60f, Vector3.zero, 0f, 6f, RigClass.Passenger, true, mount);
+            Assert.IsTrue(_rig.Mounted);
+            Vector3 cam = _camera.transform.position;
+            Assert.AreEqual(1.25f + CameraViews.WindowOutM, cam.x, 0.02f, "just outside the body, on the passenger's side");
+            Assert.AreEqual(2.0f + CameraViews.EyeUpM, cam.y, 0.02f, "at eye height");
+            Assert.AreEqual(1.0f, cam.z, 0.02f, "beside the seat");
+            Assert.Greater(_camera.transform.forward.z, 0.95f, "looking ahead along the flank");
+            Assert.Less(_camera.transform.forward.x, 0f, "turned a little in towards the body");
+
+            // A wall beside the bus: the camera leans out only as far as the wall allows.
+            _rig.Obstacles = new Boxes().Add(1.35, 0, -20, 3, 6, 20);
+            for (int i = 0; i < 10; i++) Tick(1f / 60f, Vector3.zero, 0f, 6f, RigClass.Passenger, true, mount);
+            Assert.Less(_camera.transform.position.x, 1.35f - ChaseBoom.ProbeRadiusM + 0.01f, "never into the wall");
+        }
+
+        [Test]
+        public void TheCockpitShowsOnlyWithTheEyeInsideAClosedBody()
+        {
+            int hatch = -1, scooter = -1;
+            for (int i = 0; i < VehicleCatalog.Count; i++)
+            {
+                BodyShape shape = VehicleCatalog.At(i).Shape;
+                if (hatch < 0 && shape == BodyShape.Hatchback) hatch = i;
+                if (scooter < 0 && shape == BodyShape.Scooter) scooter = i;
+            }
+            using (var cache = new VehicleMeshCache())
+            {
+                DrivenVehicleView car = DrivenVehicleView.Create(null, null, cache, hatch, 0, 7u, false);
+                DrivenVehicleView bike = DrivenVehicleView.Create(null, null, cache, scooter, 0, 8u, false);
+                try
+                {
+                    Assert.IsTrue(car.HasCabin);
+                    Assert.IsFalse(bike.HasCabin, "a scooter is open: its own body is the view");
+                    CockpitSpec spec = CockpitSpec.For(VehicleCatalog.At(hatch), 0);
+                    float ex, ey, ez;
+                    CockpitMesher.Eye(spec, out ex, out ey, out ez);
+                    var eye = new Vector3(ex, ey, ez);
+                    MeshRenderer shell = car.transform.Find("Body/Shell").GetComponent<MeshRenderer>();
+
+                    car.UpdateCockpit(true, eye);
+                    Assert.IsTrue(car.CockpitShown, "the driver's view inside the car");
+                    Assert.IsTrue(car.transform.Find("Body/Cockpit").gameObject.activeSelf);
+                    Assert.IsTrue(shell.HasPropertyBlock(), "the shell's outline is off");
+                    var block = new MaterialPropertyBlock();
+                    shell.GetPropertyBlock(block);
+                    Assert.AreEqual(0f, block.GetFloat("_OutlineWidth"));
+
+                    // The steering wheel turns with the steering, like the hands.
+                    var pose = new VehiclePose { SteerRad = 0.05f, HasGround = true };
+                    car.Apply(pose, Vector3.zero, 1f / 60f, true);
+                    Transform wheel = car.transform.Find("Body/Cockpit/Steering Wheel");
+                    float x, y, z, tilt, radius;
+                    CockpitMesher.WheelPlacement(spec, out x, out y, out z, out tilt, out radius);
+                    Quaternion rest = Quaternion.Euler(-tilt, 0f, 0f);
+                    Assert.Greater(Quaternion.Angle(rest, wheel.localRotation), 5f, "turned");
+
+                    car.UpdateCockpit(true, eye + new Vector3(0f, 0f, 12f));
+                    Assert.IsFalse(car.CockpitShown, "a camera in front of the car sees the car");
+                    Assert.IsFalse(car.transform.Find("Body/Cockpit").gameObject.activeSelf);
+                    Assert.IsFalse(shell.HasPropertyBlock(), "the outline is back");
+                    car.UpdateCockpit(false, eye);
+                    Assert.IsFalse(car.CockpitShown, "the bonnet view sits outside the cabin: no cockpit");
+                    bike.UpdateCockpit(true, new Vector3(0f, 1.5f, 0.6f));
+                    Assert.IsFalse(bike.CockpitShown);
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(car.gameObject);
+                    UnityEngine.Object.DestroyImmediate(bike.gameObject);
+                }
+            }
         }
 
         [Test]

@@ -243,14 +243,15 @@
 /* ----- Route chip (W2 detail pass) ----------------------------------------------------------------------- */
 
 /* A compact chip: the next turn's arrow, the distance to it (big) and the distance and time left (small), with x to
- * stop. ExploreScreen places it with RouteChipLayout (inline left/top) beside the speedometer on the bottom edge in
- * landscape and under the top bar in portrait, inside the safe area and never over the road ahead; these left/top
- * values are the fallback until the HUD has been laid out. Children that must keep their size say flex-shrink: 0
+ * stop. ExploreScreen places it with RouteChipLayout (inline left/top) inside the safe area, never over the road ahead
+ * and never in a thumb zone: under the top bar, or beside the speedometer on the bottom edge where no stick zone is;
+ * these left/top values (under the top bar on the left, clear of the stick zone) are the fallback until the HUD has
+ * been laid out. Children that must keep their size say flex-shrink: 0
  * (UI Toolkit shrinks by default); the text column shrinks and ellipsises instead. */
 .gh-hud__route {
     position: absolute;
-    left: 22%;
-    top: 83%;
+    left: 24px;
+    top: 146px;
     flex-direction: row;
     align-items: center;
     max-width: 36%;

@@ -29,6 +29,9 @@ namespace Ghumante.Characters.Cameras
         public Vector3 HoodLocal;
 
         public bool HasHood;
+
+        /// <summary>Half the body's width, metres: the window view leans out just past it (<see cref="CameraViews.WindowX"/>).</summary>
+        public float HalfWidthM;
     }
 
     /// <summary>What the camera follows this frame (<see cref="ExplorerController.GetCameraTarget"/> plus the rig class
@@ -59,13 +62,15 @@ namespace Ghumante.Characters.Cameras
     /// The Explore camera (M1 track D, W2 detail pass; ARCHITECTURE.md 7.10a): a chase camera that trails the explorer
     /// with spring smoothing, tilts up the road with speed while keeping the explorer in the lower part of the frame, and
     /// frames by class, view and orientation (<see cref="ChaseRigProfile"/>, <see cref="CameraViews"/>); or a mounted
-    /// camera on the handlebar, the bonnet, the driver's or a passenger's seat.
+    /// camera on the handlebar, the bonnet or the driver's seat (inside a closed body the vehicle shows a stand-in
+    /// cockpit, <see cref="Rides.DrivenVehicleView.UpdateCockpit"/>), or leaning out of a passenger's window.
     /// <list type="bullet">
     /// <item><b>Views</b>: each class remembers its view in <see cref="Views"/> (<see cref="CameraViewMemory"/>, saved);
     /// a change of view or class blends over <see cref="CameraViews.BlendSeconds"/>, a rotation over 0.3 s.</item>
     /// <item><b>Collision</b>: the boom is swept against <see cref="Obstacles"/> (<see cref="ChaseBoom"/>): it pulls in
     /// at once, never inside or behind a wall, eases back out, lifts over low walls and goes steeper in narrow lanes; the
-    /// over-the-shoulder pivot is kept out of walls too.</item>
+    /// over-the-shoulder pivot is kept out of walls too. With no room behind the player at all (backed against a house)
+    /// the camera rises over the player's head and looks down the way ahead (the boom's overhead fallback).</item>
     /// <item><b>Reversing</b> (<see cref="ReverseFraming"/>): the camera rises and shortens so the lane behind shows,
     /// then swings round to look along the travel.</item>
     /// <item><b>Lens</b>: the vertical field of view keeps the view's minimum horizontal FOV at any aspect
@@ -372,9 +377,10 @@ namespace Ghumante.Characters.Cameras
             float near;
             if (mounted)
             {
-                MountedPose(dt, target, spec, out position, out rotation);
+                float windowYaw;
+                MountedPose(dt, target, spec, origin, out position, out rotation, out windowYaw);
                 near = spec.NearClipM;
-                _cameraYawDeg = target.Mount.HeadingDeg + _orbit;
+                _cameraYawDeg = target.Mount.HeadingDeg + _orbit + windowYaw;
             }
             else
             {
@@ -439,10 +445,9 @@ namespace Ghumante.Characters.Cameras
             if (_snap) _boom.Snap();
             float min = Mathf.Min(rig.MinDistanceM > 0f ? rig.MinDistanceM : (riding ? 4f : 2.5f), distance);
             _boom.Solve(obstacles, pivot.x + origin.X, pivot.y + origin.Y, pivot.z + origin.Z, yaw, pitch, distance, min, dt);
-            double dx, dy, dz;
-            ChaseBoom.Direction(yaw, _boom.PitchDeg, out dx, out dy, out dz);
-            float d = _boom.DistanceM;
-            position = pivot + new Vector3((float)dx * d, (float)dy * d, (float)dz * d);
+            double ox, oy, oz;
+            _boom.CameraOffset(yaw, out ox, out oy, out oz);
+            position = pivot + new Vector3((float)ox, (float)oy, (float)oz);
 
             // Never under the ground (a hillside behind, a dip): lift and keep framing the explorer.
             GroundSample s;
@@ -476,35 +481,67 @@ namespace Ghumante.Characters.Cameras
                 Quaternion through = toPivot.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(toPivot, Vector3.up) : look;
                 rotation = Quaternion.Slerp(pin, through, Mathf.Clamp01(rig.Aim01));
             }
+            // No room behind (backed against a house): the boom's overhead fallback looks down the way ahead from over
+            // the player's head instead of at the player from inside them.
+            float overhead = _boom.OverheadLook01;
+            if (overhead > 1e-3f)
+            {
+                Quaternion down = Quaternion.Euler(ChaseBoom.OverheadLookDownDeg(_portrait), yaw, 0f);
+                rotation = Quaternion.Slerp(rotation, down, overhead);
+            }
             if (!ReducedMotion && (rigClass == RigClass.TwoWheeler || rigClass == RigClass.Bicycle))
             {
                 rotation *= Quaternion.Euler(0f, 0f, -target.LeanRad * Mathf.Rad2Deg * 0.12f);
             }
         }
 
-        /// <summary>The eye and bonnet views: rigid to the body (heading and pitch, part of its roll), the head bone's
-        /// jitter smoothed out, plus the player's glance.</summary>
-        private void MountedPose(float dt, in CameraTarget target, in CameraViewSpec spec, out Vector3 position, out Quaternion rotation)
+        /// <summary>The eye, bonnet and window views: rigid to the body (heading and pitch, part of its roll), the head
+        /// bone's jitter smoothed out, plus the player's glance. The window view leans out of the passenger's side just
+        /// past the body (never through a wall beside the vehicle: the step is swept against <see cref="Obstacles"/>) and
+        /// turns a little in, so the flank runs along the frame; <paramref name="yawAddDeg"/> returns that turn. Mounted
+        /// views look levelled in portrait (<see cref="CameraViews.LookDownDeg"/>).</summary>
+        private void MountedPose(float dt, in CameraTarget target, in CameraViewSpec spec, WorldPos origin, out Vector3 position, out Quaternion rotation,
+                                 out float yawAddDeg)
         {
             CameraMount m = target.Mount;
             Quaternion body = Quaternion.Euler(-m.PitchDeg, m.HeadingDeg, m.RollDeg);
+            Quaternion level = Quaternion.Euler(-m.PitchDeg, m.HeadingDeg, 0f);
             Vector3 local;
+            yawAddDeg = 0f;
             if (spec.Kind == CameraViewKind.Hood)
             {
                 local = m.HoodLocal;
             }
+            else if (spec.Kind == CameraViewKind.Window)
+            {
+                Vector3 eye = m.Head + level * new Vector3(0f, CameraViews.EyeUpM, 0f);
+                local = Quaternion.Inverse(body) * (eye - m.Origin);
+                float side;
+                float x = CameraViews.WindowX(local.x, m.HalfWidthM, out side);
+                IViewObstacleQuery obstacles = Obstacles;
+                if (obstacles != null)
+                {
+                    Vector3 from = m.Origin + body * local;
+                    Vector3 dir = body * new Vector3(side, 0f, 0f);
+                    float reach = _boom.Reach(obstacles, from.x + origin.X, from.y + origin.Y, from.z + origin.Z, dir.x, dir.y, dir.z, Mathf.Abs(x - local.x));
+                    x = local.x + side * reach;
+                }
+                local.x = x;
+                yawAddDeg = -side * CameraViews.WindowInYawDeg;
+            }
             else
             {
-                Quaternion level = Quaternion.Euler(-m.PitchDeg, m.HeadingDeg, 0f);
                 Vector3 eye = m.Head + level * new Vector3(0f, CameraViews.EyeUpM, CameraViews.EyeForwardM);
                 local = Quaternion.Inverse(body) * (eye - m.Origin);
             }
             if (_snap || !_eyeValid || spec.Kind == CameraViewKind.Hood) _eyeLocal = local;
             else _eyeLocal = Vector3.Lerp(_eyeLocal, local, 1f - Mathf.Exp(-dt / EyeSmoothingS));
+            if (spec.Kind == CameraViewKind.Window) _eyeLocal.x = local.x; // a wall beside: in at once
             _eyeValid = true;
             position = m.Origin + body * _eyeLocal;
             float roll = ReducedMotion ? 0f : m.RollDeg * spec.RollShare;
-            rotation = Quaternion.Euler(-m.PitchDeg + spec.LookDownDeg + _pitchOffset, m.HeadingDeg + _orbit, roll);
+            float lookDown = CameraViews.LookDownDeg(spec, _portrait);
+            rotation = Quaternion.Euler(-m.PitchDeg + lookDown + _pitchOffset, m.HeadingDeg + _orbit + yawAddDeg, roll);
         }
 
         private void BeginBlend(in CameraTarget target)

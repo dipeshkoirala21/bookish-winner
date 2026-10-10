@@ -217,10 +217,9 @@
   "hud.camera.interior": "चालकको आँखाबाट",
   "hud.camera.high_chase": "माथिबाट पछ्याउने",
   "hud.camera.driver_seat": "चालकको सिटबाट",
-  "hud.camera.passenger_seat": "तपाईंको सिटबाट",
+  "hud.camera.passenger_seat": "झ्यालबाट",
   "hud.route.straight": "सिधै जानुहोस्",
   "hud.route.back": "बाटोमा फर्कनुहोस्",
-  "hud.route.started": "{0} जाने बाटो: {1}",
-  "hud.route.replan": "तपाईंको {0} का लागि नयाँ बाटो…",
+  "hud.route.replan": "{0}का लागि नयाँ बाटो खोज्दै…",
   "hud.route.car_roads": "कारको बाटो: कार छिर्ने सडक मात्र।"
 }
