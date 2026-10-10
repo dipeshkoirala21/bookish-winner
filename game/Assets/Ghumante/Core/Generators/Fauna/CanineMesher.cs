@@ -48,16 +48,15 @@ namespace Ghumante.Core.Generators.Fauna
             c.Add(0f, 0.45f, 0.25f, 0.052f, 0.05f, 0.07f, FaunaBone.Chest, coat);
             c.Tube(d.BodySegs, d.Rings, FaunaPart.Body, fur, Fv3.Up, 0.7f, 0.7f);
 
-            // Neck, carried up and forward, with a thick ruff of fur.
+            // Neck, carried up and forward, thick with the winter ruff: the ruff is the neck loft itself, full at the
+            // shoulders and tapering to the head, so it flows into the withers and the cheeks (no separate collar).
             c.Begin();
-            c.Add(0f, 0.45f, 0.12f, 0.08f, 0.085f, 0.1f, FaunaBone.Chest, coat);
-            c.Add(0f, 0.515f, 0.235f, 0.068f, 0.068f, 0.08f, FaunaBone.Neck, coat);
-            c.Add(0f, 0.575f, 0.295f, 0.058f, 0.058f, 0.062f, FaunaBone.Neck, coat);
+            c.Add(0f, 0.44f, 0.10f, 0.085f, 0.085f, 0.11f, FaunaBone.Chest, coat);
+            c.Add(0f, 0.49f, 0.19f, 0.09f, 0.082f, 0.098f, FaunaBone.Neck, coat);
+            c.Add(0f, 0.535f, 0.25f, 0.074f, 0.07f, 0.08f, FaunaBone.Neck, coat);
+            c.Add(0f, 0.58f, 0.295f, 0.06f, 0.06f, 0.064f, FaunaBone.Neck, coat);
             c.Add(0f, 0.6f, 0.32f, 0.054f, 0.055f, 0.056f, FaunaBone.Head, coat);
             c.Tube(d.BodySegs - 2, d.Rings, FaunaPart.Neck, fur, Fv3.Up, 0.5f, 0.5f);
-            if (!d.Far)
-                c.Ell(0f, 0.5f, 0.21f, 0.085f, 0.075f, 0.07f, new Fv3(0f, 0.55f, 0.83f).Normalized, Fv3.Up, d.Fine ? 4 : 3, d.BodySegs - 1, FaunaBone.Neck,
-                      coat, fur, FaunaPart.Neck);
 
             // Head: a broad skull and cheeks, a clear stop, a medium muzzle and a black nose.
             c.Begin();

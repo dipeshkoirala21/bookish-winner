@@ -17,13 +17,18 @@ namespace Ghumante.Wildlife
     /// barking at night) together with the ambient herds of <see cref="WildlifeDirector"/> (macaque troops at
     /// Swayambhu and Pashupati with babies riding, goats, hens and roosters, ducks, buffalo). Every animal is the
     /// detailed generated model of its species (<see cref="FaunaMesher"/>) animated by <see cref="FaunaAnimator"/>;
-    /// nearest first under the animal caps (LOD0 ≤ 10 m: 0 / 1 / 2, LOD1 ≤ 30 m: 1 / 3 / 6, keyframed LOD2 beyond:
-    /// 6 / 15 / 35), the near ones CPU-skinned every frame (<see cref="FaunaSkinnedSlots"/>), the far ones from baked
-    /// keyframes (<see cref="FaunaLibrary"/>); coats are per-instance tints. Cows moo now and then and dogs bark when
-    /// their clip turns to a bark. Never aggressive: the sim animals are obstacles the traffic yields to. Attached to
-    /// every <see cref="WorldRoot"/> by <see cref="WorldRoot.AnyReady"/>. Main thread only.
+    /// nearest first under the animal caps (<see cref="FaunaLod.AssignAnimals"/>: LOD0 ≤ 10 m: 0 / 1 / 2, LOD1 ≤ 30 m:
+    /// 1 / 3 / 6, keyframed LOD2 beyond: 6 / 15 / 35, within the animals' share of the animals-and-birds slice), the
+    /// near ones CPU-skinned every frame (<see cref="FaunaSkinnedSlots"/>), the far ones from baked keyframes
+    /// (<see cref="FaunaLibrary"/>); coats are per-instance tints. The sim's six clips are widened to the generated
+    /// ones (<see cref="FaunaAnimator.StreetClip"/>): most standing cows graze at the waste, fast dogs trot, sitting
+    /// dogs scratch now and then; macaques up on walls and plinths sit at the perch height. Cows moo now and then and
+    /// dogs bark when their clip turns to a bark. Never aggressive: the sim animals are obstacles the traffic yields
+    /// to. Attached to every <see cref="WorldRoot"/> by <see cref="WorldRoot.AnyReady"/>; runs before
+    /// <see cref="WildlifeDirector"/>'s birds, which get the rest of the slice. Main thread only.
     /// </summary>
     [DisallowMultipleComponent]
+    [DefaultExecutionOrder(40)]
     [AddComponentMenu("Ghumante/Animal Presenter")]
     public sealed class AnimalPresenter : MonoBehaviour
     {
@@ -43,7 +48,8 @@ namespace Ghumante.Wildlife
         }
 
         private WorldRoot _world;
-        private LifeLod _lod;
+        private int _tier;
+        private readonly int[] _caps = new int[3];
         private FaunaLibrary _library;
         private FaunaSkinnedSlots _slots;
         private WildlifeDirector _director;
@@ -52,6 +58,7 @@ namespace Ghumante.Wildlife
         private Candidate[] _cand = new Candidate[128];
         private float[] _dist = new float[128], _keys = new float[128];
         private int[] _level = new int[128], _order = new int[128];
+        private FaunaSpecies[] _species = new FaunaSpecies[128];
         private uint _rng = 0x9E3779B9u;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -69,14 +76,18 @@ namespace Ghumante.Wildlife
             return p;
         }
 
+        /// <summary>Triangles of the animals drawn this frame (the birds get the rest of the slice).</summary>
+        public int AnimalTris { get; private set; }
+
         private void Bind(WorldRoot world)
         {
             _world = world;
-            _lod = LifeLod.ForTier((int)world.Tier);
+            _tier = (int)world.Tier;
+            FaunaLod.AnimalCaps(_tier, _caps);
             Release();
             if (world.Materials == null) return;
             _library = new FaunaLibrary(world.Materials.instancedTint);
-            _slots = new FaunaSkinnedSlots(world.Materials.instancedTint, Math.Max(1, _lod.AnimalCaps[0] + _lod.AnimalCaps[1]));
+            _slots = new FaunaSkinnedSlots(world.Materials.instancedTint, Math.Max(1, _caps[0] + _caps[1]));
             _lastClip.Clear();
         }
 
@@ -129,10 +140,12 @@ namespace Ghumante.Wildlife
                     FaunaSpecies sp = SpeciesOf(a.Kind, a.AgentId);
                     uint h = FaunaRng.Hash((uint)a.AgentId, 0x7117u);
                     FaunaPalette.CoatFor(sp, a.Tint + 5 * (int)(h % 4u), out CoatPattern pat, out uint rgb);
+                    float clipTime = now + (h & 1023u) * 0.37f;
+                    FaunaClip clip = FaunaAnimator.StreetClip(sp, a.ClipId, a.SpeedMps, a.AgentId, clipTime);
                     Push(ref n, new Candidate
                     {
-                        Species = sp, Pattern = pat, Rgb = rgb, Pos = at, HeadingDeg = a.HeadingRad * Mathf.Rad2Deg, Clip = (FaunaClip)a.ClipId,
-                        ClipTime = now + (h & 1023u) * 0.37f, Speed = a.SpeedMps, Owner = a.AgentId, Seed = h,
+                        Species = sp, Pattern = pat, Rgb = rgb, Pos = at, HeadingDeg = a.HeadingRad * Mathf.Rad2Deg, Clip = clip,
+                        ClipTime = clipTime, Speed = a.SpeedMps, Owner = a.AgentId, Seed = h,
                     }, d);
                 }
             }
@@ -147,7 +160,8 @@ namespace Ghumante.Wildlife
                     for (int i = 0; i < herd.Count; i++)
                     {
                         double x = g.Plan.X + herd.X[i], z = g.Plan.Z + herd.Z[i];
-                        float y = _director.GroundY(x, z);
+                        // Up on a wall or a plinth (or climbing it): the sim's height; else the ground under it.
+                        float y = herd.Elevated[i] ? herd.HomeY + herd.Y[i] : _director.GroundY(x, z);
                         if (float.IsNaN(y)) y = herd.HomeY;
                         FaunaSpecies sp = herd.SpeciesOf(i);
                         float heading = herd.Heading[i] * Mathf.Rad2Deg;
@@ -161,6 +175,7 @@ namespace Ghumante.Wildlife
                             x = g.Plan.X + herd.X[m] + Math.Cos(hr) * side;
                             z = g.Plan.Z + herd.Z[m] - Math.Sin(hr) * side;
                             if (moving) y += 0.36f;
+                            if (herd.Elevated[m]) y = herd.HomeY + herd.Y[m] + (moving ? 0.36f : 0f);
                         }
                         Vector3 at = _world.ToScene(x, y, z);
                         float d = (at - camPos).magnitude;
@@ -174,7 +189,9 @@ namespace Ghumante.Wildlife
                 }
             }
 
-            LifeLod.Assign(_dist, n, _lod.AnimalCaps, _lod.AnimalRadii, _level, _order, _keys);
+            // The animals' share of the slice: what the bird caps leave (paper birds are paid for by the light birds).
+            int budget = FaunaLod.SliceTris(_tier) - FaunaLod.BirdCapTris(_tier);
+            AnimalTris = FaunaLod.AssignAnimals(_dist, _species, n, _tier, budget, _level, _order, _keys, _caps);
             _library.Begin(camPos);
             _slots.Begin(camPos);
             int drawn = 0;
@@ -215,9 +232,11 @@ namespace Ghumante.Wildlife
                 Array.Resize(ref _keys, cap);
                 Array.Resize(ref _level, cap);
                 Array.Resize(ref _order, cap);
+                Array.Resize(ref _species, cap);
             }
             _cand[n] = c;
             _dist[n] = distance;
+            _species[n] = c.Species;
             n++;
         }
 

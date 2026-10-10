@@ -14,7 +14,8 @@ namespace Ghumante.Core.Generators.Fauna
     {
         /// <summary>
         /// A hoof standing on the ground under (<paramref name="x"/>, <paramref name="z"/>): two claws (one on the far
-        /// level) each an oval frustum wider at the sole, with a soft rim, tipped forward a little.
+        /// level) each an oval frustum wider at the sole, with a soft rim round the top, tipped forward a little, and a
+        /// flat sole (a plain fan: the sole needs no rounded rim, which saves a third of the hoof's triangles).
         /// </summary>
         public static void Hoof(FaunaSketch c, float x, float z, float width, float height, FaunaBone bone, uint colour)
         {
@@ -30,7 +31,9 @@ namespace Ghumante.Core.Generators.Fauna
                 double s = c.S;
                 Affine3 xf = Affine3.Translation((x + ox) * s, 0, (z + 0.15f * width) * s) * Affine3.Scaling(1, 1, 1.4) * Affine3.RotationX(0.12);
                 int v0 = b.VertexCount;
-                Shapes.Frustum(b.Target.Mesh, xf, brush, w * s, w * 0.72f * s, height * s, Math.Max(4, d.SmallSegs), 0.22 * w * s, 1, true, true, default);
+                int seg = Math.Max(4, d.SmallSegs);
+                Shapes.Frustum(b.Target.Mesh, xf, brush, w * s, w * 0.72f * s, height * s, seg, 0.22 * w * s, 1, false, true, default);
+                Sole(b.Target.Mesh, xf, w * s, seg, colour);
                 b.Adopt(v0, bone, FaunaPart.Hoof);
             }
         }
@@ -54,7 +57,7 @@ namespace Ghumante.Core.Generators.Fauna
             Path3 path = Curves.CatmullRom(ctrl, c.Path.Clear(), d.Fine ? 2 : 1);
             int v0 = b.VertexCount;
             Shapes.Tube(b.Target.Mesh, Affine3.Identity, new ShapeBrush(baseColour, FaunaPalette.KeratinChannel), path, rBase * c.S,
-                        Math.Max(4, d.LimbSegs - 2), true, false, default, rTip * c.S);
+                        Math.Max(4, d.LimbSegs - 3), true, false, default, rTip * c.S);
             b.Adopt(v0, bone, FaunaPart.Horn);
             // Colour by distance from the base, with rings.
             var basePt = new Fv3((float)ctrl.X[0], (float)ctrl.Y[0], (float)ctrl.Z[0]);
@@ -102,6 +105,38 @@ namespace Ghumante.Core.Generators.Fauna
             v0 = b.VertexCount;
             Shapes.Lathe(b.Target.Mesh, bell, new ShapeBrush(0xC8A04800u, MaterialChannel.Gilt), p, d.SmallSegs, default);
             b.Adopt(v0, bone, FaunaPart.Collar);
+        }
+
+        /// <summary>A flat fan closing the bottom of a lathed part of radius <paramref name="r"/> at y = 0 of
+        /// <paramref name="xf"/> (facing down, keratin channel, AO 0.5).</summary>
+        private static void Sole(MeshData m, in Affine3 xf, double r, int seg, uint colour)
+        {
+            float ch = (float)FaunaPalette.KeratinChannel;
+            xf.Normal(0, -1, 0, out double nx, out double ny, out double nz);
+            xf.Point(0, 0, 0, out double cx, out double cy, out double cz);
+            var n = new Fv3((float)nx, (float)ny, (float)nz);
+            var c = new Fv3((float)cx, (float)cy, (float)cz);
+            int centre = m.AddVertex(c.X, c.Y, c.Z, n.X, n.Y, n.Z, colour, ch, 0.5f);
+            int first = m.VertexCount;
+            for (int k = 0; k < seg; k++)
+            {
+                double a = 2 * Math.PI * k / seg;
+                xf.Point(r * Math.Cos(a), 0, r * Math.Sin(a), out double px, out double py, out double pz);
+                m.AddVertex((float)px, (float)py, (float)pz, n.X, n.Y, n.Z, colour, ch, 0.5f);
+            }
+            for (int k = 0; k < seg; k++)
+            {
+                int a = first + k, bb = first + (k + 1) % seg;
+                Fv3 pa = Pos(m, centre), pb = Pos(m, a), pc = Pos(m, bb);
+                // Unity winding: front = cross(b − a, c − a) along the normal.
+                if (Fv3.Dot(Fv3.Cross(pb - pa, pc - pa), n) >= 0f) m.AddTriangle(centre, a, bb);
+                else m.AddTriangle(centre, bb, a);
+            }
+        }
+
+        private static Fv3 Pos(MeshData m, int v)
+        {
+            return new Fv3(m.Positions[3 * v], m.Positions[3 * v + 1], m.Positions[3 * v + 2]);
         }
 
         private static double Sq(double v)

@@ -43,23 +43,30 @@ namespace Ghumante.Core.Generators.Fauna
             {
                 case FaunaSpecies.Pigeon:
                 {
+                    // Rock pigeon of the squares: pale blue-grey back and wings, slate head flowing into an iridescent
+                    // neck band, grey breast, two black wing bars, a dark tail band, an orange eye with a black pupil,
+                    // a dark bill with a white cere, red feet (ref_animals.md 7).
                     uint t = PigeonBaseTint;
-                    s = Shape(0.17f, 0.055f, 0.05f, 18f, 0.045f, 0.022f, 15f, 0f, 0.019f, 0.022f, 0.016f, 0.0045f, 0f, 0f, 0.002f, 0.1f, 0.04f, 0f, 5f, 0f,
-                              0.045f, 0.004f, 0.018f, 0.022f, 0.66f, 0.11f, 0.16f, 0.0055f);
-                    s.Body = Rel(0x8C909AFFu, t);
-                    s.Back = Rel(0x9CA1AAFFu, t);
-                    s.Belly = Rel(0x9095A0FFu, t);
-                    s.Head = Rel(0x707582FFu, t);
-                    s.Neck = Rel(0x6E7480FFu, t);
-                    s.Wing = Rel(0xA3A8B1FFu, t);
-                    s.WingTip = 0x3A3A4200u;
-                    s.Tail = Rel(0x8A8F99FFu, t);
+                    s = Shape(0.17f, 0.052f, 0.05f, 18f, 0.045f, 0.024f, 12f, 0f, 0.02f, 0.023f, 0.016f, 0.0045f, 0f, 0f, 0.002f, 0.1f, 0.03f, 0f, 5f, 0f,
+                              0.045f, 0.0042f, 0.018f, 0.02f, 0.66f, 0.11f, 0.15f, 0.0048f);
+                    s.Body = Rel(0x8C919CFFu, t);
+                    s.Back = Rel(0xA0A6B0FFu, t);
+                    s.Belly = Rel(0x959AA4FFu, t);
+                    s.Head = Rel(0x5E6370FFu, t);
+                    s.Neck = Rel(0x646A76FFu, t);
+                    s.Wing = Rel(0xB2B7C0FFu, t);
+                    s.WingTip = Rel(0x55585FFFu, t);
+                    s.Tail = Rel(0x8C919AFFu, t);
                     s.TailTip = FaunaPalette.PigeonTailBand;
                     s.Bill = FaunaPalette.PigeonBill;
                     s.BillTip = FaunaPalette.PigeonBill;
                     s.Leg = FaunaPalette.PigeonFeet;
                     s.Iris = FaunaPalette.PigeonEye;
+                    s.Cere = FaunaPalette.PigeonCere;
                     s.BodyTinted = true;
+                    // Two black bars across the inner wing, pale grey between and behind them, dark primary tips.
+                    s.FoldU = new[] { 0f, 0.36f, 0.46f, 0.56f, 0.68f, 1f };
+                    s.FoldCol = new[] { s.Wing, FaunaPalette.PigeonBar, s.Wing, FaunaPalette.PigeonBar, s.Wing, s.WingTip };
                     break;
                 }
                 case FaunaSpecies.Crow:
@@ -95,6 +102,7 @@ namespace Ghumante.Core.Generators.Fauna
                     s.BillTip = 0x1A1612u << 8;
                     s.Leg = 0xE0B830u << 8;
                     s.Iris = 0x9A6A20u << 8;
+                    s.Cere = 0xE8C040u << 8;
                     s.Fingers = 5;
                     break;
                 case FaunaSpecies.Myna:
@@ -113,6 +121,8 @@ namespace Ghumante.Core.Generators.Fauna
                     s.BillTip = FaunaPalette.Yellow;
                     s.Leg = 0xE8B820u << 8;
                     s.Iris = 0x7A2A10u << 8;
+                    s.FoldU = new[] { 0f, 0.55f, 0.72f, 1f };
+                    s.FoldCol = new[] { s.Wing, s.Wing, 0xF2F0EAu << 8, s.WingTip };
                     break;
                 case FaunaSpecies.Sparrow:
                     s = Shape(0.075f, 0.026f, 0.025f, 20f, 0.015f, 0.014f, 15f, 0f, 0.0145f, 0.015f, 0.009f, 0.0042f, 0f, 0f, 0.002f, 0.05f, 0.018f, 0f, 5f, 0f,
@@ -130,6 +140,8 @@ namespace Ghumante.Core.Generators.Fauna
                     s.BillTip = s.Bill;
                     s.Leg = 0xB09080u << 8;
                     s.Iris = 0x1A1210u << 8;
+                    s.FoldU = new[] { 0f, 0.28f, 0.55f, 1f };
+                    s.FoldCol = new[] { s.Wing, 0xF0EDE6u << 8, s.Wing, s.WingTip };
                     break;
                 case FaunaSpecies.Egret:
                     s = Shape(0.2f, 0.055f, 0.06f, 35f, 0.14f, 0.018f, 22f, 0.05f, 0.022f, 0.03f, 0.06f, 0.006f, 0f, 0f, 0.004f, 0.08f, 0.04f, 0f, 25f, 0f,
@@ -147,7 +159,6 @@ namespace Ghumante.Core.Generators.Fauna
                     s.BillTip = 0xE8B414u << 8;
                     s.Leg = FaunaPalette.EgretLeg;
                     s.Iris = 0xF2D03Au << 8;
-                    s.Toes = true;
                     break;
                 default: // Swallow
                     s = Shape(0.085f, 0.028f, 0.025f, 15f, 0.012f, 0.014f, 15f, 0f, 0.0145f, 0.015f, 0.006f, 0.004f, 0f, 0.5f, 0.001f, 0.05f, 0.022f, 0.6f, 0f, 0.05f,
@@ -213,23 +224,26 @@ namespace Ghumante.Core.Generators.Fauna
                 {
                     case FaunaSpecies.Pigeon:
                     {
-                        if (part == FaunaPart.Neck || (part == FaunaPart.Body && p.Z > L.NeckBase.Z - 0.02f && p.Y > L.NeckBase.Y - 0.03f))
+                        if (part == FaunaPart.Neck || part == FaunaPart.Body)
                         {
-                            // Iridescent neck: green on the sides, purple at the front and back.
-                            float side = Math.Abs(n.X);
-                            col = side > 0.55f ? FaunaPalette.PigeonNeckGreen : FaunaPalette.PigeonNeckPurple;
+                            // The iridescent band round the neck: green on the sides, purple-violet at the front and the
+                            // nape, fading into the slate head above and the grey breast below; relative to the instance
+                            // tint, so dark and pale birds keep a matching sheen.
+                            float along = Fv3.Dot(p - L.NeckBase, L.NeckDir) / s.NeckLen;
+                            float band = FMath.SmoothStep(-0.25f, 0.2f, along) * (1f - FMath.SmoothStep(0.75f, 1.05f, along));
+                            band *= FMath.SmoothStep(L.NeckBase.Y - 0.3f * s.BodyH, L.NeckBase.Y, p.Y);
+                            if (band > 0f)
+                            {
+                                uint irid = FMath.LerpColour(Rel(0x7B5C8EFFu, PigeonBaseTint), Rel(0x4E7A6AFFu, PigeonBaseTint), FMath.SmoothStep(0.35f, 0.8f, Math.Abs(n.X)));
+                                col = FMath.LerpColour(col, irid, 0.9f * band);
+                            }
                         }
-                        if (f.Bone0[v] == (byte)FaunaBone.FoldL || f.Bone0[v] == (byte)FaunaBone.FoldR)
-                        {
-                            // Two dark bars across the folded wing.
-                            float along = L.Shoulder.Z - p.Z;
-                            float u = along / s.FoldLen;
-                            if (Math.Abs(u - 0.42f) < 0.05f || Math.Abs(u - 0.6f) < 0.05f) col = FaunaPalette.PigeonBar;
-                        }
-                        if ((f.Bone0[v] == (byte)FaunaBone.WingL || f.Bone0[v] == (byte)FaunaBone.WingR) && Math.Abs(p.X) > 0.08f && Math.Abs(p.X) < 0.12f &&
-                            n.Y > 0f)
+                        // The two bars across the inner wing in flight (trailing half of the arm).
+                        if ((f.Bone0[v] == (byte)FaunaBone.WingL || f.Bone0[v] == (byte)FaunaBone.WingR) && p.Z < L.Shoulder.Z - 0.3f * s.Chord && n.Y > 0f)
                             col = FaunaPalette.PigeonBar;
-                        if (part == FaunaPart.Body && p.Z < L.BodyC.Z - 0.04f && n.Y > 0.5f) col = Rel(0xBFC2C8FFu, PigeonBaseTint); // pale rump
+                        // Pale rump above the tail.
+                        if (part == FaunaPart.Body && Fv3.Dot(p - L.BodyC, L.Fwd) < -0.3f * s.BodyLen && Fv3.Dot(n, L.Up) > 0.4f)
+                            col = Rel(0xC3C6CCFFu, PigeonBaseTint);
                         break;
                     }
                     case FaunaSpecies.Crow:
@@ -253,9 +267,6 @@ namespace Ghumante.Core.Generators.Fauna
                         // White vent and undertail, white patch at the base of the primaries.
                         if (part == FaunaPart.Body && n.Y < -0.4f && p.Z < L.BodyC.Z - 0.02f) col = 0xEDE8E0u << 8;
                         if ((f.Bone0[v] == (byte)FaunaBone.WingTipL || f.Bone0[v] == (byte)FaunaBone.WingTipR) && Math.Abs(p.X) < 0.13f) col = 0xF2F0EAu << 8;
-                        if ((f.Bone0[v] == (byte)FaunaBone.FoldL || f.Bone0[v] == (byte)FaunaBone.FoldR) && L.Shoulder.Z - p.Z > 0.55f * s.FoldLen &&
-                            L.Shoulder.Z - p.Z < 0.7f * s.FoldLen)
-                            col = 0xF2F0EAu << 8;
                         break;
                     }
                     case FaunaSpecies.Sparrow:
@@ -269,8 +280,6 @@ namespace Ghumante.Core.Generators.Fauna
                             if (n.Z > 0.6f && n.Y < 0.1f) col = FaunaPalette.SparrowBib;
                         }
                         if (part == FaunaPart.Body && n.Y > 0.4f && ((int)(p.X * 400f + p.Z * 120f) & 1) == 0) col = FaunaPalette.SparrowStreak;
-                        if ((f.Bone0[v] == (byte)FaunaBone.FoldL || f.Bone0[v] == (byte)FaunaBone.FoldR) && Math.Abs(L.Shoulder.Z - p.Z - 0.25f * s.FoldLen) < 0.006f)
-                            col = 0xF0EDE6u << 8;
                         break;
                     }
                     case FaunaSpecies.Egret:
@@ -299,25 +308,13 @@ namespace Ghumante.Core.Generators.Fauna
             SideMark m;
             switch (sp)
             {
-                case FaunaSpecies.Pigeon:
-                    // The white cere at the base of the bill.
-                    if (d.Fine)
-                        b.Ellipsoid(L.BillBase + new Fv3(0f, 0.002f, 0f), Fv3.Forward, Fv3.Up, 0.0045f, 0.0035f, 0.0055f, 2, 4, FaunaBone.Head,
-                                    FaunaPalette.PigeonCere, FaunaPalette.SkinChannel, FaunaPart.Beak);
-                    break;
                 case FaunaSpecies.Myna:
                     // Bare yellow skin behind the eye.
                     if (d.Coarse) break;
                     m = c.StartSide();
                     b.Ellipsoid(L.HeadC + new Fv3(-0.8f * s.HeadR, 0.15f * s.HeadR, 0.05f * s.HeadLen), new Fv3(-1f, 0f, 0.3f).Normalized, Fv3.Up,
-                                0.009f, 0.0065f, 0.003f, 2, 4, FaunaBone.Head, FaunaPalette.Yellow, FaunaPalette.SkinChannel, FaunaPart.Face);
+                                0.009f, 0.0065f, 0.003f, 2, 3, FaunaBone.Head, FaunaPalette.Yellow, FaunaPalette.SkinChannel, FaunaPart.Face);
                     c.EndSide(m);
-                    break;
-                case FaunaSpecies.BlackKite:
-                    // Yellow cere.
-                    if (d.Coarse) break;
-                    b.Ellipsoid(L.BillBase, Fv3.Forward, Fv3.Up, 0.011f, 0.009f, 0.008f, 2, 4, FaunaBone.Head, 0xE8C040u << 8,
-                                FaunaPalette.SkinChannel, FaunaPart.Beak);
                     break;
             }
         }
@@ -325,14 +322,15 @@ namespace Ghumante.Core.Generators.Fauna
         // ------------------------------------------------------------------------------------------------------------
         // Paper birds
 
-        /// <summary>Triangles of a paper bird: two wing quads in a V, each with a top and a bottom face.</summary>
-        public const int PaperBirdTris = 8;
+        /// <summary>Triangles of a paper bird: two wing quads in a V (W2_DESIGN 5.6), drawn with culling off.</summary>
+        public const int PaperBirdTris = 4;
 
         /// <summary>
-        /// The far flock bird (W2_DESIGN 5.6): two flat wing quads in a V meeting along the body line, both faces
-        /// (seen from below as they pass overhead and from above from the hills), 8 triangles. <paramref name="flap"/>
-        /// in [−1, 1] lifts (1) or lowers (−1) the wing tips; the presenters bake a few flap frames and pick one per
-        /// bird. Colour of the species' wing (tinted for pigeons), UV0 = (feather channel, AO 1).
+        /// The far flock bird (W2_DESIGN 5.6): two flat wing quads in a V meeting along the body line, 4 triangles,
+        /// single-sided (the presenters draw paper birds with back-face culling off, so one face serves from above and
+        /// from below). <paramref name="flap"/> in [−1, 1] lifts (1) or lowers (−1) the wing tips; the presenters bake
+        /// a few flap frames and pick one per bird. Colour between the species' wing and underside (tinted for
+        /// pigeons), normals up, UV0 = (feather channel, AO 1).
         /// </summary>
         public static void PaperBird(FaunaSpecies species, float flap, MeshData dst)
         {
@@ -341,36 +339,68 @@ namespace Ghumante.Core.Generators.Fauna
             float half = 0.5f * s.Span, chord = s.Chord;
             float dihedral = FMath.Clamp(flap, -1f, 1f) * 0.75f;
             float tipY = (float)Math.Sin(dihedral) * half, tipX = (float)Math.Cos(dihedral) * half;
-            uint top = s.Wing | 0xFFu;
-            uint under = FMath.Shade(s.BodyTinted ? s.Belly : s.Wing | 0xFFu, 0.85f) | 0xFFu;
-            if (!s.BodyTinted)
-            {
-                top &= 0xFFFFFF00u;
-                under &= 0xFFFFFF00u;
-            }
+            uint col = PaperColour(s);
             float ch = (float)FaunaPalette.FeatherChannel;
             float zf = 0.5f * s.BodyLen + s.HeadLen + s.BillLen, zb = -0.5f * s.BodyLen - s.TailLen;
-            for (int face = 0; face < 2; face++)
+            for (int side = -1; side <= 1; side += 2)
             {
-                float ny = face == 0 ? 1f : -1f;
-                uint col = face == 0 ? top : under;
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    var p0 = new Fv3(0f, 0f, zf);
-                    var p1 = new Fv3(0f, 0f, zb);
-                    var p2 = new Fv3(side * tipX, tipY, 0.15f * chord);
-                    var p3 = new Fv3(side * tipX * 0.9f, tipY * 0.9f, -0.55f * chord);
-                    Fv3 nn = Fv3.Cross(p3 - p0, p1 - p0).Normalized;
-                    if (nn.Y * ny < 0f) nn = -nn;
-                    int a = dst.AddVertex(p0.X, p0.Y, p0.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
-                    int b = dst.AddVertex(p1.X, p1.Y, p1.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
-                    int t0 = dst.AddVertex(p2.X, p2.Y, p2.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
-                    int t1 = dst.AddVertex(p3.X, p3.Y, p3.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
-                    // Front side along nn: cross(b − a, c − a) · nn > 0.
-                    Tri(dst, a, b, t1, nn);
-                    Tri(dst, a, t1, t0, nn);
-                }
+                var p0 = new Fv3(0f, 0f, zf);
+                var p1 = new Fv3(0f, 0f, zb);
+                var p2 = new Fv3(side * tipX, tipY, 0.15f * chord);
+                var p3 = new Fv3(side * tipX * 0.9f, tipY * 0.9f, -0.55f * chord);
+                Fv3 nn = Fv3.Cross(p3 - p0, p1 - p0).Normalized;
+                if (nn.Y < 0f) nn = -nn;
+                // Lean the normals towards straight up so the top and the underside light alike.
+                nn = (nn + Fv3.Up).Normalized;
+                int a = dst.AddVertex(p0.X, p0.Y, p0.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
+                int b = dst.AddVertex(p1.X, p1.Y, p1.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
+                int t0 = dst.AddVertex(p2.X, p2.Y, p2.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
+                int t1 = dst.AddVertex(p3.X, p3.Y, p3.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
+                Tri(dst, a, b, t1, nn);
+                Tri(dst, a, t1, t0, nn);
             }
+        }
+
+        /// <summary>
+        /// The far bird on the ground (25–70 m from the camera, beyond the light-bird cap): a folded paper bird, two
+        /// quads as a tent along the body with the head end higher, 4 triangles at the species' standing size, so a
+        /// square's whole flock stays on the ground and none pops into the air out of nothing when it bursts.
+        /// </summary>
+        public static void PaperBirdSitting(FaunaSpecies species, MeshData dst)
+        {
+            dst.Clear();
+            AvianSpec s = Spec(species);
+            FaunaSpeciesInfo info = FaunaCatalog.Info(species);
+            float len = info.LengthM, h = info.HeightM;
+            float w = 1.1f * s.BodyW;
+            uint col = PaperColour(s);
+            float ch = (float)FaunaPalette.FeatherChannel;
+            var head = new Fv3(0f, 0.8f * h, 0.42f * len);
+            var tail = new Fv3(0f, Math.Max(0.3f * h, s.LegLen + 0.3f * s.BodyH), -0.5f * len);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var f = new Fv3(side * w, Math.Min(0.25f * h, s.LegLen), 0.18f * len);
+                var r = new Fv3(side * w * 0.8f, Math.Min(0.25f * h, s.LegLen), -0.22f * len);
+                Fv3 nn = Fv3.Cross(tail - head, f - head).Normalized;
+                if (nn.X * side < 0f) nn = -nn;
+                nn = (nn + Fv3.Up * 0.6f).Normalized;
+                int a = dst.AddVertex(head.X, head.Y, head.Z, nn.X, nn.Y, nn.Z, col, ch, 1f);
+                int b = dst.AddVertex(tail.X, tail.Y, tail.Z, nn.X, nn.Y, nn.Z, col, ch, 0.85f);
+                int c = dst.AddVertex(f.X, f.Y, f.Z, nn.X, nn.Y, nn.Z, col, ch, 0.7f);
+                int d = dst.AddVertex(r.X, r.Y, r.Z, nn.X, nn.Y, nn.Z, col, ch, 0.7f);
+                Tri(dst, a, c, d, nn);
+                Tri(dst, a, d, b, nn);
+            }
+        }
+
+        /// <summary>Colour of a paper bird: the wing, a little towards the underside (alpha 255 = tinted for the
+        /// pigeons, 0 = fixed colour).</summary>
+        private static uint PaperColour(in AvianSpec s)
+        {
+            uint top = s.Wing | 0xFFu;
+            uint under = (s.BodyTinted ? s.Belly : s.Wing) | 0xFFu;
+            uint c = FMath.LerpColour(top, FMath.Shade(under, 0.85f) | 0xFFu, 0.35f) | 0xFFu;
+            return s.BodyTinted ? c : c & 0xFFFFFF00u;
         }
 
         private static void Tri(MeshData m, int a, int b, int c, Fv3 n)

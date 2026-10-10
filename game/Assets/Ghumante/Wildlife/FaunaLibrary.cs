@@ -24,6 +24,9 @@ namespace Ghumante.Wildlife
         public int MaxBakesPerFrame = 6;
 
         private readonly Material _material;
+
+        /// <summary>The paper birds' material: the instanced tint material with culling off (single-sided quads).</summary>
+        private Material _paperMaterial;
         private readonly Dictionary<int, FaunaMesh> _meshes = new Dictionary<int, FaunaMesh>();
         private readonly Dictionary<int, InstanceBatch> _frames = new Dictionary<int, InstanceBatch>();
         private readonly List<InstanceBatch> _all = new List<InstanceBatch>();
@@ -152,19 +155,48 @@ namespace Ghumante.Wildlife
         public InstanceBatch Paper(FaunaSpecies species, float flapPhase01)
         {
             int f = (int)(Frac(flapPhase01) * 4f) & 3;
-            int key = int.MinValue + (int)species * 4 + f;
+            int key = int.MinValue + (int)species * 8 + f;
             InstanceBatch b;
             if (_frames.TryGetValue(key, out b)) return b;
             BirdMesher.PaperBird(species, f == 0 ? 0.9f : f == 1 ? 0.2f : f == 2 ? -0.7f : 0.1f, _scratch);
-            b = NewBatch(_scratch, species + "_paper_" + f, false);
+            b = NewBatch(_scratch, species + "_paper_" + f, false, PaperMaterial());
             _frames.Add(key, b);
             return b;
         }
 
+        /// <summary>The folded paper bird of a species sitting on the ground (far birds beyond the light-bird cap).</summary>
+        public InstanceBatch PaperSitting(FaunaSpecies species)
+        {
+            int key = int.MinValue + (int)species * 8 + 4;
+            InstanceBatch b;
+            if (_frames.TryGetValue(key, out b)) return b;
+            BirdMesher.PaperBirdSitting(species, _scratch);
+            b = NewBatch(_scratch, species + "_paper_sit", false, PaperMaterial());
+            _frames.Add(key, b);
+            return b;
+        }
+
+        private Material PaperMaterial()
+        {
+            if (_paperMaterial == null && _material != null)
+            {
+                _paperMaterial = new Material(_material) { name = _material.name + " (paper birds)" };
+                if (_paperMaterial.HasProperty(CullId)) _paperMaterial.SetFloat(CullId, (float)CullMode.Off);
+            }
+            return _paperMaterial != null ? _paperMaterial : _material;
+        }
+
+        private static readonly int CullId = Shader.PropertyToID("_Cull");
+
         private InstanceBatch NewBatch(MeshData m, string name, bool shadows)
         {
+            return NewBatch(m, name, shadows, _material);
+        }
+
+        private InstanceBatch NewBatch(MeshData m, string name, bool shadows, Material material)
+        {
             Mesh mesh = MeshUpload.CreateWhole(m, "fauna_" + name);
-            var b = new InstanceBatch(mesh, _material, m.TriangleCount, true)
+            var b = new InstanceBatch(mesh, material, m.TriangleCount, true)
             {
                 Shadows = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off,
                 WorldBounds = _bounds,
@@ -215,6 +247,8 @@ namespace Ghumante.Wildlife
             _all.Clear();
             _frames.Clear();
             _meshes.Clear();
+            if (_paperMaterial != null) UnityEngine.Object.Destroy(_paperMaterial);
+            _paperMaterial = null;
         }
     }
 }

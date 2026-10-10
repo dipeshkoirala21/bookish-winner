@@ -341,8 +341,9 @@ namespace Ghumante.Core.Generators.Fauna
         /// <summary>Wingspan (birds), metres; 0 for the others.</summary>
         public readonly float WingspanM;
 
-        /// <summary>Triangle budgets of LOD0 / LOD1 / LOD2 (W2_DESIGN 5.5-5.6, revised by the detail pass): triangles drawn in
-        /// a pose (the spread or the folded wings are hidden); the LOD2 of flying birds is the paper bird.</summary>
+        /// <summary>Triangle budgets of LOD0 / LOD1 / LOD2 (W2_DESIGN 5.5-5.6: 2,500 / 1,000 / 300 for the mammals, 300 / 80
+        /// / 4 for the flying birds, whose LOD2 is the paper bird): triangles drawn in a pose (the spread or the folded
+        /// wings are hidden). <see cref="FaunaLod"/> checks the tier caps against the animals-and-birds slice.</summary>
         public readonly int Lod0Tris, Lod1Tris, Lod2Tris;
 
         /// <summary>Walking speed and the speed above which the gait changes to trot (or run), m/s.</summary>
@@ -393,24 +394,24 @@ namespace Ghumante.Core.Generators.Fauna
 
         private static readonly FaunaSpeciesInfo[] Table =
         {
-            new FaunaSpeciesInfo(FaunaSpecies.Cow, FaunaFamily.Bovine, 1.20f, 2.05f, 0f, 3000, 1000, 340, 0.9f, 1.8f, 0f),
-            new FaunaSpeciesInfo(FaunaSpecies.Calf, FaunaFamily.Bovine, 0.80f, 1.25f, 0f, 3000, 1000, 340, 0.9f, 1.8f, 0f),
-            new FaunaSpeciesInfo(FaunaSpecies.Bull, FaunaFamily.Bovine, 1.32f, 2.25f, 0f, 3000, 1000, 340, 0.9f, 1.8f, 0f),
-            new FaunaSpeciesInfo(FaunaSpecies.Buffalo, FaunaFamily.Bovine, 1.30f, 2.40f, 0f, 3000, 1000, 420, 0.8f, 1.6f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.Cow, FaunaFamily.Bovine, 1.20f, 2.05f, 0f, 2500, 1000, 300, 0.9f, 1.8f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.Calf, FaunaFamily.Bovine, 0.80f, 1.25f, 0f, 2500, 1000, 300, 0.9f, 1.8f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.Bull, FaunaFamily.Bovine, 1.32f, 2.25f, 0f, 2500, 1000, 300, 0.9f, 1.8f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.Buffalo, FaunaFamily.Bovine, 1.30f, 2.40f, 0f, 2500, 1000, 300, 0.8f, 1.6f, 0f),
             new FaunaSpeciesInfo(FaunaSpecies.Dog, FaunaFamily.Canine, 0.52f, 0.95f, 0f, 2000, 800, 300, 1.0f, 1.9f, 0f),
-            new FaunaSpeciesInfo(FaunaSpecies.Goat, FaunaFamily.Caprine, 0.62f, 1.00f, 0f, 2200, 800, 320, 0.8f, 1.7f, 0f),
-            new FaunaSpeciesInfo(FaunaSpecies.Macaque, FaunaFamily.Primate, 0.42f, 0.85f, 0f, 2500, 1000, 320, 0.9f, 2.2f, 0f),
-            new FaunaSpeciesInfo(FaunaSpecies.MacaqueBaby, FaunaFamily.Primate, 0.20f, 0.42f, 0f, 2500, 1000, 320, 0.6f, 1.6f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.Goat, FaunaFamily.Caprine, 0.62f, 1.00f, 0f, 2200, 800, 300, 0.8f, 1.7f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.Macaque, FaunaFamily.Primate, 0.42f, 0.85f, 0f, 2500, 1000, 300, 0.9f, 2.2f, 0f),
+            new FaunaSpeciesInfo(FaunaSpecies.MacaqueBaby, FaunaFamily.Primate, 0.20f, 0.42f, 0f, 2500, 1000, 300, 0.6f, 1.6f, 0f),
             new FaunaSpeciesInfo(FaunaSpecies.Hen, FaunaFamily.Fowl, 0.38f, 0.42f, 0.70f, 900, 160, 110, 0.5f, 1.6f, 6f),
             new FaunaSpeciesInfo(FaunaSpecies.Rooster, FaunaFamily.Fowl, 0.50f, 0.52f, 0.80f, 1000, 180, 140, 0.5f, 1.6f, 6f),
             new FaunaSpeciesInfo(FaunaSpecies.Duck, FaunaFamily.Fowl, 0.36f, 0.50f, 0.85f, 700, 160, 100, 0.45f, 1.2f, 5f),
-            new FaunaSpeciesInfo(FaunaSpecies.Pigeon, FaunaFamily.Bird, 0.24f, 0.32f, 0.66f, 380, 105, 8, 0.6f, 1.2f, 5f),
-            new FaunaSpeciesInfo(FaunaSpecies.Crow, FaunaFamily.Bird, 0.28f, 0.42f, 0.80f, 380, 105, 8, 0.6f, 1.4f, 3.5f),
-            new FaunaSpeciesInfo(FaunaSpecies.BlackKite, FaunaFamily.Bird, 0.34f, 0.58f, 1.50f, 520, 110, 8, 0.4f, 0.8f, 2f),
-            new FaunaSpeciesInfo(FaunaSpecies.Myna, FaunaFamily.Bird, 0.18f, 0.24f, 0.42f, 390, 105, 8, 0.7f, 1.4f, 7f),
-            new FaunaSpeciesInfo(FaunaSpecies.Sparrow, FaunaFamily.Bird, 0.11f, 0.15f, 0.24f, 380, 105, 8, 0.5f, 1.0f, 9f),
-            new FaunaSpeciesInfo(FaunaSpecies.Egret, FaunaFamily.Bird, 0.50f, 0.52f, 0.92f, 460, 125, 8, 0.5f, 1.0f, 3f),
-            new FaunaSpeciesInfo(FaunaSpecies.Swallow, FaunaFamily.Bird, 0.10f, 0.18f, 0.33f, 410, 105, 8, 0.3f, 0.6f, 8f),
+            new FaunaSpeciesInfo(FaunaSpecies.Pigeon, FaunaFamily.Bird, 0.24f, 0.32f, 0.66f, 300, 80, 4, 0.6f, 1.2f, 5f),
+            new FaunaSpeciesInfo(FaunaSpecies.Crow, FaunaFamily.Bird, 0.28f, 0.42f, 0.80f, 300, 80, 4, 0.6f, 1.4f, 3.5f),
+            new FaunaSpeciesInfo(FaunaSpecies.BlackKite, FaunaFamily.Bird, 0.34f, 0.58f, 1.50f, 300, 80, 4, 0.4f, 0.8f, 2f),
+            new FaunaSpeciesInfo(FaunaSpecies.Myna, FaunaFamily.Bird, 0.18f, 0.24f, 0.42f, 300, 80, 4, 0.7f, 1.4f, 7f),
+            new FaunaSpeciesInfo(FaunaSpecies.Sparrow, FaunaFamily.Bird, 0.11f, 0.15f, 0.24f, 300, 80, 4, 0.5f, 1.0f, 9f),
+            new FaunaSpeciesInfo(FaunaSpecies.Egret, FaunaFamily.Bird, 0.50f, 0.52f, 0.92f, 300, 80, 4, 0.5f, 1.0f, 3f),
+            new FaunaSpeciesInfo(FaunaSpecies.Swallow, FaunaFamily.Bird, 0.10f, 0.18f, 0.33f, 300, 80, 4, 0.3f, 0.6f, 8f),
         };
 
         /// <summary>Facts of a species.</summary>

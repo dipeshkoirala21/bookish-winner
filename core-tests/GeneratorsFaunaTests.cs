@@ -405,10 +405,16 @@ namespace Ghumante.Core.Tests
         private sealed class FixedHabitat : IFaunaHabitat
         {
             public AreaType Area;
+            public FaunaGround Ground = FaunaGround.Loaded | FaunaGround.Field;
 
             public AreaType AreaAt(double x, double z)
             {
                 return Area;
+            }
+
+            public FaunaGround GroundAt(double x, double z)
+            {
+                return Ground;
             }
         }
 
@@ -427,7 +433,7 @@ namespace Ghumante.Core.Tests
             Assert.AreEqual(3, troops, "three troops round the stupa");
             for (int i = 1; i < n; i++) Assert.LessOrEqual(dst[i - 1].DistanceM, dst[i].DistanceM, "nearest first");
             int bas = Array.FindIndex(AmbientFaunaPlanner.Sites, s => s.Name == "Basantapur");
-            p.SitePosition(bas, out double bx, out double bz);
+            p.GroupPosition(bas, 0, out double bx, out double bz);
             n = p.Plan(bx, bz, 150f, 10, 11f, null, dst);
             Assert.IsTrue(Array.Exists(dst, g => g.Kind == AmbientKind.PigeonFlock && g.Count >= 100 && g.DistanceM < 20f), "the Basantapur flock");
             // At night the pigeons roost.
@@ -463,23 +469,30 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void PaperBirdFacesBothWays()
+        public void PaperBirdsAreFourSingleSidedTriangles()
         {
             var m = new MeshData();
             BirdMesher.PaperBird(FaunaSpecies.Pigeon, 0.5f, m);
-            int up = 0, down = 0;
+            Assert.AreEqual(BirdMesher.PaperBirdTris, m.TriangleCount);
+            int up = 0;
             for (int i = 0; i < m.IndexCount; i += 3)
             {
                 int a = m.Indices[i], b = m.Indices[i + 1], c = m.Indices[i + 2];
                 var pa = new Fv3(m.Positions[3 * a], m.Positions[3 * a + 1], m.Positions[3 * a + 2]);
                 var pb = new Fv3(m.Positions[3 * b], m.Positions[3 * b + 1], m.Positions[3 * b + 2]);
                 var pc = new Fv3(m.Positions[3 * c], m.Positions[3 * c + 1], m.Positions[3 * c + 2]);
-                float ny = Fv3.Cross(pb - pa, pc - pa).Y;
-                if (ny > 0f) up++;
-                else if (ny < 0f) down++;
+                if (Fv3.Cross(pb - pa, pc - pa).Y > 0f) up++;
             }
-            Assert.AreEqual(4, up);
-            Assert.AreEqual(4, down);
+            Assert.AreEqual(4, up, "one face, up (drawn with culling off)");
+            // The sitting paper bird: a tent along the body, on the ground, head end higher.
+            BirdMesher.PaperBirdSitting(FaunaSpecies.Pigeon, m);
+            Assert.AreEqual(BirdMesher.PaperBirdTris, m.TriangleCount);
+            m.GetBounds(out float x0, out float y0, out float z0, out float x1, out float y1, out float z1);
+            FaunaSpeciesInfo info = FaunaCatalog.Info(FaunaSpecies.Pigeon);
+            Assert.That(y0, Is.InRange(0f, 0.3f * info.HeightM));
+            Assert.That(y1, Is.InRange(0.6f * info.HeightM, 1.1f * info.HeightM));
+            Assert.That(z1 - z0, Is.InRange(0.8f * info.LengthM, 1.05f * info.LengthM));
+            Assert.Greater(x1 - x0, 0.05f);
         }
     }
 }

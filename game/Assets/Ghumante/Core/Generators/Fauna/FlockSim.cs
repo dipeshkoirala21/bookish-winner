@@ -110,6 +110,13 @@ namespace Ghumante.Core.Generators.Fauna
         public readonly int Count;
         public readonly uint Seed;
 
+        /// <summary>Radius of the ground disc the birds peck in (m): the curated site's, else the kind's.</summary>
+        public readonly float DiscRadiusM;
+
+        /// <summary>The world's ground, or null: ground spots are only picked where birds can stand (not in a
+        /// building or a monument, not on a carriageway, not in water; egrets also in wet fields).</summary>
+        public readonly IFaunaHabitat Habitat;
+
         /// <summary>Home of the flock in game metres, and its ground height.</summary>
         public readonly double HomeX, HomeZ;
 
@@ -150,9 +157,18 @@ namespace Ghumante.Core.Generators.Fauna
         }
 
         public FlockSim(FlockKind kind, int count, double homeX, double homeZ, float homeY, uint seed)
+            : this(kind, count, homeX, homeZ, homeY, seed, 0f, null)
+        {
+        }
+
+        /// <summary>A flock at home (x, z) on ground height <paramref name="homeY"/>, pecking in a disc of
+        /// <paramref name="discRadiusM"/> (≤ 0: the kind's) on the ground <paramref name="habitat"/> allows.</summary>
+        public FlockSim(FlockKind kind, int count, double homeX, double homeZ, float homeY, uint seed, float discRadiusM, IFaunaHabitat habitat)
         {
             Kind = kind;
             P = FlockParams.Of(kind);
+            DiscRadiusM = discRadiusM > 0f ? discRadiusM : P.DiscRadiusM;
+            Habitat = habitat;
             Count = Math.Max(1, Math.Min(MaxBirds, count));
             HomeX = homeX;
             HomeZ = homeZ;
@@ -180,10 +196,16 @@ namespace Ghumante.Core.Generators.Fauna
             SinceBurstS = 1e4f;
             for (int k = 0; k < _spotX.Length; k++)
             {
-                float r = 0.55f * P.DiscRadiusM * (float)Math.Sqrt(_rng.NextFloat());
-                float a = _rng.Range(0f, FMath.TwoPi);
-                _spotX[k] = r * FMath.Cos(a);
-                _spotZ[k] = r * FMath.Sin(a);
+                _spotX[k] = _spotZ[k] = 0f;
+                for (int t = 0; t < 5; t++)
+                {
+                    float r = 0.55f * DiscRadiusM * (float)Math.Sqrt(_rng.NextFloat());
+                    float a = _rng.Range(0f, FMath.TwoPi);
+                    if (!SpotOk(r * FMath.Cos(a), r * FMath.Sin(a))) continue;
+                    _spotX[k] = r * FMath.Cos(a);
+                    _spotZ[k] = r * FMath.Sin(a);
+                    break;
+                }
             }
             for (int i = 0; i < n; i++)
             {
@@ -649,20 +671,43 @@ namespace Ghumante.Core.Generators.Fauna
 
         private void PickGroundSpot(int i)
         {
-            // Two thirds crowd round a feeding spot, the rest wander the whole disc.
-            float u = _rng.NextFloat();
-            float r, a = _rng.Range(0f, FMath.TwoPi);
-            if (u < 0.67f)
+            // Two thirds crowd round a feeding spot, the rest wander the whole disc; only where a bird can stand.
+            for (int t = 0; t < 5; t++)
             {
-                int k = _rng.Next(_spotX.Length);
-                r = 0.35f * P.DiscRadiusM * (float)Math.Sqrt(_rng.NextFloat());
-                _gx[i] = _spotX[k] + r * FMath.Cos(a);
-                _gz[i] = _spotZ[k] + r * FMath.Sin(a);
+                float u = _rng.NextFloat();
+                float r, a = _rng.Range(0f, FMath.TwoPi), x, z;
+                if (u < 0.67f)
+                {
+                    int k = _rng.Next(_spotX.Length);
+                    r = 0.35f * DiscRadiusM * (float)Math.Sqrt(_rng.NextFloat());
+                    x = _spotX[k] + r * FMath.Cos(a);
+                    z = _spotZ[k] + r * FMath.Sin(a);
+                }
+                else
+                {
+                    r = DiscRadiusM * (float)Math.Sqrt(_rng.NextFloat());
+                    x = r * FMath.Cos(a);
+                    z = r * FMath.Sin(a);
+                }
+                if (!SpotOk(x, z)) continue;
+                _gx[i] = x;
+                _gz[i] = z;
                 return;
             }
-            r = P.DiscRadiusM * (float)Math.Sqrt(_rng.NextFloat());
-            _gx[i] = r * FMath.Cos(a);
-            _gz[i] = r * FMath.Sin(a);
+            // Nothing suitable nearby: the feeding spot by home (the planner checked home).
+            int s = i % _spotX.Length;
+            _gx[i] = _spotX[s];
+            _gz[i] = _spotZ[s];
+        }
+
+        /// <summary>True when a bird may stand at (x, z) relative to home (unknown ground counts as fine).</summary>
+        private bool SpotOk(float x, float z)
+        {
+            if (Habitat == null) return true;
+            FaunaGround g = Habitat.GroundAt(HomeX + x, HomeZ + z);
+            if (g == FaunaGround.None) return true;
+            if ((g & (FaunaGround.Building | FaunaGround.Road)) != 0) return false;
+            return Kind == FlockKind.Egrets || (g & FaunaGround.Water) == 0;
         }
 
         private float CellSize

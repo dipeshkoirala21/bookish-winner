@@ -41,33 +41,71 @@ namespace Ghumante.Core.Generators.Fauna
         {
             get { return Kind <= AmbientKind.EgretGroup; }
         }
+
+        /// <summary>True for the curated residents (<see cref="AmbientFaunaPlanner.Sites"/>): the Durbar-square pigeon
+        /// flocks, the macaque troops of the temples, the Tundikhel crow roost.</summary>
+        public bool IsCurated
+        {
+            get { return (Key >> 40) == 1L; }
+        }
     }
 
-    /// <summary>What the planner asks of the world: the area type of a point (W2_DESIGN 1.1 classifier).</summary>
+    /// <summary>
+    /// What the planner and the sims ask of the world: the area type of a point (W2_DESIGN 1.1 classifier) and what
+    /// lies on the ground there (buildings, hero monuments, carriageways, footways, water, fields, squares;
+    /// <see cref="FaunaGroundIndex"/>), so no flock pecks inside a house, no herd grazes on a carriageway and ducks
+    /// swim only on water.
+    /// </summary>
     public interface IFaunaHabitat
     {
         AreaType AreaAt(double x, double z);
+
+        /// <summary>What lies at (x, z); <see cref="FaunaGround.None"/> where nothing is loaded yet.</summary>
+        FaunaGround GroundAt(double x, double z);
     }
 
-    /// <summary>A curated place with its resident animals (street_life §7.3, §8).</summary>
+    /// <summary>
+    /// A curated place with its resident animals (street_life §7.3, §8): an anchor (the monument or square it belongs
+    /// to, WGS84) and one offset per group in metres east and north of it, placed on the real gathering spots (the
+    /// open brick square of Basantapur, the kora plaza of Boudha outside the prayer-wheel wall, the platform, east stair
+    /// and chaitya terraces round Swayambhu's dome), never inside a monument (<see cref="FaunaHeroZones"/>).
+    /// </summary>
     public readonly struct FaunaSite
     {
         public readonly string Name;
         public readonly double Lon, Lat;
         public readonly AmbientKind Kind;
-        public readonly int Groups, CountMin, CountMax;
+        public readonly int CountMin, CountMax;
+
+        /// <summary>Peck disc of a flock, home radius of a troop (m).</summary>
         public readonly float SpreadM;
 
-        public FaunaSite(string name, double lat, double lon, AmbientKind kind, int groups, int countMin, int countMax, float spreadM)
+        /// <summary>Group offsets from the anchor: east, north (m), one pair per group.</summary>
+        private readonly float[] _offsets;
+
+        public FaunaSite(string name, double lat, double lon, AmbientKind kind, int countMin, int countMax, float spreadM, params float[] offsetsEastNorth)
         {
             Name = name;
             Lat = lat;
             Lon = lon;
             Kind = kind;
-            Groups = groups;
             CountMin = countMin;
             CountMax = countMax;
             SpreadM = spreadM;
+            _offsets = offsetsEastNorth != null && offsetsEastNorth.Length >= 2 ? offsetsEastNorth : new[] { 0f, 0f };
+        }
+
+        /// <summary>Number of groups.</summary>
+        public int Groups
+        {
+            get { return _offsets.Length / 2; }
+        }
+
+        /// <summary>Offset of group <paramref name="g"/> from the anchor (m east, m north).</summary>
+        public void Offset(int g, out float east, out float north)
+        {
+            east = _offsets[2 * g];
+            north = _offsets[2 * g + 1];
         }
     }
 
@@ -88,21 +126,41 @@ namespace Ghumante.Core.Generators.Fauna
         /// <summary>Kites are rolled on a coarser grid (2–8 in any square kilometre).</summary>
         public const double KiteCellM = 400.0;
 
-        /// <summary>The curated residents.</summary>
+        /// <summary>Generic pigeon flocks stay this far from a curated square flock (the square's flock is the one).</summary>
+        public const double CuratedPigeonExclusionM = 150.0;
+
+        /// <summary>
+        /// The curated residents. Anchors are the monuments of temples.md and HeroCatalog; offsets put each group on
+        /// the open ground where the animals really gather (checked against the sample region's building footprints
+        /// and the hero plans by the fauna tests).
+        /// </summary>
         public static readonly FaunaSite[] Sites =
         {
-            new FaunaSite("Swayambhu", 27.71493, 85.29043, AmbientKind.MacaqueTroop, 3, 14, 24, 45f),
-            new FaunaSite("Swayambhu pigeons", 27.71470, 85.29010, AmbientKind.PigeonFlock, 1, 50, 80, 8f),
-            new FaunaSite("Pashupati", 27.71080, 85.35020, AmbientKind.MacaqueTroop, 2, 10, 18, 40f),
-            new FaunaSite("Basantapur", 27.70440, 85.30690, AmbientKind.PigeonFlock, 1, 120, 180, 10f),
-            new FaunaSite("Patan Durbar Square", 27.67330, 85.32503, AmbientKind.PigeonFlock, 1, 80, 120, 9f),
-            new FaunaSite("Taumadhi, Bhaktapur", 27.67140, 85.42920, AmbientKind.PigeonFlock, 1, 70, 110, 9f),
-            new FaunaSite("Boudha", 27.72148, 85.36203, AmbientKind.PigeonFlock, 1, 80, 140, 10f),
-            new FaunaSite("Gokarna", 27.74260, 85.39460, AmbientKind.MacaqueTroop, 1, 6, 14, 30f),
-            new FaunaSite("Bajrayogini, Sankhu", 27.75430, 85.47400, AmbientKind.MacaqueTroop, 1, 6, 14, 30f),
-            new FaunaSite("Patan Durbar Square macaques", 27.67380, 85.32540, AmbientKind.MacaqueTroop, 1, 5, 9, 20f),
-            new FaunaSite("Tundikhel crows", 27.70200, 85.31500, AmbientKind.CrowGroup, 2, 25, 45, 25f),
+            // Swayambhu stupa w201223707: troops on the paved platform south-west of the dome, on the upper flight of
+            // the 365-step east stairway, and among the chaityas and shrines north-west of the dome; pigeons on the
+            // platform east of the dome by the vajra.
+            new FaunaSite("Swayambhu", 27.714931, 85.290391, AmbientKind.MacaqueTroop, 14, 24, 9f, -21f, -6f, 46f, -11f, -16f, 30f),
+            new FaunaSite("Swayambhu pigeons", 27.714931, 85.290391, AmbientKind.PigeonFlock, 50, 80, 6f, 22f, -4f),
+            // Pashupatinath w913170315: the east-bank terraces with the rows of linga shrines and the forest above.
+            new FaunaSite("Pashupati", 27.710465, 85.348665, AmbientKind.MacaqueTroop, 10, 18, 14f, 150f, 37f, 105f, -32f),
+            // Kathmandu Durbar Square: the dense flock on the brick paving between Jagannath and the palace, round
+            // King Pratap Malla's column (the photo everyone takes); a smaller one on the open Basantapur square.
+            new FaunaSite("Basantapur", 27.704647, 85.307220, AmbientKind.PigeonFlock, 120, 180, 8f, 8f, -14f),
+            new FaunaSite("Basantapur square", 27.704000, 85.307100, AmbientKind.PigeonFlock, 40, 80, 10f, -6f, -40f),
+            // Patan Durbar Square: the paving between Krishna Mandir, the Taleju bell and the Yoganarendra column.
+            new FaunaSite("Patan Durbar Square", 27.673500, 85.325140, AmbientKind.PigeonFlock, 80, 120, 7f, -4f, -6f),
+            // Taumadhi, Bhaktapur: the square south-west of Nyatapola's plinth, west of Bhairavnath.
+            new FaunaSite("Taumadhi, Bhaktapur", 27.671410, 85.429373, AmbientKind.PigeonFlock, 70, 110, 8f, -20f, -25f),
+            // Boudhanath w56688295: the kora plaza outside the prayer-wheel wall (r ≈ 48 m), west side where it is widest.
+            new FaunaSite("Boudha", 27.721436, 85.362004, AmbientKind.PigeonFlock, 80, 140, 7f, -56f, -6f),
+            new FaunaSite("Gokarna", 27.74260, 85.39460, AmbientKind.MacaqueTroop, 6, 14, 12f, 0f, 0f),
+            new FaunaSite("Bajrayogini, Sankhu", 27.75430, 85.47400, AmbientKind.MacaqueTroop, 6, 14, 12f, 0f, 0f),
+            new FaunaSite("Patan Durbar Square macaques", 27.67380, 85.32540, AmbientKind.MacaqueTroop, 5, 9, 8f, 0f, 0f),
+            new FaunaSite("Tundikhel crows", 27.70200, 85.31500, AmbientKind.CrowGroup, 25, 45, 8f, 0f, 0f, 30f, 12f),
         };
+
+        /// <summary>Candidate points tried per cell and kind before the cell goes without that group.</summary>
+        public const int Candidates = 6;
 
         private readonly uint _seed;
         private readonly double[] _siteX, _siteZ;
@@ -115,18 +173,27 @@ namespace Ghumante.Core.Generators.Fauna
             for (int i = 0; i < Sites.Length; i++) WorldFrame.LonLatToGame(Sites[i].Lon, Sites[i].Lat, out _siteX[i], out _siteZ[i]);
         }
 
-        /// <summary>Game position of curated site <paramref name="i"/>.</summary>
+        /// <summary>Game position of curated site <paramref name="i"/>'s anchor.</summary>
         public void SitePosition(int i, out double x, out double z)
         {
             x = _siteX[i];
             z = _siteZ[i];
         }
 
+        /// <summary>Game position of group <paramref name="g"/> of curated site <paramref name="i"/>.</summary>
+        public void GroupPosition(int i, int g, out double x, out double z)
+        {
+            Sites[i].Offset(g, out float east, out float north);
+            x = _siteX[i] + east;
+            z = _siteZ[i] + north;
+        }
+
         /// <summary>
         /// Fills <paramref name="dst"/> with the groups within <paramref name="radiusM"/> of (<paramref name="fx"/>,
         /// <paramref name="fz"/>) at local solar hour <paramref name="hour"/> of <paramref name="month"/> (1–12),
         /// nearest first; returns how many. <paramref name="habitat"/> may be null (then only the curated residents and
-        /// the kites appear).
+        /// the kites appear). Generic groups take the first of a few candidate points in their cell whose ground suits
+        /// them (<see cref="Fits"/>); generic pigeon flocks keep away from the curated square flocks.
         /// </summary>
         public int Plan(double fx, double fz, float radiusM, int month, float hour, IFaunaHabitat habitat, AmbientGroup[] dst)
         {
@@ -143,11 +210,10 @@ namespace Ghumante.Core.Generators.Fauna
                 for (int g = 0; g < site.Groups; g++)
                 {
                     uint hsh = FaunaRng.Hash(_seed, (uint)s, (uint)g, 0x517Eu);
-                    double a = FaunaRng.Unit(hsh) * Math.PI * 2.0, r = g == 0 ? 0.0 : site.SpreadM * (0.6 + 0.6 * FaunaRng.Unit(hsh >> 5));
-                    double x = _siteX[s] + Math.Cos(a) * r, z = _siteZ[s] + Math.Sin(a) * r;
+                    GroupPosition(s, g, out double x, out double z);
+                    if (FaunaHeroZones.Inside(x, z)) continue; // never inside a monument
                     int count = site.CountMin + (int)(FaunaRng.Unit(FaunaRng.Hash(hsh)) * (site.CountMax - site.CountMin + 1));
-                    Push(dst, ref n, site.Kind, x, z, count, site.Kind == AmbientKind.MacaqueTroop ? 12f : site.SpreadM, hsh, (1L << 40) | ((long)s << 8) | (long)g, fx, fz,
-                         radiusM);
+                    Push(dst, ref n, site.Kind, x, z, count, site.SpreadM, hsh, (1L << 40) | ((long)s << 8) | (long)g, fx, fz, radiusM);
                 }
             }
             // Kites over the city by day.
@@ -186,12 +252,84 @@ namespace Ghumante.Core.Generators.Fauna
                     if (p <= 0f) continue;
                     uint hsh = FaunaRng.Hash(_seed, (uint)cx, (uint)cz, 0xA000u + (uint)k);
                     if (FaunaRng.Unit(hsh) >= p) continue;
-                    double x = x0 + (FaunaRng.Unit(hsh >> 3) - 0.5) * CellM * 0.7, z = z0 + (FaunaRng.Unit(hsh >> 11) - 0.5) * CellM * 0.7;
+                    if (kind == AmbientKind.PigeonFlock && NearCuratedPigeons(x0, z0, CuratedPigeonExclusionM + 0.71 * CellM)) continue;
                     GroupSize(kind, hsh, out int count, out float spread);
+                    // A few candidate points in the cell: the first whose ground suits the kind wins (no flock in a
+                    // house, no herd on a carriageway, ducks on a pond, egrets in the fields).
+                    double x = 0.0, z = 0.0;
+                    bool ok = false;
+                    for (int t = 0; t < Candidates && !ok; t++)
+                    {
+                        uint ht = t == 0 ? hsh : FaunaRng.Hash(hsh, (uint)t, 0xCA4Du);
+                        x = x0 + (FaunaRng.Unit(ht >> 3) - 0.5) * CellM * 0.8;
+                        z = z0 + (FaunaRng.Unit(FaunaRng.Hash(ht, 0x2u)) - 0.5) * CellM * 0.8;
+                        ok = Fits(kind, x, z, spread, habitat);
+                    }
+                    if (!ok) continue;
+                    if (kind == AmbientKind.PigeonFlock && NearCuratedPigeons(x, z, CuratedPigeonExclusionM)) continue;
                     Push(dst, ref n, kind, x, z, count, spread, hsh, (3L << 40) | ((cx & 0xFFFF) << 24) | ((cz & 0xFFFF) << 8) | (long)k, fx, fz, radiusM);
                 }
             }
             return Sort(dst, n);
+        }
+
+        /// <summary>True when a curated pigeon flock lives within <paramref name="r"/> of (x, z).</summary>
+        public bool NearCuratedPigeons(double x, double z, double r)
+        {
+            for (int s = 0; s < Sites.Length; s++)
+            {
+                if (Sites[s].Kind != AmbientKind.PigeonFlock) continue;
+                for (int g = 0; g < Sites[s].Groups; g++)
+                {
+                    GroupPosition(s, g, out double gx, out double gz);
+                    double dx = gx - x, dz = gz - z;
+                    if (dx * dx + dz * dz < r * r) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when ground <paramref name="g"/> suits an animal of a group of <paramref name="kind"/>: never inside a
+        /// building or a monument, never on a carriageway (kites and swallows fly; swallows still want fields or
+        /// water under them); ducks on water, egrets in fields or wetland, the others on dry open ground (squares,
+        /// footways, yards, fields). Unloaded ground (None) never suits.
+        /// </summary>
+        public static bool Suits(AmbientKind kind, FaunaGround g)
+        {
+            if ((g & FaunaGround.Loaded) == 0) return false;
+            if (kind == AmbientKind.KiteGroup) return true;
+            if ((g & FaunaGround.Building) != 0) return false;
+            switch (kind)
+            {
+                case AmbientKind.SwallowGroup: return (g & (FaunaGround.Field | FaunaGround.Water)) != 0;
+                case AmbientKind.DuckPond: return (g & FaunaGround.Road) == 0;
+                case AmbientKind.EgretGroup: return (g & FaunaGround.Road) == 0 && (g & (FaunaGround.Field | FaunaGround.Water)) != 0;
+                default: return (g & (FaunaGround.Road | FaunaGround.Water)) == 0;
+            }
+        }
+
+        /// <summary>
+        /// True when a group of <paramref name="kind"/> can live round (x, z): not in a monument, the centre suits the
+        /// kind (ducks: the centre is water), and at least three of four points half a spread out suit it too (ducks:
+        /// the bank or the pond). Without a habitat only the monuments are checked.
+        /// </summary>
+        public static bool Fits(AmbientKind kind, double x, double z, float spread, IFaunaHabitat habitat)
+        {
+            if (FaunaHeroZones.Inside(x, z, 1.0)) return false;
+            if (habitat == null) return true;
+            FaunaGround c = habitat.GroundAt(x, z);
+            if (!Suits(kind, c)) return false;
+            if (kind == AmbientKind.DuckPond && (c & FaunaGround.Water) == 0) return false;
+            if (kind == AmbientKind.KiteGroup || kind == AmbientKind.SwallowGroup) return true;
+            int good = 0;
+            double r = 0.5 * spread;
+            for (int k = 0; k < 4; k++)
+            {
+                double px = x + (k == 0 ? r : k == 1 ? -r : 0.0), pz = z + (k == 2 ? r : k == 3 ? -r : 0.0);
+                if (Suits(kind, habitat.GroundAt(px, pz))) good++;
+            }
+            return good >= 3;
         }
 
         /// <summary>Chance per 120 m cell of a group of <paramref name="kind"/> in <paramref name="area"/> (densities of

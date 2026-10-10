@@ -29,7 +29,7 @@ lying on Boudha's brick paving; black cow grazing.
 |---|---|---|
 | Height at withers | 1.0–1.25 m (hill zebu smaller, crossbreds taller) | 1.20 m cow, 1.42 m ox, 0.83 m calf |
 | Body | narrow deep barrel, straight back, sloping rump, hip (hook) bones visible on thin animals | superellipse loft, sloping rump knots |
-| Hump | over the withers; low on crossbreds, 12–15 cm on cows, 25–30 cm and floppy on oxen | dome ellipsoid on the chest bone, ×0.35 on crossbreds, ×1.9 on the ox |
+| Hump | over the withers, growing out of the back line behind and running down into the crest of the neck in front (never a lump with its own outline); low on crossbreds, 12–15 cm on cows, 25–30 cm on oxen | the top radius of the four withers knots of the body loft rises by 0.12 m × hump factor (×0.35 crossbred, ×1.9 ox); its vertices keep the `Hump` part for the saddle painter |
 | Dewlap | loose fold from throat to brisket, large on zebu, small on crossbreds | flattened tube, depth ×1.45 ox, ×0.45 crossbred |
 | Head | broad flat forehead with a tuft of hair at the poll, face 40–45 cm, held forward-down | 7-knot loft, length ×0.9, poll tuft |
 | Horns | short (10–20 cm), rising up and out with the tips curving forward/in (lyre); thick at the base on oxen | 5-knot tapered tube, cream base `#D9CDB3` to dark tip `#3E3630` |
@@ -57,7 +57,9 @@ Photos: ginger dogs lying and sitting in a Kirtipur lane, a tricolour dog asleep
 under a traffic policeman's motorbike, Boudha monastery dogs.
 Height 45–55 cm (model 0.52 m at the shoulder), body length about the height; wedge head, black nose, amber eyes;
 pricked or semi-pricked triangular ears (one often tipped over); deep chest, tucked belly; medium coat with a fuller
-neck ruff in winter; sickle tail curled over the back, plumed. Coats (street_life §7.2): tan `#C49A6C` 40% (often
+neck ruff in winter (it is the thick base of the neck flowing into the withers and the cheeks, modelled as the neck
+loft itself, 9 cm half-width at the shoulders tapering to the head, not a separate collar); sickle tail curled over
+the back, plumed. Coats (street_life §7.2): tan `#C49A6C` 40% (often
 ginger `#B2672E` *s*, black-muzzled), black `#2A2A2A` 20%, black-and-tan 15%, cream `#EFE3C8` 10%, patched and
 brindle 15%; white socks and chest blaze common. Poses: asleep curled or flat in the sun (day 60–70%), sphinx lying,
 sitting, scratching an ear, trotting, barking at night.
@@ -73,12 +75,26 @@ black (most common) `#2A2624`, brown `#7A4A2C`, white `#EDE8DE`, pied, tan with 
 
 Photos: Swayambhu (sitting on chaityas and gilt roofs, mothers with babies, grooming pairs) and Pashupati (sitting on
 the riverside terraces holding food).
-Sitting height 40–50 cm, all-fours shoulder about 42 cm; brown-grey shoulders and arms (`#8C7A64`, `#927963` *s*),
-golden-orange lower back, thighs and rump (`#B07E4E`); paler belly; bare pink face (`#D8907E`) ringed with pale fur;
-close-set amber-brown eyes under a heavy brow; short muzzle; small rounded ears; grey-pink hands and feet with
-fingers; tail 20–25 cm hanging in a curve. Babies: half size, big head and ears, darker fur, pinker face; ride on
+Sitting height 40–50 cm (model 0.53 m to the crown), all-fours top of the back about 42 cm; stocky and thick-furred
+(torso half-width 0.11 m at the belly, pear-shaped when sitting: widest at the haunches, narrower at the shoulders);
+head about 60% of the shoulder width; brown-grey head, shoulders and arms (`#8C7A64`, `#927963` *s*), golden-orange
+lower back, rump and thighs (`#BC8449` *s*, Pashupati photos 04–07), the shins half golden; paler belly; bare pink
+face (`#D8907E`) framed by a pale buff-grey ruff on the cheeks and crown (`#B3A48E` blended with the coat); close-set
+amber-brown eyes under a heavy brow; short muzzle; small rounded ears half hidden in the ruff; grey-pink hands and
+feet with fingers (the heel of the hand joins the wrist); thick upper arms and thighs (r 3.8 / 5.8 cm), shorter
+forearms and shins; tail 20–25 cm hanging in a curve, golden at the root. Every limb is two rigid segments with a
+round ball at the elbow and the knee (the far level: one tube), so folded knees stay round. Babies: half size, big head and ears, darker fur, pinker face; ride on
 the mother. Behaviour: sit (most of the time), groom, climb walls and trees, walk on all fours, bound when they
 move fast. Never aggressive, never fed by the player.
+
+Sitting poses (photos: Pashupati 00/01 sitting with the arms straight down and the hands on the ground between the
+feet; 04/05/07 holding food to the mouth; Swayambhu 06/08 grooming): the knees folded up in front, the shins upright,
+the feet flat; the arms placed by two-bone reaching with the elbows back: (a) both hands on the ground in front of
+the feet, (b) the right hand bringing a bite to the mouth now and then while the left rests on the ground, (c) the
+forearms on the knees; grooming picks through the fur in front of the belly. Climbing: the monkey walks to the foot of
+a wall, plinth or chaitya terrace (found from the structure tops round the troop, just outside the nearest edge),
+climbs the face looking at it, hands reaching up in turn with the palms flat on it and the knees splayed, steps onto
+the top and sits looking out, and later leaps back down to the foot.
 
 ## 6. Village fowl (`Hen`, `Rooster`, `Duck`)
 
@@ -92,15 +108,19 @@ mottled brown, upright, flat orange bill and webbed orange feet (`#F09A2A`).
 
 | Species | Size | Look (photos) | Behaviour |
 |---|---|---|---|
-| Rock pigeon (`Pigeon`) | 32 cm, span 66 cm | pale blue-grey back and wings `#8F99A5` *s*, darker head, iridescent green/purple neck `#4E7A6A`/`#7B5C8E`, two black wing bars `#2F2F35`, dark tail band, orange eye, dark bill with a white cere, red feet; feral variants darker chequer, pale, brownish | flocks of 30–200 on Basantapur and Patan squares and temple roofs; peck in a 3–10 m disc, burst up together, circle 30–60 m, re-land in 20–40 s |
+| Rock pigeon (`Pigeon`) | 32 cm, span 66 cm | a smooth teardrop: full rounded breast pushed forward, small round head flowing into a thick neck (one loft from rump to bill, no collar); pale blue-grey back and wings `#8F99A5` *s* (folded wing `#B2B7C0` at the default tint), slate head `#5E6370`, the iridescence only as a band round the neck, green on the sides `#4E7A6A`, purple at the front and the nape `#7B5C8E`, fading into the grey breast; two crisp black wing bars `#2F2F35` across the folded wing with pale grey between and behind them, darker primary tips; dark tail band; orange iris `#E07828` with a black pupil; dark bill `#2E2A2A` with a white cere at its base `#E8E6E0`; red feet `#C87068` with three toes; feral variants darker chequer, pale, brownish (instance tint) | flocks of 30–200 on Basantapur and Patan squares and temple roofs; peck in a 3–10 m disc, burst up together, circle 30–60 m, re-land in 20–40 s |
 | House crow (`Crow`) | 42 cm, span 80 cm | glossy black, grey nape/neck/breast collar `#6E6E70`, heavy black bill | groups on wires and roofs, hop, fly 8–12 m/s |
 | Black kite (`BlackKite`) | 58 cm, span 1.5 m | brown `#5C4632`, paler streaked head `#8F7558`, shallow forked tail, long angled wings with fingered primaries and a pale underwing patch, yellow cere and feet | soars and circles 20–50 m radius, 40–300 m up, banking 15–30°, twisting the tail |
 | Common myna (`Myna`) | 24 cm | vinous brown `#5A3E2B`, black head, yellow bill, bare yellow eye patch and legs, white wing patch and vent | struts on lawns, short flights |
 | House sparrow (`Sparrow`) | 15 cm | male: grey crown, chestnut nape, pale cheeks, black bib, streaked brown back `#8B6B4A`, white wing bar | groups of 5–30 at eaves and shopfronts, hop, flush together |
-| Cattle egret (`Egret`) | 52 cm | white, yellow bill, dark legs; buff head, breast and back in breeding (Apr–Jul) | walks behind buffalo and tractors in the paddy |
+| Cattle egret (`Egret`) | 52 cm | white, yellow bill, dark legs; buff head, breast and back in breeding (Apr–Jul); in flight (photo egret/02) the neck is drawn in so the head rests just in front of the shoulders and the legs trail straight behind the tail | walks behind buffalo and tractors in the paddy; flies in loose V-strings over the fields |
 | Barn swallow (`Swallow`) | 18 cm with streamers | blue-black back `#1C2A44`, rufous forehead and throat `#A8492E`, dark breast band, white belly, tail streamers | low swoops over fields and rivers, Mar–Oct |
 
-Far flocks are 8-triangle paper birds (two wing quads in a V, both faces) in the species' wing colour.
+Triangle budgets (W2_DESIGN 5.5–5.6, checked by the tests): mammals 2,500 / 1,000 / 300 at LOD0 / 1 / 2 (cow 2,476,
+buffalo 2,368, macaque 1,952 / 828 / 234), full birds 300 (pigeon 297), light birds 80. Far flocks are 4-triangle
+paper birds (two wing quads in a V, single-sided, drawn with culling off) in the species' wing colour; beyond the
+light-bird cap a bird on the ground is a 4-triangle folded paper bird (a tent along the body), so a square's whole
+flock is drawn on every tier.
 
 ## 8. Photo credits (Openverse; all CC licences as listed, reference only)
 
@@ -115,7 +135,11 @@ Far flocks are 8-triangle paper birds (two wing quads in a V, both faces) in the
 * "Sleeping dog, Nepal 2010", JasSpace, CC BY-NC-ND 2.0, flickr 11008397036
 * "Rhesus macaque at Swayambhunath", Photoman Phil, CC BY-ND 2.0, flickr 12679801605; "DSC_0301"…"DSC_0541"
   (Swayambhu), RachidH, CC BY-NC 2.0
-* "Monkey, Pashupatinath (1)–(8)", Prof. Mortel, CC BY-NC-SA 2.0
+* "Monkey, Pashupatinath (1)–(8)", Prof. Mortel, CC BY-NC-SA 2.0 (sitting and eating poses, golden rump)
+* "Cattle Egret - Lift off", Ziva_Amir, CC BY-NC-ND 2.0, flickr 16364779700 (flight posture)
+* "n131_w1150" (the zebu, hump and dewlap) and "n140_w1150", Biodiversity Heritage Library, public domain;
+  "Brahma bull - crazy wires, Delhi", Blinkofanaye, CC BY-NC 2.0, flickr 15596636215
+* "Rock pigeon", BigCypressNPS, public domain, flickr 30940756943 (wing bars, neck band, eye)
 * "Blue Rock Pigeon (Columba livia) in Kolkata", J.M.Garg, CC BY-SA 3.0; "Plinth with Pigeons - Durbar Square -
   Patan", Adam Jones, CC BY-SA 2.0; "Basantapur Durbar, King Malla's Column", Jorge Lascar, CC BY 2.0
 * "House Crow (Corvus splendens)", Lip Kee, CC BY-SA 2.0; "House Crow I IMG 6211", J.M.Garg, CC BY-SA 3.0

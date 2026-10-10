@@ -71,14 +71,16 @@ namespace Ghumante.Core.Generators.Fauna
             }
         }
 
-        /// <summary>Bird tessellation per level (320 / 80 tris for a pigeon; beyond that the paper bird).</summary>
+        /// <summary>Bird tessellation per level (W2_DESIGN 5.6: a 300-triangle full bird within 8 m, an 80-triangle light
+        /// bird to 25 m; beyond that the 4-triangle paper bird): 8 segments round the body loft with an iris-and-pupil
+        /// eye, then a 5-sided loft without eyes.</summary>
         public static FaunaDetail Avian(int lod)
         {
             switch (lod <= 0 ? 0 : lod >= 2 ? 2 : 1)
             {
-                case 0: return new FaunaDetail(0, 7, 4, 3, 1, 1, 0);
-                case 1: return new FaunaDetail(1, 6, 3, 3, 1, 1, 0, 3);
-                default: return new FaunaDetail(2, 6, 3, 3, 1, 1, 0, 3);
+                case 0: return new FaunaDetail(0, 8, 4, 4, 1, 1, 1);
+                case 1: return new FaunaDetail(1, 5, 3, 3, 1, 1, 0);
+                default: return new FaunaDetail(2, 4, 3, 3, 1, 1, 0);
             }
         }
 

@@ -25,6 +25,9 @@ namespace Ghumante.Core.Generators.Fauna
         /// <summary>Wet noses (leathery).</summary>
         public const MaterialChannel NoseChannel = MaterialChannel.Leather;
 
+        /// <summary>Eyes (glossy paint).</summary>
+        public const MaterialChannel EyeChannel = MaterialChannel.Paint;
+
         // Tinted coat shades (white × the instance tint).
         public const uint Coat = 0xFFFFFFFFu;
         public const uint CoatBelly = 0xF4F2F0FFu;
@@ -53,7 +56,7 @@ namespace Ghumante.Core.Generators.Fauna
 
         // Macaque.
         public const uint MacaqueFur = 0x8C7A64FFu;
-        public const uint MacaqueRump = 0xB07E4E00u;
+        public const uint MacaqueRump = 0xBC844900u;
         public const uint MacaqueFace = 0xDB9C88FFu;
         public const uint MacaqueHand = 0x7A5E50FFu;
 

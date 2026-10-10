@@ -89,7 +89,12 @@ namespace Ghumante.Core.Generators.Fauna
             b.Pivot(FaunaBone.HindLowerL, c.P(-0.16f, 0.46f * L, -0.70f), true);
             b.Pivot(FaunaBone.HindFootL, c.P(-0.16f, 0.13f * L, -0.62f), true);
 
-            // Body barrel: sloping rump, deep chest, belly hanging a little (superellipse 2.3: round but full).
+            // Body barrel: sloping rump, deep chest, belly hanging a little; the hump over the withers is part of the
+            // same loft (the top radius of the withers knots rises into it), so it grows out of the back line behind
+            // and runs down into the crest of the neck in front, as on a real zebu (12-15 cm on a cow, 25-30 cm on
+            // an ox, a low rise on the crossbreds).
+            float hu = z.Hump;
+            float hump = 0.12f * hu;
             c.Begin();
             c.Add(0f, 0.99f + lift, -0.90f, 0.05f * W, 0.05f, 0.07f, FaunaBone.Pelvis, coat, e);
             c.Add(0f, 1.00f + lift, -0.84f, 0.13f * W, 0.11f, 0.16f, FaunaBone.Pelvis, coat, e);
@@ -97,21 +102,21 @@ namespace Ghumante.Core.Generators.Fauna
             c.Add(0f, 0.95f + lift, -0.50f, 0.24f * W, 0.18f, 0.28f, FaunaBone.Pelvis, coat, e);
             c.Add(0f, 0.92f + lift, -0.30f, 0.235f * W, 0.17f, 0.31f, FaunaBone.Pelvis, coat, e);
             c.Add(0f, 0.89f + lift, -0.08f, 0.27f * W, 0.21f, 0.36f, FaunaBone.Pelvis, coat, e);
-            c.Add(0f, 0.89f + lift, 0.16f, 0.265f * W, 0.21f, 0.34f, FaunaBone.Chest, coat, e);
-            c.Add(0f, 0.90f + lift, 0.42f, 0.225f * W, 0.20f, 0.30f, FaunaBone.Chest, coat, e);
-            c.Add(0f, 0.87f + lift, 0.61f, 0.175f * W, 0.16f, 0.27f, FaunaBone.Chest, coat, e);
+            c.Add(0f, 0.89f + lift, 0.14f, 0.265f * W, 0.21f + 0.06f * hump, 0.34f, FaunaBone.Chest, coat, e);
+            c.Add(0f, 0.89f + lift, 0.27f, 0.25f * W, 0.205f + 0.62f * hump, 0.32f, FaunaBone.Chest, coat, e);
+            c.Add(0f, 0.895f + lift, 0.37f, 0.235f * W, 0.20f + hump, 0.30f, FaunaBone.Chest, coat, e);
+            c.Add(0f, 0.90f + lift, 0.46f, 0.22f * W, 0.195f + 0.72f * hump, 0.30f, FaunaBone.Chest, coat, e);
+            c.Add(0f, 0.87f + lift, 0.61f, 0.175f * W, 0.16f + 0.12f * hump, 0.27f, FaunaBone.Chest, coat, e);
             c.Add(0f, 0.86f + lift, 0.70f, 0.09f * W, 0.08f, 0.13f, FaunaBone.Chest, coat, e);
-            int vBody = c.Tube(d.BodySegs + 2, d.Rings, FaunaPart.Body, FaunaPalette.FurChannel, Fv3.Up, 0.7f, 0.7f);
-
-            // The hump over the withers: a firm dome, steep at the back and leaning slightly back, its base sunk in the
-            // shoulders (much bigger on the ox, a low rise on the crossbreds).
-            float hu = z.Hump;
-            if (hu > 0.05f)
+            int vBody = c.Tube(d.BodySegs, d.Rings, FaunaPart.Body, FaunaPalette.FurChannel, Fv3.Up, 0.7f, 0.7f);
+            // The hump stays a part of its own for the coat painter (the dark hump of a grey ox) and the AO.
+            if (hump > 0.005f)
             {
-                Fv3 lean = new Fv3(0f, 1f, -0.2f).Normalized;
-                float hw = Math.Min(1.35f, 0.85f + 0.15f * hu);
-                b.Ellipsoid(c.P(0f, 1.0f + lift + 0.04f * hu, 0.37f), Fv3.Forward, lean, 0.11f * c.S * hw, (0.11f + 0.07f * hu) * c.S, 0.2f * c.S * hw,
-                            d.Fine ? 6 : d.Far ? 3 : 4, d.BodySegs, FaunaBone.Chest, coat, FaunaPalette.FurChannel, FaunaPart.Hump, 2f);
+                for (int v = vBody; v < b.VertexCount; v++)
+                {
+                    Fv3 q = b.PositionOf(v) * (1f / c.S);
+                    if (q.Z > 0.2f && q.Z < 0.56f && q.Y > 1.06f + lift) b.Target.Part[v] = (byte)FaunaPart.Hump;
+                }
             }
 
             // Neck: from inside the shoulders forward and up to the poll, deep at the throat, its crest running down
@@ -123,7 +128,7 @@ namespace Ghumante.Core.Generators.Fauna
             c.Add(0f, 0.99f + lift, 0.71f, 0.115f * nk, 0.12f * nk, 0.17f * nk, FaunaBone.Neck, coat);
             c.Add(0f, 1.02f + lift, 0.86f, 0.10f, 0.11f, 0.14f, FaunaBone.Neck, coat);
             c.Add(0f, 1.04f + lift, 0.97f, 0.085f, 0.10f, 0.12f, FaunaBone.Head, coat);
-            c.Tube(d.BodySegs - 1, d.Rings, FaunaPart.Neck, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.5f);
+            c.Tube(d.BodySegs - 1, 1, FaunaPart.Neck, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.5f);
 
             // Dewlap: a loose fold hanging from the throat to the brisket.
             if (z.Dewlap > 0.05f && !d.Far)
@@ -135,7 +140,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(0f, 0.79f + lift, 0.75f, 0.03f, 0.05f, 0.13f * dw, FaunaBone.Neck, coat);
                 c.Add(0f, 0.70f + lift, 0.63f, 0.034f, 0.06f, 0.11f * dw, FaunaBone.Chest, coat);
                 c.Add(0f, 0.63f + lift, 0.53f, 0.035f, 0.05f, 0.045f, FaunaBone.Chest, coat);
-                c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Dewlap, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.6f);
+                c.Tube(d.LimbSegs - 1, d.LimbRings, FaunaPart.Dewlap, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.6f);
             }
 
             // Head: poll to muzzle, held forward and down; broad flat forehead, long face, wide dark muzzle.
@@ -168,7 +173,7 @@ namespace Ghumante.Core.Generators.Fauna
             if (d.Fine)
             {
                 int v0 = b.VertexCount, i0 = b.IndexCount, o0 = b.OccluderCount;
-                b.Ellipsoid(c.P(-0.034f * H, hy + 0.13f * H - 0.355f * HL, 0.98f + 0.343f * HL), snout, Fv3.Up, 0.017f * H * c.S, 0.012f * H * c.S, 0.012f * H * c.S, 3,
+                b.Ellipsoid(c.P(-0.034f * H, hy + 0.13f * H - 0.355f * HL, 0.98f + 0.343f * HL), snout, Fv3.Up, 0.017f * H * c.S, 0.012f * H * c.S, 0.012f * H * c.S, 2,
                             d.SmallSegs, FaunaBone.Head, FaunaPalette.Nose, FaunaPalette.NoseChannel, FaunaPart.Nose);
                 b.Mirror(v0, i0, o0);
             }
@@ -198,7 +203,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(ex - 0.045f * H, ey - 0.018f * H, ez + 0.006f, 0.034f * H, 0.011f, 0.01f, FaunaBone.EarL, coat);
                 c.Add(ex - 0.095f * H, ey - 0.04f * H, ez + 0.012f, 0.036f * H, 0.01f, 0.008f, FaunaBone.EarL, coat);
                 c.Add(ex - 0.14f * H, ey - 0.065f * H, ez + 0.018f, 0.017f * H, 0.007f, 0.006f, FaunaBone.EarL, coat);
-                int vEar = c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Ear, FaunaPalette.FurChannel, new Fv3(0f, 0.3f, 1f), 0.4f, 0.7f);
+                int vEar = c.Tube(d.Far ? 3 : d.LimbSegs - 1, d.LimbRings, FaunaPart.Ear, FaunaPalette.FurChannel, new Fv3(0f, 0.3f, 1f), 0.4f, 0.7f);
                 PaintEarInside(b, vEar, new Fv3(0.1f, 0.2f, 1f).Normalized, FaunaPalette.EarInner);
 
                 // Horn: short, rising up and out, the tips curving forward and in (the lyre of the hill zebu; buds on
@@ -263,7 +268,7 @@ namespace Ghumante.Core.Generators.Fauna
             // Udder with four teats (cows only).
             if (z.Udder && !d.Far)
             {
-                b.Ellipsoid(c.P(0f, 0.57f + lift, -0.38f), Fv3.Forward, Fv3.Up, 0.085f * c.S, 0.07f * c.S, 0.11f * c.S, d.Fine ? 4 : 3, d.SmallSegs + 1,
+                b.Ellipsoid(c.P(0f, 0.57f + lift, -0.38f), Fv3.Forward, Fv3.Up, 0.085f * c.S, 0.07f * c.S, 0.11f * c.S, 3, d.SmallSegs + 1,
                             FaunaBone.Pelvis, FaunaPalette.Udder, FaunaPalette.SkinChannel, FaunaPart.Udder);
                 if (d.Fine)
                 {
@@ -274,7 +279,7 @@ namespace Ghumante.Core.Generators.Fauna
                         float tz = t == 0 ? -0.33f : -0.44f;
                         c.Add(-0.04f, 0.53f + lift, tz, 0.012f, FaunaBone.Pelvis, FaunaPalette.Udder);
                         c.Add(-0.045f, 0.47f + lift, tz, 0.008f, FaunaBone.Pelvis, FaunaPalette.Udder);
-                        c.Tube(4, 1, FaunaPart.Udder, FaunaPalette.SkinChannel, Fv3.Forward, -1f, 0.6f);
+                        c.Tube(3, 1, FaunaPart.Udder, FaunaPalette.SkinChannel, Fv3.Forward, -1f, 0.6f);
                     }
                     b.Mirror(v0, i0, o0);
                 }
@@ -288,9 +293,10 @@ namespace Ghumante.Core.Generators.Fauna
             c.Add(0f, 0.72f + lift * 0.6f, -0.895f, 0.016f, 0.016f, 0.016f, FaunaBone.Tail1, coat);
             c.Add(0f, 0.52f * L, -0.885f, 0.015f, 0.015f, 0.015f, FaunaBone.Tail2, coat);
             c.Add(0f, 0.43f * L, -0.88f, 0.018f, 0.018f, 0.018f, FaunaBone.Tail2, FaunaPalette.Switch);
-            c.Tube(Math.Max(3, d.LimbSegs - 3), d.LimbRings, FaunaPart.Tail, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
-            b.Ellipsoid(c.P(0f, 0.34f * L, -0.878f), Fv3.Forward, Fv3.Up, 0.04f * c.S, 0.11f * c.S, 0.038f * c.S, d.Fine ? 4 : 3, d.SmallSegs,
-                        FaunaBone.Tail2, FaunaPalette.Switch, FaunaPalette.FurChannel, FaunaPart.Tail, 1.8f);
+            c.Tube(Math.Max(3, d.LimbSegs - 3), d.LimbRings, FaunaPart.Tail, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, d.Far ? 0.8f : 0.4f);
+            if (!d.Far)
+                b.Ellipsoid(c.P(0f, 0.34f * L, -0.878f), Fv3.Forward, Fv3.Up, 0.04f * c.S, 0.11f * c.S, 0.038f * c.S, d.Fine ? 4 : 3, d.SmallSegs,
+                            FaunaBone.Tail2, FaunaPalette.Switch, FaunaPalette.FurChannel, FaunaPart.Tail, 1.8f);
 
             PaintZebuCoat(b, pattern, z, c.S, lift, vBody);
             b.Target.EyeHeightM = (1.07f + lift) * c.S;
@@ -428,11 +434,14 @@ namespace Ghumante.Core.Generators.Fauna
             c.Add(0f, 0.8f, 1.41f, 0.08f, 0.05f, 0.05f, FaunaBone.Head, FaunaPalette.Nose, 2.4f);
             int vHead = c.Tube(d.BodySegs, d.Rings, FaunaPart.Head, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.45f);
             MarkMuzzle(b, vHead, c.P(0f, 0.84f, 1.33f), new Fv3(0f, -0.5f, 0.86f), FaunaPart.Muzzle);
-            c.Begin();
-            c.Add(0f, 0.9f, 1.1f, 0.07f, 0.045f, 0.05f, FaunaBone.Jaw, coat);
-            c.Add(0f, 0.82f, 1.25f, 0.065f, 0.04f, 0.04f, FaunaBone.Jaw, coat);
-            c.Add(0f, 0.77f, 1.36f, 0.06f, 0.03f, 0.03f, FaunaBone.Jaw, FaunaPalette.Nose);
-            c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Mouth, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.6f);
+            if (!d.Far)
+            {
+                c.Begin();
+                c.Add(0f, 0.9f, 1.1f, 0.07f, 0.045f, 0.05f, FaunaBone.Jaw, coat);
+                c.Add(0f, 0.82f, 1.25f, 0.065f, 0.04f, 0.04f, FaunaBone.Jaw, coat);
+                c.Add(0f, 0.77f, 1.36f, 0.06f, 0.03f, 0.03f, FaunaBone.Jaw, FaunaPalette.Nose);
+                c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Mouth, FaunaPalette.FurChannel, Fv3.Up, 0.5f, 0.6f);
+            }
             {
                 int v0 = b.VertexCount, i0 = b.IndexCount, o0 = b.OccluderCount;
                 Fv3 ec = c.P(-0.115f, 1.03f, 1.12f);
@@ -450,7 +459,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(-0.17f, 0.985f, 1.03f, 0.045f, 0.013f, 0.011f, FaunaBone.EarL, coat);
                 c.Add(-0.24f, 0.97f, 1.045f, 0.045f, 0.011f, 0.01f, FaunaBone.EarL, coat);
                 c.Add(-0.29f, 0.955f, 1.06f, 0.022f, 0.008f, 0.008f, FaunaBone.EarL, coat);
-                int vEar = c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Ear, FaunaPalette.FurChannel, Fv3.Forward, 0.4f, 0.7f);
+                int vEar = c.Tube(d.Far ? 3 : d.LimbSegs, d.LimbRings, FaunaPart.Ear, FaunaPalette.FurChannel, Fv3.Forward, 0.4f, 0.7f);
                 PaintEarInside(b, vEar, Fv3.Forward, 0x8E7A7000u);
                 // Horn: flat, ridged, sweeping out and back from the top of the head, tips curling up and in.
                 c.Begin();
@@ -460,7 +469,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(-0.33f, 1.15f, 0.8f, 0.026f, 0.02f, 0.02f, FaunaBone.Head, FaunaPalette.BuffaloHorn, 2.2f);
                 c.Add(-0.32f, 1.2f, 0.71f, 0.016f, 0.014f, 0.014f, FaunaBone.Head, 0x3A363300u);
                 c.Add(-0.27f, 1.24f, 0.66f, 0.006f, 0.006f, 0.006f, FaunaBone.Head, 0x2E2B2900u);
-                int vHorn = c.Tube(d.LimbSegs, d.LimbRings + (d.Fine ? 2 : 0), FaunaPart.Horn, FaunaPalette.KeratinChannel, Fv3.Up, 0.3f, 0.5f);
+                int vHorn = c.Tube(d.LimbSegs, d.LimbRings + (d.Fine ? 1 : 0), FaunaPart.Horn, FaunaPalette.KeratinChannel, Fv3.Up, 0.3f, 0.5f);
                 if (d.Fine) RidgeHorn(b, vHorn);
                 b.Mirror(v0, i0, o0);
             }
@@ -476,7 +485,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(-0.2f, 0.22f, 0.555f, 0.042f, 0.046f, 0.046f, FaunaBone.FrontLowerL, coat);
                 c.Add(-0.2f, 0.12f, 0.56f, 0.045f, 0.05f, 0.05f, FaunaBone.FrontFootL, coat);
                 c.Add(-0.2f, 0.07f, 0.57f, 0.043f, 0.046f, 0.046f, FaunaBone.FrontFootL, coat);
-                c.Tube(d.LimbSegs, d.LimbRings + 1, FaunaPart.Leg, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
+                c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Leg, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
                 if (!d.Far) FaunaShapes.Hoof(c, -0.2f, 0.57f, 0.05f, 0.085f, FaunaBone.FrontFootL, FaunaPalette.Hoof);
                 c.Begin();
                 c.Add(-0.2f, 0.94f, -0.58f, 0.13f, 0.14f, 0.14f, FaunaBone.HindUpperL, coat);
@@ -486,7 +495,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(-0.2f, 0.27f, -0.76f, 0.042f, 0.046f, 0.046f, FaunaBone.HindLowerL, coat);
                 c.Add(-0.2f, 0.12f, -0.72f, 0.045f, 0.05f, 0.05f, FaunaBone.HindFootL, coat);
                 c.Add(-0.2f, 0.07f, -0.705f, 0.043f, 0.046f, 0.046f, FaunaBone.HindFootL, coat);
-                c.Tube(d.LimbSegs, d.LimbRings + 1, FaunaPart.Leg, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
+                c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Leg, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
                 if (!d.Far) FaunaShapes.Hoof(c, -0.2f, -0.70f, 0.05f, 0.085f, FaunaBone.HindFootL, FaunaPalette.Hoof);
                 b.Mirror(v0, i0, o0);
             }
@@ -498,7 +507,7 @@ namespace Ghumante.Core.Generators.Fauna
             c.Add(0f, 0.9f, -1.02f, 0.022f, 0.022f, 0.022f, FaunaBone.Tail1, coat);
             c.Add(0f, 0.65f, -1.01f, 0.017f, 0.017f, 0.017f, FaunaBone.Tail2, coat);
             c.Add(0f, 0.48f, -1.0f, 0.016f, 0.016f, 0.016f, FaunaBone.Tail2, FaunaPalette.Switch);
-            c.Tube(d.LimbSegs - 2, d.LimbRings + 1, FaunaPart.Tail, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
+            c.Tube(d.LimbSegs - 2, d.LimbRings + (d.Far ? 0 : 1), FaunaPart.Tail, FaunaPalette.FurChannel, Fv3.Forward, 0.5f, 0.4f);
             b.Ellipsoid(c.P(0f, 0.42f, -1.0f), Fv3.Forward, Fv3.Up, 0.03f, 0.075f, 0.03f, 3, d.SmallSegs, FaunaBone.Tail2, FaunaPalette.Switch,
                         FaunaPalette.FurChannel, FaunaPart.Tail);
 

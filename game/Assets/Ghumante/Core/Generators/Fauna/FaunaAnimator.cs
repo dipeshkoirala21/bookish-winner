@@ -24,6 +24,43 @@ namespace Ghumante.Core.Generators.Fauna
             return c == FaunaClip.Flap || c == FaunaClip.Glide || c == FaunaClip.Soar || c == FaunaClip.TakeOff || c == FaunaClip.Land;
         }
 
+        /// <summary>Share of the street cattle that graze when the sim has them standing (at the vegetable waste;
+        /// street_life §7.1: standing 30% of the time, nearly always eating).</summary>
+        public const float StreetGrazeShare = 0.7f;
+
+        /// <summary>Dogs walking faster than this trot (m/s).</summary>
+        public const float DogTrotMps = 1.3f;
+
+        /// <summary>A sitting dog scratches for <see cref="ScratchS"/> seconds once in every <see cref="ScratchEveryS"/>.</summary>
+        public const float ScratchS = 2.4f, ScratchEveryS = 22f;
+
+        /// <summary>
+        /// The generated clip a street animal of the traffic sim plays (AnimalSim knows only lie, stand, walk, sleep,
+        /// sit and bark): a standing cow, calf or ox grazes (a stable share of the animals, by agent), a dog walking
+        /// faster than <see cref="DogTrotMps"/> trots, and a sitting dog scratches an ear for a couple of seconds now and
+        /// then (its own phase, by agent). Everything else maps across directly.
+        /// </summary>
+        public static FaunaClip StreetClip(FaunaSpecies species, byte simClip, float speedMps, int agentId, float timeS)
+        {
+            var c = (FaunaClip)simClip;
+            switch (FaunaCatalog.Family(species))
+            {
+                case FaunaFamily.Bovine:
+                    if (c == FaunaClip.Stand && FaunaRng.Unit(FaunaRng.Hash((uint)agentId, 0x6A2Eu)) < StreetGrazeShare) return FaunaClip.Graze;
+                    return c;
+                case FaunaFamily.Canine:
+                    if (c == FaunaClip.Walk && speedMps > DogTrotMps) return FaunaClip.Trot;
+                    if (c == FaunaClip.Sit)
+                    {
+                        float phase = timeS + ScratchEveryS * FaunaRng.Unit(FaunaRng.Hash((uint)agentId, 0x5C2Au));
+                        if (phase - ScratchEveryS * (float)Math.Floor(phase / ScratchEveryS) < ScratchS) return FaunaClip.Scratch;
+                    }
+                    return c;
+                default:
+                    return c;
+            }
+        }
+
         /// <summary>Length in seconds of one cycle of a looping clip at <paramref name="speedMps"/> (for keyframe baking).</summary>
         public static float CycleSeconds(FaunaSpecies s, FaunaClip clip, float speedMps)
         {
@@ -487,72 +524,205 @@ namespace Ghumante.Core.Generators.Fauna
                     break;
                 }
                 case FaunaClip.Climb:
-                {
-                    // Body vertical against a wall or trunk, limbs reaching up in turn.
-                    float hz = 1.1f;
-                    float ph = t * hz;
-                    p.SetRoot(-88f, 0f, 0f);
-                    p.RootOffset = new Fv3(0f, 0.18f * s, -0.32f * s);
-                    float a = FMath.Sin(ph * FMath.TwoPi), b = FMath.Sin(ph * FMath.TwoPi + FMath.Pi);
-                    p.Set(FaunaBone.FrontUpperL, -60f - 30f * a, 0f, -10f);
-                    p.Set(FaunaBone.FrontLowerL, 40f + 20f * a, 0f, 0f);
-                    p.Set(FaunaBone.FrontUpperR, -60f - 30f * b, 0f, 10f);
-                    p.Set(FaunaBone.FrontLowerR, 40f + 20f * b, 0f, 0f);
-                    p.Set(FaunaBone.HindUpperL, -70f - 25f * b, 0f, -20f);
-                    p.Set(FaunaBone.HindLowerL, 90f + 20f * b, 0f, 0f);
-                    p.Set(FaunaBone.HindUpperR, -70f - 25f * a, 0f, 20f);
-                    p.Set(FaunaBone.HindLowerR, 90f + 20f * a, 0f, 0f);
-                    p.Set(FaunaBone.Neck, 50f, 15f * FMath.Sin(t * 0.7f), 0f);
-                    p.Set(FaunaBone.Head, 25f, 0f, 0f);
-                    p.Set(FaunaBone.Tail0, 40f, 0f, 0f);
+                    MacaqueClimb(m, info, t, seed, s, p);
                     break;
-                }
                 case FaunaClip.Groom:
                 case FaunaClip.Sit:
                 case FaunaClip.Lie:
                 case FaunaClip.Sleep:
                 default:
+                    MacaqueSit(m, info, clip, t, seed, s, p);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// A macaque sitting on its haunches, hunched a little (the Swayambhu and Pashupati photos): the knees up in front,
+        /// the shins upright and the feet flat, the tail lying behind. The arms are placed by two-bone reaching (elbows
+        /// back), by the seed: both hands on the ground between the feet, or one hand at the mouth with a bite of food
+        /// and the other on the ground, or the forearms resting on the knees. Grooming picks through the fur in front of
+        /// the belly with both hands; asleep the head drops onto the chest.
+        /// </summary>
+        private static void MacaqueSit(FaunaMesh m, FaunaSpeciesInfo info, FaunaClip clip, float t, uint seed, float s, FaunaPose p)
+        {
+            const float root = -68f;
+            p.SetRoot(root, 0f, 0f);
+            Fv3 hip = m.Pivot[(int)FaunaBone.Pelvis];
+            Fv3 r = p.RootRot * hip;
+            // The rump rests on the ground (the pelvis pivot about 12 cm up on an adult).
+            p.RootOffset = new Fv3(0f, -r.Y + 0.122f * s, hip.Z - r.Z - 0.04f * s);
+            p.Set(FaunaBone.Neck, 50f, 0f, 0f);
+            p.Set(FaunaBone.Head, 16f, 0f, 0f);
+            // The tail lies on the ground behind.
+            p.Set(FaunaBone.Tail0, 112f, 12f, 0f);
+            p.Set(FaunaBone.Tail1, 12f, 15f, 0f);
+            p.Set(FaunaBone.Tail2, 6f, 15f, 0f);
+
+            // Legs: each foot flat on the ground in front of the rump, a little apart, the knee folded up.
+            Fv3 hipW = World(m, p, FaunaBone.HindUpperL);
+            float ankleUp = m.Pivot[(int)FaunaBone.HindFootL].Y;
+            float footZ = hipW.Z + 0.17f * s;
+            float legSum = Reach(m, p, root, FaunaBone.HindUpperL, FaunaBone.HindLowerL, FaunaBone.HindFootL, ankleUp, footZ, true, -16f);
+            Reach(m, p, root, FaunaBone.HindUpperR, FaunaBone.HindLowerR, FaunaBone.HindFootR, ankleUp, footZ, true, 16f);
+            p.SetPair(FaunaBone.HindFootL, -legSum, 0f, 0f);
+
+            // Arms by variant.
+            Fv3 shW = World(m, p, FaunaBone.FrontUpperL);
+            float wristUp = m.Pivot[(int)FaunaBone.FrontFootL].Y;
+            bool groom = clip == FaunaClip.Groom, sleep = clip == FaunaClip.Sleep || clip == FaunaClip.Lie;
+            int variant = groom || sleep ? 3 : (int)((seed >> 5) % 3u);
+            float l, rr;
+            switch (variant)
+            {
+                case 0:
+                    // Both hands on the ground between the feet.
+                    l = Reach(m, p, root, FaunaBone.FrontUpperL, FaunaBone.FrontLowerL, FaunaBone.FrontFootL, wristUp, footZ + 0.01f * s, false, 6f);
+                    p.Set(FaunaBone.FrontFootL, -l, 0f, 0f);
+                    rr = Reach(m, p, root, FaunaBone.FrontUpperR, FaunaBone.FrontLowerR, FaunaBone.FrontFootR, wristUp, footZ + 0.01f * s, false, -6f);
+                    p.Set(FaunaBone.FrontFootR, -rr, 0f, 0f);
+                    Idle(m, info, t, seed, p, true);
+                    break;
+                case 1:
                 {
-                    // Sitting upright on the haunches.
-                    p.SetRoot(-72f, 0f, 0f);
-                    Fv3 hip = m.Pivot[(int)FaunaBone.Pelvis];
-                    Fv3 r = p.RootRot * hip;
-                    p.RootOffset = new Fv3(0f, -r.Y + 0.1f * s, hip.Z - r.Z - 0.05f * s);
-                    // Knees up in front, feet flat on the ground.
-                    p.SetPair(FaunaBone.HindUpperL, -42f, 0f, -22f);
-                    p.SetPair(FaunaBone.HindLowerL, 118f, 0f, 0f);
-                    p.SetPair(FaunaBone.HindFootL, -62f, 0f, 0f);
-                    p.Set(FaunaBone.Neck, 52f, 0f, 0f);
-                    p.Set(FaunaBone.Head, 16f, 0f, 0f);
-                    // The tail lies on the ground behind.
-                    p.Set(FaunaBone.Tail0, 118f, 12f, 0f);
-                    p.Set(FaunaBone.Tail1, 10f, 15f, 0f);
-                    p.Set(FaunaBone.Tail2, 5f, 15f, 0f);
-                    bool groom = clip == FaunaClip.Groom;
-                    bool sleep = clip == FaunaClip.Sleep;
-                    if (groom)
-                    {
-                        // Hands picking through fur in front, alternating.
-                        float a = FMath.Sin(t * 5.3f), b2 = FMath.Sin(t * 4.1f + 1f);
-                        p.Set(FaunaBone.FrontUpperL, 30f + 12f * a, 0f, -10f);
-                        p.Set(FaunaBone.FrontLowerL, -75f + 15f * a, 0f, 0f);
-                        p.Set(FaunaBone.FrontUpperR, 30f + 12f * b2, 0f, 10f);
-                        p.Set(FaunaBone.FrontLowerR, -75f + 15f * b2, 0f, 0f);
-                        p.Set(FaunaBone.Neck, 70f, 0f, 0f);
-                        p.Set(FaunaBone.Head, 25f, 0f, 0f);
-                    }
-                    else
-                    {
-                        // Hands together in front of the chest (holding a bite of food); looking about.
-                        p.SetPair(FaunaBone.FrontUpperL, 60f, 0f, 8f);
-                        p.SetPair(FaunaBone.FrontLowerL, -72f, 0f, 0f);
-                        p.SetPair(FaunaBone.FrontFootL, 15f, 0f, 0f);
-                        if (!sleep) Idle(m, info, t, seed, p, true);
-                        else p.Set(FaunaBone.Head, 45f, 0f, 0f);
-                    }
+                    // Eating: the right hand brings a bite to the mouth now and then, the left rests on the ground.
+                    l = Reach(m, p, root, FaunaBone.FrontUpperL, FaunaBone.FrontLowerL, FaunaBone.FrontFootL, wristUp, footZ, false, 6f);
+                    p.Set(FaunaBone.FrontFootL, -l, 0f, 0f);
+                    float bite = FMath.SmoothStep(FMath.Clamp01(1.6f * FMath.Sin(t * 1.3f) + 0.4f));
+                    float headPitch = 16f + 10f * bite;
+                    Fv3 mouth = Mouth(m, p, root, 50f, headPitch);
+                    float ty = FMath.Lerp(shW.Y - 0.16f * s, mouth.Y - 0.035f * s, bite), tz = FMath.Lerp(shW.Z + 0.1f * s, mouth.Z - 0.005f * s, bite);
+                    rr = Reach(m, p, root, FaunaBone.FrontUpperR, FaunaBone.FrontLowerR, FaunaBone.FrontFootR, ty, tz, false, -12f);
+                    p.Set(FaunaBone.FrontFootR, FMath.Lerp(-40f, -150f, bite) - rr, 0f, 0f);
+                    p.Set(FaunaBone.Head, headPitch, 0f, 0f);
+                    Ears(t, seed, p);
+                    Tail(info, t, seed, p, 1f);
+                    break;
+                }
+                case 2:
+                {
+                    // Forearms resting on the knees, the hands hanging in front of them.
+                    Fv3 kneeW = World(m, p, FaunaBone.HindLowerL);
+                    l = Reach(m, p, root, FaunaBone.FrontUpperL, FaunaBone.FrontLowerL, FaunaBone.FrontFootL, kneeW.Y + 0.01f * s, kneeW.Z + 0.1f * s, false, 4f);
+                    p.Set(FaunaBone.FrontFootL, 60f - l, 0f, 0f);
+                    rr = Reach(m, p, root, FaunaBone.FrontUpperR, FaunaBone.FrontLowerR, FaunaBone.FrontFootR, kneeW.Y + 0.01f * s, kneeW.Z + 0.1f * s, false, -4f);
+                    p.Set(FaunaBone.FrontFootR, 60f - rr, 0f, 0f);
+                    Idle(m, info, t, seed, p, true);
+                    break;
+                }
+                default:
+                {
+                    // Grooming (or dozing): both hands in front of the belly; grooming hands pick in turn.
+                    float a = groom ? FMath.Sin(t * 5.3f) : 0f, b2 = groom ? FMath.Sin(t * 4.1f + 1f) : 0f;
+                    float ty = shW.Y - 0.15f * s, tz = shW.Z + 0.11f * s;
+                    l = Reach(m, p, root, FaunaBone.FrontUpperL, FaunaBone.FrontLowerL, FaunaBone.FrontFootL, ty + 0.02f * s * a, tz + 0.015f * s * a, false, 10f);
+                    p.Set(FaunaBone.FrontFootL, -70f - l, 0f, 0f);
+                    rr = Reach(m, p, root, FaunaBone.FrontUpperR, FaunaBone.FrontLowerR, FaunaBone.FrontFootR, ty + 0.02f * s * b2, tz + 0.015f * s * b2, false,
+                               -10f);
+                    p.Set(FaunaBone.FrontFootR, -70f - rr, 0f, 0f);
+                    p.Set(FaunaBone.Neck, sleep ? 62f : 64f, 0f, 0f);
+                    p.Set(FaunaBone.Head, sleep ? 42f : 24f, 0f, 0f);
+                    Ears(t, seed, p);
+                    if (!sleep) Tail(info, t, seed, p, 1f);
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Climbing a wall, a plinth or a trunk that rises in front (+Z): the body upright with the belly a hand's
+        /// breadth off the wall, the hands reaching up the face in turn with the palms flat on it, the feet gripping
+        /// below with the knees splayed out, the head tipped back to look up, the tail hanging. At clip time 0 the feet
+        /// are at the foot of the wall (the sim lifts the whole animal as it climbs).
+        /// </summary>
+        private static void MacaqueClimb(FaunaMesh m, FaunaSpeciesInfo info, float t, uint seed, float s, FaunaPose p)
+        {
+            const float root = -86f;
+            p.SetRoot(root, 0f, 0f);
+            Fv3 hip = m.Pivot[(int)FaunaBone.Pelvis];
+            Fv3 r = p.RootRot * hip;
+            p.RootOffset = new Fv3(0f, -r.Y + 0.21f * s, -r.Z);
+            float wall = World(m, p, FaunaBone.Pelvis).Z + 0.105f * s;
+            float ph = t * 1.1f * FMath.TwoPi;
+            float a = FMath.Sin(ph), b = FMath.Sin(ph + FMath.Pi);
+            Fv3 sh = World(m, p, FaunaBone.FrontUpperL), hp = World(m, p, FaunaBone.HindUpperL);
+            float l = Reach(m, p, root, FaunaBone.FrontUpperL, FaunaBone.FrontLowerL, FaunaBone.FrontFootL, sh.Y + (0.26f + 0.05f * a) * s, wall - 0.01f * s, true, -22f);
+            p.Set(FaunaBone.FrontFootL, -90f - l, 0f, 0f);
+            float rr = Reach(m, p, root, FaunaBone.FrontUpperR, FaunaBone.FrontLowerR, FaunaBone.FrontFootR, sh.Y + (0.26f + 0.05f * b) * s, wall - 0.01f * s, true, 22f);
+            p.Set(FaunaBone.FrontFootR, -90f - rr, 0f, 0f);
+            l = Reach(m, p, root, FaunaBone.HindUpperL, FaunaBone.HindLowerL, FaunaBone.HindFootL, hp.Y - (0.13f - 0.04f * b) * s, wall, false, -34f);
+            p.Set(FaunaBone.HindFootL, -90f - l, 0f, 0f);
+            rr = Reach(m, p, root, FaunaBone.HindUpperR, FaunaBone.HindLowerR, FaunaBone.HindFootR, hp.Y - (0.13f - 0.04f * a) * s, wall, false, 34f);
+            p.Set(FaunaBone.HindFootR, -90f - rr, 0f, 0f);
+            p.Set(FaunaBone.Neck, 52f, 12f * FMath.Sin(t * 0.7f), 0f);
+            p.Set(FaunaBone.Head, 8f, 0f, 0f);
+            // The tail swings out behind, clear of the ground at the foot of the wall.
+            p.Set(FaunaBone.Tail0, 112f, 0f, 0f);
+            p.Set(FaunaBone.Tail1, -8f, 8f * a, 0f);
+            Ears(t, seed, p);
+        }
+
+        /// <summary>Model-space position of the mouth (the jaw pivot) of a sitting animal whose neck and head are pitched
+        /// by <paramref name="neckDeg"/> and <paramref name="headDeg"/> under a root pitch of <paramref name="rootDeg"/>
+        /// (the chest unrotated).</summary>
+        private static Fv3 Mouth(FaunaMesh m, FaunaPose p, float rootDeg, float neckDeg, float headDeg)
+        {
+            Fv3 neck = m.Pivot[(int)FaunaBone.Neck], head = m.Pivot[(int)FaunaBone.Head], jaw = m.Pivot[(int)FaunaBone.Jaw];
+            Fv3 nw = p.RootRot * neck + p.RootOffset;
+            Fv3 hw = nw + FRot.Euler((rootDeg + neckDeg) * FMath.Deg, 0f, 0f) * (head - neck);
+            return hw + FRot.Euler((rootDeg + neckDeg + headDeg) * FMath.Deg, 0f, 0f) * (jaw - head);
+        }
+
+        /// <summary>Model-space position of a bone's pivot under the root transform alone (its ancestors up to the root
+        /// unrotated, as in the sitting pose before the limbs are placed).</summary>
+        private static Fv3 World(FaunaMesh m, FaunaPose p, FaunaBone b)
+        {
+            return p.RootRot * m.Pivot[(int)b] + p.RootOffset;
+        }
+
+        /// <summary>
+        /// Two-bone reaching in the pitch plane: sets the local pitch of <paramref name="upper"/> and
+        /// <paramref name="lower"/> (with <paramref name="rollDeg"/> on the upper bone) so that the pivot of
+        /// <paramref name="end"/> reaches (<paramref name="ty"/>, <paramref name="tz"/>) in model space, the middle joint
+        /// bending forward (<paramref name="jointForward"/>: a knee) or back (an elbow); targets out of reach are
+        /// clamped to the limb's length. The upper bone's parents must be unrotated (the root alone, pitch
+        /// <paramref name="rootDeg"/>). Returns the summed pitch carried into <paramref name="end"/> (root, upper, lower),
+        /// so a hand or foot is laid flat with a local pitch of minus that.
+        /// </summary>
+        private static float Reach(FaunaMesh m, FaunaPose p, float rootDeg, FaunaBone upper, FaunaBone lower, FaunaBone end, float ty, float tz,
+                                   bool jointForward, float rollDeg)
+        {
+            Fv3 s0 = m.Pivot[(int)upper], e0 = m.Pivot[(int)lower], w0 = m.Pivot[(int)end];
+            float l1 = Plane(e0 - s0), l2 = Plane(w0 - e0);
+            float b1 = Pitch(e0 - s0), b2 = Pitch(w0 - e0);
+            Fv3 sw = p.RootRot * s0 + p.RootOffset;
+            float dy = ty - sw.Y, dz = tz - sw.Z;
+            float dist = (float)Math.Sqrt(dy * dy + dz * dz);
+            float lo = Math.Abs(l1 - l2) + 1e-3f, hi = l1 + l2 - 1e-3f;
+            float dc = FMath.Clamp(dist, lo, hi);
+            float phi = (float)Math.Atan2(-dz, -dy);
+            float cosA = FMath.Clamp((l1 * l1 + dc * dc - l2 * l2) / (2f * l1 * dc), -1f, 1f);
+            float alpha = (float)Math.Acos(cosA);
+            float t1 = jointForward ? phi - alpha : phi + alpha;
+            // The end point actually reached (on the line to the target, at the clamped distance).
+            float ey = sw.Y - l1 * (float)Math.Cos(t1), ez = sw.Z - l1 * (float)Math.Sin(t1);
+            float wy = sw.Y + dy / Math.Max(1e-5f, dist) * dc, wz = sw.Z + dz / Math.Max(1e-5f, dist) * dc;
+            float t2 = (float)Math.Atan2(-(wz - ez), -(wy - ey));
+            float d1 = t1 / FMath.Deg - rootDeg - b1;
+            float d2 = t2 / FMath.Deg - rootDeg - d1 - b2;
+            p.Set(upper, d1, 0f, rollDeg);
+            p.Set(lower, d2, 0f, 0f);
+            return rootDeg + d1 + d2;
+        }
+
+        private static float Plane(Fv3 v)
+        {
+            return (float)Math.Sqrt(v.Y * v.Y + v.Z * v.Z);
+        }
+
+        /// <summary>Pitch (degrees) of a direction in the y-z plane: 0 straight down, positive swung back (−Z).</summary>
+        private static float Pitch(Fv3 v)
+        {
+            return (float)Math.Atan2(-v.Z, -v.Y) / FMath.Deg;
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -646,6 +816,9 @@ namespace Ghumante.Core.Generators.Fauna
             return m.Pivot[(int)FaunaBone.HindUpperL].Y;
         }
 
+        /// <summary>How far an egret draws its neck in when it flies (scale of the neck about its base).</summary>
+        public const float EgretNeckTuck = 0.5f;
+
         private static void Flight(FaunaMesh m, FaunaSpeciesInfo info, FaunaClip clip, float t, uint seed, FaunaPose p)
         {
             // Level the body (it is tilted up in the standing bind pose) and centre it on the origin.
@@ -657,12 +830,45 @@ namespace Ghumante.Core.Generators.Fauna
             p.SetRoot(bindPitch + extraPitch, 0f, 0f);
             Fv3 rc = p.RootRot * centre;
             p.RootOffset = -rc;
-            // Legs tucked back (dangling forward when landing).
-            float legs = clip == FaunaClip.Land ? -50f : clip == FaunaClip.TakeOff ? 20f : 75f;
-            p.SetPair(FaunaBone.HindUpperL, legs, 0f, 0f);
-            p.SetPair(FaunaBone.HindLowerL, clip == FaunaClip.Land ? 30f : 60f, 0f, 0f);
-            p.Set(FaunaBone.Neck, -bindPitch * 0.3f - 10f, 0f, 0f);
-            p.Set(FaunaBone.Head, -6f, 0f, 0f);
+            // Legs: trailing straight back along the levelled body (the long-legged egret's feet stick out past the
+            // tail; the small birds tuck theirs into the belly feathers), dangling forward to land, pushing off at take-off.
+            // Rotations about the same axis add up, so a leg pitch of 90° minus the root pitch points the leg backwards.
+            float root = bindPitch + extraPitch;
+            bool egret = m.Species == FaunaSpecies.Egret;
+            if (clip == FaunaClip.Land)
+            {
+                p.SetPair(FaunaBone.HindUpperL, -20f - root, 0f, 0f);
+                p.SetPair(FaunaBone.HindLowerL, 25f, 0f, 0f);
+            }
+            else if (clip == FaunaClip.TakeOff)
+            {
+                p.SetPair(FaunaBone.HindUpperL, 45f - root, 0f, 0f);
+                p.SetPair(FaunaBone.HindLowerL, 20f, 0f, 0f);
+            }
+            else
+            {
+                p.SetPair(FaunaBone.HindUpperL, 88f - root, 0f, 0f);
+                p.SetPair(FaunaBone.HindLowerL, 0f, 0f, 0f);
+                p.SetPair(FaunaBone.HindFootL, 25f, 0f, 0f);
+                // Toes tucked away (seen only on the egret); the light bird shows no legs in the air at all.
+                if (!egret) p.Scale[(int)FaunaBone.HindFootL] = p.Scale[(int)FaunaBone.HindFootR] = 0f;
+                if (m.Lod >= 1) p.Scale[(int)FaunaBone.HindUpperL] = p.Scale[(int)FaunaBone.HindUpperR] = 0f;
+            }
+            if (egret)
+            {
+                // Herons and egrets fly with the neck pulled back into an S: the neck is drawn in (shortened about its
+                // base and laid back) so the head rests just in front of the shoulders, the bill level and forward.
+                const float neck = -70f;
+                p.Set(FaunaBone.Neck, neck, 0f, 0f);
+                p.Scale[(int)FaunaBone.Neck] = EgretNeckTuck;
+                p.Scale[(int)FaunaBone.Head] = 1f / EgretNeckTuck;
+                p.Set(FaunaBone.Head, -(root + neck) - 4f, 0f, 0f);
+            }
+            else
+            {
+                p.Set(FaunaBone.Neck, -bindPitch * 0.3f - 10f, 0f, 0f);
+                p.Set(FaunaBone.Head, -6f, 0f, 0f);
+            }
             switch (clip)
             {
                 case FaunaClip.Glide:
