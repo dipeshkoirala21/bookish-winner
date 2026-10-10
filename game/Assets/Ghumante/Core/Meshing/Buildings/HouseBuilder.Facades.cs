@@ -83,10 +83,21 @@ namespace Ghumante.Core.Meshing
         {
             KitFrame f = h.F;
             double u0 = p.FU0, u1 = p.FU1, w = u1 - u0;
-            int bays = Bays(w);
+            int bays = NewarBays(w);
             double bayW = w / bays, uc = u0 + 0.5 * w;
+            // The second detail pass draws from its own fork: lime wash, toranas, the bhaygah, plants, laundry, cables.
+            GrammarRng dress = rng.Fork();
+            uint lime = LimeWash(ref h, ref p, dress.Fork());
+            bool richFront = h.Plan.Profile == StyleProfile.Bhaktapur || h.Plan.Profile == StyleProfile.Patan || h.Plan.Profile == StyleProfile.KathmanduCore ||
+                             h.Plan.Profile == StyleProfile.Kirtipur;
+            bool crest = richFront && dress.Chance(0.45f);
+            float bhaygahShare = h.Plan.Profile == StyleProfile.Patan ? 0.4f : h.Plan.Profile == StyleProfile.KathmanduCore ? 0.3f :
+                                 h.Plan.Profile == StyleProfile.Bhaktapur || h.Plan.Profile == StyleProfile.Kirtipur ? 0.2f : 0.1f;
+            bool bhaygahWanted = p.Arch == BuildingArchetype.Newar && w >= 3.0 && dress.Chance(bhaygahShare), bhaygahUsed = false;
+            GrammarRng cables = dress.Fork(), laundry = dress.Fork();
+            double bayU0 = double.NaN, bayU1 = double.NaN; // the sanjhya of the floor below (no balcony strut on it)
             uint wood = p.Wood, carved = MeshColor.Scale(p.Wood, 1.12f);
-            uint lattice = MeshColor.Lerp(p.Wood, BuildingGrammar.SalMid, 0.5f);
+            uint lattice = BuildingGrammar.IsPaintedWood(p.Wood) ? MeshColor.Scale(p.Wood, 1.08f) : MeshColor.Lerp(p.Wood, BuildingGrammar.SalMid, 0.5f);
             bool hybrid = p.Arch == BuildingArchetype.NewarHybrid;
             int last = Math.Min(floors, p.Storeys);
             KitHole[] holes = s.Holes;
@@ -119,18 +130,29 @@ namespace Ghumante.Core.Meshing
                         holes[nh++] = new KitHole(bc - 0.24, g0 + 0.95, bc + 0.24, g0 + 1.55);
                     }
             }
-            Wall(ref h, ref p, f, u0, u1, h.Base - h.Ground, g1, holes, nh, p.Front, p.FrontCh, m);
+            if (lime != 0 && !shop && g1 - g0 > 1.4)
+            {
+                // A lime-washed or red-painted dado over the plinth, brick above (Patan and Bhaktapur lanes).
+                double dado = g0 + 0.95;
+                Wall(ref h, ref p, f, u0, u1, h.Base - h.Ground, dado, holes, nh, lime, MaterialChannel.Plaster, m);
+                Wall(ref h, ref p, f, u0, u1, dado, g1, holes, nh, p.Front, p.FrontCh, m);
+            }
+            else Wall(ref h, ref p, f, u0, u1, h.Base - h.Ground, g1, holes, nh, p.Front, p.FrontCh, m);
             if (shop) NewarShop(ref h, ref p, rng.Fork(), holes, nh, g0, m);
             else
             {
-                NewarDoor(ref h, ref p, rng.Fork(), holes[0], m);
+                NewarDoor(ref h, ref p, rng.Fork(), holes[0], g1 - 0.1, m);
                 for (int k = 1; k < nh; k++) SmallWindow(ref h, ref p, holes[k], m);
                 Pikha(ref h, ref p, u0, u1, m);
             }
             // The tiled pent roof over the ground floor (Patan, Bhaktapur, the Kathmandu core).
             float pent = h.Plan.Profile == StyleProfile.Patan ? 0.45f : h.Plan.Profile == StyleProfile.Bhaktapur || h.Plan.Profile == StyleProfile.KathmanduCore ||
                          h.Plan.Profile == StyleProfile.Kirtipur ? 0.3f : 0.15f;
-            if (p.Storeys >= 2 && rng.Chance(pent)) Hood(ref h, ref p, rng.Fork(), f, u0, u1, g1 + 0.06, rng.Range(0.6f, 0.85f), true, m);
+            bool hooded = p.Storeys >= 2 && rng.Chance(pent);
+            if (hooded) Hood(ref h, ref p, rng.Fork(), f, u0, u1, g1 + 0.06, rng.Range(0.6f, 0.85f), true, m);
+            // Street wiring along the first floor line (above the hood where there is one).
+            if (h.Det.Small && p.Storeys >= 2 && cables.Chance(0.6f))
+                FacadeCables(ref h, f, u0, u1, hooded && p.Storeys >= 3 ? FloorBase(s, p, 2) + 0.22 : g1 + 0.24, cables.Fork(), m);
 
             // ---- Upper floors.
             for (int k = 1; k < last; k++)
@@ -160,15 +182,62 @@ namespace Ghumante.Core.Meshing
                 {
                     for (int bay = 0; bay < bays; bay++) Tiki(holes, ref nh, u0 + (bay + 0.5) * bayW, b0, bayW, sH);
                 }
+                double gw = attic ? Math.Min(rng.Range(0.9f, 1.4f), w - 0.5) : 0;
+                if (attic)
+                {
+                    // The top floor under the eaves: the gajhya in the middle, small windows either side.
+                    for (int bay = 0; bay < bays; bay++)
+                    {
+                        double bc = u0 + (bay + 0.5) * bayW;
+                        if (Math.Abs(bc - uc) < 0.5 * gw + 0.5) continue;
+                        Tiki(holes, ref nh, bc, b0 - 0.12, bayW, Math.Min(sH, 1.7));
+                    }
+                }
                 int windows = nh;
                 if (flush && nh < holes.Length) holes[nh++] = new KitHole(uc - 0.5 * sw, sv, uc + 0.5 * sw, sv + ssh);
                 Wall(ref h, ref p, f, u0, u1, b0, vTop, holes, nh, p.Front, p.FrontCh, m);
                 for (int i = 0; i < windows; i++) Tikijhya(ref h, ref p, holes[i], wood, carved, lattice, m);
                 if (sanjhya) Sanjhya(ref h, ref p, rng.Fork(), uc, sw, sv, ssh, proj, flush && nh > windows, wood, carved, lattice, m);
-                if (attic) Gajhya(ref h, ref p, uc, Math.Min(rng.Range(0.9f, 1.4f), w - 0.5), b0 + 0.25, Math.Min(0.75, sH - 0.45), wood, carved, lattice, m);
-                if (h.Det.Bands) FloorBand(ref h, ref p, u0, u1, b0, m);
+                if (attic) Gajhya(ref h, ref p, uc, gw, b0 + 0.25, Math.Min(0.75, sH - 0.45), wood, carved, lattice, m);
+                if (h.Det.Bands)
+                {
+                    FloorBand(ref h, ref p, u0, u1, b0, m);
+                    // The glazed dachi apa courses under the floor band and a lintel course over the window heads.
+                    double lintel = windows > 0 && !sanjhya && !attic && !(k == 1 && crest) ? holes[0].V1 + 0.2 : double.NaN;
+                    if (!double.IsNaN(lintel) && lintel > vTop - 0.3) lintel = double.NaN;
+                    DachiApa(ref h, ref p, f, u0, u1, b0, lintel, m);
+                }
+                // The carved torana crest over the central window of the first floor (Bhaktapur, Patan, the core).
+                if (k == 1 && crest && !h.Det.Lite && windows > 0)
+                {
+                    int best = 0;
+                    for (int i = 1; i < windows; i++)
+                        if (Math.Abs(0.5 * (holes[i].U0 + holes[i].U1) - uc) < Math.Abs(0.5 * (holes[best].U0 + holes[best].U1) - uc)) best = i;
+                    KitHole cw = holes[best];
+                    double half = 0.5 * (cw.U1 - cw.U0) + 0.22, crestV = cw.V1 + 0.17;
+                    if (crestV + 0.42 < vTop - 0.25) Torana(ref h, f, 0.5 * (cw.U0 + cw.U1), half, crestV, Math.Min(0.4, 0.75 * half), wood, false, m);
+                }
+                // A bhaygah (timber balcony) across an upper floor: Patan, the Kathmandu core, Bhaktapur's squares.
+                if (bhaygahWanted && !bhaygahUsed && !sanjhya && k >= 2)
+                {
+                    // Under the eaves on the top floor too (Patan); no strut lands on the bay of the floor below.
+                    bhaygahUsed = true;
+                    Bhaygah(ref h, ref p, u0 + 0.15, u1 - 0.15, b0, rng.Range(0.6f, 0.85f), wood, m, bayU0, bayU1);
+                }
+                if (sanjhya)
+                {
+                    bayU0 = uc - 0.5 * sw - 0.3;
+                    bayU1 = uc + 0.5 * sw + 0.3;
+                }
+                else bayU0 = bayU1 = double.NaN;
                 GrammarRng plants = rng.Fork();
-                if (k == 1 && h.Det.Small && plants.Chance(0.12f)) SillPlant(ref h, ref p, plants, holes, nh, m);
+                if (k <= 2 && h.Det.Small && plants.Chance(0.3f)) SillPlant(ref h, ref p, plants, holes, windows, m);
+                GrammarRng line = laundry.Fork();
+                if (h.Det.Small && windows >= 2 && line.Chance(0.16f))
+                {
+                    int i = line.Int(0, windows - 2);
+                    WindowLaundry(ref h, f, holes[i].U0 - 0.1, holes[i + 1].U1 + 0.1, holes[i].V1 + 0.08, line.Fork(), m);
+                }
             }
         }
 
@@ -234,15 +303,15 @@ namespace Ghumante.Core.Meshing
             int v0 = m.VertexCount;
             proud = Proud(ref h, f, o.U0 - side - ears, o.U1 + side + ears, o.V0 - 0.09, proud);
             MeshKit.Box(m, f, o.U0 - side - ears, o.U1 + side + ears, o.V1, o.V1 + 0.11, 0, proud, c, BoxFaces.Front | BoxFaces.Bottom);
-            if (sill) MeshKit.Box(m, f, o.U0 - side - 0.5 * ears, o.U1 + side + 0.5 * ears, o.V0 - 0.09, o.V0, 0, proud, c, BoxFaces.Front | BoxFaces.Top);
+            if (sill) MeshKit.Box(m, f, o.U0 - side - 0.5 * ears, o.U1 + side + 0.5 * ears, o.V0 - 0.09, o.V0, 0, proud, c, BoxFaces.Front);
             MeshKit.Panel(m, f, o.U0 - side, o.V0, o.U0, o.V1, 0.6 * proud, c);
             MeshKit.Panel(m, f, o.U1, o.V0, o.U1 + side, o.V1, 0.6 * proud, c);
             Fixed(ref h, f, m, v0, ch);
         }
 
         /// <summary>The low carved house door: recessed leaves, a carved frame with lintel and sill ears, a threshold
-        /// stone, a painted panel above and vermilion on the lintel.</summary>
-        private static void NewarDoor(ref House h, ref Plot p, GrammarRng rng, in KitHole d, MeshData m)
+        /// stone, the carved torana above (its top below <paramref name="maxTop"/>) with vermilion at its heart.</summary>
+        private static void NewarDoor(ref House h, ref Plot p, GrammarRng rng, in KitHole d, double maxTop, MeshData m)
         {
             KitFrame f = h.F;
             const double Reveal = 0.32;
@@ -295,14 +364,18 @@ namespace Ghumante.Core.Meshing
             v0 = m.VertexCount;
             KitRound.BoxU(m, f, d.U0 - 0.3, d.U1 + 0.3, d.V0 - 0.12, d.V0, -Reveal, 0.8 * fd, 0.02 * k, seg, BoxFaces.All & ~BoxFaces.Back, BuildingGrammar.PlinthStone);
             Fixed(ref h, f, m, v0, MaterialChannel.Stone);
-            // Painted deity panel (a small torana board) with vermilion and a marigold garland on festive houses.
+            // The carved torana over the door (gilt on some), with vermilion at its heart, and a marigold garland on
+            // festive houses.
+            bool gilt = rng.Chance(0.2f);
+            double half = 0.5 * (d.U1 - d.U0) + 0.26;
+            double rise = Math.Min(Math.Min(0.55, 0.8 * half), maxTop - (d.V1 + 0.22) - 0.12);
+            if (rise > 0.15) Torana(ref h, f, mid, half, d.V1 + 0.22, rise, frame, gilt, m);
             if (h.Det.Small)
             {
                 v0 = m.VertexCount;
-                double pv = d.V1 + 0.26;
-                double pd = 0.4 * fd;
-                KitRound.BoxU(m, f, mid - 0.32, mid + 0.32, pv, pv + 0.36, 0, pd, 0.3 * pd, 1, BoxFaces.All & ~BoxFaces.Back, BuildingGrammar.Ochre);
-                MeshKit.Box(m, f, mid - 0.11, mid + 0.11, pv + 0.06, pv + 0.3, pd, pd + 0.015, BuildingGrammar.Sindoor, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+                double pv = d.V1 + 0.3;
+                double pd = Proud(ref h, f, mid - 0.1, mid + 0.1, pv, 0.1, 0.03);
+                MeshKit.Box(m, f, mid - 0.08, mid + 0.08, pv, pv + 0.16, 0, pd, BuildingGrammar.Sindoor, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
                 Fixed(ref h, f, m, v0, MaterialChannel.Paint);
                 // The garland droops 0.25 m from 0.12 m in front of the lintel: only where it clears the road.
                 if (rng.Chance(0.25f) && Fits(ref h, f, d.U0 - 0.1, d.U1 + 0.1, d.V1 - 0.3, 0.18))
@@ -372,7 +445,7 @@ namespace Ghumante.Core.Meshing
                 for (int k = 1; k <= 3; k++)
                 {
                     double u = o.U0 + (o.U1 - o.U0) * k / 4;
-                    MeshKit.Box(m, f, u - 0.012, u + 0.012, o.V0, o.V1, -0.12, -0.09, BuildingGrammar.SteelDark, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                    MeshKit.Box(m, f, u - 0.012, u + 0.012, o.V0, o.V1, -0.12, -0.09, BuildingGrammar.SteelDark, BoxFaces.Front);
                 }
                 Fixed(ref h, f, m, v0, MaterialChannel.Metal);
             }
@@ -386,24 +459,27 @@ namespace Ghumante.Core.Meshing
             int v0;
             if (h.Det.Flat)
             {
-                // The carved frame's lintel and sill with their ears over a dark window and a coarse lattice on it.
-                FlatOpening(ref h, f, o, BuildingGrammar.Interior, MaterialChannel.Plain, 0.11, 0.24, carved, MaterialChannel.WoodCarved, true, m);
-                v0 = m.VertexCount;
-                FacadeKit.Lattice(m, f, o.U0, o.V0, o.U1, o.V1, 0.012, h.Det.LatticePitch, 0.05, 0, (p.Seed >> 11) % 10 < 3, lattice, (p.Seed & 7) / 8.0);
-                Fixed(ref h, f, m, v0, MaterialChannel.Wood, 0.9f);
+                // The carved frame's lintel and sill with their ears over the screen: at 10-35 m the lattice is the carved
+                // channel's texture on a dark lattice-tinted fill, not geometry (ref_buildings.md §12).
+                bool painted = BuildingGrammar.IsPaintedWood(p.Wood);
+                FlatOpening(ref h, f, o, painted ? lattice : MeshColor.Lerp(BuildingGrammar.Interior, lattice, 0.5f), painted ? MaterialChannel.Wood : MaterialChannel.WoodCarved,
+                            0.11, 0.24, carved, MaterialChannel.WoodCarved, true, m);
                 return;
             }
             v0 = m.VertexCount;
             FacadeKit.Reveal(m, f, o, 0, 0.3, MeshColor.Scale(p.Front, 0.88f), !h.Det.Lite);
-            MeshKit.Panel(m, f, o.U0, o.V0, o.U1, o.V1, -0.3, BuildingGrammar.Interior);
+            // The dark room behind the lattice (the lite level's screen panel hides it).
+            if (!h.Det.Lite) MeshKit.Panel(m, f, o.U0, o.V0, o.U1, o.V1, -0.3, BuildingGrammar.Interior);
             Recess(ref h, f, m, v0, p.FrontCh, 0.3);
             if (h.Det.Lite)
             {
-                // A plain carved-frame board with long ears and a coarse lattice: the window still reads at 30 m.
+                // A plain carved-frame board with long ears over the screen, the lattice drawn by the carved channel's
+                // texture on a lattice-tinted panel in the reveal: the window still reads at 30 m.
                 LiteFrame(ref h, f, o, 0.11, 0.24, 0.07, carved, MaterialChannel.WoodCarved, m);
                 v0 = m.VertexCount;
-                FacadeKit.Lattice(m, f, o.U0, o.V0, o.U1, o.V1, -0.05, h.Det.LatticePitch, 0.045, 0, (p.Seed >> 11) % 10 < 3, lattice, (p.Seed & 7) / 8.0);
-                Recess(ref h, f, m, v0, MaterialChannel.Wood, 0.12, 0.95f);
+                bool painted = BuildingGrammar.IsPaintedWood(p.Wood);
+                MeshKit.Panel(m, f, o.U0, o.V0, o.U1, o.V1, -0.05, painted ? lattice : MeshColor.Lerp(BuildingGrammar.Interior, lattice, 0.55f));
+                Recess(ref h, f, m, v0, painted ? MaterialChannel.Wood : MaterialChannel.WoodCarved, 0.12, 0.95f);
                 return;
             }
             v0 = m.VertexCount;
@@ -414,6 +490,14 @@ namespace Ghumante.Core.Meshing
             FacadeKit.Ledge(m, f, o.U0 - 0.3, o.U1 + 0.3, o.V0 - 0.15, 0.11, 0.9 * fd, 0.03, 3, carved);
             Fixed(ref h, f, m, v0, MaterialChannel.WoodCarved);
             v0 = m.VertexCount;
+            if (BuildingGrammar.IsPaintedWood(p.Wood))
+            {
+                // Patan's painted windows: louvred shutters (slats every 8-11 cm) instead of the carved lattice.
+                FacadeKit.Corrugated(m, f, o.U0, o.V0, o.U1, o.V1, -0.07, Math.Max(0.08, 0.6 * h.Det.LatticePitch), 0.025, lattice);
+                MeshKit.Panel(m, f, 0.5 * (o.U0 + o.U1) - 0.015, o.V0, 0.5 * (o.U0 + o.U1) + 0.015, o.V1, -0.04, carved);
+                Recess(ref h, f, m, v0, MaterialChannel.Wood, 0.12, 0.95f);
+                return;
+            }
             FacadeKit.Lattice(m, f, o.U0, o.V0, o.U1, o.V1, -0.05, h.Det.LatticePitch, 0.034, 0, (p.Seed >> 11) % 10 < 3, lattice, (p.Seed & 7) / 8.0);
             Recess(ref h, f, m, v0, MaterialChannel.Wood, 0.12, 0.95f);
         }
@@ -838,8 +922,9 @@ namespace Ghumante.Core.Meshing
             }
             uint plaster = p.ExposedBrick ? MeshColor.Scale(p.Wall, 1.06f) : p.Front;
             MaterialChannel pch = p.ExposedBrick ? MaterialChannel.Brick : MaterialChannel.Paint;
-            int windows = Math.Max(1, Math.Min(4, (int)Math.Round(w / 1.9)));
+            int windows = Math.Max(1, Math.Min(6, (int)Math.Round(w / 1.6)));
             bool balcony = rng.Chance(0.3f) && w >= 3.0;
+            GrammarRng dress = rng.Fork();
             KitHole[] holes = s.Holes;
             for (int k = 3; k < p.Storeys; k++)
             {
@@ -865,9 +950,12 @@ namespace Ghumante.Core.Meshing
                 if (h.Det.Bands)
                 {
                     int v0 = m.VertexCount;
-                    FacadeKit.Band(m, f, u0, u1, b0 - 0.12, 0.14, 0.07, 0.03, 3, MeshColor.Scale(plaster, 0.85f));
+                    FacadeKit.Band(m, f, u0, u1, b0 - 0.12, 0.14, Proud(ref h, f, u0, u1, b0 - 0.12, 0.07, 0.03), 0.03, 3, MeshColor.Scale(plaster, 0.85f));
                     Fixed(ref h, f, m, v0, pch);
                 }
+                GrammarRng wear = dress.Fork();
+                if (h.Det.Bands && !p.ExposedBrick) Weathering(ref h, ref p, f, u0, u1, b0, top ? p.Top : b1, holes, nh, wear.Fork(), m);
+                if (h.Det.Small && wear.Chance(0.25f)) SillPlant(ref h, ref p, wear.Fork(), holes, bal ? nh - 1 : nh, m);
             }
             // The eave hood at the old eave line on struts (jhingati or blue CGI).
             Hood(ref h, ref p, rng.Fork(), f, u0, u1, FloorBase(s, p, 3), rng.Range(0.6f, 0.9f), p.TileHood, m);
@@ -1047,8 +1135,13 @@ namespace Ghumante.Core.Meshing
             }
             bool balconies = w >= 4.2 && rng.Chance(thamel ? 0.65f : 0.5f);
             bool fullBalcony = balconies && rng.Chance(0.3f);
-            int windows = Math.Max(1, Math.Min(4, (int)Math.Round(w / 2.6)));
+            int windows = Math.Max(1, Math.Min(6, (int)Math.Round(w / 2.1)));
             bool grilles = rng.Chance(0.6f);
+            // The second detail pass draws from its own fork: weathering, cables, laundry.
+            GrammarRng dress = rng.Fork();
+            bool weathered = p.FrontCh == MaterialChannel.Paint || p.FrontCh == MaterialChannel.Plaster;
+            if (h.Det.Small && dress.Chance(h.Plan.Profile == StyleProfile.Metro ? 0.45f : 0.65f))
+                FacadeCables(ref h, fu, u0, u1, FloorBase(s, p, 1) + 0.42, dress.Fork(), m, cant <= 0);
             bool core = h.Plan.Profile == StyleProfile.KathmanduCore || h.Plan.Profile == StyleProfile.Patan || h.Plan.Profile == StyleProfile.Thamel;
             uint frame = core && rng.Chance(0.55f) ? (rng.Chance(0.6f) ? BuildingGrammar.PaintedBrown : p.Wood)
                 : rng.Chance(0.55f) ? BuildingGrammar.Aluminium : rng.Chance(0.5f) ? MeshColor.FromHex(0xFFFFFF) : p.Wood;
@@ -1065,7 +1158,7 @@ namespace Ghumante.Core.Meshing
                     double c = u0 + (j + 0.5) * w / windows;
                     // Windows stay behind a wide balcony; only the one the balcony door replaces goes.
                     if (bal && Math.Abs(c - uc) < Math.Min(0.5 * bw + 0.3, 1.2)) continue;
-                    double ww = Math.Min(1.25, w / windows - 0.7);
+                    double ww = Math.Min(1.25, w / windows - 0.6);
                     if (ww < 0.5) continue;
                     holes[nh++] = new KitHole(c - 0.5 * ww, b0 + 0.85, c + 0.5 * ww, b0 + Math.Min(2.2, b1 - b0 - 0.5));
                 }
@@ -1090,7 +1183,14 @@ namespace Ghumante.Core.Meshing
                 if (k <= 4 && rng.Chance(blade)) BladeSign(ref h, ref p, rng.Fork(), rng.Chance(0.5f) ? u0 + 0.35 : u1 - 0.45, b0 + 0.25, m, fu);
                 if (thamel && k <= 3 && w > 5 && rng.Chance(0.45f)) BladeSign(ref h, ref p, rng.Fork(), u0 + w * rng.Range(0.35f, 0.65f), b0 + 0.35, m, fu);
                 GrammarRng plants = rng.Fork();
-                if (h.Det.Small && plants.Chance(thamel ? 0.35f : 0.12f)) SillPlant(ref h, ref p, plants, holes, doorAt >= 0 ? doorAt : nh, m);
+                if (h.Det.Small && plants.Chance(thamel ? 0.45f : 0.25f)) SillPlant(ref h, ref p, plants, holes, doorAt >= 0 ? doorAt : nh, m);
+                GrammarRng wear = dress.Fork();
+                if (h.Det.Bands && weathered) Weathering(ref h, ref p, fu, u0, u1, b0, top ? p.Top : b1, holes, nh, wear.Fork(), m);
+                if (h.Det.Small && (doorAt >= 0 ? doorAt : nh) >= 1 && wear.Chance(0.14f))
+                {
+                    KitHole lw = holes[wear.Int(0, (doorAt >= 0 ? doorAt : nh) - 1)];
+                    WindowLaundry(ref h, fu, lw.U0 - 0.15, lw.U1 + 0.15, lw.V1 + 0.25, wear.Fork(), m);
+                }
             }
         }
 
@@ -1196,7 +1296,9 @@ namespace Ghumante.Core.Meshing
                 Fixed(ref h, f, m, v0, MaterialChannel.Concrete);
                 return;
             }
-            FacadeKit.Reveal(m, f, o, 0, Reveal, p.ExposedBrick ? BuildingGrammar.Concrete : MeshColor.Scale(p.Front, 0.92f), !door);
+            // The reveal's sill face only where it can be seen (the full levels): from the street a lite window's sill faces
+            // away from the camera.
+            FacadeKit.Reveal(m, f, o, 0, Reveal, p.ExposedBrick ? BuildingGrammar.Concrete : MeshColor.Scale(p.Front, 0.92f), !door && !h.Det.Lite);
             Recess(ref h, f, m, v0, p.ExposedBrick ? MaterialChannel.Concrete : p.FrontCh == MaterialChannel.BrickGlazed ? MaterialChannel.Paint : p.FrontCh, Reveal);
             uint glass = BuildingGrammar.GlassTints[(int)((p.Seed >> 3) % (uint)BuildingGrammar.GlassTints.Length)];
             v0 = m.VertexCount;
@@ -1208,7 +1310,6 @@ namespace Ghumante.Core.Meshing
                 v0 = m.VertexCount;
                 double mz = -Reveal + 0.05, mu = 0.5 * (o.U0 + o.U1);
                 MeshKit.Panel(m, f, mu - 0.03, o.V0, mu + 0.03, o.V1, mz, frame);
-                if (!door && o.V1 - o.V0 > 1.1) MeshKit.Panel(m, f, o.U0, o.V1 - 0.41, o.U1, o.V1 - 0.35, mz, frame);
                 Recess(ref h, f, m, v0, frame == p.Wood ? MaterialChannel.Wood : MaterialChannel.Metal, Reveal, 1f);
                 if (!door)
                 {
@@ -1216,7 +1317,7 @@ namespace Ghumante.Core.Meshing
                     if (ld > 0.02)
                     {
                         v0 = m.VertexCount;
-                        MeshKit.Box(m, f, o.U0 - 0.06, o.U1 + 0.06, o.V0 - 0.06, o.V0, 0, ld, p.Trim, BoxFaces.Front | BoxFaces.Top);
+                        MeshKit.Box(m, f, o.U0 - 0.06, o.U1 + 0.06, o.V0 - 0.06, o.V0, 0, ld, p.Trim, BoxFaces.Front);
                         Fixed(ref h, f, m, v0, MaterialChannel.Concrete);
                     }
                 }
@@ -1246,6 +1347,18 @@ namespace Ghumante.Core.Meshing
                     Fixed(ref h, f, m, v0, MaterialChannel.Concrete);
                 }
             }
+            // Open timber shutter leaves folded back beside the window (Asan, Indra Chowk, Patan: half the RCC houses of
+            // the old cores), flat on the wall.
+            bool core = h.Plan.Profile == StyleProfile.KathmanduCore || h.Plan.Profile == StyleProfile.Patan;
+            if (!door && core && h.Det.Bands && frame != BuildingGrammar.Aluminium && ((p.Seed >> 9) & 1) == 0)
+            {
+                double leaf = Math.Min(0.28, 0.45 * (o.U1 - o.U0)), sd = Proud(ref h, f, o.U0 - leaf, o.U1 + leaf, o.V0, 0.035, 0.015);
+                uint sc = ((p.Seed >> 10) & 3) == 0 ? BuildingGrammar.PaintedGreen : MeshColor.Scale(BuildingGrammar.PaintedBrown, 1.15f);
+                v0 = m.VertexCount;
+                MeshKit.Box(m, f, o.U0 - leaf - 0.01, o.U0 - 0.01, o.V0 + 0.02, o.V1 - 0.02, 0, sd, sc, BoxFaces.Front | BoxFaces.Left);
+                MeshKit.Box(m, f, o.U1 + 0.01, o.U1 + leaf + 0.01, o.V0 + 0.02, o.V1 - 0.02, 0, sd, sc, BoxFaces.Front | BoxFaces.Right);
+                Fixed(ref h, f, m, v0, MaterialChannel.Wood);
+            }
             if (grille && h.Det.Grilles)
             {
                 v0 = m.VertexCount;
@@ -1254,10 +1367,10 @@ namespace Ghumante.Core.Meshing
                 for (int i = 1; i < bars; i++)
                 {
                     double u = o.U0 + (o.U1 - o.U0) * i / bars;
-                    MeshKit.Box(m, f, u - 0.011, u + 0.011, o.V0, o.V1, -0.04, -0.02, g, BoxFaces.Front | BoxFaces.Left);
+                    MeshKit.Box(m, f, u - 0.011, u + 0.011, o.V0, o.V1, -0.04, -0.02, g, BoxFaces.Front);
                 }
                 double hv = o.V0 + 0.45 * (o.V1 - o.V0);
-                MeshKit.Box(m, f, o.U0, o.U1, hv - 0.012, hv + 0.012, -0.045, -0.015, g, BoxFaces.Front | BoxFaces.Top);
+                MeshKit.Box(m, f, o.U0, o.U1, hv - 0.012, hv + 0.012, -0.045, -0.015, g, BoxFaces.Front);
                 Fixed(ref h, f, m, v0, MaterialChannel.Metal);
             }
             if (chhajja)
@@ -1708,9 +1821,10 @@ namespace Ghumante.Core.Meshing
             var rng = new GrammarRng(GrammarRng.Mix(p.Seed, (uint)Math.Round(layoutLen * 20)), 0x53494445);
             KitHole[] holes = s.Holes;
             bool modern = p.Arch == BuildingArchetype.ModernUrban;
-            double spacing = modern ? 2.8 : 1.8;
-            if (!street) spacing *= 1.35;
-            int windows = Math.Max(1, Math.Min(5, (int)Math.Round(layoutLen / spacing)));
+            // A window every 1.35 m on Newar floors, 2.3 m on RCC ones (a little wider apart on open sides).
+            double spacing = modern ? 2.3 : 1.35;
+            if (!street) spacing *= 1.15;
+            int windows = Math.Max(1, Math.Min(9, (int)Math.Round(layoutLen / spacing)));
             bool shop = street && p.Shop && layoutLen >= 3.0 && rng.Chance(0.7f);
             var saved = h.F;
             h.F = f;
@@ -1749,17 +1863,46 @@ namespace Ghumante.Core.Meshing
                     }
                 int v0 = m.VertexCount;
                 Stats.SideOpenings += nh;
-                FacadeKit.WallWithHoles(m, f, 0, len, b0, b1, 0, holes, h.Det.Flat ? 0 : nh, wallC);
+                // From the lite level on, a side wall's openings are laid on the wall (the front keeps its cut openings):
+                // the same windows at a tenth of the cost, so dressing every exposed side holds the band budgets; a
+                // street side keeps a proud lintel over each.
+                bool laid = h.Det.Lite;
+                FacadeKit.WallWithHoles(m, f, 0, len, b0, b1, 0, holes, laid ? 0 : nh, wallC);
                 WallPaint(ref h, ch, 1f).Apply(m, v0);
                 for (int i = 0; i < nh; i++)
                 {
+                    if (laid)
+                    {
+                        // A Newar window's screen is the carved channel's texture on a lattice-tinted fill.
+                        uint fill = k == 0 && shop ? BuildingGrammar.Shutter[(int)((p.Seed >> 4) % (uint)BuildingGrammar.Shutter.Length)]
+                            : k == 0 ? BuildingGrammar.Interior
+                            : newarFloor ? (BuildingGrammar.IsPaintedWood(p.Wood) ? p.Wood : MeshColor.Lerp(BuildingGrammar.Interior, MeshColor.Lerp(p.Wood, BuildingGrammar.SalLight, 0.5f), 0.7f))
+                            : BuildingGrammar.GlassTints[(int)((p.Seed >> 3) % (uint)BuildingGrammar.GlassTints.Length)];
+                        MaterialChannel fch = k == 0 && shop ? MaterialChannel.Metal : k == 0 ? MaterialChannel.Plain : newarFloor ? MaterialChannel.WoodCarved : MaterialChannel.Glass;
+                        uint frameC = newarFloor ? MeshColor.Scale(p.Wood, 1.12f) : p.Trim;
+                        FlatOpening(ref h, f, holes[i], fill, fch, -1, 0, 0, fch, false, m);
+                        if (!h.Det.Flat)
+                        {
+                            // The lintel board with its ears (Newar) or a slim head (RCC), flat on the wall.
+                            int vl = m.VertexCount;
+                            double ears = newarFloor ? 0.2 : 0.06;
+                            if (street)
+                                MeshKit.Box(m, f, holes[i].U0 - ears, holes[i].U1 + ears, holes[i].V1, holes[i].V1 + 0.1, 0,
+                                            Proud(ref h, f, holes[i].U0 - ears, holes[i].U1 + ears, holes[i].V1, 0.07, 0.02), frameC, BoxFaces.Front | BoxFaces.Bottom);
+                            else MeshKit.Panel(m, f, holes[i].U0 - ears, holes[i].V1, holes[i].U1 + ears, holes[i].V1 + 0.1, 0.012, frameC);
+                            Fixed(ref h, f, m, vl, newarFloor ? MaterialChannel.WoodCarved : MaterialChannel.Concrete);
+                        }
+                        continue;
+                    }
                     if (k == 0 && shop)
                     {
                         if (rng.Chance(0.6f)) ShopInterior(ref h, ref p, rng.Fork(), holes[i], 1.4, m);
                         else RollerShutter(ref h, ref p, rng.Fork(), holes[i], false, m);
                     }
                     else if (k == 0) SmallWindow(ref h, ref p, holes[i], m);
-                    else if (newarFloor) Tikijhya(ref h, ref p, holes[i], p.Wood, MeshColor.Scale(p.Wood, 1.12f), MeshColor.Lerp(p.Wood, BuildingGrammar.SalMid, 0.5f), m);
+                    else if (newarFloor)
+                        Tikijhya(ref h, ref p, holes[i], p.Wood, MeshColor.Scale(p.Wood, 1.12f),
+                                 BuildingGrammar.IsPaintedWood(p.Wood) ? MeshColor.Scale(p.Wood, 1.08f) : MeshColor.Lerp(p.Wood, BuildingGrammar.SalMid, 0.5f), m);
                     else ModernWindow(ref h, ref p, holes[i], false, rng.Chance(0.5f), h.Det.Bands, BuildingGrammar.Aluminium, m, f);
                 }
                 // Signs: decided at every level (the lite level leaves them out), so the choices that follow stay put.
@@ -1778,7 +1921,10 @@ namespace Ghumante.Core.Meshing
                     if (newarFloor) FacadeKit.Corbel(m, f, 0, len, fb - 0.16, 2, 0.11, 0.5 * bd, 3, MeshColor.Scale(p.Wall, 0.8f));
                     else FacadeKit.Band(m, f, 0, len, fb - 0.16, 0.16, bd, 0.035, 0, p.Trim);
                     Fixed(ref h, f, m, v0, newarFloor ? MaterialChannel.Brick : MaterialChannel.Paint);
+                    if (newarFloor && street) DachiApa(ref h, ref p, f, 0, len, fb, double.NaN, m);
                 }
+                if (!newarFloor && k > 0 && h.Det.Bands && p.FrontCh != MaterialChannel.Brick && wallC == p.Front)
+                    Weathering(ref h, ref p, f, 0, len, b0, b1, holes, nh, rng.Fork(), m);
             }
             h.F = saved;
             return true;

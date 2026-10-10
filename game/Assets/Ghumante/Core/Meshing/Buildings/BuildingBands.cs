@@ -6,9 +6,9 @@ namespace Ghumante.Core.Meshing
 {
     /// <summary>
     /// The far building bands (W2_DESIGN 2.4). <b>B2 prism</b>: each footprint simplified to its minimum-area oriented
-    /// box (or its convex hull when that has at most 6 points), walls hidden by a neighbour culled, a flat top at the
-    /// plan's mid-roof height: about 10 triangles. <b>B3 city block</b>: footprints rasterised to 16 m cells (max height,
-    /// built cover ≥ 30%), greedily merged into boxes of equal height step (3 m), a top and the walls not hidden by an
+    /// box (or its convex hull when that is a triangle or a quad), walls hidden by a neighbour culled, a flat top at the
+    /// plan's mid-roof height: about 9 triangles. <b>B3 city block</b>: footprints rasterised to 16 m cells (max height,
+    /// built cover ≥ 30%), greedily merged into boxes of equal height step (4 m), a top and the walls not hidden by an
     /// equally tall neighbour cell: about 10 triangles per box. Both take heights and colours from
     /// <see cref="BuildingGrammar.Plan(TileData, int)"/>, so they match the near bands.
     /// </summary>
@@ -16,7 +16,7 @@ namespace Ghumante.Core.Meshing
     {
         public const double BlockCellM = 16.0;
         public const double MinCover = 0.30;
-        public const double HeightStepM = 3.0;
+        public const double HeightStepM = 4.0;
 
         // ------------------------------------------------------------------------------------------------------------
         // B2
@@ -50,7 +50,7 @@ namespace Ghumante.Core.Meshing
                 int hn = Hull(ring, hx, hz);
                 if (hn < 3) continue;
                 int k;
-                if (hn <= 6)
+                if (hn <= 4)
                 {
                     for (int q = 0; q < hn; q++)
                     {

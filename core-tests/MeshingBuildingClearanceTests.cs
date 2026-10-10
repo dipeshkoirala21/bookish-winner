@@ -255,10 +255,12 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void ABackWallWithNoRoadBehindItGetsNoShopOrSign()
+        public void ABackWallWithNoRoadBehindItGetsWindowsButNoShopOrSign()
         {
-            // A shop house on a lane, with the default corridor source (the stand-in): its front is dressed, its back
-            // and side walls face nothing and stay blank brick or paint (no shop bays, signs, sills or sunshades).
+            // A shop house on a lane, with the default corridor source (the stand-in): its front is dressed; its back
+            // and side walls look onto open ground, so they get windows on every floor (real houses are windowed on
+            // every side with light) but no shop bays, signs, blade signs, awnings or balconies (nothing stands out more
+            // than a chhajja). With a lane behind, the back wall is a street facade.
             foreach (var (profile, arch) in new[] { (StyleProfile.Thamel, BuildingArchetype.ModernUrban), (StyleProfile.KathmanduCore, BuildingArchetype.NewarHybrid),
                                                      (StyleProfile.Bhaktapur, BuildingArchetype.Newar) })
             {
@@ -279,11 +281,16 @@ namespace Ghumante.Core.Tests
                     if (behind == 1)
                         t.Roads.Add(new RoadRecord { OsmWayId = 2, RoadClass = RoadClass.Residential, Points = new[] { 28000, 51190, 34000, 51190 }, WidthCm = 400 });
                     var m = new MeshData();
+                    HouseBuilder.Stats = default(HouseStats);
                     Assert.That(BuildingDetailMesher.One(t, 0, new TileHeightSampler(t, 1), new BuildingOptions(), m, null), Is.True);
+                    long openings = HouseBuilder.Stats.SideOpenings;
                     HousePlan plan = BuildingGrammar.Plan(t, 0);
                     int outside = OutsideBackAndSides(m, 300, 307, 500, 509, 1300 + plan.WallTopM, 0.06);
-                    TestContext.WriteLine("{0} {1}, road behind {2}: {3} vertices dressing the back and sides", profile, arch, behind == 1, outside);
-                    if (behind == 0) Assert.That(outside, Is.EqualTo(0), profile + ": a wall with no road in front of it stays blank");
+                    int far = OutsideBackAndSides(m, 300, 307, 500, 509, 1300 + plan.WallTopM, 0.45);
+                    TestContext.WriteLine("{0} {1}, road behind {2}: {3} vertices dressing the back and sides, {4} more than 0.45 m out, {5} side openings", profile,
+                                          arch, behind == 1, outside, far, openings);
+                    Assert.That(openings, Is.GreaterThan(0), profile + ": exposed side and back walls have windows");
+                    if (behind == 0) Assert.That(far, Is.EqualTo(0), profile + ": no shop, sign or balcony on a wall with no road in front of it");
                     else Assert.That(outside, Is.GreaterThan(0), profile + ": a wall on a lane is dressed");
                 }
             }

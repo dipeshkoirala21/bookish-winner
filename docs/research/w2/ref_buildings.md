@@ -84,14 +84,15 @@ binding: nothing below 4.5 m over a road corridor, and no footprint in a corrido
   house: archetype (40% redraw from the profile mix), storeys (45% one or two fewer than the plan, never taller, so B1
   stays the envelope), palette, roof (flat or gable) and parapet. Partition walls show only where a plot rises above its
   neighbour.
-* **Every wall on a lane is a facade; walls on open ground get windows; the rest stay blank.** A body wall is judged at
-  three points along its square-cornered extent (so every drop level dresses the same walls): a road corridor within
-  4 m *in front of it* (stepping 3 m out brings the road 1 m nearer) makes it a **street** wall: windows on every floor
-  (tikijhya on Newar floors), shops or small windows on the ground floor, bands and signs; nothing within 3 m in front
-  and a road within 14 m in front makes it an **open** wall (a small square, a lane's bend): windows only, wider apart;
-  anything else (against a neighbour, a back wall on a courtyard or an open plot away from the roads, the party wall at
-  the end of a row) stays **blank** raw brick or paint, as in the photos. The corridor source reports real distances
-  (out to 64 m), so "a road within 4 m" means a real road.
+* **Every wall on a lane is a facade; every other wall with light gets windows; only party walls stay blank** (second
+  pass, §12). A body wall is judged at three points along its square-cornered extent (so every drop level dresses the
+  same walls): a road corridor within 4 m *in front of it* (stepping 3 m out brings the road 1 m nearer) makes it a
+  **street** wall: windows on every floor (tikijhya on Newar floors), shops or small windows on the ground floor, bands,
+  dachi apa courses and signs; no neighbour within 1.6 m in front makes it an **open** wall (a courtyard, an open plot,
+  a square, a lane alongside): a window grid on every floor, a little wider apart, no shop or sign; only a wall against
+  a neighbour (the party walls of a row) stays **blank** raw brick or paint. Real Newar houses are windowed on their
+  courtyard sides and RCC houses on every side that has light (bhaktapur_street ref_03, patan_lane ref_02, asan
+  ref_06).
 * **Corners.** Exposed convex corners are rounded (0.1 m Newar, 0.16 m RCC; smooth normals); corners against a
   neighbour stay square so a row has no notches.
 
@@ -120,7 +121,7 @@ B0 keeps the W2 radii and is drawn in two rings; nothing inside B0 is ever the b
 |---|---|---|---|---|---|---|---|
 | Low | 0-10 m, from drop level 1 | 2,200 | 10-35 m at the **flat** level | 35 m | 120 m | 350 m | 750 m |
 | Mid | 0-22 m | 3,600 | 22-60 m at the **lite** level | 60 m | 200 m | 500 m | 1,250 m |
-| High | 0-36 m | 4,500 | 36-80 m at the **lite** level | 80 m | 250 m | 700 m | 1,750 m |
+| High | 0-30 m (36 m before the second pass) | 4,500 | 30-80 m at the **lite** level | 80 m | 250 m | 700 m | 1,750 m |
 
 * **Drop levels.** 0 everything; 1 no small relief and props; 2 no struts, tile courses or grilles; 3 no floor bands,
   railings or chhajjas; 4 no roof props; 5 **lite** (about a quarter of level 0): every opening still cut with its
@@ -144,9 +145,13 @@ triangle by triangle with the band shader's cross-fade), 40% in view:
 
 | Tier | B0 (share) | B1 | B2 | B3 | Total | W2 slice × 1.15 |
 |---|---|---|---|---|---|---|
-| Low | 5.6 k (5.8 k) | 5.1 k | 8.3 k | 6.0 k | 25.0 k | 25.3 k |
-| Mid | 38.3 k (41 k) | 10.9 k | 12.2 k | 16.5 k | 77.9 k | 82.8 k |
-| High | 85.4 k (90 k) | 14.8 k | 21.3 k | 26.2 k | 147.8 k | 155.3 k |
+| Low | 5.2 k (5.8 k) | 6.0 k | 7.6 k | 5.8 k | 24.6 k | 25.3 k |
+| Mid | 38.8 k (41 k) | 13.2 k | 11.1 k | 15.8 k | 78.8 k | 82.8 k |
+| High | 89.7 k (90 k) | 18.2 k | 19.3 k | 25.0 k | 152.2 k | 155.3 k |
+
+Second pass (§12): the data merges since the first pass made B1 heavier (35.6 triangles per building), so the base
+commit already failed Low's slice (26.0 k); B2 now uses the oriented box unless the hull is a triangle or a quad and B3
+steps heights by 4 m (was 3 m), which gives the far bands back 1.2 k on Low.
 
 The EditMode `WorldW2BandTests` reads the same table (radii, caps, slices, the B0 share) and checks TileBuild's far
 bands around Asan the same way. On Low the far bands alone take 88% of the slice (B3 measures about three times the
@@ -203,6 +208,13 @@ All from Flickr unless noted; licence as published.
 * Kirtipur and villages: "Kirtipur miracle.", anjetika, CC BY-NC-SA 2.0 · "2015-03-30 Nepal 443 Kirtipur", Allie_Caulfield, CC BY 2.0 ·
   "Bungamati, village newar (Népal)" and "Sur la place du temple (Bungamati)", dalbera, CC BY 2.0,
   https://www.flickr.com/photos/72746018@N00/8629058868.
+* Second pass (`refs/buildings2/`): "Taumadhi Tole - with Bhairabnath & Nyatapola Temples" and "Taumadhi Tole - with
+  Bhairabnath Temple(s)", eriktorner, CC BY-NC-SA 2.0, https://www.flickr.com/photos/39267804@N05/33243708325,
+  https://www.flickr.com/photos/39267804@N05/33192344246 · "Pujari Math, old Hindu priests house, with amazing and famous
+  Newari carvings" and "Dattatreya Temple - Tashupal Tole", eriktorner, CC BY-NC-SA 2.0,
+  https://www.flickr.com/photos/39267804@N05/32903895570, https://www.flickr.com/photos/39267804@N05/32888394540 ·
+  "2015-03-30 04-15 Nepal 243 / 895 Kathmandu, Thamel", Allie_Caulfield, CC BY 2.0,
+  https://www.flickr.com/photos/28577026@N02/17365419255, https://www.flickr.com/photos/28577026@N02/17363384596.
 * Specifications: Indian tank vendor listings (Sintex 1,000 L: Ø1.10 m × 1.01 m; lntsufin.com), evacuated-tube heater listings
   (15 tubes Ø58 × 1,800 mm, 2.2 × 1.5 m installation area; storeking.in, lntsufin.com).
 
@@ -222,3 +234,51 @@ All from Flickr unless noted; licence as published.
   B3 radius) would give B0 room for a lite instead of a flat outer ring.
 * **Enum golden test.** `core-tests/EnumsTests.EveryEnumIsCovered` fails on the base commit already (the stub
   `RoadStructureKind` and `RoadStructureFlags` of the data package are not in the golden list).
+* **Second pass (§12).** W2_DESIGN 2.4 still describes B3 heights in 3 m steps and B2 hulls of up to 6 points; the
+  buildings package now uses 4 m steps and boxes for anything but triangles and quads (to hold Low's slice after the
+  B1 growth), and High's near B0 ring is 30 m. `World/Buildings/BandConfig` reads the table, so nothing else changes;
+  the design doc (not this package's) should be updated by the lead.
+* **Budget margin.** High's B0 measures 89.7 k of its 90 k share at Asan; a richer sample (more buildings per tile
+  from the data package) will need the share or the High cap revisited.
+
+## 12. Second facade pass: rich street walls (lead review of `fix2/cmp_bhaktapur_roofs.png`)
+
+> "The colours and roofs now read right, but the walls are far too plain compared with a real Bhaktapur/Patan/Asan
+> street - big blank brick faces, few windows, little depth." New photos (Openverse, reference only, credits in §10):
+> `/home/user/wt/refs/buildings2/{taumadhi,dattatreya,thamel_street,newroad}`; the earlier sets in
+> `/home/user/wt/refs/buildings/` (bhaktapur_street, patan_lane, asan, thamel, baneshwor) were re-read for this pass.
+
+### 12.1 What the photos show on a street wall
+
+| Element | Photo | Size / colour | Modelled as |
+|---|---|---|---|
+| Window grid (Newar) | A window every 1.2-1.5 m on **every** storey of the front (patan_lane ref_02: 5-6 per floor on a 7 m front; bhaktapur_street ref_03; taumadhi ref_08) | tikijhya 0.6-0.8 × 0.8-1.0 m | `NewarBays`: round(width / 1.3), up to 9, odd from 4.5 m (was width / 1.6, up to 7) |
+| Top floor | Small windows either side of the central ga jhya under the eaves (bhaktapur_street ref_03) | as tikijhya | Flanking tikijhya on the attic floor (was the ga jhya alone) |
+| Torana | A carved semicircular tympanum over the house door and over the best windows, often with a deity or a gilt centre (bhaktapur_street ref_03, ref_04; dattatreya ref_02) | door: span = door + 0.5 m, rise 0.3-0.55 m; window crest rise 0.3-0.4 m | `Torana`: half-disc board with a rim, raised inner carving (gilt on 20% of doors), finial; over every Newar door and the central first-floor window of 45% of fronts in Bhaktapur, Patan, Kirtipur and the core |
+| Dachi apa | Glazed dark-brick courses under every floor band, a lintel course over the window heads (bhaktapur_street ref_03, taumadhi ref_02) | 3 courses (0.22 m), `#5A2A1E`-tinted glazed brick | `DachiApa`: a 1 cm strip on the BrickGlazed channel (texture, not geometry: 2 triangles) and a 7.5 cm lintel ledge |
+| Bhaygah | Long timber balconies with a lattice screen on carved struts on an upper floor, often right under the eaves (patan_lane ref_02: three in one row) | 0.6-0.85 m deep, rail 0.95 m | `Bhaygah`: plank deck, posts every metre, top and cheek rails, square jali, struts; Patan 40%, core 30%, Bhaktapur and Kirtipur 20%, elsewhere 10% of Newar fronts; clipped below 4.5 m like every projection |
+| Painted shutters | Teal and green louvred shutters on Patan's brick rows (patan_lane ref_02) | teal `#3FA39A`, green `#2F6E4E` | Patan 38% (core 22%) of plots paint their window timber; those windows carry louvres (`Corrugated` slats) instead of lattice |
+| Ground floor | Lime-washed or red-painted dado on brick houses (patan_lane ref_05, ref_08) | to 0.95 m, lime `#F4EFE0`, red `#A8352A` | `LimeWash`: Patan 30%, core 22%, Bhaktapur 18% of Newar fronts without a shop |
+| Shutter leaves (RCC) | Timber or green louvred leaves folded back beside the windows of the old-core RCC houses (asan ref_06) | half a window wide | Leaves on half the core RCC houses with timber frames |
+| Wiring | 1-3 black cables clipped along every facade at the first floor, a drop to a meter box (patan_lane ref_02, asan ref_06) | Ø 2 cm, 5-9 cm off the wall | `FacadeCables` (nearest level only), hugging the wall so nothing hangs over the road |
+| Laundry, plants | Clothes drying across windows, pots on the sills (asan ref_06, colourful ref_06) | - | `WindowLaundry` 16% of Newar floors and 14% of RCC floors; sill plants 30% (Newar) / 25-45% (RCC) |
+| Weathering | Plaster patches and grey rain streaks under every sill on painted RCC fronts (asan ref_06, thamel ref_07) | patches 0.4-1.3 m; streaks 0.6-1.4 m | `Weathering`: patch quads 4 mm proud and streaks fading downwards by vertex colour (2 triangles each) |
+| Side walls | Courtyard and open-plot sides are windowed (taumadhi ref_02, asan ref_06) | - | §5: every wall not against a neighbour is dressed |
+
+### 12.2 Budgets (how the extra detail fits)
+
+The triangles go to the near ring; the lite and flat levels lean on the material channels: the lite tikijhya draws its
+lattice as the carved channel's texture on a lattice-tinted panel (the geometry lattice stays at the full levels), the
+flat level likewise, and the openings of side walls are laid on the wall from the lite level on (a fill and a lintel
+board, proud on a street side; 4 triangles a window). Grille bars and the small ground-floor bars draw their front face
+only; the full-level lattice pitch is 0.175 m (was 0.16). The cost estimate of the per-plot cap was refitted on 12,400
+plots around Asan (`HouseBuilder.Estimate`, `LevelShare`), and a plot estimated 20% over its cap one level above the
+lite fallback goes straight to it. High's near ring is 30 m (was 36 m). Measured at Asan on the 3 × 3 tiles (§7): Low
+24.6 k, Mid 78.8 k, High 152.2 k of 25.3 k / 82.8 k / 155.3 k; cap retries 18 / 25 / 23% of plots.
+
+### 12.3 Previews
+
+`/home/user/wt/previews/buildings2/`: `cmp_taumadhi.png` (the lead's Taumadhi viewpoint, a Bhaktapur front close up and
+the square), `cmp_patan.png`, `cmp_asan.png`, `cmp_thamel.png`, `cmp_modern.png` (photo left, render right);
+`base/` (before), `final/` (after; chase, left, right and raised per place at the High tier), `lineup/` (archetype
+close-ups).
