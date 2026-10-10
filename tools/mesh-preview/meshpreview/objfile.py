@@ -273,3 +273,29 @@ def connected_components(mesh: Mesh, weld: float | None = None) -> np.ndarray:
     tri_label = labels[t[:, 0]]
     _, compact = np.unique(tri_label, return_inverse=True)
     return compact.reshape(-1).astype(np.int32)
+
+
+def write_obj(path: str, positions, tri, colors=None, normals=None, groups=None, comments=None) -> None:
+    """Write an OBJ in the format :func:`load_obj` reads fastest (and ObjDump.cs writes).
+
+    ``positions`` (V, 3); ``tri`` (T, 3) 0-based, counter-clockwise front faces; ``colors`` (V, 3) in 0..1;
+    ``normals`` (V, 3) per vertex (faces then use ``a//a``); ``groups`` a list of (name, first_triangle, count) in
+    triangle order; ``comments`` lines written first (``meshpreview: key=value`` lines set render defaults)."""
+    positions = np.asarray(positions, dtype=np.float64)
+    tri = np.asarray(tri, dtype=np.int64)
+    lines = [f"# {c}" for c in (comments or [])]
+    if colors is not None:
+        colors = np.clip(np.asarray(colors, dtype=np.float64), 0.0, 1.0)
+        for p, c in zip(positions, colors):
+            lines.append(f"v {p[0]:.5f} {p[1]:.5f} {p[2]:.5f} {c[0]:.4f} {c[1]:.4f} {c[2]:.4f}")
+    else:
+        lines.extend(f"v {p[0]:.5f} {p[1]:.5f} {p[2]:.5f}" for p in positions)
+    if normals is not None:
+        lines.extend(f"vn {n[0]:.4f} {n[1]:.4f} {n[2]:.4f}" for n in np.asarray(normals, dtype=np.float64))
+    spans = groups or [("mesh", 0, tri.shape[0])]
+    for name, first, count in spans:
+        lines.append(f"o {name}")
+        for a, b, c in tri[first:first + count] + 1:
+            lines.append(f"f {a}//{a} {b}//{b} {c}//{c}" if normals is not None else f"f {a} {b} {c}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
