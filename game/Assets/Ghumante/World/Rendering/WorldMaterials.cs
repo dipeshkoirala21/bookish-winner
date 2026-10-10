@@ -36,6 +36,14 @@ namespace Ghumante.World.Rendering
         public const string KeywordWind = "_WIND";
         public const string KeywordInstanceTint = "_INSTANCE_TINT";
 
+        // W2 detail pass (World/README.md "Look"): procedural textures, baked AO, highlights, outline, occluder fade.
+        public static readonly int DetailStrength = Shader.PropertyToID("_DetailStrength");
+        public static readonly int AoStrength = Shader.PropertyToID("_AoStrength");
+        public static readonly int SpecularStrength = Shader.PropertyToID("_SpecularStrength");
+        public static readonly int OutlineWidth = Shader.PropertyToID("_OutlineWidth");
+        public static readonly int OccluderFade = Shader.PropertyToID("_OccluderFade");
+        public const string KeywordOccluderFade = ToonLitLayout.KeywordOccluderFade;
+
         // Route ribbon.
         public static readonly int RibbonColor = Shader.PropertyToID("_RibbonColor");
         public static readonly int RibbonEdgeColor = Shader.PropertyToID("_RibbonEdgeColor");
@@ -152,6 +160,7 @@ namespace Ghumante.World.Rendering
             if (trees == null) trees = MakeExtra(WorldShaders.ToonLit, "Ghumante Trees (runtime)");
             if (lights == null) lights = MakeExtra(WorldShaders.InstancedLights, "Ghumante Lights (runtime)");
             WorldMaterialDefaults.ApplyExtras(this, true);
+            WorldMaterialDefaults.ApplyLook(this, true);
         }
 
         private static Material DropRuntime(Material m)
@@ -191,6 +200,7 @@ namespace Ghumante.World.Rendering
             set.route = Make(WorldShaders.RouteRibbon, "Ghumante Route");
             set.sky = Make(WorldShaders.SkyGradient, "Ghumante Sky");
             WorldMaterialDefaults.Apply(set);
+            WorldMaterialDefaults.ApplyLook(set, false);
             set.EnsureExtras();
             return set;
         }
@@ -355,7 +365,76 @@ namespace Ghumante.World.Rendering
             m.SetFloat(WorldShaders.OffsetFactor, 0f);
             m.SetFloat(WorldShaders.OffsetUnits, 0f);
             m.SetVector(WorldShaders.Wind, new Vector4(0f, 0.45f, 0.8f, 0.6f));
+            m.SetFloat(WorldShaders.DetailStrength, 1f);
+            m.SetFloat(WorldShaders.AoStrength, 1f);
+            m.SetFloat(WorldShaders.SpecularStrength, 1f);
             m.renderQueue = queue;
+        }
+
+        /// <summary>How a world material takes part in the cartoon look: outline width (× the tier width; 0 = the outline
+        /// pass is disabled for it, no draw) and whether it dissolves between the camera and the player.</summary>
+        public struct LookRole
+        {
+            public float Outline;
+            public bool OccluderFade;
+
+            public LookRole(float outline, bool occluderFade)
+            {
+                Outline = outline;
+                OccluderFade = occluderFade;
+            }
+        }
+
+        /// <summary>
+        /// The look role of each world material. Ground layers (terrain, roads, areas, markings) get neither (outlines on
+        /// ground read as noise, and the ground must never dissolve). Near buildings, bands B0 and B1, heroes, trees, props,
+        /// people and animals fade between the camera and the player; far bands (B2, B3) are beyond the outline range and the
+        /// capsule. The plain building material is the source the explorer's own material is copied from (the player and
+        /// their vehicle), so it keeps outlines and never fades; traffic vehicles (instanced) never fade either, so the bus a
+        /// passenger rides stays solid.
+        /// </summary>
+        public static LookRole RoleOf(WorldMaterialSet set, Material m)
+        {
+            if (set == null || m == null) return new LookRole(0f, false);
+            if (m == set.terrain || m == set.roads || m == set.areas || m == set.decals) return new LookRole(0f, false);
+            if (m == set.bandB0 || m == set.bandB1 || m == set.bandB1Full || m == set.heroes) return new LookRole(1f, true);
+            if (m == set.bandB2 || m == set.bandB3) return new LookRole(0f, false);
+            if (m == set.instancedTint) return new LookRole(1f, true);
+            if (m == set.trees) return new LookRole(0.8f, true);
+            if (m == set.buildings || m == set.instanced) return new LookRole(1f, false);
+            return new LookRole(0f, false);
+        }
+
+        /// <summary>
+        /// Applies the look roles (outline pass on or off, outline width, occluder-fade keyword) to the set's ToonLit
+        /// materials; <paramref name="onlyRuntime"/> limits it to materials made at runtime. Idempotent: Project Setup runs it
+        /// on every material each time (these are structural choices of the look, not tuning).
+        /// </summary>
+        public static void ApplyLook(WorldMaterialSet set, bool onlyRuntime)
+        {
+            if (set == null) return;
+            Material[] all =
+            {
+                set.terrain, set.roads, set.buildings, set.areas, set.decals, set.bandB0, set.bandB1, set.bandB1Full, set.bandB2,
+                set.bandB3, set.heroes, set.instanced, set.instancedTint, set.trees,
+            };
+            for (int i = 0; i < all.Length; i++)
+            {
+                Material m = all[i];
+                if (!Fresh(m, onlyRuntime) || m.shader == null || m.shader.name != WorldShaders.ToonLit) continue;
+                ApplyLook(m, RoleOf(set, m));
+            }
+        }
+
+        /// <summary>Applies one look role to a ToonLit material.</summary>
+        public static void ApplyLook(Material m, LookRole role)
+        {
+            if (m == null) return;
+            m.SetFloat(WorldShaders.OutlineWidth, role.Outline);
+            m.SetShaderPassEnabled(ToonLitLayout.OutlinePassLightMode, role.Outline > 0f);
+            m.SetFloat(WorldShaders.OccluderFade, role.OccluderFade ? 1f : 0f);
+            if (role.OccluderFade) m.EnableKeyword(WorldShaders.KeywordOccluderFade);
+            else m.DisableKeyword(WorldShaders.KeywordOccluderFade);
         }
     }
 }

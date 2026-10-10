@@ -120,7 +120,7 @@ posts). The presenters only read them:
 
 | Shader | Use |
 |---|---|
-| `Ghumante/ToonLit` | Terrain, buildings, roads, areas: vertex-colour albedo (sRGB palette, linearised), 3-band toon ramp, cool shadow tint, soft rim in the light colour, SH ambient, main-light shadows, URP fog, earth curvature `y -= d²/(2·R_eff)`, `_ViewPull` + polygon offset for overlays. ForwardLit, ShadowCaster, DepthOnly, DepthNormals. W2: shader model 3.5, GPU instancing, `_BAND_FADE` (dithered band cross-fade, `_BandRange`), `_WIND` (vertex sway, `_Wind`), `_INSTANCE_TINT` (per-instance colour masked by vertex alpha). |
+| `Ghumante/ToonLit` | Terrain, buildings, roads, areas: vertex-colour albedo (sRGB palette, linearised) × procedural material texture (see "Look"), 3-band toon ramp, cool shadow tint, soft rim in the light colour, SH ambient, main-light shadows, URP fog, earth curvature `y -= d²/(2·R_eff)`, `_ViewPull` + polygon offset for overlays. ForwardLit, Outline (LOD 300 only), ShadowCaster, DepthOnly, DepthNormals. W2: shader model 3.5, GPU instancing, `_BAND_FADE` (dithered band cross-fade, `_BandRange`), `_WIND` (vertex sway, `_Wind`), `_INSTANCE_TINT` (per-instance colour masked by vertex alpha). |
 | `Ghumante/InstancedLights` | Airport and aircraft lights: unlit instanced studs, per-instance colour, brighter after dusk (`_GhNightLights`). |
 | `Ghumante/SkyGradient` | Skybox from `WorldSky` globals: zenith/horizon/ground, sun and moon discs, sunrise glow, haze blend at the horizon. |
 | `Ghumante/RouteRibbon` | Transparent animated chevron ribbon with the same curvature. |
@@ -129,7 +129,73 @@ All are SRP Batcher compatible (per-material properties in `UnityPerMaterial`). 
 materials, heroes, instanced, instanced tint, trees, lights) are created by Project Setup too; a set made before W2 gets
 them at runtime (`WorldMaterialSet.EnsureExtras`). Project Setup creates the materials in
 `Assets/Ghumante/Settings/Materials/` and `Assets/Ghumante/Settings/Resources/GhumanteWorldMaterials.asset`, which keeps
-them in builds; tune them there (Project Setup does not overwrite existing values).
+them in builds; tune them there (Project Setup does not overwrite existing values, except the look roles above).
+
+## Look (W2 detail pass: cartoon, rounded and rich)
+
+Owner feedback: "not this level of boxy", "houses block the view". docs/W2_DETAIL_CONTRACT.md decisions 6 and 7.
+
+**Material channels and procedural textures.** Every mesher writes `MeshData.Uv0` = (`MaterialChannel`, baked AO).
+`Core/Synth/Textures/MaterialTextures` generates one tileable texture per channel at startup from code and a seed
+(FNV-1a of the channel name; nothing is stored or downloaded): brick with lime mortar, glazed dachi apa brick, wood grain
+with knots, carved wood (lotus rosettes and tiki jhya lattice), jhingati roof tiles, galvanised metal, hammered gilt with
+glints, ashlar stone, asphalt (aggregate, wear, repair patches, cracks, oil), concrete (pores, formwork seams), grass with
+tiny wild flowers, foliage, bark, fabric weave, skin, glass with cartoon shine bands, water ripples, paint with chips,
+rubber, dirt with pebbles, flagstones with grout, hair, leather, worn road paint; slice 0 is a macro-variation layer.
+Encoding: sRGB rgb + alpha = tint weight; the shader computes `albedo = lerp(rgb, tint × rgb × 2, a)`, so a texture
+enriches the mesher's palette colour (rgb 0.5 = unchanged) and can carry absolute colours (mortar, grout, worn-through
+asphalt). Every pattern is periodic over the tile with integer noise periods (tested by rendering a shifted window), mips
+are box-filtered in linear space. `MaterialLooks` holds the per-channel shading table (tile size in metres, toon highlight
+strength and gloss, glints, metallic tint, sky reflection, macro strength, water drift). Run the core tests with
+`GHUMANTE_SWATCH_DIR=<dir>` to write every texture as PNG.
+
+**`ToonLook`** (Rendering/, self-starting: `RuntimeInitializeOnLoadMethod` + `RenderPipelineManager.beginCameraRendering`,
+no scene object, no per-frame allocation) bakes the textures on worker threads (`ToonTextureBank`, ≈ 9 MB at 256², 2.3 MB
+at 128² on Low; a neutral 4 × 4 array is bound until then, which renders the flat colours), uploads one mipmapped sRGB
+`Texture2DArray`, binds the channel table as `_GhChannelA/_GhChannelB[32]`, applies the device tier (`ToonLookTier`) and
+sets the occluder capsule before the world camera renders. In the editor `ToonLookEditor` starts it on every domain load
+(Scene view shows the look) and **Ghumante > Look > Refresh Material Textures** re-bakes.
+
+**`Ghumante/ToonLit`** samples the channel's texture triplanar in object space (stable under the floating origin; moving
+vehicles keep their texture), adds the macro layer, fades to the flat colour with distance, multiplies by the vertex tint
+and the baked AO (full on ambient, half on direct light), then the 3-band toon ramp, a toon highlight per channel (white
+on paint and glass, tinted on metal and gilt), glints on gilt and water, sky reflection at grazing angles on glass and
+water, the warm rim and fog. Meshes without UV0 read (0, 0) and render exactly as before (Plain, no AO).
+
+**Outlines** are an inverted hull: a second pass (`LightMode` `SRPDefaultUnlit`, which URP's opaque pass draws right after
+`UniversalForward`) pushes back faces out along the screen-space normal by a constant pixel width, fading out with
+distance; the colour is a dark shade of the surface colour, lit like the scene. Ground layers (terrain, roads, areas,
+markings) and the far bands have the pass disabled per material (`SetShaderPassEnabled`, no draw). The tier toggle is the
+shader LOD: the LOD 300 SubShader has the outline pass, the LOD 200 SubShader does not, and `ToonLook` sets
+`Shader.maximumLOD` (Low: 200, so Low pays nothing). No URP renderer feature, no depth texture.
+
+**Occluder fade** (`_OCCLUDER_FADE`, `OccluderFade`): surfaces of buildings (bands B0/B1), heroes, trees, props, people and
+animals inside a capsule from the camera to the player (1 m radius at the camera widening to 2.2 m at the player, soft
+0.9 m edges, the last 0.9 m before the player solid, 18% left) dissolve into a 4 × 4 Bayer screen door, so houses, walls,
+balconies and temples never block the view. The capsule is three global vectors set once per camera; there is no
+per-object CPU work. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a camera rig sets
+a better point that frame. The plain building material (the explorer's own material is copied from it) and traffic never
+fade; shadows of faded houses stay.
+
+| Tier | Textures | Triplanar | Texture reach | Glints | Outline |
+|---|---|---|---|---|---|
+| Low | 128² | dominant axis (2 samples with macro) | 80 m | off | none (LOD 200) |
+| Mid | 256², aniso 2 | blended (4 samples) | 160 m | on | 1.6 px at 1080 p, fades 30–80 m |
+| High | 256², aniso 4 | blended (4 samples) | 260 m | on | 2 px, fades 40–110 m |
+
+Material roles (`WorldMaterialDefaults.RoleOf`, applied idempotently by Project Setup to every material each run):
+
+| Material | Outline | Occluder fade |
+|---|---|---|
+| terrain, roads, areas, decals | — | — |
+| buildings (explorer source), instanced (traffic) | yes | — |
+| bandB0, bandB1, bandB1Full, heroes, instancedTint (props, people, animals) | yes | yes |
+| trees | 0.8 × | yes |
+| bandB2, bandB3 | — | — |
+
+**Audio** (decision 7): the crowd walla beds are off by default (`AudioDirector.CrowdWallaEnabled`, `AmbienceInputs
+.CrowdWalla`); the bank does not even bake them, and the temple-courtyard bed is now quiet air and pigeons without
+walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN 7.1 level targets.
 
 ## Trying it in the editor
 
@@ -146,10 +212,10 @@ overlay over gameplay (in a game scene; it closes with the world). The hotkeys i
 | `Streaming/` | `StreamingScheduler` (engine-free orchestration), `TileResidency` (swap rule), `TileBuild` (worker job), `WorldStreamer` + `TileView` + `MeshUpload` (Unity side). |
 | `Sky/` | `SkyPalette` (engine-free sun path and time-of-day palette), `WorldSky` (light, sky, fog, ambient). |
 | `Navigation/` | `RibbonBuilder` (engine-free strip geometry), `RouteRibbon`. |
-| `Rendering/` | `WorldMaterialSet`, `WorldShaders`, `EarthCurvature`. |
-| `Shaders/` | The three shaders and their includes. |
+| `Rendering/` | `WorldMaterialSet`, `WorldShaders`, `EarthCurvature`; the look: `ToonLook`, `ToonLookTier`, `ToonTextureBank`, `OccluderFade`, `ToonLitLayout` (C# twin of the SRP Batcher layout). |
+| `Shaders/` | The shaders and their includes (`ToonLitInput`, `ToonLitForwardPass`, `ToonLitOutlinePass`, `ToonLitDepthPasses`, `GhumanteCommon`). |
 | `Debug/` | Development-only: `FreeFlyCamera`, `WorldDebugHotkeys`, `WorldPreview`. |
-| `Editor/` | `WorldSetup`: materials for Project Setup, the World Preview menu. |
+| `Editor/` | `WorldSetup`: materials for Project Setup, the World Preview menu; `ToonLookEditor`: the look in edit mode. |
 | `Cameras/CameraFov.cs` | Orientation-aware FOV maths for camera rigs (M0). |
 | `Streaming/MeshParts.cs` | Spatial regrouping of band layers into blocks; part ranges. |
 | `Buildings/` | `BandConfig` (radii, fades, block sizes; engine-free), `DetailCells` (B0 cells). |

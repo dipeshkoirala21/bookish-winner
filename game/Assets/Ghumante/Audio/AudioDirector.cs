@@ -49,6 +49,13 @@ namespace Ghumante.Audio
         /// <summary>Main-thread budget for creating bank clips per frame (ARCHITECTURE 7.2 upload cap).</summary>
         public const float BankUploadMs = 2f;
 
+        /// <summary>
+        /// The crowd walla beds (W2 detail pass decision 7): off by default, because the owner found the background crowd
+        /// noise annoying. Footsteps, engines, horns, bells, birds and aircraft are unaffected. Read when the director is
+        /// created (it decides whether the bank bakes the walla loops at all); set it before <see cref="Create"/>.
+        /// </summary>
+        public static bool CrowdWallaEnabled { get; set; }
+
         private static AudioDirector _instance;
 
         private VoiceBudget _budget;
@@ -166,8 +173,9 @@ namespace Ghumante.Audio
             }
             _clips = new ClipVoices(transform, _fullBudget.ClipVoices, _fullBudget);
             _ambience = new AmbienceDirector(transform, _fullBudget.BedVoices, seed);
+            _ambience.Inputs.CrowdWalla = CrowdWallaEnabled;
             _occlusion.Query = null; // the world installs a footprint query (World/Audio PlaceAudio)
-            _bank = new ClipBank(seed, _fullBudget.LowBank);
+            _bank = new ClipBank(seed, _fullBudget.LowBank, CrowdWallaEnabled);
             _bank.Start();
         }
 
