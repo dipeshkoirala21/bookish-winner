@@ -20,8 +20,25 @@ namespace Ghumante.Core.Meshing
     /// </summary>
     public static class BiomePalette
     {
-        /// <summary>The season <see cref="Rgba(Biome)"/> uses: the lush monsoon row, the brightest cartoon look.</summary>
-        public const Season DefaultSeason = Season.Monsoon;
+        /// <summary>The month the world opens in (W2 acceptance runs in October; the dressing renderer's and
+        /// WorldRoot's default).</summary>
+        public const int DefaultMonth = 10;
+
+        /// <summary>The season of <see cref="DefaultMonth"/>: the default of every mesher option and of the tile
+        /// builds, so the terrain, the areas and the October flora (straw stacks, marigolds, golden paddy) agree when
+        /// nothing sets the season from the month.</summary>
+        public const Season DefaultSeason = Season.Autumn;
+
+        /// <summary>The palette season of a month (1-12; others read as <see cref="DefaultMonth"/>): March-May spring,
+        /// June-September monsoon, October-November autumn (harvest), December-February winter.</summary>
+        public static Season SeasonOf(int month)
+        {
+            int m = month < 1 || month > 12 ? DefaultMonth : month;
+            if (m >= 3 && m <= 5) return Season.Spring;
+            if (m >= 6 && m <= 9) return Season.Monsoon;
+            if (m >= 10 && m <= 11) return Season.Autumn;
+            return Season.Winter;
+        }
 
         private struct Row
         {
@@ -146,6 +163,305 @@ namespace Ghumante.Core.Meshing
             if (t <= 0f) return 0f;
             if (t >= 1f) return 1f;
             return t * t * (3f - 2f * t);
+        }
+    }
+}
+
+namespace Ghumante.Core.Meshing
+{
+    /// <summary>
+    /// Deterministic world-coordinate value noise for the terrain and area looks (hashed with FNV-1a like every
+    /// other seeded generator, W2_DESIGN 10.2): because it is a function of game coordinates only, two tiles agree
+    /// exactly on their shared edge, and every LOD of the same ground shows the same patches. Results in [-1, 1].
+    /// Allocation-free; thread-safe.
+    /// </summary>
+    public static class TerrainNoise
+    {
+        private static float Lattice(long x, long z, uint seed)
+        {
+            unchecked
+            {
+                uint h = Data.Hashes.Fnv32Offset;
+                ulong a = (ulong)x, b = (ulong)z;
+                for (int i = 0; i < 8; i++) h = (h ^ (byte)(a >> (8 * i))) * Data.Hashes.Fnv32Prime;
+                for (int i = 0; i < 8; i++) h = (h ^ (byte)(b >> (8 * i))) * Data.Hashes.Fnv32Prime;
+                for (int i = 0; i < 4; i++) h = (h ^ (byte)(seed >> (8 * i))) * Data.Hashes.Fnv32Prime;
+                h ^= h >> 15;
+                h *= 0x2C1B3C6Du;
+                h ^= h >> 12;
+                return (h & 0xFFFFFF) * (2f / 16777215f) - 1f;
+            }
+        }
+
+        /// <summary>Smooth value noise at (x, z) in lattice units.</summary>
+        public static float Value(double x, double z, uint seed)
+        {
+            long ix = (long)Math.Floor(x), iz = (long)Math.Floor(z);
+            float fx = (float)(x - ix), fz = (float)(z - iz);
+            fx = fx * fx * (3f - 2f * fx);
+            fz = fz * fz * (3f - 2f * fz);
+            float a = Lattice(ix, iz, seed), b = Lattice(ix + 1, iz, seed), c = Lattice(ix, iz + 1, seed), d = Lattice(ix + 1, iz + 1, seed);
+            return a + (b - a) * fx + (c - a + (a - b - c + d) * fx) * fz;
+        }
+
+        /// <summary>Fractal noise: <paramref name="octaves"/> octaves from <paramref name="scaleM"/> metres per cell down.</summary>
+        public static float Fbm(double x, double z, double scaleM, int octaves, uint seed)
+        {
+            float sum = 0f, amp = 1f, norm = 0f;
+            double f = 1.0 / scaleM;
+            for (int o = 0; o < octaves; o++)
+            {
+                sum += amp * Value(x * f, z * f, seed + (uint)o * 0x9E3779B9u);
+                norm += amp;
+                amp *= 0.5f;
+                f *= 2.0;
+            }
+            return sum / norm;
+        }
+
+        /// <summary>Gradient (per metre) of <see cref="Fbm"/> by central differences over 1 m.</summary>
+        public static void FbmGradient(double x, double z, double scaleM, int octaves, uint seed, out float gx, out float gz)
+        {
+            gx = 0.5f * (Fbm(x + 1, z, scaleM, octaves, seed) - Fbm(x - 1, z, scaleM, octaves, seed));
+            gz = 0.5f * (Fbm(x, z + 1, scaleM, octaves, seed) - Fbm(x, z - 1, scaleM, octaves, seed));
+        }
+    }
+
+    /// <summary>
+    /// The field patterns of the valley floor and the terraced hills (research street_life.md 12; ref_nature.md:
+    /// paddy, mustard and wheat by season): a world-fixed grid of plots, turned per 512 m district so the fields do not
+    /// all line up, each plot carrying one crop state drawn from the season's mix; the terrace contour spacing; and
+    /// the colours of risers, bunds and lips. Shared by <see cref="TerrainMesher"/> (plot colours per vertex) and
+    /// <see cref="AreaMesher"/> (terrace risers and bunds), so they agree. Hex values are the design's [E] palette.
+    /// </summary>
+    public static class FieldPattern
+    {
+        /// <summary>Plot size along the two field axes (metres): long strips of valley paddy.</summary>
+        public const double PlotU = 26.0, PlotV = 17.0;
+
+        /// <summary>Height of one terrace step (riser plus bed) on cropland slopes.</summary>
+        public const double TerraceStepM = 1.9;
+
+        /// <summary>Height of the riser face drawn below each terrace edge, and of the bright lip on top of it (at
+        /// most: on gentler slopes the bands keep <see cref="RiserPlanM"/> in plan).</summary>
+        public const double RiserM = 0.55, LipM = 0.16;
+
+        /// <summary>Largest plan width (metres) of a terrace riser line: seen from above a riser is a thin line and the
+        /// bed between two lines the wide terrace (real valley terraces: narrow benches between thin risers).</summary>
+        public const double RiserPlanM = 0.8;
+
+        /// <summary>Slopes (rise over run, smoothed over ~40 m) from which cropland is terraced (below it: flat plots
+        /// with bunds), and above which it is left wild.</summary>
+        public const double TerraceMinSlope = 0.18, TerraceMaxSlope = 0.85;
+
+        /// <summary>True for the cropland biomes (plot patchwork, terraces and bunds).</summary>
+        public static bool IsCrop(Biome b)
+        {
+            return b == Biome.ValleyCropland || b == Biome.HillTerraces || b == Biome.TeraiPaddy || b == Biome.TeraiCropland || b == Biome.TransHimalayanCropland;
+        }
+
+        /// <summary>The field frame at a world point: the district's axis angle as a unit vector.</summary>
+        public static void Axis(double wx, double wz, out double ux, out double uz)
+        {
+            long dx = (long)Math.Floor(wx / 512.0), dz = (long)Math.Floor(wz / 512.0);
+            double a = (TerrainNoise.Value(dx * 0.5 + 0.25, dz * 0.5 + 0.25, 0xF1E1D5u) * 0.5 + 0.5) * Math.PI;
+            ux = Math.Cos(a);
+            uz = Math.Sin(a);
+        }
+
+        /// <summary>Plot coordinates (field-axis metres) of a world point.</summary>
+        public static void Local(double wx, double wz, out double u, out double v)
+        {
+            double ux, uz;
+            Axis(wx, wz, out ux, out uz);
+            u = wx * ux + wz * uz;
+            v = -wx * uz + wz * ux;
+        }
+
+        /// <summary>A hash in [0, 1) of the plot (or terrace bed) containing a world point; <paramref name="band"/>
+        /// selects terrace beds (one per step of height) instead of flat plots.</summary>
+        public static float PlotHash(double wx, double wz, int band = int.MinValue)
+        {
+            double u, v;
+            Local(wx, wz, out u, out v);
+            long iu = (long)Math.Floor(u / (band == int.MinValue ? PlotU : PlotU * 1.6)), iv = band == int.MinValue ? (long)Math.Floor(v / PlotV) : band;
+            return 0.5f + 0.5f * TerrainNoise.Value(iu + 0.5, iv + 0.5, 0xF1E1D6u);
+        }
+
+        /// <summary>
+        /// The crop colour (0xRRGGBB) of a plot in a season and whether it is bare soil: monsoon paddy greens (with a
+        /// lighter young paddy and maize), autumn harvest gold with green and stubble plots, winter mustard yellow,
+        /// wheat green and fallow brown, spring wheat gold, ploughed earth and green.
+        /// </summary>
+        public static uint CropColour(float plot, Season s, out bool bare)
+        {
+            bare = false;
+            switch (s)
+            {
+                case Season.Monsoon:
+                    return plot < 0.7f ? 0x5DAA3Au : plot < 0.85f ? 0x8CC84Au : 0x6E9A3Au;
+                case Season.Autumn:
+                    if (plot < 0.55f) return 0xD9B44Au;
+                    if (plot < 0.8f) return 0x8FB848u;
+                    bare = true;
+                    return 0xC9A86Au;
+                case Season.Winter:
+                    if (plot < 0.3f) return 0xF2D22Eu;
+                    if (plot < 0.65f) return 0x8DBF4Au;
+                    if (plot < 0.75f) return 0x5E8A3Au;
+                    bare = true;
+                    return 0xA88C65u;
+                default:
+                    if (plot < 0.4f) return 0xD9B65Au;
+                    if (plot < 0.7f) return 0x7FB04Au;
+                    bare = true;
+                    return 0x8C6A4Au;
+            }
+        }
+
+        /// <summary>Riser face colour (0xRRGGBB, grassy soil) of a terrace edge in a season.</summary>
+        public static uint RiserColour(Season s)
+        {
+            return s == Season.Winter || s == Season.Spring ? 0x9A8A5Au : 0x6E8C40u;
+        }
+
+        /// <summary>Lip colour (0xRRGGBB, the bright grassy top of a terrace edge) in a season.</summary>
+        public static uint LipColour(Season s)
+        {
+            return s == Season.Winter ? 0xC8C08Au : s == Season.Autumn ? 0xB8C070u : 0xA8D070u;
+        }
+    }
+    /// <summary>
+    /// Where a tile's ground is farmed (docs/research/w2/ref_nature.md 5): in a farmland, orchard or tea-garden area,
+    /// or in a cropland biome cell (<see cref="FieldPattern.IsCrop"/>) that no other mapped land use covers. The coarse
+    /// biome raster labels whole city blocks as valley cropland; a parade ground (Tundikhel's military and meadow
+    /// polygons), a pitch, a park, a residential or commercial block, a temple court, a forest or a river never gets
+    /// the paddy patchwork, terraces, bunds or straw stacks. Shared by the terrain colours
+    /// (<see cref="TerrainMesher"/>), the field lines (<see cref="AreaMesher"/>) and the placement mask (straw
+    /// stacks), so all three agree. Sampled exactly (points on a polygon's edge count as inside) on an 8 m lattice
+    /// that includes the tile's edges, where the terrain's vertices lie, so two tiles sharing an edge (each with its
+    /// clipped piece of a polygon) agree on every edge vertex; other points take the nearest sample. Built once per tile
+    /// on first use and cached (rebuilt when the tile's area list changes); thread-safe; lookups are allocation-free.
+    /// </summary>
+    public sealed class CropLand
+    {
+        /// <summary>Lattice spacing (metres).</summary>
+        public const double CellM = 8.0;
+
+        private const byte Farm = 1, Other = 2;
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TileData, CropLand> Cache =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<TileData, CropLand>();
+
+        private readonly byte[] _cells;
+        private readonly int _n, _areas;
+
+        private CropLand(TileData t)
+        {
+            _areas = t.Areas.Count;
+            _n = Math.Max(1, (int)Math.Ceiling(t.Tile.Size / CellM)) + 1;
+            _cells = new byte[_n * _n];
+            // Other land uses first, then farmland over them (a field mapped inside a village stays a field).
+            for (int pass = 0; pass < 2; pass++)
+                foreach (AreaRecord a in t.Areas)
+                {
+                    int use = UseOf(a.Kind);
+                    if (use == 0 || (use == Farm) != (pass == 1)) continue;
+                    Rasterize(a, (byte)use);
+                }
+        }
+
+        /// <summary>The crop land of a tile (built on first use, cached per tile).</summary>
+        public static CropLand For(TileData t)
+        {
+            if (t == null) throw new ArgumentNullException(nameof(t));
+            lock (Cache)
+            {
+                CropLand c;
+                if (Cache.TryGetValue(t, out c) && c._areas == t.Areas.Count) return c;
+                if (c != null) Cache.Remove(t);
+                c = new CropLand(t);
+                Cache.Add(t, c);
+                return c;
+            }
+        }
+
+        /// <summary>1 for the farmed kinds (farmland, orchard, tea garden), 2 for every other mapped land use, 0 for
+        /// boundaries that say nothing about the ground (none, protected areas).</summary>
+        public static int UseOf(AreaKind k)
+        {
+            switch (k)
+            {
+                case AreaKind.Farmland:
+                case AreaKind.Orchard:
+                case AreaKind.TeaGarden: return Farm;
+                case AreaKind.None:
+                case AreaKind.Protected: return 0;
+                default: return Other;
+            }
+        }
+
+        /// <summary>True when the point (tile-local metres) is farmed: inside a farmland area, or of a cropland biome
+        /// <paramref name="b"/> and outside every other land use.</summary>
+        public bool IsCrop(Biome b, double x, double z)
+        {
+            byte c = At(x, z);
+            if (c == Farm) return true;
+            return c == 0 && FieldPattern.IsCrop(b);
+        }
+
+        /// <summary>True when a mapped non-farm land use covers the point (tile-local metres).</summary>
+        public bool Excluded(double x, double z)
+        {
+            return At(x, z) == Other;
+        }
+
+        /// <summary>True when a farmland, orchard or tea-garden area covers the point (tile-local metres).</summary>
+        public bool Farmed(double x, double z)
+        {
+            return At(x, z) == Farm;
+        }
+
+        private byte At(double x, double z)
+        {
+            int i = (int)Math.Floor(x / CellM + 0.5), j = (int)Math.Floor(z / CellM + 0.5);
+            if (i < 0 || j < 0 || i >= _n || j >= _n) return 0;
+            return _cells[j * _n + i];
+        }
+
+        private void Rasterize(AreaRecord a, byte use)
+        {
+            if (a.Indices == null || a.Vertices == null) return;
+            const long Cell = (long)(CellM * 100); // centimetres, as the area vertices
+            for (int k = 0; k + 2 < a.Indices.Length; k += 3)
+            {
+                // Exact integer arithmetic: a lattice point on a shared edge gets the same answer in both tiles.
+                long ax = a.Vertices[2 * a.Indices[k]], az = a.Vertices[2 * a.Indices[k] + 1];
+                long bx = a.Vertices[2 * a.Indices[k + 1]], bz = a.Vertices[2 * a.Indices[k + 1] + 1];
+                long cx = a.Vertices[2 * a.Indices[k + 2]], cz = a.Vertices[2 * a.Indices[k + 2] + 1];
+                long x0 = Math.Min(ax, Math.Min(bx, cx)), x1 = Math.Max(ax, Math.Max(bx, cx)), z0 = Math.Min(az, Math.Min(bz, cz)), z1 = Math.Max(az, Math.Max(bz, cz));
+                int i0 = (int)Math.Max(0, CeilDiv(x0, Cell)), i1 = (int)Math.Min(_n - 1, FloorDiv(x1, Cell));
+                int j0 = (int)Math.Max(0, CeilDiv(z0, Cell)), j1 = (int)Math.Min(_n - 1, FloorDiv(z1, Cell));
+                for (int j = j0; j <= j1; j++)
+                for (int i = i0; i <= i1; i++)
+                {
+                    long px = i * Cell, pz = j * Cell;
+                    long d1 = (bx - ax) * (pz - az) - (bz - az) * (px - ax), d2 = (cx - bx) * (pz - bz) - (cz - bz) * (px - bx), d3 = (ax - cx) * (pz - cz) - (az - cz) * (px - cx);
+                    bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+                    if (!(neg && pos)) _cells[j * _n + i] = use;
+                }
+            }
+        }
+
+        private static long FloorDiv(long a, long b)
+        {
+            long q = a / b;
+            return a % b != 0 && (a < 0) != (b < 0) ? q - 1 : q;
+        }
+
+        private static long CeilDiv(long a, long b)
+        {
+            return -FloorDiv(-a, b);
         }
     }
 }

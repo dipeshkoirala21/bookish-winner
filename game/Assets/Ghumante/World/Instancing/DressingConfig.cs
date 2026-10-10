@@ -1,17 +1,66 @@
+using Ghumante.Core.Generators.Flora;
 using Ghumante.Core.Generators.Placement;
 
 namespace Ghumante.World.Instancing
 {
     /// <summary>
-    /// Per-tier radii and caps of the instanced dressing (W2_DESIGN 5.8 vegetation table, 5.2 parked vehicles, 10.4
-    /// budgets) and the October palette of the tree species. Engine-free.
+    /// Per-tier radii, caps and triangle budgets of the instanced dressing (W2_DESIGN 5.8 vegetation, 5.2 parked
+    /// vehicles, 10.4 budgets) and the W2 stage 1 crown palette. The vegetation part is the nature kit's
+    /// <see cref="FloraBudget"/> (<see cref="Flora"/>, shared with the preview scenes so a preview shows what the game
+    /// draws): trees draw at four LODs (<see cref="FloraMesher"/>), the species' detailed model (LOD0, ≤ 1 600 tris)
+    /// and its simplified model (LOD1, ≤ 240) near the camera, then the family volume (≤ 112) out to
+    /// <see cref="TreeVolumeM"/> and the family impostor (a rounded crown on a trunk, ≤ 24) out to
+    /// <see cref="TreeLod2M"/>. Plants draw at LOD0 to <see cref="PlantLod0M"/> and LOD1 to <see cref="PlantM"/>, the
+    /// large kinds (<see cref="FloraCatalog.DrawsFar"/>: straw stacks, boulders, hedges, flower beds...) at LOD1 on to
+    /// <see cref="PlantFarM"/>. Every level is filled nearest first under both its instance cap and its triangle
+    /// budget (<see cref="FloraLodPlan"/>); what overflows steps down a level. The budgets sum to the vegetation slice
+    /// of W2_DESIGN 10.4 (18 k / 54 k / 100 k). The vegetation properties below read <see cref="Flora"/>. Engine-free.
     /// </summary>
     public sealed class DressingConfig
     {
-        /// <summary>Tree LOD0 (≤ 600 tris) radius and cap; LOD1 (≤ 120) radius and cap; far LOD radius and cap.</summary>
-        public float TreeLod0M, TreeLod1M, TreeLod2M;
+        /// <summary>The vegetation budget of the tier (radii, caps, triangles, view culling).</summary>
+        public FloraBudget Flora = FloraBudget.ForTier(1);
 
-        public int TreeLod0Cap, TreeLod1Cap, TreeLod2Cap;
+        /// <summary>Tree LOD0 and LOD1 radii; the far radius (volume, then impostor).</summary>
+        public float TreeLod0M { get { return Flora.TreeLod0M; } }
+
+        public float TreeLod1M { get { return Flora.TreeLod1M; } }
+
+        public float TreeLod2M { get { return Flora.TreeFarM; } }
+
+        /// <summary>Instance caps of LOD0, LOD1 and the far levels (volumes and impostors together).</summary>
+        public int TreeLod0Cap { get { return Flora.TreeLod0Cap; } }
+
+        public int TreeLod1Cap { get { return Flora.TreeLod1Cap; } }
+
+        public int TreeLod2Cap { get { return Flora.TreeFarCap; } }
+
+        /// <summary>Far trees nearer than this draw the family volume (LOD2), beyond it the impostor (LOD3); at most
+        /// <see cref="TreeVolumeCap"/> volumes.</summary>
+        public float TreeVolumeM { get { return Flora.TreeVolumeM; } }
+
+        public int TreeVolumeCap { get { return Flora.TreeVolumeCap; } }
+
+        /// <summary>Triangle budgets per tree level (LOD0, LOD1, volume, impostor).</summary>
+        public int TreeLod0Tris { get { return Flora.TreeLod0Tris; } }
+
+        public int TreeLod1Tris { get { return Flora.TreeLod1Tris; } }
+
+        public int TreeVolumeTris { get { return Flora.TreeVolumeTris; } }
+
+        public int TreeImpostorTris { get { return Flora.TreeImpostorTris; } }
+
+        /// <summary>Plants: LOD0 to <see cref="PlantLod0M"/>, LOD1 to <see cref="PlantM"/> (the large kinds to
+        /// <see cref="PlantFarM"/>), at most <see cref="PlantCap"/> instances and <see cref="PlantTris"/> triangles.</summary>
+        public float PlantLod0M { get { return Flora.PlantLod0M; } }
+
+        public float PlantM { get { return Flora.PlantM; } }
+
+        public float PlantFarM { get { return Flora.PlantFarM; } }
+
+        public int PlantCap { get { return Flora.PlantCap; } }
+
+        public int PlantTris { get { return Flora.PlantTris; } }
 
         /// <summary>Street props are drawn to this radius, at most this many.</summary>
         public float PropM;
@@ -24,32 +73,28 @@ namespace Ghumante.World.Instancing
 
         public int ParkedNearCap, ParkedBlockCap, ParkedCap;
 
+        /// <summary>The vegetation triangle budget: the sum of the tree and plant budgets.</summary>
+        public int VegetationTris
+        {
+            get { return Flora.VegetationTris; }
+        }
+
         public static DressingConfig ForTier(int tier)
         {
+            FloraBudget flora = FloraBudget.ForTier(tier);
             switch (tier <= 0 ? 0 : tier >= 2 ? 2 : 1)
             {
                 case 0:
-                    return new DressingConfig
-                    {
-                        TreeLod0M = 25f, TreeLod0Cap = 12, TreeLod1M = 120f, TreeLod1Cap = 65, TreeLod2M = 750f, TreeLod2Cap = 1500,
-                        PropM = 120f, PropCap = 300, ParkedNearCap = 2, ParkedBlockCap = 20, ParkedCap = 80,
-                    };
+                    return new DressingConfig { Flora = flora, PropM = 120f, PropCap = 300, ParkedNearCap = 2, ParkedBlockCap = 20, ParkedCap = 80 };
                 case 1:
-                    return new DressingConfig
-                    {
-                        TreeLod0M = 40f, TreeLod0Cap = 33, TreeLod1M = 180f, TreeLod1Cap = 200, TreeLod2M = 1250f, TreeLod2Cap = 4000,
-                        PropM = 200f, PropCap = 800, ParkedNearCap = 10, ParkedBlockCap = 60, ParkedCap = 200,
-                    };
+                    return new DressingConfig { Flora = flora, PropM = 200f, PropCap = 800, ParkedNearCap = 10, ParkedBlockCap = 60, ParkedCap = 200 };
                 default:
-                    return new DressingConfig
-                    {
-                        TreeLod0M = 60f, TreeLod0Cap = 60, TreeLod1M = 250f, TreeLod1Cap = 400, TreeLod2M = 1750f, TreeLod2Cap = 6000,
-                        PropM = 250f, PropCap = 1500, ParkedNearCap = 10, ParkedBlockCap = 120, ParkedCap = 400,
-                    };
+                    return new DressingConfig { Flora = flora, PropM = 250f, PropCap = 1500, ParkedNearCap = 10, ParkedBlockCap = 120, ParkedCap = 400 };
             }
         }
 
-        /// <summary>The tree LOD a distance asks for (0, 1, 2; 3 = not drawn), before the caps.</summary>
+        /// <summary>The tree level a distance asks for (0, 1, 2 = far: volume or impostor; 3 = not drawn), before the
+        /// caps.</summary>
         public int TreeLodAt(double distanceM)
         {
             if (distanceM <= TreeLod0M) return 0;
@@ -67,8 +112,11 @@ namespace Ghumante.World.Instancing
             return 3;
         }
 
-        /// <summary>Crown colour (sRGB hex) of a species in a month (W2_DESIGN 5.8 look and season): jacaranda violet in
-        /// March-May, silky oak golden in April-May, bottlebrush and rhododendron red in their seasons, else foliage.</summary>
+        /// <summary>Crown colour (sRGB hex) of a species in a month in the W2 stage 1 palette (W2_DESIGN 5.8 look and
+        /// season): jacaranda violet in March-May, silky oak golden in April-May, bottlebrush and rhododendron red in
+        /// their seasons, else foliage. The detail-pass renderer tints the far LODs with
+        /// <see cref="FloraCatalog.FoliageColour"/> (the same seasons, matched to the kit's
+        /// leaf colours); this palette stays for the callers that want one flat colour per species.</summary>
         public static uint CrownColour(TreeSpecies s, int month)
         {
             switch (s)
