@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Ghumante.Core.Meshing
 {
@@ -135,22 +136,14 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// A raised kerbed outline (counter-clockwise polygon, tile-local metres) standing on the surface heights
-        /// <paramref name="baseY"/> of its points (<paramref name="centreY"/> at the centroid): a mountable kerb face painted
-        /// in alternating bands of about <paramref name="bandM"/>, a rounded crest and a flat top (fan from the centroid)
-        /// in <paramref name="top"/>.
+        /// <paramref name="baseY"/> of its points: a mountable kerb face painted in alternating bands of about
+        /// <paramref name="bandM"/>, a rounded crest and a flat top in <paramref name="top"/> (ear-clipped, so long and
+        /// curved islands fill too). <paramref name="centreY"/> is kept for callers and no longer used.
         /// </summary>
         public static void KerbedOutline(MeshData m, double[] px, double[] pz, float[] baseY, int n, float centreY, float height, double bandM,
                                          uint c0, uint c1, uint top, MaterialChannel topCh)
         {
             if (n < 3) return;
-            double cx = 0, cz = 0;
-            for (int i = 0; i < n; i++)
-            {
-                cx += px[i];
-                cz += pz[i];
-            }
-            cx /= n;
-            cz /= n;
             // Kerb face: per edge, own vertices (bands), from the outline at −0.04 up to the crest 0.1 m inward.
             int band = 0;
             float u = RoadMaterials.U(MaterialChannel.Paint);
@@ -177,18 +170,76 @@ namespace Ghumante.Core.Meshing
                     RoadSweep.Quad(m, v, v + 3, v + 2, v + 1);
                 }
             }
-            // Top: the outline pulled 0.1 m inward, fanned from the centroid.
-            int centre = m.VertexCount;
+            // Top: the outline pulled 0.1 m inward (along each vertex's inward bisector), triangulated by ear clipping so
+            // long or curved islands (nose tails) fill correctly; star-shaped ones get the same result as a fan.
             float ut = RoadMaterials.U(topCh);
-            m.AddVertex((float)cx, centreY + height + 0.01f, (float)cz, 0f, 1f, 0f, top, ut, 1f);
             int ring = m.VertexCount;
             for (int i = 0; i < n; i++)
             {
-                double dx = cx - px[i], dz = cz - pz[i], dl = Math.Sqrt(dx * dx + dz * dz);
-                double k = dl > 1e-6 ? Math.Min(0.1, 0.5 * dl) / dl : 0;
-                m.AddVertex((float)(px[i] + dx * k), baseY[i] + height, (float)(pz[i] + dz * k), 0f, 1f, 0f, top, ut, 0.9f);
+                int ip = (i + n - 1) % n, iq = (i + 1) % n;
+                double e0x = px[i] - px[ip], e0z = pz[i] - pz[ip], e1x = px[iq] - px[i], e1z = pz[iq] - pz[i];
+                double l0 = Math.Sqrt(e0x * e0x + e0z * e0z), l1 = Math.Sqrt(e1x * e1x + e1z * e1z);
+                // Inward normal of a counter-clockwise outline: (-ez, ex).
+                double nx = (l0 > 1e-9 ? -e0z / l0 : 0) + (l1 > 1e-9 ? -e1z / l1 : 0), nz = (l0 > 1e-9 ? e0x / l0 : 0) + (l1 > 1e-9 ? e1x / l1 : 0);
+                double nl = Math.Sqrt(nx * nx + nz * nz);
+                // Move along the bisector by the inset over cos(half the turn) (|n0 + n1| = 2 cos), at most 0.2 m.
+                double k = nl > 1e-9 ? Math.Min(0.2, Math.Min(0.1, 0.25 * Math.Min(l0, l1)) / (0.5 * nl)) : 0;
+                double ix = nl > 1e-9 ? nx / nl * k : 0, iz = nl > 1e-9 ? nz / nl * k : 0;
+                m.AddVertex((float)(px[i] + ix), baseY[i] + height, (float)(pz[i] + iz), 0f, 1f, 0f, top, ut, 0.9f);
             }
-            for (int i = 0; i < n; i++) RoadSweep.Tri(m, centre, ring + i, ring + (i + 1) % n, 0, 1, 0);
+            EarClip(m, ring, n);
+        }
+
+        /// <summary>Triangulate the counter-clockwise polygon of <paramref name="n"/> vertices starting at
+        /// <paramref name="first"/> (plan view) by ear clipping, faces up; a fan from the first vertex if it gets stuck.</summary>
+        internal static void EarClip(MeshData m, int first, int n)
+        {
+            if (n < 3) return;
+            var idx = new List<int>(n);
+            for (int i = 0; i < n; i++) idx.Add(first + i);
+            float[] p = m.Positions;
+            int guard = 0;
+            while (idx.Count > 3 && guard++ < 4 * n)
+            {
+                bool clipped = false;
+                for (int i = 0; i < idx.Count; i++)
+                {
+                    int a = idx[(i + idx.Count - 1) % idx.Count], b = idx[i], c = idx[(i + 1) % idx.Count];
+                    double cross = Cross(p, a, b, c);
+                    if (cross <= 1e-9) continue; // reflex or degenerate (counter-clockwise in x, z means cross > 0 here)
+                    bool inside = false;
+                    for (int j = 0; j < idx.Count && !inside; j++)
+                    {
+                        int q = idx[j];
+                        if (q == a || q == b || q == c) continue;
+                        inside = InTriangle(p, a, b, c, q);
+                    }
+                    if (inside) continue;
+                    RoadSweep.Tri(m, a, b, c, 0, 1, 0);
+                    idx.RemoveAt(i);
+                    clipped = true;
+                    break;
+                }
+                if (!clipped) break;
+            }
+            for (int i = 1; i + 1 < idx.Count; i++) RoadSweep.Tri(m, idx[0], idx[i], idx[i + 1], 0, 1, 0);
+        }
+
+        private static double Cross(float[] p, int a, int b, int c)
+        {
+            double ux = p[3 * b] - p[3 * a], uz = p[3 * b + 2] - p[3 * a + 2], vx = p[3 * c] - p[3 * b], vz = p[3 * c + 2] - p[3 * b + 2];
+            return ux * vz - uz * vx;
+        }
+
+        private static bool InTriangle(float[] p, int a, int b, int c, int q)
+        {
+            double d1 = Side(p, a, b, q), d2 = Side(p, b, c, q), d3 = Side(p, c, a, q);
+            return d1 >= 0 && d2 >= 0 && d3 >= 0;
+        }
+
+        private static double Side(float[] p, int a, int b, int q)
+        {
+            return (p[3 * b] - p[3 * a]) * (double)(p[3 * q + 2] - p[3 * a + 2]) - (p[3 * b + 2] - p[3 * a + 2]) * (double)(p[3 * q] - p[3 * a]);
         }
 
         /// <summary>A vertical cylinder (pole) of radius r from y0 to y1 at (cx, cz), UV0 = (channel, ao).</summary>

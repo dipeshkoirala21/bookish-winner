@@ -17,8 +17,10 @@ namespace Ghumante.Core.Meshing
     /// <item>islands are lathes: a mountable kerb painted in yellow and black bands, a cobbled apron for buses on
     /// roundabouts, a barrier inner kerb, a planting strip of soil and flowers and a flat grass interior at
     /// <see cref="RoadLayout.IslandInteriorHeightM"/> (the ornaments package places statues and gardens there,
-    /// <see cref="RoadIsland.InteriorRadiusM"/>); police chowks get a white podium with a red umbrella
-    /// (<see cref="RoadOptions.PolicePodiums"/>).</item>
+    /// <see cref="RoadIsland.InteriorRadiusM"/>); police chowks get a white podium with a red umbrella only with
+    /// <see cref="RoadOptions.PolicePodiums"/> (off by default: the ornaments package draws the police furniture);</item>
+    /// <item>round a built-up roundabout's outer circle a kerb and paver footpath, and between two one-way approaches (the
+    /// carriageways of a dual road) a kerbed nose island continuing the median up to the circle.</item>
     /// </list>
     /// Decals: zebras and stop lines on the arms of signalised and police chowks, a yellow edge line round roundabout
     /// islands, a dashed lane circle on rings at least 9 m wide, give-way dashes across every entry, and a painted ring for
@@ -39,11 +41,12 @@ namespace Ghumante.Core.Meshing
         {
             public double[] X = new double[256], Z = new double[256];
             public float[] Ao = new float[256];
+            public uint[] C = new uint[256];
             public int Count;
             public readonly double[] Cols = new double[RibbonFrames.MaxCols];
             public readonly RoadRow Side = new RoadRow();
             public readonly LatheProfile Lathe = new LatheProfile();
-            public double[] OX = new double[64], OZ = new double[64];
+            public double[] OX = new double[64], OZ = new double[64], TX = new double[32], TZ = new double[32];
             public float[] OY = new float[64];
 
             public void Clear()
@@ -53,15 +56,22 @@ namespace Ghumante.Core.Meshing
 
             public void Add(double x, double z, float ao)
             {
+                Add(x, z, ao, 0u);
+            }
+
+            public void Add(double x, double z, float ao, uint c)
+            {
                 if (Count == X.Length)
                 {
                     Array.Resize(ref X, Count * 2);
                     Array.Resize(ref Z, Count * 2);
                     Array.Resize(ref Ao, Count * 2);
+                    Array.Resize(ref C, Count * 2);
                 }
                 X[Count] = x;
                 Z[Count] = z;
                 Ao[Count] = ao;
+                C[Count] = c;
                 Count++;
             }
         }
@@ -141,42 +151,73 @@ namespace Ghumante.Core.Meshing
         // -------------------------------------------------------------------------------------------------------
 
         /// <summary>Insert the carriageway columns of road <paramref name="ri"/>'s cut row between the cut's two outline
-        /// points (from the point at offset <paramref name="fromOff"/> side to the other), as the ribbon draws them.</summary>
+        /// points (right to left seen from the node when <paramref name="ascending"/>), at the positions, colours (the
+        /// lighter crown) and AO the ribbon's end row has there.</summary>
         private static void CutInterior(TileData t, RoadLayout layout, RoadOptions o, int ri, in RoadCut cut, bool ascending, Scratch sc)
         {
-            int n = RibbonMesher.CutColumns(t, ri, layout, o, cut.S, sc.Cols);
+            int crownCol;
+            int n = RibbonMesher.CutColumns(t, ri, layout, o, cut.S, sc.Cols, out crownCol);
+            RoadPaving pv = layout.Paving[ri];
+            uint edge = pv.Rgba, crown = RibbonMesher.CrownRgba(pv, o);
             // Columns are left to right (descending offsets); skip the two edges (already outline points).
             if (ascending)
-                for (int c = n - 2; c >= 1; c--) sc.Add(cut.CX + cut.UX * sc.Cols[c], cut.CZ + cut.UZ * sc.Cols[c], 1f);
+                for (int c = n - 2; c >= 1; c--) sc.Add(cut.CX + cut.UX * sc.Cols[c], cut.CZ + cut.UZ * sc.Cols[c], 1f, c == crownCol ? crown : edge);
             else
-                for (int c = 1; c <= n - 2; c++) sc.Add(cut.CX + cut.UX * sc.Cols[c], cut.CZ + cut.UZ * sc.Cols[c], 1f);
+                for (int c = 1; c <= n - 2; c++) sc.Add(cut.CX + cut.UX * sc.Cols[c], cut.CZ + cut.UZ * sc.Cols[c], 1f, c == crownCol ? crown : edge);
         }
 
-        /// <summary>The cap outline with every arm's carriageway columns inserted along its cut edge.</summary>
+        /// <summary>The AO of an arm's carriageway edge at its cut, as the ribbon's end row has it: kerbed (a footpath or a
+        /// median beside it) 0.72, else 0.92.</summary>
+        private static float EdgeAo(RoadLayout layout, int ri, bool forward, double s, bool armLeft)
+        {
+            bool pieceLeft = armLeft == forward;
+            if (layout.Attrs[ri].Has(RoadAttrFlags.Dual) && !pieceLeft) return 0.72f; // the median kerb
+            return ArmFoot(layout, ri, forward, s, armLeft) > 0f ? 0.72f : 0.92f;
+        }
+
+        /// <summary>
+        /// The cap outline with every arm's carriageway columns inserted along its cut edge (from the arm's stored cut, the
+        /// very section the ribbon's end row stands on), each outline point with the colour and AO the ribbon has there:
+        /// arm edges in the arm's paving and kerb AO, crown columns lighter, kerb-return points in the top road's paving
+        /// with the AO of the corner's kerb.
+        /// </summary>
         private static void CapOutline(TileData t, RoadLayout layout, JunctionCap cap, RoadOptions o, Scratch sc)
         {
             sc.Clear();
             int n = cap.ArmRoads.Length;
+            uint topEdge = layout.Paving[cap.TopRoad].Rgba;
+            int corner = -1; // the corner (between arm k and k + 1) the following return points belong to
             for (int i = 0; i < cap.Count; i++)
             {
-                bool cutStart = false;
-                int arm = -1;
+                int armR = -1, armL = -1;
                 for (int k = 0; k < n; k++)
-                    if (cap.ArmRightIndex[k] == i)
-                    {
-                        cutStart = true;
-                        arm = k;
-                    }
-                bool onCut = cutStart;
-                for (int k = 0; k < n && !onCut; k++) onCut = cap.ArmLeftIndex[k] == i;
-                sc.Add(cap.PolyX[i], cap.PolyZ[i], onCut ? 1f : 0.8f);
-                if (!cutStart) continue;
-                int ri = cap.ArmRoads[arm];
-                double sCut = cap.ArmForward[arm] ? AlongOfCut(layout, ri, cap, arm, true) : AlongOfCut(layout, ri, cap, arm, false);
-                RoadCut cut = layout.DrawnCutAt(t, ri, sCut);
-                // Forward arm: from its right (piece-right, lowest offset) to its left; backward: piece-left first.
-                CutInterior(t, layout, o, ri, cut, cap.ArmForward[arm], sc);
+                {
+                    if (cap.ArmRightIndex[k] == i) armR = k;
+                    if (cap.ArmLeftIndex[k] == i) armL = k;
+                }
+                if (armR >= 0 || armL >= 0)
+                {
+                    int arm = armR >= 0 ? armR : armL;
+                    int ri = cap.ArmRoads[arm];
+                    double sCut = AlongOfCut(layout, ri, cap, arm, cap.ArmForward[arm]);
+                    sc.Add(cap.PolyX[i], cap.PolyZ[i], EdgeAo(layout, ri, cap.ArmForward[arm], sCut, armL >= 0), layout.Paving[ri].Rgba);
+                    if (armL >= 0) corner = arm;
+                    if (armR < 0) continue;
+                    // Forward arm: from its right (piece-right, lowest offset) to its left; backward: piece-left first.
+                    CutInterior(t, layout, o, ri, layout.StoredCut(t, ri, sCut), cap.ArmForward[arm], sc);
+                    continue;
+                }
+                sc.Add(cap.PolyX[i], cap.PolyZ[i], corner >= 0 && CornerKerbed(layout, cap, corner) ? 0.72f : 0.92f, topEdge);
             }
+        }
+
+        /// <summary>True when corner k of a cap (between arm k and arm k + 1) gets a footpath and kerb round it.</summary>
+        private static bool CornerKerbed(RoadLayout layout, JunctionCap cap, int k)
+        {
+            int n = cap.ArmRoads.Length, k1 = (k + 1) % n;
+            int ra = cap.ArmRoads[k], rb = cap.ArmRoads[k1];
+            double sa = AlongOfCut(layout, ra, cap, k, cap.ArmForward[k]), sb = AlongOfCut(layout, rb, cap, k1, cap.ArmForward[k1]);
+            return ArmFoot(layout, ra, cap.ArmForward[k], sa, true) > 0f && ArmFoot(layout, rb, cap.ArmForward[k1], sb, false) > 0f;
         }
 
         /// <summary>The raw along value of an arm's cut.</summary>
@@ -187,13 +228,15 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// One cap surface: a fan from the node through a middle ring (on caps more than 8 m across) to the outline, every
-        /// vertex at the terrain plus the cap lift. The outline holds the arms' cut rows vertex for vertex, so cap and
-        /// ribbons share their edges exactly (both linear between the same vertices).
+        /// vertex at the terrain plus the cap lift. The outline holds the arms' cut rows vertex for vertex (positions,
+        /// colours and AO), so cap and ribbons share their edges exactly; the colour blends from the arms' edges and
+        /// crowns at the outline to the top road's crown at the node, so no darker rectangle or colour seam shows.
         /// </summary>
         private static void CapSurface(TileData t, RoadLayout layout, JunctionCap cap, RoadOptions o, ref RoadSurface g, Scratch sc, MeshData m)
         {
             CapOutline(t, layout, cap, o, sc);
             RoadPaving pv = layout.Paving[cap.TopRoad];
+            uint crown = RibbonMesher.CrownRgba(pv, o);
             float lift = RoadMesher.LiftOf(t.Roads[cap.TopRoad], o) + CapExtraLiftM;
             float u = RoadMaterials.U(pv.Channel);
             int n = sc.Count;
@@ -201,12 +244,13 @@ namespace Ghumante.Core.Meshing
             for (int k = 0; k < n; k++) reach = Math.Max(reach, Math.Sqrt(Sq(sc.X[k] - cap.X) + Sq(sc.Z[k] - cap.Z)));
             bool mid = reach > 9.0;
             m.Reserve(2 * n + 1, 9 * n);
-            int centre = Vertex(ref g, m, cap.X, cap.Z, lift, pv.Rgba, u, 1f);
+            int centre = Vertex(ref g, m, cap.X, cap.Z, lift, crown, u, 1f);
             int ring = m.VertexCount;
             if (mid)
-                for (int k = 0; k < n; k++) Vertex(ref g, m, 0.5 * (cap.X + sc.X[k]), 0.5 * (cap.Z + sc.Z[k]), lift, pv.Rgba, u, 1f);
+                for (int k = 0; k < n; k++)
+                    Vertex(ref g, m, 0.5 * (cap.X + sc.X[k]), 0.5 * (cap.Z + sc.Z[k]), lift, MeshColor.Lerp(crown, sc.C[k], 0.5f), u, 0.5f * (1f + sc.Ao[k]));
             int outer = m.VertexCount;
-            for (int k = 0; k < n; k++) Vertex(ref g, m, sc.X[k], sc.Z[k], lift, pv.Rgba, u, sc.Ao[k]);
+            for (int k = 0; k < n; k++) Vertex(ref g, m, sc.X[k], sc.Z[k], lift, sc.C[k], u, sc.Ao[k]);
             for (int k = 0; k < n; k++)
             {
                 int q = k + 1 == n ? 0 : k + 1;
@@ -258,7 +302,10 @@ namespace Ghumante.Core.Meshing
                 sc.Clear();
                 for (int i = cap.ArmLeftIndex[k]; ; i = (i + 1) % cap.Count)
                 {
-                    sc.Add(cap.PolyX[i], cap.PolyZ[i], 0f);
+                    // The edge vertex of each kerb row takes the colour the cap outline has there (the arm's paving at its cut
+                    // edges, the top road's along the return).
+                    uint c = i == cap.ArmLeftIndex[k] ? layout.Paving[ra].Rgba : i == cap.ArmRightIndex[k1] ? layout.Paving[rb].Rgba : pv.Rgba;
+                    sc.Add(cap.PolyX[i], cap.PolyZ[i], 0f, c);
                     if (i == cap.ArmRightIndex[k1] || sc.Count > cap.Count) break;
                 }
                 RoadSweep.Side kind = wa > 0f && wb > 0f ? RoadSweep.Side.Footpath : RoadSweep.Side.Skirt;
@@ -274,6 +321,15 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         private static void KerbLine(Scratch sc, double o0x, double o0z, double o1x, double o1z, RoadSweep.Side kind, float w0, float w1, uint paver0,
                                      uint paver1, in RoadPaving pv, float lift, RoadGrade grade, RoadOptions o, ref RoadSurface g, MeshData m)
+        {
+            KerbLine(sc, o0x, o0z, o1x, o1z, kind, w0, w1, paver0, paver1, pv, lift, grade, o, ref g, m, false, false);
+        }
+
+        /// <summary>As the other overload, closing the raised side with an end face at the start and/or the end (a footpath
+        /// that begins or stops where an approach has none).</summary>
+        private static void KerbLine(Scratch sc, double o0x, double o0z, double o1x, double o1z, RoadSweep.Side kind, float w0, float w1, uint paver0,
+                                     uint paver1, in RoadPaving pv, float lift, RoadGrade grade, RoadOptions o, ref RoadSurface g, MeshData m,
+                                     bool closeStart, bool closeEnd)
         {
             int n = sc.Count;
             if (n < 2) return;
@@ -312,11 +368,19 @@ namespace Ghumante.Core.Meshing
                 float nx, ny, nz;
                 g.Normal(sc.X[i], sc.Z[i], out nx, out ny, out nz);
                 bool kerb = kind == RoadSweep.Side.Footpath;
-                RoadSweep.BuildSide(sc.Side, kind, o.Detail, sc.X[i], sc.Z[i], ey, ox, oz, ox, oz, Math.Max(w, kerb ? RoadWidthModel.MinFootpathM : 0), pv.Rgba,
+                RoadSweep.BuildSide(sc.Side, kind, o.Detail, sc.X[i], sc.Z[i], ey, ox, oz, ox, oz, Math.Max(w, kerb ? RoadWidthModel.MinFootpathM : 0),
+                                    sc.C[i] != 0u ? sc.C[i] : pv.Rgba,
                                     pv.Channel, kerb ? 0.72f : 0.92f, nx, ny, nz, f < 0.5 ? paver0 : paver1, MaterialChannel.Flagstone, grade, o.KerbHeightM,
                                     o.MedianHeightM, false);
                 int cur = RoadSweep.Emit(m, sc.Side);
                 if (prev >= 0 && prevCount == sc.Side.Count) RoadSweep.Join(m, prev, cur, sc.Side);
+                if (i == 0 && closeStart || i == n - 1 && closeEnd)
+                {
+                    // Facing back along the line at the start, forward at the end.
+                    int j = i == 0 ? 1 : n - 2;
+                    double tx = sc.X[i] - sc.X[j], tz = sc.Z[i] - sc.Z[j];
+                    RoadSweep.EndFace(m, cur, 0, sc.Side.Count - 1, tx, tz);
+                }
                 prev = cur;
                 prevCount = sc.Side.Count;
             }
@@ -358,26 +422,43 @@ namespace Ghumante.Core.Meshing
                 xs.Clear();
                 zs.Clear();
                 ring.Patch(a, xs, zs);
-                // The patch outline with the approach's cut columns between its first two points (right, left edge).
+                // The patch outline with the approach's cut columns between its first two points (right, left edge), in
+                // the approach's colours and AO at the cut (as its ribbon's end row), the ring's beyond.
                 sc.Clear();
-                sc.Add(xs[0], zs[0], 1f);
+                RoadPaving apv = layout.Paving[arm.Road];
+                sc.Add(xs[0], zs[0], EdgeAo(layout, arm.Road, arm.AtStart, arm.Cut.S, false), apv.Rgba);
                 CutInterior(t, layout, o, arm.Road, arm.Cut, arm.AtStart, sc);
-                for (int k = 1; k < xs.Count; k++) sc.Add(xs[k], zs[k], k == 1 ? 1f : 0.9f);
+                sc.Add(xs[1], zs[1], EdgeAo(layout, arm.Road, arm.AtStart, arm.Cut.S, true), apv.Rgba);
+                for (int k = 2; k < xs.Count; k++) sc.Add(xs[k], zs[k], 0.95f, pv.Rgba);
                 double fx = arm.Cut.CX + arm.Cut.UX * arm.Cut.Shift, fz = arm.Cut.CZ + arm.Cut.UZ * arm.Cut.Shift;
-                // Fan from a point just inside the cut (not on it, so no triangle is degenerate).
+                // Fan from a point just inside the cut (not on it, so no triangle is degenerate), in the approach's crown.
                 fx -= arm.DirX * 0.3;
                 fz -= arm.DirZ * 0.3;
+                uint fan = RibbonMesher.CrownRgba(apv, o);
                 for (int k = 0; k < sc.Count; k++)
                 {
                     int q = k + 1 == sc.Count ? 0 : k + 1;
-                    g.TriAo(fx, fz, 1f, sc.X[k], sc.Z[k], sc.Ao[k], sc.X[q], sc.Z[q], sc.Ao[q], lift, pv.Rgba, pv.Channel, m);
+                    g.TriAoC(fx, fz, 1f, fan, sc.X[k], sc.Z[k], sc.Ao[k], sc.C[k], sc.X[q], sc.Z[q], sc.Ao[q], sc.C[q], lift, pv.Channel, m);
                 }
             }
         }
 
-        /// <summary>The kerb lines of a ring: between each entry and the next counter-clockwise, from the left cut edge
-        /// along the left flare, round the outer circle and back along the next entry's right flare (no kerb where two
-        /// entries share the circle).</summary>
+        /// <summary>Footpath width round a built-up roundabout's outer circle where an approach brings none (2 m real ×
+        /// 1.15: Tripureshwor, Thapathali and Maitighar have kerbed paver footpaths all round).</summary>
+        public const float RingFootpathM = 2.3f;
+
+        /// <summary>Two neighbouring one-way approaches (or the two carriageways of a dual road) whose facing cut edges are at
+        /// most this far apart get a kerbed island in the wedge between them instead of bare ground.</summary>
+        public const double MaxNoseChordM = 8.0;
+
+        /// <summary>
+        /// The kerb lines of a ring: between each entry and the next counter-clockwise, from the left cut edge along the
+        /// left flare, round the outer circle and back along the next entry's right flare. On built-up rings (and wherever
+        /// an approach has one) a kerb and paver footpath runs round the circle, taking each approach's footpath width at
+        /// its end (or <see cref="RingFootpathM"/>) and closed by an end face where an approach has none; a kerbed skirt
+        /// elsewhere. Between two one-way approaches close together (the two carriageways of a dual road) the wedge is a
+        /// raised kerbed island with a rounded nose up to the circle instead (<see cref="NoseIsland"/>).
+        /// </summary>
         private static void RingKerbs(TileData t, RoadLayout layout, RoadGrade grade, RoadRing ring, RoadOptions o, float lift, ref RoadSurface g,
                                       Scratch sc, MeshData m)
         {
@@ -385,17 +466,20 @@ namespace Ghumante.Core.Meshing
             RoadPaving pv = layout.Paving[ring.TopRoad];
             int segs = ring.CircleSegments;
             double step = 2 * Math.PI / segs;
+            AreaType area = RoadWidthModel.AreaOf(layout.Attrs[ring.TopRoad]);
+            bool builtUp = area == AreaType.Urban || area == AreaType.OldCore || area == AreaType.PeriUrban;
             for (int a = 0; a < n; a++)
             {
                 RingArm aa = ring.Arms[a], bb = ring.Arms[(a + 1) % n];
+                if (n > 1 && NoseIsland(t, layout, grade, ring, aa, bb, o, lift, ref g, sc, m)) continue;
                 double from = aa.AngleLeft, to = bb.AngleRight;
-                double sweep = n == 1 ? RoadRing.Wrap(to - from) : RoadRing.Wrap(to - from);
+                double sweep = RoadRing.Wrap(to - from);
                 double spanA = RoadRing.Wrap(aa.AngleLeft - aa.AngleRight);
                 if (n > 1 && (sweep > 2 * Math.PI - spanA - 1e-3 || RoadRing.Wrap(bb.AngleRight - aa.AngleRight) < spanA)) continue; // entries overlap
                 float wa = ArmFoot(layout, aa.Road, aa.AtStart, aa.Cut.S, true), wb = ArmFoot(layout, bb.Road, bb.AtStart, bb.Cut.S, false);
                 double sgA = aa.AtStart ? 1 : -1, sgB = bb.AtStart ? -1 : 1;
                 sc.Clear();
-                sc.Add(aa.LeftEdgeX, aa.LeftEdgeZ, 0f);
+                sc.Add(aa.LeftEdgeX, aa.LeftEdgeZ, 0f, layout.Paving[aa.Road].Rgba);
                 for (int k = 0; k < aa.LeftX.Length; k++) sc.Add(aa.LeftX[k], aa.LeftZ[k], 0f);
                 double first = Math.Ceiling(from / step) * step;
                 for (double ang = first; RoadRing.Wrap(ang - from) < sweep - 1e-6; ang += step)
@@ -404,11 +488,252 @@ namespace Ghumante.Core.Meshing
                     sc.Add(ring.X + ring.OuterRadiusM * Math.Cos(ang), ring.Z + ring.OuterRadiusM * Math.Sin(ang), 0f);
                 }
                 for (int k = 0; k < bb.RightX.Length; k++) sc.Add(bb.RightX[k], bb.RightZ[k], 0f);
-                sc.Add(bb.RightEdgeX, bb.RightEdgeZ, 0f);
-                RoadSweep.Side kind = wa > 0f && wb > 0f ? RoadSweep.Side.Footpath : RoadSweep.Side.Skirt;
-                KerbLine(sc, aa.Cut.UX * sgA, aa.Cut.UZ * sgA, bb.Cut.UX * sgB, bb.Cut.UZ * sgB, kind, wa, wb, RoadMesher.FootpathRgba(t.Roads[aa.Road]),
-                         RoadMesher.FootpathRgba(t.Roads[bb.Road]), pv, lift, grade, o, ref g, m);
+                sc.Add(bb.RightEdgeX, bb.RightEdgeZ, 0f, layout.Paving[bb.Road].Rgba);
+                bool foot = wa > 0f || wb > 0f || builtUp;
+                RoadSweep.Side kind = foot ? RoadSweep.Side.Footpath : RoadSweep.Side.Skirt;
+                uint paverA = wa > 0f ? RoadMesher.FootpathRgba(t.Roads[aa.Road]) : wb > 0f ? RoadMesher.FootpathRgba(t.Roads[bb.Road]) : RoadMesher.FootpathRgba(t.Roads[ring.TopRoad]);
+                uint paverB = wb > 0f ? RoadMesher.FootpathRgba(t.Roads[bb.Road]) : paverA;
+                KerbLine(sc, aa.Cut.UX * sgA, aa.Cut.UZ * sgA, bb.Cut.UX * sgB, bb.Cut.UZ * sgB, kind, wa > 0f ? wa : RingFootpathM,
+                         wb > 0f ? wb : RingFootpathM, paverA, paverB, pv, lift, grade, o, ref g, m, foot && wa <= 0f, foot && wb <= 0f);
             }
+        }
+
+        /// <summary>
+        /// The wedge between approach <paramref name="aa"/>'s left cut edge and the next approach <paramref name="bb"/>'s
+        /// right cut edge as a raised kerbed island (yellow-black banded mountable kerb, grass or concrete top), when both
+        /// approaches are one-way (or dual carriageways) and their facing edges are at most <see cref="MaxNoseChordM"/> apart
+        /// and roughly parallel: it continues a dual road's median (or separates a one-way pair) up to the give-way line,
+        /// following both flares to the circle, or to where they meet, with a rounded nose. False (nothing drawn) otherwise.
+        /// </summary>
+        private static bool NoseIsland(TileData t, RoadLayout layout, RoadGrade grade, RoadRing ring, in RingArm aa, in RingArm bb, RoadOptions o, float lift,
+                                       ref RoadSurface g, Scratch sc, MeshData m)
+        {
+            bool oneA = (t.Roads[aa.Road].Flags & RoadFlags.Oneway) != 0 || layout.Attrs[aa.Road].Has(RoadAttrFlags.Dual);
+            bool oneB = (t.Roads[bb.Road].Flags & RoadFlags.Oneway) != 0 || layout.Attrs[bb.Road].Has(RoadAttrFlags.Dual);
+            if (!oneA || !oneB || aa.Road == bb.Road) return false;
+            double chord = Math.Sqrt(Sq(aa.LeftEdgeX - bb.RightEdgeX) + Sq(aa.LeftEdgeZ - bb.RightEdgeZ));
+            if (chord > MaxNoseChordM || chord < 0.3) return false;
+            if (aa.DirX * bb.DirX + aa.DirZ * bb.DirZ < Math.Cos(45.0 * Math.PI / 180.0)) return false;
+            // A: from aa's left edge inward along its left flare; B: from bb's right edge inward along its right flare.
+            int na = aa.LeftX.Length + 1, nb = bb.RightX.Length + 1;
+            double[] ax = new double[na], az = new double[na], bx = new double[nb], bz = new double[nb];
+            ax[0] = aa.LeftEdgeX;
+            az[0] = aa.LeftEdgeZ;
+            for (int k = 0; k < aa.LeftX.Length; k++)
+            {
+                ax[k + 1] = aa.LeftX[k];
+                az[k + 1] = aa.LeftZ[k];
+            }
+            bx[0] = bb.RightEdgeX;
+            bz[0] = bb.RightEdgeZ;
+            for (int k = 0; k < bb.RightX.Length; k++)
+            {
+                bx[k + 1] = bb.RightX[bb.RightX.Length - 1 - k];
+                bz[k + 1] = bb.RightZ[bb.RightX.Length - 1 - k];
+            }
+            int hitA = -1, hitB = -1;
+            double px = 0, pz = 0;
+            for (int i = 0; i + 1 < na && hitA < 0; i++)
+            {
+                for (int j = 0; j + 1 < nb; j++)
+                {
+                    double ix, iz;
+                    if (!SegmentsCross(ax[i], az[i], ax[i + 1], az[i + 1], bx[j], bz[j], bx[j + 1], bz[j + 1], out ix, out iz)) continue;
+                    hitA = i;
+                    hitB = j;
+                    px = ix;
+                    pz = iz;
+                    break;
+                }
+            }
+            // Beyond the cut, between two single carriageways without a footpath on the facing sides, the island runs on
+            // between their edges as long as they stay close (a dual road's medians are drawn by its ribbons).
+            int tail = 0;
+            bool dualPair = layout.Attrs[aa.Road].Has(RoadAttrFlags.Dual) && layout.Attrs[bb.Road].Has(RoadAttrFlags.Dual);
+            if (!dualPair && ArmFoot(layout, aa.Road, aa.AtStart, aa.Cut.S, true) <= 0f && ArmFoot(layout, bb.Road, bb.AtStart, bb.Cut.S, false) <= 0f)
+            {
+                for (int k = 1; k * NoseTailStepM <= NoseTailM; k++)
+                {
+                    double d = k * NoseTailStepM;
+                    double sa = aa.Cut.S + (aa.AtStart ? d : -d), sb = bb.Cut.S + (bb.AtStart ? d : -d);
+                    if (sa < 0 || sa > layout.Profiles[aa.Road].LengthM || sb < 0 || sb > layout.Profiles[bb.Road].LengthM) break;
+                    if (layout.InGap(aa.Road, sa) || layout.InGap(bb.Road, sb)) break;
+                    double tax, taz, tbx, tbz;
+                    ArmEdge(t, layout, aa, sa, true, out tax, out taz);
+                    ArmEdge(t, layout, bb, sb, false, out tbx, out tbz);
+                    if (Math.Sqrt(Sq(tax - tbx) + Sq(taz - tbz)) > MaxNoseChordM) break;
+                    if (sc.TX.Length < 2 * k) Array.Resize(ref sc.TX, 4 * k);
+                    if (sc.TZ.Length < 2 * k) Array.Resize(ref sc.TZ, 4 * k);
+                    sc.TX[2 * k - 2] = tax;
+                    sc.TZ[2 * k - 2] = taz;
+                    sc.TX[2 * k - 1] = tbx;
+                    sc.TZ[2 * k - 1] = tbz;
+                    tail = k;
+                }
+            }
+            int c = 0;
+            for (int k = tail; k >= 1; k--) Put(sc, c++, sc.TX[2 * k - 2], sc.TZ[2 * k - 2]);
+            if (hitA >= 0)
+            {
+                // The flares meet: A up to the meeting point, a rounded nose, B back out.
+                for (int i = 0; i <= hitA; i++) Put(sc, c++, ax[i], az[i]);
+                double qax, qaz, qbx, qbz;
+                Back(px, pz, ax[hitA], az[hitA], 0.8, out qax, out qaz);
+                Back(px, pz, bx[hitB], bz[hitB], 0.8, out qbx, out qbz);
+                Put(sc, c++, qax, qaz);
+                for (int q = 1; q <= 3; q++)
+                {
+                    double u = q / 4.0, v = 1 - u;
+                    Put(sc, c++, v * v * qax + 2 * u * v * px + u * u * qbx, v * v * qaz + 2 * u * v * pz + u * u * qbz);
+                }
+                Put(sc, c++, qbx, qbz);
+                for (int j = hitB; j >= 0; j--) Put(sc, c++, bx[j], bz[j]);
+            }
+            else
+            {
+                // Both flares reach the circle: the island runs round it between them (outside the ring carriageway).
+                for (int i = 0; i < na; i++) Put(sc, c++, ax[i], az[i]);
+                double step = 2 * Math.PI / ring.CircleSegments;
+                double from = aa.AngleLeft, sweep = RoadRing.Wrap(bb.AngleRight - from);
+                if (sweep > Math.PI) return false;
+                for (double ang = Math.Ceiling(from / step) * step; RoadRing.Wrap(ang - from) < sweep - 1e-6; ang += step)
+                {
+                    if (RoadRing.Wrap(ang - from) <= 1e-6) continue;
+                    Put(sc, c++, ring.X + ring.OuterRadiusM * Math.Cos(ang), ring.Z + ring.OuterRadiusM * Math.Sin(ang));
+                }
+                for (int j = nb - 1; j >= 0; j--) Put(sc, c++, bx[j], bz[j]);
+            }
+            for (int k = 1; k <= tail; k++) Put(sc, c++, sc.TX[2 * k - 1], sc.TZ[2 * k - 1]);
+            double area = Area(sc.OX, sc.OZ, c);
+            if (Math.Abs(area) < 1.0) return false;
+            if (area < 0) Reverse(sc, c);
+            double size = t.Tile.Size;
+            double mx = 0, mz = 0;
+            for (int i = 0; i < c; i++)
+            {
+                if (sc.OX[i] < 0.05 || sc.OZ[i] < 0.05 || sc.OX[i] > size - 0.05 || sc.OZ[i] > size - 0.05) return false;
+                // On the ring and its entries the surface is the terrain plus the ring lift; along the tail, the approach
+                // ribbons' drawn surface (never under the terrain plus the lift).
+                sc.OY[i] = Math.Max(g.Height(sc.OX[i], sc.OZ[i]) + lift, TailSurface(layout, grade, aa, bb, sc.OX[i], sc.OZ[i]));
+                mx += sc.OX[i];
+                mz += sc.OZ[i];
+            }
+            mx /= c;
+            mz /= c;
+            float height = o.MedianHeightM + 0.02f;
+            float raise = IslandRaise(ref g, sc, c, lift, height);
+            bool grass = Math.Abs(area) >= 8.0;
+            RoadKit.KerbedOutline(m, sc.OX, sc.OZ, sc.OY, c, g.Height(mx, mz) + lift, height + raise, KerbBandM, RoadMaterials.KerbYellow,
+                                  RoadMaterials.KerbBlack, grass ? RoadStyle.IslandGrass : RoadMaterials.MedianConcrete,
+                                  grass ? MaterialChannel.Grass : MaterialChannel.Concrete);
+            return true;
+        }
+
+        /// <summary>A nose island's top stays at least this above the lifted terrain between its two carriageways.</summary>
+        public const float IslandGroundClearM = 0.08f;
+
+        /// <summary>... rising by at most this above its kerb height to do so.</summary>
+        public const float MaxIslandRaiseM = 0.25f;
+
+        /// <summary>Spacing of the ground samples inside a nose island.</summary>
+        public const double IslandSampleM = 0.5;
+
+        /// <summary>
+        /// How far a nose island's top (outline <c>sc.OX/OZ/OY</c>, <paramref name="c"/> points, plus
+        /// <paramref name="height"/>) must rise so the lifted terrain inside it stays <see cref="IslandGroundClearM"/>
+        /// below: the outline stands on the two carriageways' edges and the top is planar between them, so a low ridge of
+        /// ground between two carriageways graded apart would show through. The top over a sample is estimated by the
+        /// inverse-distance mean of the outline heights (the ear-clipped top lies between them; the clearance covers the
+        /// difference). At most <see cref="MaxIslandRaiseM"/>; no allocation.
+        /// </summary>
+        private static float IslandRaise(ref RoadSurface g, Scratch sc, int c, float lift, float height)
+        {
+            double x0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, z1 = double.MinValue;
+            for (int i = 0; i < c; i++)
+            {
+                x0 = Math.Min(x0, sc.OX[i]);
+                z0 = Math.Min(z0, sc.OZ[i]);
+                x1 = Math.Max(x1, sc.OX[i]);
+                z1 = Math.Max(z1, sc.OZ[i]);
+            }
+            float raise = 0f;
+            for (double z = z0 + 0.5 * IslandSampleM; z < z1; z += IslandSampleM)
+            {
+                for (double x = x0 + 0.5 * IslandSampleM; x < x1; x += IslandSampleM)
+                {
+                    bool inside = false;
+                    for (int i = 0, j = c - 1; i < c; j = i++)
+                        if ((sc.OZ[i] > z) != (sc.OZ[j] > z) && x < sc.OX[j] + (sc.OX[i] - sc.OX[j]) * (z - sc.OZ[j]) / (sc.OZ[i] - sc.OZ[j]))
+                            inside = !inside;
+                    if (!inside) continue;
+                    double w = 0, wy = 0;
+                    for (int i = 0; i < c; i++)
+                    {
+                        double d2 = Sq(sc.OX[i] - x) + Sq(sc.OZ[i] - z) + 1e-6, wi = 1.0 / (d2 * d2);
+                        w += wi;
+                        wy += wi * sc.OY[i];
+                    }
+                    float under = g.Height(x, z) + lift + IslandGroundClearM - ((float)(wy / w) + height);
+                    if (under > raise) raise = under;
+                }
+            }
+            return Math.Min(raise, MaxIslandRaiseM);
+        }
+
+        /// <summary>Spacing and longest reach of a nose island's tail beyond the cut.</summary>
+        public const double NoseTailStepM = 2.0, NoseTailM = 14.0;
+
+        /// <summary>The carriageway edge of a ring approach on its arm-left (counter-clockwise side seen from the ring) or
+        /// arm-right at raw along <paramref name="s"/>.</summary>
+        private static void ArmEdge(TileData t, RoadLayout layout, in RingArm arm, double s, bool armLeft, out double x, out double z)
+        {
+            RoadCut c = layout.DrawnCutAt(t, arm.Road, s);
+            bool pieceLeft = armLeft == arm.AtStart;
+            double off = pieceLeft ? c.Shift + c.Half : c.Shift - c.Half;
+            x = c.CX + c.UX * off;
+            z = c.CZ + c.UZ * off;
+        }
+
+        /// <summary>The higher of the two approaches' drawn surfaces at a nose island point beyond their cuts (−∞ inside the
+        /// ring entry).</summary>
+        private static float TailSurface(RoadLayout layout, RoadGrade grade, in RingArm aa, in RingArm bb, double x, double z)
+        {
+            float best = float.NegativeInfinity;
+            for (int q = 0; q < 2; q++)
+            {
+                RingArm arm = q == 0 ? aa : bb;
+                double dx = x - arm.Cut.CX, dz = z - arm.Cut.CZ;
+                double beyond = dx * arm.DirX + dz * arm.DirZ;
+                if (beyond <= 0.05) continue;
+                float y;
+                if (grade.TrySurfaceAt(arm.Road, x, z, 60.0, out y)) best = Math.Max(best, y);
+            }
+            return best;
+        }
+
+        /// <summary>The point <paramref name="d"/> back from (px, pz) toward (qx, qz) (at most half way).</summary>
+        private static void Back(double px, double pz, double qx, double qz, double d, out double x, out double z)
+        {
+            double l = Math.Sqrt(Sq(qx - px) + Sq(qz - pz));
+            double f = l > 1e-9 ? Math.Min(d, 0.5 * l) / l : 0;
+            x = px + (qx - px) * f;
+            z = pz + (qz - pz) * f;
+        }
+
+        /// <summary>True when segments a0-a1 and b0-b1 cross (proper intersection), with the crossing point.</summary>
+        private static bool SegmentsCross(double a0x, double a0z, double a1x, double a1z, double b0x, double b0z, double b1x, double b1z, out double x,
+                                          out double z)
+        {
+            x = z = 0;
+            double rx = a1x - a0x, rz = a1z - a0z, sx = b1x - b0x, sz = b1z - b0z;
+            double den = rx * sz - rz * sx;
+            if (Math.Abs(den) < 1e-12) return false;
+            double qx = b0x - a0x, qz = b0z - a0z;
+            double tt = (qx * sz - qz * sx) / den, uu = (qx * rz - qz * rx) / den;
+            if (tt <= 1e-6 || tt > 1 || uu <= 1e-6 || uu > 1) return false;
+            x = a0x + rx * tt;
+            z = a0z + rz * tt;
+            return true;
         }
 
         /// <summary>

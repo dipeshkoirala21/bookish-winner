@@ -221,8 +221,9 @@ namespace Ghumante.Core.Tests
         /// <summary>
         /// Owner: three motorbikes side by side on every street. On every leaf tile of the sample every drawn street is at
         /// least <see cref="RoadClearance.MinCorridorM"/> wide (footways and paths
-        /// <see cref="RoadWidthModel.FootRideableM"/>) along its whole length, never narrower than the W2_DESIGN 4.2 width,
-        /// its clear corridor is at least 4.8 m, and the drawn road surface really covers that width (points 0.1 m inside
+        /// <see cref="RoadWidthModel.FootRideableM"/>) along its whole length (the W2_DESIGN 4.2 width raised to it; only an
+        /// unconnected parallel piece or a narrower knee neighbour narrows it back, never under the floor), its clear
+        /// corridor is at least 4.8 m, and the drawn road surface really covers that width (points 0.1 m inside
         /// the floor width on both sides lie on an up-facing triangle of the tile's road mesh; a tenth of a percent do not:
         /// the inner edge of an arc too tight for the width is pinched so the ribbon never folds, and mapped corners left
         /// sharp at a junction cap leave slivers beside the cap's kerb return).
@@ -250,7 +251,7 @@ namespace Ghumante.Core.Tests
                     for (int k = 0; k < prof.Count; k++)
                     {
                         if (prof.Drawn[k] < floor - 1e-4f) Assert.Fail(t.Tile + " road " + i + " (" + cls + "): drawn " + prof.Drawn[k] + " m under the floor");
-                        if (prof.Drawn[k] < prof.Width[k] - 1e-4f) Assert.Fail(t.Tile + " road " + i + ": drawn narrower than the 4.2 width");
+
                     }
                     RoadCentreline c = layout.Centres[i];
                     if (c == null) continue;
@@ -311,13 +312,15 @@ namespace Ghumante.Core.Tests
                 for (int i = 0; i < t.Roads.Count; i++)
                 {
                     RoadCentreline c = layout.Centres[i];
-                    if (!RoadMesher.IsDrawn(t, i, o) || c == null) continue;
+                    if (!RoadMesher.IsDrawn(t, i, o) || c == null || layout.IsPassage(i)) continue;
                     // The ribbon's rows stand at centreline points and its edges run straight between them: check the
                     // edge points of every possible row and the midpoints of the edges between neighbouring rows.
                     for (int p = 0; p + 1 < c.Count; p++)
                     {
                         double sa = c.S[p], sb = c.S[p + 1];
                         if (layout.InGap(i, 0.5 * (sa + sb))) continue;
+                        // A step that starts or ends inside a gap is drawn from (to) the gap's cut row.
+                        ClipToDrawn(layout, i, ref sa, ref sb);
                         RoadCut ca = layout.DrawnCutAt(t, i, sa), cb = layout.DrawnCutAt(t, i, sb);
                         RoadProfile pa = layout.ProfileAt(i, sa), pb = layout.ProfileAt(i, sb);
                         for (int side = -1; side <= 1; side += 2)
@@ -325,8 +328,9 @@ namespace Ghumante.Core.Tests
                             double fa = side > 0 ? pa.FootpathLeftM : pa.FootpathRightM, fb = side > 0 ? pb.FootpathLeftM : pb.FootpathRightM;
                             if (fa > 0) fa = Math.Max(fa, RoadWidthModel.MinFootpathM);
                             if (fb > 0) fb = Math.Max(fb, RoadWidthModel.MinFootpathM);
-                            double[] ea = { ca.Shift + side * ca.Half, ca.Shift + side * (ca.Half + fa), side * 0.5 * (RoadClearance.MinCorridorM - 0.1) };
-                            double[] eb = { cb.Shift + side * cb.Half, cb.Shift + side * (cb.Half + fb), side * 0.5 * (RoadClearance.MinCorridorM - 0.1) };
+                            // Carriageway edge, footpath edge, and the 4.8 m clear corridor round the carriageway's centre.
+                            double[] ea = { ca.Shift + side * ca.Half, ca.Shift + side * (ca.Half + fa), ca.Shift + side * 0.5 * (RoadClearance.MinCorridorM - 0.1) };
+                            double[] eb = { cb.Shift + side * cb.Half, cb.Shift + side * (cb.Half + fb), cb.Shift + side * 0.5 * (RoadClearance.MinCorridorM - 0.1) };
                             for (int qi = 0; qi < 3; qi++)
                             {
                                 double xa = ca.CX + ca.UX * ea[qi], za = ca.CZ + ca.UZ * ea[qi], xb = cb.CX + cb.UX * eb[qi], zb = cb.CZ + cb.UZ * eb[qi];
@@ -381,6 +385,19 @@ namespace Ghumante.Core.Tests
             Assert.That(edges, Is.GreaterThan(100000));
         }
 
+        /// <summary>Move the ends of [sa, sb] that lie inside a gap of road <paramref name="road"/> to the gap's cut.</summary>
+        private static void ClipToDrawn(RoadLayout layout, int road, ref double sa, ref double sb)
+        {
+            RoadCut[] cuts = layout.Cuts[road];
+            if (cuts == null) return;
+            for (int g = 0; g + 1 < cuts.Length; g += 2)
+            {
+                double g0 = cuts[g].S, g1 = cuts[g + 1].S;
+                if (sa > g0 && sa < g1) sa = Math.Min(sb, g1);
+                if (sb > g0 && sb < g1) sb = Math.Max(sa, g0);
+            }
+        }
+
         private static List<double[]> Polygons(RoadLayout layout)
         {
             var list = new List<double[]>();
@@ -433,15 +450,17 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>The corridor's segment primitives, built independently of the index: every drawn piece's smoothed
-        /// centreline split at its width profile's samples and at the shoulders' border-blend boundaries next to tile cuts
-        /// (where the half width is the larger side's), half widths <see cref="RoadLayout.CorridorHalfM"/> at both ends
-        /// (ax, az, bx, bz, ha, hb per entry).</summary>
+        /// centreline (building passages and absorbed sidewalk stretches left out) split at its width profile's samples and
+        /// at the shoulders' border-blend boundaries next to tile cuts (where each side takes the larger of its two values),
+        /// each end offset along the centreline normal to the carriageway centre (<see cref="RoadWidthProfile.ShiftAt"/>),
+        /// half as wide as the wider side of the drawn extent (<see cref="RoadLayout.CorridorSides"/>), at least 2.4 m (ax,
+        /// az, bx, bz, ha, hb per entry).</summary>
         private static List<double[]> Segments(TileData t, RoadLayout layout, RoadOptions o)
         {
             var list = new List<double[]>();
             for (int i = 0; i < t.Roads.Count; i++)
             {
-                if (!RoadMesher.IsDrawn(t, i, o)) continue;
+                if (!RoadMesher.IsDrawn(t, i, o) || layout.IsPassage(i)) continue;
                 RoadCentreline c = layout.Centres[i];
                 if (c == null || c.Count < 2) continue;
                 RoadRecord r = t.Roads[i];
@@ -451,26 +470,59 @@ namespace Ghumante.Core.Tests
                 if (r.HasPrevContext && RoadLayout.BorderBlendM < len) knots.Add(RoadLayout.BorderBlendM);
                 double endBlend = layout.Profiles[i].LengthM - RoadLayout.BorderBlendM;
                 if (r.HasNextContext && endBlend > 0) knots.Add(endBlend);
+                if (layout.Absorbed[i] != null)
+                    foreach (double v in layout.Absorbed[i])
+                        if (v > 1e-6 && v < len - 1e-6) knots.Add(v);
                 knots.Sort();
+                // (x, z, tx, tz, left, right, s) per point.
                 var pts = new List<double[]>();
                 int kn = 0;
                 for (int k = 0; k + 1 < c.Count; k++)
                 {
-                    float h0 = layout.CorridorHalfM(i, c.S[k]), h1 = layout.CorridorHalfM(i, c.S[k + 1]);
-                    pts.Add(new[] { c.X[k], c.Z[k], h0 });
+                    float l0, r0, l1, r1;
+                    layout.CorridorSides(i, c.S[k], out l0, out r0);
+                    layout.CorridorSides(i, c.S[k + 1], out l1, out r1);
+                    pts.Add(new[] { c.X[k], c.Z[k], c.Tx[k], c.Tz[k], l0, r0, c.S[k] });
                     while (kn < knots.Count && knots[kn] <= c.S[k] + 1e-6) kn++;
                     for (; kn < knots.Count && knots[kn] < c.S[k + 1] - 1e-6; kn++)
                     {
                         double sj = knots[kn], f = (sj - c.S[k]) / (c.S[k + 1] - c.S[k]);
-                        float chord = h0 + (h1 - h0) * (float)f;
-                        pts.Add(new[] { c.X[k] + (c.X[k + 1] - c.X[k]) * f, c.Z[k] + (c.Z[k + 1] - c.Z[k]) * f,
-                                        Math.Max(chord, Math.Max(layout.CorridorHalfM(i, sj - 1e-3), layout.CorridorHalfM(i, sj + 1e-3))) });
+                        float la, ra, lb, rb;
+                        layout.CorridorSides(i, sj - 1e-3, out la, out ra);
+                        layout.CorridorSides(i, sj + 1e-3, out lb, out rb);
+                        pts.Add(new[]
+                        {
+                            c.X[k] + (c.X[k + 1] - c.X[k]) * f, c.Z[k] + (c.Z[k + 1] - c.Z[k]) * f,
+                            c.Tx[k] + (c.Tx[k + 1] - c.Tx[k]) * f, c.Tz[k] + (c.Tz[k + 1] - c.Tz[k]) * f,
+                            Math.Max(l0 + (l1 - l0) * f, Math.Max(la, lb)), Math.Max(r0 + (r1 - r0) * f, Math.Max(ra, rb)), sj,
+                        });
                     }
                 }
-                pts.Add(new[] { c.X[c.Count - 1], c.Z[c.Count - 1], layout.CorridorHalfM(i, c.S[c.Count - 1]) });
-                for (int k = 0; k + 1 < pts.Count; k++) list.Add(new[] { pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], pts[k][2], pts[k + 1][2] });
+                {
+                    float le, re;
+                    int e = c.Count - 1;
+                    layout.CorridorSides(i, c.S[e], out le, out re);
+                    pts.Add(new[] { c.X[e], c.Z[e], c.Tx[e], c.Tz[e], le, re, c.S[e] });
+                }
+                for (int k = 0; k + 1 < pts.Count; k++)
+                {
+                    if (layout.InAbsorbed(i, 0.5 * (pts[k][6] + pts[k + 1][6]))) continue;
+                    double[] a = End(pts[k], layout.Profiles[i]), b = End(pts[k + 1], layout.Profiles[i]);
+                    list.Add(new[] { a[0], a[1], b[0], b[1], a[2], b[2] });
+                }
             }
             return list;
+        }
+
+        /// <summary>A corridor segment end (x, z, half) from a centreline point (x, z, tx, tz, left, right, s): centred on
+        /// the carriageway (its shift), half as wide as the wider side.</summary>
+        private static double[] End(double[] p, RoadWidthProfile prof)
+        {
+            double tl = Math.Sqrt(p[2] * p[2] + p[3] * p[3]);
+            double ux = tl > 1e-12 ? -p[3] / tl : 0, uz = tl > 1e-12 ? p[2] / tl : 1;
+            float off = prof.ShiftAt(p[6]);
+            float half = Math.Max(0.5f * RoadClearance.MinCorridorM, Math.Max((float)p[4] - off, (float)p[5] + off));
+            return new[] { p[0] + ux * off, p[1] + uz * off, half };
         }
 
         /// <summary>Brute-force corridor signed distance (tile-local) over every segment and polygon primitive.</summary>

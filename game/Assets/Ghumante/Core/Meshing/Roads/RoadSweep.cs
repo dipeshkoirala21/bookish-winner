@@ -420,7 +420,9 @@ namespace Ghumante.Core.Meshing
                     float sy = ey - 0.02f;
                     side.Add(ex, sy, ez, edgeNx, edgeNy, edgeNz, RoadStyle.Shoulder, MaterialChannel.Dirt, 0.9f);
                     double sx = ex + ox * width, sz = ez + oz * width;
-                    float syo = sy - 0.02f * (float)width;
+                    // A 2 % fall outward on top of the terrain's own fall across the shoulder (a hill road's shoulder
+                    // follows the hillside rather than standing out over it).
+                    float syo = sy - 0.02f * (float)width + (deck ? 0f : TerrainRise(grade, ex, ez, sx, sz));
                     side.Add(sx, syo, sz, edgeNx, edgeNy, edgeNz, RoadStyle.Shoulder, MaterialChannel.Dirt, 0.95f);
                     Foot(side, grade, sx, sz, syo, ox, oz, onx, onz, RoadStyle.Shoulder, MaterialChannel.Dirt, deck);
                     return;
@@ -440,7 +442,9 @@ namespace Ghumante.Core.Meshing
                     side.Add(kx, top, kz, 0f, 1f, 0f, paver, MaterialChannel.Flagstone, 0.9f);
                     double w = Math.Max(KerbTop + 0.05, width);
                     double px = ex + ox * w, pz = ez + oz * w;
-                    float py = top + (float)(0.025 * (w - KerbTop));
+                    // 2.5 % cross-fall toward the road on top of the terrain's own fall across the footpath, so a pavement
+                    // on a slope follows it instead of floating over the downhill side or burying the uphill one.
+                    float py = top + (float)(0.025 * (w - KerbTop)) + (deck ? 0f : TerrainRise(grade, kx, kz, px, pz));
                     side.Add(px, py, pz, -onx * 0.025f, 1f, -onz * 0.025f, paver, MaterialChannel.Flagstone, 0.95f, true);
                     side.Add(px, py, pz, onx * 0.7f, 0.7f, onz * 0.7f, paver, MaterialChannel.Flagstone, 0.85f);
                     double fx = px + ox * 0.06, fz = pz + oz * 0.06;
@@ -473,6 +477,12 @@ namespace Ghumante.Core.Meshing
                     return;
                 }
             }
+        }
+
+        /// <summary>How much the terrain rises from (ax, az) to (bx, bz) (negative where it falls).</summary>
+        private static float TerrainRise(RoadGrade grade, double ax, double az, double bx, double bz)
+        {
+            return grade.Terrain(bx, bz) - grade.Terrain(ax, az);
         }
 
         /// <summary>

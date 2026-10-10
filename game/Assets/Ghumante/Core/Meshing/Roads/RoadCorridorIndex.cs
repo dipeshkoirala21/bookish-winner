@@ -7,11 +7,14 @@ namespace Ghumante.Core.Meshing.Roads
 {
     /// <summary>
     /// The clear road corridors of one tile (docs/W2_DETAIL_CONTRACT.md decision 1, §3), in game metres: exactly the
-    /// corridor the road mesher draws. Every drawn piece (footways and paths included, tunnels excluded) contributes its
-    /// smoothed centreline (<see cref="RoadLayout.Centres"/>), split at its width profile's samples, as a chain of segments
-    /// whose half width at each end is <see cref="RoadLayout.CorridorHalfM"/> (linear between): the drawn extent (carriageway, dual-carriageway shift, footpath, shoulder) and
-    /// never less than half of <see cref="RoadClearance.MinCorridorM"/>, so 4.8 m stays clear everywhere. Junction caps and
-    /// roundabouts (ring, entries and island) contribute their outlines. A uniform grid of <see cref="CellM"/> cells makes
+    /// corridor the road mesher draws. Every drawn piece (footways and paths included; tunnels and building passages
+    /// excluded, and the stretches of mapped sidewalks absorbed into their street) contributes its smoothed centreline
+    /// (<see cref="RoadLayout.Centres"/>), split at its width profile's samples, as a chain of segments offset to the
+    /// carriageway centre (<see cref="RoadWidthProfile.ShiftAt"/>: the dual-carriageway or corridor shift), half as wide as
+    /// the wider side of the drawn extent (<see cref="RoadLayout.CorridorSides"/>: carriageway, footpath, shoulder) at each
+    /// end (linear between) and never less than half of
+    /// <see cref="RoadClearance.MinCorridorM"/>, so 4.8 m stays clear everywhere. Junction caps and roundabouts (ring,
+    /// entries and island) contribute their outlines. A uniform grid of <see cref="CellM"/> cells makes
     /// both queries local. Built once per decoded tile and cached (<see cref="ForTile"/>); immutable, so any thread may
     /// query it. Deterministic.
     /// </summary>
@@ -89,53 +92,84 @@ namespace Ghumante.Core.Meshing.Roads
                 var knots = new List<double>();
                 for (int i = 0; i < t.Roads.Count; i++)
                 {
-                    if (!RoadMesher.IsDrawn(t, i, o)) continue;
+                    // Building passages keep the house over them whole (RSTR Passage): no clear corridor.
+                    if (!RoadMesher.IsDrawn(t, i, o) || layout.IsPassage(i)) continue;
                     RoadCentreline c = layout.Centres[i];
                     if (c == null || c.Count < 2) continue;
-                    // Split the centreline steps at the width profile's samples too, so the linear half width of every
-                    // segment holds the profile (piecewise linear between its samples) as well as the ribbon (straight
-                    // between its rows at the centreline points), and where the shoulders switch to the border column
-                    // (the wider side's half width there).
+                    RoadWidthProfile prof = layout.Profiles[i];
+                    // Split the centreline steps at the width profile's samples too, so the linear band of every segment
+                    // holds the profile (piecewise linear between its samples) as well as the ribbon (straight between its
+                    // rows at the centreline points), and where the shoulders switch to the border column (the wider side
+                    // there). Each segment is offset to the carriageway centre (a dual carriageway's or a shifted corridor's
+                    // carriageway is not centred on the centreline).
                     Knots(layout, t.Roads[i], i, c, knots);
                     int kn = 0;
-                    double px0 = c.X[0], pz0 = c.Z[0];
-                    float hPrev = layout.CorridorHalfM(i, c.S[0]);
+                    float lPrev, rPrev;
+                    layout.CorridorSides(i, c.S[0], out lPrev, out rPrev);
+                    double sPrev = c.S[0], txPrev = c.Tx[0], tzPrev = c.Tz[0], px0 = c.X[0], pz0 = c.Z[0];
                     for (int k = 0; k + 1 < c.Count; k++)
                     {
                         double s0 = c.S[k], s1 = c.S[k + 1];
-                        float hK = layout.CorridorHalfM(i, s0), hK1 = layout.CorridorHalfM(i, s1);
+                        float lK, rK, lK1, rK1;
+                        layout.CorridorSides(i, s0, out lK, out rK);
+                        layout.CorridorSides(i, s1, out lK1, out rK1);
                         while (kn < knots.Count && knots[kn] <= s0 + 1e-6) kn++;
                         while (true)
                         {
                             bool knot = kn < knots.Count && knots[kn] < s1 - 1e-6;
-                            double nx, nz;
-                            float hNext;
+                            double nx, nz, ntx, ntz, sNext;
+                            float lNext, rNext;
                             if (knot)
                             {
                                 double sj = knots[kn++];
                                 double f = s1 > s0 ? (sj - s0) / (s1 - s0) : 0.0;
                                 nx = c.X[k] + (c.X[k + 1] - c.X[k]) * f;
                                 nz = c.Z[k] + (c.Z[k + 1] - c.Z[k]) * f;
-                                // The ribbon draws straight between its rows at the centreline points: never less
-                                // than the chord between the step's ends either.
-                                float chord = hK + (hK1 - hK) * (float)f;
-                                hNext = Math.Max(chord, Math.Max(layout.CorridorHalfM(i, sj - KnotSideM), layout.CorridorHalfM(i, sj + KnotSideM)));
+                                ntx = c.Tx[k] + (c.Tx[k + 1] - c.Tx[k]) * f;
+                                ntz = c.Tz[k] + (c.Tz[k + 1] - c.Tz[k]) * f;
+                                sNext = sj;
+                                // The ribbon draws straight between its rows at the centreline points: never less than the
+                                // chord between the step's ends either; at a step in the shoulders, the wider side.
+                                float la, ra, lb, rb;
+                                layout.CorridorSides(i, sj - KnotSideM, out la, out ra);
+                                layout.CorridorSides(i, sj + KnotSideM, out lb, out rb);
+                                lNext = Math.Max(lK + (lK1 - lK) * (float)f, Math.Max(la, lb));
+                                rNext = Math.Max(rK + (rK1 - rK) * (float)f, Math.Max(ra, rb));
                             }
                             else
                             {
                                 nx = c.X[k + 1];
                                 nz = c.Z[k + 1];
-                                hNext = hK1;
+                                ntx = c.Tx[k + 1];
+                                ntz = c.Tz[k + 1];
+                                sNext = s1;
+                                lNext = lK1;
+                                rNext = rK1;
                             }
-                            ax.Add(px0);
-                            az.Add(pz0);
-                            bx.Add(nx);
-                            bz.Add(nz);
-                            ha.Add(hPrev);
-                            hb.Add(hNext);
-                            road.Add(i);
-                            maxHalf = Math.Max(maxHalf, Math.Max(hPrev, hNext));
-                            hPrev = hNext;
+                            // Stretches absorbed into a neighbouring street (mapped sidewalks, footway crossings) lie inside
+                            // that street's corridor already.
+                            if (!layout.InAbsorbed(i, 0.5 * (sPrev + sNext)))
+                            {
+                                float offA, hA, offB, hB;
+                                Band(lPrev, rPrev, prof.ShiftAt(sPrev), out offA, out hA);
+                                Band(lNext, rNext, prof.ShiftAt(sNext), out offB, out hB);
+                                double ua, va, ub, vb;
+                                Normal(txPrev, tzPrev, out ua, out va);
+                                Normal(ntx, ntz, out ub, out vb);
+                                ax.Add(px0 + ua * offA);
+                                az.Add(pz0 + va * offA);
+                                bx.Add(nx + ub * offB);
+                                bz.Add(nz + vb * offB);
+                                ha.Add(hA);
+                                hb.Add(hB);
+                                road.Add(i);
+                                maxHalf = Math.Max(maxHalf, Math.Max(hA + Math.Abs(offA), hB + Math.Abs(offB)));
+                            }
+                            lPrev = lNext;
+                            rPrev = rNext;
+                            sPrev = sNext;
+                            txPrev = ntx;
+                            tzPrev = ntz;
                             px0 = nx;
                             pz0 = nz;
                             if (!knot) break;
@@ -204,11 +238,37 @@ namespace Ghumante.Core.Meshing.Roads
             ForEachCell(false, null, fill);
         }
 
+        /// <summary>The corridor band from the drawn extents left and right of the centreline and the carriageway's shift:
+        /// centred on the carriageway (offset <paramref name="shift"/>, positive = left), half wide enough for the wider
+        /// side and at least half of <see cref="RoadClearance.MinCorridorM"/>. Centring on the carriageway (not on the
+        /// middle of the extents) keeps the offset as smooth as the shift, so a segment never skews where a footpath
+        /// starts on one side.</summary>
+        internal static void Band(float left, float right, float shift, out float off, out float half)
+        {
+            off = shift;
+            half = Math.Max(0.5f * RoadClearance.MinCorridorM, Math.Max(left - shift, right + shift));
+        }
+
+        /// <summary>Unit left normal of a (not necessarily unit) tangent.</summary>
+        private static void Normal(double tx, double tz, out double ux, out double uz)
+        {
+            double l = Math.Sqrt(tx * tx + tz * tz);
+            if (l < 1e-12)
+            {
+                ux = 0;
+                uz = 1;
+                return;
+            }
+            ux = -tz / l;
+            uz = tx / l;
+        }
+
         /// <summary>Half the gap either side of a knot over which its half width is the larger of the two sides.</summary>
         private const double KnotSideM = 1e-3;
 
         /// <summary>The raw along values (ascending, inside the piece) where a piece's corridor segments must break: the
-        /// width profile's samples and the shoulders' border-blend boundaries next to tile-border cuts.</summary>
+        /// width profile's samples, the shoulders' border-blend boundaries next to tile-border cuts and the ends of absorbed
+        /// stretches.</summary>
         internal static void Knots(RoadLayout layout, RoadRecord r, int road, RoadCentreline c, List<double> knots)
         {
             knots.Clear();
@@ -218,6 +278,11 @@ namespace Ghumante.Core.Meshing.Roads
             if (r.HasPrevContext && RoadLayout.BorderBlendM < len) knots.Add(RoadLayout.BorderBlendM);
             double endBlend = layout.Profiles[road].LengthM - RoadLayout.BorderBlendM;
             if (r.HasNextContext && endBlend > 0) knots.Add(endBlend);
+            // The ends of absorbed stretches, so every segment is wholly in or out of one.
+            double[] ab = layout.Absorbed[road];
+            if (ab != null)
+                foreach (double v in ab)
+                    if (v > 1e-6 && v < len - 1e-6) knots.Add(v);
             knots.Sort();
         }
 

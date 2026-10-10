@@ -231,7 +231,7 @@ namespace Ghumante.Core.Meshing
                 Paver = RoadMesher.FootpathRgba(r),
             };
             st.Median = st.Dual ? Math.Max(RoadWidthModel.MinMedianM, a.MedianCm / 100f) : 0f;
-            st.Crown = st.Paving.LightCrown ? MeshColor.Lighten(st.Paving.Rgba, o.CentreLighten) : st.Paving.Rgba;
+            st.Crown = CrownRgba(st.Paving, o);
             st.MedianTop = st.Median >= 1.6f ? RoadStyle.IslandGrass : RoadMaterials.MedianConcrete;
             st.MedianCh = st.Median >= 1.6f ? MaterialChannel.Grass : MaterialChannel.Concrete;
             int prevBase = -1;
@@ -267,6 +267,13 @@ namespace Ghumante.Core.Meshing
             return any;
         }
 
+        /// <summary>The crown colour of a paving: lightened by <see cref="RoadOptions.CentreLighten"/> on asphalt and concrete
+        /// (worn wheel tracks), the paving itself otherwise. Caps and ring entries blend to it from the arm edges.</summary>
+        internal static uint CrownRgba(in RoadPaving pv, RoadOptions o)
+        {
+            return pv.LightCrown ? MeshColor.Lighten(pv.Rgba, o.CentreLighten) : pv.Rgba;
+        }
+
         /// <summary>The frames of a piece for the markings (thread-static; valid until the next call on this thread).</summary>
         internal static RibbonFrames FramesFor(TileData t, int ri, RoadLayout layout, RoadGrade grade, RoadOptions o)
         {
@@ -293,7 +300,6 @@ namespace Ghumante.Core.Meshing
             Candidates(t, ri, layout, c, sc);
             if (sc.Count < 2) return false;
             RoadWidthProfile prof = layout.Profiles[ri];
-            bool dual = layout.Attrs[ri].Has(RoadAttrFlags.Dual);
             // Columns of the carriageway (piece constants, so every row joins).
             bool crown, aoL, aoR;
             ColumnFlags(t, ri, layout, o, out crown, out aoL, out aoR);
@@ -307,12 +313,12 @@ namespace Ghumante.Core.Meshing
             f.Count = 0;
             int last = 0;
             double lod = o.Detail ? 1.0 : LowDetailToleranceScale;
-            Keep(f, sc, 0, layout, grade, ri, prof, dual);
+            Keep(f, sc, 0, layout, grade, ri, prof);
             for (int j = 1; j < n; j++)
             {
                 bool must = sc.Must[j] || j == n - 1 || sc.Gap[j - 1] || j + 1 < n && sc.Gap[j] != sc.Gap[j - 1];
-                if (!must && j + 1 < n && !sc.Gap[j] && CanSkip(sc, last, j + 1, layout, grade, ri, prof, dual, lod)) continue;
-                Keep(f, sc, j, layout, grade, ri, prof, dual);
+                if (!must && j + 1 < n && !sc.Gap[j] && CanSkip(sc, last, j + 1, layout, grade, ri, prof, lod)) continue;
+                Keep(f, sc, j, layout, grade, ri, prof);
                 last = j;
             }
             // Gap flags per kept segment: the candidates between two kept rows share one gap state.
@@ -344,16 +350,24 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         internal static int CutColumns(TileData t, int ri, RoadLayout layout, RoadOptions o, double s, double[] offs)
         {
+            int crownCol;
+            return CutColumns(t, ri, layout, o, s, offs, out crownCol);
+        }
+
+        /// <summary>As <see cref="CutColumns(TileData, int, RoadLayout, RoadOptions, double, double[])"/>, with the index of
+        /// the crown column (−1 without one).</summary>
+        internal static int CutColumns(TileData t, int ri, RoadLayout layout, RoadOptions o, double s, double[] offs, out int crownCol)
+        {
             RoadWidthProfile prof = layout.Profiles[ri];
-            bool dual = layout.Attrs[ri].Has(RoadAttrFlags.Dual);
             bool crown, aoL, aoR;
             ColumnFlags(t, ri, layout, o, out crown, out aoL, out aoR);
             double w = prof.DrawnAt(s);
-            double shift = dual ? 0.5 * (w - prof.RealM) : 0.0;
+            double shift = prof.ShiftAt(s);
             double left = shift + 0.5 * w, right = shift - 0.5 * w;
             int n = 0;
             offs[n++] = left;
             if (aoL) offs[n++] = Math.Max(shift + 0.05, left - 0.35);
+            crownCol = crown ? n : -1;
             if (crown) offs[n++] = shift;
             if (aoR) offs[n++] = Math.Min(shift - 0.05, right + 0.35);
             offs[n++] = right;
@@ -443,7 +457,7 @@ namespace Ghumante.Core.Meshing
         /// runs of small fillets thin out to what the curve needs), and the linear surface and edges within the tolerances
         /// at every station.
         /// </summary>
-        private static bool CanSkip(Scratch sc, int i, int e, RoadLayout layout, RoadGrade grade, int ri, RoadWidthProfile prof, bool dual, double lod)
+        private static bool CanSkip(Scratch sc, int i, int e, RoadLayout layout, RoadGrade grade, int ri, RoadWidthProfile prof, double lod)
         {
             double si = sc.S[i], se = sc.S[e];
             if (se - si > MaxRowSpacingM * Math.Min(lod, 1.5) || sc.Gap[i]) return false;
@@ -452,7 +466,7 @@ namespace Ghumante.Core.Meshing
             float rowTol = (float)(RowToleranceM * lod), widthTol = (float)(WidthToleranceM * lod);
             if (sc.Tx[i] * sc.Tx[e] + sc.Tz[i] * sc.Tz[e] < cosTurn) return false;
             float wi = prof.DrawnAt(si), we = prof.DrawnAt(se);
-            double shi = dual ? 0.5 * (wi - prof.RealM) : 0, she = dual ? 0.5 * (we - prof.RealM) : 0;
+            double shi = prof.ShiftAt(si), she = prof.ShiftAt(se);
             double len = se - si;
             for (int k = i + 1; k < e; k++)
             {
@@ -460,7 +474,7 @@ namespace Ghumante.Core.Meshing
                 if (sc.Tx[i] * sc.Tx[k] + sc.Tz[i] * sc.Tz[k] < cosTurn) return false;
                 double f = len > 1e-9 ? (sc.S[k] - si) / len : 0;
                 float wk = prof.DrawnAt(sc.S[k]);
-                double shk = dual ? 0.5 * (wk - prof.RealM) : 0;
+                double shk = prof.ShiftAt(sc.S[k]);
                 for (int q = -1; q <= 1; q++)
                 {
                     double oi = shi + 0.5 * wi * q, oe = she + 0.5 * we * q, ok = shk + 0.5 * wk * q;
@@ -494,7 +508,7 @@ namespace Ghumante.Core.Meshing
                 double cx, cz, tx, tz;
                 c.At(s, out cx, out cz, out tx, out tz);
                 double ux = -tz, uz = tx;
-                double sh = dual ? 0.5 * (w - prof.RealM) : 0;
+                double sh = prof.ShiftAt(s);
                 RoadGrade.Row g = grade.RowAt(ri, s);
                 if (g.DeckW > 0f && g.DeckW < 1f) return false; // a ramp off a deck: keep its rows
                 float yl = grade.Y(g, sh + 0.5 * w, cx + ux * (sh + 0.5 * w), cz + uz * (sh + 0.5 * w));
@@ -508,7 +522,7 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>Append candidate j as a row: edges (pinched on tight arcs), footpaths, grade, normal and column heights.</summary>
-        private static void Keep(RibbonFrames f, Scratch sc, int j, RoadLayout layout, RoadGrade grade, int ri, RoadWidthProfile prof, bool dual)
+        private static void Keep(RibbonFrames f, Scratch sc, int j, RoadLayout layout, RoadGrade grade, int ri, RoadWidthProfile prof)
         {
             int k = f.Count++;
             double s = sc.S[j];
@@ -522,7 +536,7 @@ namespace Ghumante.Core.Meshing
             f.K[k] = sc.K[j];
             f.GapAfter[k] = false;
             double w = prof.DrawnAt(s);
-            double shift = dual ? 0.5 * (w - prof.RealM) : 0.0;
+            double shift = prof.ShiftAt(s);
             double left = shift + 0.5 * w, right = shift - 0.5 * w;
             float footL = prof.Sample(prof.FootLeft, s), footR = prof.Sample(prof.FootRight, s);
             // Pinch the inside of tight arcs so the ribbon never folds over itself.

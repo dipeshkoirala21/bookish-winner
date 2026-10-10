@@ -9,15 +9,17 @@ namespace Ghumante.Core.Meshing
     /// (<see cref="KerbLeftM"/>, <see cref="KerbRightM"/>); 0 = no footpath on that side. <see cref="MedianM"/> is the
     /// full median width of a paired dual road (each carriageway draws half of it on its right, the offside in
     /// left-hand traffic). <see cref="CentreShiftM"/> moves the carriageway centre to the left of the mapped
-    /// centreline so a dual carriageway widens away from its median (positive = left).
+    /// centreline so a dual carriageway widens away from its median and a shifted corridor clears a protected footprint
+    /// (positive = left).
     /// </summary>
     public struct RoadProfile
     {
-        /// <summary>The §4.2 game carriageway width (lanes, access and the driving index of stage one follow it).</summary>
+        /// <summary>The §4.2 game carriageway width (lanes, access masks and the driving index of stage one follow it; the
+        /// surface as drawn is <see cref="DrawnM"/> at <see cref="DrawnShiftM"/>, <see cref="Roads.RoadSurfaceQuery"/>).</summary>
         public float CarriagewayM;
 
-        /// <summary>The drawn carriageway width: <see cref="CarriagewayM"/> raised to the rideability floor (decision 1:
-        /// every street at least <see cref="Roads.RoadClearance.MinCorridorM"/>), as the road mesher draws it.</summary>
+        /// <summary>The drawn carriageway width: the §4.2 access width raised to the rideability floor (decision 1: every
+        /// street at least <see cref="Roads.RoadClearance.MinCorridorM"/>), as the road mesher draws it.</summary>
         public float DrawnM;
 
         public float MedianM, FootpathLeftM, FootpathRightM, KerbLeftM, KerbRightM, ShoulderM;
@@ -28,9 +30,10 @@ namespace Ghumante.Core.Meshing
         /// <summary>Real (unscaled) width of the carriageway at this point.</summary>
         public float RealM;
 
+        /// <summary>Lateral shift of the carriageway centre from the centreline (<see cref="RoadWidthProfile.ShiftAt"/>).</summary>
         public float CentreShiftM;
 
-        /// <summary>The centre shift of the drawn carriageway (a dual carriageway widens away from its median).</summary>
+        /// <summary>The centre shift of the drawn carriageway (= <see cref="CentreShiftM"/>).</summary>
         public float DrawnShiftM;
 
         /// <summary>Kerb to kerb plus shoulders, footpaths and the median half: the whole width this piece occupies
@@ -42,12 +45,17 @@ namespace Ghumante.Core.Meshing
     }
 
     /// <summary>
-    /// A piece's game width sampled along its rendered length (<see cref="RoadWidthModel.BuildProfile"/>): the §4.2 width at
-    /// every <see cref="StepM"/> (<see cref="Width"/>: clamped by the corridor, smoothed and tapered; lanes, access by width
-    /// and stage one's driving index follow it), the drawn width (<see cref="Drawn"/>: <see cref="Width"/> raised to the
-    /// rideability floor <see cref="RoadWidthModel.RideableMinM"/>, decision 1, and joined at knees: what the road mesher draws
-    /// and the corridor holds), plus the footpath widths that fit beside the drawn carriageway. Reusable:
-    /// <see cref="RoadWidthModel.BuildProfile"/> overwrites it without allocating once it has grown.
+    /// A piece's game width sampled along its rendered length (<see cref="RoadWidthModel.BuildProfile"/>) every
+    /// <see cref="StepM"/>: the §4.2 width (<see cref="Width"/>: clamped by the corridor with the footpaths reserved
+    /// first, smoothed and tapered, widened at roundabout arms; lanes, access masks and the driving index of stage one
+    /// follow it, so a galli drawn 4.8 m wide for three motorbikes still keeps cars out), the carriageway as drawn
+    /// (<see cref="Drawn"/>: the §4.2 width raised to the rideability floor <see cref="RoadWidthModel.RideableMinM"/>,
+    /// decision 1, joined at knees and clamped against unconnected parallel pieces: what the road mesher draws and the
+    /// corridor holds), the footpath widths that fit beside it, and the lateral shift of the drawn carriageway
+    /// (<see cref="ShiftAt"/>: a dual carriageway widening away from its median, a push away from a parallel piece and
+    /// the corridor shift away from a protected footprint). The surface as drawn, junction caps and rings included, is
+    /// answered by <see cref="Roads.RoadSurfaceQuery"/>. Reusable: <see cref="RoadWidthModel.BuildProfile"/> overwrites
+    /// it without allocating once it has grown.
     /// </summary>
     public sealed class RoadWidthProfile
     {
@@ -56,13 +64,23 @@ namespace Ghumante.Core.Meshing
         public float LengthM;
         public float StepM;
         public int Count;
+
+        /// <summary>The §4.2 carriageway width per sample (lanes, access masks and the driving index of stage one).</summary>
         public float[] Width = new float[64];
+
         public float[] FootLeft = new float[64];
         public float[] FootRight = new float[64];
         public float[] Limit = new float[64];
 
-        /// <summary>The drawn carriageway width (at least the rideability floor).</summary>
+        /// <summary>The drawn carriageway width per sample (at least the rideability floor).</summary>
         public float[] Drawn = new float[64];
+
+        /// <summary>Lateral corridor shift of the carriageway (metres, positive = left of the point order) per sample, or
+        /// null when the piece is not shifted (RSTR corridor shift away from a protected footprint).</summary>
+        public float[] Shift;
+
+        /// <summary>A dual carriageway (RATR partner): the carriageway widens away from its median on its right.</summary>
+        public bool Dual;
 
         /// <summary>The structure record says no car fits (RoadStructureFlags.CarAccessible clear; decision 5).</summary>
         public bool NoCars;
@@ -72,10 +90,10 @@ namespace Ghumante.Core.Meshing
             if (Width.Length >= n) return;
             int cap = Math.Max(n, Width.Length * 2);
             Width = new float[cap];
+            Drawn = new float[cap];
             FootLeft = new float[cap];
             FootRight = new float[cap];
             Limit = new float[cap];
-            Drawn = new float[cap];
         }
 
         /// <summary>The access width at <paramref name="along"/> metres: the §4.2 width (a galli drawn 4.8 m wide for three
@@ -95,6 +113,25 @@ namespace Ghumante.Core.Meshing
         public float DrawnAt(double along)
         {
             return Sample(Drawn, along);
+        }
+
+        /// <summary>
+        /// Lateral shift of the drawn carriageway centre from the centreline at <paramref name="along"/> metres (positive =
+        /// left of the point order): half the widening of a dual carriageway (its median-side edge stays at real / 2) plus
+        /// the corridor shift (<see cref="Shift"/>). Every consumer (ribbon, grade, caps, markings, corridor, surface
+        /// query) offsets the carriageway by exactly this.
+        /// </summary>
+        public float ShiftAt(double along)
+        {
+            float s = Dual ? 0.5f * (DrawnAt(along) - RealM) : 0f;
+            if (Shift != null) s += Sample(Shift, along);
+            return s;
+        }
+
+        /// <summary>The corridor shift alone at <paramref name="along"/> metres (0 without one).</summary>
+        public float CorridorShiftAt(double along)
+        {
+            return Shift == null ? 0f : Sample(Shift, along);
         }
 
         /// <summary>The widest drawn point of the piece.</summary>
@@ -131,11 +168,14 @@ namespace Ghumante.Core.Meshing
             return values[i] + (values[i + 1] - values[i]) * t;
         }
 
+        /// <summary>The §4.2 carriageway width at <paramref name="along"/> metres (the drawn width is
+        /// <see cref="DrawnAt"/>).</summary>
         public float WidthAt(double along)
         {
             return Sample(Width, along);
         }
 
+        /// <summary>The narrowest §4.2 width along the piece.</summary>
         public float MinWidth
         {
             get
@@ -146,6 +186,7 @@ namespace Ghumante.Core.Meshing
             }
         }
 
+        /// <summary>The widest §4.2 width along the piece.</summary>
         public float MaxWidth
         {
             get
@@ -185,6 +226,9 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Clearance subtracted from the corridor (0.5 m to the building on each side).</summary>
         public const float CorridorClearanceM = 1.0f;
+
+        /// <summary>Footpath width change per length: 1 m over this many metres (a kerb-line flare).</summary>
+        public const float FootTaperRatio = 4f;
 
         /// <summary>Corridor jitter is smoothed with a moving minimum over this window.</summary>
         public const float SmoothWindowM = 30f;
@@ -558,14 +602,17 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// Fill <paramref name="p"/> with the piece's widths every <see cref="ProfileStepM"/>: §4.2 per sample from the
-        /// corridor limit; cut ends (tile borders) pinned to <see cref="BorderAccessWidthM"/> so both tiles meet exactly;
-        /// then the 1 : 20 taper as a lower envelope (a width only ever narrows to meet a constraint), and a 1 : 20 ramp
-        /// down from each pinned cut end so the end width holds even where this tile's corridor is tighter than the
-        /// neighbour's. That is the access width (§4.4). The drawn width is the access width raised to the rideability
-        /// floor (<see cref="RideableMinM"/>, a class constant, so cut ends still agree). Footpaths: the class × area rule,
-        /// shrunk to the space the corridor leaves beside the drawn carriageway and dropped under 1 m. A dual carriageway
-        /// keeps its median-side edge at real/2 and widens outwards (<see cref="RoadProfile.CentreShiftM"/>), so its width
-        /// and outer footpath are checked one-sided against the symmetric corridor: shift + w/2 + footpath ≤ limit/2.
+        /// corridor limit, with the class × area footpaths and shoulders reserved first (the carriageway widens beyond its
+        /// real width only into what the corridor leaves beside them); cut ends (tile borders) pinned to
+        /// <see cref="BorderAccessWidthM"/> so both tiles meet exactly; then the 1 : 20 taper as a lower envelope (a width
+        /// only ever narrows to meet a constraint), and a 1 : 20 ramp down from each pinned cut end so the end width holds
+        /// even where this tile's corridor is tighter than the neighbour's. That is the §4.2 width lanes and access follow
+        /// (§4.4, <see cref="RoadWidthProfile.Width"/>). The drawn width (<see cref="RoadWidthProfile.Drawn"/>) is it raised
+        /// to the rideability floor (<see cref="RideableMinM"/>, a class constant, so cut ends still agree). Footpaths: the
+        /// class × area rule, shrunk to the space the corridor leaves beside the drawn carriageway, tapered at
+        /// 1 : <see cref="FootTaperRatio"/> and dropped under 1 m. A dual carriageway keeps its median-side edge at real/2
+        /// and widens outwards (<see cref="RoadWidthProfile.ShiftAt"/>), so its width and outer footpath are checked
+        /// one-sided against the symmetric corridor: shift + w/2 + footpath ≤ limit/2.
         /// </summary>
         public static void BuildProfile(RoadRecord r, in RoadAttrRecord a, RoadWidthProfile p)
         {
@@ -595,10 +642,13 @@ namespace Ghumante.Core.Meshing
             p.StepM = length > 0 ? (float)(length / (n - 1)) : ProfileStepM;
             p.Count = n;
             p.NoCars = false;
-            float shoulders = 2f * ShoulderM(r.RoadClass, AreaOf(a));
+            float sh = ShoulderM(r.RoadClass, AreaOf(a));
+            float shoulders = 2f * sh;
             float footL, footR;
             NominalFootpaths(r, a, real, out footL, out footR);
             bool dual = a.Has(RoadAttrFlags.Dual);
+            p.Dual = dual;
+            p.Shift = null;
             float[] w = p.Width;
             for (int i = 0; i < n; i++)
             {
@@ -606,8 +656,18 @@ namespace Ghumante.Core.Meshing
                 float lim = LimitAt(a, real, s, finalCorridor);
                 p.Limit[i] = lim;
                 // Dual: the outer edge sits at w − real/2 (all the widening goes outwards), so w ≤ (limit + real) / 2.
-                float wl = dual && !float.IsPositiveInfinity(lim) ? Math.Min(lim, 0.5f * (lim + real)) : lim;
-                w[i] = ClampToLimit(real, nominal, floor, tagged, wl);
+                bool bounded = !float.IsPositiveInfinity(lim);
+                float wl = dual && bounded ? Math.Min(lim, 0.5f * (lim + real)) : lim;
+                float g = ClampToLimit(real, nominal, floor, tagged, wl);
+                if (bounded)
+                {
+                    // The footpaths (and shoulders) the class and area give are reserved before the carriageway widens
+                    // beyond its real width (Kanti Path, Durbar Marg keep their kerbed pavements): the widening only takes
+                    // what the corridor has left; the real width itself is never given up.
+                    float room = dual ? 0.5f * (lim + real) - footL - sh : lim - 2f * (Math.Max(footL, footR) + sh);
+                    if (g > room) g = Math.Max(room, ClampToLimit(real, real, floor, tagged, wl));
+                }
+                w[i] = g;
             }
             float border = BorderAccessWidthM(r);
             if (r.HasPrevContext) w[0] = Math.Min(w[0], border);
@@ -638,8 +698,11 @@ namespace Ghumante.Core.Meshing
                 p.FootLeft[i] = Math.Max(0f, Math.Min(footL, spaceL));
                 p.FootRight[i] = Math.Max(0f, Math.Min(footR, spaceR));
             }
-            Envelope(p.FootLeft, n, k);
-            Envelope(p.FootRight, n, k);
+            // Footpaths change width along a kerb flare (1 : FootTaperRatio), not the carriageway's 1 : 20 taper, so a
+            // pavement is not lost over 20 m either side of every narrow spot.
+            float kf = p.StepM / FootTaperRatio;
+            Envelope(p.FootLeft, n, kf);
+            Envelope(p.FootRight, n, kf);
             for (int i = 0; i < n; i++)
             {
                 if (p.FootLeft[i] < MinFootpathM) p.FootLeft[i] = 0f;
@@ -669,8 +732,10 @@ namespace Ghumante.Core.Meshing
             return p;
         }
 
-        /// <summary>The final game carriageway width at <paramref name="alongM"/> metres from the piece's first rendered
-        /// point (§4.2, tapered and smoothed). Prefer <see cref="BuildProfile"/> when sampling a piece many times.</summary>
+        /// <summary>The game carriageway width (as drawn, before any tile-level knee, ring or parallel-piece adjustment of
+        /// <see cref="RoadLayout"/>) at <paramref name="alongM"/> metres from the piece's first rendered point. Prefer
+        /// <see cref="RoadLayout.Profiles"/> (the tile's final widths) or <see cref="BuildProfile"/> when sampling a piece
+        /// many times.</summary>
         public static float GameWidthM(in RoadRecord r, in RoadAttrRecord a, float alongM)
         {
             return Cached(r, a).WidthAt(alongM);
@@ -806,11 +871,8 @@ namespace Ghumante.Core.Meshing
             };
             p.KerbLeftM = p.FootpathLeftM > 0 ? KerbTopM : 0f;
             p.KerbRightM = p.FootpathRightM > 0 ? KerbTopM : 0f;
-            if (dual)
-            {
-                p.MedianM = Math.Max(MinMedianM, a.MedianCm / 100f);
-                p.CentreShiftM = 0.5f * (w - real);
-            }
+            if (dual) p.MedianM = Math.Max(MinMedianM, a.MedianCm / 100f);
+            p.CentreShiftM = wp.ShiftAt(alongM);
             byte lanes = LanesFor(r, a, real);
             p.Lanes = lanes;
             if (oneway)
@@ -836,7 +898,7 @@ namespace Ghumante.Core.Meshing
                           (r.RoadClass == RoadClass.Motorway || r.RoadClass == RoadClass.Trunk || r.RoadClass == RoadClass.Primary ||
                            r.RoadClass == RoadClass.Secondary);
             p.DrawnM = wp.DrawnAt(alongM);
-            if (dual) p.DrawnShiftM = 0.5f * (p.DrawnM - real);
+            p.DrawnShiftM = p.CentreShiftM;
             p.Access = AccessForWidth(wp.AccessWidthAt(alongM), r, a);
             if (wp.NoCars) p.Access &= ~(Travel.Car | Travel.Jeep | Travel.Bus);
             return p;

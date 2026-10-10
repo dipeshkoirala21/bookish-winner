@@ -96,7 +96,7 @@ namespace Ghumante.Core.Meshing
     /// islands) and the smoothed centreline of every piece (<see cref="RoadCentreline"/>). Built once per decoded tile
     /// and cached (<see cref="For"/>); immutable afterwards, so worker threads may share it. Deterministic.
     /// </summary>
-    public sealed class RoadLayout
+    public sealed partial class RoadLayout
     {
         /// <summary>Junction nodes closer than this to the tile border get no cap (a node on the border belongs to both
         /// tiles); a cap whose outline leaves the tile is dropped as well.</summary>
@@ -115,9 +115,14 @@ namespace Ghumante.Core.Meshing
         /// stands statues, gardens and podiums on it, inside <see cref="RoadIsland.InteriorRadiusM"/>).</summary>
         public const float IslandInteriorHeightM = 0.30f;
 
-        /// <summary>Two pieces whose widths differ by more than this at a shared end are not joined as a knee (the
-        /// narrower one would have to widen too much).</summary>
+        /// <summary>At a knee the narrower piece widens by at most this (1 : 20 ramp, as before); where the two widths differ
+        /// by more, the wider piece tapers down at 1 : <see cref="KneeTaperRatio"/> to meet it, so the drawn width is
+        /// continuous across every two-piece node (no rectangular notch).</summary>
         public const float MaxKneeWidthStepM = 3f;
+
+        /// <summary>Width change per length of the wider piece's taper at a knee: 1 m of width over this many metres (each
+        /// edge flares at 1 : 12, a kerb-line flare rather than a step).</summary>
+        public const float KneeTaperRatio = 6f;
 
         private static readonly ConditionalWeakTable<TileData, RoadLayout> Cache = new ConditionalWeakTable<TileData, RoadLayout>();
 
@@ -158,6 +163,11 @@ namespace Ghumante.Core.Meshing
         /// <summary>Per road: knee joins at the start (index 2i) and end (2i + 1).</summary>
         public readonly RoadKnee[] Knees;
 
+        /// <summary>Per road: raw along pairs (start, end) of the stretches absorbed into a neighbouring street (a mapped
+        /// sidewalk drawn as that street's footpath, a footway crossing its carriageway); null = none
+        /// (<see cref="InAbsorbed"/>).</summary>
+        public readonly double[][] Absorbed;
+
         // Border-column shoulder width at each piece's start and end cut (NaN where the end is not a tile-border cut).
         private readonly float[] _endShoulder;
 
@@ -172,10 +182,16 @@ namespace Ghumante.Core.Meshing
             return Cache.GetValue(t, k => new RoadLayout(k));
         }
 
-        private RoadLayout(TileData t)
+        private RoadLayout(TileData t) : this(t, null)
+        {
+        }
+
+        private RoadLayout(TileData t, float[][] corridorShifts)
         {
             Tile = t;
+            _shiftOverride = corridorShifts;
             int n = t.Roads.Count;
+            Absorbed = new double[n][];
             Attrs = new RoadAttrRecord[n];
             Structures = new RoadStructureRecord[n];
             Profiles = new RoadWidthProfile[n];
@@ -211,7 +227,9 @@ namespace Ghumante.Core.Meshing
                 RoadWidthModel.BuildProfile(t.Roads[i], Attrs[i], Profiles[i], FinalCorridor);
                 Profiles[i].NoCars = !Structures[i].Has(RoadStructureFlags.CarAccessible);
                 Paving[i] = RoadMaterials.PavingOf(t, i, Attrs[i]);
+                ApplyCorridorShift(i);
             }
+            Passages(t);
             var cutEnds = new float[4 * n];
             for (int i = 0; i < n; i++)
             {
@@ -221,12 +239,16 @@ namespace Ghumante.Core.Meshing
                 cutEnds[4 * i + 3] = Profiles[i].Drawn[Math.Max(0, Profiles[i].Count - 1)];
             }
             FindKnees(t);
+            ClampParallel(t);
+            AbsorbSidewalks(t);
             RingsAndIslands(t);
             KeepCutEnds(t, cutEnds);
+            MatchKneeEnds(t);
             BorderCrossSections(t);
             Junctions(t);
             KneeTangents(t);
             for (int i = 0; i < n; i++) Centres[i] = BuildCentre(t, i);
+            _nodeSets.Clear();
         }
 
         /// <summary>
@@ -319,15 +341,18 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>The carriageway half width of road <paramref name="road"/> at <paramref name="alongM"/> in the W2_DESIGN 4.2
-        /// model (<see cref="RoadWidthProfile.WidthAt"/>): what lanes, traffic and the driving index use.</summary>
+        /// model (<see cref="RoadWidthProfile.WidthAt"/>): what lanes, traffic and the driving index of stage one use. The
+        /// surface as drawn (wider on gallis, narrower or moved beside an unconnected parallel piece, with junction caps and
+        /// rings) is <see cref="DrawnHalfWidthAt"/> about <see cref="RoadWidthProfile.ShiftAt"/>, and
+        /// <see cref="RoadSurfaceQuery"/> answers it for any point.</summary>
         public float HalfWidthAt(int road, double alongM)
         {
             return 0.5f * Profiles[road].WidthAt(alongM);
         }
 
         /// <summary>The drawn carriageway half width of road <paramref name="road"/> at <paramref name="alongM"/>: what the
-        /// ribbon covers (the 4.2 width raised to the rideability floor, widened through tight bends and at true rings;
-        /// never narrower than <see cref="HalfWidthAt"/>).</summary>
+        /// ribbon covers about the shifted centre (the 4.2 width raised to the rideability floor, joined at knees, widened
+        /// at true rings and clamped against unconnected parallel pieces).</summary>
         public float DrawnHalfWidthAt(int road, double alongM)
         {
             return 0.5f * Profiles[road].DrawnAt(alongM);
@@ -478,7 +503,9 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// Find the points where exactly two drawn pieces end and nothing else passes (an OSM way continued by another),
-        /// and pin both ends to the wider carriageway with 1 : 20 ramps so the join has one width.
+        /// and give the join one width: the narrower end widens (1 : 20 ramp) by up to <see cref="MaxKneeWidthStepM"/>,
+        /// the wider end tapers down to meet it (1 : <see cref="KneeTaperRatio"/>); footpaths on the same side meet at the
+        /// narrower of the two. Tile-border cut ends keep their width (both tiles agree on it).
         /// </summary>
         private void FindKnees(TileData t)
         {
@@ -521,15 +548,32 @@ namespace Ghumante.Core.Meshing
                 if (!KneeClass(ra.RoadClass) || !KneeClass(rb.RoadClass)) continue;
                 if (RoadWidthModel.IsFootClass(ra.RoadClass) != RoadWidthModel.IsFootClass(rb.RoadClass)) continue;
                 if (Attrs[ia].Has(RoadAttrFlags.RingMember) || Attrs[ib].Has(RoadAttrFlags.RingMember)) continue;
-                if (Structures[ia].IsElevated || Structures[ib].IsElevated || ra.Layer != rb.Layer) continue;
-                if ((ra.Flags & RoadFlags.Bridge) != (rb.Flags & RoadFlags.Bridge)) continue;
+                if (IsPassage(ia) || IsPassage(ib)) continue;
                 bool aStart = (ca & 1) == 0, bStart = (cb & 1) == 0;
                 RoadWidthProfile pa = Profiles[ia], pb = Profiles[ib];
                 float wa = aStart ? pa.Drawn[0] : pa.Drawn[pa.Count - 1], wb = bStart ? pb.Drawn[0] : pb.Drawn[pb.Count - 1];
-                if (Math.Abs(wa - wb) > MaxKneeWidthStepM) continue;
-                float w = Math.Max(wa, wb);
+                bool deckA = Structures[ia].IsElevated || (ra.Flags & RoadFlags.Bridge) != 0;
+                bool deckB = Structures[ib].IsElevated || (rb.Flags & RoadFlags.Bridge) != 0;
+                // Different layers on the ground (an OSM layer tag on a road over a culvert, a lane under an arcade) still
+                // continue each other; decks at different layers do not.
+                if (deckA != deckB || deckA && ra.Layer != rb.Layer || Structures[ia].IsElevated || Structures[ib].IsElevated)
+                {
+                    // A street meeting a deck end (bridge, flyover): no shared fillet (the deck keeps its mapped line and
+                    // width, the bridges package builds on it), but a wider street tapers down to the deck's width so the
+                    // join has no rectangular notch.
+                    if (deckA != deckB)
+                    {
+                        if (!deckA && wa > wb) Taper(ra, pa, aStart, wb);
+                        if (!deckB && wb > wa) Taper(rb, pb, bStart, wa);
+                    }
+                    continue;
+                }
+                float w = Math.Min(Math.Max(wa, wb), Math.Min(wa, wb) + MaxKneeWidthStepM);
                 Pin(pa, aStart, w);
                 Pin(pb, bStart, w);
+                Taper(ra, pa, aStart, w);
+                Taper(rb, pb, bStart, w);
+                MatchKneeFootpaths(pa, aStart, pb, bStart);
                 int liftRoad = RoadMesher.LiftOf(ra, null) >= RoadMesher.LiftOf(rb, null) ? ia : ib;
                 double ax, az, bx, bz;
                 EndDirection(ra, aStart, out ax, out az);
@@ -576,6 +620,79 @@ namespace Ghumante.Core.Meshing
             {
                 int d = atStart ? i : p.Count - 1 - i;
                 p.Drawn[i] = Math.Max(p.Drawn[i], w - k * d);
+            }
+        }
+
+        /// <summary>After the parallel-piece clamp narrowed one end of a knee, the other end tapers down to it too, so every
+        /// knee still has one width.</summary>
+        private void MatchKneeEnds(TileData t)
+        {
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                for (int e = 0; e < 2; e++)
+                {
+                    RoadKnee kn = Knees[2 * i + e];
+                    if (!kn.Has || kn.Other < i) continue;
+                    RoadWidthProfile pa = Profiles[i], pb = Profiles[kn.Other];
+                    bool aStart = e == 0, bStart = kn.OtherStarts;
+                    float wa = aStart ? pa.Drawn[0] : pa.Drawn[pa.Count - 1], wb = bStart ? pb.Drawn[0] : pb.Drawn[pb.Count - 1];
+                    if (Math.Abs(wa - wb) < 1e-3f) continue;
+                    if (wa > wb) Taper(t.Roads[i], pa, aStart, wb);
+                    else Taper(t.Roads[kn.Other], pb, bStart, wa);
+                    // A short piece whose other end is a tile-border cut may not narrow that far (the cut keeps its width):
+                    // the narrower end widens to meet it instead.
+                    wa = aStart ? pa.Drawn[0] : pa.Drawn[pa.Count - 1];
+                    wb = bStart ? pb.Drawn[0] : pb.Drawn[pb.Count - 1];
+                    if (wa > wb + 1e-3f) Pin(pb, bStart, wa);
+                    else if (wb > wa + 1e-3f) Pin(pa, aStart, wb);
+                }
+            }
+        }
+
+        /// <summary>Lower a profile's drawn end to width w, ramping up from it at 1 : <see cref="KneeTaperRatio"/>; a
+        /// tile-border cut end at the other end keeps its width (1 : 20 back down from it).</summary>
+        private static void Taper(RoadRecord r, RoadWidthProfile p, bool atStart, float w)
+        {
+            float kt = p.StepM / KneeTaperRatio, k = p.StepM / RoadWidthModel.TaperRatio;
+            float end0 = p.Drawn[0], end1 = p.Drawn[p.Count - 1];
+            for (int i = 0; i < p.Count; i++)
+            {
+                int d = atStart ? i : p.Count - 1 - i;
+                p.Drawn[i] = Math.Min(p.Drawn[i], w + kt * d);
+            }
+            for (int i = 0; i < p.Count; i++)
+            {
+                if (r.HasPrevContext && !atStart) p.Drawn[i] = Math.Max(p.Drawn[i], end0 - k * i);
+                if (r.HasNextContext && atStart) p.Drawn[i] = Math.Max(p.Drawn[i], end1 - k * (p.Count - 1 - i));
+            }
+        }
+
+        /// <summary>The footpaths of two knee ends on the same side (left meets left when one piece starts and the other
+        /// ends there, else left meets right) meet at the narrower of the two, tapered at 1 : 20.</summary>
+        private static void MatchKneeFootpaths(RoadWidthProfile pa, bool aStart, RoadWidthProfile pb, bool bStart)
+        {
+            bool same = aStart != bStart;
+            MatchFoot(pa.FootLeft, pa, aStart, same ? pb.FootLeft : pb.FootRight, pb, bStart);
+            MatchFoot(pa.FootRight, pa, aStart, same ? pb.FootRight : pb.FootLeft, pb, bStart);
+        }
+
+        private static void MatchFoot(float[] fa, RoadWidthProfile pa, bool aStart, float[] fb, RoadWidthProfile pb, bool bStart)
+        {
+            float ea = aStart ? fa[0] : fa[pa.Count - 1], eb = bStart ? fb[0] : fb[pb.Count - 1];
+            if (ea <= 0f || eb <= 0f || Math.Abs(ea - eb) < 1e-3f) return;
+            float target = Math.Max(RoadWidthModel.MinFootpathM, Math.Min(ea, eb));
+            LowerFrom(fa, pa, aStart, target);
+            LowerFrom(fb, pb, bStart, target);
+        }
+
+        private static void LowerFrom(float[] v, RoadWidthProfile p, bool atStart, float target)
+        {
+            float k = p.StepM / RoadWidthModel.TaperRatio;
+            for (int i = 0; i < p.Count; i++)
+            {
+                if (v[i] <= 0f) continue;
+                int d = atStart ? i : p.Count - 1 - i;
+                v[i] = Math.Max(RoadWidthModel.MinFootpathM, Math.Min(v[i], target + k * d));
             }
         }
 
@@ -729,17 +846,37 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         public float CorridorHalfM(int road, double alongM)
         {
+            float left, right;
+            CorridorSides(road, alongM, out left, out right);
+            return Math.Max(0.5f * Roads.RoadClearance.MinCorridorM, Math.Max(left, right));
+        }
+
+        /// <summary>
+        /// How far the drawn extent of road <paramref name="road"/> reaches left and right of its (smoothed) centreline at
+        /// raw along <paramref name="alongM"/>: the carriageway with its shift (<see cref="RoadWidthProfile.ShiftAt"/>),
+        /// then the footpath (at least <see cref="RoadWidthModel.MinFootpathM"/> where drawn) or the shoulder.
+        /// </summary>
+        public void CorridorSides(int road, double alongM, out float left, out float right)
+        {
             RoadWidthProfile p = Profiles[road];
             float w = p.DrawnAt(alongM);
-            float shift = Attrs[road].Has(RoadAttrFlags.Dual) ? 0.5f * (w - p.RealM) : 0f;
+            float shift = p.ShiftAt(alongM);
             float shoulder = ShoulderAt(road, alongM);
-            // A footpath is drawn at least MinFootpathM wide wherever it is drawn at all (the ribbon's rule).
-            float fl = p.Sample(p.FootLeft, alongM), fr = p.Sample(p.FootRight, alongM);
-            if (fl > 0f) fl = Math.Max(fl, RoadWidthModel.MinFootpathM);
-            if (fr > 0f) fr = Math.Max(fr, RoadWidthModel.MinFootpathM);
-            float left = shift + 0.5f * w + Math.Max(fl, shoulder);
-            float right = -shift + 0.5f * w + Math.Max(fr, shoulder);
-            return Math.Max(0.5f * Roads.RoadClearance.MinCorridorM, Math.Max(left, right));
+            // A footpath is drawn at least MinFootpathM wide wherever it is drawn at all, over the whole stretch between two
+            // rows when either end has one (the ribbon's rule): the larger of the two samples around alongM, constant
+            // between samples, so the corridor's linear segments hold it.
+            float fl = FootReach(p, p.FootLeft, alongM), fr = FootReach(p, p.FootRight, alongM);
+            left = shift + 0.5f * w + Math.Max(fl, shoulder);
+            right = -shift + 0.5f * w + Math.Max(fr, shoulder);
+        }
+
+        private static float FootReach(RoadWidthProfile p, float[] foot, double alongM)
+        {
+            if (p.Count <= 1) return p.Count == 1 && foot[0] > 0f ? Math.Max(foot[0], RoadWidthModel.MinFootpathM) : 0f;
+            int i = (int)Math.Floor(alongM / Math.Max(1e-6, p.StepM));
+            i = i < 0 ? 0 : i > p.Count - 2 ? p.Count - 2 : i;
+            float v = Math.Max(foot[i], foot[i + 1]);
+            return v > 0f ? Math.Max(v, RoadWidthModel.MinFootpathM) : 0f;
         }
 
         /// <summary>
@@ -1653,11 +1790,24 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>The section of road <paramref name="ri"/> at raw along <paramref name="s"/>: the point on the smoothed
-        /// centreline (the mapped polyline while the layout is being built), the left normal there, and the W2_DESIGN 4.2
-        /// carriageway (<see cref="HalfWidthAt"/>, the dual carriageway's outward shift).</summary>
+        /// centreline (the mapped polyline while the layout is being built), the left normal there, and the carriageway
+        /// (<see cref="HalfWidthAt"/>, its shift <see cref="RoadWidthProfile.ShiftAt"/>).</summary>
         public RoadCut CutAt(TileData t, int ri, double s)
         {
             return Section(t, ri, s, false);
+        }
+
+        /// <summary>The stored cut of road <paramref name="ri"/> at raw along <paramref name="s"/> (a junction cap's or ring
+        /// entry's, exactly as the ribbon's end row uses it: laid out on the mapped polyline while the layout was built), or
+        /// <see cref="DrawnCutAt"/> when there is none there. Caps insert the ribbon's columns along it, so cap and ribbon
+        /// share their cut edge vertex for vertex.</summary>
+        public RoadCut StoredCut(TileData t, int ri, double s)
+        {
+            RoadCut[] cuts = Cuts[ri];
+            if (cuts != null)
+                for (int k = 0; k < cuts.Length; k++)
+                    if (Math.Abs(cuts[k].S - s) <= 1e-6) return cuts[k];
+            return DrawnCutAt(t, ri, s);
         }
 
         /// <summary>As <see cref="CutAt"/> with the drawn carriageway (<see cref="DrawnHalfWidthAt"/>): where the ribbon's
