@@ -343,6 +343,23 @@ namespace Ghumante.Core.Traffic
             return n;
         }
 
+        /// <summary>Live agents now (full and ghost), without the publish step.</summary>
+        private int AliveNow()
+        {
+            int n = 0;
+            for (int i = 0; i < _agents.Length; i++)
+                if (_agents[i].Alive)
+                    n++;
+            return n;
+        }
+
+        /// <summary>
+        /// Departures the bus runner wants on the road around the player but has not placed yet (set by
+        /// <see cref="BusRouteRunner"/> every step). The ambient spawner leaves this many slots of the moving-vehicle
+        /// cap free, so routed buses fit under <see cref="TrafficSettings.MaxVehicles"/> instead of on top of it.
+        /// </summary>
+        internal int RoutedPending;
+
         // ---------------------------------------------------------------------------------------------------------
         // Snapshot
         // ---------------------------------------------------------------------------------------------------------
@@ -487,8 +504,12 @@ namespace Ghumante.Core.Traffic
         }
 
         /// <summary>Spawns an agent that follows route plan <paramref name="route"/> (bus runner).</summary>
+        /// <remarks>Refused when the moving-vehicle cap is full: routed vehicles share <see cref="TrafficSettings.MaxVehicles"/>
+        /// with the ambient traffic (which leaves <see cref="RoutedPending"/> slots for them).</remarks>
         internal bool SpawnRouted(int lane, float s, int variant, byte livery, int route, int routePos, out int agentId)
         {
+            agentId = 0;
+            if (AliveNow() >= _s.MaxVehicles) return false;
             if (!SpawnOnLane(lane, s, variant, livery, out agentId, false)) return false;
             int i = IndexOf(agentId);
             _agents[i].Route = route;
@@ -550,8 +571,33 @@ namespace Ghumante.Core.Traffic
             return true;
         }
 
-        /// <summary>No agent body within the stretch [s − len − 6, s + 6] of a lane.</summary>
+        /// <summary>
+        /// No agent body within the stretch [s − len − 6, s + 6] of a lane, measured on along the lane's successors and
+        /// back along its predecessors too: a vehicle that just moved onto the next connector (or is about to leave the
+        /// previous one) still blocks a spawn right behind (or in front of) it.
+        /// </summary>
         private bool Room(int laneId, float s, float len)
+        {
+            if (!RoomOn(laneId, s, len)) return false;
+            LaneGraph.Lane l = _g.Lanes[laneId];
+            int[] next = l.Next, prev = l.Prev;
+            for (int k = 0; k < next.Length; k++)
+            {
+                int n = next[k];
+                if (n < 0 || n >= _g.Lanes.Count || !_g.Lanes[n].Alive) continue;
+                if (!RoomOn(n, s - l.Length, len)) return false; // s in the successor's arc length (negative: before it)
+            }
+            for (int k = 0; k < prev.Length; k++)
+            {
+                int p = prev[k];
+                if (p < 0 || p >= _g.Lanes.Count || !_g.Lanes[p].Alive) continue;
+                if (!RoomOn(p, s + _g.Lanes[p].Length, len)) return false; // s in the predecessor's arc length
+            }
+            return true;
+        }
+
+        /// <summary><see cref="Room"/> on one lane, with s in that lane's arc length (may lie before or past it).</summary>
+        private bool RoomOn(int laneId, float s, float len)
         {
             for (int i = 0; i < _agents.Length; i++)
             {
@@ -581,6 +627,10 @@ namespace Ghumante.Core.Traffic
             }
             int target = (int)Math.Round(_s.MaxVehicles * density * (_s.Saturday ? TrafficTables.SaturdayFactor : 1f));
             if (density > 0f && target < 1) target = 1;
+            if (target > _s.MaxVehicles) target = _s.MaxVehicles;
+            // Leave the slots of the departures the bus runner is still waiting to place (they spawn under the cap).
+            int pending = RoutedPending > 0 ? Math.Min(RoutedPending, target) : 0;
+            target -= pending;
             if (alive >= target) return;
             for (int attempt = 0; attempt < _s.SpawnAttempts && alive < target; attempt++)
             {

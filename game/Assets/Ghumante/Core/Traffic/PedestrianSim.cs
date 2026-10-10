@@ -572,7 +572,7 @@ namespace Ghumante.Core.Traffic
             }
         }
 
-        // Archetype mix (S §3.2): old core, urban, peri-urban, fields, Boudha/Swayambhu (stupa koras).
+        // Archetype mix (S §3.2): old core, urban, peri-urban, fields, Boudha/Swayambhu (stupa koras), Pashupati.
         private static readonly float[][] Mix =
         {
             new float[] { 40, 18, 6, 3, 8, 6, 6, 6, 1, 0, 0 },
@@ -580,21 +580,49 @@ namespace Ghumante.Core.Traffic
             new float[] { 45, 18, 6, 0, 10, 2, 2, 0, 0.5f, 0, 6 },
             new float[] { 25, 20, 8, 0, 8, 4, 0, 0, 0, 0, 33 },
             new float[] { 30, 12, 3, 0, 3, 1, 4, 20, 22, 0, 0 },
+            // Pashupatinath, the Bagmati ghats and Deopatan (W2_DESIGN 10.3, Pashupati column; ref_characters.md §5):
+            // pilgrims in saris and daura suruwal, visitors, and the sadhus in saffron who sit and walk by the temple.
+            new float[] { 35, 25, 8, 0, 2, 1, 4, 10, 0, SadhuWeightPashupati, 0 },
         };
 
-        private static byte PickArchetype(ref SimRng r, AreaType a, bool kora)
+        /// <summary>Spawn weight (of about 91) of the sadhu archetype in the Pashupati district (the
+        /// <c>StreetStyle.Pashupati</c> circle, 350 m round the temple); 0 everywhere else. This row is the only source of
+        /// sadhus: the crowd's recipe dresses each pedestrian as the archetype drawn here, so the drawn share is this one.</summary>
+        public const float SadhuWeightPashupati = 6f;
+
+        /// <summary>The archetype a pedestrian spawned at game position (<paramref name="x"/>, <paramref name="z"/>) in an
+        /// area of type <paramref name="area"/> draws from <paramref name="u01"/> (uniform in [0, 1)): kora walkers use
+        /// the stupa row, the Pashupati district its own row (with sadhus), elsewhere the area type's row. Deterministic;
+        /// exposed for tests.</summary>
+        public static PedArchetype ArchetypeFor(double x, double z, AreaType area, bool kora, float u01)
         {
-            float[] row = kora ? Mix[4] : a == AreaType.OldCore ? Mix[0] : a == AreaType.Urban ? Mix[1] : a == AreaType.PeriUrban ? Mix[2] :
+            return (PedArchetype)PickFromRow(RowFor(x, z, area, kora), u01);
+        }
+
+        private static float[] RowFor(double x, double z, AreaType a, bool kora)
+        {
+            if (kora) return Mix[4];
+            if (Ghumante.Core.Characters.StreetStyles.At(x, z, a) == Ghumante.Core.Characters.StreetStyle.Pashupati) return Mix[5];
+            return a == AreaType.OldCore ? Mix[0] : a == AreaType.Urban ? Mix[1] : a == AreaType.PeriUrban ? Mix[2] :
                 a == AreaType.Rural || a == AreaType.Hill ? Mix[3] : Mix[1];
+        }
+
+        private static byte PickFromRow(float[] row, float u01)
+        {
             float total = 0f;
             foreach (float w in row) total += w;
-            float u = r.NextFloat() * total;
+            float u = u01 * total;
             for (int i = 0; i < row.Length; i++)
             {
                 u -= row[i];
                 if (u < 0f) return (byte)i;
             }
             return 0;
+        }
+
+        private static byte PickArchetype(ref SimRng r, AreaType a, bool kora, double x, double z)
+        {
+            return PickFromRow(RowFor(x, z, a, kora), r.NextFloat());
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -719,7 +747,7 @@ namespace Ghumante.Core.Traffic
                 if (e.Kind == EdgeKind.Crossing || e.Kind == EdgeKind.Corner) continue;
                 float s;
                 ProjectEdge(e, x, z, out s);
-                var p = NewPed(e.Area, false, wet);
+                var p = NewPed(e.Area, false, wet, x, z);
                 p.Mode = 0;
                 p.Edge = eid;
                 p.S = s;
@@ -738,11 +766,11 @@ namespace Ghumante.Core.Traffic
             }
         }
 
-        private Ped NewPed(AreaType area, bool kora, float wet)
+        private Ped NewPed(AreaType area, bool kora, float wet, double x, double z)
         {
             var p = new Ped { Alive = true, Id = _nextId++ };
             var r = new SimRng(SimRng.Mix(_seed, (ulong)p.Id, 0x504544));
-            p.Archetype = PickArchetype(ref r, area, kora);
+            p.Archetype = PickArchetype(ref r, area, kora, x, z);
             p.Tint = (byte)r.Next(16);
             p.Personal = r.Range(0.85f, 1.15f);
             p.Speed = 1.35f * p.Personal * (p.Archetype == (byte)PedArchetype.Porter ? 0.8f : 1f);
@@ -772,7 +800,7 @@ namespace Ghumante.Core.Traffic
                 else if (outer > 0f) break;
             }
             if (outer < 6f) return;
-            var p = NewPed(AreaType.OldCore, true, wet);
+            var p = NewPed(AreaType.OldCore, true, wet, zone.CX, zone.CZ);
             var rr = new SimRng(p.Rng);
             p.Mode = 2;
             p.ZoneRef = zone.AreaRef;
@@ -789,7 +817,7 @@ namespace Ghumante.Core.Traffic
 
         private void SpawnWander(int slot, double x, double z, SacredZone zone, AreaType area, float wet)
         {
-            var p = NewPed(area, false, wet);
+            var p = NewPed(area, false, wet, x, z);
             var r = new SimRng(p.Rng);
             p.Mode = r.Chance(0.5f) ? (byte)3 : (byte)1; // half stand or sit
             p.Wait = r.Range(20f, 90f);

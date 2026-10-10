@@ -4,7 +4,8 @@ using Ghumante.Core.Services;
 namespace Ghumante.App.Explore
 {
     /// <summary>
-    /// Which haptic a frame of driving plays (UI/README.md, "Haptics"): stuck recovery MediumImpact, a bump or a firm
+    /// Which haptic a frame of driving plays (UI/README.md, "Haptics"): stuck recovery MediumImpact, hitting something
+    /// solid MediumImpact on a vehicle (LightImpact on foot), a bump or a firm
     /// landing LightImpact, a change of surface Selection (on the scooter only: on foot every kerb would tick). At most one
     /// per frame, the strongest; the platform's rate limiter spaces them further. Arrival's Success comes from the HUD's
     /// celebration. Engine-free.
@@ -20,6 +21,13 @@ namespace Ghumante.App.Explore
             if ((events & StepEvents.StuckRecovered) != 0)
             {
                 kind = HapticKind.MediumImpact;
+                return true;
+            }
+            // Ran into a house, a wall, a tree or a parked vehicle (the collide package's HitWall, already above
+            // ArcadeVehicle.HitWallMinMps): a firm knock on a vehicle, a light one on foot.
+            if ((events & StepEvents.HitWall) != 0)
+            {
+                kind = riding ? HapticKind.MediumImpact : HapticKind.LightImpact;
                 return true;
             }
             if ((events & StepEvents.Bump) != 0 ||

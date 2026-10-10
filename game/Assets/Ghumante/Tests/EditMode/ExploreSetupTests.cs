@@ -125,6 +125,25 @@ namespace Ghumante.Tests.EditMode
             Assert.IsNull(namer.Current);
             namer.Reset();
             Assert.IsNull(namer.Current);
+            Assert.AreEqual(0L, namer.CurrentKey);
+        }
+
+        [Test]
+        public void DiscoveriesAreKeyedByThePlaceNotItsName()
+        {
+            // The session's discovery set keys places by PlaceNamer.CurrentKey: one place keeps one key wherever the
+            // player stands in it; two places that share a name ("Ganesh Mandir") get two keys.
+            var namer = new PlaceNamer(ExploreSample.Search.Index);
+            SearchEntry thamel = ExploreSpawn.Best(ExploreSample.Search, "Thamel");
+            Assert.IsTrue(namer.Update(null, thamel.X, thamel.Z));
+            long key = namer.CurrentKey;
+            Assert.AreNotEqual(0L, key);
+            long again;
+            Assert.AreEqual("Thamel", namer.Resolve(null, thamel.X + 40, thamel.Z - 25, out again).Display(false));
+            Assert.AreEqual(key, again, "one place, one key");
+            Assert.AreNotEqual(PlaceNamer.KeyOf(100.2, -50.4), PlaceNamer.KeyOf(160.0, -50.4), "same name, other spot");
+            Assert.AreEqual(PlaceNamer.KeyOf(100.2, -50.4), PlaceNamer.KeyOf(99.8, -50.1));
+            Assert.AreNotEqual(0L, PlaceNamer.KeyOf(0, 0));
         }
 
         [Test]

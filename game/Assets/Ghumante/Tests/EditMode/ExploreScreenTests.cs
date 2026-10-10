@@ -349,6 +349,23 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void TheHornButtonsHoverNameFollowsItsLabel()
+        {
+            ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
+            screen.HideLoading();
+            Button horn = root.Q<Button>("hud-horn");
+            Assert.IsNotNull(horn);
+            screen.SetHornLabel("hud.bell");
+            Assert.AreEqual("Bell", horn.tooltip, "a bicycle's horn button rings a bell");
+            _localizer.SetLocale(Localizer.Nepali);
+            Assert.AreEqual("घण्टी", horn.tooltip);
+            screen.SetHornLabel("hud.horn");
+            Assert.AreEqual("हर्न", horn.tooltip);
+            _localizer.SetLocale(Localizer.English);
+            Assert.AreEqual("Horn", horn.tooltip);
+        }
+
+        [Test]
         public void PanelPillsTakeGamepadFocusButTheHudDoesNot()
         {
             ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);

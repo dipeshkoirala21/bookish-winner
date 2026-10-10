@@ -143,6 +143,12 @@ namespace Ghumante.App.Explore
         private Material _toonMaterial;
         private RoutePlanner _planner;
         private PlaceNamer _namer;
+
+        // Places the banner has named this session, by feature (PlaceNamer.CurrentKey, not by name text: two temples
+        // called "Ganesh Mandir" are two discoveries): a new one is a discovery (the player's face lights up).
+        private readonly HashSet<long> _seenPlaces = new HashSet<long>();
+        // The next place named is where the player arrived (the spawn, a teleport), not one they found: seen, no reaction.
+        private bool _quietNextPlace = true;
         private RouteGuide _guide;
         private SearchEntry _destination;
         private bool _blockedLastFrame;
@@ -274,6 +280,8 @@ namespace Ghumante.App.Explore
             _toonMaterial = null;
             _planner = null;
             _namer = null;
+            _seenPlaces.Clear();
+            _quietNextPlace = true;
             _guide = null;
             _destination = null;
             if (_screen != null) Unwire();
@@ -368,6 +376,7 @@ namespace Ghumante.App.Explore
                 _planner = planner;
                 _spawn = spawn;
                 _namer = new PlaceNamer(search != null ? search.Index : null);
+                _quietNextPlace = true; // the spawn's own place is not a discovery
                 bool nepali = _localizer.Locale == Localizer.Nepali;
                 string place = spawn.Place != null ? spawn.Place.Display(nepali) : (nepali && !string.IsNullOrEmpty(manifest.NameNe) ? manifest.NameNe : manifest.NameEn);
                 _screen.ShowLoading("explore.loading.streets", place);
@@ -561,7 +570,7 @@ namespace Ghumante.App.Explore
             if (_placeTimer <= 0f)
             {
                 _placeTimer = PlaceInterval;
-                if (_namer != null && _namer.Update(_world.GroundQuery, position.X, position.Z)) _screen.SetPlace(_namer.Current);
+                if (_namer != null && _namer.Update(_world.GroundQuery, position.X, position.Z)) OnPlaceChanged(_namer.Current, _namer.CurrentKey);
             }
             UpdateRoute(dt, position);
             _screen.SetDebugClock(_world.TimeOfDayHours);
@@ -583,6 +592,10 @@ namespace Ghumante.App.Explore
             // The driver's eye inside a closed body: the vehicle shows its stand-in cockpit (no outline hull around us).
             bool eyeView = _rig.Mounted && CameraViews.Spec(_rig.View).Kind == CameraViewKind.Eye;
             _explorer.UpdateCockpit(eyeView, _rig.Camera.transform.position);
+            // The occluder fade's player end: the explorer's head (the rider's, the driver's seat, the bus seat), so a
+            // house between the camera and a rider's helmet dithers, not one between the camera and the ground point.
+            Transform head = _explorer.Head;
+            if (head != null) ToonLook.SetOccluderTarget(head.position);
             _screen.SetHeading(_rig.YawRad);
         }
 
@@ -684,16 +697,38 @@ namespace Ghumante.App.Explore
         }
 
         /// <summary>
-        /// The world's solid geometry for the camera boom (Track COLLIDE implements <see cref="IViewObstacleQuery"/> over
-        /// structure colliders, decks and terrain): the ground query when it implements it; null otherwise (the camera
-        /// then only keeps above the ground).
+        /// The world's solid geometry for the camera boom: the open world's <see cref="TileGroundQuery"/>, the collide
+        /// package's <see cref="IViewObstacleQuery"/> over building footprints, structure colliders (statues, piers,
+        /// walls), bridge decks and terrain, in game metres with absolute heights (the rig adds the floating origin to its
+        /// scene positions, so a rebase changes nothing). Read every frame, so a closed and reopened region (a new query)
+        /// is picked up at once; null while no world is open (the camera then only keeps above the ground).
         /// </summary>
         private IViewObstacleQuery ViewObstacles()
         {
-            if (_world == null) return null;
-            object query = _world.GroundQuery;
-            return query as IViewObstacleQuery ?? _world.Ground as IViewObstacleQuery;
+            return _world != null ? _world.GroundQuery : null;
         }
+
+        /// <summary>The place banner changed: show it, and a place not named before this session (not the spawn's own,
+        /// not the first one named after a teleport) is a discovery the player's face reacts to.</summary>
+        private void OnPlaceChanged(NameRecord place, long key)
+        {
+            _screen.SetPlace(place);
+            if (place == null || place.IsEmpty || key == 0) return;
+            bool quiet = _quietNextPlace;
+            _quietNextPlace = false;
+            if (!_seenPlaces.Add(key) || quiet) return;
+            _explorer.ReactFace(MoodCue.Discovery);
+            // A short "Discovered: …" toast, at most one per DiscoveryToastGapS so a dense bazaar does not chatter.
+            float now = Time.unscaledTime;
+            if (now - _lastDiscoveryToast < DiscoveryToastGapS) return;
+            _lastDiscoveryToast = now;
+            _screen.ShowToast(_localizer.Format("hud.discovered", place.Display(_localizer.Locale == Localizer.Nepali)), "gh-toast__icon--star", 2.4f);
+        }
+
+        /// <summary>Seconds between two discovery toasts (the face still lights up for every new place).</summary>
+        private const float DiscoveryToastGapS = 20f;
+
+        private float _lastDiscoveryToast = float.NegativeInfinity;
 
         private void OnModeChanged(ExplorerMode mode)
         {
@@ -1044,6 +1079,7 @@ namespace Ghumante.App.Explore
                 NameRecord name = _destination.Name;
                 CancelRoute();
                 _screen.CelebrateArrival(name);
+                _explorer.ReactFace(MoodCue.Arrival);
                 return;
             }
             if (status == RouteStatus.OffRoute && !_planning && _rerouteCooldown <= 0f)
@@ -1101,6 +1137,7 @@ namespace Ghumante.App.Explore
             _explorer.Teleport(spawn.X, spawn.Z, spawn.HeadingRad, spawn.HeightHint);
             _rig.Snap();
             if (_namer != null) _namer.Reset();
+            _quietNextPlace = true; // the teleport's destination is not a discovery (the teleport has its own toast)
             _placeTimer = 0f;
             _screen.SetPlace(null);
             string name = entry.Name.Display(_localizer.Locale == Localizer.Nepali);

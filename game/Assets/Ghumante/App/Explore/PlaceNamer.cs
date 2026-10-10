@@ -52,10 +52,17 @@ namespace Ghumante.App.Explore
         /// <summary>The name shown now (null: none).</summary>
         public NameRecord Current { get; private set; }
 
+        /// <summary>
+        /// Which named feature <see cref="Current"/> is (0: none): its game position rounded to the metre, so two temples
+        /// that share a name ("Ganesh Mandir") are two places, and one place stays one place across origin rebases.
+        /// </summary>
+        public long CurrentKey { get; private set; }
+
         /// <summary>Re-evaluates at (x, z); returns true when <see cref="Current"/> changed.</summary>
         public bool Update(TileGroundQuery ground, double x, double z)
         {
-            NameRecord candidate = Resolve(ground, x, z);
+            long key;
+            NameRecord candidate = Resolve(ground, x, z, out key);
             if (Same(candidate, Current))
             {
                 _hasPending = false;
@@ -64,6 +71,7 @@ namespace Ghumante.App.Explore
             if (Current == null || _hasPending && Same(candidate, _pending))
             {
                 Current = candidate;
+                CurrentKey = key;
                 _hasPending = false;
                 _pending = null;
                 return true;
@@ -77,6 +85,7 @@ namespace Ghumante.App.Explore
         public void Reset()
         {
             Current = null;
+            CurrentKey = 0;
             _pending = null;
             _hasPending = false;
         }
@@ -85,8 +94,17 @@ namespace Ghumante.App.Explore
         /// within <see cref="PoiRadiusM"/>, else the place whose radius covers the point most (distance / radius).</summary>
         public NameRecord Resolve(TileGroundQuery ground, double x, double z)
         {
+            long key;
+            return Resolve(ground, x, z, out key);
+        }
+
+        /// <summary><see cref="Resolve(TileGroundQuery, double, double)"/> with the named feature's key
+        /// (<see cref="KeyOf"/>; 0 when nothing is named).</summary>
+        public NameRecord Resolve(TileGroundQuery ground, double x, double z, out long key)
+        {
             NameRecord poi = null, place = null;
             double poiDistance = PoiRadiusM, placeScore = 1.0;
+            double poiX = 0, poiZ = 0, placeX = 0, placeZ = 0;
             if (ground != null)
             {
                 TileId centre = TileId.At(10, x, z);
@@ -97,7 +115,7 @@ namespace Ghumante.App.Explore
                         RoadSpatialIndex roads = ground.RoadIndexOf(new TileId(10, centre.Tx + dx, centre.Ty + dy));
                         TileData tile = roads != null ? roads.Tile : null;
                         if (tile == null) continue;
-                        ScoreTile(tile, x, z, ref poi, ref poiDistance, ref place, ref placeScore);
+                        ScoreTile(tile, x, z, ref poi, ref poiDistance, ref poiX, ref poiZ, ref place, ref placeScore, ref placeX, ref placeZ);
                     }
                 }
             }
@@ -109,13 +127,23 @@ namespace Ghumante.App.Explore
                 {
                     placeScore = score;
                     place = _places[i].Name;
+                    placeX = _places[i].X;
+                    placeZ = _places[i].Z;
                 }
             }
+            key = poi != null ? KeyOf(poiX, poiZ) : place != null ? KeyOf(placeX, placeZ) : 0L;
             return poi ?? place;
         }
 
-        private void ScoreTile(TileData tile, double x, double z, ref NameRecord poi, ref double poiDistance,
-                               ref NameRecord place, ref double placeScore)
+        /// <summary>The identity of a named feature at game position (x, z): the position rounded to the metre (never 0).</summary>
+        public static long KeyOf(double x, double z)
+        {
+            long ix = (long)Math.Round(x), iz = (long)Math.Round(z);
+            return (ix << 32) ^ (iz & 0xFFFFFFFFL) ^ long.MinValue;
+        }
+
+        private void ScoreTile(TileData tile, double x, double z, ref NameRecord poi, ref double poiDistance, ref double poiX,
+                               ref double poiZ, ref NameRecord place, ref double placeScore, ref double placeX, ref double placeZ)
         {
             List<PoiRecord> pois = tile.Pois;
             for (int i = 0; i < pois.Count; i++)
@@ -146,11 +174,15 @@ namespace Ghumante.App.Explore
                 {
                     placeScore = d / radius;
                     place = name;
+                    placeX = px;
+                    placeZ = pz;
                 }
                 else
                 {
                     poiDistance = d;
                     poi = name;
+                    poiX = px;
+                    poiZ = pz;
                 }
             }
         }

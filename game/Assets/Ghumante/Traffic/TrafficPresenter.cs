@@ -492,12 +492,11 @@ namespace Ghumante.Traffic
             }
         }
 
-        /// <summary>The model type a parked vehicle is drawn as: the one its borrowed copy gets, whose plate seed the
-        /// explorer derives from the parked id (ExplorerController, <c>CharMath.Hash(id, 0x464C54)</c>), so a borrowed
-        /// fleet bike keeps its shape.</summary>
+        /// <summary>The model type a parked vehicle is drawn as: the one its borrowed copy gets (both use
+        /// <see cref="VehicleSeeds.Fleet"/> of the parked id), so a borrowed fleet bike keeps its shape.</summary>
         private static byte ParkedModel(in ParkedVehicle pv)
         {
-            return VehicleMesher.ModelFor(pv.Variant, Core.Characters.CharMath.Hash(pv.Id, 0x464C54u));
+            return VehicleSeeds.FleetModel(pv.Variant, pv.Id);
         }
 
         /// <summary>The green key tag of a community-fleet vehicle (the one DrivenVehicleView hangs on a borrowed

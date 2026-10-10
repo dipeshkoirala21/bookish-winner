@@ -272,3 +272,70 @@ frame.
 
 What to report: an angle that frames badly for a vehicle, any frame where the camera is inside or behind a house, the
 chip covering anything, or a car route that still enters a lane a car cannot fit.
+
+## The whole detail pass on a Mac (one walkthrough)
+
+Everything the owner asked for in the detail pass, from the player's seat, in one sitting. Set up as above (pull, open
+`game/` in Unity 6000.3.25f1, **Ghumante → Project Setup**, open `Assets/Ghumante/Scenes/Bootstrap.unity`, **Play**,
+**Explore**). Jump between places with **/**, type the name, **Teleport** (editor and development builds; every name
+below is checked against the sample's search index by `ExplorePlayIntegrationTests.ReadmeTeleportsFindTheirPlaceOnTheSample`).
+Steps marked *valley pack* need `kathmandu_valley` imported (see "How to play the M1 slice"); the rest run on the
+committed `kathmandu_core` sample. The game starts in October, so the fields and terraces show their October colours.
+Parts marked **(needs integ-world)** are drawn by world layers (bridge decks, roundabout statues and gates, statue and
+pier colliders) that the world integration package wires into the streamer; on a build without that merge they are not
+there yet, so skip them (`ExplorePlayIntegrationTests.ReadmeMarksTheWorldLayersThatAreNotWiredYet` keeps these marks
+honest: it fails once the layers are wired until the marks are removed, so re-check those steps then).
+
+1. **Camera angles (C).** On foot press **C**: *Near chase*, *Far chase*, *Over the shoulder*. **G** for the scooter,
+   **E** to hop on, **C**: *Near*, *Far*, *Low cinematic*, *Handlebar*. A car adds *Bonnet* and *Driver's view*; a bus
+   or truck *High chase* and *Driver's seat*; riding along *Window seat*. Each press names the angle in a toast (English
+   or Nepali, **Settings → Language**), and every class remembers its own angle across hops and restarts. The camera
+   button in the top bar does the same on touch.
+2. **Reversing in a Thamel lane.** Teleport to **Thamel Chowk**, scooter (**G**, **E**), ride into a side lane and hold
+   **S**: the camera rises and swings to look where you back up, never inside or behind a house. It collides with the
+   real houses of the streamed world (the world's ground query, with every streamed tile's building footprints and the
+   terrain, is the camera's obstacle query), and it keeps doing so after the floating origin rebases (ride a couple of
+   kilometres) and after you leave Explore and open it again
+   (`ExplorePlayIntegrationTests.TheChaseBoomStopsShortOfThamelHousesAcrossRebasesAndAReopenedRegion`). Statues, piers
+   and bridge decks stop it too **(needs integ-world)**. Ride into a wall: a cartoon knock, a body bounce, a firm haptic
+   on a phone, and the explorer winces and laughs.
+3. **Basantapur and Patan squares.** Teleport to **Basantapur** and walk onto the square: the explorer's face turns
+   calm inside the sacred zone (the card names the site's rule), the pigeons peck on the bricks and burst up, circle
+   and land again when you walk into the flock. A place the banner names for the first time in a session is a
+   discovery: the face lights up with joy and a "Discovered: …" toast shows (at most one every 20 s). The place you
+   spawn or teleport to is not a discovery (the teleport has its own toast); walk on to the next named place. Two
+   temples that share a name are two discoveries. *Valley pack:*
+   **Patan Durbar Square** the same way.
+4. **Nyatapola** (*valley pack*). Teleport to **Nyatapola** in Bhaktapur's Taumadhi square: the five-roofed pagoda on its
+   five-stepped plinth with the guardian pairs up the stair.
+5. **Boudha and Swayambhu.** Teleport to **Boudha**: walk the kora clockwise with the walkers, monks and pigeons round
+   the dome. Teleport to **Swayambhunath** and walk the platform and the east stair: the macaque troop sits, grooms and
+   climbs on the walls and chaityas. Near **Pashupatinath** a few of the men walking are sadhus in saffron
+   with piled jata.
+6. **Bridges and the flyover (needs integ-world).** Teleport to **Thapathali** and ride south over the Bagmati to
+   Kupondole: twin decks at street level with railings, kerbs and lamp posts. *Valley pack:* teleport to **Gwarko**,
+   ride the Ring Road over the flyover, then take the road beneath it: 6 m of clearance, nothing gets stuck, the camera
+   stays under the deck. Without the world integration the road crosses the river on its ribbon with no deck, railings
+   or piers.
+7. **Maitighar Mandala and Shahid Gate.** Teleport to **Maitighar Mandala** and drive round the roundabout clockwise,
+   keeping left, then ride to **Shahid Gate** and round its island. The mandala garden on the island, and the arch with
+   its lantern and the busts in the pavilions, are drawn by the roundabout decorator **(needs integ-world)**.
+8. **Buses at Ratna Park.** Teleport to **Ratna Park bus station**: green city buses, minibuses and micros (generic
+   liveries, no operator names) run the real routes, sharing the moving-vehicle cap with the rest of the traffic. Hold **E** at an open front door to ride along, **B** to stop. A parked
+   community-fleet vehicle (green key tag) keeps its model type (the same body shape and wheels) when you borrow it;
+   parked vehicles are drawn as shared instanced bodies without plates, so the borrowed one gets its plate when you
+   take it.
+9. **Car route against scooter route to Boudha.** From **Thamel Chowk** on the scooter: **/**, **Boudha**, **Ride there**;
+   the chip shows the next turn and "km · min" and the route may cut through the gallis. Now hop off (**E**; the garage
+   whistle only works on foot) and press **G**: the bicycle rides up (the garage runs scooter, bicycle, hatchback). Once
+   it stands beside you (within 18 m) press **G** again: the hatchback comes instead. Hop in (**E**): "Car route: only
+   streets a car fits through." and the route goes round by streets a car can use.
+   On the sample the car goes about 7.8 km in about 8 min and never enters one of the 92 two-wheeler-only galli edges
+   round Thamel; the scooter's route is about 7.0 km and may take a galli
+   (`ExplorePlayIntegrationTests.CarRouteFromThamelToBoudhaKeepsOutOfTheGallis`). Arriving celebrates, and the
+   explorer's face lights up.
+10. **October terraces on the rim** (*valley pack*). Teleport to **Kirtipur** and look south and west (right-drag, or
+    **F3** to fly up): golden and green benches with thin risers follow the contours of the valley rim.
+
+What to report: any place above that looks wrong compared with the real one, a camera frame inside or behind a
+house, a car route that enters a lane a car cannot fit, or an untranslated string in Nepali.

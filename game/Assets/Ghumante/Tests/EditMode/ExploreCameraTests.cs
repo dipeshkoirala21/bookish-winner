@@ -130,6 +130,39 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void AFloatingOriginRebaseMidLaneKeepsTheBoomOutOfTheHouses()
+        {
+            // Integration (ExploreSession): the open world's obstacle query answers in game metres with absolute heights
+            // and the rig adds the floating origin to its scene positions. A 4.8 m lane 5 km from the valley origin,
+            // reversed through while the origin rebases (ExploreSession.OnOriginShifted -> ChaseCameraRig.ShiftOrigin):
+            // the camera stays outside the houses before, during and after the rebase.
+            const double lx = 5000.0, lz = -3000.0;
+            Boxes houses = new Boxes().Add(lx - 14, 0, lz - 60, lx - 2.4, 10, lz + 60).Add(lx + 2.4, 0, lz - 60, lx + 14, 10, lz + 60);
+            _rig.Obstacles = houses;
+            var origin = new WorldPos(lx - 900.0, 0f, lz + 700.0);
+            _rig.Snap();
+            double z = lz;
+            for (int i = 0; i < 150; i++)
+            {
+                if (i == 75)
+                {
+                    var rebased = new WorldPos(lx, 0f, lz);
+                    _rig.ShiftOrigin(rebased - origin);
+                    origin = rebased;
+                }
+                float speed = i < 20 ? 0f : -1.5f;
+                z += speed / 30.0;
+                var ground = new Vector3((float)(lx - origin.X), 0f, (float)(z - origin.Z));
+                var t = new CameraTarget { Ground = ground, HeadingRad = 0f, SpeedMps = speed, Rig = RigClass.TwoWheeler, PassengerOf = RigClass.Car };
+                _rig.Tick(1f / 30f, t, new ControlFrame(), _ground, origin);
+                Vector3 cam = _camera.transform.position;
+                double wx = cam.x + origin.X, wy = cam.y + origin.Y, wz = cam.z + origin.Z;
+                Assert.GreaterOrEqual(houses.Distance(wx, wy, wz), ChaseBoom.ProbeRadiusM - 0.05, "frame " + i + ": inside a house at " + cam);
+                Assert.Less(Math.Abs(wx - lx), 2.4, "frame " + i + ": the camera left the lane");
+            }
+        }
+
+        [Test]
         public void WaitingAtADeadEndTheCameraRisesOverTheRider()
         {
             // Reviewer's case: reverse into a 4.8 m lane closed by a house, stop 0.3 m from it and wait. Once the reversing

@@ -381,10 +381,6 @@ namespace Ghumante.Core.Characters
             return ForPedestrian(archetype, tint, seed, StreetStyle.Urban, 0);
         }
 
-        /// <summary>The share of men walking at Pashupati (casual, daura suruwal, vendors) who are dressed as sadhus
-        /// (<see cref="StreetStyle.Pashupati"/>).</summary>
-        public const float PashupatiSadhuShare = 0.12f;
-
         /// <summary>An NPC body whose wardrobe follows the area type (see <see cref="StreetStyles.OfArea"/>).</summary>
         public static CharacterRecipe ForPedestrian(PedArchetype archetype, int tint, uint seed, AreaType area, int carry)
         {
@@ -420,10 +416,8 @@ namespace Ghumante.Core.Characters
             };
             byte c = (byte)(tint & 0x7F);
             bool pashupati = style == StreetStyle.Pashupati;
-            // Sadhus gather at Pashupati: some of the men walking there are dressed as one (saffron, jata, tilak).
-            if (pashupati && (archetype == PedArchetype.UrbanCasual || archetype == PedArchetype.DauraSuruwal || archetype == PedArchetype.Vendor) &&
-                rng.Chance(PashupatiSadhuShare))
-                archetype = PedArchetype.Sadhu;
+            // Sadhus at Pashupati come from the sim's own spawn row (PedestrianSim.SadhuWeightPashupati); the recipe
+            // dresses only the archetype it is given, so the drawn share is the researched one, not twice it.
             bool newar = style == StreetStyle.NewarTown, bazaar = style == StreetStyle.OldBazaar || newar || pashupati;
             bool village = style == StreetStyle.Village, office = style == StreetStyle.Office, buddhist = style == StreetStyle.Buddhist;
             bool tourist = style == StreetStyle.Tourist;
