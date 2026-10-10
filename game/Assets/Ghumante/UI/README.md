@@ -18,7 +18,7 @@ ATG limits worth knowing (Unity manual, *Enable and use Advanced Text Generator*
 | `Styles/Ghumante.uss` | Design tokens (`--gh-*` custom properties) and components: cream panels, ribbon header, glossy pills (yellow/cyan/green/white/red), round icon buttons, counter pills with "+" |
 | `Themes/GhumanteRuntime.tss` | Runtime theme for the PanelSettings asset (imports Unity's default theme only) |
 | `Screens/MainMenu.uxml` + `MainMenuScreen.cs` | The animated main menu: living backdrop, title ribbon "Ghumante / घुमन्ते", Explore, Map, Collections, Settings, counters bar, toast, settings sheet (see "Motion" below) |
-| `Screens/Explore.uxml` + `ExploreScreen.cs` | The Explore HUD (M1): loading overlay, speed, surface chip, place name, compass, route banner, Search / Walk-Ride / Menu, touch controls, search sheet, pause panel, the shared settings sheet (see "Explore HUD" below) |
+| `Screens/Explore.uxml` + `ExploreScreen.cs` | The Explore HUD (M1): loading overlay, speed, surface chip, place name, compass, camera-angle button, route chip, Search / Walk-Ride / Menu, touch controls, search sheet, pause panel, the shared settings sheet (see "Explore HUD" below) |
 | `Hud/Hud.uss` | HUD styles for both orientations (layout classes `orient-*` and `gh-hud--ride` / `gh-hud--walk`) |
 | `Hud/TouchControls.cs`, `Hud/TouchMath.cs` | Touch controls: floating stick, pedals, the portrait one-thumb drive zone, look and pinch on the world; when they show |
 | `Hud/SearchSheet.cs` | "Where to?": search as you type, results with kind and distance, Ride there / Teleport |
@@ -47,7 +47,7 @@ classifies the **safe area** (taller than wide = portrait, else landscape), togg
 | Screen | Landscape | Portrait |
 |---|---|---|
 | Main menu | counters + icon buttons in one top row; hero (ribbon, subtitle) left, menu panel right | counters centred along the top, icon buttons below them on the right; hero in the upper half; menu panel (Explore, Map, ...) at the bottom of the body, i.e. in the bottom third |
-| Explore HUD | place pill top-left, compass and Search / Walk-Ride / Menu top-right; route banner under them; speedometer and surface chip bottom centre; two-thumb controls: floating stick on the left, Go and Brake pedals on the right | buttons along the top right, place pill under them; route banner below; speedometer at the top of the thumb zone; one-thumb controls in the bottom 42%: riding, hold anywhere to go and slide sideways to steer, Brake bottom-left; walking, a floating stick wherever the thumb lands |
+| Explore HUD | place pill top-left, compass, camera angle and Search / Walk-Ride / Menu top-right; speedometer and surface chip bottom centre with the route chip on the bottom edge beside it; two-thumb controls: floating stick on the left, Go and Brake pedals on the right | buttons along the top right, place pill under them; route chip under them on the left (above the horizon); speedometer at the top of the thumb zone; one-thumb controls in the bottom 42%: riding, hold anywhere to go and slide sideways to steer, Brake bottom-left; walking, a floating stick wherever the thumb lands |
 | TextSpike | case / live / reference in three columns | one block per case, live above reference, column headings hidden; toggles in the bottom bar in both orientations |
 
 PanelSettings uses an orientation-neutral scale (square 1500x1500 reference, match 0.5), so a 20:9 phone is
@@ -213,7 +213,8 @@ speedometer reads cached digit strings, so it allocates nothing per frame).
 | Place pill | The landmark you stand by (within 60 m, from the loaded tiles' POIs; never businesses, ADR-010) or the neighbourhood / village / town you are in; EN or NE (Nepali only where OSM has it). Changes after two looks half a second apart, so it never flickers. |
 | Compass | The red tick points north; the rose turns with the camera. |
 | Search / Walk-Ride / Menu | Search opens the search sheet; Walk-Ride shows the other mode (a walker while riding, the scooter while walking); Menu pauses. Tooltips name them on desktop. |
-| Route banner | A yellow arrow towards the route ahead (relative to the camera), "To Boudhanath Stupa", "4.9 km · 9 min" (ETA = the route's own time scaled by what is left), × stops the route. "Finding the way…" while A* runs; "Finding a new way…" when re-routing after 3 s more than 45 m off the route. |
+| Route chip | W2 detail pass (owner: "direction info blocks the view"): a compact chip, no longer a banner across the top. A yellow arrow shows the next turn (or points back to the route when more than 25 m off it), the big line how far the turn is ("240 m", "Straight on", "Back to the route"), the small line the distance and time left ("4.9 km · 9 min"; ETA = the route's own time scaled by what is left), × stops the route. `UI/Hud/RouteChipLayout.cs` places it (inline left/top, on every HUD geometry change) in the first slot that is inside the safe area, clear of every other HUD element and never over the road ahead (`RoadAheadZone`, the envelope of every chase rig): landscape on the bottom edge left (then right) of the speedometer, portrait under the top bar (left, then right), else the other orientation's slots. "Finding the way to …" while A* runs; "Finding a new way…" when re-routing after 3 s more than 45 m off the route or after changing vehicle (the route profile follows the vehicle: car profile in four-wheelers). |
+| Camera button | A little camera in the top bar: the next camera angle of the vehicle class (same as C and the right-stick press), named in a short toast; remembered per class in the save. |
 | Arrival | Within about 40 m of the destination (or the end of the road once nearly there): confetti, a star toast "You made it to …!" and a Success haptic. |
 | Search sheet | Bottom sheet in portrait, side panel in landscape (the settings sheet's styles and EdgeSheet pose). Search as you type (Latin, Devanagari, romanised, typos: Core's SearchEngine); empty query suggests the region's landmarks. Rows: name in the current language, the other script below, kind and distance; Ride there (MediumImpact) and, in development builds and the editor, Teleport. Enter rides to the first result. Gameplay pauses while it is open. |
 | Pause panel | Resume, Settings (the main menu's SettingsSheet, same element names), Main menu (closes the world and frees its memory). The game also pauses when the app goes to the background. |
@@ -233,7 +234,7 @@ so Space and gamepad A only drive. Escape, Android back and gamepad B arrive as 
 
 | Interaction | HapticKind |
 |---|---|
-| HUD buttons, pedals, route ×, pause buttons | LightImpact (Walk-Ride, Ride there and Main menu: MediumImpact) |
+| HUD buttons, pedals, route ×, pause buttons (camera button: Selection) | LightImpact (Walk-Ride, Ride there and Main menu: MediumImpact) |
 | A thumb lands on the stick or the drive zone | Selection |
 | Riding onto another surface | Selection |
 | A bump or a firm landing | LightImpact |

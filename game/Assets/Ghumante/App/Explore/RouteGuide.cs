@@ -30,6 +30,21 @@ namespace Ghumante.App.Explore
         public const float OffRouteSeconds = 3f;
         public const double LookAheadM = 30.0;
 
+        /// <summary>The next turn is looked for this far ahead (<see cref="NextTurn"/>).</summary>
+        public const double TurnScanM = 1500.0;
+
+        /// <summary>Headings around a vertex are taken this far along the route before and after it.</summary>
+        public const double TurnArmM = 15.0;
+
+        /// <summary>A bend at least this sharp is a turn worth an arrow, degrees.</summary>
+        public const float TurnMinDeg = 35f;
+
+        /// <summary>A turn's apex is searched this far past where the bend first passes <see cref="TurnMinDeg"/>.</summary>
+        private const double ApexSearchM = 25.0;
+
+        /// <summary>The cached next turn is recomputed after this much progress.</summary>
+        private const double TurnRecomputeM = 2.0;
+
         /// <summary>Beyond this from the local search, the whole route is searched again.</summary>
         private const double RelocateM = 60.0;
 
@@ -44,6 +59,10 @@ namespace Ghumante.App.Explore
         private readonly int _points;
         private int _segment;
         private float _offTime;
+        private double _turnAt = double.NaN;
+        private bool _turnFound;
+        private float _turnRad;
+        private double _turnS;
 
         public RouteGuide(PlannedRoute route)
         {
@@ -152,6 +171,109 @@ namespace Ghumante.App.Explore
             else _offTime = 0f;
             Status = _offTime >= OffRouteSeconds ? RouteStatus.OffRoute : RouteStatus.OnRoute;
             return Status;
+        }
+
+        /// <summary>
+        /// The next turn along the route ahead of the explorer (the HUD's turn arrow): <paramref name="turnRad"/> is its
+        /// signed angle (radians, positive to the right, ±π a U-turn) and <paramref name="distanceM"/> how far ahead its
+        /// apex is. A turn is a bend of at least <see cref="TurnMinDeg"/> between the route's headings
+        /// <see cref="TurnArmM"/> before and after a vertex; its apex is the sharpest vertex just after. False when the
+        /// route runs on without a turn for <see cref="TurnScanM"/> or to its end: then the angle is 0 and the distance is
+        /// to the end (or the scan limit). Cached between small moves; no allocation.
+        /// </summary>
+        public bool NextTurn(out float turnRad, out double distanceM)
+        {
+            if (Arrived)
+            {
+                turnRad = 0f;
+                distanceM = 0.0;
+                return false;
+            }
+            if (double.IsNaN(_turnAt) || Math.Abs(ProgressM - _turnAt) > TurnRecomputeM) FindTurn();
+            if (_turnFound && _turnS > ProgressM)
+            {
+                turnRad = _turnRad;
+                distanceM = _turnS - ProgressM;
+                return true;
+            }
+            turnRad = 0f;
+            distanceM = Math.Min(RemainingM, TurnScanM);
+            return false;
+        }
+
+        private void FindTurn()
+        {
+            _turnAt = ProgressM;
+            _turnFound = false;
+            double limit = Math.Min(TotalM, ProgressM + TurnScanM);
+            double minRad = TurnMinDeg * Math.PI / 180.0;
+            for (int i = Math.Max(1, _segment + 1); i < _points - 1; i++)
+            {
+                double s = _cumulative[i];
+                if (s <= ProgressM + 1e-6) continue;
+                if (s > limit) break;
+                double a = BendAt(s);
+                if (Math.Abs(a) < minRad) continue;
+                // The apex: the sharpest vertex a short way on (a roundabout's arc crosses the threshold before its middle).
+                int best = i;
+                double bestA = a;
+                for (int j = i + 1; j < _points - 1 && _cumulative[j] <= s + ApexSearchM; j++)
+                {
+                    double b = BendAt(_cumulative[j]);
+                    if (Math.Abs(b) > Math.Abs(bestA) + 1e-6)
+                    {
+                        bestA = b;
+                        best = j;
+                    }
+                }
+                _turnFound = true;
+                _turnS = _cumulative[best];
+                _turnRad = (float)bestA;
+                return;
+            }
+        }
+
+        /// <summary>Signed change of heading between the route <see cref="TurnArmM"/> before and after the distance
+        /// <paramref name="s"/> (radians, positive right): the headings of the segments there, so short kinks in the
+        /// polyline cancel out and a curve counts in full.</summary>
+        private double BendAt(double s)
+        {
+            double h0, h1;
+            if (!HeadingAt(Math.Max(0.0, s - TurnArmM), out h0) || !HeadingAt(Math.Min(TotalM, s + TurnArmM), out h1)) return 0.0;
+            return Wrap((float)(h1 - h0));
+        }
+
+        /// <summary>Heading (radians, 0 = north, clockwise) of the route's segment at distance <paramref name="s"/>.</summary>
+        private bool HeadingAt(double s, out double heading)
+        {
+            int lo = 0, hi = _points - 1;
+            while (hi - lo > 1)
+            {
+                int mid = (lo + hi) >> 1;
+                if (_cumulative[mid] <= s) lo = mid;
+                else hi = mid;
+            }
+            // Zero-length segments carry no heading: use the nearest real one after (or before) it.
+            for (int k = lo; k < _points - 1; k++)
+            {
+                double dx = _xz[2 * k + 2] - _xz[2 * k], dz = _xz[2 * k + 3] - _xz[2 * k + 1];
+                if (dx * dx + dz * dz > 1e-8)
+                {
+                    heading = Math.Atan2(dx, dz);
+                    return true;
+                }
+            }
+            for (int k = lo - 1; k >= 0; k--)
+            {
+                double dx = _xz[2 * k + 2] - _xz[2 * k], dz = _xz[2 * k + 3] - _xz[2 * k + 1];
+                if (dx * dx + dz * dz > 1e-8)
+                {
+                    heading = Math.Atan2(dx, dz);
+                    return true;
+                }
+            }
+            heading = 0.0;
+            return false;
         }
 
         /// <summary>The point <paramref name="distance"/> metres along the route (clamped to its ends).</summary>

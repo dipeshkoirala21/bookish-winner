@@ -205,5 +205,22 @@
   "vehicle.bus": "Bus",
   "vehicle.truck": "Truck",
   "vehicle.tractor": "Tractor",
-  "vehicle.passenger": "Seat"
+  "vehicle.passenger": "Seat",
+  "hud.camera": "Camera angle",
+  "hud.camera.toast": "Camera: {0}",
+  "hud.camera.near": "Near chase",
+  "hud.camera.far": "Far chase",
+  "hud.camera.over_shoulder": "Over the shoulder",
+  "hud.camera.low_cinematic": "Low cinematic",
+  "hud.camera.handlebar": "Handlebar",
+  "hud.camera.hood": "Bonnet",
+  "hud.camera.interior": "Driver's view",
+  "hud.camera.high_chase": "High chase",
+  "hud.camera.driver_seat": "Driver's seat",
+  "hud.camera.passenger_seat": "Your seat",
+  "hud.route.straight": "Straight on",
+  "hud.route.back": "Back to the route",
+  "hud.route.started": "Route to {0}: {1}",
+  "hud.route.replan": "New route for your {0}…",
+  "hud.route.car_roads": "Car route: only streets a car fits through."
 }

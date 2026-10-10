@@ -23,7 +23,7 @@ namespace Ghumante.Characters
     /// left trigger / the brake-reverse pedal (it brakes, then reverses once stopped).</item>
     /// <item><see cref="Brake"/> in [0, 1]: Space / B, brakes without reversing. <see cref="Boost"/>: Shift / X.</item>
     /// <item>Buttons pressed this frame (<see cref="ToggleMode"/>, <see cref="Map"/>, <see cref="Pause"/>,
-    /// <see cref="Search"/>) and camera deltas (<see cref="ZoomSteps"/>, <see cref="LookYawDeg"/>,
+    /// <see cref="Search"/>, <see cref="CameraCycle"/>) and camera deltas (<see cref="ZoomSteps"/>, <see cref="LookYawDeg"/>,
     /// <see cref="LookPitchDeg"/>).</item>
     /// </list>
     /// </summary>
@@ -68,6 +68,10 @@ namespace Ghumante.Characters
         /// <summary>/ or gamepad Y: open search.</summary>
         public bool Search;
 
+        /// <summary>C, the gamepad's right-stick press or the HUD camera button this frame: the next camera angle of the
+        /// current class (<c>CameraViews</c>).</summary>
+        public bool CameraCycle;
+
         /// <summary>Camera zoom this frame in notches: positive moves in, negative out.</summary>
         public float ZoomSteps;
 
@@ -104,6 +108,7 @@ namespace Ghumante.Characters
             Map |= other.Map;
             Pause |= other.Pause;
             Search |= other.Search;
+            CameraCycle |= other.CameraCycle;
             ZoomSteps += other.ZoomSteps;
             LookYawDeg += other.LookYawDeg;
             LookPitchDeg += other.LookPitchDeg;

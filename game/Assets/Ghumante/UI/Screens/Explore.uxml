@@ -70,7 +70,7 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
-        <!-- Top bar: where you are, the compass, Search, Walk/Ride, Menu. -->
+        <!-- Top bar: where you are, the compass, Camera angle, Search, Walk/Ride, Garage, Menu. -->
         <ui:VisualElement name="hud-top" class="gh-hud__top" picking-mode="Ignore">
             <ui:VisualElement name="hud-place" class="gh-hud__place" picking-mode="Ignore">
                 <ui:VisualElement class="gh-hud__place-pin" picking-mode="Ignore" />
@@ -84,6 +84,14 @@
                     </ui:VisualElement>
                     <ui:VisualElement class="gh-compass__hub" picking-mode="Ignore" />
                 </ui:VisualElement>
+                <ui:Button name="hud-camera" class="gh-icon-btn" tooltip="Camera angle">
+                    <ui:VisualElement class="gh-hud-icon" picking-mode="Ignore">
+                        <ui:VisualElement class="gh-hud-icon__cam-top" picking-mode="Ignore" />
+                        <ui:VisualElement class="gh-hud-icon__cam-body" picking-mode="Ignore">
+                            <ui:VisualElement class="gh-hud-icon__cam-lens" picking-mode="Ignore" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:Button>
                 <ui:Button name="hud-search" class="gh-icon-btn" tooltip="Search">
                     <ui:VisualElement class="gh-hud-icon" picking-mode="Ignore">
                         <ui:VisualElement class="gh-hud-icon__lens" picking-mode="Ignore" />
@@ -116,7 +124,9 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
-        <!-- Route: a direction arrow, where to, how far and how long; × stops it. -->
+        <!-- Route chip (W2 detail pass): the next turn's arrow, how far to it, and the distance and time left; × stops the
+             route. ExploreScreen places it with UI/Hud/RouteChipLayout.cs: beside the speedometer on the bottom edge in
+             landscape, under the top bar in portrait, inside the safe area and never over the road ahead. -->
         <ui:VisualElement name="hud-route" class="gh-hud__route" picking-mode="Ignore">
             <ui:VisualElement class="gh-hud__route-arrow" picking-mode="Ignore">
                 <ui:VisualElement name="hud-route-pointer" class="gh-hud__route-pointer" picking-mode="Ignore">
@@ -125,10 +135,10 @@
                 </ui:VisualElement>
             </ui:VisualElement>
             <ui:VisualElement class="gh-hud__route-text" picking-mode="Ignore">
-                <ui:Label name="hud-route-to" class="gh-hud__route-to" text="To Boudhanath Stupa" picking-mode="Ignore" />
+                <ui:Label name="hud-route-step" class="gh-hud__route-step" text="250 m" picking-mode="Ignore" />
                 <ui:Label name="hud-route-info" class="gh-hud__route-info" text="7.5 km · 9 min" picking-mode="Ignore" />
             </ui:VisualElement>
-            <ui:Button name="hud-route-cancel" class="gh-icon-btn gh-icon-btn--small" tooltip="Stop the route">
+            <ui:Button name="hud-route-cancel" class="gh-icon-btn gh-icon-btn--small gh-hud__route-cancel" tooltip="Stop the route">
                 <ui:Label class="gh-icon-btn__glyph" text="×" picking-mode="Ignore" />
             </ui:Button>
         </ui:VisualElement>

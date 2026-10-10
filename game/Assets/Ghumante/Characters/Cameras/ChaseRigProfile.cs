@@ -43,22 +43,33 @@ namespace Ghumante.Characters.Cameras
         /// <summary>How quickly the camera swings behind the explorer's heading (smoothing time, seconds).</summary>
         public float FollowSeconds;
 
+        /// <summary>Collision minimum distance of the boom (<see cref="ChaseBoom"/>): walk 2.5 m, vehicles 4 m, less for
+        /// the close views.</summary>
+        public float MinDistanceM;
+
+        /// <summary>Sideways pivot offset, metres, right positive (the over-the-shoulder view).</summary>
+        public float ShoulderM;
+
+        /// <summary>0 pins the explorer's ground point at <see cref="FootScreenY"/>; 1 looks straight through the pivot
+        /// (over the shoulder). Blends between views.</summary>
+        public float Aim01;
+
         public static readonly ChaseRigProfile RideLandscape = new ChaseRigProfile
         {
             DistanceM = 8.0f, PitchDeg = 13f, AimHeightM = 1.0f, LookAheadS = 0.45f, LookAheadMaxM = 9f,
-            FootScreenYRest = -0.48f, FootScreenYFast = -0.6f, MinHorizontalFovDeg = 62f, FollowSeconds = 0.28f,
+            FootScreenYRest = -0.48f, FootScreenYFast = -0.6f, MinHorizontalFovDeg = 62f, FollowSeconds = 0.28f, MinDistanceM = 4f,
         };
 
         public static readonly ChaseRigProfile RidePortrait = new ChaseRigProfile
         {
             DistanceM = 9.2f, PitchDeg = 21f, AimHeightM = 1.0f, LookAheadS = 0.9f, LookAheadMaxM = 16f,
-            FootScreenYRest = -0.45f, FootScreenYFast = -0.6f, MinHorizontalFovDeg = 62f, FollowSeconds = 0.32f,
+            FootScreenYRest = -0.45f, FootScreenYFast = -0.6f, MinHorizontalFovDeg = 62f, FollowSeconds = 0.32f, MinDistanceM = 4f,
         };
 
         public static readonly ChaseRigProfile WalkLandscape = new ChaseRigProfile
         {
             DistanceM = 8.4f, PitchDeg = 12f, AimHeightM = 1.0f, LookAheadS = 0.3f, LookAheadMaxM = 2.5f,
-            FootScreenYRest = -0.58f, FootScreenYFast = -0.62f, MinHorizontalFovDeg = 55f, FollowSeconds = 0.9f,
+            FootScreenYRest = -0.58f, FootScreenYFast = -0.62f, MinHorizontalFovDeg = 55f, FollowSeconds = 0.9f, MinDistanceM = 2.5f,
         };
 
         /// <summary>W2 change (W2_DESIGN 6.4): 6.8 m / 20° / 0.9 m instead of 8.6 / 22 / 1.0, so the player grows from
@@ -66,7 +77,7 @@ namespace Ghumante.Characters.Cameras
         public static readonly ChaseRigProfile WalkPortrait = new ChaseRigProfile
         {
             DistanceM = 6.8f, PitchDeg = 20f, AimHeightM = 0.9f, LookAheadS = 0.6f, LookAheadMaxM = 4.5f,
-            FootScreenYRest = -0.42f, FootScreenYFast = -0.5f, MinHorizontalFovDeg = 55f, FollowSeconds = 1.0f,
+            FootScreenYRest = -0.42f, FootScreenYFast = -0.5f, MinHorizontalFovDeg = 55f, FollowSeconds = 1.0f, MinDistanceM = 2.5f,
         };
 
         /// <summary>The rig of a class in landscape or portrait from <see cref="CameraRigTable"/> (W2_DESIGN 6.4), with
@@ -80,15 +91,29 @@ namespace Ghumante.Characters.Cameras
         /// <paramref name="passengerOf"/> (CameraRigTable).</summary>
         public static ChaseRigProfile For(RigClass rig, bool portrait, RigClass passengerOf)
         {
-            RigParams r = CameraRigTable.For(rig, portrait, passengerOf);
+            return For(rig, portrait, passengerOf, CameraViews.Default(rig));
+        }
+
+        /// <summary>The rig of a class seen through a chase <paramref name="view"/> (<see cref="CameraViews.Chase"/>:
+        /// near, far, over the shoulder, low cinematic, high chase); a mounted view gives the class rig.</summary>
+        public static ChaseRigProfile For(RigClass rig, bool portrait, RigClass passengerOf, CameraView view)
+        {
+            RigParams r = CameraViews.Chase(rig, view, portrait, passengerOf);
             bool walk = rig == RigClass.Walk;
             return new ChaseRigProfile
             {
                 DistanceM = r.DistanceM, PitchDeg = r.PitchDeg, AimHeightM = r.PivotM, LookAheadS = r.LookAheadS, LookAheadMaxM = r.LookAheadMaxM,
-                MinHorizontalFovDeg = r.MinHFovDeg, FollowSeconds = r.FollowS,
+                MinHorizontalFovDeg = r.MinHFovDeg, FollowSeconds = r.FollowS, MinDistanceM = r.MinDistanceM, ShoulderM = r.ShoulderM,
+                Aim01 = r.AimAtPivot ? 1f : 0f,
                 FootScreenYRest = walk ? (portrait ? -0.42f : -0.58f) : (portrait ? -0.45f : -0.48f),
                 FootScreenYFast = walk ? (portrait ? -0.5f : -0.62f) : -0.6f,
             };
+        }
+
+        /// <summary>The rig of a class through a view between landscape (0) and portrait (1).</summary>
+        public static ChaseRigProfile For(RigClass rig, float portrait01, RigClass passengerOf, CameraView view)
+        {
+            return Lerp(For(rig, false, passengerOf, view), For(rig, true, passengerOf, view), portrait01);
         }
 
         /// <summary>The rig of a class between landscape (0) and portrait (1).</summary>
@@ -119,6 +144,9 @@ namespace Ghumante.Characters.Cameras
                 FootScreenYFast = a.FootScreenYFast + (b.FootScreenYFast - a.FootScreenYFast) * t,
                 MinHorizontalFovDeg = a.MinHorizontalFovDeg + (b.MinHorizontalFovDeg - a.MinHorizontalFovDeg) * t,
                 FollowSeconds = a.FollowSeconds + (b.FollowSeconds - a.FollowSeconds) * t,
+                MinDistanceM = a.MinDistanceM + (b.MinDistanceM - a.MinDistanceM) * t,
+                ShoulderM = a.ShoulderM + (b.ShoulderM - a.ShoulderM) * t,
+                Aim01 = a.Aim01 + (b.Aim01 - a.Aim01) * t,
             };
         }
 

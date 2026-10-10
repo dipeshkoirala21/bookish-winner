@@ -205,5 +205,22 @@
   "vehicle.bus": "बस",
   "vehicle.truck": "ट्रक",
   "vehicle.tractor": "ट्र्याक्टर",
-  "vehicle.passenger": "सिट"
+  "vehicle.passenger": "सिट",
+  "hud.camera": "क्यामेरा कोण",
+  "hud.camera.toast": "क्यामेरा: {0}",
+  "hud.camera.near": "नजिकबाट पछ्याउने",
+  "hud.camera.far": "टाढाबाट पछ्याउने",
+  "hud.camera.over_shoulder": "काँधमाथिबाट",
+  "hud.camera.low_cinematic": "होचो कोणबाट",
+  "hud.camera.handlebar": "ह्यान्डलबारबाट",
+  "hud.camera.hood": "बोनटबाट",
+  "hud.camera.interior": "चालकको आँखाबाट",
+  "hud.camera.high_chase": "माथिबाट पछ्याउने",
+  "hud.camera.driver_seat": "चालकको सिटबाट",
+  "hud.camera.passenger_seat": "तपाईंको सिटबाट",
+  "hud.route.straight": "सिधै जानुहोस्",
+  "hud.route.back": "बाटोमा फर्कनुहोस्",
+  "hud.route.started": "{0} जाने बाटो: {1}",
+  "hud.route.replan": "तपाईंको {0} का लागि नयाँ बाटो…",
+  "hud.route.car_roads": "कारको बाटो: कार छिर्ने सडक मात्र।"
 }

@@ -60,18 +60,29 @@ namespace Ghumante.Characters.Rides
             _squash.Kick(Mathf.Clamp(strength, -2f, 2f) * 2.2f);
         }
 
+        /// <summary>
+        /// The body's drawn pitch (nose up) and roll (Unity z) for a pose, radians: the ground pose plus the visual roll
+        /// and pitch of four-wheelers (not with Reduce motion), a two-wheeler's lean. The body is drawn at
+        /// <c>Quaternion.Euler(-pitch, heading, roll)</c>; the mounted cameras use the same angles.
+        /// </summary>
+        public static void BodyAngles(in VehiclePose pose, BodyShape shape, bool reducedMotion, out float pitchRad, out float rollRad)
+        {
+            bool two = Core.Characters.VehicleRoles.IsTwoWheeler(shape);
+            rollRad = two ? -pose.Lean : -pose.Roll - pose.VisualRoll;
+            pitchRad = pose.Pitch + pose.VisualPitch;
+            if (reducedMotion && !two)
+            {
+                rollRad = -pose.Roll;
+                pitchRad = pose.Pitch;
+            }
+        }
+
         /// <summary>Poses the vehicle at <paramref name="scenePosition"/> from its interpolated pose.</summary>
         public void Apply(in VehiclePose pose, Vector3 scenePosition, float dt, bool reducedMotion)
         {
             const float rad2Deg = 57.2957795f;
-            bool two = Core.Characters.VehicleRoles.IsTwoWheeler(_entry.Shape);
-            float roll = two ? -pose.Lean : -pose.Roll - pose.VisualRoll;
-            float pitch = pose.Pitch + pose.VisualPitch;
-            if (reducedMotion && !two)
-            {
-                roll = -pose.Roll;
-                pitch = pose.Pitch;
-            }
+            float pitch, roll;
+            BodyAngles(pose, _entry.Shape, reducedMotion, out pitch, out roll);
             transform.SetPositionAndRotation(scenePosition, Quaternion.Euler(-pitch * rad2Deg, pose.HeadingRad * rad2Deg, roll * rad2Deg));
             if (reducedMotion) _squash.Snap(0f);
             else _squash.Step(dt);

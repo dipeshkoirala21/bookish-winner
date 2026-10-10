@@ -1,4 +1,6 @@
 using System;
+using Ghumante.Core.Driving;
+using Ghumante.Core.Save;
 
 namespace Ghumante.Core.Characters
 {
@@ -28,6 +30,13 @@ namespace Ghumante.Core.Characters
 
         /// <summary>Collision minimum distance (walk 2.5 m, vehicles 4 m).</summary>
         public float MinDistanceM;
+
+        /// <summary>Sideways offset of the pivot, metres, right positive (0 except the over-the-shoulder view).</summary>
+        public float ShoulderM;
+
+        /// <summary>The camera looks through the pivot instead of pinning the player's ground point on screen (the
+        /// over-the-shoulder view, whose pivot is the shoulder).</summary>
+        public bool AimAtPivot;
     }
 
     /// <summary>
@@ -124,6 +133,777 @@ namespace Ghumante.Core.Characters
                 DistanceM = d, PitchDeg = pitch, PivotM = pivot, LookAheadS = laS, LookAheadMaxM = laMax, MinHFovDeg = fov, FollowS = follow,
                 FovKickDeg = kick, KickFromMps = kickFrom, KickFullMps = kickFull, MinDistanceM = minD,
             };
+        }
+    }
+
+    /// <summary>
+    /// The camera angles the player cycles through with C, the gamepad's right-stick press or the HUD camera button
+    /// (docs/W2_DETAIL_CONTRACT.md, owner feedback: "multiple camera angles for bike, cycle, car, bus"). Each vehicle
+    /// class offers its own list (<see cref="CameraViews"/>) and remembers its choice (<see cref="CameraViewMemory"/>).
+    /// Stored by name in the save, so values may be appended but never renumbered.
+    /// </summary>
+    public enum CameraView : byte
+    {
+        /// <summary>The class's chase rig (<see cref="CameraRigTable.For(RigClass, bool)"/>).</summary>
+        Near = 0,
+
+        /// <summary>Pulled back and a little higher: more of the street.</summary>
+        Far = 1,
+
+        /// <summary>On foot: close behind the right shoulder, looking where the walker looks.</summary>
+        OverShoulder = 2,
+
+        /// <summary>Two-wheelers: low behind the rear wheel, nearly level with the road.</summary>
+        LowCinematic = 3,
+
+        /// <summary>Two-wheelers: first person over the handlebar.</summary>
+        Handlebar = 4,
+
+        /// <summary>Cars, taxis, SUVs and micros: on the bonnet.</summary>
+        Hood = 5,
+
+        /// <summary>Cars, taxis, SUVs and micros: from the driver's eyes.</summary>
+        Interior = 6,
+
+        /// <summary>Bus, truck and tractor: the class's chase rig, which already sits high behind the body.</summary>
+        HighChase = 7,
+
+        /// <summary>Bus, truck and tractor: from the driver's seat.</summary>
+        DriverSeat = 8,
+
+        /// <summary>Riding along: from the passenger's own seat.</summary>
+        PassengerSeat = 9,
+    }
+
+    /// <summary>How a <see cref="CameraView"/> places the camera.</summary>
+    public enum CameraViewKind : byte
+    {
+        /// <summary>A boom behind a pivot over the player, with collision (<see cref="ChaseBoom"/>).</summary>
+        Chase = 0,
+
+        /// <summary>The rider's eyes: the head bone plus <see cref="CameraViews.EyeUpM"/> up and
+        /// <see cref="CameraViews.EyeForwardM"/> forward in the body frame, so the own head stays behind the camera.</summary>
+        Eye = 1,
+
+        /// <summary>A fixed point on the vehicle body (<see cref="CameraViews.HoodEye"/>).</summary>
+        Hood = 2,
+    }
+
+    /// <summary>The numbers of one <see cref="CameraView"/>: chase views modify the class rig, mounted views (eye, hood)
+    /// carry their own field of view, downward tilt and how much of the body's roll or lean they follow.</summary>
+    public struct CameraViewSpec
+    {
+        public CameraView View;
+        public CameraViewKind Kind;
+
+        /// <summary>Chase: the class distance times this ...</summary>
+        public float DistanceScale;
+
+        /// <summary>... or, when positive, this many metres whatever the class.</summary>
+        public float DistanceM;
+
+        /// <summary>Chase: added to the class pitch, degrees.</summary>
+        public float PitchAddDeg;
+
+        /// <summary>Chase: pivot height = class pivot × <see cref="PivotScale"/> + <see cref="PivotAddM"/>.</summary>
+        public float PivotScale, PivotAddM;
+
+        /// <summary>Chase: sideways pivot offset (right positive), metres.</summary>
+        public float ShoulderM;
+
+        /// <summary>Chase: look-ahead time and reach times this.</summary>
+        public float LookAheadScale;
+
+        /// <summary>Chase: when positive, the collision minimum distance (the class's otherwise).</summary>
+        public float MinDistanceM;
+
+        /// <summary>Chase: look through the pivot instead of pinning the ground point on screen.</summary>
+        public bool AimAtPivot;
+
+        /// <summary>Chase: added to the class's minimum horizontal FOV, degrees.</summary>
+        public float FovAddDeg;
+
+        /// <summary>Mounted: minimum horizontal FOV, degrees (CameraFov rules: the vertical FOV follows the aspect,
+        /// clamped at 100°).</summary>
+        public float MinHFovDeg;
+
+        /// <summary>Mounted: the view tilts down this much from the body's forward, degrees (dashboard, handlebar).</summary>
+        public float LookDownDeg;
+
+        /// <summary>Mounted: share of the body's roll (or a two-wheeler's lean) the view follows (0 stays level).</summary>
+        public float RollShare;
+
+        /// <summary>Near clip plane, metres (0.4 behind the player, 0.1 on board).</summary>
+        public float NearClipM;
+
+        /// <summary>True for the eye and hood views (no boom, no collision, no reverse framing).</summary>
+        public bool Mounted
+        {
+            get { return Kind != CameraViewKind.Chase; }
+        }
+    }
+
+    /// <summary>
+    /// The camera angles per rig class (W2 detail pass): walking near, far and over the shoulder; bicycle, scooter and
+    /// motorbike near chase, far chase, low cinematic and handlebar first person; car, taxi, SUV and micro near, far,
+    /// bonnet and interior; bus, truck and tractor high chase, far and driver's seat; riding along near, far and the
+    /// passenger's seat. <see cref="Chase"/> turns a chase view into rig numbers, <see cref="Spec"/> describes every view.
+    /// Engine-free and allocation-free.
+    /// </summary>
+    public static class CameraViews
+    {
+        public const float ChaseNearClipM = 0.4f;
+        public const float MountedNearClipM = 0.1f;
+
+        /// <summary>The eye sits this far above the head bone (the base of the 0.40 m skull) ...</summary>
+        public const float EyeUpM = 0.22f;
+
+        /// <summary>... and this far in front of it, 0.13 m in front of the face, so the own head stays behind the
+        /// near plane.</summary>
+        public const float EyeForwardM = 0.32f;
+
+        /// <summary>A change of view blends over this long (smoothstep).</summary>
+        public const float BlendSeconds = 0.5f;
+
+        /// <summary>Over-the-shoulder distance in portrait relative to landscape (the tall screen is narrower).</summary>
+        public const float PortraitAbsoluteScale = 0.92f;
+
+        public const int RigCount = 9;
+
+        private static readonly CameraView[] WalkViews = { CameraView.Near, CameraView.Far, CameraView.OverShoulder };
+
+        private static readonly CameraView[] TwoWheelViews =
+        {
+            CameraView.Near, CameraView.Far, CameraView.LowCinematic, CameraView.Handlebar,
+        };
+
+        private static readonly CameraView[] CarViews = { CameraView.Near, CameraView.Far, CameraView.Hood, CameraView.Interior };
+        private static readonly CameraView[] HeavyViews = { CameraView.HighChase, CameraView.Far, CameraView.DriverSeat };
+        private static readonly CameraView[] PassengerViews = { CameraView.Near, CameraView.Far, CameraView.PassengerSeat };
+
+        private static readonly string[] ViewNames =
+        {
+            "near", "far", "over_shoulder", "low_cinematic", "handlebar", "hood", "interior", "high_chase", "driver_seat",
+            "passenger_seat",
+        };
+
+        private static readonly string[] ViewKeys =
+        {
+            "hud.camera.near", "hud.camera.far", "hud.camera.over_shoulder", "hud.camera.low_cinematic", "hud.camera.handlebar",
+            "hud.camera.hood", "hud.camera.interior", "hud.camera.high_chase", "hud.camera.driver_seat", "hud.camera.passenger_seat",
+        };
+
+        private static readonly string[] RigNames =
+        {
+            "walk", "bicycle", "two_wheeler", "car", "van", "bus", "truck", "tractor", "passenger",
+        };
+
+        private static CameraView[] ViewsOf(RigClass rig)
+        {
+            switch (rig)
+            {
+                case RigClass.Walk: return WalkViews;
+                case RigClass.Bicycle:
+                case RigClass.TwoWheeler: return TwoWheelViews;
+                case RigClass.Car:
+                case RigClass.Van: return CarViews;
+                case RigClass.Bus:
+                case RigClass.Truck:
+                case RigClass.Tractor: return HeavyViews;
+                default: return PassengerViews;
+            }
+        }
+
+        /// <summary>How many views <paramref name="rig"/> offers (3 or 4).</summary>
+        public static int Count(RigClass rig)
+        {
+            return ViewsOf(rig).Length;
+        }
+
+        /// <summary>The <paramref name="index"/>-th view of <paramref name="rig"/> (wrapping in both directions).</summary>
+        public static CameraView At(RigClass rig, int index)
+        {
+            CameraView[] v = ViewsOf(rig);
+            int i = index % v.Length;
+            if (i < 0) i += v.Length;
+            return v[i];
+        }
+
+        /// <summary>Position of <paramref name="view"/> in the cycle of <paramref name="rig"/>, or −1.</summary>
+        public static int IndexOf(RigClass rig, CameraView view)
+        {
+            CameraView[] v = ViewsOf(rig);
+            for (int i = 0; i < v.Length; i++)
+                if (v[i] == view) return i;
+            return -1;
+        }
+
+        /// <summary>The first view of a class: its chase rig.</summary>
+        public static CameraView Default(RigClass rig)
+        {
+            return ViewsOf(rig)[0];
+        }
+
+        public static bool Offers(RigClass rig, CameraView view)
+        {
+            return IndexOf(rig, view) >= 0;
+        }
+
+        /// <summary><paramref name="view"/> when the class offers it, else the class default.</summary>
+        public static CameraView Valid(RigClass rig, CameraView view)
+        {
+            return Offers(rig, view) ? view : Default(rig);
+        }
+
+        /// <summary>The view after <paramref name="view"/> in the class's cycle (the default after the last one, or after
+        /// a view the class does not offer).</summary>
+        public static CameraView Next(RigClass rig, CameraView view)
+        {
+            int i = IndexOf(rig, view);
+            return i < 0 ? Default(rig) : At(rig, i + 1);
+        }
+
+        /// <summary>The numbers of a view.</summary>
+        public static CameraViewSpec Spec(CameraView view)
+        {
+            var s = new CameraViewSpec
+            {
+                View = view, Kind = CameraViewKind.Chase, DistanceScale = 1f, PivotScale = 1f, LookAheadScale = 1f, NearClipM = ChaseNearClipM,
+                RollShare = 1f,
+            };
+            switch (view)
+            {
+                case CameraView.Far:
+                    s.DistanceScale = 1.45f;
+                    s.PitchAddDeg = 5f;
+                    s.PivotAddM = 0.2f;
+                    s.LookAheadScale = 1.25f;
+                    break;
+                case CameraView.OverShoulder:
+                    s.DistanceM = 3.2f;
+                    s.PitchAddDeg = -4f;
+                    s.PivotAddM = 0.55f;
+                    s.ShoulderM = 0.55f;
+                    s.LookAheadScale = 0.5f;
+                    s.MinDistanceM = 1.0f;
+                    s.AimAtPivot = true;
+                    s.FovAddDeg = -3f;
+                    break;
+                case CameraView.LowCinematic:
+                    s.DistanceScale = 0.62f;
+                    s.PitchAddDeg = -9f;
+                    s.PivotScale = 0.6f;
+                    s.LookAheadScale = 1.3f;
+                    s.MinDistanceM = 2.0f;
+                    s.FovAddDeg = 4f;
+                    break;
+                case CameraView.Handlebar:
+                    Mount(ref s, CameraViewKind.Eye, 72f, 9f, 0.5f);
+                    break;
+                case CameraView.Hood:
+                    Mount(ref s, CameraViewKind.Hood, 66f, 3f, 1f);
+                    break;
+                case CameraView.Interior:
+                    Mount(ref s, CameraViewKind.Eye, 70f, 6f, 1f);
+                    break;
+                case CameraView.DriverSeat:
+                    Mount(ref s, CameraViewKind.Eye, 70f, 5f, 1f);
+                    break;
+                case CameraView.PassengerSeat:
+                    Mount(ref s, CameraViewKind.Eye, 68f, 3f, 1f);
+                    break;
+            }
+            return s;
+        }
+
+        private static void Mount(ref CameraViewSpec s, CameraViewKind kind, float minHFov, float lookDown, float roll)
+        {
+            s.Kind = kind;
+            s.MinHFovDeg = minHFov;
+            s.LookDownDeg = lookDown;
+            s.RollShare = roll;
+            s.NearClipM = MountedNearClipM;
+            s.LookAheadScale = 0f;
+        }
+
+        /// <summary>True for the eye and hood views.</summary>
+        public static bool IsMounted(CameraView view)
+        {
+            return Spec(view).Mounted;
+        }
+
+        /// <summary>
+        /// The chase rig of <paramref name="rig"/> seen through <paramref name="view"/>: the class rig of
+        /// <see cref="CameraRigTable"/> modified by the view (a mounted view returns the class rig unchanged, which the
+        /// camera uses only to blend). The collision minimum never exceeds the view's own distance.
+        /// </summary>
+        public static RigParams Chase(RigClass rig, CameraView view, bool portrait, RigClass passengerOf)
+        {
+            RigParams r = CameraRigTable.For(rig, portrait, passengerOf);
+            CameraViewSpec s = Spec(view);
+            if (s.Kind != CameraViewKind.Chase) return r;
+            r.DistanceM = s.DistanceM > 0f ? s.DistanceM * (portrait ? PortraitAbsoluteScale : 1f) : r.DistanceM * s.DistanceScale;
+            r.PitchDeg += s.PitchAddDeg;
+            r.PivotM = r.PivotM * s.PivotScale + s.PivotAddM;
+            r.LookAheadS *= s.LookAheadScale;
+            r.LookAheadMaxM *= s.LookAheadScale;
+            r.MinHFovDeg += s.FovAddDeg;
+            if (s.MinDistanceM > 0f) r.MinDistanceM = Math.Min(r.MinDistanceM, s.MinDistanceM);
+            r.MinDistanceM = Math.Min(r.MinDistanceM, r.DistanceM);
+            r.ShoulderM = s.ShoulderM;
+            r.AimAtPivot = s.AimAtPivot;
+            return r;
+        }
+
+        /// <summary>The bonnet camera in the vehicle frame (origin on the ground under the rear axle, +Z forward): just
+        /// behind the nose, a little above the bonnet line of a body <paramref name="heightM"/> tall.</summary>
+        public static void HoodEye(float wheelbaseM, float frontM, float heightM, out float y, out float z)
+        {
+            z = wheelbaseM + Math.Max(0f, frontM) * 0.35f;
+            y = 0.62f * Math.Max(0.8f, heightM) + 0.22f;
+        }
+
+        /// <summary>The localisation key of a view's name ("hud.camera.far").</summary>
+        public static string Key(CameraView view)
+        {
+            int i = (int)view;
+            return i >= 0 && i < ViewKeys.Length ? ViewKeys[i] : ViewKeys[0];
+        }
+
+        /// <summary>The save name of a view ("far").</summary>
+        public static string Name(CameraView view)
+        {
+            int i = (int)view;
+            return i >= 0 && i < ViewNames.Length ? ViewNames[i] : ViewNames[0];
+        }
+
+        public static bool TryParse(string name, out CameraView view)
+        {
+            for (int i = 0; i < ViewNames.Length; i++)
+            {
+                if (string.Equals(ViewNames[i], name, StringComparison.Ordinal))
+                {
+                    view = (CameraView)i;
+                    return true;
+                }
+            }
+            view = CameraView.Near;
+            return false;
+        }
+
+        /// <summary>The save name of a rig class ("two_wheeler").</summary>
+        public static string RigName(RigClass rig)
+        {
+            int i = (int)rig;
+            return i >= 0 && i < RigNames.Length ? RigNames[i] : RigNames[0];
+        }
+    }
+
+    /// <summary>
+    /// The chosen <see cref="CameraView"/> per rig class, kept in the save under
+    /// <c>settings.camera_views</c> (<see cref="SaveData.SettingsSection.Extra"/>, so older builds keep it) as
+    /// <c>{"two_wheeler": "handlebar", ...}</c>. Unknown names fall back to the class default.
+    /// </summary>
+    public sealed class CameraViewMemory
+    {
+        public const string SaveKey = "camera_views";
+
+        private readonly CameraView[] _views = new CameraView[CameraViews.RigCount];
+
+        public CameraViewMemory()
+        {
+            for (int i = 0; i < _views.Length; i++) _views[i] = CameraViews.Default((RigClass)i);
+        }
+
+        /// <summary>The view of <paramref name="rig"/> (always one the class offers).</summary>
+        public CameraView Get(RigClass rig)
+        {
+            int i = (int)rig;
+            if (i < 0 || i >= _views.Length) return CameraViews.Default(rig);
+            return CameraViews.Valid(rig, _views[i]);
+        }
+
+        /// <summary>Chooses <paramref name="view"/> for <paramref name="rig"/>; false (and no change) when the class does
+        /// not offer it.</summary>
+        public bool Set(RigClass rig, CameraView view)
+        {
+            int i = (int)rig;
+            if (i < 0 || i >= _views.Length || !CameraViews.Offers(rig, view)) return false;
+            _views[i] = view;
+            return true;
+        }
+
+        /// <summary>Moves <paramref name="rig"/> to its next view and returns it.</summary>
+        public CameraView Cycle(RigClass rig)
+        {
+            CameraView next = CameraViews.Next(rig, Get(rig));
+            Set(rig, next);
+            return next;
+        }
+
+        public JsonObject ToJson()
+        {
+            var o = new JsonObject();
+            for (int i = 0; i < _views.Length; i++) o.Set(CameraViews.RigName((RigClass)i), CameraViews.Name(Get((RigClass)i)));
+            return o;
+        }
+
+        public static CameraViewMemory FromJson(JsonObject o)
+        {
+            var m = new CameraViewMemory();
+            if (o == null) return m;
+            for (int i = 0; i < CameraViews.RigCount; i++)
+            {
+                var rig = (RigClass)i;
+                CameraView v;
+                if (CameraViews.TryParse(o.GetString(CameraViews.RigName(rig)), out v)) m.Set(rig, v);
+            }
+            return m;
+        }
+
+        /// <summary>The views saved in <paramref name="save"/> (defaults without a save or an entry).</summary>
+        public static CameraViewMemory Load(SaveData save)
+        {
+            return FromJson(save != null ? save.Settings.Extra.GetObject(SaveKey) : null);
+        }
+
+        /// <summary>Writes the views into <paramref name="save"/> (the caller persists it).</summary>
+        public void Store(SaveData save)
+        {
+            if (save == null) return;
+            save.Settings.Extra.Set(SaveKey, ToJson());
+        }
+    }
+
+    /// <summary>
+    /// Keeps a useful view while reversing (owner feedback: "camera view gets blocked if I try to back up my motorbike in
+    /// the narrower streets"). After <see cref="EnterDelayS"/> of reversing the chase camera rises
+    /// (<see cref="RaisePitchDeg"/>), shortens (<see cref="ShortenTo"/>) and lifts the player's ground point on screen
+    /// (<see cref="FootRaiseNdc"/>, the camera scales it down for the short landscape view) so the lane behind the
+    /// vehicle shows under it; after <see cref="SwingDelayS"/> of steady reversing it swings round to look along the
+    /// direction of travel. Driving forward (or standing still for
+    /// <see cref="StoppedReleaseS"/>) eases everything back. Engine-free; no allocation.
+    /// </summary>
+    public sealed class ReverseFraming
+    {
+        /// <summary>Slower than this either way counts as standing.</summary>
+        public const float ReverseMps = 0.5f;
+
+        public const float EnterDelayS = 0.3f;
+        public const float SwingDelayS = 1.0f;
+
+        /// <summary>The swing needs at least this reversing speed.</summary>
+        public const float SwingMinMps = 1.0f;
+
+        public const float ForwardReleaseS = 0.3f;
+        public const float StoppedReleaseS = 2.0f;
+        public const float RaisePitchDeg = 16f;
+        public const float ShortenTo = 0.85f;
+        public const float FootRaiseNdc = 0.3f;
+
+        /// <summary>Raise and release rate, per second (exponential approach).</summary>
+        public const float RaiseRate = 6f;
+
+        /// <summary>The swing turns the camera round in this long.</summary>
+        public const float SwingSeconds = 0.9f;
+
+        private float _reverseS, _forwardS, _stoppedS;
+        private bool _raised, _swung;
+
+        /// <summary>0 driving forward, 1 fully in the reversing frame.</summary>
+        public float Raise01 { get; private set; }
+
+        /// <summary>0 behind the vehicle, 1 swung round to look along the travel (linear; see <see cref="SwingYawDeg"/>).</summary>
+        public float Swing01 { get; private set; }
+
+        /// <summary>True while the reversing frame is wanted.</summary>
+        public bool Reversing
+        {
+            get { return _raised; }
+        }
+
+        public float PitchAddDeg
+        {
+            get { return RaisePitchDeg * Raise01; }
+        }
+
+        public float DistanceScale
+        {
+            get { return 1f + (ShortenTo - 1f) * Raise01; }
+        }
+
+        public float FootRaise
+        {
+            get { return FootRaiseNdc * Raise01; }
+        }
+
+        /// <summary>Yaw added to the chase camera, degrees (0 to 180, eased).</summary>
+        public float SwingYawDeg
+        {
+            get { return 180f * CharMath.SmoothStep(Swing01); }
+        }
+
+        public void Reset()
+        {
+            _reverseS = _forwardS = _stoppedS = 0f;
+            _raised = _swung = false;
+            Raise01 = 0f;
+            Swing01 = 0f;
+        }
+
+        /// <summary>One frame at <paramref name="signedSpeedMps"/> (negative reversing). <paramref name="allowSwing"/>
+        /// false (the player is looking around, or a mounted view) cancels the swing.</summary>
+        public void Update(float dt, float signedSpeedMps, bool allowSwing)
+        {
+            if (!(dt > 0f) || float.IsInfinity(dt)) return;
+            if (float.IsNaN(signedSpeedMps) || float.IsInfinity(signedSpeedMps)) signedSpeedMps = 0f;
+            if (signedSpeedMps < -ReverseMps)
+            {
+                _reverseS += dt;
+                _forwardS = 0f;
+                _stoppedS = 0f;
+            }
+            else if (signedSpeedMps > ReverseMps)
+            {
+                _forwardS += dt;
+                _reverseS = 0f;
+                _stoppedS = 0f;
+            }
+            else
+            {
+                _stoppedS += dt;
+            }
+            if (_reverseS >= EnterDelayS) _raised = true;
+            if (_raised && (_forwardS >= ForwardReleaseS || _stoppedS >= StoppedReleaseS))
+            {
+                _raised = false;
+                _swung = false;
+            }
+            if (_raised && allowSwing && _reverseS >= SwingDelayS && signedSpeedMps < -SwingMinMps) _swung = true;
+            if (!allowSwing || _forwardS > 0f) _swung = false;
+            Raise01 = CharMath.Approach(Raise01, _raised ? 1f : 0f, RaiseRate, dt);
+            if (Raise01 < 1e-4f) Raise01 = 0f;
+            if (Raise01 > 1f - 1e-4f) Raise01 = 1f;
+            float step = dt / SwingSeconds;
+            Swing01 = _swung ? Math.Min(1f, Swing01 + step) : Math.Max(0f, Swing01 - step);
+        }
+    }
+
+    /// <summary>
+    /// The collision-aware boom of the chase camera (W2_DESIGN 6.4; owner feedback: "houses block the view"). Each frame
+    /// it sweeps a <see cref="ProbeRadiusM"/> sphere from the pivot over the player towards where the camera wants to be
+    /// (<see cref="IViewObstacleQuery"/>, game metres with absolute heights) and:
+    /// <list type="bullet">
+    /// <item>pulls in at once to stay <see cref="SkinM"/> short of the first hit, so the camera is never inside or behind a
+    /// wall, then eases back out over about <see cref="EaseOutSeconds"/> after a short <see cref="HoldSeconds"/>;</item>
+    /// <item>when that leaves less than the rig's minimum distance (a low wall right behind), tries steeper booms in
+    /// <see cref="LiftStepDeg"/> steps and lifts over the wall smoothly;</item>
+    /// <item>in a lane with walls within <see cref="LaneProbeM"/> on both sides (old-core lanes, about 4.8 m wide) blends
+    /// to the lane frame: <see cref="LanePitchDeg"/> steeper and <see cref="LaneDistanceScale"/> as long, so it looks
+    /// over the eaves instead of into the walls.</item>
+    /// </list>
+    /// A hit closer than <see cref="StartInsideM"/> means the sweep started inside something (a pivot under an eave) and
+    /// is ignored. Without a query it only eases towards the wanted length. Engine-free; no allocation; one to seven
+    /// sweeps per frame.
+    /// </summary>
+    public sealed class ChaseBoom
+    {
+        public const float ProbeRadiusM = 0.3f;
+        public const float SkinM = 0.1f;
+        public const float StartInsideM = 0.05f;
+        public const float EaseOutSeconds = 0.6f;
+        public const float HoldSeconds = 0.2f;
+        public const float LiftStepDeg = 15f;
+        public const int LiftSteps = 3;
+        public const float MaxPitchDeg = 80f;
+
+        /// <summary>Lift rises and falls at these rates, per second (exponential approach).</summary>
+        public const float LiftRiseRate = 10f, LiftFallRate = 2.5f;
+
+        public const float LaneProbeM = 3f;
+        public const float LanePitchDeg = 15f;
+        public const float LaneDistanceScale = 0.85f;
+        public const float LaneBlendSeconds = 0.5f;
+
+        /// <summary>The side probes run at 10 Hz (the lane blend is slow anyway).</summary>
+        public const float LaneIntervalS = 0.1f;
+
+        private const double Deg2Rad = Math.PI / 180.0;
+
+        private float _distance = -1f;
+        private float _lift;
+        private float _hold;
+        private float _lane;
+        private float _laneTimer;
+        private bool _laneWalls;
+
+        /// <summary>The boom length this frame, metres.</summary>
+        public float DistanceM { get; private set; }
+
+        /// <summary>The boom pitch this frame (wanted pitch + lane + lift), degrees.</summary>
+        public float PitchDeg { get; private set; }
+
+        /// <summary>Extra pitch to clear a low wall, degrees (smoothed).</summary>
+        public float LiftDeg
+        {
+            get { return _lift; }
+        }
+
+        /// <summary>Lane frame blend, 0 to 1 (eased).</summary>
+        public float Lane01
+        {
+            get { return CharMath.SmoothStep(_lane); }
+        }
+
+        /// <summary>Free length along this frame's boom direction (with the skin taken off).</summary>
+        public float ClearM { get; private set; }
+
+        /// <summary>Something cut the boom short this frame.</summary>
+        public bool Blocked { get; private set; }
+
+        /// <summary>Sweeps made by the last <see cref="Solve"/>.</summary>
+        public int Casts { get; private set; }
+
+        /// <summary>Next solve starts fresh (spawn, teleport): no smoothing from the old length, lift or lane.</summary>
+        public void Snap()
+        {
+            _distance = -1f;
+            _lift = 0f;
+            _hold = 0f;
+            _laneTimer = 0f;
+        }
+
+        /// <summary>
+        /// Places the boom for this frame: pivot (<paramref name="px"/>, <paramref name="py"/>, <paramref name="pz"/>) in
+        /// game metres, boom yaw (degrees, 0 = north, clockwise: the camera sits behind, at −forward) and pitch
+        /// (degrees, camera above the pivot), the wanted length and the rig's minimum. Read <see cref="DistanceM"/> and
+        /// <see cref="PitchDeg"/> afterwards.
+        /// </summary>
+        public void Solve(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float wantedM,
+                          float minM, float dt)
+        {
+            Casts = 0;
+            if (!(dt >= 0f) || float.IsInfinity(dt)) dt = 0f;
+            if (float.IsNaN(wantedM) || wantedM < 0f) wantedM = 0f;
+            bool snap = _distance < 0f;
+
+            UpdateLane(query, px, py, pz, yawDeg, dt, snap);
+            float lane = Lane01;
+            float pitch = Math.Min(MaxPitchDeg, pitchDeg + LanePitchDeg * lane);
+            float want = wantedM * (1f + (LaneDistanceScale - 1f) * lane);
+            float min = Math.Min(Math.Max(0f, minM), want);
+
+            float liftTarget = 0f;
+            float clear0 = query != null ? Clear(query, px, py, pz, yawDeg, pitch, want) : want;
+            if (query != null && clear0 < min - 1e-3f)
+            {
+                float best = clear0, bestLift = 0f;
+                for (int k = 1; k <= LiftSteps; k++)
+                {
+                    float p = Math.Min(MaxPitchDeg, pitch + k * LiftStepDeg);
+                    if (p <= pitch + 1e-3f) break;
+                    float c = Clear(query, px, py, pz, yawDeg, p, want);
+                    if (c > best + 0.25f)
+                    {
+                        best = c;
+                        bestLift = p - pitch;
+                    }
+                    if (c >= min) break;
+                }
+                liftTarget = bestLift;
+            }
+            if (snap) _lift = liftTarget;
+            else _lift = CharMath.Approach(_lift, liftTarget, liftTarget > _lift ? LiftRiseRate : LiftFallRate, dt);
+            if (_lift < 0.01f && liftTarget <= 0f) _lift = 0f;
+
+            float finalPitch = Math.Min(MaxPitchDeg, pitch + _lift);
+            float clear = clear0;
+            if (query != null && _lift > 0f) clear = Clear(query, px, py, pz, yawDeg, finalPitch, want);
+
+            float target = Math.Min(want, clear);
+            if (snap)
+            {
+                _distance = target;
+                _hold = 0f;
+            }
+            else if (target < _distance)
+            {
+                // In at once: never inside or behind a wall.
+                _distance = target;
+                _hold = HoldSeconds;
+            }
+            else if (_hold > 0f)
+            {
+                _hold -= dt;
+            }
+            else
+            {
+                _distance = CharMath.Approach(_distance, target, 3f / EaseOutSeconds, dt);
+                if (target - _distance < 1e-3f) _distance = target;
+            }
+            _distance = Math.Min(_distance, clear);
+            Blocked = clear < want - 1e-3f;
+            ClearM = clear;
+            DistanceM = _distance;
+            PitchDeg = finalPitch;
+        }
+
+        /// <summary>Free length (minus <see cref="SkinM"/>) of a sphere sweep from a point along a direction, up to
+        /// <paramref name="length"/>: <paramref name="length"/> when nothing is hit or the sweep started inside.</summary>
+        public float Reach(IViewObstacleQuery query, double ox, double oy, double oz, double dx, double dy, double dz, float length)
+        {
+            if (query == null || !(length > 0f)) return Math.Max(0f, length);
+            Casts++;
+            double hit;
+            if (!query.SphereCast(ox, oy, oz, dx, dy, dz, ProbeRadiusM, length + SkinM, out hit)) return length;
+            if (double.IsNaN(hit) || hit < StartInsideM) return length;
+            return (float)Math.Max(0.0, Math.Min(length, hit - SkinM));
+        }
+
+        /// <summary>The camera offset from the pivot for a boom of unit length at (<paramref name="yawDeg"/>,
+        /// <paramref name="pitchDeg"/>): behind and above.</summary>
+        public static void Direction(float yawDeg, float pitchDeg, out double dx, out double dy, out double dz)
+        {
+            double yaw = yawDeg * Deg2Rad, pitch = pitchDeg * Deg2Rad;
+            double c = Math.Cos(pitch);
+            dx = -Math.Sin(yaw) * c;
+            dy = Math.Sin(pitch);
+            dz = -Math.Cos(yaw) * c;
+        }
+
+        private float Clear(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float length)
+        {
+            double dx, dy, dz;
+            Direction(yawDeg, pitchDeg, out dx, out dy, out dz);
+            return Reach(query, px, py, pz, dx, dy, dz, length);
+        }
+
+        private void UpdateLane(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float dt, bool snap)
+        {
+            if (query == null)
+            {
+                _laneWalls = false;
+            }
+            else
+            {
+                _laneTimer -= dt;
+                if (snap || _laneTimer <= 0f)
+                {
+                    _laneTimer = LaneIntervalS;
+                    double yaw = yawDeg * Deg2Rad;
+                    double rx = Math.Cos(yaw), rz = -Math.Sin(yaw);
+                    bool right = Reach(query, px, py, pz, rx, 0.0, rz, LaneProbeM) < LaneProbeM - 1e-3f;
+                    bool left = right && Reach(query, px, py, pz, -rx, 0.0, -rz, LaneProbeM) < LaneProbeM - 1e-3f;
+                    _laneWalls = right && left;
+                }
+            }
+            float goal = _laneWalls ? 1f : 0f;
+            if (snap) _lane = goal;
+            else
+            {
+                float step = dt / LaneBlendSeconds;
+                _lane = _lane < goal ? Math.Min(goal, _lane + step) : Math.Max(goal, _lane - step);
+            }
         }
     }
 }

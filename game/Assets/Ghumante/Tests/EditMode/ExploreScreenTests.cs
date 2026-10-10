@@ -18,7 +18,7 @@ namespace Ghumante.Tests.EditMode
     /// <summary>
     /// The Explore HUD (M1 track D) driven without a panel: buttons are tapped with ScreenBase.SimulateTap and time advances
     /// with UiAnimator.Tick. Loading and the no-region message, speed and surface in both languages, Walk/Ride, pause,
-    /// search to "Ride there", the route banner and the arrival celebration.
+    /// search to "Ride there", the route chip, the camera button and the arrival celebration.
     /// </summary>
     public class ExploreScreenTests
     {
@@ -259,48 +259,93 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
-        public void RouteBannerShowsDistanceAndTime()
+        public void RouteChipShowsTheNextTurnAndTheDistanceAndTimeLeft()
         {
             ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
             screen.HideLoading();
             screen.ShowRoute("Boudhanath Stupa", "hud.route.finding");
             Assert.IsTrue(screen.RouteVisible);
-            StringAssert.Contains("Finding the way", root.Q<Label>("hud-route-info").text);
+            Label step = root.Q<Label>("hud-route-step"), info = root.Q<Label>("hud-route-info");
+            Assert.AreEqual("To Boudhanath Stupa", step.text);
+            Assert.AreEqual("Finding the way to Boudhanath Stupa…", info.text, "the status names the destination (no raw {0})");
+
             screen.SetRouteProgress(4949, 481, 0.5f);
-            Assert.AreEqual("To Boudhanath Stupa", root.Q<Label>("hud-route-to").text);
-            Assert.AreEqual("4.9 km · 9 min", root.Q<Label>("hud-route-info").text);
+            screen.SetRouteStep(RouteStepKind.Turn, 243);
+            Assert.AreEqual("240 m", step.text, "the distance to the next turn");
+            Assert.AreEqual("4.9 km · 9 min", info.text, "distance and time left");
+            Assert.AreEqual(RouteStepKind.Turn, screen.RouteStep);
+            screen.SetRouteStep(RouteStepKind.Straight, 900);
+            Assert.AreEqual("Straight on", step.text);
+            screen.SetRouteStep(RouteStepKind.BackToRoute, 0);
+            Assert.AreEqual("Back to the route", step.text);
+
             _localizer.SetLocale(Localizer.Nepali);
-            Assert.AreEqual("४.९ कि.मि. · ९ मिनेट", root.Q<Label>("hud-route-info").text);
+            Assert.AreEqual("४.९ कि.मि. · ९ मिनेट", info.text);
+            Assert.AreEqual("बाटोमा फर्कनुहोस्", step.text);
+            screen.SetRouteStep(RouteStepKind.Turn, 243);
+            Assert.AreEqual("२४० मि.", step.text);
             screen.HideRoute();
             Assert.IsFalse(screen.RouteVisible);
         }
 
         [Test]
+        public void TheRouteChipIsNoLongerABannerAcrossTheTop()
+        {
+            // Owner: "Place direction info somewhere else where it's convenient to look. Right now it blocks the view."
+            ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
+            Assert.IsNull(root.Q<Label>("hud-route-to"), "the destination banner line is gone");
+            VisualElement chip = root.Q<VisualElement>("hud-route");
+            Assert.AreSame(chip.parent, screen.StyledRoot, "an absolute chip on the HUD root, placed by RouteChipLayout");
+            Assert.IsNotNull(chip.Q<Button>("hud-route-cancel"), "x still stops the route");
+            Assert.AreEqual(RouteChipSlot.Fallback, screen.RouteChipSlot, "without a panel nothing is laid out: the USS fallback stands");
+        }
+
+        [Test]
         public void RouteNameFollowsALanguageSwitchMidRoute()
         {
-            // Regression: the destination used to be cached as an English string, so the banner and the arrival toast
+            // Regression: the destination used to be cached as an English string, so the chip and the arrival toast
             // stayed English after switching to Nepali in Settings.
             ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
             screen.HideLoading();
             var boudha = new NameRecord("Boudhanath", "Boudhanath Stupa", "बौद्धनाथ स्तूप");
             screen.ShowRoute(boudha, "hud.route.finding");
-            Assert.AreEqual("To Boudhanath Stupa", root.Q<Label>("hud-route-to").text);
+            Assert.AreEqual("To Boudhanath Stupa", root.Q<Label>("hud-route-step").text);
             _localizer.SetLocale(Localizer.Nepali);
-            StringAssert.Contains("बौद्धनाथ स्तूप", root.Q<Label>("hud-route-to").text);
+            StringAssert.Contains("बौद्धनाथ स्तूप", root.Q<Label>("hud-route-step").text);
+            StringAssert.Contains("बौद्धनाथ स्तूप", root.Q<Label>("hud-route-info").text);
             screen.CelebrateArrival(boudha);
             StringAssert.Contains("बौद्धनाथ स्तूप", root.Q<Label>("toast").text);
         }
 
         [Test]
-        public void ToastsDropBelowTheRouteBanner()
+        public void TheRootIsMarkedWhileRouting()
         {
             ExploreScreen screen = Create(new RecordingHaptics(), out VisualElement root);
             screen.HideLoading();
             Assert.IsFalse(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass));
             screen.ShowRoute("Boudhanath Stupa", "hud.route.finding");
-            Assert.IsTrue(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass), "Hud.uss moves .gh-toast down");
+            Assert.IsTrue(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass));
             screen.HideRoute();
             Assert.IsFalse(screen.StyledRoot.ClassListContains(ExploreScreen.RoutingClass));
+        }
+
+        [Test]
+        public void TheCameraButtonAsksForTheNextAngle()
+        {
+            var haptics = new RecordingHaptics();
+            ExploreScreen screen = Create(haptics, out VisualElement root);
+            screen.HideLoading();
+            int asked = 0;
+            screen.CameraRequested += () => asked++;
+            Button camera = root.Q<Button>("hud-camera");
+            Assert.IsNotNull(camera);
+            Assert.IsFalse(camera.focusable, "A drives the scooter; it must not press HUD buttons");
+            Assert.IsTrue(screen.SimulateTap("hud-camera"));
+            Assert.AreEqual(1, asked);
+            Assert.Contains(HapticKind.Selection, haptics.Played);
+            Assert.AreEqual("Camera angle", camera.tooltip);
+            _localizer.SetLocale(Localizer.Nepali);
+            Assert.AreEqual("क्यामेरा कोण", camera.tooltip);
         }
 
         [Test]
