@@ -160,10 +160,11 @@ namespace Ghumante.Core.Tests
             if (best < 0) Assert.Fail("Thamel Marg not in the sample pack");
         }
 
-        /// <summary>A ground query holding every tile of the sample pack (all levels, step 1).</summary>
-        public static TileGroundQuery SampleGround()
+        /// <summary>A ground query holding every tile of the sample pack (all levels, step 1), with the tiles' solids
+        /// (building footprints, props, railings) unless <paramref name="solids"/> is false.</summary>
+        public static TileGroundQuery SampleGround(bool solids = true)
         {
-            var g = new TileGroundQuery();
+            var g = new TileGroundQuery { TileSolidsEnabled = solids };
             foreach (TileData t in SampleTiles().Values) g.Add(t);
             return g;
         }

@@ -39,6 +39,16 @@ namespace Ghumante.Core.Driving
     /// <para><b>Ground.</b> Where the ground query is unknown (no loaded tile) the vehicle stops as at a wall. When
     /// the query is an <see cref="ILayeredGroundQuery"/> the current height picks between a bridge deck and what
     /// lies under it; when it is an <see cref="IRoadQuery"/> stuck recovery hops onto the nearest road.</para>
+    ///
+    /// <para><b>Solids</b> (detail pass, docs/W2_DETAIL_CONTRACT.md §1). When the query is also an
+    /// <see cref="ISolidQuery"/>, every sub-step sweeps the body (<see cref="CollisionBody.For"/>: a capsule along the
+    /// heading as tall as the machine and rider) against houses, walls, temples, statues, parked vehicles, trees,
+    /// railings and low deck undersides, so nothing is passed through at any speed or frame rate. The body stops at the
+    /// first contact and slides along the wall with the rest of the move; its direction of travel follows the wall and
+    /// the speed keeps only the part along it (a head-on hit stops it, <see cref="StepEvents.HitWall"/>), and the body
+    /// turns towards the wall smoothly through the slip angle. A rotation that pushes a corner into a wall is pushed
+    /// back out, or undone. Ground more than <see cref="MaxClimbM"/> above the wheels within one sub-step is a wall too
+    /// (only small step-ups), except a deck the layered ground carries the vehicle onto.</para>
     /// </summary>
     public sealed class ArcadeVehicle
     {
@@ -49,6 +59,20 @@ namespace Ghumante.Core.Driving
         /// <summary>A ground drop larger than this below the ballistic path within one sub-step means falling
         /// (a cliff or a bridge edge), not following the ground down.</summary>
         public const float StepDownM = 0.6f;
+
+        /// <summary>Ground rising more than this within one sub-step is a wall (a lowered road's retaining edge, a
+        /// terrace); kerbs, plinths and ramps are far lower. Decks under the vehicle are exempt.</summary>
+        public const float MaxClimbM = 1.0f;
+
+        /// <summary>Impacts closer to head-on than this (cosine between the travel direction and the wall normal) stop
+        /// the vehicle instead of sliding it.</summary>
+        public const float HeadOnCos = 0.94f;
+
+        /// <summary>Speed lost in one contact from which <see cref="StepEvents.HitWall"/> is reported.</summary>
+        public const float HitWallMinMps = 1.5f;
+
+        /// <summary>Penetration left after a push-out above which a rotation into a wall is undone.</summary>
+        private const double MaxResidualPenM = 0.05;
 
         private const float Deg2Rad = (float)(Math.PI / 180.0);
         private const float Pi = (float)Math.PI;
@@ -69,6 +93,7 @@ namespace Ghumante.Core.Driving
         private const float DriftMinSteer = 0.5f;
 
         private readonly VehicleSpec _spec;
+        private readonly CollisionBody _body;
 
         /// <summary>Position in game metres (X east, Z north; Y absolute height of the contact point).</summary>
         public double X, Z;
@@ -133,6 +158,7 @@ namespace Ghumante.Core.Driving
         {
             _spec = spec ?? throw new ArgumentNullException(nameof(spec));
             spec.Validate();
+            _body = CollisionBody.For(spec);
             Surface = SurfaceGroup.Paved;
             int line = (int)Math.Ceiling(VehicleSpec.MaxSteerDelayS / MaxSubStepS) + 4;
             _steerLine = new float[line];
@@ -143,6 +169,15 @@ namespace Ghumante.Core.Driving
         {
             get { return _spec; }
         }
+
+        /// <summary>The swept collision body (<see cref="CollisionBody.For"/> of the spec).</summary>
+        public CollisionBody Body
+        {
+            get { return _body; }
+        }
+
+        /// <summary>Speed lost at the last <see cref="StepEvents.HitWall"/>, m/s.</summary>
+        public float LastImpactMps { get; private set; }
 
         public WorldPos Position
         {
@@ -372,6 +407,7 @@ namespace Ghumante.Core.Driving
             TopSpeedMps = vTop;
 
             float vBefore = SpeedMps;
+            float headingBefore = HeadingRad, velHeadingBefore = _velHeading;
             if (_spec.TurnInPlace) WalkerDrive(throttle, brake, steer, boost, topFactor, h);
             else VehicleDrive(throttle, brake, DelayedSteer(steer, h), steer, grip, vTop, vRev, h);
 
@@ -379,21 +415,31 @@ namespace Ghumante.Core.Driving
             bool moved = false;
             GroundSample s;
             float v = SpeedMps;
+            var solids = g as ISolidQuery;
+            if (solids != null && HeadingRad != headingBefore) KeepRotationClear(solids, headingBefore, velHeadingBefore);
             if (v != 0f)
             {
                 double dist = v * h;
-                double nx = X + dist * Math.Sin(_velHeading), nz = Z + dist * Math.Cos(_velHeading);
-                if (Sample(g, nx, nz, out s) && !WalkerBlocked(ref s, v))
+                double dx = dist * Math.Sin(_velHeading), dz = dist * Math.Cos(_velHeading);
+                if (solids != null)
                 {
-                    X = nx;
-                    Z = nz;
-                    moved = true;
+                    moved = MoveSwept(solids, g, dx, dz, ref ev, out s);
                 }
                 else
                 {
-                    // No ground ahead (edge of the loaded world) or too steep on foot: a wall.
-                    SpeedMps = 0f;
-                    if (!Sample(g, X, Z, out s)) s = _ground;
+                    double nx = X + dx, nz = Z + dz;
+                    if (Sample(g, nx, nz, out s) && !WalkerBlocked(ref s, v) && !TooHigh(ref s))
+                    {
+                        X = nx;
+                        Z = nz;
+                        moved = true;
+                    }
+                    else
+                    {
+                        // No ground ahead (edge of the loaded world), too steep on foot or a step too high: a wall.
+                        SpeedMps = 0f;
+                        if (!Sample(g, X, Z, out s)) s = _ground;
+                    }
                 }
             }
             else if (!Sample(g, X, Z, out s))
@@ -408,7 +454,12 @@ namespace Ghumante.Core.Driving
                 _airTime += h;
                 _vy -= Gravity * h;
                 Y += _vy * h;
-                if (_recoveryHop) HeadingRad = MoveTowardsAngle(HeadingRad, _recoveryHeading, RecoveryTurnRadPerS * h);
+                if (_recoveryHop)
+                {
+                    float before = HeadingRad;
+                    HeadingRad = MoveTowardsAngle(HeadingRad, _recoveryHeading, RecoveryTurnRadPerS * h);
+                    if (solids != null && HeadingRad != before) KeepRotationClear(solids, before, _velHeading);
+                }
                 if (Y <= s.Height)
                 {
                     LastLandingSpeedMps = -_vy;
@@ -419,7 +470,9 @@ namespace Ghumante.Core.Driving
                     if (_recoveryHop)
                     {
                         _recoveryHop = false;
+                        float before = HeadingRad;
                         HeadingRad = _recoveryHeading;
+                        if (solids != null && HeadingRad != before) KeepRotationClear(solids, before, _velHeading);
                         _velHeading = HeadingRad;
                         SpeedMps = 0f;
                         vyTerrain = 0f;
@@ -707,6 +760,154 @@ namespace Ghumante.Core.Driving
             return layered != null ? layered.TrySample(x, z, Y, out s) : g.TrySample(x, z, out s);
         }
 
+        /// <summary>Ground more than <see cref="MaxClimbM"/> above the wheels is a wall (not while hopping, not onto a deck).</summary>
+        private bool TooHigh(ref GroundSample s)
+        {
+            return !_recoveryHop && !s.OnDeck && s.Height - Y > MaxClimbM;
+        }
+
+        /// <summary>
+        /// Moves by (dx, dz) against the solids: up to three sweeps, each stopping <see cref="TileGroundQuery.SkinM"/>
+        /// short of the contact and sliding the rest of the move along it. Then the ground at the end (a step too high,
+        /// a blocked or unknown point falls back to the move along one axis, or to no move). Sets the speed and the
+        /// direction of travel after a contact; reports <see cref="StepEvents.HitWall"/>.
+        /// </summary>
+        private bool MoveSwept(ISolidQuery solids, IGroundQuery g, double dx, double dz, ref StepEvents ev, out GroundSample s)
+        {
+            double full = Math.Sqrt(dx * dx + dz * dz);
+            double px = X, pz = Z, rx = dx, rz = dz;
+            float worst = 0f;
+            const float skin = TileGroundQuery.SkinM;
+            for (int it = 0; it < 3; it++)
+            {
+                double rl = Math.Sqrt(rx * rx + rz * rz);
+                if (rl < 1e-7) break;
+                float t, nx, nz;
+                if (!solids.SweepBody(in _body, px, pz, HeadingRad, Y, rx, rz, out t, out nx, out nz))
+                {
+                    px += rx;
+                    pz += rz;
+                    break;
+                }
+                double tt = Math.Max(0.0, t - skin / rl);
+                px += rx * tt;
+                pz += rz * tt;
+                float impact = (float)(-(dx * nx + dz * nz) / full);
+                if (impact > worst) worst = impact;
+                double remx = rx * (1 - tt), remz = rz * (1 - tt);
+                double into = remx * nx + remz * nz;
+                if (into < 0)
+                {
+                    remx -= into * nx;
+                    remz -= into * nz;
+                }
+                // A hair away from the wall so the slide is not read as touching it again.
+                rx = remx + nx * 1e-4;
+                rz = remz + nz * 1e-4;
+            }
+
+            // The ground where the move ends; a wall-like step or no ground falls back to one axis, then to staying.
+            bool ok = Sample(g, px, pz, out s) && !WalkerBlocked(ref s, SpeedMps) && !TooHigh(ref s);
+            if (!ok)
+            {
+                double ax = px - X, az = pz - Z;
+                GroundSample sx, sz;
+                bool okX = Math.Abs(ax) > 1e-6 && Sample(g, X + ax, Z, out sx) && !WalkerBlocked(ref sx, SpeedMps) && !TooHigh(ref sx)
+                           && !solids.SweepBody(in _body, X, Z, HeadingRad, Y, ax, 0, out _, out _, out _);
+                bool okZ = Math.Abs(az) > 1e-6 && Sample(g, X, Z + az, out sz) && !WalkerBlocked(ref sz, SpeedMps) && !TooHigh(ref sz)
+                           && !solids.SweepBody(in _body, X, Z, HeadingRad, Y, 0, az, out _, out _, out _);
+                if (okX && (!okZ || Math.Abs(ax) >= Math.Abs(az)))
+                {
+                    Sample(g, X + ax, Z, out s);
+                    px = X + ax;
+                    pz = Z;
+                    ok = true;
+                }
+                else if (okZ)
+                {
+                    Sample(g, X, Z + az, out s);
+                    px = X;
+                    pz = Z + az;
+                    ok = true;
+                }
+                double mx0 = px - X, mz0 = pz - Z;
+                float kept = ok ? (float)(Math.Sqrt(mx0 * mx0 + mz0 * mz0) / full) : 0f;
+                worst = Math.Max(worst, (float)Math.Sqrt(Math.Max(0f, 1f - kept * kept)));
+            }
+            if (!ok)
+            {
+                LoseSpeed(SpeedMps, ref ev);
+                SpeedMps = 0f;
+                if (!Sample(g, X, Z, out s)) s = _ground;
+                return false;
+            }
+            double mx = px - X, mz = pz - Z;
+            X = px;
+            Z = pz;
+            if (worst > 0f) AfterContact(worst, mx, mz, ref ev);
+            return mx * mx + mz * mz > 1e-12;
+        }
+
+        /// <summary>Speed and direction after touching a wall at <paramref name="impact"/> (cosine to its normal): a near
+        /// head-on hit stops; otherwise only the speed along the wall is kept, the direction of travel follows the move
+        /// and the body is turned at most the maximum slip angle from it (the slip then eases it along the wall).</summary>
+        private void AfterContact(float impact, double mx, double mz, ref StepEvents ev)
+        {
+            float v = SpeedMps, av = Math.Abs(v);
+            float along = (float)Math.Sqrt(Math.Max(0.0, 1.0 - impact * impact));
+            if (impact >= HeadOnCos)
+            {
+                LoseSpeed(v, ref ev);
+                SpeedMps = 0f;
+                return;
+            }
+            if (av * (1f - along) >= HitWallMinMps) LoseSpeed(v * (1f - along), ref ev);
+            SpeedMps = v * along;
+            if (_spec.TurnInPlace || mx * mx + mz * mz < 1e-10) return;
+            float travel = (float)Math.Atan2(mx, mz);
+            if (v < 0f) travel = WrapAngle(travel + Pi);
+            _velHeading = WrapAngle(travel);
+            float maxSlip = _spec.MaxSlipDeg * Deg2Rad;
+            float slip = WrapAngle(HeadingRad - _velHeading);
+            if (Math.Abs(slip) > maxSlip) HeadingRad = WrapAngle(_velHeading + Math.Sign(slip) * maxSlip);
+        }
+
+        private void LoseSpeed(float lost, ref StepEvents ev)
+        {
+            float a = Math.Abs(lost);
+            if (a < HitWallMinMps) return;
+            ev |= StepEvents.HitWall;
+            LastImpactMps = a;
+        }
+
+        /// <summary>A heading change that swung the body into a solid: push the body back out (at most a little), or undo
+        /// the turn.</summary>
+        private void KeepRotationClear(ISolidQuery solids, float headingBefore, float velHeadingBefore)
+        {
+            double px, pz;
+            if (!solids.Penetration(in _body, X, Z, HeadingRad, Y, out px, out pz)) return;
+            double pl = Math.Sqrt(px * px + pz * pz);
+            if (pl <= 0.25)
+            {
+                double sx = X + px * (1 + TileGroundQuery.SkinM / Math.Max(pl, 1e-6)), sz = Z + pz * (1 + TileGroundQuery.SkinM / Math.Max(pl, 1e-6));
+                double qx, qz;
+                if (!solids.Penetration(in _body, sx, sz, HeadingRad, Y, out qx, out qz) || Math.Sqrt(qx * qx + qz * qz) < MaxResidualPenM)
+                {
+                    X = sx;
+                    Z = sz;
+                    return;
+                }
+            }
+            // Was the body clear before the turn? Then the turn is what hit: undo it.
+            double bx, bz;
+            if (!solids.Penetration(in _body, X, Z, headingBefore, Y, out bx, out bz) || Math.Sqrt(bx * bx + bz * bz) < pl)
+            {
+                HeadingRad = headingBefore;
+                _velHeading = velHeadingBefore;
+                _yawRate = 0f;
+            }
+        }
+
         /// <summary>On foot, moving uphill onto ground steeper than the spec's maximum is blocked.</summary>
         private bool WalkerBlocked(ref GroundSample s, float v)
         {
@@ -736,6 +937,7 @@ namespace Ghumante.Core.Driving
             bool found = false;
 
             var roads = g as IRoadQuery;
+            var solids = g as ISolidQuery;
             RoadHit hit;
             if (roads != null && roads.TryNearestRoad(X, Z, sp.RecoverySearchM, out hit))
             {
@@ -750,7 +952,7 @@ namespace Ghumante.Core.Driving
                     cz += sp.RecoveryNudgeM * MathF.Cos(along);
                 }
                 GroundSample t;
-                if (Sample(g, cx, cz, out t))
+                if (Sample(g, cx, cz, out t) && Reachable(solids, cx, cz))
                 {
                     tx = cx;
                     tz = cz;
@@ -775,6 +977,7 @@ namespace Ghumante.Core.Driving
                     GroundSample t;
                     if (!Sample(g, cx, cz, out t)) continue;
                     if (t.Height - here.Height > climb || t.Ny < cosMax) continue;
+                    if (!Reachable(solids, cx, cz)) continue; // never hop through a wall
                     tx = cx;
                     tz = cz;
                     targetHeight = t.Height;
@@ -804,6 +1007,14 @@ namespace Ghumante.Core.Driving
             if (Y < here.Height) Y = here.Height;
             ResetStuck();
             return true;
+        }
+
+        /// <summary>True when the body can move straight to (x, z) without touching a solid (always without solids).</summary>
+        private bool Reachable(ISolidQuery solids, double x, double z)
+        {
+            if (solids == null) return true;
+            float t, nx, nz;
+            return !solids.SweepBody(in _body, X, Z, HeadingRad, Y, x - X, z - Z, out t, out nx, out nz);
         }
 
         /// <summary>A Steer value in [−1, 1] that turns towards <paramref name="targetHeadingRad"/> (camera-relative

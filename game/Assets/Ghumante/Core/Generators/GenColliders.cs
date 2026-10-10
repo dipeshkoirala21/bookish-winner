@@ -38,6 +38,22 @@ namespace Ghumante.Core.Generators
         public byte Material;
     }
 
+    /// <summary>A solid vertical cylinder (statue, column, bollard, pier, trunk) in tile-local metres with absolute Y0..Y1.
+    /// Never walkable.</summary>
+    public struct GenCylinder
+    {
+        public double CX, CZ;
+        public float Radius, Y0, Y1;
+    }
+
+    /// <summary>A solid thin wall (railing, parapet, fence, compound wall) from (X0, Z0) to (X1, Z1) in tile-local metres,
+    /// <see cref="HalfThickness"/> to each side of its axis, with absolute Y0..Y1. Never walkable.</summary>
+    public struct GenWall
+    {
+        public double X0, Z0, X1, Z1;
+        public float HalfThickness, Y0, Y1;
+    }
+
     /// <summary>
     /// Colliders produced together with generated meshes (sacred structures, house plinths). This is Track A's output
     /// list with exactly the fields of the W2_DESIGN 10.3 <c>StructureColliders</c> contract (owned by Track B in
@@ -49,6 +65,11 @@ namespace Ghumante.Core.Generators
         public readonly List<GenBox> Boxes = new List<GenBox>();
         public readonly List<GenRamp> Ramps = new List<GenRamp>();
 
+        /// <summary>Solid cylinders and walls (detail pass): statues, columns, piers, railings, parapets.</summary>
+        public readonly List<GenCylinder> Cylinders = new List<GenCylinder>();
+
+        public readonly List<GenWall> Walls = new List<GenWall>();
+
         // FootSurface codes (W2_DESIGN 10.3 enum order).
         public const byte Asphalt = 0, Concrete = 1, Brick = 2, Stone = 3, Gravel = 4, Dirt = 5, Mud = 6, Grass = 7, Wood = 8, Metal = 9, Water = 10;
 
@@ -56,6 +77,22 @@ namespace Ghumante.Core.Generators
         {
             Boxes.Clear();
             Ramps.Clear();
+            Cylinders.Clear();
+            Walls.Clear();
+        }
+
+        /// <summary>A solid vertical cylinder (tile-local centre, absolute heights).</summary>
+        public void AddCylinder(double cx, double cz, double y0, double y1, double radius)
+        {
+            if (!(radius > 0) || !(y1 > y0)) return;
+            Cylinders.Add(new GenCylinder { CX = cx, CZ = cz, Radius = (float)radius, Y0 = (float)y0, Y1 = (float)y1 });
+        }
+
+        /// <summary>A solid thin wall from (x0, z0) to (x1, z1) (tile-local), absolute heights.</summary>
+        public void AddWall(double x0, double z0, double x1, double z1, double y0, double y1, double halfThickness)
+        {
+            if (!(halfThickness >= 0) || !(y1 > y0)) return;
+            Walls.Add(new GenWall { X0 = x0, Z0 = z0, X1 = x1, Z1 = z1, HalfThickness = (float)halfThickness, Y0 = (float)y0, Y1 = (float)y1 });
         }
 
         public void AddBox(in GenBox b)

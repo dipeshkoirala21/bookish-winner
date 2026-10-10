@@ -35,6 +35,10 @@ namespace Ghumante.Core.Traffic
         /// <summary>Classes with an engine (everything but bicycles and cycle rickshaws).</summary>
         public const uint Motor = All & ~((1u << (int)VehicleClass.Bicycle) | (1u << (int)VehicleClass.Rickshaw));
 
+        /// <summary>Classes that may use streets a car cannot (decision 5 of docs/W2_DETAIL_CONTRACT.md): motorbikes and
+        /// scooters, bicycles and cycle rickshaws.</summary>
+        public const uint NarrowStreet = (1u << (int)VehicleClass.TwoWheeler) | (1u << (int)VehicleClass.Bicycle) | (1u << (int)VehicleClass.Rickshaw);
+
         public static uint Bit(VehicleClass c)
         {
             return 1u << (int)c;

@@ -175,10 +175,12 @@ namespace Ghumante.Core.Traffic
                     AreaType area = RoadWidthModel.AreaOf(a);
                     bool foot = RoadWidthModel.IsFootClass(r.RoadClass) || r.RoadClass == RoadClass.Pedestrian || r.RoadClass == RoadClass.Track;
                     bool bridge = (r.Flags & RoadFlags.Bridge) != 0;
+                    bool deck = RoadAccess.IsElevated(t, ri);
+                    float[] surface = RoadAccess.SurfaceHeights(t, ri);
                     float lift = RoadMesher.LiftOf(r, opts);
                     if (foot)
                     {
-                        built.Add(Line(id, t, r, first, last, prof, a, sampler, lift, 0, EdgeKind.Path, area));
+                        built.Add(Line(id, t, r, first, last, prof, a, sampler, surface, lift, 0, EdgeKind.Path, area));
                         continue;
                     }
                     bool dual = a.Has(RoadAttrFlags.Dual);
@@ -187,9 +189,11 @@ namespace Ghumante.Core.Traffic
                         // side −1: left of point order; +1: right. A dual carriageway has its median on the right.
                         if (side > 0 && dual) continue;
                         float fw = prof.Sample(side < 0 ? prof.FootLeft : prof.FootRight, 0.5 * prof.LengthM);
-                        EdgeKind k = fw > 0.3f && !bridge ? EdgeKind.Sidewalk : EdgeKind.StreetEdge;
-                        built.Add(Line(id, t, r, first, last, prof, a, sampler, lift + (k == EdgeKind.Sidewalk ? opts.KerbHeightM : 0f), side,
-                                       k, area));
+                        // On a bridge or flyover deck people walk only where it has a footpath (§3: never on bare decks).
+                        if (deck && fw <= 0.3f) continue;
+                        EdgeKind k = fw > 0.3f && (!bridge || deck) ? EdgeKind.Sidewalk : EdgeKind.StreetEdge;
+                        built.Add(Line(id, t, r, first, last, prof, a, sampler, surface, lift + (k == EdgeKind.Sidewalk ? opts.KerbHeightM : 0f),
+                                       side, k, area));
                     }
                 }
                 // Corners and crossings: link line ends near each other (within 9 m) at junction nodes.
@@ -210,6 +214,7 @@ namespace Ghumante.Core.Traffic
                     double dx = ea.X[ia] - eb.X[ib], dz = ea.Z[ia] - eb.Z[ib];
                     double d = Math.Sqrt(dx * dx + dz * dz);
                     if (d < 0.3 || d > 9.0) continue;
+                    if (Math.Abs(ea.Y[ia] - eb.Y[ib]) > 1.0f) continue; // a deck above a street below: no link
                     var link = new WalkEdge
                     {
                         Kind = d > 3.0 ? EdgeKind.Crossing : EdgeKind.Corner, X = new[] { ea.X[ia], eb.X[ib] }, Z = new[] { ea.Z[ia], eb.Z[ib] },
@@ -253,7 +258,7 @@ namespace Ghumante.Core.Traffic
                                 by = qy;
                             }
                         }
-                    if (ea < 0 || eb < 0) continue;
+                    if (ea < 0 || eb < 0 || Math.Abs(ay - by) > 1.0f) continue;
                     var link = new WalkEdge
                     {
                         Kind = EdgeKind.Crossing, X = new[] { ax, bx }, Z = new[] { az, bz }, Y = new[] { ay, by }, S = new float[2], N = 2,
@@ -334,7 +339,7 @@ namespace Ghumante.Core.Traffic
         /// <summary>A walk line along a road piece at a lateral offset: side 0 the centreline, ±1 the carriageway edge
         /// (beyond it onto the footpath's middle when there is one, else 0.6 m inside the edge).</summary>
         private static WalkEdge Line(TileId id, TileData t, RoadRecord r, int first, int last, RoadWidthProfile prof, RoadAttrRecord a,
-                                     TileHeightSampler sampler, float lift, int side, EdgeKind kind, AreaType area)
+                                     TileHeightSampler sampler, float[] surface, float lift, int side, EdgeKind kind, AreaType area)
         {
             int[] p = r.Points;
             var xs = new List<double>();
@@ -342,6 +347,7 @@ namespace Ghumante.Core.Traffic
             var ys = new List<float>();
             double along = 0;
             bool dual = a.Has(RoadAttrFlags.Dual);
+            float baseLift = surface != null ? RoadMesher.LiftOf(r, null) : 0f;
             for (int i = first; i <= last; i++)
             {
                 double x = id.X0 + p[2 * i] / 100.0, z = id.Z0 + p[2 * i + 1] / 100.0;
@@ -368,7 +374,8 @@ namespace Ghumante.Core.Traffic
                 }
                 double px = x + nx * lat, pz = z + nz * lat;
                 float h;
-                if (!sampler.TryHeightClamped(px, pz, out h)) h = 0f;
+                if (surface != null) h = surface[i] - baseLift; // structure heights: the walk sits on them
+                else if (!sampler.TryHeightClamped(px, pz, out h)) h = 0f;
                 xs.Add(px);
                 zs.Add(pz);
                 ys.Add(h + lift);

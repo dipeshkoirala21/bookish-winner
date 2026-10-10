@@ -88,6 +88,7 @@ namespace Ghumante.Core.Traffic
             public int P0, P1, P2, P3; // planned lanes after the current one (-1 none)
             public bool Committed;
             public int CommitLane;
+            public int TailLane; // the junction connector the body's tail is still in (its reservation held), -1 none
             public float Lat, LatTarget, Filter;
             public int ChangeFrom;
             public float ChangeT, ChangeTimer;
@@ -97,6 +98,7 @@ namespace Ghumante.Core.Traffic
             public byte Horns;
             public bool BlockedByVehicle, BlockedByAnimal, AtStopLine;
             public int Route, RoutePos, NextStop;
+            public int RouteId; // the transit route (index into the route set) of a routed agent, -1 none
             public float DwellT;
             public ulong Rng;
             public double X, Z;
@@ -444,6 +446,7 @@ namespace Ghumante.Core.Traffic
             float len = e.LengthM;
             s = Math.Max(len, Math.Min(s, l.Length));
             if (!Room(laneId, s, len)) return false;
+            if (!Clear(l, s, len)) return false;
             if (l.Twin >= 0 && !Room(l.Twin, _g.Lanes[l.Twin].Length - s + len, len + 4f)) return false;
             int slot = -1;
             for (int i = 0; i < _agents.Length; i++)
@@ -457,7 +460,7 @@ namespace Ghumante.Core.Traffic
             {
                 Alive = true, Id = _nextId++, Class = c, Variant = (ushort)variant, Livery = livery, Length = len, Half = 0.5f * e.WidthM,
                 Wheelbase = e.WheelbaseM, Idm = TrafficTables.Idm(c), Lane = laneId, LaneGen = l.Gen, PrevLane = -1, S = s,
-                P0 = -1, P1 = -1, P2 = -1, P3 = -1, CommitLane = -1, ChangeFrom = -1, Route = -1, NextStop = -1,
+                P0 = -1, P1 = -1, P2 = -1, P3 = -1, CommitLane = -1, ChangeFrom = -1, Route = -1, NextStop = -1, RouteId = -1, TailLane = -1,
             };
             a.FrontOverhang = Math.Max(0.1f, len - e.WheelbaseM - e.RearOverhangM);
             a.Rng = SimRng.Mix(_seed, (ulong)a.Id, 0x41474E54);
@@ -489,10 +492,61 @@ namespace Ghumante.Core.Traffic
             if (!SpawnOnLane(lane, s, variant, livery, out agentId, false)) return false;
             int i = IndexOf(agentId);
             _agents[i].Route = route;
+            _agents[i].RouteId = route >= 0 && route < Routes.Count ? Routes[route].RouteIndex : -1;
             _agents[i].RoutePos = routePos;
             _agents[i].RandomStopAt = -1f;
             _agents[i].NextStop = -1;
             ClearPath(ref _agents[i]);
+            return true;
+        }
+
+        /// <summary>
+        /// After the route plans were rebuilt (the bus runner, when tiles stream in or out): every routed agent takes the
+        /// new plan of its route that holds its lane, or continues as ordinary traffic when none does.
+        /// </summary>
+        internal void RebindRoutes()
+        {
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive || _agents[i].RouteId < 0) continue;
+                ref Agent a = ref _agents[i];
+                int plan = -1, pos = -1;
+                for (int p = 0; p < Routes.Count && plan < 0; p++)
+                {
+                    if (Routes[p].RouteIndex != a.RouteId) continue;
+                    int at = Array.IndexOf(Routes[p].Lanes, a.Lane);
+                    if (at < 0) continue;
+                    plan = p;
+                    pos = at;
+                }
+                a.Route = plan;
+                a.RoutePos = Math.Max(0, pos);
+                a.NextStop = -1;
+                if (plan < 0) a.RouteId = -1;
+                ClearPath(ref a);
+            }
+        }
+
+        /// <summary>No agent body near the new body's place, whatever lane it is on (a vehicle on a connector about to
+        /// enter, one on a neighbouring lane at a junction): bounding circles of the bodies plus a metre apart.</summary>
+        private bool Clear(LaneGraph.Lane l, float s, float len)
+        {
+            double fx, fz, bx, bz;
+            float y, h;
+            LaneGraph.PointAt(l, s, out fx, out fz, out y, out h);
+            LaneGraph.PointAt(l, Math.Max(0f, s - len), out bx, out bz, out y, out h);
+            double cx = 0.5 * (fx + bx), cz = 0.5 * (fz + bz);
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive) continue;
+                ref Agent a = ref _agents[i];
+                double fwdX = Math.Sin(a.Heading), fwdZ = Math.Cos(a.Heading);
+                float mid = 0.5f * a.Length - (a.Length - a.Wheelbase - a.FrontOverhang); // rear axle to body middle
+                double ax = a.X + fwdX * mid, az = a.Z + fwdZ * mid;
+                double reach = 0.5 * len + 0.5 * a.Length + 1.0;
+                double dx = ax - cx, dz = az - cz;
+                if (dx * dx + dz * dz < reach * reach) return false;
+            }
             return true;
         }
 
@@ -521,8 +575,8 @@ namespace Ghumante.Core.Traffic
             int alive = 0, rickshaws = 0;
             for (int i = 0; i < _agents.Length; i++)
             {
-                if (!_agents[i].Alive || _agents[i].Route >= 0) continue;
-                alive++;
+                if (!_agents[i].Alive) continue;
+                alive++; // routed buses count too: the moving-vehicle cap holds
                 if (_agents[i].Class == VehicleClass.Rickshaw) rickshaws++;
             }
             int target = (int)Math.Round(_s.MaxVehicles * density * (_s.Saturday ? TrafficTables.SaturdayFactor : 1f));
@@ -662,7 +716,8 @@ namespace Ghumante.Core.Traffic
                 if (a.P0 >= 0 && !_g.IsAlive(new LaneId(a.P0))) ClearPath(ref a);
                 if (a.ChangeFrom >= 0 && !_g.IsAlive(new LaneId(a.ChangeFrom))) a.ChangeFrom = -1;
             }
-            // Reservations are recounted from the agents each step.
+            // Reservations are recounted from the agents each step. A long body keeps the junction connector it left
+            // reserved until its tail is out of it, so no crossing movement starts into its tail.
             Array.Clear(_resv, 0, _resv.Length);
             for (int i = 0; i < _agents.Length; i++)
             {
@@ -670,6 +725,8 @@ namespace Ghumante.Core.Traffic
                 ref Agent a = ref _agents[i];
                 if (a.Committed && a.CommitLane >= 0 && _g.IsAlive(new LaneId(a.CommitLane))) _resv[a.CommitLane]++;
                 else a.Committed = false;
+                if (a.TailLane >= 0 && (a.PrevLane != a.TailLane || a.S >= a.Length + 0.5f || !_g.IsAlive(new LaneId(a.TailLane)))) a.TailLane = -1;
+                if (a.TailLane >= 0) _resv[a.TailLane]++;
             }
         }
 
@@ -1030,6 +1087,22 @@ namespace Ghumante.Core.Traffic
                     break;
                 }
                 LaneGraph.Lane nl = _g.Lanes[nxt];
+                // Keep the box clear: never drive into a junction whose exit lane has no room for the whole body (a
+                // standing queue's tail within one body length of the exit's start), or the body would stand in the
+                // junction across the other movements.
+                if (step == 0 && nl.Kind == LaneKind.Connector && a.P1 >= 0 && !(a.Committed && a.CommitLane == nxt))
+                {
+                    int ef = OccFirst(a.P1);
+                    if (ef >= 0)
+                    {
+                        int j = _occAgent[ef];
+                        if (j != idx && _agents[j].V < 1f && _occS[ef] - _agents[j].Length < a.Length + 1f)
+                        {
+                            Lead(ref gap, ref lv, dist - StopLineM, 0f, ref a, false);
+                            break;
+                        }
+                    }
+                }
                 // Stop line at the end of 'cur' when entering 'nxt' needs permission.
                 if (NeedsPermission(cl, nl) && !(step == 0 ? a.Committed && a.CommitLane == nxt : false))
                 {
@@ -1182,9 +1255,9 @@ namespace Ghumante.Core.Traffic
                 a.S -= cl.Length;
                 if (a.Committed && a.CommitLane == a.Lane)
                 {
-                    // Leaving the committed connector.
+                    // Leaving the committed connector: the front is out, the tail still in (its reservation stays).
                     a.Committed = false;
-                    if (_resv[a.CommitLane] > 0) _resv[a.CommitLane]--;
+                    a.TailLane = a.CommitLane;
                     a.CommitLane = -1;
                 }
                 a.PrevLane = a.Lane;
@@ -1596,7 +1669,7 @@ namespace Ghumante.Core.Traffic
                 if (a.NextStop >= 0 && a.NextStop < rp.StopLane.Length)
                 {
                     int sl = rp.StopLane[a.NextStop];
-                    float d = -1f;
+                    float d = float.PositiveInfinity; // not on this lane or the next: no stop yet
                     if (sl == a.Lane) d = rp.StopS[a.NextStop] - a.S;
                     else if (sl == a.P0) d = l.Length - a.S + rp.StopS[a.NextStop];
                     if (d >= -1f && d < 60f)
@@ -1611,10 +1684,16 @@ namespace Ghumante.Core.Traffic
                             a.NextStop++;
                             if (a.NextStop >= rp.StopLane.Length) a.NextStop = int.MaxValue;
                         }
-                        else if (d < gap)
+                        else
                         {
-                            gap = Math.Max(0f, d);
-                            lv = 0f;
+                            // The stop is a standing leader the bus should reach: IDM keeps its minimum gap s0 to any
+                            // leader, so the virtual one stands s0 beyond the stop, or the bus would halt short of it.
+                            float stopGap = Math.Max(0f, d) + a.Idm.S0;
+                            if (stopGap < gap)
+                            {
+                                gap = stopGap;
+                                lv = 0f;
+                            }
                         }
                     }
                     else if (d < -1f && sl == a.Lane)
@@ -1788,6 +1867,7 @@ namespace Ghumante.Core.Traffic
                 if (d > far && outOfView || a.WaitT > 60f && outOfView && d > _s.SpawnMinM)
                 {
                     if (a.Committed && a.CommitLane >= 0 && _resv[a.CommitLane] > 0) _resv[a.CommitLane]--;
+                    if (a.TailLane >= 0 && _resv[a.TailLane] > 0) _resv[a.TailLane]--;
                     Kill(i);
                 }
             }
