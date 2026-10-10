@@ -38,6 +38,16 @@ namespace Ghumante.Core.Meshing
             return x;
         }
 
+        /// <summary>
+        /// A child sequence for one element (a door, a balcony, a sign): this sequence advances by exactly one draw
+        /// whatever the element then draws, so detail that differs between drop levels (relief, props, plants) never
+        /// shifts the structural choices that follow, and a house keeps its balconies, hoods and shops at every level.
+        /// </summary>
+        public GrammarRng Fork()
+        {
+            return new GrammarRng(NextUInt(), 0x464F524B);
+        }
+
         /// <summary>Uniform in [0, 1).</summary>
         public float Next()
         {

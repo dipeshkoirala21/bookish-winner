@@ -6,7 +6,8 @@ namespace Ghumante.World.Buildings
     /// <summary>The building LOD bands of W2_DESIGN 2.4, in draw order from the camera outwards.</summary>
     public enum BuildingBandLayer : byte
     {
-        /// <summary>Full grammar per 64 m detail cell (BuildingDetailMesher.BuildCell).</summary>
+        /// <summary>The house grammar per detail cell (BuildingDetailMesher.BuildCell): full detail in 32 m cells out to
+        /// the near radius, the lite level in 64 m cells beyond (<see cref="BandConfig.B0NearOuterM"/>).</summary>
         B0 = 0,
 
         /// <summary>Styled extrusion, per 128 m block of a tile.</summary>
@@ -45,6 +46,9 @@ namespace Ghumante.World.Buildings
         /// <summary>Outer radius of B0, B1, B2 and B3.</summary>
         public float B0OuterM, B1OuterM, B2OuterM, B3OuterM;
 
+        /// <summary>Outer radius of B0's near ring (full grammar); B0's lite ring runs from it to <see cref="B0OuterM"/>.</summary>
+        public float B0NearOuterM;
+
         /// <summary>B0 cells kept in the LRU (24 / 48 / 96).</summary>
         public int CellCacheSize;
 
@@ -54,20 +58,38 @@ namespace Ghumante.World.Buildings
         /// <summary>Low never uses hero LOD0 (W2_DESIGN 3.2).</summary>
         public bool HeroLod0Allowed;
 
-        /// <summary>B0 triangle cap per house on this tier (Core BuildingBandTable.B0CapFor); the B0 cells build with it.</summary>
+        /// <summary>B0 triangle cap per house (per plot of a row) in the near ring on this tier (Core
+        /// BuildingBandTable.B0CapFor); the near cells build with it.</summary>
         public int B0CapTris;
 
+        /// <summary>The richest near-ring B0 drop level on this tier (Core BuildingBandTable.B0BaseDropFor).</summary>
+        public int B0BaseDrop;
+
+        /// <summary>The drop level of B0's lite ring on this tier (Core BuildingBandTable.LiteDropFor: the flat level on
+        /// Low, the lite level on Mid and High).</summary>
+        public int B0LiteDrop;
+
         /// <summary>The tier's bands: 0 Low, 1 Mid, 2 High (StreamingConfig tier numbering). Radii and caps come from
-        /// the Core band table of the detail pass (BuildingBandTable): B0 is richer and ends nearer, B1 takes over.</summary>
+        /// the Core band table of the detail pass (BuildingBandTable): the W2 radii, B0 split into a rich near ring and a
+        /// lite outer ring.</summary>
         public static BandConfig ForTier(int tier)
         {
             int k = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
             return new BandConfig
             {
                 B0OuterM = BuildingBandTable.OuterM(k, 0), B1OuterM = BuildingBandTable.OuterM(k, 1), B2OuterM = BuildingBandTable.OuterM(k, 2),
+                B0NearOuterM = BuildingBandTable.NearOuterM(k),
                 B3OuterM = BuildingBandTable.OuterM(k, 3), CellCacheSize = k == 0 ? 24 : k == 1 ? 48 : 96, HeroBudgetTris = k == 0 ? 20000 : k == 1 ? 40000 : 60000,
                 HeroLod0Allowed = k > 0, B0CapTris = BuildingBandTable.B0CapFor(k),
+                B0BaseDrop = BuildingBandTable.B0BaseDropFor(k), B0LiteDrop = BuildingBandTable.LiteDropFor(k),
             };
+        }
+
+        /// <summary>Inner and outer radius of B0's near ring (full grammar) and lite ring.</summary>
+        public void B0Range(bool near, out float inner, out float outer)
+        {
+            inner = near ? 0f : B0NearOuterM;
+            outer = near ? B0NearOuterM : B0OuterM;
         }
 
         /// <summary>Inner and outer radius a band draws (B1 with <paramref name="b1Full"/> starts at 0: its B0 cells

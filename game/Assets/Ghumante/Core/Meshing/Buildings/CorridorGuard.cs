@@ -80,13 +80,16 @@ namespace Ghumante.Core.Meshing
     /// §1-3) until the roads package's <c>RoadCorridorIndex</c> is wired through <see cref="BuildingOptions.Corridors"/>:
     /// every road of the tile on the ground (no tunnels, covered passages or underground layers) is a stadium around its
     /// centreline as wide as the road mesher's widest game width of the piece (<see cref="RoadWidthModel.MaxGameWidthM"/>)
-    /// and never narrower than <see cref="RoadClearance.MinCorridorM"/>. Game metres in; distances are clamped to ±<see cref="FarM"/>. Built
-    /// once per tile and immutable, so worker threads may share it.
+    /// and never narrower than <see cref="RoadClearance.MinCorridorM"/>. Game metres in. <see cref="SignedDistance"/> is
+    /// exact out to <see cref="MaxSearchM"/> (a ring search over a 16 m grid, like the roads package's index) and reports
+    /// <see cref="MaxSearchM"/> beyond it, so "a road within 4 m" means a real road (a clamp to a few metres made every
+    /// wall a street wall). Built once per tile and immutable, so worker threads may share it.
     /// </summary>
     internal sealed class RoadCorridorStandIn : IRoadCorridorQuery
     {
-        /// <summary>Distances beyond this are reported as this (nothing near): the guards only need the first metres.</summary>
-        public const double FarM = 3.0;
+        /// <summary>Farthest a <see cref="SignedDistance"/> query looks for a corridor; beyond it the answer is this
+        /// bound (the same as the roads package's <c>RoadCorridorIndex.MaxSearchM</c>).</summary>
+        public const double MaxSearchM = 64.0;
 
         private const double CellM = 16.0;
         private static readonly ConditionalWeakTable<TileData, RoadCorridorStandIn> Cache = new ConditionalWeakTable<TileData, RoadCorridorStandIn>();
@@ -155,6 +158,7 @@ namespace Ghumante.Core.Meshing
             return (r.Flags & RoadFlags.Tunnel) == 0 && r.Layer >= 0 && r.PointCount >= 2 && r.RoadClass != RoadClass.Unknown;
         }
 
+        /// <summary>CSR grid: each segment is listed in every cell its corridor stadium's bounding box touches.</summary>
         private void Index(int segs, out int[] start, out int[] idx)
         {
             var counts = new int[_n * _n + 1];
@@ -185,7 +189,7 @@ namespace Ghumante.Core.Meshing
 
         private void Range(int k, out int i0, out int i1, out int j0, out int j1)
         {
-            double pad = _half[k] + FarM;
+            double pad = _half[k];
             i0 = Clamp((int)Math.Floor((Math.Min(_ax[k], _bx[k]) - pad) / CellM));
             i1 = Clamp((int)Math.Floor((Math.Max(_ax[k], _bx[k]) + pad) / CellM));
             j0 = Clamp((int)Math.Floor((Math.Min(_az[k], _bz[k]) - pad) / CellM));
@@ -197,19 +201,39 @@ namespace Ghumante.Core.Meshing
             return v < 0 ? 0 : v >= _n ? _n - 1 : v;
         }
 
-        /// <summary>Signed distance (m) from game point (x, z) to the nearest corridor edge, negative inside.</summary>
+        /// <summary>Signed distance (m) from game point (x, z) to the nearest corridor edge, negative inside; exact up to
+        /// <see cref="MaxSearchM"/>, which is returned when nothing is nearer.</summary>
         public double SignedDistance(double x, double z)
         {
+            if (_idx.Length == 0) return MaxSearchM;
             double lx = x - _x0, lz = z - _z0;
-            int c = Clamp((int)Math.Floor(lz / CellM)) * _n + Clamp((int)Math.Floor(lx / CellM));
-            double best = FarM;
-            for (int k = _start[c]; k < _start[c + 1]; k++)
+            int ci = (int)Math.Floor(lx / CellM), cj = (int)Math.Floor(lz / CellM);
+            double best = double.PositiveInfinity;
+            int rings = (int)Math.Ceiling(MaxSearchM / CellM) + 1;
+            for (int r = 0; r <= rings; r++)
             {
-                int e = _idx[k];
-                double d = Plane2.PointSeg(lx, lz, _ax[e], _az[e], _bx[e], _bz[e]) - _half[e];
-                if (d < best) best = d;
+                for (int j = cj - r; j <= cj + r; j++)
+                {
+                    if (j < 0 || j >= _n) continue;
+                    bool edgeRow = j == cj - r || j == cj + r;
+                    for (int i = ci - r; i <= ci + r; i += edgeRow ? 1 : Math.Max(1, 2 * r))
+                    {
+                        if (i < 0 || i >= _n) continue;
+                        int c = j * _n + i;
+                        for (int k = _start[c]; k < _start[c + 1]; k++)
+                        {
+                            int e = _idx[k];
+                            double d = Plane2.PointSeg(lx, lz, _ax[e], _az[e], _bx[e], _bz[e]) - _half[e];
+                            if (d < best) best = d;
+                        }
+                    }
+                }
+                // Every cell of the next ring lies at least r cells from the point (which is in its own cell, or outside
+                // the grid, where the clamped rings only reach further), and each corridor sits in the cells its stadium
+                // touches: nothing unvisited can be nearer.
+                if (best <= r * CellM) break;
             }
-            return best;
+            return Math.Min(best, MaxSearchM);
         }
 
         /// <summary>True when the polygon (game metres) comes within a corridor; depth = the deepest intrusion.</summary>
@@ -269,8 +293,9 @@ namespace Ghumante.Core.Meshing
     /// </summary>
     public sealed class BuildingFootprints
     {
-        /// <summary>Intrusions up to this depth are left alone (rounding, kerb paint).</summary>
-        public const double ToleranceM = 0.05;
+        /// <summary>Intrusions up to this depth are left alone (rounding); the walls' few centimetres of relief end
+        /// within the trim's own <see cref="MarginM"/>.</summary>
+        public const double ToleranceM = 0.02;
 
         /// <summary>A trimmed edge ends this far outside the corridor.</summary>
         public const double MarginM = 0.03;
@@ -281,31 +306,79 @@ namespace Ghumante.Core.Meshing
         /// <summary>Smallest share of the original area a trimmed ring keeps; less means the house stands in the road.</summary>
         public const double MinKeepShare = 0.3;
 
+        /// <summary>Guards kept per tile, one per corridor source (B0 cells and the far bands may use different
+        /// sources); the least recently used goes first.</summary>
+        public const int SourcesPerTile = 4;
+
         private sealed class Holder
         {
-            public BuildingFootprints Value;
+            public readonly BuildingFootprints[] Values = new BuildingFootprints[SourcesPerTile];
+            public readonly long[] Used = new long[SourcesPerTile];
+            public long Clock;
         }
 
         private static readonly ConditionalWeakTable<TileData, Holder> Cache = new ConditionalWeakTable<TileData, Holder>();
 
         private readonly IRoadCorridorQuery _q;
+        private readonly TileData _tile;
         private readonly BuildingRecord[] _records;
         private readonly short[] _front, _second;
         private readonly byte[] _state;
         private readonly byte[] _why;
+        private BuildingBands.FootprintIndex _neighbours;
 
         private const byte Kept = 0, TrimmedState = 1, DroppedState = 2;
 
-        /// <summary>The guard of a tile for a corridor source (null: footprints as they are). Cached per tile; a
-        /// different source rebuilds it.</summary>
+        /// <summary>Guards built so far (all tiles, all sources): tests check that alternating sources do not rebuild.</summary>
+        internal static long BuildCount;
+
+        /// <summary>The guard of a tile for a corridor source (null: footprints as they are). Cached per tile and source
+        /// (up to <see cref="SourcesPerTile"/> sources per tile), so callers that alternate sources never rebuild.</summary>
         public static BuildingFootprints For(TileData t, IRoadCorridorQuery q)
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
             Holder h = Cache.GetValue(t, k => new Holder());
             lock (h)
             {
-                if (h.Value == null || !ReferenceEquals(h.Value._q, q)) h.Value = new BuildingFootprints(t, q);
-                return h.Value;
+                h.Clock++;
+                int free = -1, oldest = 0;
+                for (int k = 0; k < SourcesPerTile; k++)
+                {
+                    BuildingFootprints v = h.Values[k];
+                    if (v == null)
+                    {
+                        if (free < 0) free = k;
+                        continue;
+                    }
+                    if (ReferenceEquals(v._q, q))
+                    {
+                        h.Used[k] = h.Clock;
+                        return v;
+                    }
+                    if (h.Used[k] < h.Used[oldest]) oldest = k;
+                }
+                int slot = free >= 0 ? free : oldest;
+                var built = new BuildingFootprints(t, q);
+                System.Threading.Interlocked.Increment(ref BuildCount);
+                h.Values[slot] = built;
+                h.Used[slot] = h.Clock;
+                return built;
+            }
+        }
+
+        /// <summary>The footprints this guard draws as a point-in-footprint index (which walls and corners abut a
+        /// neighbour): trimmed rings, houses in the road left out. Built on first use; thread-safe.</summary>
+        internal BuildingBands.FootprintIndex Neighbours
+        {
+            get
+            {
+                BuildingBands.FootprintIndex n = System.Threading.Volatile.Read(ref _neighbours);
+                if (n != null) return n;
+                lock (_records)
+                {
+                    if (_neighbours == null) System.Threading.Volatile.Write(ref _neighbours, new BuildingBands.FootprintIndex(_tile, this));
+                    return _neighbours;
+                }
             }
         }
 
@@ -344,6 +417,7 @@ namespace Ghumante.Core.Meshing
         private BuildingFootprints(TileData t, IRoadCorridorQuery q)
         {
             _q = q;
+            _tile = t;
             int n = t.Buildings.Count;
             _records = new BuildingRecord[n];
             _front = new short[n];

@@ -12,10 +12,11 @@ namespace Ghumante.Core.Tests
 {
     /// <summary>
     /// Visual self-check dumps of the building package (docs/W2_DETAIL_CONTRACT.md §6), written only when
-    /// <c>GHUMANTE_PREVIEW_DIR</c> is set: a lineup of every house archetype per place on a synthetic street, and
-    /// street-level scenes of real places from the valley pack (Bhaktapur, Patan, Asan, Thamel, Baneshwor) with the
-    /// B0 band near the eye, B1 beyond, terrain and roads, and a render.sh with the commands. Renders are compared with
-    /// the reference photos (docs/research/w2/ref_buildings.md).
+    /// <c>GHUMANTE_PREVIEW_DIR</c> is set: a lineup of every house archetype per place on a synthetic street (full, lite
+    /// and flat level), and street-level scenes of real places from the valley pack (Bhaktapur, Patan, Asan, Thamel,
+    /// Baneshwor, Kirtipur) drawn per device tier exactly as the band table configures the game (B0 near and lite rings,
+    /// B1 beyond), with terrain and roads, and a render.sh with the commands. Renders are compared with the reference
+    /// photos (docs/research/w2/ref_buildings.md).
     /// </summary>
     public class MeshingBuildingPreviewTests
     {
@@ -102,6 +103,16 @@ namespace Ghumante.Core.Tests
                 stats.AppendLine(Lineup[i].Name + ": " + p.Archetype + " " + p.Storeys + " storeys, " + m.TriangleCount + " tris");
                 ObjDump.Write(m, "lineup/" + Lineup[i].Name + ".obj", new[] { "meshpreview: views=34,front,top sun=200,45" });
                 ObjDump.Append(all, m, 0, 0, 0);
+                var lite = new MeshData();
+                Assert.That(BuildingDetailMesher.One(t, i, h, BuildingBandTable.LiteOptions(), lite, null), Is.True, Lineup[i].Name + " lite");
+                MeshingChecks.AssertWellFormed(lite, Lineup[i].Name + " lite");
+                stats.AppendLine("  lite: " + lite.TriangleCount + " tris");
+                ObjDump.Write(lite, "lineup/" + Lineup[i].Name + "_lite.obj", new[] { "meshpreview: views=34,front,top sun=200,45" });
+                var flat = new MeshData();
+                Assert.That(BuildingDetailMesher.One(t, i, h, BuildingBandTable.LiteOptions(0), flat, null), Is.True, Lineup[i].Name + " flat");
+                MeshingChecks.AssertWellFormed(flat, Lineup[i].Name + " flat");
+                stats.AppendLine("  flat: " + flat.TriangleCount + " tris");
+                ObjDump.Write(flat, "lineup/" + Lineup[i].Name + "_flat.obj", new[] { "meshpreview: views=34,front,top sun=200,45" });
             }
             var roads = new MeshData();
             RoadMesher.Build(t, h, new RoadOptions(), roads);
@@ -144,6 +155,46 @@ namespace Ghumante.Core.Tests
             return _valley = new PackReader(File.ReadAllBytes(path));
         }
 
+        /// <summary>The triangles of <paramref name="src"/> whose centroid lies at a horizontal distance in [r0, r1) from
+        /// (ex, ez): the per-fragment band cut of the game's band shader, at triangle granularity.</summary>
+        private static MeshData Ring(MeshData src, double ex, double ez, double r0, double r1)
+        {
+            var dst = new MeshData();
+            var map = new int[src.VertexCount];
+            for (int i = 0; i < map.Length; i++) map[i] = -1;
+            dst.HasUv0 = src.HasUv0;
+            for (int t = 0; t + 2 < src.IndexCount; t += 3)
+            {
+                int a = src.Indices[t], b = src.Indices[t + 1], c = src.Indices[t + 2];
+                double cx = (src.Positions[a * 3] + src.Positions[b * 3] + src.Positions[c * 3]) / 3.0;
+                double cz = (src.Positions[a * 3 + 2] + src.Positions[b * 3 + 2] + src.Positions[c * 3 + 2]) / 3.0;
+                double d = Math.Sqrt((cx - ex) * (cx - ex) + (cz - ez) * (cz - ez));
+                if (d < r0 || d >= r1) continue;
+                dst.AddTriangle(Copy(dst, src, a, map), Copy(dst, src, b, map), Copy(dst, src, c, map));
+            }
+            return dst;
+        }
+
+        private static int Copy(MeshData dst, MeshData src, int v, int[] map)
+        {
+            if (map[v] >= 0) return map[v];
+            int i = v * 3, k = v * 4;
+            uint rgba = ((uint)src.Colors[k] << 24) | ((uint)src.Colors[k + 1] << 16) | ((uint)src.Colors[k + 2] << 8) | src.Colors[k + 3];
+            map[v] = src.HasUv0
+                ? dst.AddVertex(src.Positions[i], src.Positions[i + 1], src.Positions[i + 2], src.Normals[i], src.Normals[i + 1], src.Normals[i + 2], rgba,
+                                src.Uv0[v * 2], src.Uv0[v * 2 + 1])
+                : dst.AddVertex(src.Positions[i], src.Positions[i + 1], src.Positions[i + 2], src.Normals[i], src.Normals[i + 1], src.Normals[i + 2], rgba);
+            return map[v];
+        }
+
+        /// <summary>
+        /// Street scenes of real places as the game draws them on each device tier (Core BuildingBandTable, the
+        /// configuration the band table gives the streamer): B0's near ring (full grammar at the tier's per-house cap) and
+        /// lite ring (the tier's lite level, flat on Low) out to the tier's B0 radius, then B1 with its front detail, cut
+        /// by distance from the eye like
+        /// the band shader; terrain, roads, markings and areas. One folder per place and tier (Low and High), with the
+        /// eye positions and a render.sh.
+        /// </summary>
         [Test]
         public void DumpStreetScenes()
         {
@@ -151,7 +202,7 @@ namespace Ghumante.Core.Tests
             PackReader pack = Valley();
             if (pack == null) Assert.Ignore("the valley pack is not built here");
             string only = Environment.GetEnvironmentVariable("GHUMANTE_PREVIEW_PLACE");
-            var sh = new StringBuilder("#!/bin/sh\n# Street scenes of the building package; run from the repository root.\n");
+            var sh = new StringBuilder("#!/bin/sh\n# Street scenes of the building package per device tier; run from the repository root.\n");
             foreach (Place pl in Places)
             {
                 if (!string.IsNullOrWhiteSpace(only) && !only.Contains(pl.Name)) continue;
@@ -190,33 +241,9 @@ namespace Ghumante.Core.Tests
                 View("right", mx - rx * 1.2 - fx * 3, ey - 0.6, mz - rz * 1.2 - fz * 3, mx + rx * 10 + fx * 4, ey + 4.5, mz + rz * 10 + fz * 4);
                 View("left", mx + rx * 1.2 - fx * 3, ey - 0.6, mz + rz * 1.2 - fz * 3, mx - rx * 10 + fx * 4, ey + 4.5, mz - rz * 10 + fz * 4);
                 View("raised", ex - fx * 10, ey + 14, ez - fz * 10, vx + fx * 10, vy - 2, vz + fz * 10);
-                const float Near = 70f, Far = 260f;
-                var near = new MeshData();
-                var far = new MeshData();
-                var b0 = new MeshData();
-                var o0 = new BuildingOptions { Band = BuildingBand.B0KitLite };
-                var o1 = new BuildingOptions { Band = BuildingBand.B1Styled };
-                int count = 0;
-                for (int i = 0; i < t.Buildings.Count; i++)
-                {
-                    double cx, cz;
-                    Centre(t.Buildings[i], out cx, out cz);
-                    double d = Math.Sqrt((cx - ex) * (cx - ex) + (cz - ez) * (cz - ez));
-                    if (d > Far) continue;
-                    if (d < Near)
-                    {
-                        b0.Clear();
-                        if (BuildingDetailMesher.One(t, i, sampler, o0, b0, null))
-                        {
-                            ObjDump.Append(near, b0, 0, 0, 0);
-                            count++;
-                        }
-                    }
-                }
+                const float Far = 260f, Margin = 24f;
                 var b1All = new MeshData();
-                BuildingMesher.Build(t, sampler, o1, b1All);
-                far = ObjDump.Crop(b1All, ex - Near, ez - Near, ex + Near, ez + Near, false);
-                far = ObjDump.Crop(far, ex - Far, ez - Far, ex + Far, ez + Far, true);
+                BuildingMesher.Build(t, sampler, BuildingBandTable.B1Options(), b1All); // the band table's B1 layer (front detail)
                 var roads = new MeshData();
                 RoadMesher.Build(t, sampler, new RoadOptions(), roads);
                 var decals = new MeshData();
@@ -227,18 +254,52 @@ namespace Ghumante.Core.Tests
                 AreaMesher.Build(t, sampler, new AreaOptions(), areas);
                 CultureInfo c = CultureInfo.InvariantCulture;
                 string eye = string.Format(c, "{0:0.##},{1:0.##},{2:0.##}", ex, ey, -ez), look = string.Format(c, "{0:0.##},{1:0.##},{2:0.##}", vx, vy, -vz);
-                var directives = new[] { pl.Name + " tile " + id, "meshpreview: grid=0 sun=160,55 eye=" + eye + " look=" + look };
-                string dir = "places/" + pl.Name + "/";
-                ObjDump.Write(near, dir + "buildings.obj", directives);
-                ObjDump.Write(far, dir + "buildings_b1.obj", directives);
-                ObjDump.Write(ObjDump.Crop(roads, ex - Far, ez - Far, ex + Far, ez + Far, true), dir + "roads.obj", directives);
-                ObjDump.Write(ObjDump.Crop(decals, ex - Far, ez - Far, ex + Far, ez + Far, true), dir + "decals.obj", directives);
-                ObjDump.Write(ObjDump.Crop(terrain, ex - Far, ez - Far, ex + Far, ez + Far, true), dir + "terrain.obj", directives);
-                ObjDump.Write(ObjDump.Crop(areas, ex - Far, ez - Far, ex + Far, ez + Far, true), dir + "areas.obj", directives);
-                string d0 = Path.Combine(ObjDump.Dir, "places", pl.Name);
-                File.WriteAllText(Path.Combine(d0, "eyes.txt"), eyes.ToString());
-                sh.Append("python3 tools/mesh-preview/render.py --combine ").Append(d0).Append("/*.obj -o ").Append(d0).Append("/street.png --size 1200 --height 760 --fog 300\n");
-                TestContext.WriteLine("{0}: tile {1}, {2} B0 buildings, {3} B0 tris, {4} B1 tris", pl.Name, id, count, near.TriangleCount, far.TriangleCount);
+                foreach (int tier in new[] { 0, 2 })
+                {
+                    float rn = BuildingBandTable.NearOuterM(tier), r0 = BuildingBandTable.OuterM(tier, 0);
+                    BuildingOptions near = BuildingBandTable.NearOptions(tier), lite = BuildingBandTable.LiteOptions(tier);
+                    var nearAll = new MeshData();
+                    var liteAll = new MeshData();
+                    var one = new MeshData();
+                    for (int i = 0; i < t.Buildings.Count; i++)
+                    {
+                        double cx, cz;
+                        Centre(t.Buildings[i], out cx, out cz);
+                        double d = Math.Sqrt((cx - ex) * (cx - ex) + (cz - ez) * (cz - ez));
+                        if (d < rn + Margin)
+                        {
+                            one.Clear();
+                            if (BuildingDetailMesher.One(t, i, sampler, near, one, null)) ObjDump.Append(nearAll, one, 0, 0, 0);
+                        }
+                        if (d < r0 + Margin && d + Margin >= rn)
+                        {
+                            one.Clear();
+                            if (BuildingDetailMesher.One(t, i, sampler, lite, one, null)) ObjDump.Append(liteAll, one, 0, 0, 0);
+                        }
+                    }
+                    MeshData b0n = Ring(nearAll, ex, ez, 0, rn), b0l = Ring(liteAll, ex, ez, rn, r0), b1 = Ring(b1All, ex, ez, r0, Far);
+                    var directives = new[] { pl.Name + " tile " + id + " tier " + tier, "meshpreview: grid=0 sun=160,55 eye=" + eye + " look=" + look };
+                    string dir = "places/" + pl.Name + "/tier" + tier + "/";
+                    string d0 = Path.Combine(ObjDump.Dir, "places", pl.Name, "tier" + tier);
+                    if (Directory.Exists(d0))
+                        foreach (string old in Directory.GetFiles(d0, "*.obj")) File.Delete(old);
+                    void Part(MeshData part, string file)
+                    {
+                        if (part.TriangleCount > 0) ObjDump.Write(part, dir + file, directives); // the renderer refuses empty files
+                    }
+                    Part(b0n, "b0_near.obj");
+                    Part(b0l, "b0_lite.obj");
+                    Part(b1, "b1.obj");
+                    Part(Ring(roads, ex, ez, 0, Far), "roads.obj");
+                    Part(Ring(decals, ex, ez, 0, Far), "decals.obj");
+                    Part(Ring(terrain, ex, ez, 0, Far), "terrain.obj");
+                    Part(Ring(areas, ex, ez, 0, Far), "areas.obj");
+                    Directory.CreateDirectory(d0);
+                    File.WriteAllText(Path.Combine(d0, "eyes.txt"), eyes.ToString());
+                    sh.Append("python3 tools/mesh-preview/render.py --combine ").Append(d0).Append("/*.obj -o ").Append(d0).Append("/street.png --size 1200 --height 760 --fog 300\n");
+                    TestContext.WriteLine("{0} tier {1}: tile {2}, B0 near {3} tris (< {4} m), lite {5} tris (< {6} m), B1 {7} tris", pl.Name, tier, id, b0n.TriangleCount, rn,
+                                          b0l.TriangleCount, r0, b1.TriangleCount);
+                }
             }
             File.WriteAllText(Path.Combine(ObjDump.Dir, "places", "render.sh"), sh.ToString());
         }

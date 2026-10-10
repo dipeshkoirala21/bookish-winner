@@ -83,6 +83,17 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         public int Clamp(MeshData m, int v0, ref BuildingGround g)
         {
+            int far;
+            double push;
+            return Clamp(m, v0, ref g, out far, out push);
+        }
+
+        /// <summary><see cref="Clamp(MeshData, int, ref BuildingGround)"/>, also counting the vertices moved further than
+        /// 5 cm (<paramref name="far"/>: an element the builder should have clipped itself) and the longest push.</summary>
+        public int Clamp(MeshData m, int v0, ref BuildingGround g, out int far, out double maxPush)
+        {
+            far = 0;
+            maxPush = 0;
             if (_q == null) return 0;
             int moved = 0;
             float[] p = m.Positions;
@@ -102,6 +113,8 @@ namespace Ghumante.Core.Meshing
                 p[i] = (float)(x + gx / gl * push);
                 p[i + 2] = (float)(z + gz / gl * push);
                 moved++;
+                if (-sd > 0.05) far++;
+                if (push > maxPush) maxPush = push;
             }
             return moved;
         }

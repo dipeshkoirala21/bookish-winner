@@ -49,6 +49,7 @@ binding: nothing below 4.5 m over a road corridor, and no footprint in a corrido
 | Plinth | Stone-capped brick apron 0.3-0.45 m high, up to 0.6 m deep [bhaktapur_street ref_01] | `Pikha`, clipped out of the road; walkable collider |
 | Brick | Fair-face, dark red; glossy dachi apa on the best fronts | Channel `BrickGlazed` on Bhaktapur and Patan fronts, `Brick` elsewhere; colour per profile (`newar_houses.md` §9.1) |
 | Wood colour | Natural dark sal `#4A2C1C`; painted black `#2B221D` (30% KTM core); painted green `#2F6E4E` (Patan, KTM, 22%) [patan_lane ref_02]; red `#9E2B25` (Bungamati) | Per plot |
+| Roof tiles (jhingati) | Old, weathered and never new-orange: Bhaktapur roofs average `#6a5040`-`#735543` in morning light and `#533421`-`#8f5438` in shade, `#ab7750`-`#b87237` in full sun [bhaktapur_houses ref_07, bhaktapur_street ref_09]; Patan's dusty `#9e827e`-`#bc9995` in full sun and `#7e6a6a` in shade [patan_lane ref_08]; darker, mossy or sooty along the eaves; no two courses alike | Heritage profiles (Bhaktapur, Patan, Kirtipur, the towns, the KTM core): `#8A5A44` `#9C6450` `#6E4A3A` `#A57A60` `#A8603E` `#5E4A3A` (28/24/20/12/10/6%); elsewhere fired red-brown `#A8473A` `#B4583F` `#9A5A44` `#7A5040` `#6F5A3C`; every course its own shade (`ShapeColor.JitterFaces`) and the lowest third of each slope shaded toward soot brown `#4F4436` (up to 45% in the heritage towns, `HouseBuilder.Roofs.Weather`); ridge `#7E4A36` |
 
 ## 3. Modern RCC house details (the metro, Thamel, Asan)
 
@@ -83,9 +84,14 @@ binding: nothing below 4.5 m over a road corridor, and no footprint in a corrido
   house: archetype (40% redraw from the profile mix), storeys (45% one or two fewer than the plan, never taller, so B1
   stays the envelope), palette, roof (flat or gable) and parapet. Partition walls show only where a plot rises above its
   neighbour.
-* **Every wall on a lane is a facade.** A body wall with a road corridor within 4 m in front and no neighbour against
-  it gets windows on every floor (tikijhya on Newar floors), shops or small windows on the ground floor, bands and signs.
-  Blank raw-brick walls remain where houses abut (the photos' party walls).
+* **Every wall on a lane is a facade; walls on open ground get windows; the rest stay blank.** A body wall is judged at
+  three points along its square-cornered extent (so every drop level dresses the same walls): a road corridor within
+  4 m *in front of it* (stepping 3 m out brings the road 1 m nearer) makes it a **street** wall: windows on every floor
+  (tikijhya on Newar floors), shops or small windows on the ground floor, bands and signs; nothing within 3 m in front
+  and a road within 14 m in front makes it an **open** wall (a small square, a lane's bend): windows only, wider apart;
+  anything else (against a neighbour, a back wall on a courtyard or an open plot away from the roads, the party wall at
+  the end of a row) stays **blank** raw brick or paint, as in the photos. The corridor source reports real distances
+  (out to 64 m), so "a road within 4 m" means a real road.
 * **Corners.** Exposed convex corners are rounded (0.1 m Newar, 0.16 m RCC; smooth normals); corners against a
   neighbour stay square so a row has no notches.
 
@@ -97,41 +103,73 @@ binding: nothing below 4.5 m over a road corridor, and no footprint in a corrido
   29 houses; Bhaktapur 10/528/157 trims 765 and drops 6.
 * Projections ask `Clearance.Depth` for the free depth before building: balconies, sanjhya, gajhya, pent hoods, eaves,
   chhajjas, sills, signs, blade signs, awnings, steps, canopies, cantilevers and aprons are clipped, laid flat or left out
-  below 4.5 m over a corridor; above it they keep their full depth. `Clearance.Clamp` then moves any remaining vertex
-  below the clearance out to the corridor edge (frames and boards a few centimetres proud of a wall on the edge).
+  below 4.5 m over a corridor; above it they keep their full depth. Each element is clipped by its own free depth
+  (the sanjhya projects only as far as the road leaves room and is set flush into the wall when nothing is free, its
+  brackets, pot and hood only where they fit; hanging goods, garlands, struts and copings likewise).
+  `Clearance.Clamp` then moves any remaining vertex below the clearance out to the corridor edge: only frames and boards
+  a few centimetres proud of a wall on the edge (Asan with the stand-in corridors: 8,052 of 11.6 M vertices moved, 29 by
+  more than 5 cm).
 
 ## 7. LOD bands and budgets (as built)
 
-B0 now costs about three to four times the stage-1 grammar per house, so it ends nearer the camera and the cheap B1
-extrusion (with its front detail: paint, floor band, window rows) takes over; B2 and B3 are unchanged. Band table in
-`Core/Meshing/Buildings/BuildingBandTable.cs`, read by `World/Buildings/BandConfig.cs`:
+B0 keeps the W2 radii and is drawn in two rings; nothing inside B0 is ever the bare B1 box. Band table in
+`Core/Meshing/Buildings/BuildingBandTable.cs` (the one source of truth), read by `World/Buildings/BandConfig.cs` and
+`DetailCells`:
 
-| Tier | B0 outer | B0 cap per house | B1 outer | B2 outer | B3 outer |
-|---|---|---|---|---|---|
-| Low | 22 m | 2,600 | 120 m | 350 m | 750 m |
-| Mid | 32 m | 4,000 | 200 m | 500 m | 1,250 m |
-| High | 42 m | 5,000 | 250 m | 700 m | 1,750 m |
+| Tier | B0 near ring (full grammar, 32 m cells) | Cap per plot | Lite ring (64 m cells) | B0 outer | B1 outer | B2 outer | B3 outer |
+|---|---|---|---|---|---|---|---|
+| Low | 0-10 m, from drop level 1 | 2,200 | 10-35 m at the **flat** level | 35 m | 120 m | 350 m | 750 m |
+| Mid | 0-22 m | 3,600 | 22-60 m at the **lite** level | 60 m | 200 m | 500 m | 1,250 m |
+| High | 0-36 m | 4,500 | 36-80 m at the **lite** level | 80 m | 250 m | 700 m | 1,750 m |
 
-Measured at Asan (10/516/161, 40% in view, `MeshingBuildingGrammarTests.BandTotalsAtAsanFitTheBudgetTable`): Low
-about 20 k, Mid 63 k, High 115 k triangles against the W2 slice of 20 k / 63 k / 115 k (the test allows 15%). B0 houses
-at Asan average about 3,400 triangles at the High cap and 1,200 at the Low cap (stage 1: about 900). Over the cap a
-house drops detail level by level (small props and goods, then struts, tile courses and grilles, then floor bands and
-railings, then roof props; the lattice only gets coarser and the sanjhya stays), and falls back to B1 only when even the
-last level is over. The densest 64 m cell of Asan builds in about 170 ms on a desktop worker thread (Release).
+* **Drop levels.** 0 everything; 1 no small relief and props; 2 no struts, tile courses or grilles; 3 no floor bands,
+  railings or chhajjas; 4 no roof props; 5 **lite** (about a quarter of level 0): every opening still cut with its
+  reveal over a dark room, a plain frame (lintel and sill with ears), a coarse lattice, the sanjhya as a bay, eaves, hoods,
+  balconies, shutters and boards, the door canopy and the first water tank; 6 **flat** (about a seventh): the lite house
+  with its openings laid on the wall (a dark or glazed fill under a lintel and a sill board, the coarse lattice on it).
+* **Per plot.** The cap holds per plot (one house of a merged row): each plot is built at the level its size predicts
+  and only a plot that still overflows is rebuilt lighter, once (rarely twice); the lightest fallback is the lite level.
+  Retries at Asan: 17% of plots at the Low cap, 9% Mid, 4% High; 1.31x / 1.19x / 1.10x the kept triangles built, the
+  Low tier doing no more work than High. The heaviest Asan cell builds in about 15-45 ms on a desktop worker (Release).
+* **Same house at every level.** The grammar draws structure (archetype, storeys, balconies, cantilever, hoods, shops,
+  signs, awnings, sanjhya, tanks) from per-element forks of its random sequence and lays out bays, windows and side
+  walls on the square-cornered plot, so a house never grows or loses a balcony, a shop or a dressed side wall when it
+  crosses from the near ring into the lite ring (`EveryDropLevelKeepsTheHouseStructure`,
+  `EveryDropLevelDressesTheSameSideWalls`).
+* **B1** is the styled extrusion with its front detail (front paint, floor band, window rows; `BuildingBandTable.B1Options`).
+
+Budget check (`MeshingBuildingGrammarTests.BandTotalsAtAsanFitTheBudgetTable`), measured honestly: Asan lies 36 m from
+the east edge of its tile, so every band is measured on the 3 × 3 tiles around it (B0 per house by distance, B1-B3
+triangle by triangle with the band shader's cross-fade), 40% in view:
+
+| Tier | B0 (share) | B1 | B2 | B3 | Total | W2 slice × 1.15 |
+|---|---|---|---|---|---|---|
+| Low | 5.6 k (5.8 k) | 5.1 k | 8.3 k | 6.0 k | 25.0 k | 25.3 k |
+| Mid | 38.3 k (41 k) | 10.9 k | 12.2 k | 16.5 k | 77.9 k | 82.8 k |
+| High | 85.4 k (90 k) | 14.8 k | 21.3 k | 26.2 k | 147.8 k | 155.3 k |
+
+The EditMode `WorldW2BandTests` reads the same table (radii, caps, slices, the B0 share) and checks TileBuild's far
+bands around Asan the same way. On Low the far bands alone take 88% of the slice (B3 measures about three times the
+design's estimate), which is why the Low lite ring is flat (see §11).
 
 ## 8. Colours used (hex)
 
 `newar_houses.md` §9 plus: painted green `#2F6E4E`, painted red `#9E2B25`, teal jali `#3FA39A`, hay `#C9A24E`, glass
 tints `#3E5F7A` `#2F6B6E` `#5A4A3A` `#34495E` `#4A7A9A`, ACP `#C4C9CE` `#2F6FB0` `#C23B33` `#D8C8A0` `#5B6B7A`, awnings
 `#3D7CC9` `#2FA84F` `#E8483A` `#F2C230` `#B9BEC3` `#F07A2A`, cloth `#D93A2B` `#F2C230` `#2E6FD8` `#FFFFFF` `#E85D9E`
-`#2E9E4F` `#7A1F1F` `#F59A3B`, aluminium `#C9CED3`, steel `#2E3440`, galvanised `#B9BEC3`, terracotta pots `#B5582F`.
+`#2E9E4F` `#7A1F1F` `#F59A3B`, aluminium `#C9CED3`, steel `#2E3440`, galvanised `#B9BEC3`, terracotta pots `#B5582F`,
+jhingati (heritage) `#8A5A44` `#9C6450` `#6E4A3A` `#A57A60` `#A8603E` `#5E4A3A`, jhingati (metro) `#A8473A` `#B4583F`
+`#9A5A44` `#7A5040` `#6F5A3C`, ridge `#7E4A36`, soot and moss on old tiles `#4F4436`.
 
 ## 9. Preview comparisons
 
 Street-level renders of the valley pack next to the photos are under `/home/user/wt/previews/buildings/` (not in the
 repository): `bhaktapur_lane_*`, `patan_lane_*`, `asan_*`, `thamel_*`, `baneshwor_*`, `kirtipur_*`, the archetype lineup
-`lineup_sheet.png` and the side-by-side sheets `cmp_*.png` (photo left, render right). Regenerate with `GHUMANTE_PREVIEW_DIR=... dotnet test core-tests --filter
-MeshingBuildingPreviewTests` and `tools/mesh-preview/render.py`.
+`lineup_sheet.png` and the side-by-side sheets `cmp_*.png` (photo left, render right). The renders of the band
+configuration per tier (B0 near and lite rings, B1 beyond) are under `fix2/obj/places/<place>/tier{0,2}/street.png`,
+the full / lite / flat levels of each archetype in `fix2/levels_*.png`, and the weathered roofs against the photos in
+`fix2/cmp_bhaktapur_roofs.png`, `fix2/cmp_taumadhi_roofs.png` and `fix2/cmp_patan_roofs.png`. Regenerate with
+`GHUMANTE_PREVIEW_DIR=... dotnet test core-tests --filter MeshingBuildingPreviewTests` and `tools/mesh-preview/render.py`.
 
 ## 10. Photo credits (reference only, not shipped)
 
@@ -167,3 +205,20 @@ All from Flickr unless noted; licence as published.
   https://www.flickr.com/photos/72746018@N00/8629058868.
 * Specifications: Indian tank vendor listings (Sintex 1,000 L: Ø1.10 m × 1.01 m; lntsufin.com), evacuated-tube heater listings
   (15 tubes Ø58 × 1,800 mm, 2.2 × 1.5 m installation area; storeking.in, lntsufin.com).
+
+## 11. Open issues for the lead and the integration package
+
+* **B1 front detail in the streamer.** `TileBuild` builds the B1 layer from `MeshingSettings.Buildings` (default
+  options, `FrontDetail` off), so the window rows and floor bands of B1 are not drawn yet. Build it from
+  `BuildingBandTable.B1Options(settings.Buildings)`; the band budget above already counts it. The W1 whole-selection
+  bound in `core-tests/StreamingConfigTests.WholeSelectionsWithDetailFitTheTriangleAndMeshBudgets` builds every
+  building of the selection as B1 and will then need rebasing (B1 costs about 28 instead of 18 triangles per building;
+  with the default on, tier 0 measured 711 k against its 630 k allowance).
+* **Road corridors.** Buildings use the package's stand-in corridor source (`RoadCorridorStandIn`, real distances out
+  to 64 m) until `BuildingOptions.Corridors` is set to the roads package's `RoadCorridorIndex.ForTile` in
+  `MeshingSettings` (all four building option sets: the guard is cached per tile and corridor source).
+* **Low far bands.** Measured on the 3 × 3 tiles around Asan, B1-B3 take 19.4 k of Low's 22 k slice (B3 about
+  three times the W2_DESIGN 2.4 estimate, B2 a third more), leaving B0 5.8 k. A coarser B3 on Low (or a smaller Low
+  B3 radius) would give B0 room for a lite instead of a flat outer ring.
+* **Enum golden test.** `core-tests/EnumsTests.EveryEnumIsCovered` fails on the base commit already (the stub
+  `RoadStructureKind` and `RoadStructureFlags` of the data package are not in the golden list).

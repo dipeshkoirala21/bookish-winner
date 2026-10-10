@@ -25,8 +25,8 @@ namespace Ghumante.Core.Meshing
         public static int Prisms(TileData t, IHeightSampler h, BuildingOptions o, MeshData m)
         {
             var g = new BuildingGround(t, h);
-            var index = BuildingDetailMesher.NeighbourIndex(t);
             BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
+            BuildingBands.FootprintIndex index = guard.Neighbours;
             var hx = new double[64];
             var hz = new double[64];
             var bx = new double[8];
@@ -154,28 +154,39 @@ namespace Ghumante.Core.Meshing
             }
         }
 
-        /// <summary>Point-in-footprint lookups over a tile's outer rings (grid of bounding boxes).</summary>
+        /// <summary>Point-in-footprint lookups over a tile's outer rings as the road guard leaves them (trimmed rings,
+        /// houses that stand in a road left out), on a grid of bounding boxes.</summary>
         internal sealed class FootprintIndex
         {
             private const double CellM = 32.0;
-            private readonly TileData _t;
+            private readonly BuildingRecord[] _records;
             private readonly int _n;
             private readonly List<int>[] _cells;
             private readonly double[] _minX, _minZ, _maxX, _maxZ;
 
-            public FootprintIndex(TileData t)
+            /// <summary>The index over the footprints of <paramref name="t"/> as mapped.</summary>
+            public FootprintIndex(TileData t) : this(t, null)
             {
-                _t = t;
+            }
+
+            /// <summary>The index over the footprints <paramref name="guard"/> draws (null: as mapped).</summary>
+            public FootprintIndex(TileData t, BuildingFootprints guard)
+            {
                 _n = Math.Max(1, (int)Math.Ceiling(t.Tile.Size / CellM));
                 _cells = new List<int>[_n * _n];
                 int count = t.Buildings.Count;
+                _records = new BuildingRecord[count];
                 _minX = new double[count];
                 _minZ = new double[count];
                 _maxX = new double[count];
                 _maxZ = new double[count];
                 for (int i = 0; i < count; i++)
                 {
-                    int[] r = t.Buildings[i].Rings[0];
+                    if (guard != null && guard.Dropped(i)) continue;
+                    BuildingRecord b = guard != null ? guard.Record(i) : t.Buildings[i];
+                    if (b.Rings == null || b.Rings.Length == 0) continue;
+                    _records[i] = b;
+                    int[] r = b.Rings[0];
                     double x0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, z1 = double.MinValue;
                     for (int k = 0; k < r.Length / 2; k++)
                     {
@@ -213,7 +224,7 @@ namespace Ghumante.Core.Meshing
                 foreach (int i in l)
                 {
                     if (i == except || x < _minX[i] || x > _maxX[i] || z < _minZ[i] || z > _maxZ[i]) continue;
-                    if (InRing(_t.Buildings[i].Rings[0], x, z)) return true;
+                    if (InRing(_records[i].Rings[0], x, z)) return true;
                 }
                 return false;
             }

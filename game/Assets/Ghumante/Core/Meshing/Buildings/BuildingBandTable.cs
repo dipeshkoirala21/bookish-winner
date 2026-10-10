@@ -4,46 +4,160 @@ using Ghumante.Core.Data;
 namespace Ghumante.Core.Meshing
 {
     /// <summary>
-    /// The building LOD band table of the detail pass (W2_DESIGN 2.4 as re-budgeted for the rounded, detailed B0 of
-    /// docs/W2_DETAIL_CONTRACT.md decision 6): the band radii per device tier (0 Low, 1 Mid, 2 High) measured
-    /// horizontally from the camera, the B0 cap per house, and the channel and AO paint of the far bands. B0 houses
-    /// now cost about three times the stage-1 grammar, so B0 ends nearer the camera and the cheap styled band B1 takes
-    /// over sooner: the tile totals at Asan stay inside the W2 slice. Engine-free; World/Buildings/BandConfig reads it.
+    /// The building LOD band table of the detail pass (W2_DESIGN 2.4 re-budgeted for the rounded, detailed B0 of
+    /// docs/W2_DETAIL_CONTRACT.md decision 6), the one source of truth for radii, caps and the building slice. Per device
+    /// tier (0 Low, 1 Mid, 2 High), measured horizontally from the camera:
+    /// <list type="bullet">
+    /// <item>B0 keeps the W2 radii (35 / 60 / 80 m) and is split in two rings: the <b>near</b> ring
+    /// (<see cref="NearOuterM"/>: 10 / 22 / 36 m) draws the full grammar held to <see cref="B0CapFor"/> triangles per
+    /// house (per plot of a row), from the tier's <see cref="B0BaseDropFor"/>; the <b>lite</b> ring beyond draws every
+    /// house at <see cref="LiteDropFor"/>: on Mid and High the lite level (openings cut with their reveals and plain
+    /// frames, coarse lattice, the sanjhya as a bay, eaves, shutters and boards, a tank on the roof; about a quarter of
+    /// the full cost), on Low the flat level (the same house with its openings laid on the wall; about a seventh). Every
+    /// level keeps the same structure (Core HouseBuilder forks its random draws per element), so a house never changes
+    /// between the rings. No house inside B0 is ever the bare B1 box.</item>
+    /// <item>B1 (the styled extrusion with its front detail: paint, floor band, window rows), B2 prisms and B3 blocks
+    /// beyond, as in W2_DESIGN 2.4.</item>
+    /// </list>
+    /// The budget check (core-tests MeshingBuildingGrammarTests) measures the bands at Asan, the densest chowk, on the
+    /// 3 × 3 tiles around it as the game draws them (B0 per house by distance, B1-B3 per triangle with the band
+    /// cross-fade), 40% in the frustum: B0 stays within <see cref="B0ShareTris"/> and the total within
+    /// <see cref="SliceTris"/> × <see cref="SliceHeadroom"/>. Engine-free; World/Buildings/BandConfig reads it.
     /// </summary>
     public static class BuildingBandTable
     {
-        /// <summary>B0 triangle cap for one house on the High tier and in whole-tile builds (the NEWAR cap of
-        /// ASSET_MANIFEST §4 is 5,000; a merged footprint holding several plots counts as one house).</summary>
+        /// <summary>B0 triangle cap per house in whole-tile builds and previews (the NEWAR cap of ASSET_MANIFEST §4); the
+        /// tiers use <see cref="B0CapFor"/>.</summary>
         public const int B0CapTris = 5000;
 
-        private static readonly int[] Caps = { 2600, 4000, 5000 };
+        /// <summary>The drop level of the lite B0 ring on Mid and High (Core HouseBuilder.LiteDrop).</summary>
+        public const int LiteDrop = 5;
 
-        /// <summary>Outer radius (m) of B0, B1, B2 and B3 per tier.</summary>
+        /// <summary>The drop level of the lite B0 ring on Low (Core HouseBuilder.FlatDrop): openings laid on the wall.</summary>
+        public const int FlatDrop = 6;
+
+        /// <summary>Near-ring B0 cells split each 64 m detail cell this many times per side (32 m cells): the rich houses
+        /// drawn around the camera are only those of the few small cells the near ring touches.</summary>
+        public const int NearSubdivision = 2;
+
+        /// <summary>Headroom on <see cref="SliceTris"/> for the band-table estimate (40% of the buildings of each ring in
+        /// the frustum), as in W2_DESIGN 2.4 / V3.</summary>
+        public const double SliceHeadroom = 1.15;
+
+        private static readonly int[] Caps = { 2200, 3600, 4500 };
+        private static readonly int[] BaseDrops = { 1, 0, 0 };
+        private static readonly float[] NearRadii = { 10f, 22f, 36f };
+
+        /// <summary>The B0 share of the building slice per tier at Asan (40% in view): the measured near and lite rings
+        /// stay under it (Low 5.7 k, Mid 38 k, High 85 k when this table was set), and the far bands B1-B3 measured the
+        /// same way take the rest (Low 19 k, Mid 40 k, High 62 k).</summary>
+        private static readonly int[] B0Shares = { 5800, 41000, 90000 };
+
+        /// <summary>Outer radius (m) of B0, B1, B2 and B3 per tier (W2_DESIGN 2.4).</summary>
         private static readonly float[][] Radii =
         {
-            new[] { 22f, 120f, 350f, 750f },
-            new[] { 32f, 200f, 500f, 1250f },
-            new[] { 42f, 250f, 700f, 1750f },
+            new[] { 35f, 120f, 350f, 750f },
+            new[] { 60f, 200f, 500f, 1250f },
+            new[] { 80f, 250f, 700f, 1750f },
         };
 
-        /// <summary>The B0 cap per house on a tier (Low houses drop detail sooner).</summary>
+        private static int Tier(int tier)
+        {
+            return tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
+        }
+
+        /// <summary>The triangles B0 (both rings) may take of the building slice on a tier, at Asan with 40% in view.</summary>
+        public static int B0ShareTris(int tier)
+        {
+            return B0Shares[Tier(tier)];
+        }
+
+        /// <summary>The near-ring B0 cap per house (per plot of a row) on a tier.</summary>
         public static int B0CapFor(int tier)
         {
-            return Caps[tier <= 0 ? 0 : tier >= 2 ? 2 : 1];
+            return Caps[Tier(tier)];
+        }
+
+        /// <summary>The richest near-ring B0 drop level on a tier (Low starts without the smallest relief).</summary>
+        public static int B0BaseDropFor(int tier)
+        {
+            return BaseDrops[Tier(tier)];
+        }
+
+        /// <summary>Outer radius (m) of the near B0 ring on a tier; the lite ring runs from it to <c>OuterM(tier, 0)</c>.</summary>
+        public static float NearOuterM(int tier)
+        {
+            return NearRadii[Tier(tier)];
         }
 
         /// <summary>The outer radius of <paramref name="band"/> (0..3) on <paramref name="tier"/> (0 Low, 1 Mid, 2 High).</summary>
         public static float OuterM(int tier, int band)
         {
-            tier = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
             band = band <= 0 ? 0 : band >= 3 ? 3 : band;
-            return Radii[tier][band];
+            return Radii[Tier(tier)][band];
         }
 
-        /// <summary>W2 building slice per tier (W2_DESIGN 2.4 / 10.4 budget-check totals, triangles in view).</summary>
+        /// <summary>The W2 building slice per tier (W2_DESIGN 10.4: 22 k / 72 k / 135 k triangles in view, generic sacred
+        /// buildings included).</summary>
         public static int SliceTris(int tier)
         {
-            return tier <= 0 ? 20000 : tier >= 2 ? 115000 : 63000;
+            int k = Tier(tier);
+            return k == 0 ? 22000 : k == 1 ? 72000 : 135000;
+        }
+
+        /// <summary>The options of the near B0 ring on a tier (<paramref name="o"/> copied: corridors, hide set, sink).</summary>
+        public static BuildingOptions NearOptions(int tier, BuildingOptions o = null)
+        {
+            BuildingOptions r = Copy(o, BuildingBand.B0KitLite);
+            r.B0CapTris = B0CapFor(tier);
+            r.B0BaseDrop = B0BaseDropFor(tier);
+            return r;
+        }
+
+        /// <summary>The drop level of the lite B0 ring on a tier: <see cref="FlatDrop"/> on Low, <see cref="LiteDrop"/>
+        /// on Mid and High.</summary>
+        public static int LiteDropFor(int tier)
+        {
+            return Tier(tier) == 0 ? FlatDrop : LiteDrop;
+        }
+
+        /// <summary>The options of the lite B0 ring at the lite level (Mid and High; <paramref name="o"/> copied).</summary>
+        public static BuildingOptions LiteOptions(BuildingOptions o = null)
+        {
+            return LiteOptions(1, o);
+        }
+
+        /// <summary>The options of the lite B0 ring on a tier (<see cref="LiteDropFor"/>; <paramref name="o"/> copied).</summary>
+        public static BuildingOptions LiteOptions(int tier, BuildingOptions o = null)
+        {
+            BuildingOptions r = Copy(o, BuildingBand.B0KitLite);
+            r.B0CapTris = int.MaxValue;
+            r.B0BaseDrop = LiteDropFor(tier);
+            return r;
+        }
+
+        /// <summary>The options of the B1 layer: the styled extrusion with its street-front detail (front paint, floor
+        /// band, window rows; W2_DESIGN 2.4), which the budget counts. The streamer's B1 layer should be built with these
+        /// (World/Streaming TileBuild builds it from MeshingSettings.Buildings, default options: an open issue for the
+        /// integration package).</summary>
+        public static BuildingOptions B1Options(BuildingOptions o = null)
+        {
+            BuildingOptions r = Copy(o, BuildingBand.B1Styled);
+            r.Styled = true;
+            r.FrontDetail = true;
+            return r;
+        }
+
+        /// <summary>A copy of <paramref name="o"/> (or the defaults) for <paramref name="band"/>.</summary>
+        public static BuildingOptions Copy(BuildingOptions o, BuildingBand band)
+        {
+            if (o == null) o = new BuildingOptions();
+            return new BuildingOptions
+            {
+                SinkM = o.SinkM, SkipLandmarks = o.SkipLandmarks, MinAreaM2 = o.MinAreaM2, Parapets = o.Parapets, Band = band, Styled = o.Styled,
+                FrontDetail = o.FrontDetail, HiddenRefs = o.HiddenRefs, B0CapTris = o.B0CapTris, B0BaseDrop = o.B0BaseDrop, RoadGuard = o.RoadGuard,
+                Corridors = o.Corridors,
+            };
         }
 
         /// <summary>

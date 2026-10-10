@@ -30,20 +30,24 @@ namespace Ghumante.Core.Meshing
         /// W2 storey stacks and the profile palettes), so every band agrees with B0. Off: the plain W1 extrusion.</summary>
         public bool Styled = true;
 
-        /// <summary>B1 street-front detail (W2_DESIGN 2.4): the front paint, a floor band and one window-row quad per
-        /// storey on the front edge (about 12 triangles more per building at Asan). The detail pass's band table
-        /// (BuildingBandTable) budgets B1 with it on, since B1 now takes over from the richer B0 nearer the camera; it
-        /// stays off by default so whole-tile builds (the streaming budget tests) keep the W1 cost until the B1 layer's
-        /// options turn it on.</summary>
+        /// <summary>B1 street-front detail (W2_DESIGN 2.4 B1: "floor bands as vertex-colour stripes, window rows as
+        /// darker vertex-colour quads"): the front paint, a floor band and one window-row quad per storey on the front
+        /// edge (about 10 triangles more per building at Asan). The band table's B1 layer turns it on
+        /// (<see cref="BuildingBandTable.B1Options"/>, which its budget check measures); it stays off by default so
+        /// whole-tile builds that are not the B1 band (the W1 streaming budget, previews) keep the plain extrusion's cost.
+        /// </summary>
         public bool FrontDetail = false;
 
         /// <summary>Buildings (BLDG osm_ref) hidden under a hero replica (D5 hide zones); null = none.</summary>
         public System.Collections.Generic.ISet<ulong> HiddenRefs;
 
-        /// <summary>B0 triangle cap per house (W2_DESIGN 2.4, raised for the detail pass): over it the grammar drops
-        /// detail (lattice relief and small props, struts and tile courses, floor bands and railings, roof props) until
-        /// it fits.</summary>
+        /// <summary>B0 triangle cap per house (W2_DESIGN 2.4, raised for the detail pass), held per plot: each house of a
+        /// row (a plot of a merged footprint) drops detail (lattice relief and small props, struts and tile courses,
+        /// floor bands and railings, roof props) until it fits; the lightest level is always kept.</summary>
         public int B0CapTris = BuildingBandTable.B0CapTris;
+
+        /// <summary>The richest B0 drop level used (0 = everything; <see cref="BuildingBandTable.B0BaseDropFor"/> per tier).</summary>
+        public int B0BaseDrop = 0;
 
         /// <summary>Keep buildings out of the roads (docs/W2_DETAIL_CONTRACT.md decisions 1 and 2): footprints that
         /// intrude into a road corridor are trimmed back to it (or dropped when the house stands in the road) in every
@@ -52,8 +56,9 @@ namespace Ghumante.Core.Meshing
         public bool RoadGuard = true;
 
         /// <summary>The road corridors of a tile (the roads package's <c>RoadCorridorIndex.ForTile</c>); null uses the
-        /// building package's stand-in built from the tile's roads at their game widths. Must return the same
-        /// instance for the same tile (the guard is cached per tile and corridor source).</summary>
+        /// building package's stand-in built from the tile's roads at their game widths. Return the same instance for
+        /// the same tile: the footprint guard is cached per tile and corridor source (a few sources per tile), so a
+        /// new instance per call rebuilds it.</summary>
         public Func<TileData, IRoadCorridorQuery> Corridors;
 
         /// <summary>The corridor query for a tile under these options (null when <see cref="RoadGuard"/> is off).</summary>

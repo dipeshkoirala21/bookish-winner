@@ -5,12 +5,56 @@ using Ghumante.Core.Generators;
 namespace Ghumante.Core.Meshing
 {
     /// <summary>What a house needs to know about its surroundings: the road corridors (overhang clearance) and the
-    /// other footprints of the tile (corners are only rounded where nothing abuts them).</summary>
+    /// other footprints of the tile as the road guard leaves them (corners are only rounded where nothing abuts them,
+    /// walls against a neighbour stay blank).</summary>
     internal struct HouseEnv
     {
         public Clearance Clear;
         public BuildingBands.FootprintIndex Neighbours;
         public int Index;
+    }
+
+    /// <summary>
+    /// The B0 triangle budget of one footprint, held <b>per plot</b>: every house of a row (a plot) gets
+    /// <see cref="PlotCap"/> triangles. A plot is built at the drop level its size predicts (<see cref="HouseBuilder"/>
+    /// estimates it, never below <see cref="BaseDrop"/>); only a plot that still overflows is rebuilt one level
+    /// lighter, so a long merged row never drops to a bare box and the retry work stays local to that plot.
+    /// </summary>
+    internal struct HouseBudget
+    {
+        /// <summary>Triangles one plot may use (the tier's B0 cap per house).</summary>
+        public int PlotCap;
+
+        /// <summary>The richest drop level used (0 = everything; the Low tier starts lighter).</summary>
+        public int BaseDrop;
+
+        public HouseBudget(int plotCap, int baseDrop)
+        {
+            PlotCap = plotCap;
+            BaseDrop = baseDrop < 0 ? 0 : baseDrop > HouseBuilder.MaxDrop ? HouseBuilder.MaxDrop : baseDrop;
+        }
+    }
+
+    /// <summary>Per-thread counters of the B0 house builder (tests: work done, plots over their cap, clamp pushes).</summary>
+    internal struct HouseStats
+    {
+        /// <summary>Plots built (each counted once) and plot builds thrown away because they overflowed their cap.</summary>
+        public long Plots, Rebuilds;
+
+        /// <summary>Triangles built, the thrown-away builds included (the work done).</summary>
+        public long BuiltTris;
+
+        /// <summary>Plots still over their cap at the lightest drop level (kept: never a bare box).</summary>
+        public long OverCap;
+
+        /// <summary>Vertices the final clearance clamp moved, and those moved further than 5 cm.</summary>
+        public long Clamped, ClampedFar;
+
+        /// <summary>The longest clamp push (m).</summary>
+        public double MaxPush;
+
+        /// <summary>Body walls dressed as side facades, and the openings cut (or laid) in them.</summary>
+        public long SideWalls, SideOpenings;
     }
 
     /// <summary>
@@ -29,10 +73,26 @@ namespace Ghumante.Core.Meshing
     /// </summary>
     internal static partial class HouseBuilder
     {
-        public const int MaxDrop = 4;
+        /// <summary>The lightest drop level, <see cref="FlatDrop"/> (the Low tier's outer B0 ring builds at it); the cap
+        /// fallback stops at <see cref="LiteDrop"/> or the base level, whichever is lighter (never a bare box).</summary>
+        public const int MaxDrop = FlatDrop;
+
+        /// <summary>The "lite" level of the outer B0 ring (about a fifth of the full grammar): every opening still cut
+        /// with its reveal, a dark room and a plain timber or concrete frame, a coarse lattice, the sanjhya as a bay, the
+        /// jhingati eave on a fascia, shop shutters and boards, one tank on the roof; no relief, mouldings or props.</summary>
+        public const int LiteDrop = BuildingBandTable.LiteDrop;
+
+        /// <summary>The "flat" level (the Low tier's outer B0 ring, 10-35 m): the lite house with its openings laid on the
+        /// wall instead of cut into it: a dark or glazed fill a few millimetres proud, a lintel and a sill board, a coarse
+        /// lattice; the sanjhya, eaves, hoods, balconies, shutters, boards and the tank stay.</summary>
+        public const int FlatDrop = BuildingBandTable.FlatDrop;
+
+        /// <summary>This thread's counters (reset by the caller).</summary>
+        [ThreadStatic] internal static HouseStats Stats;
         private const uint PurposePlots = 0x504C4F54;
         private const uint PurposeFacade = 0x46414344;
         private const uint PurposeProps = 0x50524F50;
+        private const uint PurposeRoof = 0x524F4F46;
         private const uint PurposePlotArch = 0x50415243;
         private const int MaxPlots = 16, MaxFloors = 18;
 
@@ -43,6 +103,9 @@ namespace Ghumante.Core.Meshing
             public double[] PX = new double[128], PZ = new double[128];
             public double[] DX = new double[256], DZ = new double[256];
             public byte[] DK = new byte[256];
+
+            /// <summary>Per display edge: how a body wall is dressed (<see cref="Side"/>).</summary>
+            public byte[] DS = new byte[256];
             public double[] NX = new double[256], NZ = new double[256];
             public int[] Tris = new int[768], Next = new int[256], Prev = new int[256];
             public double[] Floors = new double[(MaxPlots + 1) * MaxFloors];
@@ -69,6 +132,7 @@ namespace Ghumante.Core.Meshing
                     DX = new double[dneed];
                     DZ = new double[dneed];
                     DK = new byte[dneed];
+                    DS = new byte[dneed];
                     NX = new double[dneed];
                     NZ = new double[dneed];
                     Tris = new int[3 * dneed];
@@ -87,16 +151,39 @@ namespace Ghumante.Core.Meshing
             public double LatticePitch;
 
             public bool Small, Struts, Courses, Grilles, Bands, Rails, Props;
+
+            /// <summary>The lite level (<see cref="LiteDrop"/>): plain frames and boards, no mouldings.</summary>
+            public bool Lite;
+
+            /// <summary>The flat level (<see cref="FlatDrop"/>): openings drawn on the wall, not cut into it.</summary>
+            public bool Flat;
+
             public int Segs;
 
             public static Detail For(int drop)
             {
                 return new Detail
                 {
-                    LatticePitch = drop < 1 ? 0.16 : drop < 2 ? 0.19 : drop < 4 ? 0.24 : 0.3, Small = drop < 1, Struts = drop < 2, Courses = drop < 2,
-                    Grilles = drop < 2, Bands = drop < 3, Rails = drop < 3, Props = drop < 4, Segs = drop < 1 ? 2 : drop < 3 ? 1 : 0,
+                    LatticePitch = drop < 1 ? 0.16 : drop < 2 ? 0.19 : drop < 4 ? 0.24 : drop < 5 ? 0.3 : drop < 6 ? 0.46 : 0.58, Small = drop < 1,
+                    Struts = drop < 2, Courses = drop < 2, Grilles = drop < 2, Bands = drop < 3, Rails = drop < 3, Props = drop < 4, Lite = drop >= LiteDrop,
+                    Flat = drop >= FlatDrop, Segs = drop < 1 ? 2 : drop < 3 ? 1 : 0,
                 };
             }
+        }
+
+        /// <summary>How a body (non-front) wall is dressed.</summary>
+        private enum Side : byte
+        {
+            /// <summary>Against a neighbour, on a courtyard or an open plot out of sight of the road: plain brick or paint
+            /// (the blank party walls at the ends of Kathmandu rows).</summary>
+            Blank = 0,
+
+            /// <summary>On open ground seen from a nearby road (a small square, a lane's bend): windows on every floor, no
+            /// shop, no signs.</summary>
+            Open = 1,
+
+            /// <summary>On a street (a corner house's second street, a lane along the side): shops, signs and windows.</summary>
+            Street = 2,
         }
 
         private enum Edge : byte
@@ -134,6 +221,11 @@ namespace Ghumante.Core.Meshing
         {
             public int Index;
             public double U0, U1, FU0, FU1, Depth;
+
+            /// <summary>The front wall's extent along the street (<see cref="FU0"/>..<see cref="FU1"/> is the facade's
+            /// layout range: the same at every drop level, as if the exposed corners were rounded; the wall itself runs to
+            /// the corners the level leaves square).</summary>
+            public double GU0, GU1;
             public BuildingArchetype Arch;
             public int Storeys;
             public double Plinth, Top, Parapet;
@@ -142,12 +234,25 @@ namespace Ghumante.Core.Meshing
             public MaterialChannel FrontCh, WallCh;
             public int PolyStart, PolyCount, DispStart, DispCount;
             public double RidgeV, Cant;
+
+            /// <summary>Length of the plot's body walls that look onto a street (side facades), for the cost estimate.</summary>
+            public double StreetSides;
         }
 
-        /// <summary>Build one house at a drop level; returns false when the footprint is degenerate.</summary>
+        /// <summary>Build one house (all plots at one drop level; tests and previews of a level). Returns false when the
+        /// footprint is degenerate.</summary>
         public static bool Build(BuildingRecord b, in HousePlan plan, ref BuildingGround g, in HouseEnv env, float sinkM, int drop, MeshData m,
                                  GenColliders c)
         {
+            return Build(b, plan, ref g, env, sinkM, new HouseBudget(int.MaxValue, drop), m, c);
+        }
+
+        /// <summary>Build one house within a per-plot budget (see <see cref="HouseBudget"/>); returns false when the
+        /// footprint is degenerate.</summary>
+        public static bool Build(BuildingRecord b, in HousePlan plan, ref BuildingGround g, in HouseEnv env, float sinkM, in HouseBudget budget,
+                                 MeshData m, GenColliders c)
+        {
+            int drop = budget.BaseDrop;
             Scratch s = _scratch ?? (_scratch = new Scratch());
             int n = LoadRing(b.Rings[0], s);
             if (n < 3) return false;
@@ -227,11 +332,10 @@ namespace Ghumante.Core.Meshing
             {
                 Plot pl = s.Plots[p];
                 if (pl.PolyCount < 3 || pl.DispCount < 3) continue;
-                var rng = new GrammarRng(pl.Seed, PurposeFacade);
-                BodyWalls(ref h, s, ref pl, m);
-                Facade(ref h, s, ref pl, ref rng, m);
-                Roof(ref h, s, ref pl, ref rng, m);
+                BuildPlot(ref h, s, pl, budget, m, c);
             }
+            h.Drop = drop;
+            h.Det = Detail.For(drop);
 
             // Courtyard walls of holes, facing into the courtyard (no roof over the courtyard).
             for (int r = 1; r < b.Rings.Length; r++)
@@ -249,9 +353,111 @@ namespace Ghumante.Core.Meshing
                 MeshKit.RingWalls(m, s.X, s.Z, hn, h.Base, ground + s.Plots[0].Top, s.Plots[0].Wall);
                 WallPaint(ref h, s.Plots[0].WallCh, 1f).Apply(m, v0);
             }
-            h.Clear.Clamp(m, vStart, ref h.G);
+            int far;
+            double push;
+            Stats.Clamped += h.Clear.Clamp(m, vStart, ref h.G, out far, out push);
+            Stats.ClampedFar += far;
+            if (push > Stats.MaxPush) Stats.MaxPush = push;
             g = h.G;
             return true;
+        }
+
+        /// <summary>
+        /// One plot within its cap: built at the drop level <see cref="EstimateDrop"/> predicts (the base level unless the
+        /// plot is clearly too big for it); if it still overflows <see cref="HouseBudget.PlotCap"/>, its geometry (and
+        /// colliders) are thrown away and it is rebuilt once at the level its measured cost predicts
+        /// (<see cref="NextDrop"/>), rarely twice. At the lite level (or the base level when that is lighter) it is kept
+        /// whatever it costs (the openings, the sanjhya and the eaves stay): a house inside B0 is never a bare box.
+        /// </summary>
+        private static void BuildPlot(ref House h, Scratch s, in Plot plot, in HouseBudget budget, MeshData m, GenColliders c)
+        {
+            int v0 = m.VertexCount, i0 = m.IndexCount;
+            int boxes0 = c == null ? 0 : c.Boxes.Count, ramps0 = c == null ? 0 : c.Ramps.Count;
+            int floor = Math.Max(LiteDrop, budget.BaseDrop);
+            int drop = budget.PlotCap == int.MaxValue ? budget.BaseDrop : EstimateDrop(plot, budget, floor);
+            Stats.Plots++;
+            while (true)
+            {
+                h.Drop = drop;
+                h.Det = Detail.For(drop);
+                Plot pl = plot;
+                // The facade and the roof draw from their own sequences (and every element from a fork of them), so a
+                // plot keeps its structure (openings, balconies, hoods, shops, tanks) at every drop level.
+                var rng = new GrammarRng(pl.Seed, PurposeFacade);
+                var roofRng = new GrammarRng(pl.Seed, PurposeRoof);
+                BodyWalls(ref h, s, ref pl, m);
+                Facade(ref h, s, ref pl, ref rng, m);
+                Roof(ref h, s, ref pl, ref roofRng, m);
+                int tris = (m.IndexCount - i0) / 3;
+                Stats.BuiltTris += tris;
+                if (tris <= budget.PlotCap) return;
+                if (drop >= floor)
+                {
+                    Stats.OverCap++;
+                    return;
+                }
+                m.VertexCount = v0;
+                m.IndexCount = i0;
+                if (c != null)
+                {
+                    c.Boxes.RemoveRange(boxes0, c.Boxes.Count - boxes0);
+                    c.Ramps.RemoveRange(ramps0, c.Ramps.Count - ramps0);
+                }
+                Stats.Rebuilds++;
+                drop = NextDrop(plot.Arch, drop, tris, budget.PlotCap, floor);
+            }
+        }
+
+        /// <summary>
+        /// Mean cost of each drop level relative to level 0, per archetype (measured over the Bhaktapur, Patan, Asan,
+        /// Thamel, Baneshwor and Kirtipur cores, 3,000 plots): Newar houses keep their lattice and carved frames longest,
+        /// modern houses shed most at level 3 (grilles, bands, chhajjas, balcony rails) and at the lite level; the flat
+        /// level costs a little over half the lite one (Asan, 3 × 3 tiles).
+        /// </summary>
+        private static readonly double[][] LevelShare =
+        {
+            new[] { 1.0, 0.856, 0.677, 0.617, 0.578, 0.255, 0.15 },
+            new[] { 1.0, 0.854, 0.733, 0.636, 0.549, 0.252, 0.13 },
+            new[] { 1.0, 0.864, 0.783, 0.474, 0.332, 0.162, 0.09 },
+        };
+
+        private static double[] SharesOf(BuildingArchetype a)
+        {
+            return a == BuildingArchetype.Newar ? LevelShare[0] : a == BuildingArchetype.NewarHybrid ? LevelShare[1] : LevelShare[2];
+        }
+
+        /// <summary>The level to rebuild a plot at after it cost <paramref name="tris"/> at <paramref name="drop"/>: the
+        /// richest lighter level whose predicted cost (scaled by <see cref="LevelShare"/>, with 5% to spare) fits, at most
+        /// <paramref name="floor"/>.</summary>
+        private static int NextDrop(BuildingArchetype a, int drop, int tris, int cap, int floor)
+        {
+            double[] share = SharesOf(a);
+            int next = drop + 1;
+            while (next < floor && tris * share[next] / share[drop] > 0.95 * cap) next++;
+            return next;
+        }
+
+        /// <summary>The drop level a plot is first built at: the base level, or the richest lighter one whose estimated
+        /// cost fits the cap (the fallback level <paramref name="floor"/> is never chosen by estimate). Most plots are
+        /// built once.</summary>
+        private static int EstimateDrop(in Plot p, in HouseBudget budget, int floor)
+        {
+            int drop = budget.BaseDrop;
+            while (drop < floor - 1 && Estimate(p, drop) > 1.0 * budget.PlotCap) drop++;
+            return drop;
+        }
+
+        /// <summary>Estimated triangles of a plot at a drop level: a per-archetype base plus a cost per metre of front
+        /// and of street-facing side wall per storey (least squares over the same 3,000 plots as <see cref="LevelShare"/>;
+        /// median error 9% for Newar houses, 12% for hybrids, 29% for the more varied modern fronts), scaled by the
+        /// level's share.</summary>
+        private static double Estimate(in Plot p, int drop)
+        {
+            int storeys = Math.Max(1, p.Storeys);
+            double front = Math.Max(0.5, p.FU1 - p.FU0) * storeys, sides = p.StreetSides * storeys;
+            double full = p.Arch == BuildingArchetype.Newar ? 554 + 57.4 * front + 40.2 * sides
+                : p.Arch == BuildingArchetype.NewarHybrid ? 978 + 44.2 * front + 35.0 * sides : 836 + 58.1 * front + 25.3 * sides;
+            return full * SharesOf(p.Arch)[drop];
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -525,7 +731,7 @@ namespace Ghumante.Core.Meshing
                         p.FrontCh = MaterialChannel.Plaster;
                         if (pal.Chance(0.5f)) p.Wood = BuildingGrammar.PaintedRed;
                     }
-                    p.Roof = p.Index == 0 && plan.TileRoof ? plan.RoofColour : BuildingGrammar.JhingatiColour(ref pal);
+                    p.Roof = p.Index == 0 && plan.TileRoof ? plan.RoofColour : BuildingGrammar.JhingatiColour(plan.Profile, ref pal);
                     break;
                 case BuildingArchetype.NewarHybrid:
                     p.Wall = BuildingGrammar.BrickColour(st, ref pal);
@@ -565,7 +771,7 @@ namespace Ghumante.Core.Meshing
                     break;
             }
             p.Trim = pal.Chance(0.5f) ? MeshColor.FromHex(0xFFFFFF) : MeshColor.Scale(p.Front, 0.8f);
-            if (p.Gable && p.Arch != BuildingArchetype.Newar) p.Roof = BuildingGrammar.JhingatiColour(ref pal);
+            if (p.Gable && p.Arch != BuildingArchetype.Newar) p.Roof = BuildingGrammar.JhingatiColour(plan.Profile, ref pal);
             if (!p.Gable) p.Roof = BuildingGrammar.Concrete; // a flat terrace is concrete, whatever the plan's tile colour
             if (p.Gable)
             {
@@ -573,6 +779,23 @@ namespace Ghumante.Core.Meshing
                 p.RidgeV = p.Top + 0.5 * p.Depth * Math.Tan(pitch);
             }
             else p.RidgeV = p.Top + p.Parapet;
+        }
+
+        /// <summary>The radius the exposed corners of a plot are rounded to.</summary>
+        private static double CornerR(in Plot p)
+        {
+            return p.Arch == BuildingArchetype.Newar ? 0.1 : 0.16;
+        }
+
+        /// <summary>The length of display edge <paramref name="i"/> (of <paramref name="n"/> from <paramref name="at"/>) as if
+        /// its corners were square: its own length plus the radius at each end that meets a rounded corner, so a side
+        /// facade lays out the same windows at every drop level.</summary>
+        private static double LayoutLength(Scratch s, int at, int n, int i, double len, double r)
+        {
+            int prev = i == 0 ? n - 1 : i - 1, next = i + 1 == n ? 0 : i + 1;
+            if (s.DK[at + prev] == (byte)Edge.Arc) len += r;
+            if (s.DK[at + next] == (byte)Edge.Arc) len += r;
+            return len;
         }
 
         private static double FloorBase(Scratch s, in Plot p, int k)
@@ -583,11 +806,16 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>The display polygon of a plot: its clipped ring with the exposed convex corners rounded (two
-        /// segments, smooth normals) and every edge classified (front, body, partition, arc). Returns the point count.</summary>
+        /// segments, smooth normals; from drop level 3 they stay square) and every edge classified (front, body,
+        /// partition, arc). The facade's layout range (<see cref="Plot.FU0"/>..<see cref="Plot.FU1"/>) is taken as if the
+        /// corners were rounded at every level, so bays, windows and balconies never change between levels; the front
+        /// wall's own extent is <see cref="Plot.GU0"/>..<see cref="Plot.GU1"/>. Returns the point count.</summary>
         private static int Display(ref House h, Scratch s, ref Plot p, in HouseEnv env, int at)
         {
             int n = p.PolyCount, o = 0;
-            double r = p.Arch == BuildingArchetype.Newar ? 0.1 : 0.16;
+            double r = CornerR(p);
+            p.FU0 = double.MaxValue;
+            p.FU1 = double.MinValue;
             for (int i = 0; i < n; i++)
             {
                 int ip = i == 0 ? n - 1 : i - 1, inx = i + 1 == n ? 0 : i + 1;
@@ -596,7 +824,7 @@ namespace Ghumante.Core.Meshing
                 Edge kin = Classify(ref h, ref p, px, pz, x, z), kout = Classify(ref h, ref p, x, z, nx, nz);
                 double dix = x - px, diz = z - pz, li = Math.Sqrt(dix * dix + diz * diz);
                 double dox = nx - x, doz = nz - z, lo = Math.Sqrt(dox * dox + doz * doz);
-                bool round = r > 0 && h.Det.Segs > 0 && li > 4 * r && lo > 4 * r && kin != Edge.PartitionLow && kin != Edge.PartitionHigh &&
+                bool round = r > 0 && li > 4 * r && lo > 4 * r && kin != Edge.PartitionLow && kin != Edge.PartitionHigh &&
                              kout != Edge.PartitionLow && kout != Edge.PartitionHigh;
                 if (round)
                 {
@@ -612,6 +840,20 @@ namespace Ghumante.Core.Meshing
                                   env.Neighbours.Inside(x + doz / lo * 0.4 - dox / lo * 0.3, z - dox / lo * 0.4 - doz / lo * 0.3, env.Index)))
                         round = false;
                 }
+                // The layout range: the front edges' ends, pulled in where the corner is (or would be) rounded.
+                if (kout == Edge.Front && lo > 1e-9)
+                {
+                    double uf = U(ref h, x + (round ? dox / lo * r : 0), z + (round ? doz / lo * r : 0));
+                    p.FU0 = Math.Min(p.FU0, uf);
+                    p.FU1 = Math.Max(p.FU1, uf);
+                }
+                if (kin == Edge.Front && li > 1e-9)
+                {
+                    double uf = U(ref h, x - (round ? dix / li * r : 0), z - (round ? diz / li * r : 0));
+                    p.FU0 = Math.Min(p.FU0, uf);
+                    p.FU1 = Math.Max(p.FU1, uf);
+                }
+                round &= h.Det.Segs > 0;
                 if (!round)
                 {
                     s.DX[at + o] = x;
@@ -646,21 +888,47 @@ namespace Ghumante.Core.Meshing
                 s.NZ[at + o] = n2z;
                 o++;
             }
-            // Facade range: the extent of the front edges.
-            p.FU0 = double.MaxValue;
-            p.FU1 = double.MinValue;
+            // The front wall's extent: the front edges of the display polygon.
+            p.GU0 = double.MaxValue;
+            p.GU1 = double.MinValue;
             for (int i = 0; i < o; i++)
             {
                 if (s.DK[at + i] != (byte)Edge.Front) continue;
                 int j = i + 1 == o ? 0 : i + 1;
                 double ua = U(ref h, s.DX[at + i], s.DZ[at + i]), ub = U(ref h, s.DX[at + j], s.DZ[at + j]);
-                p.FU0 = Math.Min(p.FU0, Math.Min(ua, ub));
-                p.FU1 = Math.Max(p.FU1, Math.Max(ua, ub));
+                p.GU0 = Math.Min(p.GU0, Math.Min(ua, ub));
+                p.GU1 = Math.Max(p.GU1, Math.Max(ua, ub));
             }
-            if (p.FU0 > p.FU1)
+            if (p.FU0 > p.FU1 || p.GU0 > p.GU1)
             {
-                p.FU0 = p.U0;
-                p.FU1 = p.U0; // no front: nothing to dress
+                p.FU0 = p.FU1 = p.GU0 = p.GU1 = p.U0; // no front: nothing to dress
+            }
+            // How each body wall is dressed (decided once: the cost estimate and the body walls both use it).
+            p.StreetSides = 0;
+            for (int i = 0; i < o; i++)
+            {
+                s.DS[at + i] = (byte)Side.Blank;
+                if (s.DK[at + i] != (byte)Edge.Body) continue;
+                int j = i + 1 == o ? 0 : i + 1;
+                double ax = s.DX[at + i], az = s.DZ[at + i], bx = s.DX[at + j], bz = s.DZ[at + j];
+                double len = Math.Sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az)), layout = LayoutLength(s, at, o, i, len, r);
+                if (layout < 2.5 || len < 1e-6) continue;
+                // Judge the wall on its square-cornered extent, so every drop level dresses the same walls.
+                int prev = i == 0 ? o - 1 : i - 1;
+                double ux = (bx - ax) / len, uz = (bz - az) / len;
+                if (s.DK[at + prev] == (byte)Edge.Arc)
+                {
+                    ax -= ux * r;
+                    az -= uz * r;
+                }
+                if (s.DK[at + j] == (byte)Edge.Arc)
+                {
+                    bx += ux * r;
+                    bz += uz * r;
+                }
+                Side side = h.Corner && OnSegment(ax, az, bx, bz, h.SecondAX, h.SecondAZ, h.SecondBX, h.SecondBZ) ? Side.Street : SideOf(ref h, ax, az, bx, bz, layout);
+                s.DS[at + i] = (byte)side;
+                if (side != Side.Blank) p.StreetSides += side == Side.Street ? layout : 0.6 * layout;
             }
             return o;
         }
@@ -711,6 +979,21 @@ namespace Ghumante.Core.Meshing
         {
             if (!h.Clear.Active) return want;
             return h.Clear.Depth(f, u0, u1, 0, h.Ground + v, want, ref h.G);
+        }
+
+        /// <summary>True when an element over [u0, u1] whose lowest point is <paramref name="v"/> above the house's
+        /// ground may project <paramref name="want"/> whole.</summary>
+        private static bool Fits(ref House h, in KitFrame f, double u0, double u1, double v, double want)
+        {
+            return Allow(ref h, f, u0, u1, v, want) >= want - 1e-9;
+        }
+
+        /// <summary>The depth of a small relief element (a frame, a ledge, a band, a post) over [u0, u1] at height
+        /// <paramref name="v"/>: <paramref name="want"/>, or what the road leaves, but at least
+        /// <paramref name="min"/> (a few centimetres the final clamp may press back to the corridor edge).</summary>
+        private static double Proud(ref House h, in KitFrame f, double u0, double u1, double v, double want, double min = 0.015)
+        {
+            return Math.Max(Math.Min(min, want), Allow(ref h, f, u0, u1, v, want));
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -765,8 +1048,12 @@ namespace Ghumante.Core.Meshing
                     WallPaint(ref h, ch, 1f).Apply(m, v0);
                     continue;
                 }
-                bool street = h.Corner && OnSegment(ax, az, bx, bz, h.SecondAX, h.SecondAZ, h.SecondBX, h.SecondBZ) || FacesStreet(ref h, ax, az, bx, bz, len);
-                if (street && SideFacade(ref h, s, ref p, ax, az, bx, bz, m)) continue;
+                if (s.DS[at + i] != (byte)Side.Blank &&
+                    SideFacade(ref h, s, ref p, ax, az, bx, bz, LayoutLength(s, at, n, i, len, CornerR(p)), s.DS[at + i] == (byte)Side.Street, m))
+                {
+                    Stats.SideWalls++;
+                    continue;
+                }
                 if (!double.IsNaN(seam))
                 {
                     MeshKit.Quad(m, ax, bottom, az, bx, bottom, bz, bx, seam, bz, ax, seam, az, dz, 0, -dx, col);
@@ -782,7 +1069,7 @@ namespace Ghumante.Core.Meshing
                     WallPaint(ref h, ch, 1f).Apply(m, v0);
                 }
                 // Plinth course along the exposed straight walls.
-                if (len > 0.6 && p.Plinth > 0.1)
+                if (len > 0.6 && p.Plinth > 0.1 && !h.Det.Lite)
                 {
                     var f = new KitFrame(ax, h.Ground, az, dx, dz);
                     v0 = m.VertexCount;
@@ -792,19 +1079,30 @@ namespace Ghumante.Core.Meshing
             }
         }
 
-        /// <summary>True when a body wall looks onto a street: a road corridor within 4 m in front of its middle and
-        /// no other building against it (walls on lanes get windows and shops, not blank brick).</summary>
-        private static bool FacesStreet(ref House h, double ax, double az, double bx, double bz, double len)
+        /// <summary>
+        /// How a body wall is dressed (<see cref="Side"/>), from three points along it: <b>street</b> when a road corridor
+        /// lies within 4 m <i>in front of</i> it (stepping 3 m out along its normal brings the corridor at least 1 m
+        /// nearer, so a side wall beside a lane does not count); <b>open</b> when nothing stands within 3 m in front of it
+        /// and a road lies within 14 m in front (a wall on a small square or at a lane's bend, which the street sees);
+        /// <b>blank</b> otherwise (against a neighbour, a back wall on a courtyard or an open plot away from the roads, the
+        /// party wall at the end of a row). Without corridors every wall is blank.
+        /// </summary>
+        private static Side SideOf(ref House h, double ax, double az, double bx, double bz, double len)
         {
-            if (!h.Clear.Active || len < 2.5) return false;
+            if (!h.Clear.Active || len < 2.5) return Side.Blank;
             double nx = (bz - az) / len, nz = -(bx - ax) / len;
+            Side best = Side.Blank;
             for (int k = 1; k <= 3; k++)
             {
                 double t = 0.25 * k, mx = ax + (bx - ax) * t, mz = az + (bz - az) * t;
                 if (h.Neighbours != null && h.Neighbours.Inside(mx + nx * 0.8, mz + nz * 0.8, h.Index)) continue;
-                if (h.Clear.FreeAt(mx + nx * 0.3, mz + nz * 0.3) < 4.0) return true;
+                double near = h.Clear.FreeAt(mx + nx * 0.3, mz + nz * 0.3);
+                if (near < 4.0 && h.Clear.FreeAt(mx + nx * 3.3, mz + nz * 3.3) < near - 1.0) return Side.Street;
+                if (best == Side.Blank && near < 14.0 && h.Clear.FreeAt(mx + nx * 6.3, mz + nz * 6.3) < near - 3.0 &&
+                    (h.Neighbours == null || !h.Neighbours.Inside(mx + nx * 3.0, mz + nz * 3.0, h.Index) && !h.Neighbours.Inside(mx + nx * 1.8, mz + nz * 1.8, h.Index)))
+                    best = Side.Open;
             }
-            return false;
+            return best;
         }
 
         private static bool Touches(Scratch s, int at, int n, int i, Edge kind)

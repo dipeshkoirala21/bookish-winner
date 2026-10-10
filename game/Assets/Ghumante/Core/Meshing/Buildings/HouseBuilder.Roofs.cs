@@ -1,6 +1,7 @@
 using System;
 using Ghumante.Core.Data;
 using Ghumante.Core.Generators;
+using Ghumante.Core.Meshing.Shapes;
 
 namespace Ghumante.Core.Meshing
 {
@@ -37,9 +38,10 @@ namespace Ghumante.Core.Meshing
             var fb = new KitFrame(bx, f.OY, bz, -f.UX, -f.UZ);
             double dB = Allow(ref h, fb, 0, b - a, top - ovr * tan - Slab, ovr);
             uint tile = p.Roof, under = MeshColor.Scale(BuildingGrammar.SalDark, 1.15f);
-            int vs = m.VertexCount;
+            int vs = m.VertexCount, ri = m.IndexCount;
             Slope(ref h, f, a, b, dF, half, top, tan, Slab, tile, under, m);
             Slope(ref h, fb, 0, b - a, dB, half, top, tan, Slab, tile, under, m);
+            Weather(ref h, ref p, m, vs, ri, h.Ground + top - Math.Max(dF, dB) * tan, h.Ground + p.RidgeV);
             // Tiles vs wood: the sweep's first two segments (soffit, fascia) are wood; repaint them by normal.
             PaintRoof(ref h, m, vs, top);
 
@@ -100,9 +102,10 @@ namespace Ghumante.Core.Meshing
             {
                 vs = m.VertexCount;
                 double wTop = dF - 0.2, vTop = top - wTop * tan - Slab - 0.02;
-                // The strut feet sit on a wall plate low enough for the struts to rise at about 50 degrees.
+                // The strut feet sit on a wall plate low enough for the struts to rise at about 50 degrees; struts and
+                // plate reach below the eave, so they must clear the road on their own (else the fascia stripe).
                 double plate = Math.Max(vTop - 1.2 * wTop, FloorBase(s, p, Math.Max(0, p.Storeys - 1)) + 0.2);
-                if (h.Det.Struts)
+                if (h.Det.Struts && Fits(ref h, f, p.FU0, p.FU1, plate - 0.16, wTop + 0.1))
                 {
                     FacadeKit.Ledge(m, f, p.FU0, p.FU1, plate - 0.16, 0.2, 0.1, 0.04, 3, MeshColor.Scale(p.Wood, 1.05f));
                     double spacing = rng.Range(1.15f, 1.45f);
@@ -126,6 +129,30 @@ namespace Ghumante.Core.Meshing
                 }
                 else MeshKit.Panel(m, f, p.FU0, top - 0.35, p.FU1, top - 0.02, 0.01, p.Wood);
                 KitPaint.Of(MaterialChannel.WoodCarved, 0.85f).WithTop(h.Ground + top, 0.65f, 0.8f).Apply(m, vs);
+            }
+        }
+
+        /// <summary>
+        /// Weathering of old jhingati (the reference photos of Bhaktapur and Patan: no two courses alike, moss and soot
+        /// along the eaves): every tile course gets its own shade, and the lowest third of the slope darkens toward
+        /// <see cref="BuildingGrammar.RoofMoss"/>, more in the heritage towns and on older roofs.
+        /// </summary>
+        private static void Weather(ref House h, ref Plot p, MeshData m, int v0, int i0, double eaveY, double ridgeY)
+        {
+            ShapeColor.JitterFaces(m, i0, m.IndexCount - i0, 0.1f, p.Seed, 2);
+            bool heritage = BuildingGrammar.IsNewarProfile(h.Plan.Profile);
+            float moss = (heritage ? 0.3f : 0.18f) * (0.5f + ((p.Seed >> 17) & 0xFF) / 255f);
+            double span = Math.Max(0.5, ridgeY - eaveY);
+            for (int v = v0; v < m.VertexCount; v++)
+            {
+                double t = (m.Positions[3 * v + 1] - eaveY) / span;
+                if (t >= 0.35) continue;
+                float k = moss * (float)Math.Min(1.0, (0.35 - t) / 0.35);
+                int c = 4 * v;
+                uint col = MeshColor.Lerp((uint)(m.Colors[c] << 24 | m.Colors[c + 1] << 16 | m.Colors[c + 2] << 8 | 0xFF), BuildingGrammar.RoofMoss, k);
+                m.Colors[c] = (byte)(col >> 24);
+                m.Colors[c + 1] = (byte)(col >> 16);
+                m.Colors[c + 2] = (byte)(col >> 8);
             }
         }
 
@@ -218,7 +245,7 @@ namespace Ghumante.Core.Meshing
             // Parapet: inner faces and a rounded coping along every edge (the front one on the cantilever line).
             uint inner = MeshColor.Scale(p.ExposedBrick || p.Arch == BuildingArchetype.NewarHybrid && p.ExposedBrick ? p.Wall : p.Front, 0.92f);
             uint coping = p.Arch == BuildingArchetype.RanaPalace ? BuildingGrammar.RanaTrim : p.ExposedBrick ? BuildingGrammar.Concrete : p.Trim;
-            bool rail = p.Arch == BuildingArchetype.ModernUrban && h.Det.Rails && rng.Chance(0.22f);
+            bool rail = p.Arch == BuildingArchetype.ModernUrban && rng.Chance(0.22f) && h.Det.Rails;
             double par = p.Parapet;
             for (int i = 0; i < n; i++)
             {
@@ -250,7 +277,10 @@ namespace Ghumante.Core.Meshing
                 if (h.Det.Bands || kind == Edge.Front)
                 {
                     double ext = kind == Edge.Arc ? 0.0 : 0.06;
-                    FacadeKit.Coping(m, f, -ext, len + ext, pv1, 0.07, 0.2, 0, coping);
+                    // The coping overhangs the wall by 0.1 m: on a low roof over a road it is pulled back over the wall.
+                    double over = Allow(ref h, f, 0, len, pv1, 0.1);
+                    KitFrame fc = over >= 0.1 - 1e-9 ? f : f.Offset(0, 0, over - 0.1);
+                    FacadeKit.Coping(m, fc, -ext, len + ext, pv1, 0.07, 0.2, 0, coping);
                     // The top of the parapet wall under the coping is hidden; no extra faces.
                 }
                 Free(ref h, m, v0, MaterialChannel.Concrete);
@@ -270,7 +300,7 @@ namespace Ghumante.Core.Meshing
                 }
                 if (p.Arch == BuildingArchetype.RanaPalace && kind == Edge.Front) Balustrade(ref h, f, 0, len, p.Top + 0.02, m);
             }
-            if (h.Det.Props || p.Storeys >= 3) Props(ref h, s, ref p, ref rng, y, m);
+            Props(ref h, s, ref p, y, m);
         }
 
         [ThreadStatic] private static double[] _subX, _subZ;
@@ -364,7 +394,7 @@ namespace Ghumante.Core.Meshing
         /// line, a CGI shed on some, and the rooftop restaurant (umbrellas, chairs, plants, prayer flags) in Thamel
         /// and on the Boudha kora.
         /// </summary>
-        private static void Props(ref House h, Scratch s, ref Plot p, ref GrammarRng rng0, double y, MeshData m)
+        private static void Props(ref House h, Scratch s, ref Plot p, double y, MeshData m)
         {
             var rng = new GrammarRng(p.Seed, PurposeProps);
             bool house = p.Arch == BuildingArchetype.ModernUrban || p.Arch == BuildingArchetype.NewarHybrid;
@@ -407,9 +437,9 @@ namespace Ghumante.Core.Meshing
                 }
                 else cabin = false;
             }
-            if (!h.Det.Props) return;
-
-            // Water tanks: 60-80% of roofs, 1-3, black first, on the cabin on 40%.
+            // Water tanks: 60-80% of roofs, 1-3, black first, on the cabin on 40%. The lighter levels (no props) keep
+            // the first one, the one thing every Kathmandu roofline has, as a plain cylinder on a brick stand, where the
+            // full level draws it.
             float tankShare = BuildingGrammar.IsNewarProfile(h.Plan.Profile) ? 0.62f : 0.78f;
             if (rng.Chance(tankShare))
             {
@@ -435,8 +465,24 @@ namespace Ghumante.Core.Meshing
                         baseY = y;
                     }
                     double stand = baseY > y + 0.1 ? 0.15 : rng.Range(0.4f, 1.4f);
+                    bool steel = rng.Chance(0.6f) || stand < 0.3;
+                    if (!h.Det.Props)
+                    {
+                        if (k > 0) break;
+                        if (stand >= 0.3)
+                        {
+                            v0 = m.VertexCount;
+                            MeshKit.OrientedBox(m, x, z, baseY, baseY + stand, rad * 0.85, rad * 0.85, f.UX, f.UZ, steel ? PropKit.Steel : BuildingGrammar.RawBrick,
+                                                BoxFaces.All & ~BoxFaces.Bottom & ~BoxFaces.Top);
+                            KitPaint.Of(steel ? MaterialChannel.Metal : MaterialChannel.Brick).WithGround(baseY, 0.6f, 0.4f).Apply(m, v0);
+                        }
+                        v0 = m.VertexCount;
+                        KitRound.Cylinder(m, x, z, rad, baseY + stand, baseY + stand + th, 6, true, false, tc);
+                        KitPaint.Of(MaterialChannel.Paint).WithGround(baseY + stand, 0.7f, 0.3f).Apply(m, v0);
+                        break;
+                    }
                     v0 = m.VertexCount;
-                    if (rng.Chance(0.6f) || stand < 0.3) PropKit.Stand(m, x, baseY, baseY + stand, z, rad * 0.8, f.UX, f.UZ, PropKit.Steel);
+                    if (steel) PropKit.Stand(m, x, baseY, baseY + stand, z, rad * 0.8, f.UX, f.UZ, PropKit.Steel);
                     else
                     {
                         MeshKit.OrientedBox(m, x - f.WX * 0.3 * rad, z - f.WZ * 0.3 * rad, baseY, baseY + stand, rad * 0.9, 0.11, f.UX, f.UZ, BuildingGrammar.RawBrick, BoxFaces.All & ~BoxFaces.Bottom);
@@ -448,6 +494,7 @@ namespace Ghumante.Core.Meshing
                     KitPaint.Of(MaterialChannel.Paint).WithGround(baseY + stand, 0.7f, 0.3f).Apply(m, v0);
                 }
             }
+            if (!h.Det.Props) return;
             // Solar water heater facing south.
             if (rng.Chance(BuildingGrammar.IsNewarProfile(h.Plan.Profile) ? 0.15f : 0.24f))
             {

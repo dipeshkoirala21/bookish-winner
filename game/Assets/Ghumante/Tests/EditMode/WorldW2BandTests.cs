@@ -19,21 +19,41 @@ namespace Ghumante.Tests.EditMode
         [Test]
         public void BandRadiiFollowTheDesignTablePerTier()
         {
+            // One source of truth: the Core band table of the detail pass (BuildingBandTable), which keeps the W2_DESIGN
+            // 2.4 radii and splits B0 into a near and a lite ring.
+            float[][] w2 = { new[] { 35f, 120f, 350f, 750f }, new[] { 60f, 200f, 500f, 1250f }, new[] { 80f, 250f, 700f, 1750f } };
+            for (int tier = 0; tier < 3; tier++)
+            {
+                BandConfig c = BandConfig.ForTier(tier);
+                float[] radii = { c.B0OuterM, c.B1OuterM, c.B2OuterM, c.B3OuterM };
+                for (int band = 0; band < 4; band++)
+                {
+                    Assert.AreEqual(BuildingBandTable.OuterM(tier, band), radii[band], "tier " + tier + " band " + band);
+                    Assert.GreaterOrEqual(radii[band], w2[tier][band], "tier " + tier + " band " + band + " keeps the W2 radius");
+                }
+                Assert.AreEqual(BuildingBandTable.NearOuterM(tier), c.B0NearOuterM, "tier " + tier + " near ring");
+                Assert.Less(c.B0NearOuterM, c.B0OuterM, "tier " + tier + ": the lite ring lies inside B0");
+                Assert.AreEqual(BuildingBandTable.B0CapFor(tier), c.B0CapTris, "tier " + tier + " cap");
+                Assert.AreEqual(BuildingBandTable.B0BaseDropFor(tier), c.B0BaseDrop, "tier " + tier + " base drop");
+                Assert.AreEqual(BuildingBandTable.LiteDropFor(tier), c.B0LiteDrop, "tier " + tier + " lite drop");
+                float inner, outer;
+                c.B0Range(true, out inner, out outer);
+                Assert.AreEqual(0f, inner);
+                Assert.AreEqual(c.B0NearOuterM, outer);
+                c.B0Range(false, out inner, out outer);
+                Assert.AreEqual(c.B0NearOuterM, inner);
+                Assert.AreEqual(c.B0OuterM, outer);
+                c.Range(BuildingBandLayer.B1, false, out inner, out outer);
+                Assert.AreEqual(c.B0OuterM, inner, "B1 takes over where B0 ends");
+                Assert.AreEqual(c.B1OuterM, outer);
+                c.Range(BuildingBandLayer.B1, true, out inner, out outer);
+                Assert.AreEqual(0f, inner, "a B1 block standing in for its B0 cells starts at the camera");
+            }
             BandConfig low = BandConfig.ForTier(0), mid = BandConfig.ForTier(1), high = BandConfig.ForTier(2);
-            Assert.AreEqual(new[] { 35f, 120f, 350f, 750f }, new[] { low.B0OuterM, low.B1OuterM, low.B2OuterM, low.B3OuterM });
-            Assert.AreEqual(new[] { 60f, 200f, 500f, 1250f }, new[] { mid.B0OuterM, mid.B1OuterM, mid.B2OuterM, mid.B3OuterM });
-            Assert.AreEqual(new[] { 80f, 250f, 700f, 1750f }, new[] { high.B0OuterM, high.B1OuterM, high.B2OuterM, high.B3OuterM });
             Assert.AreEqual(new[] { 24, 48, 96 }, new[] { low.CellCacheSize, mid.CellCacheSize, high.CellCacheSize });
             Assert.AreEqual(new[] { 20000, 40000, 60000 }, new[] { low.HeroBudgetTris, mid.HeroBudgetTris, high.HeroBudgetTris });
             Assert.IsFalse(low.HeroLod0Allowed, "Low never uses hero LOD0");
             Assert.IsTrue(mid.HeroLod0Allowed);
-
-            float inner, outer;
-            mid.Range(BuildingBandLayer.B1, false, out inner, out outer);
-            Assert.AreEqual(60f, inner);
-            Assert.AreEqual(200f, outer);
-            mid.Range(BuildingBandLayer.B1, true, out inner, out outer);
-            Assert.AreEqual(0f, inner, "a B1 block standing in for its B0 cells starts at the camera");
         }
 
         [Test]
@@ -184,9 +204,11 @@ namespace Ghumante.Tests.EditMode
     
 
         /// <summary>
-        /// V3 / §10.4 at the G1 tile (Asan): the B1 + B2 + B3 triangles of every block the camera's bands touch, on the 3 × 3
-        /// detail tiles around Asan, taken at the design's 40% in-frustum share, fit the Mid and High building slices
-        /// (72 k / 135 k, B0 cells on top: about 21 k / 41 k). The block test is conservative, so this is an upper bound.
+        /// V3 / §10.4 at the G1 tile (Asan), with the band table of the detail pass as the one source of truth (Core
+        /// BuildingBandTable: slices, headroom and the B0 share, which core-tests MeshingBuildingGrammarTests measures):
+        /// the B1 + B2 + B3 triangles the band shader shows around Asan on the 3 × 3 detail tiles (each triangle weighted
+        /// by its band's cross-fade), at the design's 40% in-frustum share, plus the tier's B0 share fit the Mid and High
+        /// building slices with the table's headroom.
         /// </summary>
         [Test]
         public void BandTrianglesAtAsanFitTheMidAndHighBuildingSlices()
@@ -204,27 +226,35 @@ namespace Ghumante.Tests.EditMode
                     TileBuild.Execute(b, SampleRegion.Pack, StreamingConfig.ForTier(StreamingConfig.TierMid), new MeshingSettings { DrawInstances = false }, null);
                     builds.Add(b);
                 }
-            int[] slice = { 22000, 72000, 135000 }, b0 = { 6000, 21000, 41000 };
+            Assert.AreEqual(9, builds.Count, "the 3 x 3 tiles around Asan");
+            int[] layers = { TileLayers.Buildings, TileLayers.BuildingsFar, TileLayers.BuildingsBlock };
+            BuildingBandLayer[] bandOf = { BuildingBandLayer.B1, BuildingBandLayer.B2, BuildingBandLayer.B3 };
             for (int tier = 1; tier <= 2; tier++)
             {
                 BandConfig bands = BandConfig.ForTier(tier);
-                int tris = 0;
+                double tris = 0;
                 foreach (TileBuild b in builds)
                 {
                     double lx = cx - b.Node.Area.X0, lz = cz - b.Node.Area.Z0;
-                    foreach (UploadChunk ch in b.Chunks)
+                    for (int l = 0; l < layers.Length; l++)
                     {
-                        BuildingBandLayer band;
-                        if (ch.Layer == TileLayers.Buildings) band = BuildingBandLayer.B1;
-                        else if (ch.Layer == TileLayers.BuildingsFar) band = BuildingBandLayer.B2;
-                        else if (ch.Layer == TileLayers.BuildingsBlock) band = BuildingBandLayer.B3;
-                        else continue;
                         float i, o;
-                        bands.Range(band, false, out i, out o);
-                        if (BandConfig.Touches(ch.MinX, ch.MinZ, ch.MaxX, ch.MaxZ, lx, lz, i, o)) tris += ch.IndexCount / 3;
+                        bands.Range(bandOf[l], false, out i, out o);
+                        MeshData m = b.Layers[layers[l]];
+                        for (int q = 0; q + 2 < m.IndexCount; q += 3)
+                        {
+                            double x = 0, z = 0;
+                            for (int k = 0; k < 3; k++)
+                            {
+                                x += m.Positions[3 * m.Indices[q + k]] / 3.0;
+                                z += m.Positions[3 * m.Indices[q + k] + 2] / 3.0;
+                            }
+                            tris += BandConfig.Opacity(Math.Sqrt((x - lx) * (x - lx) + (z - lz) * (z - lz)), i, o);
+                        }
                     }
                 }
-                Assert.LessOrEqual(tris * 0.4 + b0[tier], slice[tier] * 1.15, "tier " + tier + ": " + tris + " band triangles around Asan");
+                double total = tris * 0.4 + BuildingBandTable.B0ShareTris(tier), limit = BuildingBandTable.SliceTris(tier) * BuildingBandTable.SliceHeadroom;
+                Assert.LessOrEqual(total, limit, "tier " + tier + ": " + tris.ToString("0") + " far-band triangles around Asan and a B0 share of " + BuildingBandTable.B0ShareTris(tier));
             }
         }
     }
