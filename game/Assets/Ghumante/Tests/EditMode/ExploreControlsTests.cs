@@ -182,6 +182,10 @@ namespace Ghumante.Tests.EditMode
             Assert.AreEqual(HapticKind.LightImpact, kind);
             Assert.IsFalse(ExploreFeedback.HapticFor(StepEvents.None, true, 0f, out kind));
             Assert.IsFalse(ExploreFeedback.HapticFor(StepEvents.OffRoad, true, 0f, out kind));
+            Assert.IsTrue(ExploreFeedback.HapticFor(StepEvents.HitWall | StepEvents.Bump, true, 0f, out kind));
+            Assert.AreEqual(HapticKind.MediumImpact, kind, "a vehicle hitting a wall knocks firmly");
+            Assert.IsTrue(ExploreFeedback.HapticFor(StepEvents.HitWall, false, 0f, out kind));
+            Assert.AreEqual(HapticKind.LightImpact, kind, "walking into a wall knocks lightly");
         }
 
         [Test]

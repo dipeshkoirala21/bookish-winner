@@ -47,6 +47,10 @@ namespace Ghumante.Characters.Rides
 
         public int Variant { get; private set; }
         public byte Livery { get; private set; }
+
+        /// <summary>The model type drawn (<see cref="VehicleSeeds.Model"/> of the plate seed): the same shape traffic and
+        /// the parked fleet draw for this seed.</summary>
+        public byte Model { get; private set; }
         public static DrivenVehicleView Create(Transform parent, Material material, VehicleMeshCache cache, int variant, byte livery, uint plateSeed,
                                                bool fleetTag)
         {
@@ -126,11 +130,13 @@ namespace Ghumante.Characters.Rides
             Variant = variant;
             Livery = livery;
             _entry = VehicleCatalog.At(variant);
+            Model = VehicleSeeds.Model(variant, plateSeed);
             _body = new GameObject("Body").transform;
             _body.SetParent(transform, false);
-            _unique = cache.CreateUnique(variant, livery, VehicleLod.Lod0, plateSeed);
+            _unique = cache.CreateUnique(variant, livery, Model, VehicleLod.Lod0, plateSeed);
             _shell = Renderer(_body, "Shell", _unique, material, true);
-            _sockets = VehicleMesher.Wheels(_entry);
+            // The wheels of this model type (track and wheel look differ between car model types), as traffic draws them.
+            _sockets = VehicleMesher.Wheels(_entry, Model);
             _wheels = new Transform[_sockets.Length];
             _material = material;
             _cockpitSpec = CockpitSpec.For(_entry, livery);
@@ -139,7 +145,7 @@ namespace Ghumante.Characters.Rides
             for (int i = 0; i < _sockets.Length; i++)
             {
                 WheelSocket w = _sockets[i];
-                Mesh wheel = cache.Wheel(w.Radius, w.Width, VehicleLod.Lod0);
+                Mesh wheel = cache.Wheel(in w, VehicleLod.Lod0);
                 var pivot = new GameObject("Wheel " + i).transform;
                 pivot.SetParent(_body, false);
                 pivot.localPosition = new Vector3(w.X, w.Y, w.Z);

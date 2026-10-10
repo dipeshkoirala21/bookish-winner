@@ -164,6 +164,8 @@ namespace Ghumante.Characters
         private readonly JumpModel _jump = new JumpModel();
         private IdleFidgets _fidgets;
         private readonly CalmMode _calm = new CalmMode();
+        private readonly FaceMood _mood = new FaceMood();
+        private bool _landCue;
         private readonly MountDetector _detector = new MountDetector();
         private readonly PassengerRide _ride = new PassengerRide();
         private readonly List<PlayerVehicle> _vehicles = new List<PlayerVehicle>();
@@ -513,7 +515,24 @@ namespace Ghumante.Characters
         /// <summary>Changes the wardrobe (rebuilds the meshes; the save keeps it).</summary>
         public void SetRecipe(CharacterRecipe recipe)
         {
+            HumanoidSkeleton before = _avatar.Skeleton;
             _avatar.SetRecipe(recipe, _material);
+            // A new age, build or figure rebuilds the bones: the poser must drive the new skeleton, not the old one.
+            if (!ReferenceEquals(before, _avatar.Skeleton)) _poser = new CharacterPoser(_avatar.Skeleton);
+        }
+
+        /// <summary>The face the player shows now (calm in sacred zones, joy after a discovery or an arrival).</summary>
+        public FaceExpression Face
+        {
+            get { return _mood.Current; }
+        }
+
+        /// <summary>A moment the player's face reacts to: the session cues a <see cref="MoodCue.Discovery"/> when the
+        /// place banner names a place for the first time and an <see cref="MoodCue.Arrival"/> at the end of a route;
+        /// bumps and landings are cued here.</summary>
+        public void ReactFace(MoodCue cue)
+        {
+            _mood.Cue(cue, _calm.Active);
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -564,6 +583,7 @@ namespace Ghumante.Characters
             }
             StepOthers(dt);
             UpdatePrompt();
+            UpdateFace(dt);
             Animate(dt, controls);
             Render(dt);
             _puffs.Tick(dt);
@@ -825,6 +845,7 @@ namespace Ghumante.Characters
             }
             if (_jump.Landed)
             {
+                _landCue = true;
                 if (!ReducedMotion) _poser.Land(_jump.LandingSpeed);
                 FootstepAt(FootstepGait.Land);
                 if (_jump.RollLanding) Raise("hud.ta_da");
@@ -911,11 +932,33 @@ namespace Ghumante.Characters
             _lastSpeed = p.SpeedMps;
         }
 
+        /// <summary>The face for this frame (<see cref="FaceMood"/>): a wince-laugh on hitting something solid, a grin on a
+        /// felt landing, calm inside sacred zones; the session adds discoveries and arrivals.</summary>
+        private void UpdateFace(float dt)
+        {
+            bool sacred = _calm.Active;
+            if ((_events & StepEvents.HitWall) != 0) _mood.Cue(MoodCue.Bump, sacred);
+            else if (_landCue || (_events & StepEvents.Landed) != 0 && Active.Vehicle.LastLandingSpeedMps >= FeltLandingMps)
+                _mood.Cue(MoodCue.Landing, sacred);
+            _landCue = false;
+            _avatar.Expression = _mood.Update(dt, sacred);
+        }
+
+        /// <summary>A landing faster than this (m/s) makes the player grin (the same bar as the landing haptic).</summary>
+        private const float FeltLandingMps = 2.5f;
+
         private void React(float dt)
         {
             ArcadeVehicle v = _current.Vehicle;
             if ((_events & StepEvents.Landed) != 0 && !ReducedMotion) _current.View.Kick(Mathf.Clamp(v.LastLandingSpeedMps / 4f, 0.3f, 1.5f));
             else if ((_events & StepEvents.Bump) != 0 && !ReducedMotion) _current.View.Kick(Mathf.Clamp(v.LastBumpStrength / 6f, 0.15f, 0.6f));
+            if ((_events & StepEvents.HitWall) != 0)
+            {
+                // Ran into a house, a wall or a parked vehicle (collide's HitWall): a cartoon knock and a body bounce,
+                // louder the more speed it cost.
+                if (!ReducedMotion) _current.View.Kick(Mathf.Clamp(v.LastImpactMps / 5f, 0.2f, 1.2f));
+                _sound.PlayUi(BankSound.UiBoing, Mathf.Lerp(-16f, -6f, Mathf.Clamp01(v.LastImpactMps / 8f)));
+            }
             if ((_events & StepEvents.StuckRecovered) != 0)
             {
                 VehiclePose p = _current.Driver.Current;
@@ -1321,7 +1364,7 @@ namespace Ghumante.Characters
                 {
                     ParkedId = id, Variant = spot.Variant, Livery = spot.Livery, HomeX = spot.X, HomeZ = spot.Z, HomeY = spot.Y, HomeYawDeg = spot.YawDeg,
                 };
-                vehicle = new PlayerVehicle(_nextId++, spot.Variant, spot.Livery, CharMath.Hash(id, 0x464C54u), VehicleSource.Fleet, transform, _material, _cache, loan);
+                vehicle = new PlayerVehicle(_nextId++, spot.Variant, spot.Livery, VehicleSeeds.Fleet(id), VehicleSource.Fleet, transform, _material, _cache, loan);
                 Place(vehicle.Driver, spot.X, spot.Z, spot.YawDeg * Mathf.Deg2Rad, spot.Y);
                 _vehicles.Add(vehicle);
                 Action<uint, bool> h = FleetVehicle;

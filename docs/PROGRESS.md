@@ -19,6 +19,24 @@
 
 ---
 
+## 2026-10-10: W2 detail pass, gameplay integration (package integ-play)
+
+### Done
+* **Camera against the real world:** the chase camera's obstacle query is the open world's `TileGroundQuery` (houses, statues, piers, walls, bridge decks, terrain), typed and read every frame, so it holds after a floating-origin rebase and a region reopen. New EditMode test reverses through a lane 5 km out while the origin rebases.
+* **One shape per vehicle:** `Core/Driving/VehicleSeeds` is the single source of the fleet seed. A parked fleet vehicle, its borrowed copy and its plate share a model type, and the player's vehicle draws its own model type's wheels (`VehicleMeshCache.Wheel(in WheelSocket)`), as traffic does.
+* **The player's face:** `Core/Characters/FaceMood`. Calm in sacred zones, joy on a first-time place (with a rate-limited "Discovered: …" toast) and on arrival, a grin on a felt landing, a wince-laugh on hitting a wall (a calm face in temples). The poser is rebuilt when a recipe change rebuilds the skeleton. HitWall also plays a knock, a body bounce and a haptic (Medium on a vehicle, Light on foot), and the occluder fade targets the explorer's head.
+* **Sadhus at Pashupati:** the pedestrian sim has a Pashupati row (sadhu weight 6 of 91) inside the `StreetStyle.Pashupati` circle, and nowhere else. Other rows draw the same random numbers as before, so determinism holds.
+* **Car routes on the rebuilt GHRG car mask:** verified on the sample. A car route from Thamel Chowk to Boudha (7.8 km, about 8 min) never enters any of the 92 two-wheeler-only galli edges round Thamel; the scooter route (7.0 km) may use them.
+* **HUD strings:** the route chip's stop button and the touch controls' tooltips are now localised (EN and NE, three keys appended).
+* `game/README.md` has a new section, "The whole detail pass on a Mac", that walks through the detail pass in ten steps.
+
+### Open issues (not owned here)
+* Vehicles: a `TrafficPresenter` hook to hide the bus the player rides in (needed for a real seat view), mirrored left wheels, and an interior LOD to replace the stand-in cockpit.
+* Integration (world): register instance, generator and decorator colliders, and set `TileGroundQuery` `CorridorFactory`, `DeckFactory` and `HiddenBuildingRefs`, so the camera and vehicles collide with everything drawn.
+* Characters: there is no wardrobe UI for the new recipe fields yet. `CharacterRecipe.PashupatiSadhuShare` still dresses some men as sadhus on top of the sim's sadhus, so it could be lowered.
+* Animals: pigeon feeding at Basantapur is not implemented.
+* Already failing on main (be7eba6) without this package, 12 core tests owned by roads, bridges, buildings, streaming and traffic: RibbonsNeverCoverBuildingsOnTheSamplePack, EveryDrawnRoadIsAtLeastRideableOnEveryLeafTile, JunctionCapsShareTheirCutEdgesWithTheRibbons, NoRoadFloatsAboveTheTerrainOnTheSample, UrbanArterialsWithRoomKeepTheirFootpaths, SampleBridgesBuildWithRailingsBothSides, SampleRoadsUnderAndBesideBridgesStayClear, ThapathaliBridgeIsFoundAndBuilt, BandTotalsAtAsanFitTheBudgetTable, WholeSelectionsWithDetailFitTheTriangleAndMeshBudgets (646k against 630k on tier 0), RidesThroughRealKathmandu and SeveralBusesAreAlwaysNearThePlayerInTheCity (37 moving vehicles against a cap of 32).
+
 ## 2026-10-05: session 2 (first run on the Mac, fun menu, M1 start)
 
 ### Done

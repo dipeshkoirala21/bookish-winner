@@ -104,6 +104,7 @@ namespace Ghumante.UI.Screens
         private readonly Button _menuButton;
         private readonly Button _garageButton;
         private readonly Button _cameraButton;
+        private readonly Button _routeCancel, _throttle, _brake, _emote, _horn, _bell;
         private readonly Button _action;
         private readonly Label _actionLabel;
         private readonly VisualElement _actionIcon;
@@ -221,13 +222,13 @@ namespace Ghumante.UI.Screens
                 StickKnob = Required<VisualElement>("hud-stick-knob"),
                 DriveZone = Required<VisualElement>("hud-drive-zone"),
                 DriveMarker = Required<VisualElement>("hud-drive-marker"),
-                Throttle = Required<Button>("hud-throttle"),
-                Brake = Required<Button>("hud-brake"),
+                Throttle = _throttle = Required<Button>("hud-throttle"),
+                Brake = _brake = Required<Button>("hud-brake"),
                 Action = _action,
                 Passenger = _passenger,
-                Emote = Required<Button>("hud-emote"),
-                Horn = Required<Button>("hud-horn"),
-                Bell = Required<Button>("hud-bell"),
+                Emote = _emote = Required<Button>("hud-emote"),
+                Horn = _horn = Required<Button>("hud-horn"),
+                Bell = _bell = Required<Button>("hud-bell"),
             }, Animator, Haptics, Feel);
 
             // What the route chip must keep clear of (besides the speedometer and the top bar): every touch control, the
@@ -259,7 +260,8 @@ namespace Ghumante.UI.Screens
             Feel(_searchButton, HapticKind.LightImpact, () => OpenSearch());
             Feel(_modeButton, HapticKind.MediumImpact, () => Raise(ModeToggleRequested));
             Feel(_menuButton, HapticKind.LightImpact, Pause);
-            Feel(Required<Button>("hud-route-cancel"), HapticKind.LightImpact, () => Raise(RouteCancelRequested));
+            _routeCancel = Required<Button>("hud-route-cancel");
+            Feel(_routeCancel, HapticKind.LightImpact, () => Raise(RouteCancelRequested));
 
             _search = new SearchSheet(new SearchSheetView
             {
@@ -1002,6 +1004,14 @@ namespace Ghumante.UI.Screens
             _menuButton.tooltip = Localizer.Get("hud.menu");
             _garageButton.tooltip = Localizer.Get("hud.garage");
             _cameraButton.tooltip = Localizer.Get("hud.camera");
+            // The route chip's stop button and the touch controls' hover names (desktop and Mac), in the current language.
+            if (_routeCancel != null) _routeCancel.tooltip = Localizer.Get("hud.route.cancel");
+            if (_throttle != null) _throttle.tooltip = Localizer.Get("hud.go");
+            if (_brake != null) _brake.tooltip = Localizer.Get("hud.brake_reverse");
+            if (_passenger != null) _passenger.tooltip = Localizer.Get("hud.ride_passenger");
+            if (_emote != null) _emote.tooltip = Localizer.Get("hud.namaste");
+            if (_horn != null) _horn.tooltip = Localizer.Get("hud.horn");
+            if (_bell != null) _bell.tooltip = Localizer.Get("hud.bell");
             ApplyActionText();
             ApplyPromptText();
             if (_hornKey != null) _hornLabel.text = Localizer.Get(_hornKey);
