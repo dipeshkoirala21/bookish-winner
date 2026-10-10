@@ -46,7 +46,7 @@ namespace Ghumante.Core.Meshing
         public bool WidthModel = true;
 
         /// <summary>With <see cref="WidthModel"/>: footpaths (raised 150 mm on a kerb), median halves of dual
-        /// carriageways and shoulders.</summary>
+        /// carriageways and shoulders. Off: every edge gets the rounded skirt.</summary>
         public bool CrossSections = true;
 
         /// <summary>With <see cref="WidthModel"/>: stop the ribbons at junction caps and draw the caps and road islands
@@ -58,6 +58,18 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Height of mountable median and island kerbs.</summary>
         public float MedianHeightM = 0.10f;
+
+        /// <summary>With <see cref="WidthModel"/>: the full kit (rounded kerb noses, AO columns beside kerbs, rounded
+        /// footpath edges). Off: the lighter LOD of the same cross-sections (fewer triangles).</summary>
+        public bool Detail = true;
+
+        /// <summary>With <see cref="WidthModel"/>: smooth vertical profiles (<see cref="RoadGrade"/>). Off: draped surfaces at
+        /// the sampled terrain plus the lift at every vertex (decks keep their heights).</summary>
+        public bool SmoothProfile = true;
+
+        /// <summary>Draw the police podium (and umbrella) on police islands and chowks. Turn off when another generator
+        /// draws the island furniture.</summary>
+        public bool PolicePodiums = true;
     }
 
     /// <summary>Road widths, colours and draw priority by class and surface.</summary>
@@ -174,46 +186,44 @@ namespace Ghumante.Core.Meshing
     }
 
     /// <summary>
-    /// Road and trail ribbons from ROAD (ARCHITECTURE.md 7.4). Each piece becomes a three-column ribbon (left edge,
-    /// a slightly lighter centre line, right edge) of <see cref="RoadStyle.WidthM"/>, with cross-sections densified
-    /// so no segment is longer than the terrain spacing. Context points are never drawn but set the end tangents;
-    /// a cut end's cross-section lies on the tile border line itself, so the ribbons of both tiles meet there
-    /// exactly and neither overhangs into the other tile (its width along the border is capped at 3x for roads
-    /// nearly parallel to the border). At sharp corners between short segments the width narrows so the ribbon
-    /// never folds over itself.
+    /// Road and trail ribbons from ROAD (ARCHITECTURE.md 7.4). With <see cref="RoadOptions.WidthModel"/> (the default)
+    /// the W2 detail-pass path: every piece is swept along its smoothed centreline (arc fillets by class and design speed,
+    /// <see cref="RoadCentreline"/>) with the full cross-section of <see cref="RoadWidthModel"/> and the smooth vertical
+    /// profile of <see cref="RoadGrade"/> (<see cref="RibbonMesher"/>), then the junction caps, roundabouts, islands and
+    /// splitters (<see cref="JunctionMesher"/>); the markings go to the decal layer (<see cref="MarkingMesher"/>) and the
+    /// clear corridors to <see cref="Roads.RoadCorridorIndex"/>.
     /// <para>
-    /// Heights: with a <see cref="TileHeightSampler"/> the ribbon is draped exactly on the rendered terrain
-    /// triangles (every ribbon triangle clipped against the terrain grid), <see cref="RoadOptions.LiftM"/> plus a
-    /// small class lift above it everywhere, shaded with the terrain's own normals. With another sampler each
-    /// cross-section vertex takes the sampled height plus the lift. Bridges run straight between their lifted end
-    /// heights (never below the lifted terrain); tunnels are skipped. Overlapping ribbons at junctions are separated
-    /// by the lift (<see cref="LiftOf"/>): the class lift puts a major road over a minor one, and a deterministic
-    /// piece rank from the way id, surface and width (identical in every tile the way crosses) puts one of two
-    /// same-class ribbons a millimetre or more above the other, so they do not z-fight (pieces whose ranks
-    /// collide, about one pair in <see cref="RoadOptions.PieceLiftLevels"/>, are still coplanar).
+    /// W1 path (<see cref="RoadOptions.WidthModel"/> off): each piece becomes a three-column ribbon (left edge, a slightly
+    /// lighter centre line, right edge) of <see cref="RoadStyle.WidthM"/> along its mapped polyline, with cross-sections
+    /// densified so no segment is longer than the terrain spacing. Context points are never drawn but set the end tangents;
+    /// a cut end's cross-section lies on the tile border line itself, so the ribbons of both tiles meet there exactly and
+    /// neither overhangs into the other tile (its width along the border is capped at 3x for roads nearly parallel to the
+    /// border). At sharp corners between short segments the width narrows so the ribbon never folds over itself. With a
+    /// <see cref="TileHeightSampler"/> the ribbon is draped exactly on the rendered terrain triangles, else each vertex takes
+    /// the sampled height; bridges run straight between their lifted end heights; tunnels are skipped.
     /// </para>
-    /// <para>Positions are relative to the tile's south-west corner (draw roads only for exact nodes). UV0: U across
-    /// (0, 0.5, 1), V along at one unit per 4 m. Appends to <see cref="MeshData"/>; returns the number of pieces
-    /// drawn. Thread-safe for distinct meshes.</para>
+    /// <para>
+    /// Overlapping ribbons are separated by the lift (<see cref="LiftOf"/>): the class lift puts a major road over a minor
+    /// one, and a deterministic piece rank from the way id, surface and width (identical in every tile the way crosses) puts
+    /// one of two same-class ribbons a millimetre or more above the other, so they do not z-fight. Positions are relative to
+    /// the tile's south-west corner. UV0 = (material channel, baked AO) on both paths (docs/W2_DETAIL_CONTRACT.md §5).
+    /// Appends to <see cref="MeshData"/>; returns the number of pieces drawn. Thread-safe for distinct meshes.
+    /// </para>
     /// </summary>
     public static class RoadMesher
     {
-        private const double MetresPerV = 4.0;
         private const double MinCutSine = 1.0 / 3.0;
 
-        /// <summary>Plan-view cross-sections of one piece (tile-local metres): the mapped centreline point C, the
-        /// left offset vector U per metre (unit normal × miter, or the border direction at a cut end), the carriageway
-        /// half width and centre shift, the footpath widths and the arc length. The carriageway's left edge is
-        /// <c>C + U·(shift + half)</c>, its right edge <c>C + U·(shift − half)</c>.</summary>
+        /// <summary>Plan-view cross-sections of one W1 piece (tile-local metres): the mapped centreline point C, the left
+        /// offset vector U per metre (unit normal × miter, or the border direction at a cut end), the half width and the arc
+        /// length.</summary>
         private sealed class Sections
         {
             public double[] Cx = new double[64], Cz = new double[64], Ux = new double[64], Uz = new double[64];
-            public double[] Half = new double[64], Shift = new double[64], FootL = new double[64], FootR = new double[64];
-            public double[] S = new double[64];
-            public bool[] Gap = new bool[64];
+            public double[] Half = new double[64], S = new double[64];
             public int Count;
 
-            public void Add(double cx, double cz, double ux, double uz, double half, double shift, double footL, double footR, double s)
+            public void Add(double cx, double cz, double ux, double uz, double half, double s)
             {
                 if (Count == Cx.Length)
                 {
@@ -223,26 +233,17 @@ namespace Ghumante.Core.Meshing
                     Array.Resize(ref Ux, cap);
                     Array.Resize(ref Uz, cap);
                     Array.Resize(ref Half, cap);
-                    Array.Resize(ref Shift, cap);
-                    Array.Resize(ref FootL, cap);
-                    Array.Resize(ref FootR, cap);
                     Array.Resize(ref S, cap);
-                    Array.Resize(ref Gap, cap);
                 }
                 Cx[Count] = cx;
                 Cz[Count] = cz;
                 Ux[Count] = ux;
                 Uz[Count] = uz;
                 Half[Count] = half;
-                Shift[Count] = shift;
-                FootL[Count] = footL;
-                FootR[Count] = footR;
                 S[Count] = s;
-                Gap[Count] = false;
                 Count++;
             }
 
-            /// <summary>Plan position at signed offset <paramref name="off"/> (left positive) of section k.</summary>
             public double X(int k, double off)
             {
                 return Cx[k] + Ux[k] * off;
@@ -252,26 +253,9 @@ namespace Ghumante.Core.Meshing
             {
                 return Cz[k] + Uz[k] * off;
             }
-
-            public double Left(int k)
-            {
-                return Shift[k] + Half[k];
-            }
-
-            public double Centre(int k)
-            {
-                return Shift[k];
-            }
-
-            public double Right(int k)
-            {
-                return Shift[k] - Half[k];
-            }
         }
 
         [ThreadStatic] private static Sections _sections;
-        [ThreadStatic] private static double[] _splits;
-        [ThreadStatic] private static int[] _splitCut;
 
         private struct Ctx
         {
@@ -287,6 +271,17 @@ namespace Ghumante.Core.Meshing
             if (h == null) throw new ArgumentNullException(nameof(h));
             if (m == null) throw new ArgumentNullException(nameof(m));
             if (o == null) o = new RoadOptions();
+            if (t.Roads.Count == 0) return 0;
+            if (o.WidthModel)
+            {
+                RoadLayout lay = RoadLayout.For(t);
+                RoadGrade grade = RoadGrade.For(t, h, o);
+                int n = 0;
+                for (int r = 0; r < t.Roads.Count; r++)
+                    if (RibbonMesher.Piece(t, r, lay, grade, o, m)) n++;
+                if (o.JunctionCaps) JunctionMesher.Build(t, h, o, m, null);
+                return n;
+            }
             var ctx = new Ctx
             {
                 Sampler = h, TileSampler = h as TileHeightSampler, X0 = t.Tile.X0, Z0 = t.Tile.Z0, Size = t.Tile.Size,
@@ -294,12 +289,18 @@ namespace Ghumante.Core.Meshing
             double maxSeg = o.MaxSegmentM > 0f ? o.MaxSegmentM
                 : ctx.TileSampler != null && ctx.TileSampler.SpacingM > 0 ? ctx.TileSampler.SpacingM : 8.0;
             Sections sec = _sections ?? (_sections = new Sections());
-            RoadLayout layout = o.WidthModel && t.Roads.Count > 0 ? RoadLayout.For(t) : null;
             int drawn = 0;
             for (int r = 0; r < t.Roads.Count; r++)
-                if (Piece(ref ctx, t.Roads[r], r, layout, o, maxSeg, sec, m)) drawn++;
-            if (layout != null && o.JunctionCaps) JunctionMesher.Build(t, h, o, m, null);
+                if (W1Piece(ref ctx, t.Roads[r], o, maxSeg, sec, m)) drawn++;
             return drawn;
+        }
+
+        /// <summary>As <see cref="IsDrawn(RoadRecord, RoadOptions)"/>, and not a tunnel by its structure record.</summary>
+        public static bool IsDrawn(TileData t, int road, RoadOptions o)
+        {
+            RoadRecord r = t.Roads[road];
+            if (!IsDrawn(r, o)) return false;
+            return t.RoadStructureOf(road).Kind != RoadStructureKind.Tunnel;
         }
 
         /// <summary>True when <see cref="Build"/> would draw the piece (not a tunnel, a trail only when trails are
@@ -347,24 +348,21 @@ namespace Ghumante.Core.Meshing
             return (RoadWidthModel.Hash(r.OsmWayId, 0x50415652) & 1) == 0 ? RoadStyle.PaverRed : RoadStyle.PaverGrey;
         }
 
-        private static bool Piece(ref Ctx ctx, RoadRecord r, int ri, RoadLayout layout, RoadOptions o, double maxSeg, Sections sec, MeshData m)
+        // -------------------------------------------------------------------------------------------------------
+        // W1 path
+        // -------------------------------------------------------------------------------------------------------
+
+        private static bool W1Piece(ref Ctx ctx, RoadRecord r, RoadOptions o, double maxSeg, Sections sec, MeshData m)
         {
             if (!IsDrawn(r, o)) return false;
             int[] p = r.Points;
             int count = p.Length / 2;
             int first = r.HasPrevContext ? 1 : 0, last = r.HasNextContext ? count - 2 : count - 1;
             int sizeCm = (int)Math.Round(ctx.Size * 100.0);
-            RoadWidthProfile prof = layout == null ? null : layout.Profiles[ri];
-            RoadCut[] cuts = layout == null ? null : layout.Cuts[ri];
-            bool cross = layout != null && o.CrossSections;
-            double w1Half = RoadStyle.WidthM(r) * 0.5;
+            double half = RoadStyle.WidthM(r) * 0.5;
             double minDot = 1.0 / Math.Max(1.0, o.MaxMiter);
-            bool dual = layout != null && layout.Attrs[ri].Has(RoadAttrFlags.Dual);
-            double realHalf = prof == null ? w1Half : 0.5 * prof.RealM;
-
             sec.Count = 0;
             double s = 0;
-            int nextCut = 0;
             for (int i = first; i <= last; i++)
             {
                 double cx = p[2 * i] / 100.0, cz = p[2 * i + 1] / 100.0;
@@ -375,141 +373,53 @@ namespace Ghumante.Core.Meshing
                     double ax = p[2 * i - 2] / 100.0, az = p[2 * i - 1] / 100.0;
                     double dx = (cx - ax) / len, dz = (cz - az) / len;
                     int nsub = (int)Math.Ceiling(len / maxSeg);
-                    int ns = Splits(nsub, s, len, cuts, ref nextCut);
-                    for (int k = 0; k < ns; k++)
+                    for (int k = 1; k < nsub; k++)
                     {
-                        double f = _splits[k];
-                        int ci = _splitCut[k];
-                        if (ci >= 0)
-                        {
-                            RoadCut c = cuts[ci];
-                            AddSection(sec, prof, r, c.CX, c.CZ, c.UX, c.UZ, c.Half, c.Shift, c.S, 1.0, cross);
-                            continue;
-                        }
-                        double mx = ax + (cx - ax) * f, mz = az + (cz - az) * f, sm = s + len * f;
-                        double half = prof == null ? w1Half : 0.5 * prof.WidthAt(sm);
-                        AddSection(sec, prof, r, mx, mz, -dz, dx, half, ShiftAt(prof, dual, sm), sm, 1.0, cross);
+                        double f = (double)k / nsub;
+                        sec.Add(ax + (cx - ax) * f, az + (cz - az) * f, -dz, dx, half, s + len * f);
                     }
                     s += len;
                 }
-                if (cuts != null && nextCut < cuts.Length && Math.Abs(cuts[nextCut].S - s) < 1e-6)
-                {
-                    // A junction cut exactly on this vertex: the section takes the cut's geometry.
-                    RoadCut c = cuts[nextCut++];
-                    AddSection(sec, prof, r, c.CX, c.CZ, c.UX, c.UZ, c.Half, c.Shift, c.S, 1.0, cross);
-                    continue;
-                }
-                double halfHere = prof == null ? w1Half : 0.5 * prof.WidthAt(s);
                 double tx, tz, miter, halfAt;
-                Tangent(p, count, i, minDot, halfHere, maxSeg, out tx, out tz, out miter, out halfAt);
-                double scale = halfHere > 1e-9 ? halfAt / halfHere : 1.0;
-                int border = (i == first && r.HasPrevContext) || (i == last && r.HasNextContext)
-                    ? BorderOf(p[2 * i], p[2 * i + 1], sizeCm) : -1;
+                Tangent(p, count, i, minDot, half, maxSeg, out tx, out tz, out miter, out halfAt);
+                int border = (i == first && r.HasPrevContext) || (i == last && r.HasNextContext) ? BorderOf(p[2 * i], p[2 * i + 1], sizeCm) : -1;
                 if (border >= 0)
                 {
                     // Cut end: the cross-section lies on the border line, where both tiles' ribbons meet.
                     double ex = border == 0 ? 0 : 1, ez = border == 0 ? 1 : 0;
                     double crs = ex * tz - ez * tx;
                     if (Math.Abs(crs) < MinCutSine) crs = crs >= 0 ? MinCutSine : -MinCutSine;
-                    AddSection(sec, prof, r, cx, cz, -ex / crs, -ez / crs, halfAt, ShiftAt(prof, dual, s) * scale, s, scale, cross);
+                    sec.Add(cx, cz, -ex / crs, -ez / crs, halfAt, s);
                 }
                 else
                 {
-                    AddSection(sec, prof, r, cx, cz, -tz * miter, tx * miter, halfAt, ShiftAt(prof, dual, s) * scale, s, scale, cross);
+                    sec.Add(cx, cz, -tz * miter, tx * miter, halfAt, s);
                 }
             }
             if (sec.Count < 2) return false;
-            if (cuts != null)
-                for (int k = 0; k + 1 < sec.Count; k++) sec.Gap[k] = layout.InGap(ri, 0.5 * (sec.S[k] + sec.S[k + 1]));
-
             uint edge = RoadStyle.SurfaceRgba(r.Surface);
             uint centre = MeshColor.Lighten(edge, o.CentreLighten);
+            float u = RoadMaterials.U(RoadMaterials.ChannelOf(r.Surface));
             float lift = LiftOf(r, o);
             bool bridge = (r.Flags & RoadFlags.Bridge) != 0;
             bool drape = !bridge && o.Drape && ctx.TileSampler != null && ctx.TileSampler.HasHeights;
-            if (drape) Draped(ref ctx, sec, lift, edge, centre, m);
-            else Sampled(ref ctx, sec, lift, bridge, edge, centre, m);
-            if (cross && !bridge) Extras(ref ctx, r, layout.Attrs[ri], prof, sec, lift, drape, o, m);
+            if (drape) Draped(ref ctx, sec, lift, edge, centre, u, m);
+            else Sampled(ref ctx, sec, lift, bridge, edge, centre, u, m);
             return true;
         }
 
-        private static double ShiftAt(RoadWidthProfile prof, bool dual, double s)
-        {
-            return prof != null && dual ? 0.5 * (prof.WidthAt(s) - prof.RealM) : 0.0;
-        }
-
-        private static void AddSection(Sections sec, RoadWidthProfile prof, RoadRecord r, double cx, double cz, double ux, double uz,
-                                       double half, double shift, double s, double scale, bool cross)
-        {
-            double fl = 0, fr = 0;
-            if (cross && prof != null)
-            {
-                fl = prof.Sample(prof.FootLeft, s) * scale;
-                fr = prof.Sample(prof.FootRight, s) * scale;
-            }
-            sec.Add(cx, cz, ux, uz, half, shift, fl, fr, s);
-        }
-
-        /// <summary>Split fractions (0, 1) of a segment from along <paramref name="s0"/> of length <paramref name="len"/>:
-        /// the uniform subdivisions plus the junction cuts inside it, in order. <see cref="_splitCut"/> holds the cut
-        /// index of a split or -1. Returns the count.</summary>
-        private static int Splits(int nsub, double s0, double len, RoadCut[] cuts, ref int nextCut)
-        {
-            int cap = nsub + (cuts == null ? 0 : cuts.Length) + 1;
-            if (_splits == null || _splits.Length < cap)
-            {
-                _splits = new double[Math.Max(cap, 64)];
-                _splitCut = new int[Math.Max(cap, 64)];
-            }
-            int n = 0, k = 1;
-            while (true)
-            {
-                double fu = k < nsub ? (double)k / nsub : 2.0;
-                double fc = 2.0;
-                if (cuts != null && nextCut < cuts.Length)
-                {
-                    double c = cuts[nextCut].S;
-                    if (c <= s0 + 1e-6)
-                    {
-                        nextCut++;
-                        continue;
-                    }
-                    if (c < s0 + len - 1e-6) fc = (c - s0) / len;
-                }
-                if (fu >= 2.0 && fc >= 2.0) break;
-                if (fc <= fu)
-                {
-                    _splits[n] = fc;
-                    _splitCut[n] = nextCut;
-                    nextCut++;
-                    if (Math.Abs(fc - fu) < 1e-9) k++;
-                }
-                else
-                {
-                    _splits[n] = fu;
-                    _splitCut[n] = -1;
-                    k++;
-                }
-                n++;
-            }
-            return n;
-        }
-
-        /// <summary>Drape every strip triangle onto the rendered terrain (exact conformity).</summary>
-        private static void Draped(ref Ctx ctx, Sections sec, float lift, uint edge, uint centre, MeshData m)
+        /// <summary>Drape every strip triangle onto the rendered terrain (exact conformity). UV0 = (channel, AO).</summary>
+        private static void Draped(ref Ctx ctx, Sections sec, float lift, uint edge, uint centre, float u, MeshData m)
         {
             for (int k = 0; k + 1 < sec.Count; k++)
             {
-                if (sec.Gap[k]) continue;
-                float va = (float)(sec.S[k] / MetresPerV), vb = (float)(sec.S[k + 1] / MetresPerV);
-                double la = sec.Left(k), ca = sec.Centre(k), ra = sec.Right(k);
-                double lb = sec.Left(k + 1), cb = sec.Centre(k + 1), rb = sec.Right(k + 1);
-                var aL = new GridDrape.Vertex(sec.X(k, la), sec.Z(k, la), 0f, va, edge);
-                var aC = new GridDrape.Vertex(sec.X(k, ca), sec.Z(k, ca), 0.5f, va, centre);
-                var aR = new GridDrape.Vertex(sec.X(k, ra), sec.Z(k, ra), 1f, va, edge);
-                var bL = new GridDrape.Vertex(sec.X(k + 1, lb), sec.Z(k + 1, lb), 0f, vb, edge);
-                var bC = new GridDrape.Vertex(sec.X(k + 1, cb), sec.Z(k + 1, cb), 0.5f, vb, centre);
-                var bR = new GridDrape.Vertex(sec.X(k + 1, rb), sec.Z(k + 1, rb), 1f, vb, edge);
+                double la = sec.Half[k], lb = sec.Half[k + 1];
+                var aL = new GridDrape.Vertex(sec.X(k, la), sec.Z(k, la), u, 0.9f, edge);
+                var aC = new GridDrape.Vertex(sec.Cx[k], sec.Cz[k], u, 1f, centre);
+                var aR = new GridDrape.Vertex(sec.X(k, -la), sec.Z(k, -la), u, 0.9f, edge);
+                var bL = new GridDrape.Vertex(sec.X(k + 1, lb), sec.Z(k + 1, lb), u, 0.9f, edge);
+                var bC = new GridDrape.Vertex(sec.Cx[k + 1], sec.Cz[k + 1], u, 1f, centre);
+                var bR = new GridDrape.Vertex(sec.X(k + 1, -lb), sec.Z(k + 1, -lb), u, 0.9f, edge);
                 DrapeStrip(ref ctx, aL, bL, aC, bC, lift, m);
                 DrapeStrip(ref ctx, aC, bC, aR, bR, lift, m);
             }
@@ -531,7 +441,7 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>Cross-section vertices at sampled heights (bridges, and samplers without a terrain grid).</summary>
-        private static void Sampled(ref Ctx ctx, Sections sec, float lift, bool bridge, uint edge, uint centre, MeshData m)
+        private static void Sampled(ref Ctx ctx, Sections sec, float lift, bool bridge, uint edge, uint centre, float u, MeshData m)
         {
             int n = sec.Count;
             double total = sec.S[n - 1] - sec.S[0];
@@ -545,8 +455,8 @@ namespace Ghumante.Core.Meshing
             int prev = -1;
             for (int k = 0; k < n; k++)
             {
-                double lo = sec.Left(k), co = sec.Centre(k), ro = sec.Right(k);
-                double lx = sec.X(k, lo), lz = sec.Z(k, lo), cx = sec.X(k, co), cz = sec.Z(k, co), rx = sec.X(k, ro), rz = sec.Z(k, ro);
+                double lo = sec.Half[k];
+                double lx = sec.X(k, lo), lz = sec.Z(k, lo), cx = sec.Cx[k], cz = sec.Cz[k], rx = sec.X(k, -lo), rz = sec.Z(k, -lo);
                 float hc = Height(ref ctx, cx, cz);
                 float yl, yc, yr, nx, ny, nz;
                 if (bridge)
@@ -567,106 +477,16 @@ namespace Ghumante.Core.Meshing
                     yr = Height(ref ctx, rx, rz) + lift;
                     Normal(ref ctx, cx, cz, out nx, out ny, out nz);
                 }
-                float v = (float)(sec.S[k] / MetresPerV);
-                int left = m.AddVertex((float)lx, yl, (float)lz, nx, ny, nz, edge, 0f, v);
-                m.AddVertex((float)cx, yc, (float)cz, nx, ny, nz, centre, 0.5f, v);
-                m.AddVertex((float)rx, yr, (float)rz, nx, ny, nz, edge, 1f, v);
-                if (prev >= 0 && !sec.Gap[k - 1])
+                int left = m.AddVertex((float)lx, yl, (float)lz, nx, ny, nz, edge, u, 0.9f);
+                m.AddVertex((float)cx, yc, (float)cz, nx, ny, nz, centre, u, 1f);
+                m.AddVertex((float)rx, yr, (float)rz, nx, ny, nz, edge, u, 0.9f);
+                if (prev >= 0)
                 {
                     Strip(m, prev, left, prev + 1, left + 1);
                     Strip(m, prev + 1, left + 1, prev + 2, left + 2);
                 }
                 prev = left;
             }
-        }
-
-        /// <summary>
-        /// W2 cross-section extras between consecutive sections (outside junction caps): footpaths raised on a kerb
-        /// (top surface plus inner and outer faces), the median half of a dual carriageway on its right (offside)
-        /// edge, and shoulders where there is no footpath.
-        /// </summary>
-        private static void Extras(ref Ctx ctx, RoadRecord r, RoadAttrRecord a, RoadWidthProfile prof, Sections sec, float lift, bool drape,
-                                   RoadOptions o, MeshData m)
-        {
-            uint paver = FootpathRgba(r);
-            float kerbH = o.KerbHeightM;
-            bool dual = a.Has(RoadAttrFlags.Dual);
-            float median = dual ? Math.Max(RoadWidthModel.MinMedianM, a.MedianCm / 100f) : 0f;
-            float shoulder = RoadWidthModel.ShoulderM(r.RoadClass, RoadWidthModel.AreaOf(a));
-            for (int k = 0; k + 1 < sec.Count; k++)
-            {
-                if (sec.Gap[k]) continue;
-                int j = k + 1;
-                // Left footpath.
-                if (sec.FootL[k] > 0 || sec.FootL[j] > 0)
-                {
-                    double i0 = sec.Left(k), i1 = sec.Left(j), o0 = i0 + sec.FootL[k], o1 = i1 + sec.FootL[j];
-                    Band(ref ctx, sec, k, i0, o0, i1, o1, lift + kerbH, drape, paver, m);
-                    Face(ref ctx, sec, k, i0, i1, lift - 0.1f, lift + kerbH, -1, RoadStyle.Kerb, m);
-                    Face(ref ctx, sec, k, o0, o1, lift - 0.3f, lift + kerbH, +1, paver, m);
-                }
-                else if (shoulder > 0 && !dual)
-                {
-                    double i0 = sec.Left(k), i1 = sec.Left(j);
-                    Band(ref ctx, sec, k, i0, i0 + shoulder, i1, i1 + shoulder, lift - 0.004f, drape, RoadStyle.Shoulder, m);
-                }
-                // Right side: median half on a dual carriageway, else footpath or shoulder.
-                if (dual)
-                {
-                    double i0 = sec.Right(k), i1 = sec.Right(j), o0 = i0 - 0.5 * median, o1 = i1 - 0.5 * median;
-                    Band(ref ctx, sec, k, o0, i0, o1, i1, lift + o.MedianHeightM, drape, RoadStyle.Kerb, m);
-                    Face(ref ctx, sec, k, i0, i1, lift - 0.1f, lift + o.MedianHeightM, +1, RoadStyle.Kerb, m);
-                }
-                else if (sec.FootR[k] > 0 || sec.FootR[j] > 0)
-                {
-                    double i0 = sec.Right(k), i1 = sec.Right(j), o0 = i0 - sec.FootR[k], o1 = i1 - sec.FootR[j];
-                    Band(ref ctx, sec, k, o0, i0, o1, i1, lift + kerbH, drape, paver, m);
-                    Face(ref ctx, sec, k, i0, i1, lift - 0.1f, lift + kerbH, +1, RoadStyle.Kerb, m);
-                    Face(ref ctx, sec, k, o0, o1, lift - 0.3f, lift + kerbH, -1, paver, m);
-                }
-                else if (shoulder > 0)
-                {
-                    double i0 = sec.Right(k), i1 = sec.Right(j);
-                    Band(ref ctx, sec, k, i0 - shoulder, i0, i1 - shoulder, i1, lift - 0.004f, drape, RoadStyle.Shoulder, m);
-                }
-            }
-        }
-
-        /// <summary>A flat band between offsets (a0 at section k, a1 at k + 1) and (b0, b1), lifted.</summary>
-        private static void Band(ref Ctx ctx, Sections sec, int k, double a0, double b0, double a1, double b1, float lift, bool drape,
-                                 uint c, MeshData m)
-        {
-            int j = k + 1;
-            double ax = sec.X(k, a0), az = sec.Z(k, a0), bx = sec.X(k, b0), bz = sec.Z(k, b0);
-            double cx = sec.X(j, a1), cz = sec.Z(j, a1), dx = sec.X(j, b1), dz = sec.Z(j, b1);
-            float va = (float)(sec.S[k] / MetresPerV), vb = (float)(sec.S[j] / MetresPerV);
-            if (drape)
-            {
-                var p0 = new GridDrape.Vertex(ax, az, 0f, va, c);
-                var p1 = new GridDrape.Vertex(bx, bz, 1f, va, c);
-                var q0 = new GridDrape.Vertex(cx, cz, 0f, vb, c);
-                var q1 = new GridDrape.Vertex(dx, dz, 1f, vb, c);
-                DrapeStrip(ref ctx, p0, q0, p1, q1, lift, m);
-                return;
-            }
-            float ya = Height(ref ctx, ax, az) + lift, yb = Height(ref ctx, bx, bz) + lift;
-            float yc = Height(ref ctx, cx, cz) + lift, yd = Height(ref ctx, dx, dz) + lift;
-            int v = m.AddVertex((float)ax, ya, (float)az, 0f, 1f, 0f, c, 0f, va);
-            m.AddVertex((float)bx, yb, (float)bz, 0f, 1f, 0f, c, 1f, va);
-            m.AddVertex((float)cx, yc, (float)cz, 0f, 1f, 0f, c, 0f, vb);
-            m.AddVertex((float)dx, yd, (float)dz, 0f, 1f, 0f, c, 1f, vb);
-            Strip(m, v, v + 2, v + 1, v + 3);
-        }
-
-        /// <summary>A vertical kerb face along offsets (o0 at section k, o1 at k + 1) from y0 to y1 above the terrain,
-        /// facing toward +U (<paramref name="side"/> = +1) or −U.</summary>
-        private static void Face(ref Ctx ctx, Sections sec, int k, double o0, double o1, float y0, float y1, int side, uint c, MeshData m)
-        {
-            int j = k + 1;
-            double ax = sec.X(k, o0), az = sec.Z(k, o0), bx = sec.X(j, o1), bz = sec.Z(j, o1);
-            float ha = Height(ref ctx, ax, az), hb = Height(ref ctx, bx, bz);
-            double hx = side * 0.5 * (sec.Ux[k] + sec.Ux[j]), hz = side * 0.5 * (sec.Uz[k] + sec.Uz[j]);
-            MeshKit.Quad(m, ax, ha + y0, az, bx, hb + y0, bz, bx, hb + y1, bz, ax, ha + y1, az, hx, 0, hz, c);
         }
 
         /// <summary>The quad a0, b0, b1, a1 (consecutive sections' pairs) as two up-facing triangles: split along
@@ -719,8 +539,7 @@ namespace Ghumante.Core.Meshing
         /// Unit tangent at point i from its neighbours (context points included): the bisector of the incoming and
         /// outgoing directions, with the miter scale that keeps the ribbon width. At a sharp corner between short
         /// segments the half width is reduced so the inner edge pulls back at most half of the neighbouring
-        /// sub-segments (the densified spacing of each adjacent segment): otherwise the ribbon would fold over
-        /// itself. The rule only uses the two adjacent segments, so both tiles of a cut compute the same section.
+        /// sub-segments: otherwise the ribbon would fold over itself.
         /// </summary>
         private static void Tangent(int[] p, int count, int i, double minDot, double half, double maxSeg,
                                     out double tx, out double tz, out double miter, out double halfAt)

@@ -162,9 +162,14 @@ namespace Ghumante.Core.Tests
             Assert.That(p.FootpathLeftM, Is.InRange(2.0f * 1.15f, 3.5f * 1.15f));
             Assert.That(p.KerbLeftM, Is.EqualTo(RoadWidthModel.KerbTopM));
             Assert.That(p.Access & Travel.Bus, Is.EqualTo(Travel.Bus));
-            p = RoadWidthModel.ProfileAt(primary, Attr(AreaType.OldCore), 50f);
-            Assert.That(p.CentreLine || p.EdgeLines, Is.False, "old cores carry no paint");
+            // Old-core lanes are shared surfaces (no paint, no footpaths); old-core arterials (Kanti Path) keep both.
+            RoadRecord oldLane = Road(RoadClass.Residential, 0, 0, 0, 0, 30000, 0);
+            p = RoadWidthModel.ProfileAt(oldLane, Attr(AreaType.OldCore), 50f);
+            Assert.That(p.CentreLine || p.EdgeLines, Is.False, "old-core lanes carry no paint");
             Assert.That(p.FootpathLeftM + p.FootpathRightM, Is.EqualTo(0f), "shared surface");
+            p = RoadWidthModel.ProfileAt(primary, Attr(AreaType.OldCore, RoadAttrFlags.None, 250, 250, 250, 250, 250, 250, 250, 250), 50f);
+            Assert.That(p.CentreLine && p.EdgeLines, Is.True, "an old-core arterial is painted");
+            Assert.That(p.FootpathLeftM, Is.GreaterThan(0f), "an old-core arterial keeps its footpaths where the corridor has room");
             RoadRecord lane = Road(RoadClass.Residential, 400, 0, 0, 0, 30000, 0);
             p = RoadWidthModel.ProfileAt(lane, Attr(AreaType.Urban), 50f);
             Assert.That(p.Lanes, Is.EqualTo(1), "a two-way road under 5.5 m is one shared lane");
@@ -363,22 +368,30 @@ namespace Ghumante.Core.Tests
             // Per area type, inside tiles and in the 35 m seam bands (an aggregate hides a whole class going over, e.g.
             // old-core lanes at tile seams). Near a seam pieces are floored at the shared border width (URBAN column for
             // untagged ways, both tiles must agree), which leaves old-core and hill seam bands above the interior rate
-            // until the pipeline writes a per-cut width (open issue, World/README.md).
+            // until the pipeline writes a per-cut width (open issue, World/README.md); the border cross-section (footpaths
+            // both tiles agree on, RoadLayout.BorderCrossSections) adds a little there too. The detail pass's rideable floor
+            // is drawn on top of these 4.2 widths and is kept clear by the corridor contract (buildings yield to
+            // RoadCorridorIndex), so it is not counted here.
             for (int k = 0; k < 16; k++)
             {
                 if (areaSamples[k] < 2000) continue;
                 string what = (AreaType)(k & 7) + (k >= 8 ? " (seam band)" : "");
                 TestContext.Progress.WriteLine("V2 " + what + ": " + areaOver[k] + " / " + areaSamples[k]);
-                Assert.That((double)areaOver[k] / areaSamples[k], Is.LessThan(k >= 8 ? 1e-2 : 2e-3), what + ": " + areaOver[k] + " of " + areaSamples[k] + " edge samples over a building");
+                Assert.That((double)areaOver[k] / areaSamples[k], Is.LessThan(k >= 8 ? 1.5e-2 : 2e-3), what + ": " + areaOver[k] + " of " + areaSamples[k] + " edge samples over a building");
             }
         }
 
+        /// <summary>
+        /// V2 for caps under the detail-pass contract (decision 1: rideability beats exact footprints; a building that
+        /// intrudes into a corridor is trimmed back to it, and caps are part of the corridor). A cap reaches into a corner
+        /// building only through its kerb return: every cap vertex inside a building lies within the kerb-return radius
+        /// (<see cref="RoadLayout.KerbReturnRadiusM"/>) of an arm's drawn strip (its real width where the data overlaps).
+        /// </summary>
         [Test]
-        public void JunctionCapsNeverCoverCornerBuildings()
+        public void JunctionCapsReachIntoCornerBuildingsOnlyByTheirKerbReturns()
         {
-            // V2 for caps (G7): a cap vertex inside a building is allowed only where an arm's real-width strip covers the
-            // building too (the data overlaps); the game-width kerb fillets shrink clear of corner houses.
-            int caps = 0, bad = 0;
+            int caps = 0, inside = 0, beyond = 0;
+            double worst = 0;
             foreach (TileId id in StreamingSampleRegion.TilesAt(10).OrderBy(i => i.Key))
             {
                 TileData t = StreamingSampleRegion.Tile(id);
@@ -388,6 +401,9 @@ namespace Ghumante.Core.Tests
                 foreach (JunctionCap c in layout.Caps)
                 {
                     caps++;
+                    bool oldCore = false;
+                    for (int a = 0; a < c.ArmRoads.Length; a++) oldCore |= RoadWidthModel.AreaOf(layout.Attrs[c.ArmRoads[a]]) == AreaType.OldCore;
+                    double rho = oldCore ? RoadLayout.KerbReturnRadiusM(0f, 0f, true) : RoadLayout.KerbReturnRadiusM(99f, 99f, false);
                     for (int v = 0; v < c.Count; v++)
                     {
                         // Probe 0.2 m toward the node: a vertex exactly on a footprint edge is not a cover.
@@ -395,17 +411,22 @@ namespace Ghumante.Core.Tests
                         if (l < 0.3) continue;
                         double x = c.PolyX[v] + dx / l * 0.2, z = c.PolyZ[v] + dz / l * 0.2;
                         if (fp.Inside(x, z) < 0) continue;
-                        bool real = false;
-                        for (int a = 0; a < c.ArmRoads.Length && !real; a++)
-                            real = DistanceToRoad(t.Roads[c.ArmRoads[a]], x, z) <= 0.5 * layout.Profiles[c.ArmRoads[a]].RealM + 0.05;
-                        if (real) continue;
-                        bad++;
-                        break;
+                        inside++;
+                        double reach = double.MaxValue;
+                        for (int a = 0; a < c.ArmRoads.Length; a++)
+                        {
+                            RoadWidthProfile ap = layout.Profiles[c.ArmRoads[a]];
+                            double half = 0.5 * Math.Max(ap.RealM, ap.DrawnAt(c.ArmCutS[a]));
+                            reach = Math.Min(reach, DistanceToRoad(t.Roads[c.ArmRoads[a]], x, z) - half);
+                        }
+                        worst = Math.Max(worst, reach);
+                        if (reach > rho + 0.25) beyond++;
                     }
                 }
             }
+            TestContext.Progress.WriteLine("caps " + caps + ", cap vertices in buildings " + inside + ", beyond the kerb return " + beyond + ", deepest " + worst.ToString("0.00") + " m");
             Assert.That(caps, Is.GreaterThan(1000));
-            Assert.That((double)bad / caps, Is.LessThan(0.005), bad + " of " + caps + " caps cover a building outside the real road");
+            Assert.That(beyond, Is.LessThanOrEqualTo(inside / 200), "cap vertices reaching into a building farther than a kerb return");
         }
 
         private static double DistanceToRoad(RoadRecord r, double x, double z)

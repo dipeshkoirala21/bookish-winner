@@ -13,7 +13,14 @@ namespace Ghumante.Core.Meshing
     /// </summary>
     public struct RoadProfile
     {
-        public float CarriagewayM, MedianM, FootpathLeftM, FootpathRightM, KerbLeftM, KerbRightM, ShoulderM;
+        /// <summary>The §4.2 game carriageway width (lanes, access and the driving index of stage one follow it).</summary>
+        public float CarriagewayM;
+
+        /// <summary>The drawn carriageway width: <see cref="CarriagewayM"/> raised to the rideability floor (decision 1:
+        /// every street at least <see cref="Roads.RoadClearance.MinCorridorM"/>), as the road mesher draws it.</summary>
+        public float DrawnM;
+
+        public float MedianM, FootpathLeftM, FootpathRightM, KerbLeftM, KerbRightM, ShoulderM;
         public byte Lanes, LanesFwd, LanesBwd;
         public Travel Access;
         public bool CentreLine, LaneLines, EdgeLines;
@@ -23,19 +30,24 @@ namespace Ghumante.Core.Meshing
 
         public float CentreShiftM;
 
+        /// <summary>The centre shift of the drawn carriageway (a dual carriageway widens away from its median).</summary>
+        public float DrawnShiftM;
+
         /// <summary>Kerb to kerb plus shoulders, footpaths and the median half: the whole width this piece occupies
         /// across its centreline.</summary>
         public float TotalM
         {
-            get { return CarriagewayM + 2f * ShoulderM + FootpathLeftM + FootpathRightM + 0.5f * MedianM; }
+            get { return Math.Max(CarriagewayM, DrawnM) + 2f * ShoulderM + FootpathLeftM + FootpathRightM + 0.5f * MedianM; }
         }
     }
 
     /// <summary>
-    /// A piece's game width sampled along its rendered length (<see cref="RoadWidthModel.BuildProfile"/>): the §4.2
-    /// width at every <see cref="StepM"/>, already clamped by the corridor, smoothed and tapered, plus the footpath
-    /// widths that fit. Reusable: <see cref="RoadWidthModel.BuildProfile"/> overwrites it without allocating once it
-    /// has grown.
+    /// A piece's game width sampled along its rendered length (<see cref="RoadWidthModel.BuildProfile"/>): the §4.2 width at
+    /// every <see cref="StepM"/> (<see cref="Width"/>: clamped by the corridor, smoothed and tapered; lanes, access by width
+    /// and stage one's driving index follow it), the drawn width (<see cref="Drawn"/>: <see cref="Width"/> raised to the
+    /// rideability floor <see cref="RoadWidthModel.RideableMinM"/>, decision 1, and joined at knees: what the road mesher draws
+    /// and the corridor holds), plus the footpath widths that fit beside the drawn carriageway. Reusable:
+    /// <see cref="RoadWidthModel.BuildProfile"/> overwrites it without allocating once it has grown.
     /// </summary>
     public sealed class RoadWidthProfile
     {
@@ -49,6 +61,12 @@ namespace Ghumante.Core.Meshing
         public float[] FootRight = new float[64];
         public float[] Limit = new float[64];
 
+        /// <summary>The drawn carriageway width (at least the rideability floor).</summary>
+        public float[] Drawn = new float[64];
+
+        /// <summary>The structure record says no car fits (RoadStructureFlags.CarAccessible clear; decision 5).</summary>
+        public bool NoCars;
+
         internal void Ensure(int n)
         {
             if (Width.Length >= n) return;
@@ -57,6 +75,48 @@ namespace Ghumante.Core.Meshing
             FootLeft = new float[cap];
             FootRight = new float[cap];
             Limit = new float[cap];
+            Drawn = new float[cap];
+        }
+
+        /// <summary>The access width at <paramref name="along"/> metres: the §4.2 width (a galli drawn 4.8 m wide for three
+        /// motorbikes still keeps cars out).</summary>
+        public float AccessWidthAt(double along)
+        {
+            return Sample(Width, along);
+        }
+
+        /// <summary>The narrowest access width along the piece.</summary>
+        public float MinAccessWidth
+        {
+            get { return MinWidth; }
+        }
+
+        /// <summary>The drawn carriageway width at <paramref name="along"/> metres.</summary>
+        public float DrawnAt(double along)
+        {
+            return Sample(Drawn, along);
+        }
+
+        /// <summary>The widest drawn point of the piece.</summary>
+        public float MaxDrawn
+        {
+            get
+            {
+                float m = 0f;
+                for (int i = 0; i < Count; i++) m = Math.Max(m, Drawn[i]);
+                return m;
+            }
+        }
+
+        /// <summary>The narrowest drawn point of the piece.</summary>
+        public float MinDrawn
+        {
+            get
+            {
+                float m = float.MaxValue;
+                for (int i = 0; i < Count; i++) m = Math.Min(m, Drawn[i]);
+                return Count == 0 ? 0f : m;
+            }
         }
 
         /// <summary>Linear interpolation of <paramref name="values"/> at <paramref name="along"/> metres (clamped).</summary>
@@ -98,10 +158,12 @@ namespace Ghumante.Core.Meshing
     }
 
     /// <summary>
-    /// The only place that decides road widths (W2_DESIGN 4.1-4.4, owner decision W2-O3): real widths from the tag or
-    /// the class × area-type table, the 1.25× game rule with its minimums, the corridor clamp (never over a building,
-    /// never narrower than real, at most real + 6 m), 1 : 20 tapers, footpaths that fit, lane counts, paint rules and
-    /// the access mask by final width. <see cref="RoadMesher"/>, <see cref="JunctionMesher"/>,
+    /// The only place that decides road widths (W2_DESIGN 4.1-4.4, owner decision W2-O3, detail-pass decision 1): real
+    /// widths from the tag or the class × area-type table, the 1.25× game rule with its minimums, the corridor clamp
+    /// (never narrower than real, at most real + 6 m), 1 : 20 tapers, then the rideability floor (every street at least
+    /// <see cref="Ghumante.Core.Meshing.Roads.RoadClearance.MinCorridorM"/> = 4.8 m: three motorbikes side by side;
+    /// buildings in the way are trimmed to the corridor), footpaths that fit, lane counts, paint rules and the access
+    /// mask by the width before the floor. <see cref="RoadMesher"/>, <see cref="JunctionMesher"/>,
     /// <see cref="MarkingMesher"/> and (by contract) the road spatial index, lane graph and routing masks call it, so
     /// mesh, physics, AI and routes agree. Pure and deterministic; thread-safe (thread-static scratch only).
     /// </summary>
@@ -138,6 +200,10 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>A dual carriageway's median is never narrower than this.</summary>
         public const float MinMedianM = 1.0f;
+
+        /// <summary>Drawn width floor of footways, paths, cycleways, bridleways and steps: two walkers and a bicycle
+        /// pass, and the chase camera has room. Their clear corridor is still <see cref="Roads.RoadClearance.MinCorridorM"/>.</summary>
+        public const float FootRideableM = 2.5f;
 
         [ThreadStatic] private static RoadWidthProfile _scratch;
         [ThreadStatic] private static RoadRecord _scratchRoad;
@@ -176,6 +242,14 @@ namespace Ghumante.Core.Meshing
         {
             return c == RoadClass.Footway || c == RoadClass.Path || c == RoadClass.Steps || c == RoadClass.Cycleway ||
                    c == RoadClass.Bridleway;
+        }
+
+        /// <summary>Motorway, trunk, primary and secondary: the arterials. Those skirting or crossing an old core (Kanti Path,
+        /// Durbar Marg, Tripureshwor, the Bhaktapur bypass) keep footpaths and paint there; only the lanes are shared
+        /// streets.</summary>
+        public static bool IsArterial(RoadClass c)
+        {
+            return c == RoadClass.Motorway || c == RoadClass.Trunk || c == RoadClass.Primary || c == RoadClass.Secondary;
         }
 
         /// <summary>Trunk to tertiary (and motorway): the "major" two-way classes.</summary>
@@ -303,6 +377,27 @@ namespace Ghumante.Core.Meshing
             return IsMajor(c) ? 6.5f : 4f;
         }
 
+        /// <summary>
+        /// The drawn carriageway floor (detail-pass decision 1): every street (motor classes and pedestrian streets) at
+        /// least <see cref="Roads.RoadClearance.MinCorridorM"/>, footways, paths and steps at least
+        /// <see cref="FootRideableM"/>. It depends on the class only, so both tiles of a cut way agree.
+        /// </summary>
+        public static float RideableMinM(RoadClass c)
+        {
+            return IsFootClass(c) ? FootRideableM : Roads.RoadClearance.MinCorridorM;
+        }
+
+        /// <summary>
+        /// True when the tile's RATR corridors are the detail-pass final game corridors: the pipeline writes RSTR (one
+        /// structure record per road) together with them, and trims every building to them (data package,
+        /// docs/W2_DETAIL_CONTRACT.md decision 1). Stage-one packs (RATR without RSTR) carry building-to-building
+        /// corridors, from which <see cref="CorridorClearanceM"/> is still subtracted.
+        /// </summary>
+        public static bool UsesFinalCorridor(TileData t)
+        {
+            return t != null && t.HasRoadAttrs && t.Roads.Count > 0 && t.RoadStructures.Count == t.Roads.Count;
+        }
+
         /// <summary>Area type used for a road: the RATR value, else Urban (the valley default column).</summary>
         public static AreaType AreaOf(in RoadAttrRecord a)
         {
@@ -372,6 +467,38 @@ namespace Ghumante.Core.Meshing
         {
             float w = TagPlausible(r) ? (float)(r.WidthCm / 100.0) : DefaultRealWidthM(r.RoadClass, AreaType.Urban, Oneway(r), r.Lanes);
             float floor = FloorM(r.RoadClass);
+            w = w < floor ? floor : w > MaxRealM ? MaxRealM : w;
+            return Math.Max(w, RideableMinM(r.RoadClass));
+        }
+
+        /// <summary>
+        /// The area class both tiles assume for the cross-section where a piece is cut at a tile border (footpaths,
+        /// shoulders): the pipeline may class the two pieces of one way differently, so it depends only on where the cut
+        /// lies: URBAN on the Kathmandu valley floor (85.25..85.46 E, 27.62..27.78 N: Kathmandu, Lalitpur, Bhaktapur and
+        /// the Ring Road towns), RURAL elsewhere.
+        /// </summary>
+        public static AreaType BorderArea(double lonDeg, double latDeg)
+        {
+            return lonDeg >= 85.25 && lonDeg <= 85.46 && latDeg >= 27.62 && latDeg <= 27.78 ? AreaType.Urban : AreaType.Rural;
+        }
+
+        /// <summary>The footpaths a piece has where it is cut at a tile border (<see cref="NominalFootpaths"/> in the
+        /// <paramref name="borderArea"/> column at <see cref="BorderAccessWidthM"/>, none under <see cref="MinFootpathM"/>):
+        /// tile-independent, so both pieces of a cut way meet with the same kerbs.</summary>
+        public static void BorderFootpaths(RoadRecord r, in RoadAttrRecord a, AreaType borderArea, out float left, out float right)
+        {
+            RoadAttrRecord c = a;
+            c.Area = borderArea;
+            NominalFootpaths(r, c, BorderAccessWidthM(r), out left, out right);
+            if (left < MinFootpathM) left = 0f;
+            if (right < MinFootpathM) right = 0f;
+        }
+
+        /// <summary>The access width a cut end meets the border at (<see cref="BorderWidthM"/> before the floor).</summary>
+        public static float BorderAccessWidthM(RoadRecord r)
+        {
+            float w = TagPlausible(r) ? (float)(r.WidthCm / 100.0) : DefaultRealWidthM(r.RoadClass, AreaType.Urban, Oneway(r), r.Lanes);
+            float floor = FloorM(r.RoadClass);
             return w < floor ? floor : w > MaxRealM ? MaxRealM : w;
         }
 
@@ -395,6 +522,17 @@ namespace Ghumante.Core.Meshing
         /// old core.</summary>
         public static float LimitAt(in RoadAttrRecord a, float real, double alongM)
         {
+            return LimitAt(a, real, alongM, false);
+        }
+
+        /// <summary>
+        /// As <see cref="LimitAt(in RoadAttrRecord, float, double)"/>; with <paramref name="finalCorridor"/> the samples
+        /// are the detail-pass final game corridor (RATR written together with RSTR: the pipeline already kept 0.5 m to
+        /// the buildings and trimmed every building to it), so no clearance is subtracted and every bounded sample is at
+        /// least <see cref="Roads.RoadClearance.MinCorridorM"/> (the runtime floor of decision 1).
+        /// </summary>
+        public static float LimitAt(in RoadAttrRecord a, float real, double alongM, bool finalCorridor)
+        {
             int n = a.CorridorCount;
             if (n == 0) return AreaOf(a) == AreaType.OldCore ? real : float.PositiveInfinity;
             double half = 0.5 * SmoothWindowM;
@@ -412,7 +550,7 @@ namespace Ghumante.Core.Meshing
             {
                 int dm = a.CorridorDm[i];
                 if (dm <= 0) continue; // open
-                float lim = dm / 10f - CorridorClearanceM;
+                float lim = finalCorridor ? Math.Max(dm / 10f, Roads.RoadClearance.MinCorridorM) : dm / 10f - CorridorClearanceM;
                 if (lim < best) best = lim;
             }
             return best;
@@ -420,14 +558,27 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// Fill <paramref name="p"/> with the piece's widths every <see cref="ProfileStepM"/>: §4.2 per sample from the
-        /// corridor limit; cut ends (tile borders) pinned to <see cref="BorderWidthM"/> so both tiles meet exactly; then the 1 : 20 taper as a lower envelope (a
-        /// width only ever narrows to meet a constraint), and a 1 : 20 ramp down from each pinned cut end so the
-        /// end width holds even where this tile's corridor is tighter than the neighbour's. Footpaths: the class × area rule,
-        /// shrunk to the space the corridor leaves and dropped under 1 m. A dual carriageway keeps its median-side edge
-        /// at real/2 and widens outwards (<see cref="RoadProfile.CentreShiftM"/>), so its width and outer footpath are
-        /// checked one-sided against the symmetric corridor: shift + w/2 + footpath ≤ limit/2.
+        /// corridor limit; cut ends (tile borders) pinned to <see cref="BorderAccessWidthM"/> so both tiles meet exactly;
+        /// then the 1 : 20 taper as a lower envelope (a width only ever narrows to meet a constraint), and a 1 : 20 ramp
+        /// down from each pinned cut end so the end width holds even where this tile's corridor is tighter than the
+        /// neighbour's. That is the access width (§4.4). The drawn width is the access width raised to the rideability
+        /// floor (<see cref="RideableMinM"/>, a class constant, so cut ends still agree). Footpaths: the class × area rule,
+        /// shrunk to the space the corridor leaves beside the drawn carriageway and dropped under 1 m. A dual carriageway
+        /// keeps its median-side edge at real/2 and widens outwards (<see cref="RoadProfile.CentreShiftM"/>), so its width
+        /// and outer footpath are checked one-sided against the symmetric corridor: shift + w/2 + footpath ≤ limit/2.
         /// </summary>
         public static void BuildProfile(RoadRecord r, in RoadAttrRecord a, RoadWidthProfile p)
+        {
+            BuildProfile(r, a, p, false);
+        }
+
+        /// <summary>
+        /// As <see cref="BuildProfile(RoadRecord, in RoadAttrRecord, RoadWidthProfile)"/>; with
+        /// <paramref name="finalCorridor"/> the RATR samples are the detail-pass final game corridor (see
+        /// <see cref="LimitAt(in RoadAttrRecord, float, double, bool)"/>): carriageway, footpaths and shoulders share it
+        /// without a further clearance (<see cref="UsesFinalCorridor"/> says which a tile carries).
+        /// </summary>
+        public static void BuildProfile(RoadRecord r, in RoadAttrRecord a, RoadWidthProfile p, bool finalCorridor)
         {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (p == null) throw new ArgumentNullException(nameof(p));
@@ -443,31 +594,35 @@ namespace Ghumante.Core.Meshing
             p.LengthM = (float)length;
             p.StepM = length > 0 ? (float)(length / (n - 1)) : ProfileStepM;
             p.Count = n;
+            p.NoCars = false;
             float shoulders = 2f * ShoulderM(r.RoadClass, AreaOf(a));
             float footL, footR;
             NominalFootpaths(r, a, real, out footL, out footR);
             bool dual = a.Has(RoadAttrFlags.Dual);
+            float[] w = p.Width;
             for (int i = 0; i < n; i++)
             {
                 double s = i * (double)p.StepM;
-                float lim = LimitAt(a, real, s);
+                float lim = LimitAt(a, real, s, finalCorridor);
                 p.Limit[i] = lim;
                 // Dual: the outer edge sits at w − real/2 (all the widening goes outwards), so w ≤ (limit + real) / 2.
                 float wl = dual && !float.IsPositiveInfinity(lim) ? Math.Min(lim, 0.5f * (lim + real)) : lim;
-                p.Width[i] = ClampToLimit(real, nominal, floor, tagged, wl);
+                w[i] = ClampToLimit(real, nominal, floor, tagged, wl);
             }
-            float border = BorderWidthM(r);
-            if (r.HasPrevContext) p.Width[0] = Math.Min(p.Width[0], border);
-            if (r.HasNextContext) p.Width[n - 1] = Math.Min(p.Width[n - 1], border);
-            Envelope(p.Width, n, p.StepM / TaperRatio);
+            float border = BorderAccessWidthM(r);
+            if (r.HasPrevContext) w[0] = Math.Min(w[0], border);
+            if (r.HasNextContext) w[n - 1] = Math.Min(w[n - 1], border);
+            Envelope(w, n, p.StepM / TaperRatio);
             // Cut ends meet the border width exactly, whatever this tile's corridor says next to them (the
             // neighbour's samples may differ): raise the end and ramp down from it at 1 : 20.
             float k = p.StepM / TaperRatio;
             for (int i = 0; i < n; i++)
             {
-                if (r.HasPrevContext) p.Width[i] = Math.Max(p.Width[i], border - k * i);
-                if (r.HasNextContext) p.Width[i] = Math.Max(p.Width[i], border - k * (n - 1 - i));
+                if (r.HasPrevContext) w[i] = Math.Max(w[i], border - k * i);
+                if (r.HasNextContext) w[i] = Math.Max(w[i], border - k * (n - 1 - i));
             }
+            float rideable = RideableMinM(r.RoadClass);
+            for (int i = 0; i < n; i++) p.Drawn[i] = Math.Max(w[i], rideable);
             for (int i = 0; i < n; i++)
             {
                 float lim = p.Limit[i];
@@ -476,10 +631,10 @@ namespace Ghumante.Core.Meshing
                 else if (dual)
                 {
                     // Outer (left) edge at w − real/2, median (right) edge at real/2 from the centreline.
-                    spaceL = 0.5f * (lim - shoulders) - (p.Width[i] - 0.5f * real);
+                    spaceL = 0.5f * (lim - shoulders) - (p.Drawn[i] - 0.5f * real);
                     spaceR = 0.5f * (lim - shoulders - real);
                 }
-                else spaceL = spaceR = 0.5f * (lim - p.Width[i] - shoulders);
+                else spaceL = spaceR = 0.5f * (lim - p.Drawn[i] - shoulders);
                 p.FootLeft[i] = Math.Max(0f, Math.Min(footL, spaceL));
                 p.FootRight[i] = Math.Max(0f, Math.Min(footR, spaceR));
             }
@@ -554,8 +709,9 @@ namespace Ghumante.Core.Meshing
         /// <summary>
         /// Footpath widths in game metres before the corridor fit (roads.md 8.2): a tagged sidewalk wins (SEPARATE and
         /// NONE give none); else trunk 2.5-3.0, primary 2.0-3.5 and secondary or tertiary 1.5-2.0 (60% both sides, 20%
-        /// left only, 20% none) in URBAN areas; none in old cores (shared surface) and outside towns. A dual
-        /// carriageway gets a footpath on its outer (left) side only. Widths are real × 1.15 (pedestrian scale).
+        /// left only, 20% none) in URBAN areas and on the arterials of old cores (Kanti Path); none on old-core lanes
+        /// (shared surface) and outside towns. A dual carriageway gets a footpath on its outer (left) side only. Widths are
+        /// real × 1.15 (pedestrian scale).
         /// </summary>
         public static void NominalFootpaths(RoadRecord r, in RoadAttrRecord a, float real, out float left, out float right)
         {
@@ -590,7 +746,7 @@ namespace Ghumante.Core.Meshing
                     break;
                 default:
                 {
-                    if (area != AreaType.Urban || !IsMajor(r.RoadClass)) return;
+                    if (!(area == AreaType.Urban && IsMajor(r.RoadClass) || area == AreaType.OldCore && IsArterial(r.RoadClass))) return;
                     if (r.RoadClass == RoadClass.Secondary || r.RoadClass == RoadClass.Tertiary)
                     {
                         uint pick = Hash(r.OsmWayId, PurposeFootSides) % 100;
@@ -673,12 +829,16 @@ namespace Ghumante.Core.Meshing
             }
             bool paintable = a.Has(RoadAttrFlags.Paintable) || real >= 5.5f && Sealed(r.Surface);
             bool motor = IsMotor(r.RoadClass) && r.RoadClass != RoadClass.Track;
-            p.CentreLine = motor && paintable && !oneway && lanes >= 2 && area != AreaType.OldCore;
+            bool sharedStreet = area == AreaType.OldCore && !IsArterial(r.RoadClass);
+            p.CentreLine = motor && paintable && !oneway && lanes >= 2 && !sharedStreet;
             p.LaneLines = motor && paintable && (dual || oneway && lanes >= 2 || lanes >= 3);
-            p.EdgeLines = motor && paintable && area != AreaType.OldCore &&
+            p.EdgeLines = motor && paintable && !sharedStreet &&
                           (r.RoadClass == RoadClass.Motorway || r.RoadClass == RoadClass.Trunk || r.RoadClass == RoadClass.Primary ||
                            r.RoadClass == RoadClass.Secondary);
-            p.Access = AccessFor(w, r, a);
+            p.DrawnM = wp.DrawnAt(alongM);
+            if (dual) p.DrawnShiftM = 0.5f * (p.DrawnM - real);
+            p.Access = AccessForWidth(wp.AccessWidthAt(alongM), r, a);
+            if (wp.NoCars) p.Access &= ~(Travel.Car | Travel.Jeep | Travel.Bus);
             return p;
         }
 
@@ -734,13 +894,32 @@ namespace Ghumante.Core.Meshing
         public const float MinBusRadiusM = 12f;
 
         /// <summary>
-        /// Who may use the piece (§4.4): the width mask, intersected with the record's OSM access; heritage squares,
-        /// pedestrian streets and <c>access=no</c>/<c>motor_vehicle=no</c> are walk-and-cycle only; no bus on
-        /// hairpins under 12 m. Compounds are excluded separately by the sacred-zone index.
+        /// Who may use the piece (§4.4): the width mask of the access width (the §4.2 width before the rideability floor,
+        /// at most <paramref name="gameWidthM"/>; a galli drawn 4.8 m wide for three motorbikes still keeps cars out),
+        /// intersected with the record's OSM access; heritage squares, pedestrian streets and
+        /// <c>access=no</c>/<c>motor_vehicle=no</c> are walk-and-cycle only; no bus on hairpins under 12 m. Compounds are
+        /// excluded separately by the sacred-zone index. Pass the structure record too where the tile has one
+        /// (<see cref="AccessFor(float, in RoadRecord, in RoadAttrRecord, in RoadStructureRecord)"/>).
         /// </summary>
         public static Travel AccessFor(float gameWidthM, in RoadRecord r, in RoadAttrRecord a)
         {
-            Travel t = WidthMask(gameWidthM);
+            float access = Math.Min(gameWidthM, Cached(r, a).MinAccessWidth);
+            return AccessForWidth(access, r, a);
+        }
+
+        /// <summary>As <see cref="AccessFor(float, in RoadRecord, in RoadAttrRecord)"/>, and no car, jeep or bus where the
+        /// structure record says a car does not fit (decision 5: gallis, real width under about 3 m, motorcar=no).</summary>
+        public static Travel AccessFor(float gameWidthM, in RoadRecord r, in RoadAttrRecord a, in RoadStructureRecord s)
+        {
+            Travel t = AccessFor(gameWidthM, r, a);
+            if (!s.Has(RoadStructureFlags.CarAccessible)) t &= ~(Travel.Car | Travel.Jeep | Travel.Bus);
+            return t;
+        }
+
+        /// <summary>The §4.4 rules for a known access width.</summary>
+        internal static Travel AccessForWidth(float accessWidthM, in RoadRecord r, in RoadAttrRecord a)
+        {
+            Travel t = WidthMask(accessWidthM);
             if (a.Has(RoadAttrFlags.HeritagePedestrian) || a.Has(RoadAttrFlags.NoMotor) || r.RoadClass == RoadClass.Pedestrian)
                 t &= Travel.Foot | Travel.Bicycle | Travel.Horse;
             if ((t & Travel.Bus) != 0 && MinRadiusM(r) < MinBusRadiusM) t &= ~Travel.Bus;
