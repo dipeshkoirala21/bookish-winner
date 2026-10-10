@@ -57,7 +57,82 @@ Until a stub's implementation lands, code against the interface and test with a 
 
 ## 4. Shapes API
 
-(Appended by the **shapes** package.)
+Namespace `Ghumante.Core.Meshing.Shapes` (`game/Assets/Ghumante/Core/Meshing/Shapes/`), engine-free, deterministic, no allocation once its per-thread scratch has grown (safe on worker threads). Tests: `core-tests/MeshingShapesTests.cs`; showcase of every primitive: `core-tests/MeshingShapesShowcase.cs` (set `GHUMANTE_SHAPES_OBJ=<dir>` to dump OBJs; renders in `/home/user/wt/previews/shapes/`).
+
+**Conventions.** Every emitter appends to a `MeshData` through an `Affine3` and a `ShapeBrush`, returns the index of its **first vertex** (its vertices run to `m.VertexCount`, handy for colour/AO/noise passes), writes **Unity winding** (front = `cross(b - a, c - a)`, decided against the analytic normals, so mirroring transforms and `KitFrame`s are safe), smooth normals unless a crease is asked for, and **always UV0** (`u = (float)brush.Channel`, `v = brush.Ao`, see §5). Boxes, spheres, superellipsoids and tori are **centred** on the origin; cylinders, cones, frusta, capsules, domes, lathes and extrudes **stand on y = 0 along +Y**. Closed solids are watertight (welded by position) and have positive volume. Every primitive takes its LOD0 segment counts plus `ShapeLod lod = default` and scales them itself.
+
+| Type | What |
+|---|---|
+| `Affine3` | 3×4 affine transform. `Identity`, `Translation`, `Scaling(s)`/`Scaling(x,y,z)`, `RotationX/Y/Z(rad)`, `RotationAxis`, `Yaw(deg)` (compass: +Z → bearing), `FromBasis`, `FromKitFrame(KitFrame)`, `Along(a, b, out len)` (+Y from a to b), `a * b` (b first), `a.Then(b)` (a first), `ThenTranslate`, `Inverse`, `Determinant`, `Mirrors`, `Point`, `Vector`, `Normal`. |
+| `ShapeBrush` | `new ShapeBrush(0xRRGGBBAA, MaterialChannel.Wood, ao: 1f)`, `ShapeBrush.Hex(0xRRGGBB, ch)`, `WithColor/WithChannel/WithAo`. |
+| `ShapeLod` | `ShapeLod.Lod0/Lod1/Lod2` (or `new ShapeLod(level)`): `Radial(n)` (1, 1/2, 1/4; min 3, LOD2 keeps 6 for n ≥ 12), `Bevel(n)` (min 1 = chamfer), `Path(n)` (min 1). |
+| `Profile2` | Reusable 2D polyline/polygon: `Clear(closed)`, `Add(x, y, crease)`, `Add(x, y, nx, ny, crease)` (explicit normal), `SetCircle`, `SetEllipse`, `SetRect`, `SetRoundedRect(w, h, r, seg)`, `SetRegular`, `SetPoints`, `FilletCorners(r, seg, all)`, `Smooth(segPerSpan)` (Catmull-Rom between creases), `Transform`, `Reverse`, `SignedArea`, `Length`. Outward = right of travel (closed: CCW; lathe: bottom → top with the outside at +x); clockwise closed profiles are detected. |
+| `Path3` | Reusable 3D polyline: `Clear`, `Add`, `AddDistinct`, `CopyFrom`, `Length`. |
+| `Curves` | `CatmullRom(ctrl, dst, segPerSpan, closed)` (centripetal), `Bezier(dst, p0..p3, seg)`, `ArcXZ(dst, cx, y, cz, r, startDeg, sweepDeg, seg)`, `Fillet(src, dst, r, seg, closed)` (round polyline corners), `FilletCorner(...)` (2D), `Catenary(dst, a, b, sag, seg)`, `Resample(src, dst, spacing)`. All append to `dst`. |
+| `Shapes` | The primitives below. |
+| `ShapeColor` | `VerticalGradient(m, first, count, y0, y1, bottom, top)`, `VerticalShade(..., bottomFactor, topFactor)`, `Tint`, `JitterByPosition(m, first, count, amount, seed, cell)` (seam-safe), `JitterFaces(m, firstIndex, indexCount, amount, seed, trisPerFace)` (flat-shaded tiles, planks). Alpha kept. |
+| `ShapeAo` | `Bake(m, firstVertex, vertexCount, firstIndex, indexCount, in AoSettings)` multiplies into `Uv0.v` (-1 counts = to the end): ground contact, undersides, concavity, optional few-ray test (`Rays`, `RayDistance`, `RayBudget`) for small meshes. `ShapeAo.Defaults(groundY)`, `EnsureUv(m)`. |
+| `ShapeNoise` | `Hash(x, y, z, seed)` (FNV-1a + avalanche), `Unit`, `Value3`, `Gradient3`, `Fbm3` (all in [-1, 1]), `Displace(m, first, count, amplitude, frequency, seed, octaves)` along normals, `RecomputeNormals(m, firstV, countV, firstI, countI, weld)`. |
+
+Primitives (`m, xf, brush` first, then):
+
+| Call | Notes |
+|---|---|
+| `RoundedBox(sx, sy, sz, radius, segments, lod)` / `RoundedBox(sx, sy, sz, in BoxRadii, segments, lod)` | Flat faces are single quads; `segments` per 90° edge arc. `BoxRadii(xNeg, xPos, yNeg, yPos, zNeg, zPos)`, `BoxRadii.All(r)`, `BoxRadii.Vertical(side, top, bottom)`: unequal radii give elliptical edges, ~0 keeps a side crisp (flat-bottomed seat). |
+| `Superellipsoid(rx, ry, rz, eVertical, eHorizontal, segments, lod)` | Cube-sphere grid with signed-power mapping (no poles). e = 1 round, 0.2-0.4 boxy cartoon car body/cushion/head, 2 diamond. |
+| `CubeSphere(r, segments, lod)`, `Sphere(r, segments, lod)` (UV), `Ellipsoid(rx, ry, rz, segments, cubeSphere, lod)`, `Dome(r, height, segments, capBottom, lod)` | |
+| `Lathe(profile, radialSegments, lod, startDeg, sweepDeg, endCaps)` | Revolve about +Y; creased points make hard rings; partial sweeps can cap their cut faces. |
+| `Cylinder(r, h, radial, rimRadius, rimSegments, capBottom, capTop, lod)`, `Cone(...)`, `Frustum(rBottom, rTop, h, ...)` | Rounded rims where caps meet the side. |
+| `Capsule(r, height, radial, lod)` | Use `Affine3.Along` to span two points. |
+| `Torus(R, r, majorSeg, minorSeg, lod, startDeg, sweepDeg, endCaps)` | Partial torus with caps: arches, mudguards, garlands. |
+| `BevelExtrude(x[], z[], n, height, bevel, bevelSegments, style, capTop, capBottom, bottomBevel, creaseDeg, lod)` | Any simple polygon (either orientation); `BevelStyle.Round` or `Chamfer`; polygon corners sharper than `creaseDeg` stay hard. No holes (open issue). |
+| `RoundedSlab(sx, sz, height, cornerRadius, bevel, segments, lod)` | Rounded-rect plan + bevelled top: table tops, steps, plinths. |
+| `Sweep(path, section, closedPath, caps, frames, scaleStart, scaleEnd, twistDeg)` | Any 2D section along a 3D path; `SweepFrames.ParallelTransport` (pipes, tails) or `Upright` (railings, kerbs); sharp path corners are mitred; tapers and twist; capped ends for closed sections. |
+| `Tube(path, r, radial, caps, closedPath, lod, radiusEnd)`, `Bar(a, b, r, radial, lod)`, `Wire(a, b, sag, r, segments, radial, lod)` | Round tubes; `Wire` hangs a catenary. |
+| `Loft(profileA, frameA, profileB, frameB, segments, capA, capB, lod)` | Each profile in the XY plane of its frame; resampled by arc length if counts differ; start points auto-aligned (no twist). |
+| `CopyTransformed(m, src, xf, tint, firstVertex, vertexCount, firstIndex, indexCount)` | Instance a part (even from `m` itself) with a transform and RGB tint; mirrors flip winding. |
+
+Examples:
+
+```csharp
+using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Shapes;
+
+var m = new MeshData();
+var red = ShapeBrush.Hex(0xD7263D, MaterialChannel.Paint);
+var lod = new ShapeLod(lodLevel);                       // 0, 1, 2
+Affine3 car = Affine3.Translation(x, y, z) * Affine3.Yaw(headingDeg);
+
+// Cartoon car body + glasshouse (superquadrics), four tyres (tori) with hubs.
+int body = Shapes.Superellipsoid(m, car * Affine3.Translation(0, 0.62, 0), red, 0.85, 0.32, 1.6, 0.25, 0.3, 40, lod);
+Shapes.Superellipsoid(m, car * Affine3.Translation(0, 1.0, -0.15), ShapeBrush.Hex(0xBFE3F2, MaterialChannel.Glass), 0.72, 0.3, 0.95, 0.35, 0.35, 32, lod);
+Affine3 wheel = car * Affine3.Translation(-0.78, 0.34, 1.0) * Affine3.RotationZ(Math.PI / 2);
+Shapes.Torus(m, wheel, ShapeBrush.Hex(0x23262B, MaterialChannel.Rubber), 0.24, 0.11, 24, 10, lod);
+
+// Railing: mitred, upright handrail along a filleted polyline, posts instanced.
+Path3 rail = Curves.Fillet(new Path3().Add(0, 1, 0).Add(4, 1, 0).Add(6, 1, 2), new Path3(), 0.3, lod.Bevel(4));
+Shapes.Sweep(m, Affine3.Identity, metal, rail, new Profile2().SetRoundedRect(0.08, 0.06, 0.02, lod.Bevel(3)), false, true, SweepFrames.Upright);
+int f = m.VertexCount, fi = m.IndexCount;
+Shapes.Cylinder(m, Affine3.Identity, metal, 0.03, 0.97, 10, 0.01, 2, true, true, lod);
+int nv = m.VertexCount - f, ni = m.IndexCount - fi;
+for (int i = 1; i < 8; i++) Shapes.CopyTransformed(m, m, Affine3.Translation(0.5 * i, 0, 0), 0xFFFFFFFFu, f, nv, fi, ni);
+
+// Kalash / vase: a few control points, smoothed, revolved.
+var vase = new Profile2().Add(0, 0, true).Add(0.35, 0, true).Add(0.5, 0.3).Add(0.45, 0.6).Add(0.22, 0.9).Add(0.3, 1.15, true).Add(0, 1.15, true);
+Shapes.Lathe(m, xf, ShapeBrush.Hex(0xB5651D, MaterialChannel.Dirt), vase.Smooth(lod.Path(6)), 32, lod);
+
+// Rock / canopy: displaced cube sphere, seam-safe normals, patchy colour.
+int r0 = m.VertexCount, ri = m.IndexCount;
+Shapes.CubeSphere(m, xf * Affine3.Scaling(1.1, 0.7, 0.9), ShapeBrush.Hex(0x8A8378, MaterialChannel.Stone), 1, 32, lod);
+ShapeNoise.Displace(m, r0, m.VertexCount - r0, 0.22, 1.3, seed, 3);
+ShapeNoise.RecomputeNormals(m, r0, m.VertexCount - r0, ri, m.IndexCount - ri);
+ShapeColor.JitterByPosition(m, r0, m.VertexCount - r0, 0.12f, seed, 0.3);
+
+// Finally bake AO for the whole object standing on groundY.
+ShapeAo.Bake(m, 0, -1, 0, -1, ShapeAo.Defaults(groundY));
+```
+
+Rules of thumb: prefer `RoundedBox`/`Superellipsoid` over `MeshKit.Box` for anything the camera sees up close; use creases (profile `crease: true`, `BevelStyle.Chamfer`) only where a real hard edge exists; build one `Profile2`/`Path3` per mesher and reuse it; call `ShapeAo.Bake` once per object after all parts are in (the ray term only for small props: `Rays = 8`, it is skipped above `RayBudget`).
 
 ## 5. Material channels and AO (for the look package's shader)
 
