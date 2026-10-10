@@ -58,3 +58,14 @@ Until a stub's implementation lands, code against the interface and test with a 
 ## 4. Shapes API
 
 (Appended by the **shapes** package.)
+
+## 5. Material channels and AO (for the look package's shader)
+
+`Core/Meshing/MaterialChannel.cs` (*stub*). Every mesher in this pass writes `MeshData.Uv0` (set `HasUv0`): **u = `(float)MaterialChannel`**, **v = baked ambient occlusion** (1 = open, 0 = fully occluded; bake cheaply: concave corners, undersides, ground contact, inner faces of deep openings). The vertex colour stays the albedo tint; its alpha keeps its current meaning (instance tint weight). Meshes without UV0 render as `Plain` with no AO. The **look** package generates a procedural texture per channel at runtime (brick, wood grain, jhingati tiles, asphalt wear, stone, plaster, grass, foliage, bark, fabric weave...), samples it triplanar in world or object space, multiplies by the tint and AO, and adds rim light and outlines.
+
+## 6. Working rules for every package
+
+* Work only in your worktree `/home/user/wt/<package>` (create it with `bash /home/user/wt/new.sh <package> <base-sha>`); never edit `/home/user/bookish-winner` directly.
+* Wrap every heavy command in the shared build-slot limiter: `bash /home/user/wt/slot.sh /root/.dotnet/dotnet test core-tests --filter ...`, `bash /home/user/wt/slot.sh bash tools/unity-compile-check/run.sh --audit`, `bash /home/user/wt/slot.sh python3 -m pytest ...`. Up to 15 agents share 4 CPUs. Iterate with filtered tests and run the full gates once at the end.
+* Visual self-check is mandatory for anything you generate: dump the mesh (`ObjDump`) and render it with the preview tool (`/home/user/wt/preview/tools/mesh-preview/render.py` while the preview package is in flight, `tools/mesh-preview/render.py` after it merges; see its README), look at the PNGs and iterate until the result is clearly detailed and not boxy.
+* Finish with every gate green in your worktree and one commit on `w2d/<package>` ending with the attribution lines the lead gives you.
