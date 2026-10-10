@@ -95,7 +95,13 @@ namespace Ghumante.Core.Tests
                     if (merged.Tiers > 0) Assert.That(stats.Tiers, Is.EqualTo(merged.Tiers), id + " tiers");
                     if (merged.PlinthLevels > 0) Assert.That(stats.PlinthLevels, Is.EqualTo(merged.PlinthLevels), id + " plinths");
                     // Door yaw within ±2°: as built, and as drawn (a closed sanctum door faces it).
-                    if (!float.IsNaN(merged.YawDeg)) Assert.That(AngleDiff(stats.DoorYawDeg, merged.YawDeg), Is.LessThanOrEqualTo(2.0), id + " yaw");
+                    // Door yaw: exact (±2°) without an outline; with an OSM outline the door is square to the measured
+                    // walls, so the recipe's (often cardinal, [V]) yaw snaps to the nearest outline axis within 30°.
+                    if (!float.IsNaN(merged.YawDeg))
+                    {
+                        double tol = building >= 0 ? 30.0 : 2.0;
+                        Assert.That(AngleDiff(stats.DoorYawDeg, merged.YawDeg), Is.LessThanOrEqualTo(tol), id + " yaw");
+                    }
                     double best = 360;
                     for (int t = 0; t < m.TriangleCount; t++)
                     {

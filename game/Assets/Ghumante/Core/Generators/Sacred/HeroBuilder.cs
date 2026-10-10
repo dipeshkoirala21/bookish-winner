@@ -2,6 +2,7 @@ using System;
 using Ghumante.Core.Data;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Shapes;
 
 namespace Ghumante.Core.Generators.Sacred
 {
@@ -43,7 +44,9 @@ namespace Ghumante.Core.Generators.Sacred
                 double cx, cz, fyaw, fw, fd;
                 BuildingFrontRecord front = BuildingFronts.For(anchorTile).Front(building);
                 SacredSelector.Frame(ring, front.HasFront ? front.FrontEdge : -1, out cx, out cz, out fyaw, out fw, out fd);
-                if (float.IsNaN(recipe.YawDeg)) yaw = fyaw;
+                // The door is square to the measured walls: a recipe yaw (often a cardinal estimate) snaps to the
+                // nearest axis of the OSM outline when it is within 30° of one.
+                yaw = float.IsNaN(recipe.YawDeg) ? fyaw : SnapYaw(recipe.YawDeg, fyaw, 30);
                 SacredSelector.Extents(ring, x, z, yaw, out w, out d);
                 ox = new double[ring.Length / 2];
                 oz = new double[ring.Length / 2];
@@ -82,7 +85,7 @@ namespace Ghumante.Core.Generators.Sacred
                 {
                     PagodaParams p = PagodaFor(recipe, w, d, ox, oz);
                     PagodaGenerator.Build(p, f, lod, m, c, stats);
-                    if (recipe.CompoundWall && lod <= 2) CompoundWall(recipe, f, w, d, m);
+                    if (recipe.CompoundWall && lod <= 2) CompoundWall(recipe, f, w, d, lod, m);
                     break;
                 }
                 case HeroForm.Stupa:
@@ -91,19 +94,7 @@ namespace Ghumante.Core.Generators.Sacred
                 case HeroForm.ShikharaStone:
                 case HeroForm.ShikharaPlaster:
                 {
-                    bool stone = recipe.Form == HeroForm.ShikharaStone;
-                    ShikharaParams p = stone ? ShikharaParams.StoneDefaults((float)w, (float)d) : ShikharaParams.PlasterDefaults((float)w, (float)d);
-                    p.TotalHeightM = recipe.HeightM;
-                    if (recipe.PlinthLevels > 0) p.PlinthLevels = recipe.PlinthLevels;
-                    if (recipe.StepRiseM > 0) p.StepRiseM = recipe.StepRiseM;
-                    if (stone)
-                    {
-                        p.PavilionsStorey1 = recipe.Pavilions1;
-                        p.PavilionsStorey2 = recipe.Pavilions2;
-                    }
-                    p.OutlineX = ox;
-                    p.OutlineZ = oz;
-                    ShikharaGenerator.Build(p, f, lod, m, c, stats);
+                    ShikharaGenerator.Build(ShikharaFor(recipe, w, d, ox, oz), f, lod, m, c, stats);
                     break;
                 }
                 case HeroForm.HouseTemple:
@@ -165,6 +156,24 @@ namespace Ghumante.Core.Generators.Sacred
                     break;
             }
             return m.TriangleCount - t0;
+        }
+
+        /// <summary>The bearing among <paramref name="axisYaw"/> + k·90° closest to <paramref name="yaw"/>, when within
+        /// <paramref name="maxDeg"/>; otherwise <paramref name="yaw"/> itself.</summary>
+        public static double SnapYaw(double yaw, double axisYaw, double maxDeg)
+        {
+            double best = yaw, bestD = double.MaxValue;
+            for (int q = 0; q < 4; q++)
+            {
+                double c = (axisYaw + 90 * q) % 360, dd = Math.Abs(c - yaw) % 360;
+                if (dd > 180) dd = 360 - dd;
+                if (dd < bestD)
+                {
+                    bestD = dd;
+                    best = c;
+                }
+            }
+            return bestD <= maxDeg ? best : yaw;
         }
 
         /// <summary>The catalog recipe of a record (or one synthesised from its kind) with the record's curated values
@@ -325,7 +334,23 @@ namespace Ghumante.Core.Generators.Sacred
             p.PlinthColour = r.PlinthColour;
             p.VahanaDistM = r.VahanaDistM;
             p.VahanaGaruda = r.VahanaGaruda;
-            if (r.PlinthWidths == null && r.PlinthLevels > 0)
+            p.Hero = true;
+            p.Rich = r.Centrepiece;
+            p.Ambulatory = r.Ambulatory;
+            p.Fringe = r.Fringe;
+            p.GajurBell = r.GajurBell;
+            p.PlasterUpper = r.PlasterUpper;
+            p.Balcony = r.Balcony;
+            p.PaintedGuardians = r.PaintedGuardians;
+            p.WhiteStair = r.WhiteStair;
+            p.FrontBell = r.FrontBell;
+            p.LampPillars = r.LampPillars;
+            if (r.StrutPitchM > 0) p.StrutPitchM = r.StrutPitchM;
+            if (r.PitchBottomDeg > 0) p.PitchBottomDeg = r.PitchBottomDeg;
+            if (r.PitchTopDeg > 0) p.PitchTopDeg = r.PitchTopDeg;
+            if (r.GajurFrac > 0) p.GajurFrac = r.GajurFrac;
+            p.UpperWallFrac = r.UpperWallFrac;
+            if (r.PlinthLevels > 0)
             {
                 p.OutlineX = ox;
                 p.OutlineZ = oz;
@@ -333,7 +358,26 @@ namespace Ghumante.Core.Generators.Sacred
             return p;
         }
 
-        private static void BuildStupa(HeroRecipe r, in GenFrame f, int lod, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
+        /// <summary>The shikhara parameters of a recipe on a plan of w × d (and its OSM outline, if any).</summary>
+        internal static ShikharaParams ShikharaFor(HeroRecipe recipe, double w, double d, double[] ox, double[] oz)
+        {
+            bool stone = recipe.Form == HeroForm.ShikharaStone;
+            ShikharaParams p = stone ? ShikharaParams.StoneDefaults((float)w, (float)d) : ShikharaParams.PlasterDefaults((float)w, (float)d);
+            p.TotalHeightM = recipe.HeightM;
+            if (recipe.PlinthLevels > 0) p.PlinthLevels = recipe.PlinthLevels;
+            if (recipe.StepRiseM > 0) p.StepRiseM = recipe.StepRiseM;
+            if (stone)
+            {
+                p.PavilionsStorey1 = recipe.Pavilions1;
+                p.PavilionsStorey2 = recipe.Pavilions2;
+            }
+            p.OutlineX = ox;
+            p.OutlineZ = oz;
+            return p;
+        }
+
+        /// <summary>The stupa parameters of a recipe.</summary>
+        internal static StupaParams StupaFor(HeroRecipe r)
         {
             StupaParams p = StupaParams.Defaults(r.DomeDiameterM > 0 ? r.DomeDiameterM : 0.6f * r.PlanW, r.Terraces);
             p.TerraceWidths = r.TerraceWidths;
@@ -349,22 +393,31 @@ namespace Ghumante.Core.Generators.Sacred
             p.WheelNiches = r.WheelNiches;
             p.BuddhaNiches = r.BuddhaNiches;
             p.TotalHeightM = r.HeightM;
+            p.Style = r.StupaStyle;
+            p.GateDistM = r.GateDistM;
+            return p;
+        }
+
+        private static void BuildStupa(HeroRecipe r, in GenFrame f, int lod, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
+        {
+            StupaParams p = StupaFor(r);
             if (lod >= 3)
             {
-                // Box terraces, a coarse dome and a frustum spire (≤ 200 triangles).
-                KitFrame k = f.Kit;
+                // Box terraces, a coarse dome and a cone spire (≤ 200 triangles).
+                int v0 = m.VertexCount, i0 = m.IndexCount;
+                Affine3 k = SacredDraw.Xf(f.Kit);
                 double top = 0;
                 if (r.TerraceWidths != null)
                     for (int i = 0; i < r.TerraceWidths.Length; i++)
                     {
                         double hw = 0.5 * r.TerraceWidths[i], t1 = r.TerraceTops != null && i < r.TerraceTops.Length ? r.TerraceTops[i] : top + 1;
-                        MeshKit.Box(m, k, -hw, hw, top, t1, -hw, hw, SacredPalette.Whitewash, BoxFaces.All & ~BoxFaces.Bottom);
+                        SacredDraw.Box(m, k, -hw, hw, top, t1, -hw, hw, Looks.Whitewash, BoxFaces.All & ~BoxFaces.Bottom);
                         top = t1;
                     }
-                double rd = 0.5 * p.DomeDiameterM;
-                MeshKit.Dome(m, f.X, f.Z, rd, f.GroundY + top, p.DomeRiseM > 0 ? p.DomeRiseM : 0.37 * p.DomeDiameterM, 8, 2, SacredPalette.Whitewash);
-                double hb = top + (p.DomeRiseM > 0 ? p.DomeRiseM : 0.37 * p.DomeDiameterM);
-                MeshKit.Frustum(m, f.X, f.Z, 0.12 * p.DomeDiameterM, f.GroundY + hb, 0.0, f.GroundY + r.HeightM, 4, false, SacredPalette.Gilt);
+                double rd = 0.5 * p.DomeDiameterM, rise = p.DomeRiseM > 0 ? p.DomeRiseM : 0.37 * p.DomeDiameterM;
+                Shapes.Dome(m, SacredDraw.At(k, 0, top, 0), Looks.Whitewash, rd, rise, 8);
+                Shapes.Cone(m, SacredDraw.At(k, 0, top + rise, 0), Looks.Gilt, 0.12 * p.DomeDiameterM, r.HeightM - top - rise, 4, 0, 0, false);
+                SacredDraw.Bake(m, v0, i0, f.GroundY);
                 if (stats != null)
                 {
                     stats.TopM = r.HeightM;
@@ -407,52 +460,87 @@ namespace Ghumante.Core.Generators.Sacred
                 int n = i == segs - 1 ? Steps - placed : (int)Math.Round((heights[0] - lo) / rise) - placed;
                 if (n <= 0) continue;
                 double v1 = heights[0] - placed * rise - f.GroundY, v0 = v1 - n * rise;
-                SacredKit.Stair(m, c, k, -2.0, 2.0, start + i * Seg, Seg, v0, v1, lod, SacredPalette.StoneGrey, GenColliders.Stone);
+                SacredParts.Stair(m, c, k, SacredDraw.Xf(k), 2.0, start + i * Seg, Seg, v0, v1, lod <= 1 ? 0.5 : 0, 0.6, Looks.Stone, Looks.StoneLight, lod, GenColliders.Stone);
                 placed += n;
             }
             double vx, vy, vz;
             k.ToWorld(0, 0, start - 5.0, out vx, out vy, out vz);
-            HeroForms.Vajra(new GenFrame(vx, vz, f.GroundY, 90), m);
+            HeroForms.Vajra(new GenFrame(vx, vz, f.GroundY, 90), lod, m);
             if (stats != null) stats.Steps = placed;
         }
 
-        private static void CompoundWall(HeroRecipe r, in GenFrame f, double w, double d, MeshData m)
+        private static void CompoundWall(HeroRecipe r, in GenFrame f, double w, double d, int lod, MeshData m)
         {
-            // Taleju (Kathmandu): the walled compound on the top plinth step, with a gate on the door side.
-            KitFrame k = f.Kit;
+            // Taleju (Kathmandu): the red walled compound on the top plinth step with its white cornice, the gilt torana
+            // gate flanked by painted lions, and the small single-roof shrines at its corners (ref_temples 0).
+            int v0 = m.VertexCount, i0 = m.IndexCount;
+            Affine3 k = SacredDraw.Xf(f.Kit);
             double top = r.PlinthLevels * r.StepRiseM;
             double inset = Math.Min(0.07 * w, Math.Max(0, (w - (r.CoreFrac * w + 1.2)) / (2.0 * Math.Max(1, r.PlinthLevels - 1))));
-            double hw = 0.5 * w - (r.PlinthLevels - 1) * inset - 0.3, hd = hw * d / w;
-            uint col = SacredPalette.BrickDachi;
-            MeshKit.Box(m, k, -hw, -1.2, top, top + 2.2, hd - 0.4, hd, col, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, 1.2, hw, top, top + 2.2, hd - 0.4, hd, col, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, -hw, hw, top, top + 2.2, -hd, -hd + 0.4, col, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, -hw, -hw + 0.4, top, top + 2.2, -hd + 0.4, hd - 0.4, col, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, hw - 0.4, hw, top, top + 2.2, -hd + 0.4, hd - 0.4, col, BoxFaces.All & ~BoxFaces.Bottom);
-            SacredKit.Torana(m, k, 0, top + 2.2, hd + 0.01, 2.4, SacredPalette.Gilt, 1);
+            double topW = r.PlinthWidths != null && r.PlinthWidths.Length >= r.PlinthLevels ? r.PlinthWidths[r.PlinthLevels - 1] : w - 2 * (r.PlinthLevels - 1) * inset;
+            double hw = 0.5 * topW - 0.6, hd = hw * d / w, wt = 0.45, wh = 2.6;
+            ShapeBrush red = Looks.Of(MeshColor.FromHex(0xB0352A), MaterialChannel.Plaster), white = Looks.Whitewash;
+            // Four wall runs (the front split by the gate).
+            double gate = 1.4;
+            WallRun(m, k, -hw, -gate, hd - wt, hd, top, wh, red, white, lod);
+            WallRun(m, k, gate, hw, hd - wt, hd, top, wh, red, white, lod);
+            WallRun(m, k, -hw, hw, -hd, -hd + wt, top, wh, red, white, lod);
+            WallRun(m, k, -hw, -hw + wt, -hd + wt, hd - wt, top, wh, red, white, lod);
+            WallRun(m, k, hw - wt, hw, -hd + wt, hd - wt, top, wh, red, white, lod);
+            SacredDraw.Box(m, k, -gate, gate, top + 2.3, top + wh + 0.5, hd - wt, hd, white, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredParts.Torana(m, k, 0, top + 2.3, hd + 0.01, 2.6, Looks.Gilt, lod);
+            if (lod <= 1)
+            {
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                {
+                    SacredParts.Pedestal(m, k, sgn * (gate + 0.8), top, hd + 0.6, 0.35, 0.42, 0.55, Looks.Stone, lod);
+                    SacredFigures.Guardian(m, k, sgn * (gate + 0.8), top + 0.55, hd + 0.6, 1.3, GuardianKind.Lion, true, true, lod);
+                }
+                for (int q = 0; q < 4; q++)
+                {
+                    double cu = (q % 2 == 0 ? 1 : -1) * (hw - 1.4), cw = (q < 2 ? 1 : -1) * (hd - 1.4), x, y, z;
+                    f.Kit.ToWorld(cu, top, cw, out x, out y, out z);
+                    ShrineGenerator.Build(new ShrineParams { Kind = ShrineKind.Generic, Form = ShrineForm.MiniPagoda, LongSideM = 2.4f, ShortSideM = 2.4f },
+                                          new GenFrame(x, z, (float)y, f.YawDeg), 1, m, null);
+                }
+            }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
+        }
+
+        private static void WallRun(MeshData m, in Affine3 k, double u0, double u1, double w0, double w1, double v, double h, in ShapeBrush wall, in ShapeBrush cap, int lod)
+        {
+            double cu = 0.5 * (u0 + u1), cw = 0.5 * (w0 + w1), hu = 0.5 * (u1 - u0), hw = 0.5 * (w1 - w0);
+            Mould p = SacredDraw.M;
+            p.Add(0, v, wall).Add(0, v + h - 0.35).Add(0.08, v + h - 0.35, cap).Add(0.14, v + h - 0.12).Add(0.14, v + h);
+            double[] pu = ShapeScratch.U2, pw = ShapeScratch.W2;
+            int n = SacredDraw.Rect(cu, cw, hu, hw, pu, pw);
+            SacredDraw.Ring(m, k, pu, pw, n, p);
+            SacredDraw.CapRect(m, k, cu, cw, hu + 0.14, hw + 0.14, v + h, true, cap);
         }
 
         private static void KumariGhar(HeroRecipe r, in GenFrame f, double w, double d, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
+            int v0 = m.VertexCount, i0 = m.IndexCount;
             double iu, iw;
-            HeroForms.Courtyard((float)w, (float)d, 5.5f, r.HeightM, true, SacredPalette.BrickDachi, f, lod, m, c, out iu, out iw);
-            // Carved windows on the front, closed: the Kumari is never shown.
-            KitFrame k = f.Kit;
+            HeroForms.Courtyard((float)w, (float)d, 5.5f, r.HeightM - 1.6f, true, SacredPalette.BrickDachi, f, lod, m, c, out iu, out iw);
+            // The richly carved front windows, closed: the Kumari is never shown.
+            Affine3 k = SacredDraw.Xf(f.Kit);
             int storeys = Math.Max(2, r.Storeys), windows = 0;
-            double sH = r.HeightM / storeys;
-            for (int s = 1; s < storeys; s++)
+            double sH = (r.HeightM - 1.6) / storeys;
+            for (int s = 1; s < storeys && lod <= 1; s++)
             {
                 for (int b = 0; b < 5; b++)
                 {
                     double u = -0.5 * w + w * (b + 0.5) / 5;
-                    MeshKit.Box(m, k, u - 0.6, u + 0.6, s * sH + 0.4, s * sH + 1.6, 0.5 * d, 0.5 * d + 0.1, SacredPalette.WoodCarved, BoxFaces.Wall);
-                    MeshKit.Panel(m, k, u - 0.45, s * sH + 0.5, u + 0.45, s * sH + 1.5, 0.5 * d + 0.105, MeshColor.Scale(SacredPalette.WoodCarved, 1.3f));
+                    if (Math.Abs(u) < 1.3) continue;
+                    SacredParts.LatticeWindow(m, k, u, s * sH + 1.0, 0.5 * d + 0.02, 1.1, 1.2, Looks.WoodDark, lod, 3);
                     windows++;
                 }
             }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             if (stats != null)
             {
-                stats.TopM = r.HeightM + 0.15f;
+                stats.TopM = r.HeightM;
                 stats.Windows = windows;
                 stats.DoorYawDeg = f.YawDeg;
             }
@@ -472,35 +560,55 @@ namespace Ghumante.Core.Generators.Sacred
             p.PlinthLevels = 1;
             p.StepRiseM = 0.5f;
             p.Pataka = true;
-            p.Guardians = GuardianSet.None;
+            p.Guardians = GuardianSet.Elephants;
             p.CoreFrac = 0.6f;
+            p.Ambulatory = false;
+            p.Hero = true;
             var sf = new GenFrame(sx, sz, f.GroundY, f.YawDeg);
             PagodaGenerator.Build(p, sf, lod, m, c, stats);
-            if (lod <= 2) ChaityaGenerator.Build(ChaityaParams.Defaults(2.5f), new GenFrame(f.X, f.Z, f.GroundY + 0.05f, f.YawDeg), lod, m, c);
+            if (lod <= 1) ChaityaGenerator.Build(ChaityaParams.Defaults(2.5f), new GenFrame(f.X, f.Z, f.GroundY + 0.05f, f.YawDeg), lod, m, c);
         }
 
         private static void PeacockWindow(in GenFrame f, int lod, MeshData m)
         {
-            KitFrame k = f.Kit;
-            MeshKit.Box(m, k, -2.0, 2.0, -0.3, 4.0, -0.5, 0, MeshColor.FromHex(0xB4432F), BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, -0.75, 0.75, 1.4, 2.6, 0, 0.12, SacredPalette.WoodCarved, BoxFaces.Wall);
-            MeshKit.Panel(m, k, -0.6, 1.5, 0.6, 2.5, 0.125, MeshColor.Scale(SacredPalette.WoodCarved, 1.4f));
-            int feathers = lod <= 1 ? 9 : 4;
+            int v0 = m.VertexCount, i0 = m.IndexCount;
+            Affine3 k = SacredDraw.Xf(f.Kit);
+            SacredParts.BandedWall(m, SacredDraw.At(k, 0, 0, -0.25), 2.0, 0.25, -0.3, 4.0, Looks.Of(MeshColor.FromHex(0xB4432F), MaterialChannel.Brick), Looks.WoodDark, lod, false, true);
+            SacredDraw.CapRect(m, k, 0, -0.25, 2.0, 0.25, 4.0, true, Looks.PlinthCoping);
+            SacredParts.LatticeWindow(m, k, 0, 2.0, 0.0, 1.2, 1.1, Looks.WoodDark, 2, 0);
+            // The fanned peacock: a fan of carved feathers and the bird's body and head.
+            int feathers = lod <= 1 ? 11 : 5;
             for (int q = 0; q < feathers; q++)
             {
                 double a0 = Math.PI * q / feathers, a1 = Math.PI * (q + 1) / feathers;
-                MeshKit.TriLocal(m, k, 0, 1.6, 0.13, 0.55 * Math.Cos(a0), 1.6 + 0.8 * Math.Sin(a0), 0.13, 0.55 * Math.Cos(a1), 1.6 + 0.8 * Math.Sin(a1), 0.13,
-                                 0, 0, 1, q % 2 == 0 ? SacredPalette.Gilt : MeshColor.FromHex(0x2E6F5A));
+                ShapeBrush b = q % 2 == 0 ? Looks.Of(MeshColor.FromHex(0x6B4129), MaterialChannel.WoodCarved) : Looks.WoodDark;
+                SacredDraw.Tri(m, k, 0, 1.6, 0.06, 0.55 * Math.Cos(a0), 1.6 + 0.75 * Math.Sin(a0), 0.04, 0.55 * Math.Cos(a1), 1.6 + 0.75 * Math.Sin(a1), 0.04, 0, 0, 1, b);
+                if (lod <= 1) Shapes.Sphere(m, SacredDraw.At(k, 0.42 * Math.Cos(0.5 * (a0 + a1)), 1.6 + 0.58 * Math.Sin(0.5 * (a0 + a1)), 0.07), Looks.WoodMid, 0.04, 4);
             }
+            Shapes.Ellipsoid(m, SacredDraw.At(k, 0, 1.75, 0.1), Looks.WoodMid, 0.1, 0.18, 0.07, 6, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(k, 0, 2.02, 0.12), Looks.WoodMid, 0.05, 0.06, 0.05, 4, false);
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
         }
 
         private static void Lod3(HeroRecipe r, in GenFrame f, double w, double d, MeshData m)
         {
-            KitFrame k = f.Kit;
+            int v0 = m.VertexCount, i0 = m.IndexCount;
+            Affine3 k = SacredDraw.Xf(f.Kit);
             double h = Math.Max(1.0, r.HeightM), wall = 0.55 * h;
-            MeshKit.Box(m, k, -0.5 * w, 0.5 * w, -0.3, wall, -0.5 * d, 0.5 * d, SacredPalette.BrickDachi, BoxFaces.All & ~BoxFaces.Bottom);
-            uint roof = r.Finish == RoofFinish.GiltAll ? SacredPalette.Gilt : r.Form == HeroForm.Dharahara ? SacredPalette.Whitewash : SacredPalette.Tile;
-            MeshKit.Frustum(m, f.X, f.Z, 0.55 * Math.Sqrt(w * w + d * d), f.GroundY + wall, 0.0, f.GroundY + h, 4, false, roof);
+            bool white = r.Form == HeroForm.Dharahara || r.Form == HeroForm.ShikharaPlaster || r.Form == HeroForm.PalaceRana;
+            ShapeBrush body = white ? Looks.Whitewash : r.Form == HeroForm.ShikharaStone ? Looks.StoneBuff : Looks.WallGlazed;
+            SacredDraw.Box(m, k, -0.5 * w, 0.5 * w, -0.3, wall, -0.5 * d, 0.5 * d, body, BoxFaces.All & ~BoxFaces.Bottom);
+            ShapeBrush roof = r.Finish == RoofFinish.GiltAll ? Looks.Gilt : white || r.Form == HeroForm.ShikharaStone ? body : Looks.Tile;
+            double hu = 0.6 * w, hw = 0.6 * d;
+            for (int s = 0; s < 4; s++)
+            {
+                double au, aw, bu, bw, ou, ow;
+                SacredParts.OnRect(s, -1, hu, hw, out au, out aw);
+                SacredParts.OnRect(s, 1, hu, hw, out bu, out bw);
+                SacredParts.Out(s, out ou, out ow);
+                SacredDraw.Tri(m, k, au, wall, aw, bu, wall, bw, 0, h, 0, ou, 1, ow, roof);
+            }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
         }
 
         private sealed class FlatSampler : IHeightSampler
