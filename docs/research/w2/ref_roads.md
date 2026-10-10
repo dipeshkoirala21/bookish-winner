@@ -23,12 +23,35 @@
 
 * **Carriageway.** Width model `RoadWidthModel` (W2_DESIGN 4.1-4.4) inside the RATR corridor; every street is drawn
   at least `RoadClearance.MinCorridorM` = 4.8 m wide, footways, paths and steps at least 2.5 m (their clear corridor is
-  still 4.8 m). Gentle crown: the centre vertex carries the surface colour 12 % lighter (worn wheel tracks, not paint).
+  still 4.8 m). The footpaths and shoulders the class and area give are **reserved first**: the carriageway widens
+  beyond its real width only into what the corridor leaves beside them (Kanti Path and Durbar Marg keep their kerbed
+  pavements; the real width itself is never given up). Lanes, access masks and the stage-one driving index follow the
+  §4.2 width (`RoadWidthProfile.Width`); the surface as drawn (`Drawn`, about `ShiftAt`, with caps and rings) is
+  exported for physics and traffic as `Roads.RoadSurfaceQuery` (height, normal and kind of surface at any point, the
+  lowered underpass stretches to cut; §8). Gentle crown: the centre vertex carries the surface colour 12 % lighter
+  (worn wheel tracks, not paint), on ribbons and junction caps alike.
 * **Barrier kerb** next to footpaths: 150 mm high (NRS 2070 §13.6), 150 mm top, rounded nose (cartoon), concrete
   `#BDB8AE`; gutter AO 0.62-0.72.
 * **Footpath**: +150 mm, 2.5 % cross-fall to the road, red `#B5655A` or grey `#9C9A94` interlocking pavers (one per way),
   channel Flagstone; 2.5-3.0 m on trunk, 2.0-3.5 m on primary, 1.5-2.0 m on secondary/tertiary in urban areas
-  (60 % both sides, 20 % one side, 20 % none), none in old cores (shared surface) [R §8.2]. Rounded outer edge.
+  (60 % both sides, 20 % one side, 20 % none), none in old cores (shared surface) [R §8.2]. Rounded outer edge, which
+  follows the terrain where the ground beside the road rises or falls. A footpath changes width along a 1 : 4 kerb
+  flare (not the carriageway's 1 : 20 taper), so one narrow spot does not take the pavement off 20 m either side; on
+  the sample 95 % of urban arterial length with room for a footpath has one. **Mapped sidewalks** (OSM footways and
+  paths along a street) become that street's footpath, widened to cover them up to 3.5 m, instead of a second ribbon
+  across its asphalt; a footway crossing the carriageway is the carriageway there (both stay drawn within 10 m of a
+  tile-border cut so the two tiles agree).
+* **Side by side**: carriageways of unconnected parallel streets (the one-way pairs of Durbar Marg and Jamal, the Ring
+  Road's main and service carriageways) stop at their shared gap, each side in proportion to what both want. A side
+  narrows to its real width first and keeps its footpath (two footpaths back to back read as the kerbed separator),
+  then drops the footpath; where the mapped centrelines are too close even for the real widths the carriageway moves
+  away by up to 1 m and narrows for the rest (never under the 4.8 m floor, a trunk-to-tertiary road never under a 6 m
+  bus width). The two carriageways of a dual road mapped closer than their real widths and the median allow move apart
+  by up to 1 m each. Everything tapers at 1 : 20 and tile-border cut ends keep the width and position both tiles agree
+  on. Building **passages** (RSTR `Passage`, a dhoka under a house that stays whole) are drawn as the gateway (the real
+  width within 1.5-3.5 m, no footpaths, outside the clear corridors). An RSTR **corridor shift** (the corridor moved
+  off a protected footprint) moves the carriageway with it: ribbon, grade, caps, markings, corridor index and surface
+  query all offset it by the same `RoadWidthProfile.ShiftAt`.
 * **Median** (dual carriageways, `RATR.partner_way`): mountable 100 mm kerb with a 45° face, painted in 0.5 m
   **yellow `#E8C547` / black `#2B2C2F`** bands near its noses (Kathmandu practice; IRC:35 says black-and-white) [V],
   grass `#6FAE4A` top when >= 1.6 m wide (Kanti Path, Durbar Marg trees), concrete `#A9A59C` otherwise (Ring Road).
@@ -63,16 +86,26 @@
   at the lifted centre. On the sample 99.7 % of the 18,600 border vertices meet their partner within 2 mm, all but
   one within 1 cm (the rest are pieces cut right next to a tile corner).
 * **Vertical profile**: the terrain drape along the smoothed centreline is low-passed (Gaussian, 6-12 m by class),
-  grade changes capped at 1 % per metre (a 100 m vertical curve) and held within ±0.12 m of the lifted terrain (the
-  highest point across the road); the cross-fall follows the terrain's (smoothed) cross slope up to 25 %, so on a
-  hillside the road leans with the slope and stays on the drawn terrain instead of standing on a bench. Seams (tile
-  cuts, junction caps, ring entries, knees) fade to the exact terrain plus the lift both sides agree on.
+  grade changes capped at 1 % per metre (a 100 m vertical curve) and held within ±0.12 m of the banked plane through
+  the lifted terrain at its highest point across the road (at most 0.20 m above the centre: along a gully the low
+  columns are lifted instead of the whole road floating). The cross-fall follows the terrain's cross slope (smoothed
+  over 6 m) up to the comfortable 25 %, and further, up to 45°, wherever holding 25 % would leave an edge more than
+  0.12 m off the terrain, so a hill road **hugs the hillside** (the Pasang Lhamu Highway along an 80 % slope no longer
+  stands on a 9 m causeway; on the sample no centre is more than 0.5 m above the lifted terrain). A true bench, cut
+  uphill and filled downhill, needs the terrain mesher (§8). Seams (tile cuts, junction caps, ring entries, knees) fade
+  to the exact terrain plus the lift both sides agree on.
+* **Knees** (two pieces continuing each other at a node, ground pieces on different OSM layers included) have one
+  width: the wider end tapers down to at most 3 m above the narrower at 1 : 6, and after the side-by-side clamp the
+  other end follows it, so a two-piece node has no width step (a street meeting a deck end tapers to the deck).
 
 ## 3. Junctions and roundabouts
 
 * **Junction caps**: one surface per junction from the game widths of every arm, kerb-return arcs between arms
   (6 m when both arms are >= 6.5 m, 3 m otherwise, 1.5 m in old cores); footpaths and kerbs run round the corner
-  when both arms have one on that side, a skirt otherwise; ribbons stop at the cap edge (no overlapping slabs).
+  when both arms have one on that side, a skirt otherwise; ribbons stop at the cap edge (no overlapping slabs). The cap
+  takes the ribbon's end row vertex for vertex: the same cut, the same columns, the lighter crown and the AO of each
+  column, so there is neither a hairline gap nor a colour seam where they meet; kerbed outlines (islands, medians)
+  are ear-clipped so concave ones never fold.
 * **Roundabouts** (mapped rings, JNCT): a true circle; ring width = widest approach + 1 m, at least 7 m; island
   diameter from the mapping (Jawalakhel ring centreline 43.8 m → island about 35 m, measured 36 m [O]); a rounded
   mountable island kerb in yellow-black bands, a 1 m cobbled apron (`#9A8F84`) for buses, a planting strip of soil
@@ -80,8 +113,16 @@
   garden or monument in the free interior, `RoadIsland.InteriorRadiusM`). Entries flare onto the circle with kerb
   returns; wide two-way approaches (>= 7 m) get a raised teardrop **splitter island**; white give-way dashes across
   each entry, a yellow edge line round the island and a dashed lane circle on rings >= 9 m wide.
-* **Police chowks** (curated list, W2_DESIGN 4.7): white podium Ø 1.4 m, 0.35 m high, red umbrella (the ornaments
-  package may take over; `RoadOptions.PolicePodiums`).
+* **Outer kerbs**: on built-up rings a kerb and a paver footpath run round the outer circle between the entries
+  (the approach's own footpath, or 2.3 m where it brings none: Tripureshwor, Thapathali and Maitighar have kerbed
+  footpaths all round), with end faces where they stop at an entry. Two neighbouring one-way approaches, or the two
+  carriageways of a dual road, whose facing cut edges are at most 8 m apart get a kerbed **nose island** in the wedge
+  between them (yellow-black kerb, grass when large enough) with a tail of up to 14 m running back between the
+  carriageways, instead of bare ground.
+* **Police chowks** (curated list, W2_DESIGN 4.7): white podium Ø 1.4 m, 0.35 m high, red umbrella. **Off by default**
+  (`RoadOptions.PolicePodiums = false`): the ornaments package (RoundaboutDecorator, `Centrepiece.PolicePodium`) draws
+  the podium, drum or umbrella of every police island and chowk, and two generators at one island would overlap; the
+  islands themselves (`RoadIsland.PolicePodium`) are laid out either way.
 
 ## 4. Markings (RSN5 Table 1, IRC:35; R §10)
 
@@ -123,6 +164,21 @@ outside the repository):
   are drawn as smooth bends, every corner at the tertiary class radius (22 m) with short straights between; the
   road leans with the 16 % slope and stays on the terrain, as on the Zhangmu road in the photo.
 
+Review fix pass (renders of the final code next to the photos, `previews/roads/compare_fix_*.png` outside the
+repository):
+
+* **Hill road** (Pasang Lhamu Highway on the sample's valley rim, an 80 % cross slope): the carriageway leans with the
+  hillside and both edges stay on the drawn terrain; no causeway stands above the downhill side (it stood up to 9 m
+  before). The photos (Zhangmu road, a switchback cut across a slope) show the real thing benched level into the hill
+  with a cut face uphill: that needs the terrain mesh cut and filled to the road (§8).
+* **Roundabouts** (Tripureshwor, Jamal): kerbed paver footpaths run round the outer circle between the entries, as round
+  Maitighar Mandala in the photo; the one-way pairs entering Jamal and the dual carriageways at Tripureshwor get a
+  kerbed grass nose island (yellow-black kerb) with a tail between the carriageways instead of bare ground; the island
+  top rises over a low ridge of ground between the two carriageways so the terrain never shows through it.
+* **Kanti Path junction cap**: lit and unlit (vertex colours) views show no colour seam or gap where the cap meets the
+  ribbons (same crown column, same AO); the kerbed footpaths stay on both sides as on Durbar Marg in the photo (the
+  footpath colour still changes at the way boundary, §8).
+
 ## 7. Photo credits (Openverse; reference only)
 
 | Topic | Photo | Creator, licence |
@@ -142,8 +198,45 @@ outside the repository):
 | Hill road on a slope (comparison) | "Zhangmu traffic" flickr.com/photos/18728817@N00/6098137882 | Easternblot, CC BY-ND 2.0 |
 | Arterial with median, Durbar Marg (comparison) | "Durbar Marg, Kathmandu, Nepal" flickr.com/photos/40679851@N05/3745567016 | bklorfine, CC BY-NC-ND 2.0 |
 | Roundabout island, Tripureshwor (comparison) | "Tripureshwor Bus Stop, Tripura Marg" flickr.com/photos/41231665@N07/17748741420 | KatjaUlbert, CC BY-SA 2.0 |
+| Maitighar Mandala from above (fix-pass comparison) | "Maitighar Mandala" commons.wikimedia.org/w/index.php?curid=36916328 | Ratopati.com, CC BY-SA 4.0 |
 
 Press: [Kalanki-Koteshwar to turn into an eight-lane road](https://www.sharesansar.com/newsdetail/kalanki-koteshwar-to-turn-into-an-eight-lane-road),
 [Kathmandu Post editorial on the median, 2018](https://kathmandupost.com/editorial/2018/05/29/about-time),
 [Heritage flair for Thamel-Basantapur road](https://kathmandupost.com/valley/2018/11/17/heritage-flair-for-thamel-basantapur-road),
 [KMC laying stones on 33,000 m2 (2025)](https://ekantipur.com/national/2025/02/21/en/kathmandu-metropolis-laying-stones-on-about-33-thousand-square-meters-52-35.html).
+
+## 8. Open issues (outside this package)
+
+* **Physics and traffic on the drawn surface** (collide, traffic). `RoadSpatialIndex`, `TileGroundQuery`, `LaneGraph`,
+  `PedestrianSim` and `ParkedPlacement` still read the §4.2 width (`WidthAt`, `MaxWidth`, `CarriagewayM`) about the
+  raw polyline, `LaneGraph` and `RoadSpatialIndex` with their own dual-carriageway shift (`−0.5 (w − real)`), so they
+  miss what is drawn: gallis drawn 4.8 m wide where the index is 3-4 m, the drawn edges of unconnected parallel pieces
+  stopping at their shared gap (the §4.2 width is wider than the drawn one at about 7 % of the width samples on the
+  busy sample tiles, two thirds of them by more than 1 m: mostly the one-way pairs and the Ring Road service
+  carriageways, whose lanes can therefore reach past the drawn edge onto the kerbed strip), the 1 m pushes and
+  RSTR corridor shifts (`RoadWidthProfile.ShiftAt`), junction caps, rings and the smoothed, banked vertical profile.
+  Stand bodies on `Roads.RoadSurfaceQuery.For(tile, sampler, options).TrySample` (height, normal, carriageway /
+  footpath / median / island / shoulder / junction / deck), build the driving index from `DrawnAt` about `ShiftAt`,
+  and lay lanes across the drawn width about `ShiftAt` (the access masks stay on the §4.2 width). Before lanes move,
+  `TrafficSim.Room` must also check the successor and predecessor lanes: it only looks at the spawn lane and its
+  twin, so a vehicle can be spawned onto a lane end whose last body has just moved onto the next connector (found
+  while trying lanes on the drawn width: `TrafficTests.RingRoadRunsHalfAnHourWithoutContact` then counts that pair
+  for a minute; with the check it fails on a junction conflict elsewhere instead, so the 30-minute run is sensitive to
+  any lane geometry change).
+* **Terrain under the roads** (nature). `TerrainMesher` must cut the lowered underpass stretches
+  (`RoadSurfaceQuery.HasLowered` / `TryCut`), and bench hill roads: cut and fill the terrain mesh to the drawn surface
+  along them so the road can lie level across (the comfortable 25 % `RoadGrade.MaxBank`) instead of leaning with the
+  hillside up to 45° (`MaxSteepBank`, which keeps it from floating on the 30 m DEM today).
+* **Corridor shift and passages from the record** (integration / data). Wire `RoadStructureRecord.CorridorShiftCm`
+  (DATA_FORMATS 1.15) into `RoadLayout.CorridorShiftOf` (until then only `RoadLayout.WithCorridorShifts`, used by the
+  tests, sets shifts), and replace `RoadLayout.PassageKind` with `RoadStructureKind.Passage` when the data package's
+  enum lands (ENUMS_VERSION 4; the numeric value is the same).
+* **Police podiums** (integration). `RoadOptions.PolicePodiums` stays off wherever the ornaments package's
+  `RoundaboutDecorator` runs (it draws the podium, drum or umbrella of every police island); turn it on only for a
+  build without that decorator.
+* **Residual overlaps** (roads, next pass). Unconnected parallel carriageways still overlap on about 760 m of edge
+  samples over the whole sample (0.04 %), at bends where the two pieces take different fillets, and about 12 m of
+  footway centreline lies inside a carriageway (stretches too short or too close to a tile cut to absorb).
+* **Footpath colour by way** (roads / look). Paver colour (red or grey) is picked per OSM way, so a footpath changes
+  colour where a street changes way id, at a junction cap between two ways and where a mapped sidewalk is absorbed;
+  a per-street (name or corridor) choice would keep one colour along a street.

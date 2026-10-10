@@ -10,10 +10,12 @@ namespace Ghumante.Core.Meshing
     /// The vertical profile of every road piece of a tile for one height sampler (owner feedback: make roads smoother):
     /// the terrain drape along the smoothed centreline, low-passed (Gaussian over a class-dependent length) and with its
     /// grade changes capped, but held inside a band of ± <see cref="BandM"/> around the drawn terrain plus the ribbon
-    /// lift (measured at the highest point across the road, so the uphill edge is never buried), with a cross-fall
-    /// (bank) that follows the terrain's cross slope up to ± <see cref="MaxBank"/>. So the road stays on the terrain
-    /// TerrainMesher draws (no draped vertex more than <see cref="MaxBuryM"/> under the lifted terrain below it) while the
-    /// DEM steps and facet creases are ironed out.
+    /// lift at the carriageway centre, with a cross-fall (bank) that follows the terrain's cross slope: up to the
+    /// comfortable ± <see cref="MaxBank"/>, and further (up to <see cref="MaxSteepBank"/>) wherever holding that would leave
+    /// an edge more than <see cref="MaxBuryM"/> off the terrain, so a hill road hugs the hillside instead of standing on a
+    /// causeway. So the road stays on the terrain TerrainMesher draws (no draped vertex more than <see cref="MaxBuryM"/>
+    /// under the lifted terrain below it, and the centre within the band above it) while the DEM steps and facet creases
+    /// are ironed out.
     /// <para>
     /// Seams are pinned exactly: at tile-border cuts, junction-cap and ring-entry cuts and knee joins the surface fades
     /// (over <see cref="PinFadeM"/>, an analytic weight that is exactly 1 at the seam) to the sampled terrain plus the
@@ -30,11 +32,17 @@ namespace Ghumante.Core.Meshing
     /// </summary>
     public sealed class RoadGrade
     {
-        /// <summary>The smoothed profile stays within this of the lifted terrain (highest point across the road).</summary>
+        /// <summary>The smoothed profile stays within this of the banked plane through the lifted terrain across the
+        /// carriageway at its highest point (at most <see cref="MaxDishM"/> above the centre).</summary>
         public const float BandM = 0.12f;
 
         /// <summary>No draped surface vertex lies more than this under the lifted terrain below it.</summary>
         public const float MaxBuryM = 0.12f;
+
+        /// <summary>Where the terrain across the road is concave (a road along a gully), the profile rises by at most this
+        /// above the lifted terrain at the centre to keep the edges out of the ground; beyond that the per-vertex floor
+        /// lifts the low columns (a dished cross-section) instead of the whole road floating.</summary>
+        public const float MaxDishM = 0.20f;
 
         /// <summary>Station spacing of the profile along the curve.</summary>
         public const float StationM = 2f;
@@ -42,9 +50,15 @@ namespace Ghumante.Core.Meshing
         /// <summary>Length over which a pinned seam fades into the smoothed profile.</summary>
         public const float PinFadeM = 12f;
 
-        /// <summary>Largest cross-fall of the carriageway (25 %): the road leans with the terrain's cross slope (smoothed) so
-        /// it stays on the drawn terrain instead of standing on a bench above the downhill side.</summary>
+        /// <summary>Comfortable cross-fall of the carriageway (25 %): on gentle cross slopes the road leans with the terrain up
+        /// to this; where holding it would leave an edge more than <see cref="MaxBuryM"/> off the terrain (the road standing
+        /// on a causeway above the downhill side, or cut into the uphill side), the bank follows the slope further, up to
+        /// <see cref="MaxSteepBank"/>, so hill roads hug the hillside.</summary>
         public const float MaxBank = 0.25f;
+
+        /// <summary>Steepest cross-fall a road follows (45°). The terrain mesher draws the 30 m DEM's hillsides; a true bench
+        /// (cut uphill, fill downhill) needs it to cut and fill to the drawn road surface (open issue, ref_roads.md §8).</summary>
+        public const float MaxSteepBank = 1.0f;
 
         /// <summary>Road surfacing above an elevated deck's surface height (DeckY), so the two never z-fight.</summary>
         public const float DeckSurfacingM = 0.03f;
@@ -57,7 +71,7 @@ namespace Ghumante.Core.Meshing
         public const float MaxGradeChangePerM = 0.01f;
 
         /// <summary>Smoothing length of the cross-fall.</summary>
-        public const double BankSmoothingM = 10.0;
+        public const double BankSmoothingM = 6.0;
 
         private struct Pin
         {
@@ -250,6 +264,17 @@ namespace Ghumante.Core.Meshing
         {
             Piece p = _pieces[road];
             return p != null && p.Lower != null;
+        }
+
+        /// <summary>How far an underpass is lowered (metres below its draped profile) at raw along <paramref name="s"/> of
+        /// road <paramref name="road"/>; 0 where it is not (the terrain mesher must cut the terrain above a lowered
+        /// stretch: <see cref="Roads.RoadSurfaceQuery.TryCut"/>).</summary>
+        public float LoweringAt(int road, double s)
+        {
+            Piece p = road >= 0 && road < _pieces.Length ? _pieces[road] : null;
+            if (p == null || p.Lower == null) return 0f;
+            double f = p.Step > 0 ? Layout.Centres[road].ArcAt(s) / p.Step : 0;
+            return Lerp(p.Lower, p.N, f);
         }
 
         /// <summary>The ribbon lift of the piece (as <see cref="RoadMesher.LiftOf"/> with this grade's options).</summary>
@@ -465,7 +490,7 @@ namespace Ghumante.Core.Meshing
         private sealed class Scratch
         {
             public float[] Tmp = new float[0], Base = new float[0], H0 = new float[0], H1 = new float[0], H2 = new float[0], H3 = new float[0];
-            public float[] H4 = new float[0], Hl = new float[0], Hr = new float[0], Off = new float[0];
+            public float[] H4 = new float[0], Bank = new float[0], Off = new float[0];
             public double[] Kernel = new double[64];
 
             public void Ensure(int n)
@@ -479,8 +504,7 @@ namespace Ghumante.Core.Meshing
                 H2 = new float[cap];
                 H3 = new float[cap];
                 H4 = new float[cap];
-                Hl = new float[cap];
-                Hr = new float[cap];
+                Bank = new float[cap];
                 Off = new float[cap * 2];
             }
         }
@@ -498,9 +522,8 @@ namespace Ghumante.Core.Meshing
             var p = new Piece { N = n, Step = len / (n - 1), Length = len, P = new float[n], B = new float[n], Lift = RoadMesher.LiftOf(r, _o) };
             Scratch sc = _scratch ?? (_scratch = new Scratch());
             sc.Ensure(n);
-            float[] tmp = sc.Tmp, bas = sc.Base, h0 = sc.H0, h1 = sc.H1, h2 = sc.H2, h3 = sc.H3, h4 = sc.H4, hl = sc.Hl, hr = sc.Hr, offs = sc.Off;
+            float[] tmp = sc.Tmp, bas = sc.Base, h0 = sc.H0, h1 = sc.H1, h2 = sc.H2, h3 = sc.H3, h4 = sc.H4, bank = sc.Bank, offs = sc.Off;
             float lift = p.Lift;
-            bool dual = Layout.Attrs[i].Has(RoadAttrFlags.Dual);
             bool hasDeck = st.DeckY != null && st.DeckY.Length == r.PointCount;
             if (hasDeck) DeckStations(i, r, st.DeckY, p);
             if (p.AllDeck)
@@ -511,8 +534,7 @@ namespace Ghumante.Core.Meshing
                 return p;
             }
             bool synthetic = !hasDeck && (r.Flags & RoadFlags.Bridge) != 0;
-            // Terrain across the road at every station: five points over the carriageway (edges at q = ±2) and the
-            // footpaths' outer edges.
+            // Terrain across the road at every station: five points over the carriageway (edges at q = ±2).
             for (int k = 0; k < n; k++)
             {
                 double s = c.AlongAtArc(k * p.Step);
@@ -521,7 +543,7 @@ namespace Ghumante.Core.Meshing
                 double ux = -tz, uz = tx;
                 double w = prof.DrawnAt(s);
                 double half = 0.5 * w;
-                double shift = dual ? 0.5 * (w - prof.RealM) : 0.0;
+                double shift = prof.ShiftAt(s);
                 offs[2 * k] = (float)shift;
                 offs[2 * k + 1] = (float)half;
                 double xl = x + ux * (shift + half), zl = z + uz * (shift + half), xr = x + ux * (shift - half), zr = z + uz * (shift - half);
@@ -530,9 +552,6 @@ namespace Ghumante.Core.Meshing
                 h2[k] = Terrain(x + ux * shift, z + uz * shift);
                 h3[k] = Terrain(x + ux * (shift + 0.5 * half), z + uz * (shift + 0.5 * half));
                 h4[k] = Terrain(xl, zl);
-                float fl = prof.Sample(prof.FootLeft, s), fr = prof.Sample(prof.FootRight, s);
-                hl[k] = fl > 0 ? Terrain(xl + ux * fl, zl + uz * fl) - _o.KerbHeightM : float.NegativeInfinity;
-                hr[k] = fr > 0 ? Terrain(xr - ux * fr, zr - uz * fr) - _o.KerbHeightM : float.NegativeInfinity;
                 tmp[k] = (float)((h4[k] - h0[k]) / Math.Max(0.5, 2 * half));
             }
             if (synthetic)
@@ -556,21 +575,31 @@ namespace Ghumante.Core.Meshing
                 }
                 return p;
             }
-            // Cross-fall: the terrain's cross slope, smoothed and clamped.
-            Smooth(tmp, n, BankSmoothingM / p.Step, p.B, sc);
-            for (int k = 0; k < n; k++) p.B[k] = Math.Max(-MaxBank, Math.Min(MaxBank, p.B[k]));
-            // Highest point across the road relative to the bank plane through the centre.
+            // Cross-fall: the terrain's cross slope, held to the comfortable bank where that keeps both edges within
+            // MaxBuryM of the terrain, else following the slope (hill roads hug the hillside instead of standing on a
+            // causeway above it), then smoothed along the road.
+            for (int k = 0; k < n; k++)
+            {
+                float raw = tmp[k], a = Math.Abs(raw), half = Math.Max(0.25f, offs[2 * k + 1]);
+                // Up to MaxBank the bank is the slope; just above it the bank stays near MaxBank while the edges are within
+                // MaxBuryM of the terrain; on steeper hillsides it is the slope itself (smoothly: no edge more than
+                // MaxBuryM off the terrain, no kink in the bank).
+                float excess = a - MaxBank, allow = MaxBuryM / half;
+                float want = excess <= 0f ? a : excess >= allow ? a : MaxBank + excess * (float)Smoothstep(excess / allow);
+                want = Math.Min(MaxSteepBank, want);
+                bank[k] = raw < 0 ? -want : want;
+            }
+            Smooth(bank, n, BankSmoothingM / p.Step, p.B, sc);
+            // The banked plane through the terrain across the carriageway at its highest point (five points), so no
+            // column is buried, but never more than MaxDishM above the centre (a strongly concave cross-section, a road
+            // along a gully, is dished by the per-vertex floor instead of floating the whole road).
             for (int k = 0; k < n; k++)
             {
                 float b = p.B[k], shift = offs[2 * k], half = offs[2 * k + 1];
-                float best = h0[k] - (shift - half) * b;
-                best = Math.Max(best, h1[k] - (shift - 0.5f * half) * b);
-                best = Math.Max(best, h2[k] - shift * b);
-                best = Math.Max(best, h3[k] - (shift + 0.5f * half) * b);
-                best = Math.Max(best, h4[k] - (shift + half) * b);
-                if (!float.IsNegativeInfinity(hl[k])) best = Math.Max(best, hl[k] - (shift + half) * b);
-                if (!float.IsNegativeInfinity(hr[k])) best = Math.Max(best, hr[k] - (shift - half) * b);
-                bas[k] = best + lift;
+                float q0 = h0[k] - (shift - half) * b, q1 = h1[k] - (shift - 0.5f * half) * b, q2 = h2[k] - shift * b;
+                float q3 = h3[k] - (shift + 0.5f * half) * b, q4 = h4[k] - (shift + half) * b;
+                float top = Math.Max(Math.Max(q0, q1), Math.Max(q2, Math.Max(q3, q4)));
+                bas[k] = Math.Min(top, q2 + MaxDishM) + lift;
             }
             // Low-pass inside the band, then cap the grade changes (still inside the band).
             Array.Copy(bas, p.P, n);

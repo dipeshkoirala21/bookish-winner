@@ -98,6 +98,26 @@ namespace Ghumante.Core.Meshing
             RoadSweep.Tri(m, v, v + 1, v + 2, 0, 1, 0);
         }
 
+        /// <summary>As <see cref="TriAo"/> with a colour per vertex too (interpolated across the triangle).</summary>
+        public void TriAoC(double ax, double az, float aoA, uint cA, double bx, double bz, float aoB, uint cB, double cx, double cz, float aoC, uint cC,
+                           float lift, MaterialChannel ch, MeshData m)
+        {
+            float u = RoadMaterials.U(ch);
+            if (Drapes)
+            {
+                GridDrape.Triangle(_x0, _z0, _ths, new GridDrape.Vertex(ax, az, u, aoA, cA), new GridDrape.Vertex(bx, bz, u, aoB, cB),
+                                   new GridDrape.Vertex(cx, cz, u, aoC, cC), lift, true, m);
+                return;
+            }
+            float ya = Height(ax, az) + lift, yb = Height(bx, bz) + lift, yc = Height(cx, cz) + lift;
+            float nx, ny, nz;
+            Normal((ax + bx + cx) / 3, (az + bz + cz) / 3, out nx, out ny, out nz);
+            int v = m.AddVertex((float)ax, ya, (float)az, nx, ny, nz, cA, u, aoA);
+            m.AddVertex((float)bx, yb, (float)bz, nx, ny, nz, cB, u, aoB);
+            m.AddVertex((float)cx, yc, (float)cz, nx, ny, nz, cC, u, aoC);
+            RoadSweep.Tri(m, v, v + 1, v + 2, 0, 1, 0);
+        }
+
         /// <summary>An up-facing quad (a, b, c, d around its perimeter).</summary>
         public void Quad(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz, float lift, uint c, MaterialChannel ch,
                          float ao, MeshData m)

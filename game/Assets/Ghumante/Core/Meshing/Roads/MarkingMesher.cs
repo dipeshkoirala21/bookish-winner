@@ -136,7 +136,7 @@ namespace Ghumante.Core.Meshing
         {
             RoadWidthProfile prof = layout.Profiles[ri];
             double w = prof.DrawnAt(s), half = 0.5 * w;
-            double sh = layout.Attrs[ri].Has(RoadAttrFlags.Dual) ? 0.5 * (w - prof.RealM) : 0.0;
+            double sh = prof.ShiftAt(s);
             switch (kind)
             {
                 case LineKind.EdgeLeft: return sh + half - 0.1 - 0.5 * EdgeLineWidthM;

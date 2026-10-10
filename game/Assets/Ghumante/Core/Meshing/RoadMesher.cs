@@ -67,9 +67,11 @@ namespace Ghumante.Core.Meshing
         /// the sampled terrain plus the lift at every vertex (decks keep their heights).</summary>
         public bool SmoothProfile = true;
 
-        /// <summary>Draw the police podium (and umbrella) on police islands and chowks. Turn off when another generator
-        /// draws the island furniture.</summary>
-        public bool PolicePodiums = true;
+        /// <summary>Draw the police podium (and umbrella) on police islands and chowks. Off by default: the ornaments
+        /// package (RoundaboutDecorator, Centrepiece.PolicePodium) draws the podium, drum or umbrella of every police island
+        /// and chowk, and two generators at one island would overlap and z-fight. Turn on only where that decorator does
+        /// not run (the islands themselves, RoadIsland.PolicePodium, are laid out either way).</summary>
+        public bool PolicePodiums = false;
     }
 
     /// <summary>Road widths, colours and draw priority by class and surface.</summary>

@@ -344,16 +344,20 @@ namespace Ghumante.Core.Tests
                         if (layout.InGap(ri, s)) continue;
                         RoadCut c = layout.CutAt(t, ri, s);
                         RoadProfile p = layout.ProfileAt(ri, s);
+                        // The §4.2 access width (the rideability floor drawn on top of it is kept clear by the corridor
+                        // contract, below), with its dual-carriageway shift.
+                        float access = prof.AccessWidthAt(s);
+                        double half = 0.5 * access, shift = (prof.Dual ? 0.5 * (access - prof.RealM) : 0.0) + prof.CorridorShiftAt(s);
                         for (int side = -1; side <= 1; side += 2)
                         {
                             double foot = side > 0 ? p.FootpathLeftM : p.FootpathRightM;
-                            double e = c.Shift + side * (c.Half + foot - 0.1);
+                            double e = shift + side * (half + foot - 0.1);
                             samples++;
                             double bd = Math.Min(Math.Min(c.CX, c.CZ), Math.Min(t.Tile.Size - c.CX, t.Tile.Size - c.CZ));
                             int area = ((int)RoadWidthModel.AreaOf(layout.Attrs[ri]) & 7) + (bd < 35 ? 8 : 0); // + 8: seam band
                             areaSamples[area]++;
                             int b = fp.Inside(c.CX + c.UX * e, c.CZ + c.UZ * e);
-                            if (b < 0 || p.CarriagewayM <= prof.RealM + 0.01f) continue;
+                            if (b < 0 || access <= prof.RealM + 0.01f) continue;
                             double er = side * (0.5 * prof.RealM - 0.1);
                             if (fp.Inside(c.CX + c.UX * er, c.CZ + c.UZ * er) >= 0) continue; // the real road overlaps too
                             over++;
