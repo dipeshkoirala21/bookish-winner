@@ -8,6 +8,7 @@ triangle and its screen-space barycentrics, from which :mod:`meshpreview.shading
 Speed comes from bucketing triangles by the size of their pixel bounding box: every triangle of a bucket is tested
 against the same grid of pixel offsets with numpy broadcasting (no per-candidate gathers), exact sizes up to 16 px and
 powers of two above (padding is masked). Hidden-surface resolution is ``np.maximum.at`` on the flat depth buffer.
+Triangles with a bounding box over 4096 pixels are drawn one at a time over their exact box instead.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from __future__ import annotations
 import numpy as np
 
 _EXACT = 16  # bounding boxes up to this many pixels per side are bucketed by their exact size
+_BIG = 4096  # bounding boxes of more pixels are drawn one by one over their exact box (no padding)
+_GRIDS: dict = {}  # (kw, kh, W) -> pixel offset grids of a bucket
 _EPS = 1e-6  # inside test tolerance on barycentrics (pixel centres on a shared edge go to both triangles)
 
 
@@ -85,6 +88,17 @@ def rasterize(target: Target, x: np.ndarray, y: np.ndarray, q: np.ndarray, budge
     bw = (xmax - xmin).astype(np.int64) + 1
     bh = (ymax - ymin).astype(np.int64) + 1
     base = ymin.astype(np.int64) * W + xmin.astype(np.int64)
+    coef = np.stack([a0, bb0, c0, a1, bb1, c1, aq, bq, cq], axis=1).astype(np.float32)
+    covered = 0
+    big = np.flatnonzero(bw * bh > _BIG)
+    for i in big:
+        covered += _draw_one(target, coef[i], int(bw[i]), int(bh[i]), int(base[i]), int(idx[i]))
+    if big.size:
+        small = np.ones(idx.size, dtype=bool)
+        small[big] = False
+        if not small.any():
+            return covered
+        idx, bw, bh, base, coef = idx[small], bw[small], bh[small], base[small], coef[small]
     cw, ch = _class_size(bw), _class_size(bh)
     key = cw * 65536 + ch
     order = np.argsort(key, kind="stable")
@@ -93,20 +107,13 @@ def rasterize(target: Target, x: np.ndarray, y: np.ndarray, q: np.ndarray, budge
     starts = np.concatenate(([0], bounds))
     ends = np.concatenate((bounds, [skey.size]))
 
-    coef = np.stack([a0, bb0, c0, a1, bb1, c1, aq, bq, cq], axis=1).astype(np.float32)
-    covered = 0
     for s, e in zip(starts, ends):
         members = order[s:e]
         k = int(skey[s])
         kw, kh = k // 65536, k % 65536
         npx = kw * kh
-        lx = np.tile(np.arange(kw, dtype=np.float32), kh)[None, :]
-        ly = np.repeat(np.arange(kh, dtype=np.float32), kw)[None, :]
-        off = (np.repeat(np.arange(kh, dtype=np.int64), kw) * W + np.tile(np.arange(kw, dtype=np.int64), kh))
+        lx, ly, off, lxi, lyi = _grid(kw, kh, W)
         padded = kw > _EXACT or kh > _EXACT
-        if padded:
-            lxi = np.tile(np.arange(kw, dtype=np.int64), kh)[None, :]
-            lyi = np.repeat(np.arange(kh, dtype=np.int64), kw)[None, :]
         step = max(1, budget // npx)
         for m0 in range(0, members.size, step):
             mem = members[m0:m0 + step]
@@ -132,4 +139,47 @@ def rasterize(target: Target, x: np.ndarray, y: np.ndarray, q: np.ndarray, budge
             target.tri[p] = idx[mem[ii[chosen]]]
             target.b0[p] = b0[inside][chosen]
             target.b1[p] = b1[inside][chosen]
+    return covered
+
+
+def _grid(kw: int, kh: int, W: int):
+    """Cached offset grids of a kw x kh bucket in a W-wide target: float x, y (1, n), flat offsets (n,), int x, y."""
+    key = (kw, kh, W)
+    g = _GRIDS.get(key)
+    if g is None:
+        if len(_GRIDS) > 4096:
+            _GRIDS.clear()
+        xi = np.tile(np.arange(kw, dtype=np.int64), kh)
+        yi = np.repeat(np.arange(kh, dtype=np.int64), kw)
+        g = (xi.astype(np.float32)[None, :], yi.astype(np.float32)[None, :], yi * W + xi, xi[None, :], yi[None, :])
+        _GRIDS[key] = g
+    return g
+
+
+def _draw_one(target: Target, c: np.ndarray, bw: int, bh: int, base: int, tri: int) -> int:
+    """Draw one large triangle over its exact bounding box (rows in bands to bound memory)."""
+    W = target.width
+    xs = np.arange(bw, dtype=np.float32)[None, :]
+    xo = np.arange(bw, dtype=np.int64)[None, :]
+    covered = 0
+    band = max(1, (1 << 20) // bw)
+    for r0 in range(0, bh, band):
+        ys = np.arange(r0, min(bh, r0 + band), dtype=np.float32)[:, None]
+        b0 = c[0] * xs + c[1] * ys + c[2]
+        b1 = c[3] * xs + c[4] * ys + c[5]
+        inside = (b0 >= -_EPS) & (b1 >= -_EPS) & (b0 + b1 <= 1.0 + _EPS)
+        if not inside.any():
+            continue
+        qq = (c[6] * xs + c[7] * ys + c[8])[inside]
+        pix = (base + ys.astype(np.int64) * W + xo)[inside]
+        covered += pix.size
+        better = qq > target.q[pix]
+        if not better.any():
+            continue
+        p = pix[better]
+        target.q[p] = qq[better]
+        if target.ids:
+            target.tri[p] = tri
+            target.b0[p] = b0[inside][better]
+            target.b1[p] = b1[inside][better]
     return covered
