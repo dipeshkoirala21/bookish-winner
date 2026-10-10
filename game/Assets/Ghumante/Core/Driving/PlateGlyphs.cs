@@ -59,7 +59,8 @@ namespace Ghumante.Core.Driving
             d['९'] = Concat(Poly(3, 3.2f, 2, 4.6f, 1, 3.6f, 2, 2.6f, 3, 3.2f), Seg(3, 3.2f, 2.4f, 0.4f));
             // Letters with the headline and (most) a right stem.
             float[] head = Seg(0, 5.6f, 4, 5.6f), stem = Seg(3.3f, 5.6f, 3.3f, 0.4f);
-            d['ब'] = Concat(head, stem, Poly(0.8f, 5.6f, 0.8f, 3, 1.8f, 2, 3.3f, 2));
+            // ब: the loop with its inner diagonal (प below has no diagonal).
+            d['ब'] = Concat(head, stem, Poly(0.8f, 5.6f, 0.8f, 3, 1.6f, 2.1f, 3.3f, 2.1f), Seg(0.9f, 4.6f, 2.5f, 2.4f));
             d['ा'] = Concat(Seg(0, 5.6f, 1.6f, 5.6f), Seg(1.2f, 5.6f, 1.2f, 0.4f)); // ा
             d['प'] = Concat(head, stem, Poly(0.8f, 5.6f, 0.8f, 2.6f, 3.3f, 2.6f));
             d['क'] = Concat(head, Seg(2, 5.6f, 2, 0.4f), Poly(0.7f, 3.6f, 2, 2.6f, 3.3f, 3.4f, 2.6f, 4.2f, 2, 3.2f));

@@ -20,8 +20,9 @@ namespace Ghumante.Traffic
     /// Draws and voices the street traffic of the open world (W2_DESIGN 5.1-5.2, 10.3 "presenters only read
     /// snapshots"): every <see cref="AgentPose"/> of <see cref="LifeHost.Vehicles"/> nearest first under the tier's
     /// LOD0 / LOD1 / LOD2 caps (0 / 1 / 6, 1 / 6 / 16, 3 / 10 / 20), with Track B's procedural bodies from
-    /// <see cref="VehicleMeshCache"/> (LOD0 with its own plate number from the agent id, LOD1 and LOD2 shared and
-    /// instanced), spinning wheels on LOD0 and LOD1, lean, pitch and roll from the pose; the parked vehicles of the
+    /// <see cref="VehicleMeshCache"/> (the model type and the LOD0 plate number from the agent id, LOD1 and LOD2 shared
+    /// and instanced per model type), spinning wheels of the socket's style on LOD0 and LOD1, lean, pitch and roll from
+    /// the pose; the parked vehicles of the
     /// visible tiles (moving LOD2 to 20 m, block-out to 80 m, box to 150 m under the tier caps); live engine voices for
     /// the nearest agents (<see cref="ISoundService.OpenEngine"/>, seeded by the agent id so an agent sounds the same all
     /// its life), air-brake hisses when buses and trucks stop, and the sim's horns. Attached to every
@@ -55,7 +56,9 @@ namespace Ghumante.Traffic
 
         private sealed class AgentState
         {
-            public float Speed, Spin, UniqueIdleS;
+            /// <summary>Metres rolled since the agent appeared: each wheel turns by it over its own radius.</summary>
+            public double Odometer;
+            public float Speed, UniqueIdleS;
             public IEngineSound Engine;
             public Mesh Unique;
             public bool AtStop, Seen;
@@ -226,8 +229,10 @@ namespace Ghumante.Traffic
                 int variant = Mathf.Clamp(a.Variant, 0, VehicleCatalog.Count - 1);
                 VehicleCatalogEntry e = VehicleCatalog.At(variant);
                 WheelSocket[] wheels = _wheels[variant];
-                float r = wheels.Length > 0 ? Mathf.Max(0.1f, wheels[0].Radius) : 0.3f;
-                st.Spin = Mathf.Repeat(st.Spin + a.SpeedMps * dt / r * Mathf.Rad2Deg, 360f);
+                st.Odometer += a.SpeedMps * dt;
+                // The model type follows the agent id, the same seed that numbers its LOD0 plate, so the shape holds
+                // across levels.
+                byte model = VehicleMesher.ModelFor(variant, (uint)a.AgentId);
                 Vector3 p = Scene(a, origin, age);
                 Matrix4x4 m = Matrix4x4.TRS(p, Quaternion.Euler(-a.Pitch * Mathf.Rad2Deg, a.HeadingRad * Mathf.Rad2Deg, -(a.Roll + a.Lean) * Mathf.Rad2Deg), Vector3.one);
                 bool rider = VehicleClasses.IsTwoWheel(a.Class) || a.Class == VehicleClass.Rickshaw;
@@ -237,19 +242,19 @@ namespace Ghumante.Traffic
                     _drawn++;
                     if (level == 0)
                     {
-                        if (st.Unique == null) st.Unique = _cache.CreateUnique(variant, a.Livery, VehicleLod.Lod0, (uint)a.AgentId, rider);
+                        if (st.Unique == null) st.Unique = _cache.CreateUnique(variant, a.Livery, model, VehicleLod.Lod0, (uint)a.AgentId, rider);
                         st.UniqueIdleS = 0f;
                         var rp = new RenderParams(_material) { shadowCastingMode = ShadowCastingMode.On, receiveShadows = true, worldBounds = new Bounds(p, new Vector3(30f, 10f, 30f)) };
                         Graphics.RenderMesh(rp, st.Unique, 0, m);
                         _tris += (int)(st.Unique.GetIndexCount(0) / 3);
-                        Wheels(wheels, m, st.Spin, VehicleLod.Lod0);
+                        Wheels(wheels, m, st.Odometer, VehicleLod.Lod0);
                     }
                     else
                     {
                         IdleUnique(st, dt);
                         VehicleLod lod = level == 1 ? VehicleLod.Lod1 : VehicleLod.Lod2;
-                        Batch(variant, a.Livery, lod, rider, false).Add(m);
-                        if (level == 1) Wheels(wheels, m, st.Spin, VehicleLod.Lod1);
+                        Batch(variant, a.Livery, model, lod, rider, false).Add(m);
+                        if (level == 1) Wheels(wheels, m, st.Odometer, VehicleLod.Lod1);
                     }
                 }
                 else IdleUnique(st, dt);
@@ -289,13 +294,16 @@ namespace Ghumante.Traffic
             }
         }
 
-        private void Wheels(WheelSocket[] wheels, in Matrix4x4 body, float spinDeg, VehicleLod lod)
+        /// <summary>Instances the wheels of a body, each turned by the distance rolled over its own radius (a tractor's
+        /// small front wheels spin faster than its big rear ones).</summary>
+        private void Wheels(WheelSocket[] wheels, in Matrix4x4 body, double odometerM, VehicleLod lod)
         {
             for (int w = 0; w < wheels.Length; w++)
             {
                 WheelSocket s = wheels[w];
+                float spinDeg = (float)((odometerM / Math.Max(0.1, s.Radius) * (180.0 / Math.PI)) % 360.0);
                 Matrix4x4 m = body * Matrix4x4.TRS(new Vector3(s.X, s.Y, s.Z), Quaternion.Euler(spinDeg, 0f, 0f), Vector3.one);
-                WheelBatch(s.Radius, s.Width, lod).Add(m);
+                WheelBatch(s, lod).Add(m);
             }
         }
 
@@ -322,12 +330,14 @@ namespace Ghumante.Traffic
             return new Vector3((float)(a.X - origin.X) + Mathf.Sin(a.HeadingRad) * ahead, a.Y - origin.Y, (float)(a.Z - origin.Z) + Mathf.Cos(a.HeadingRad) * ahead);
         }
 
-        private InstanceBatch Batch(int variant, byte livery, VehicleLod lod, bool rider, bool parked)
+        private InstanceBatch Batch(int variant, byte livery, byte model, VehicleLod lod, bool rider, bool parked)
         {
-            ulong key = ((ulong)(uint)variant << 40) | ((ulong)livery << 32) | (parked ? 0x80000000UL : 0UL) | ((ulong)lod << 8) | (rider ? 1UL : 0UL);
+            if (lod >= VehicleLod.Block) model = 0; // the block-out and the box have no model types
+            ulong key = ((ulong)(uint)variant << 40) | ((ulong)livery << 32) | (parked ? 0x80000000UL : 0UL) | ((ulong)model << 16) | ((ulong)lod << 8) |
+                        (rider ? 1UL : 0UL);
             InstanceBatch b;
             if (_batches.TryGetValue(key, out b)) return b;
-            Mesh mesh = _cache.Body(variant, livery, lod, rider);
+            Mesh mesh = _cache.Body(variant, livery, model, lod, rider);
             b = new InstanceBatch(mesh, _material, (int)(mesh.GetIndexCount(0) / 3), false)
             {
                 Shadows = lod <= VehicleLod.Lod1 ? ShadowCastingMode.On : ShadowCastingMode.Off,
@@ -336,12 +346,13 @@ namespace Ghumante.Traffic
             return b;
         }
 
-        private InstanceBatch WheelBatch(float radius, float width, VehicleLod lod)
+        private InstanceBatch WheelBatch(in WheelSocket s, VehicleLod lod)
         {
-            ulong key = (1UL << 62) | ((ulong)(uint)Mathf.RoundToInt(radius * 100f) << 32) | ((ulong)(uint)Mathf.RoundToInt(width * 100f) << 8) | (byte)lod;
+            ulong key = (1UL << 62) | ((ulong)(byte)s.Style << 48) | ((ulong)(uint)Mathf.RoundToInt(s.Radius * 100f) << 32) |
+                        ((ulong)(uint)Mathf.RoundToInt(s.Width * 100f) << 8) | (byte)lod;
             InstanceBatch b;
             if (_batches.TryGetValue(key, out b)) return b;
-            Mesh wheel = _cache.Wheel(radius, width, lod);
+            Mesh wheel = _cache.Wheel(s, lod);
             b = new InstanceBatch(wheel, _material, (int)(wheel.GetIndexCount(0) / 3), false);
             _batches.Add(key, b);
             return b;
@@ -394,10 +405,18 @@ namespace Ghumante.Traffic
                 ParkedVehicle pv = _parked[i];
                 VehicleLod lod = level == 0 ? VehicleLod.Lod2 : level == 1 ? VehicleLod.Block : VehicleLod.Box;
                 Matrix4x4 body = Matrix4x4.TRS(_parkedAt[i], Quaternion.Euler(0f, pv.YawDeg, 0f), Vector3.one);
-                Batch(pv.Variant, pv.Livery, lod, false, true).Add(body);
+                Batch(pv.Variant, pv.Livery, ParkedModel(pv), lod, false, true).Add(body);
                 if (pv.CommunityFleet && level <= 1) FleetTag(pv.Variant, body);
                 _parkedDrawn++;
             }
+        }
+
+        /// <summary>The model type a parked vehicle is drawn as: the one its borrowed copy gets, whose plate seed the
+        /// explorer derives from the parked id (ExplorerController, <c>CharMath.Hash(id, 0x464C54)</c>), so a borrowed
+        /// fleet bike keeps its shape.</summary>
+        private static byte ParkedModel(in ParkedVehicle pv)
+        {
+            return VehicleMesher.ModelFor(pv.Variant, Core.Characters.CharMath.Hash(pv.Id, 0x464C54u));
         }
 
         /// <summary>The green key tag of a community-fleet vehicle (the one DrivenVehicleView hangs on a borrowed
