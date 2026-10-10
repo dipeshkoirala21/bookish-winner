@@ -1,6 +1,8 @@
 using System;
 using Ghumante.Core.Characters;
 using Ghumante.Core.Meshing;
+using Ghumante.World;
+using Ghumante.World.Instancing;
 using UnityEngine;
 using UnityEngine.Rendering;
 using SkinWeights = Ghumante.Core.Characters.SkinWeights;
@@ -8,14 +10,17 @@ using SkinWeights = Ghumante.Core.Characters.SkinWeights;
 namespace Ghumante.Characters.Avatar
 {
     /// <summary>
-    /// The player's cartoon body (W2_DESIGN 6.1): the <see cref="HumanoidMesher"/> mesh of a <see cref="CharacterRecipe"/>
-    /// skinned to the 37-bone <c>hum</c> rig in one <see cref="SkinnedMeshRenderer"/> (one draw call), drawn with the
-    /// <c>Ghumante/ToonLit</c> material (vertex colours, no alpha). Two meshes are built once per wardrobe: one with the
-    /// recipe's headwear and one with the helmet, swapped on every two-wheeler mount (<see cref="Helmet"/>). Each frame
-    /// <see cref="Apply"/> copies the engine-free <see cref="CharacterPoser"/>'s local rotations, hips offset and squash
-    /// onto the bone transforms; nothing allocates per frame. A soft cream ground ring (opaque, Ø 0.9 m) shows under the
-    /// player while standing, so the player reads apart from the crowd. Model axes: +Z forward, +Y up, origin on the
-    /// ground between the feet.
+    /// The player's cartoon body (W2_DESIGN 6.1, docs/research/w2/ref_characters.md): the LOD0 <see cref="HumanoidMesher"/>
+    /// mesh (on Low devices the light LOD0, <see cref="CrowdLodPlan.PlayerLight"/>) of a <see cref="CharacterRecipe"/> (sculpted face, five-finger hands, shoes, the dhaka topi's weave) skinned to
+    /// the 37-bone <c>hum</c> rig in one <see cref="SkinnedMeshRenderer"/> (one draw call), drawn with the
+    /// <c>Ghumante/ToonLit</c> material (vertex colours, UV0 = material channel and baked AO, no alpha). Two meshes are
+    /// built once per wardrobe: one with the recipe's headwear and one with the helmet, swapped on every two-wheeler
+    /// mount (<see cref="Helmet"/>). Both carry the face states as blend shapes (neutral, joy, wince-laugh, puff, calm and
+    /// the blink; P §2.8): the avatar blinks every 2.5–5.5 s on its own, puffs after 4 s of running, and shows
+    /// <see cref="Expression"/> otherwise. Each frame <see cref="Apply"/> copies the engine-free
+    /// <see cref="CharacterPoser"/>'s local rotations, hips offset and squash onto the bone transforms; nothing allocates
+    /// per frame. A soft cream ground ring (opaque, Ø 0.9 m) shows under the player while standing, so the player reads
+    /// apart from the crowd. Model axes: +Z forward, +Y up, origin on the ground between the feet.
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("")]
@@ -33,6 +38,18 @@ namespace Ghumante.Characters.Avatar
         private HumanoidSkeleton _skeleton;
         private CharacterRecipe _recipe;
         private bool _helmet;
+
+        /// <summary>Blend shapes in this order: the face states after the base smile, then the blink.</summary>
+        private static readonly FaceExpression[] Shapes =
+        {
+            FaceExpression.Neutral, FaceExpression.Joy, FaceExpression.WinceLaugh, FaceExpression.Puff, FaceExpression.Calm,
+        };
+
+        private readonly float[] _shapeWeight = new float[6];
+        private FaceExpression _expression = FaceExpression.Smile;
+        private float _blinkAt = 3f, _blinkT = -1f, _clock, _runFor;
+        private bool _hasShapes;
+        private uint _blinkSeed = 17u;
 
         public static PlayerAvatar Create(Transform parent, Material material, CharacterRecipe recipe)
         {
@@ -72,6 +89,14 @@ namespace Ghumante.Characters.Avatar
             }
         }
 
+        /// <summary>The face the avatar shows between blinks (the controller sets joy on a discovery, calm in temples).
+        /// Running for more than 4 s puffs on its own.</summary>
+        public FaceExpression Expression
+        {
+            get { return _expression; }
+            set { _expression = value; }
+        }
+
         /// <summary>Shows the cream ground ring (standing still in a crowd).</summary>
         public bool RingVisible
         {
@@ -86,7 +111,7 @@ namespace Ghumante.Characters.Avatar
         {
             if (recipe == null) return;
             if (_recipe != null && _recipe.Equals(recipe)) return;
-            bool rebuildBones = _recipe == null || _recipe.Build != recipe.Build;
+            bool rebuildBones = _recipe == null || !_recipe.SameSkeleton(recipe);
             _recipe = recipe.Clone().Validate();
             if (rebuildBones)
             {
@@ -126,12 +151,47 @@ namespace Ghumante.Characters.Avatar
             float s = poser.Squash;
             float side = 1f / Mathf.Sqrt(Mathf.Max(0.1f, s));
             _squash.localScale = new Vector3(side, s, side);
+            Face(Time.deltaTime, poser.Running);
+        }
+
+        /// <summary>Blinks, puffs and eases the blend shapes toward the current expression.</summary>
+        private void Face(float dt, bool running)
+        {
+            if (!_hasShapes || _renderer == null) return;
+            dt = Mathf.Clamp(dt, 0f, 0.1f);
+            _clock += dt;
+            _runFor = running ? _runFor + dt : 0f;
+            FaceExpression e = _runFor > 4f ? FaceExpression.Puff : _expression;
+            float ease = 1f - Mathf.Exp(-dt / 0.12f);
+            for (int i = 0; i < Shapes.Length; i++)
+            {
+                float target = Shapes[i] == e ? 100f : 0f;
+                _shapeWeight[i] += (target - _shapeWeight[i]) * ease;
+            }
+            // Blink every 2.5–5.5 s for 0.1 s, a double blink one time in five (P §2.8).
+            float blink = 0f;
+            if (_blinkT < 0f && _clock >= _blinkAt) _blinkT = 0f;
+            if (_blinkT >= 0f)
+            {
+                _blinkT += dt;
+                float u = _blinkT / 0.1f;
+                blink = u < 1f ? Mathf.Sin(u * Mathf.PI) * 100f : 0f;
+                if (u >= 1f)
+                {
+                    _blinkT = -1f;
+                    _blinkSeed = CharMath.Hash(_blinkSeed, 0xB1u);
+                    bool twice = CharMath.Unit(_blinkSeed) < 0.2f;
+                    _blinkAt = _clock + (twice ? 0.15f : 2.5f + 3f * CharMath.Unit(CharMath.Hash(_blinkSeed, 2u)));
+                }
+            }
+            _shapeWeight[5] = blink;
+            for (int i = 0; i < _shapeWeight.Length; i++) _renderer.SetBlendShapeWeight(i, _shapeWeight[i]);
         }
 
         private void Build(Material material, CharacterRecipe recipe)
         {
             _recipe = recipe.Clone().Validate();
-            _skeleton = new HumanoidSkeleton(_recipe.Build);
+            _skeleton = new HumanoidSkeleton(_recipe);
             _bones = new Transform[HumanoidSkeleton.BoneCount];
             _bones[0] = transform;
             for (int i = 1; i < HumanoidSkeleton.BoneCount; i++)
@@ -161,61 +221,57 @@ namespace Ghumante.Characters.Avatar
 
         private void BuildMeshes()
         {
-            var m = new MeshData(8192, 24576);
-            var w = new SkinWeights(8192);
-            HumanoidMesher.Build(_recipe, 0, m, w, HeadwearMode.Outfit);
-            _outfitMesh = Upload(m, w, _skeleton, "Player " + _recipe.Name);
-            m.Clear();
-            w.Clear();
-            HumanoidMesher.Build(_recipe, 0, m, w, HeadwearMode.Helmet);
-            _helmetMesh = Upload(m, w, _skeleton, "Player " + _recipe.Name + " (helmet)");
+            _outfitMesh = BuildMesh(HeadwearMode.Outfit, "Player " + _recipe.Name);
+            _helmetMesh = BuildMesh(HeadwearMode.Helmet, "Player " + _recipe.Name + " (helmet)");
             _renderer.sharedMesh = _helmet ? _helmetMesh : _outfitMesh;
         }
 
-        /// <summary>A skinned mesh from MeshData and SkinWeights; bind poses are the inverse bone translations (the rig's
-        /// bind rotations are identity).</summary>
+        /// <summary>The device tier the player's mesh is built for: the open world's (<see cref="WorldRoot.Tier"/>), else
+        /// the active quality level (Bootstrap sets it from the detected tier).</summary>
+        private static int DeviceTierLevel()
+        {
+            WorldRoot world = WorldRoot.Active;
+            if (world != null) return (int)world.Tier;
+            return Mathf.Clamp(QualitySettings.GetQualityLevel(), 0, 2);
+        }
+
+        /// <summary>The player's build options on this device: the full LOD0, or on Low devices the light LOD0 (the face,
+        /// five-finger hands and topi of LOD0 on a LOD1 body, ≤ 7 k triangles), which leaves the nearest NPC its LOD1
+        /// inside the 21 k character slice (<see cref="CrowdLodPlan.PlayerLight"/>).</summary>
+        private static CharacterMeshOptions PlayerOptions(HeadwearMode headwear)
+        {
+            CharacterMeshOptions o = CharacterMeshOptions.For(headwear);
+            o.Light = CrowdLodPlan.PlayerLight(DeviceTierLevel());
+            return o;
+        }
+
+        /// <summary>The LOD0 mesh with its face blend shapes (same topology in every face state).</summary>
+        private Mesh BuildMesh(HeadwearMode headwear, string name)
+        {
+            var m = new MeshData(12288, 36864);
+            var w = new SkinWeights(12288);
+            int lod = CrowdLodPlan.PlayerLod(DeviceTierLevel());
+            HumanoidMesher.Build(_recipe, lod, m, w, PlayerOptions(headwear));
+            Mesh mesh = Upload(m, w, _skeleton, name);
+            _hasShapes = true;
+            var target = new MeshData(m.VertexCount + 16, m.IndexCount + 16);
+            for (int i = 0; i <= Shapes.Length; i++)
+            {
+                target.Clear();
+                CharacterMeshOptions o = PlayerOptions(headwear);
+                o.Face = i < Shapes.Length ? new FaceState(Shapes[i]) : new FaceState(FaceExpression.Smile, 1f);
+                o.SkipAo = true;
+                HumanoidMesher.Build(_recipe, lod, target, null, o);
+                string shape = i < Shapes.Length ? Shapes[i].ToString() : "Blink";
+                if (!CharacterMeshes.AddBlendShape(mesh, shape, m, target)) _hasShapes = false;
+            }
+            return mesh;
+        }
+
+        /// <summary>A skinned mesh from MeshData and SkinWeights (see <see cref="CharacterMeshes.UploadSkinned"/>).</summary>
         public static Mesh Upload(MeshData m, SkinWeights w, HumanoidSkeleton skeleton, string name)
         {
-            if (m == null) throw new ArgumentNullException(nameof(m));
-            int n = m.VertexCount;
-            var vertices = new Vector3[n];
-            var normals = new Vector3[n];
-            var colours = new Color32[n];
-            for (int i = 0; i < n; i++)
-            {
-                vertices[i] = new Vector3(m.Positions[i * 3], m.Positions[i * 3 + 1], m.Positions[i * 3 + 2]);
-                normals[i] = new Vector3(m.Normals[i * 3], m.Normals[i * 3 + 1], m.Normals[i * 3 + 2]);
-                colours[i] = new Color32(m.Colors[i * 4], m.Colors[i * 4 + 1], m.Colors[i * 4 + 2], m.Colors[i * 4 + 3]);
-            }
-            var triangles = new int[m.IndexCount];
-            Array.Copy(m.Indices, triangles, m.IndexCount);
-            var mesh = new Mesh { name = name };
-            mesh.indexFormat = n > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
-            mesh.vertices = vertices;
-            mesh.normals = normals;
-            mesh.colors32 = colours;
-            mesh.triangles = triangles;
-            if (w != null && skeleton != null)
-            {
-                var weights = new BoneWeight[n];
-                for (int i = 0; i < n && i < w.Count; i++)
-                {
-                    weights[i] = new BoneWeight
-                    {
-                        boneIndex0 = w.Bone0[i], weight0 = w.Weight0[i], boneIndex1 = w.Bone1[i], weight1 = 1f - w.Weight0[i],
-                    };
-                }
-                mesh.boneWeights = weights;
-                var bindposes = new Matrix4x4[HumanoidSkeleton.BoneCount];
-                for (int b = 0; b < bindposes.Length; b++)
-                {
-                    V3 p = skeleton.BindPosition[b];
-                    bindposes[b] = Matrix4x4.Translate(new Vector3(-p.X, -p.Y, -p.Z));
-                }
-                mesh.bindposes = bindposes;
-            }
-            mesh.RecalculateBounds();
-            return mesh;
+            return CharacterMeshes.UploadSkinned(m, w, skeleton, name);
         }
 
         private void BuildRing(Material material)

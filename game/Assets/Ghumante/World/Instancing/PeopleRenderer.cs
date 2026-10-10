@@ -1,213 +1,559 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Traffic;
 using Ghumante.World.Rendering;
-using Ghumante.World.Streaming;
 using UnityEngine;
 using UnityEngine.Rendering;
+using SkinWeights = Ghumante.Core.Characters.SkinWeights;
 
 namespace Ghumante.World.Instancing
 {
-    /// <summary>Clothing palettes of the crowd by archetype (W2_DESIGN 5.4, street_life §3.3), as instanced tints.</summary>
-    public static class PersonPalette
+    /// <summary>
+    /// Unity meshes from Core's character meshes: a skinned mesh (positions, normals, colours, UV0 = material channel and
+    /// baked AO, two bone weights, bind poses as inverse bone translations since the <c>hum</c> bind rotations are
+    /// identity) and blend shapes from same-topology targets (the player's face states). Shared by the player avatar and
+    /// the crowd. Main thread.
+    /// </summary>
+    public static class CharacterMeshes
     {
-        private static readonly uint[] Casual = { 0x2F6FD6, 0xD93A2B, 0xF2F0E8, 0x3FA35C, 0xF2C230, 0x6B4E9A, 0x2E3440, 0xE07A57 };
-        private static readonly uint[] Kurta = { 0xE23B2A, 0xF49AC1, 0xF6A21B, 0x8E24AA, 0x2E9E4F, 0xFFD95A, 0xC2185B };
-        private static readonly uint[] Daura = { 0xF1E3BE, 0xE9E4D4, 0xD8C9A8 };
-        private static readonly uint[] Haku = { 0x1E1E1E, 0x7A1F1F };
-        private static readonly uint[] School = { 0x7FC8F8, 0xF7F6F0, 0x1F3A93 };
-        private static readonly uint[] Porter = { 0x8B6B4A, 0x5A3E2B, 0x6E6E70 };
-        private static readonly uint[] Tourist = { 0xC9B27A, 0x3CC9C0, 0xF59A3B, 0xE8483A, 0x9FE2B8 };
-        private static readonly uint[] Monk = { 0x7A1F1F, 0x8E2525 };
-        private static readonly uint[] Sadhu = { 0xE07B1A, 0xF0A030 };
-        private static readonly uint[] Farmer = { 0x7A6A4A, 0x9C9A94, 0xB86A4A };
-        private static readonly uint[] Police = { 0x1F3A93 };
-        private static readonly uint[] Trousers = { 0x2E3440, 0x1F3A5F, 0x4A3B30, 0x5C5C5C, 0x26324A };
-
-        public static uint Clothes(PedArchetype a, int tint)
+        public static Mesh UploadSkinned(MeshData m, SkinWeights w, HumanoidSkeleton skeleton, string name)
         {
-            uint[] p;
-            switch (a)
-            {
-                case PedArchetype.KurtaSari: p = Kurta; break;
-                case PedArchetype.DauraSuruwal: p = Daura; break;
-                case PedArchetype.Hakupatasi: p = Haku; break;
-                case PedArchetype.SchoolKid: p = School; break;
-                case PedArchetype.Porter: p = Porter; break;
-                case PedArchetype.Vendor: p = Casual; break;
-                case PedArchetype.Tourist: p = Tourist; break;
-                case PedArchetype.Monk: p = Monk; break;
-                case PedArchetype.Sadhu: p = Sadhu; break;
-                case PedArchetype.Farmer: p = Farmer; break;
-                case PedArchetype.TrafficPolice: p = Police; break;
-                default: p = Casual; break;
-            }
-            return p[(tint & 0x7FFFFFFF) % p.Length];
+            return UploadSkinned(m, w, skeleton, name, null);
         }
 
-        /// <summary>Lower-body colour: a sari, robe or daura continues the top; others wear trousers.</summary>
-        public static uint Lower(PedArchetype a, int tint)
+        /// <summary>As <see cref="UploadSkinned(MeshData, SkinWeights, HumanoidSkeleton, string)"/> with the vertex colours
+        /// taken from <paramref name="rgba"/> (one RGBA per vertex, e.g. a crowd look recoloured by
+        /// <see cref="CrowdVariants.Recolour"/>) instead of the mesh's own; null uses the mesh's.</summary>
+        public static Mesh UploadSkinned(MeshData m, SkinWeights w, HumanoidSkeleton skeleton, string name, byte[] rgba)
         {
-            switch (a)
+            if (m == null) throw new ArgumentNullException(nameof(m));
+            int n = m.VertexCount;
+            byte[] c = rgba != null && rgba.Length >= n * 4 ? rgba : m.Colors;
+            var vertices = new Vector3[n];
+            var normals = new Vector3[n];
+            var colours = new Color32[n];
+            for (int i = 0; i < n; i++)
             {
-                case PedArchetype.KurtaSari:
-                case PedArchetype.DauraSuruwal:
-                case PedArchetype.Monk:
-                case PedArchetype.Sadhu:
-                case PedArchetype.Hakupatasi:
-                    return Clothes(a, tint);
-                case PedArchetype.TrafficPolice:
-                    return 0x1F3A93;
-                default:
-                    return Trousers[((tint >> 3) & 0x7FFFFFFF) % Trousers.Length];
+                vertices[i] = new Vector3(m.Positions[i * 3], m.Positions[i * 3 + 1], m.Positions[i * 3 + 2]);
+                normals[i] = new Vector3(m.Normals[i * 3], m.Normals[i * 3 + 1], m.Normals[i * 3 + 2]);
+                colours[i] = new Color32(c[i * 4], c[i * 4 + 1], c[i * 4 + 2], c[i * 4 + 3]);
             }
+            var triangles = new int[m.IndexCount];
+            Array.Copy(m.Indices, triangles, m.IndexCount);
+            var mesh = new Mesh { name = name };
+            mesh.indexFormat = n > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
+            mesh.vertices = vertices;
+            mesh.normals = normals;
+            mesh.colors32 = colours;
+            if (m.HasUv0)
+            {
+                var uv = new Vector2[n];
+                for (int i = 0; i < n; i++) uv[i] = new Vector2(m.Uv0[i * 2], m.Uv0[i * 2 + 1]);
+                mesh.uv = uv;
+            }
+            mesh.triangles = triangles;
+            if (w != null && skeleton != null)
+            {
+                var weights = new BoneWeight[n];
+                for (int i = 0; i < n && i < w.Count; i++)
+                    weights[i] = new BoneWeight { boneIndex0 = w.Bone0[i], weight0 = w.Weight0[i], boneIndex1 = w.Bone1[i], weight1 = 1f - w.Weight0[i] };
+                mesh.boneWeights = weights;
+                var bindposes = new Matrix4x4[HumanoidSkeleton.BoneCount];
+                for (int b = 0; b < bindposes.Length; b++)
+                {
+                    V3 p = skeleton.BindPosition[b];
+                    bindposes[b] = Matrix4x4.Translate(new Vector3(-p.X, -p.Y, -p.Z));
+                }
+                mesh.bindposes = bindposes;
+            }
+            mesh.RecalculateBounds();
+            return mesh;
         }
 
-        /// <summary>Headgear of the person meshes: 0 none, 1 dhaka topi, 2 police cap, 3 monk.</summary>
-        public static int Headgear(PedArchetype a, int tint)
+        /// <summary>Adds <paramref name="target"/> (same topology as <paramref name="basis"/>) as a one-frame blend shape.
+        /// Returns false (nothing added) when the vertex counts differ.</summary>
+        public static bool AddBlendShape(Mesh mesh, string name, MeshData basis, MeshData target)
         {
-            switch (a)
+            if (mesh == null || basis == null || target == null || basis.VertexCount != target.VertexCount || mesh.vertexCount != basis.VertexCount) return false;
+            int n = basis.VertexCount;
+            var dv = new Vector3[n];
+            var dn = new Vector3[n];
+            for (int i = 0; i < n; i++)
             {
-                case PedArchetype.DauraSuruwal: return 1;
-                case PedArchetype.Farmer: return (tint & 3) == 0 ? 1 : 0;
-                case PedArchetype.TrafficPolice: return 2;
-                case PedArchetype.Monk: return 3;
-                default: return 0;
+                int k = i * 3;
+                dv[i] = new Vector3(target.Positions[k] - basis.Positions[k], target.Positions[k + 1] - basis.Positions[k + 1], target.Positions[k + 2] - basis.Positions[k + 2]);
+                dn[i] = new Vector3(target.Normals[k] - basis.Normals[k], target.Normals[k + 1] - basis.Normals[k + 1], target.Normals[k + 2] - basis.Normals[k + 2]);
             }
+            mesh.AddBlendShapeFrame(name, 100f, dv, dn, null);
+            return true;
+        }
+
+        /// <summary>A static mesh (the far crowd's baked frames) with UV0.</summary>
+        public static Mesh UploadStatic(MeshData m, string name)
+        {
+            return Streaming.MeshUpload.CreateWhole(m, name);
         }
     }
 
     /// <summary>
-    /// Instanced rigid-part people for the crowd and the traffic officers (W2_DESIGN 5.4 representation: near people as
-    /// animated parts at LOD0 / LOD1 with their carry prop (doko, sack, gas cylinder, baby, umbrella), far people as a
-    /// single block-out with a walking bob, standing in for the VAT body until Track D's HumanoidMesher bakes one; open
-    /// issue against the 10.3 contract, see World/README.md). Every part is one shared mesh drawn with
-    /// <see cref="InstanceBatch"/>; clothes and trousers are per-instance tints. Call <see cref="Begin"/>, then
-    /// <see cref="Add"/> per person, then <see cref="End"/>, once per frame. Main thread only.
+    /// Draws the crowd with the same generator as the player (W2_DESIGN 5.4 and 10.3, docs/research/w2/ref_characters.md):
+    /// every person is a look of <see cref="CrowdVariants"/> (one of 12 body shapes of its archetype, place and carry
+    /// prop, in one of 16 garment colours from its sim tint). Each shape is built by <see cref="HumanoidMesher"/> on a
+    /// worker thread with the garment tint mask (<see cref="CrowdVariants.Options"/>) and kept engine-free. Near and mid
+    /// people are <see cref="SkinnedMeshRenderer"/>s from a fixed pool posed with <see cref="CrowdPoser"/> (LOD0, LOD1 or
+    /// LOD2 by <see cref="CrowdLodPlan"/>), each showing its shape's mesh recoloured to its own garment colour
+    /// (<see cref="CrowdVariants.Recolour"/>, uploaded once per look and level, a few per frame). Far people draw the baked
+    /// poses of the same shape at the far level (<see cref="CrowdBaker"/>: six walk phases, standing, sitting, palms
+    /// together, arm up) with <see cref="InstanceBatch"/> and the same garment colour as an instance tint, so a person
+    /// looks the same in every band while the far crowd shares one batch per shape and frame. While a body is still
+    /// building, a person falls back to a coarser ready level. Call <see cref="Begin"/>, then <see cref="Add"/> per
+    /// person, then <see cref="End"/>, once per frame. Main thread only (the worker threads touch only engine-free data).
     /// </summary>
     public sealed class PeopleRenderer : IDisposable
     {
-        private const int Headgears = 4;
-        private readonly InstanceBatch[,] _body = new InstanceBatch[2, Headgears];
-        private readonly InstanceBatch[] _legL = new InstanceBatch[2], _legR = new InstanceBatch[2], _armL = new InstanceBatch[2], _armR = new InstanceBatch[2];
-        private readonly InstanceBatch[] _far = new InstanceBatch[Headgears];
-        private readonly InstanceBatch[,] _carry = new InstanceBatch[2, KitMeshes.CarryProps];
-        private readonly InstanceBatch[] _all;
+        /// <summary>Skinned mesh uploads per frame (each is one character mesh).</summary>
+        public const int UploadsPerFrame = 2;
 
-        public PeopleRenderer(WorldMaterialSet materials)
+        /// <summary>Far frames baked per frame (a far-level body skinned on the CPU, about 0.05 ms each).</summary>
+        public const int BakesPerFrame = 4;
+
+        /// <summary>Build slots per shape: skinned LOD0..2 and the far level (<see cref="HumanoidMesher.FarLod"/>).</summary>
+        private const int Levels = 4, FarSlot = 3;
+
+        private sealed class Body
         {
-            Material mat = materials.instancedTint;
-            var m = new MeshData(512, 1536);
-            for (int lod = 0; lod < 2; lod++)
-            {
-                for (int h = 0; h < Headgears; h++) _body[lod, h] = Make(KitMeshes.PersonPart.Body, lod, h, mat, m, lod == 0);
-                _legL[lod] = Make(KitMeshes.PersonPart.LegLeft, lod, 0, mat, m, lod == 0);
-                _legR[lod] = Make(KitMeshes.PersonPart.LegRight, lod, 0, mat, m, lod == 0);
-                _armL[lod] = Make(KitMeshes.PersonPart.ArmLeft, lod, 0, mat, m, lod == 0);
-                _armR[lod] = Make(KitMeshes.PersonPart.ArmRight, lod, 0, mat, m, lod == 0);
-            }
-            for (int h = 0; h < Headgears; h++) _far[h] = Make(KitMeshes.PersonPart.Body, 2, h, mat, m, false);
-            for (int lod = 0; lod < 2; lod++)
-                for (int c = 1; c < KitMeshes.CarryProps; c++)
-                {
-                    m.Clear();
-                    int tris = KitMeshes.Carry(c, lod, m);
-                    _carry[lod, c] = new InstanceBatch(MeshUpload.CreateWhole(m, "person_carry_" + c + "_" + lod), mat, tris, true)
-                    {
-                        Shadows = lod == 0 ? ShadowCastingMode.On : ShadowCastingMode.Off,
-                    };
-                }
-            _all = new InstanceBatch[2 * Headgears + 8 + Headgears + 2 * (KitMeshes.CarryProps - 1)];
-            int k = 0;
-            foreach (InstanceBatch b in _body) _all[k++] = b;
-            for (int lod = 0; lod < 2; lod++)
-            {
-                _all[k++] = _legL[lod];
-                _all[k++] = _legR[lod];
-                _all[k++] = _armL[lod];
-                _all[k++] = _armR[lod];
-            }
-            for (int h = 0; h < Headgears; h++) _all[k++] = _far[h];
-            for (int lod = 0; lod < 2; lod++)
-                for (int c = 1; c < KitMeshes.CarryProps; c++) _all[k++] = _carry[lod, c];
+            public int Key;
+            public CharacterRecipe Recipe;
+            public HumanoidSkeleton Skeleton;
+            public CrowdHold Hold;
+
+            /// <summary>The garment colour of each look colour (0 = the shape has one colour only), as tints, and the look
+            /// that shows it first (identical looks share one skinned mesh).</summary>
+            public readonly uint[] Colour = new uint[CrowdVariants.Colours];
+            public readonly Vector4[] TintOf = new Vector4[CrowdVariants.Colours];
+            public readonly int[] LookOf = new int[CrowdVariants.Colours];
+            public bool Tinted;
+
+            // Tint-masked builds (kept while the body lives, for further looks and far bakes).
+            public readonly bool[] Queued = new bool[Levels];
+            public readonly MeshData[] Data = new MeshData[Levels];
+            public readonly SkinWeights[] Weights = new SkinWeights[Levels];
+
+            // Skinned meshes per look colour and level, and their triangles per level.
+            public readonly Mesh[] Looks = new Mesh[CrowdVariants.Colours * 3];
+            public readonly int[] Tris = new int[3];
+            public int LastUsed;
+
+            // Far: the baked frames of this shape and their batches (tinted per instance).
+            public readonly InstanceBatch[] Frames = new InstanceBatch[CrowdVariants.FrameCount];
         }
 
-        private static InstanceBatch Make(KitMeshes.PersonPart part, int lod, int headgear, Material mat, MeshData m, bool shadows)
+        private sealed class Npc
         {
-            m.Clear();
-            int tris = KitMeshes.Person(part, lod, headgear, m);
-            return new InstanceBatch(MeshUpload.CreateWhole(m, "person_" + part + "_" + lod + "_" + headgear), mat, tris, true)
-            {
-                Shadows = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off,
-            };
+            public GameObject Go;
+            public Transform[] Bones;
+            public SkinnedMeshRenderer Renderer;
+            public Body Body;
+            public Mesh Mesh;
+            public bool Active;
         }
 
-        /// <summary>People and triangles submitted since <see cref="Begin"/>.</summary>
+        private struct Job
+        {
+            public Body Body;
+            public int Slot;
+        }
+
+        private struct Result
+        {
+            public Body Body;
+            public int Slot;
+            public MeshData Mesh;
+            public SkinWeights Weights;
+        }
+
+        private readonly Material _skinnedMaterial, _farMaterial;
+        private readonly int _tier, _keep;
+        private readonly Dictionary<int, Body> _bodies = new Dictionary<int, Body>();
+        private readonly Npc[] _pool;
+        private readonly ConcurrentQueue<Job> _jobs = new ConcurrentQueue<Job>();
+        private readonly ConcurrentQueue<Result> _results = new ConcurrentQueue<Result>();
+        private readonly List<InstanceBatch> _used = new List<InstanceBatch>(64);
+        private readonly HashSet<InstanceBatch> _usedSet = new HashSet<InstanceBatch>();
+        private readonly List<int> _evict = new List<int>();
+        private readonly Quat[] _local = new Quat[HumanoidSkeleton.BoneCount];
+        private readonly CrowdBaker _baker = new CrowdBaker();
+        private readonly MeshData _bakeScratch = new MeshData(2048, 6144);
+        private byte[] _rgba = new byte[4096 * 4];
+        private readonly Transform _root;
+        private int _poolUsed, _frame, _workers, _uploads, _bakes;
+        private Bounds _bounds;
+        private bool _disposed;
+
+        /// <summary>Most worker builds in flight.</summary>
+        private const int MaxWorkers = 2;
+
+        public PeopleRenderer(WorldMaterialSet materials, Transform parent, int tier)
+        {
+            if (materials == null) throw new ArgumentNullException(nameof(materials));
+            _skinnedMaterial = materials.instanced;
+            _farMaterial = materials.instancedTint != null ? materials.instancedTint : materials.instanced;
+            _tier = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
+            int[] caps = CrowdLodPlan.Caps[_tier];
+            // Every drawn person may show a different shape: keep at least the shapes of full bands, plus some slack.
+            _keep = caps[0] + caps[1] + caps[2] + 16;
+            var holder = new GameObject("Crowd");
+            if (parent != null) holder.transform.SetParent(parent, false);
+            _root = holder.transform;
+            _pool = new Npc[caps[0] + caps[1] + 2];
+            for (int i = 0; i < _pool.Length; i++) _pool[i] = MakeNpc(i);
+        }
+
+        /// <summary>People and triangles submitted since <see cref="Begin"/>, and draw calls.</summary>
         public int People { get; private set; }
 
         public int Tris { get; private set; }
 
         public int Draws { get; private set; }
 
+        /// <summary>Body shapes alive (for the debug HUD).</summary>
+        public int BodyCount
+        {
+            get { return _bodies.Count; }
+        }
+
+        /// <summary>The hand prop of look <paramref name="key"/> (its umbrella or prayer wheel), for posing it before
+        /// <see cref="Add"/>: the walk then raises the hand that carries it.</summary>
+        public CrowdHold HoldOf(int key)
+        {
+            return BodyFor(CrowdVariants.ShapeKey(key)).Hold;
+        }
+
+        private Npc MakeNpc(int index)
+        {
+            var go = new GameObject("Crowd NPC " + index);
+            go.transform.SetParent(_root, false);
+            var bones = new Transform[HumanoidSkeleton.BoneCount];
+            bones[0] = go.transform;
+            for (int i = 1; i < bones.Length; i++)
+            {
+                var b = new GameObject(HumanoidSkeleton.Names[i]);
+                b.transform.SetParent(bones[HumanoidSkeleton.Parent[i]], false);
+                bones[i] = b.transform;
+            }
+            var holder = new GameObject("Body");
+            holder.transform.SetParent(go.transform, false);
+            SkinnedMeshRenderer r = holder.AddComponent<SkinnedMeshRenderer>();
+            r.sharedMaterial = _skinnedMaterial;
+            r.bones = bones;
+            r.rootBone = bones[(int)Bone.Hips];
+            r.updateWhenOffscreen = false;
+            r.quality = SkinQuality.Bone2;
+            r.localBounds = new Bounds(new Vector3(0f, 0.2f, 0f), new Vector3(2.4f, 2.6f, 2.4f));
+            go.SetActive(false);
+            return new Npc { Go = go, Bones = bones, Renderer = r };
+        }
+
         public void Begin(Vector3 cameraScene)
         {
-            var bounds = new Bounds(cameraScene, new Vector3(1000f, 600f, 1000f));
-            foreach (InstanceBatch b in _all)
-            {
-                b.ResetCounters();
-                b.WorldBounds = bounds;
-            }
+            _frame++;
+            _bounds = new Bounds(cameraScene, new Vector3(1000f, 600f, 1000f));
             People = 0;
+            Tris = 0;
+            Draws = 0;
+            _poolUsed = 0;
+            _uploads = 0;
+            _bakes = 0;
+            for (int i = 0; i < _used.Count; i++) _used[i].ResetCounters();
+            _used.Clear();
+            _usedSet.Clear();
+            Collect();
         }
 
-        /// <summary>One person at scene position <paramref name="p"/> facing <paramref name="headingDeg"/> (clockwise
-        /// from north); <paramref name="lod"/> 0 / 1 animated parts, 2 the far block-out. <paramref name="carry"/> is the
-        /// pose's carry prop (<see cref="KitMeshes.Carry"/>; 0 none), drawn at LOD0 and LOD1 on the torso.</summary>
-        public void Add(Vector3 p, float headingDeg, in PersonPose pose, uint clothes, uint lower, int headgear, int lod, int carry = 0)
+        /// <summary>
+        /// One person at scene position <paramref name="p"/> facing <paramref name="headingDeg"/> (clockwise from north):
+        /// look <paramref name="key"/> (<see cref="CrowdVariants.KeyOf"/>) in <paramref name="band"/> (0 near, 1 mid,
+        /// 2 far) at <paramref name="rank"/> within the band (0 = nearest); <paramref name="walkPhase"/> picks the far
+        /// frame of a walk (<see cref="CrowdAnimation.WalkPhase"/>). Pose the person with <see cref="HoldOf"/>.
+        /// </summary>
+        public void Add(Vector3 p, float headingDeg, in PersonPose pose, int key, int band, int rank, PedClip clip, double walkPhase)
         {
-            headgear = Mathf.Clamp(headgear, 0, Headgears - 1);
-            Vector4 top = Tint.Hex(clothes), bottom = Tint.Hex(lower);
-            Matrix4x4 root = Matrix4x4.TRS(p + new Vector3(0f, pose.BobM - pose.DropM, 0f), Quaternion.Euler(0f, headingDeg, 0f), Vector3.one);
+            Body body = BodyFor(CrowdVariants.ShapeKey(key));
+            body.LastUsed = _frame;
+            int colour = body.LookOf[CrowdVariants.ColourOf(key)];
             People++;
-            if (lod >= 2)
+            Quaternion rot = Quaternion.Euler(0f, headingDeg, 0f);
+            if (CrowdLodPlan.Skinned(band) && _poolUsed < _pool.Length)
             {
-                _far[headgear].Add(root, top);
-                return;
+                int want = CrowdLodPlan.MeshLod(_tier, band, rank);
+                int lod = Ready(body, colour, want);
+                if (lod >= 0)
+                {
+                    Skinned(_pool[_poolUsed++], body, colour, lod, p, rot, pose, band == 0);
+                    return;
+                }
             }
-            // Bow about the hip.
-            Matrix4x4 body = root * Matrix4x4.Translate(new Vector3(0f, KitMeshes.HipY, 0f)) * Matrix4x4.Rotate(Quaternion.Euler(pose.LeanDeg, 0f, 0f)) *
-                             Matrix4x4.Translate(new Vector3(0f, -KitMeshes.HipY, 0f));
-            _body[lod, headgear].Add(body, top);
-            if (carry > 0 && carry < KitMeshes.CarryProps) _carry[lod, carry].Add(body, top);
-            _legL[lod].Add(Limb(root, -KitMeshes.HipX, KitMeshes.HipY, pose.LegLeft, 0f), bottom);
-            _legR[lod].Add(Limb(root, KitMeshes.HipX, KitMeshes.HipY, pose.LegRight, 0f), bottom);
-            _armL[lod].Add(Limb(body, -KitMeshes.ShoulderX, KitMeshes.ShoulderY, pose.ArmLeft, -pose.ArmOutLeft), top);
-            _armR[lod].Add(Limb(body, KitMeshes.ShoulderX, KitMeshes.ShoulderY, pose.ArmRight, pose.ArmOutRight), top);
-        }
-
-        /// <summary>A limb pivoting at (x, y): forward swing about X, sideways raise about Z.</summary>
-        private static Matrix4x4 Limb(in Matrix4x4 parent, float x, float y, float forwardDeg, float outDeg)
-        {
-            return parent * Matrix4x4.Translate(new Vector3(x, y, 0f)) * Matrix4x4.Rotate(Quaternion.Euler(-forwardDeg, 0f, outDeg)) *
-                   Matrix4x4.Translate(new Vector3(-x, 0f, 0f));
+            Far(body, colour, p, rot, clip, walkPhase);
         }
 
         public void End()
         {
-            int tris = 0, draws = 0;
-            foreach (InstanceBatch b in _all)
+            for (int i = 0; i < _used.Count; i++)
             {
+                InstanceBatch b = _used[i];
                 b.Flush();
-                tris += b.Tris;
-                draws += b.Draws;
+                Tris += b.Tris;
+                Draws += b.Draws;
             }
-            Tris = tris;
-            Draws = draws;
+            for (int i = _poolUsed; i < _pool.Length; i++)
+            {
+                Npc n = _pool[i];
+                if (n.Active)
+                {
+                    n.Go.SetActive(false);
+                    n.Active = false;
+                }
+            }
+            Pump();
+            if ((_frame & 63) == 0) Evict();
+        }
+
+        // ----- Bodies and building -----------------------------------------------------------------------------------
+
+        private Body BodyFor(int shapeKey)
+        {
+            if (_bodies.TryGetValue(shapeKey, out Body b)) return b;
+            CharacterRecipe r = CrowdVariants.Recipe(shapeKey);
+            b = new Body { Key = shapeKey, Recipe = r, Skeleton = new HumanoidSkeleton(r), Hold = CrowdVariants.HoldOf(r) };
+            b.Tinted = HumanoidMesher.TintKeyOf(r) != 0;
+            for (int c = 0; c < CrowdVariants.Colours; c++)
+            {
+                b.Colour[c] = CrowdVariants.GarmentColour(r, c);
+                b.TintOf[c] = b.Colour[c] != 0 ? Tint.Hex(b.Colour[c]) : Vector4.one;
+                b.LookOf[c] = CrowdVariants.CanonicalColour(r, c);
+            }
+            _bodies.Add(shapeKey, b);
+            return b;
+        }
+
+        /// <summary>The level to draw a look at: the wanted one when ready, else the nearest ready coarser or finer one
+        /// (the build is queued); −1 when none is ready yet.</summary>
+        private int Ready(Body b, int colour, int want)
+        {
+            if (SkinnedMesh(b, colour, want) != null) return want;
+            Queue(b, want);
+            for (int l = want + 1; l <= 2; l++)
+                if (SkinnedMesh(b, colour, l) != null) return l;
+            for (int l = want - 1; l >= 0; l--)
+                if (SkinnedMesh(b, colour, l) != null) return l;
+            if (want != 2) Queue(b, 2);
+            return -1;
+        }
+
+        /// <summary>The skinned mesh of a look at a level, uploading it (the shape's build recoloured) within the frame's
+        /// upload budget; null when the shape is not built yet or the budget is spent.</summary>
+        private Mesh SkinnedMesh(Body b, int colour, int lod)
+        {
+            int slot = colour * 3 + lod;
+            if (b.Looks[slot] != null) return b.Looks[slot];
+            MeshData data = b.Data[lod];
+            if (data == null || _uploads >= UploadsPerFrame) return null;
+            _uploads++;
+            byte[] rgba = null;
+            if (b.Tinted)
+            {
+                if (_rgba.Length < data.VertexCount * 4) _rgba = new byte[data.VertexCount * 4 + 4096];
+                CrowdVariants.Recolour(data, b.Colour[colour], _rgba);
+                rgba = _rgba;
+            }
+            b.Looks[slot] = CharacterMeshes.UploadSkinned(data, b.Weights[lod], b.Skeleton, "crowd_" + b.Key.ToString("X") + "_c" + colour + "_lod" + lod, rgba);
+            b.Tris[lod] = data.TriangleCount;
+            return b.Looks[slot];
+        }
+
+        private void Queue(Body b, int slot)
+        {
+            if (b.Queued[slot]) return;
+            b.Queued[slot] = true;
+            _jobs.Enqueue(new Job { Body = b, Slot = slot });
+            Pump();
+        }
+
+        /// <summary>Starts worker builds while there are jobs and free workers.</summary>
+        private void Pump()
+        {
+            while (_workers < MaxWorkers && _jobs.TryDequeue(out Job job))
+            {
+                Interlocked.Increment(ref _workers);
+                Job j = job;
+                ThreadPool.QueueUserWorkItem(_ => Work(j));
+            }
+        }
+
+        private void Work(Job j)
+        {
+            try
+            {
+                if (_disposed) return;
+                var m = new MeshData(j.Slot == 0 ? 12288 : 4096, j.Slot == 0 ? 36864 : 12288);
+                var w = new SkinWeights(m.VertexCapacity);
+                int lod = j.Slot == FarSlot ? HumanoidMesher.FarLod : j.Slot;
+                HumanoidMesher.Build(j.Body.Recipe, lod, m, w, CrowdVariants.Options(j.Body.Recipe));
+                _results.Enqueue(new Result { Body = j.Body, Slot = j.Slot, Mesh = m, Weights = w });
+            }
+            catch (Exception)
+            {
+                // A failed body stays unbuilt; the person keeps a coarser level or the far frame.
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _workers);
+            }
+        }
+
+        /// <summary>Takes finished builds (uploads happen when a look is first drawn, a few per frame).</summary>
+        private void Collect()
+        {
+            while (_results.TryDequeue(out Result res))
+            {
+                Body b = res.Body;
+                if (!_bodies.TryGetValue(b.Key, out Body live) || !ReferenceEquals(live, b)) continue; // evicted meanwhile
+                b.Data[res.Slot] = res.Mesh;
+                b.Weights[res.Slot] = res.Weights;
+            }
+        }
+
+        // ----- Drawing -----------------------------------------------------------------------------------------------
+
+        private void Skinned(Npc n, Body body, int colour, int lod, Vector3 p, Quaternion rot, in PersonPose pose, bool shadows)
+        {
+            if (n.Body != body)
+            {
+                // A new body: its bones take the body's bind pose (age, build and figure change the skeleton).
+                V3[] bind = body.Skeleton.BindLocal;
+                for (int i = 1; i < n.Bones.Length; i++) n.Bones[i].localPosition = new Vector3(bind[i].X, bind[i].Y, bind[i].Z);
+                n.Body = body;
+                n.Mesh = null;
+            }
+            Mesh mesh = body.Looks[colour * 3 + lod];
+            if (n.Mesh != mesh)
+            {
+                n.Renderer.sharedMesh = mesh;
+                n.Mesh = mesh;
+            }
+            n.Renderer.shadowCastingMode = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
+            if (!n.Active)
+            {
+                n.Go.SetActive(true);
+                n.Active = true;
+            }
+            n.Go.transform.SetPositionAndRotation(p, rot);
+            CrowdPose cp = pose.Body;
+            cp.Hold = body.Hold;
+            CrowdPoser.Solve(cp, body.Skeleton, _local, out V3 hips);
+            for (int i = 2; i < n.Bones.Length; i++)
+            {
+                Quat q = _local[i];
+                n.Bones[i].localRotation = new Quaternion(q.X, q.Y, q.Z, q.W);
+            }
+            V3 bh = body.Skeleton.BindLocal[(int)Bone.Hips];
+            n.Bones[(int)Bone.Hips].localPosition = new Vector3(bh.X + hips.X, bh.Y + hips.Y, bh.Z + hips.Z);
+            Tris += body.Tris[lod];
+            Draws++;
+        }
+
+        /// <summary>A far person: the baked frame of their shape at the far level with their garment colour as the
+        /// instance tint (baked on first use, a few per frame; until then another baked frame of the same shape stands
+        /// in).</summary>
+        private void Far(Body body, int colour, Vector3 p, Quaternion rot, PedClip clip, double walkPhase)
+        {
+            MeshData far = body.Data[FarSlot];
+            if (far == null)
+            {
+                Queue(body, FarSlot);
+                return;
+            }
+            FarFrame f = CrowdVariants.FrameOf(clip, walkPhase);
+            InstanceBatch batch = body.Frames[(int)f];
+            if (batch == null && _bakes < BakesPerFrame)
+            {
+                _bakes++;
+                MeshData baked = _bakeScratch;
+                baked.Clear();
+                _baker.Bake(far, body.Weights[FarSlot], body.Skeleton, CrowdVariants.FramePose(f, body.Hold), baked);
+                Mesh mesh = CharacterMeshes.UploadStatic(baked, "crowd_far_" + body.Key.ToString("X") + "_" + f);
+                batch = new InstanceBatch(mesh, _farMaterial, baked.TriangleCount, true) { Shadows = ShadowCastingMode.Off };
+                body.Frames[(int)f] = batch;
+            }
+            if (batch == null)
+            {
+                // Over the bake budget: any frame of the same shape (a walker keeps walking, a sitter waits a frame).
+                for (int k = 0; k < body.Frames.Length && batch == null; k++) batch = body.Frames[((int)f + k) % body.Frames.Length];
+                if (batch == null) return;
+            }
+            batch.WorldBounds = _bounds;
+            if (_usedSet.Add(batch)) _used.Add(batch);
+            batch.Add(Matrix4x4.TRS(p, rot, Vector3.one), body.TintOf[colour]);
+        }
+
+        /// <summary>Drops shapes unused for a while (a few seconds), beyond the working set of full bands.</summary>
+        private void Evict()
+        {
+            if (_bodies.Count <= _keep) return;
+            _evict.Clear();
+            foreach (KeyValuePair<int, Body> kv in _bodies)
+                if (_frame - kv.Value.LastUsed > 300 && !InPool(kv.Value)) _evict.Add(kv.Key);
+            for (int i = 0; i < _evict.Count; i++)
+            {
+                Body b = _bodies[_evict[i]];
+                Destroy(b);
+                _bodies.Remove(_evict[i]);
+            }
+        }
+
+        private bool InPool(Body b)
+        {
+            for (int i = 0; i < _pool.Length; i++)
+                if (_pool[i].Body == b) return true;
+            return false;
+        }
+
+        private static void Destroy(Body b)
+        {
+            for (int i = 0; i < b.Looks.Length; i++)
+            {
+                Kill(b.Looks[i]);
+                b.Looks[i] = null;
+            }
+            for (int l = 0; l < Levels; l++)
+            {
+                b.Data[l] = null;
+                b.Weights[l] = null;
+            }
+            for (int f = 0; f < b.Frames.Length; f++)
+            {
+                if (b.Frames[f] != null) b.Frames[f].DestroyMesh();
+                b.Frames[f] = null;
+            }
+        }
+
+        private static void Kill(UnityEngine.Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) UnityEngine.Object.Destroy(o);
+            else UnityEngine.Object.DestroyImmediate(o);
         }
 
         public void Dispose()
         {
-            foreach (InstanceBatch b in _all) b.DestroyMesh();
+            _disposed = true;
+            foreach (KeyValuePair<int, Body> kv in _bodies) Destroy(kv.Value);
+            _bodies.Clear();
+            if (_root != null) Kill(_root.gameObject);
         }
     }
 }
