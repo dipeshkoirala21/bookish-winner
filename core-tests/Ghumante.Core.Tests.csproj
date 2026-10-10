@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Include="../game/Assets/Ghumante/Core/**/*.cs" LinkBase="Core" />
     <Compile Include="*.cs" />
+    <Compile Include="Support/*.cs" />
   </ItemGroup>
 
   <ItemGroup>
