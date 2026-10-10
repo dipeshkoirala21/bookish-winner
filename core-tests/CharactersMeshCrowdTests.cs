@@ -493,8 +493,9 @@ namespace Ghumante.Core.Tests
         [Test]
         public void SadhusAndRedSarisWalkAtPashupati()
         {
-            // Sadhus at Pashupati (ref_characters.md §5): some of the men walking there are dressed as sadhus, nobody
-            // elsewhere; women pilgrims wear red and maroon saris more than anywhere else; most pilgrims carry a tika.
+            // Sadhus at Pashupati (ref_characters.md §5) come from the sim's spawn row (PedestrianSim.SadhuWeightPashupati),
+            // so the recipe never re-dresses other men as sadhus (that would double the share); a sadhu archetype is dressed
+            // as one; women pilgrims wear red and maroon saris more than anywhere else; most pilgrims carry a tika.
             int sadhus = 0, elsewhere = 0, men = 0, red = 0, saris = 0, tika = 0, pilgrims = 0;
             for (uint seed = 1; seed <= 400; seed++)
             {
@@ -520,8 +521,14 @@ namespace Ghumante.Core.Tests
                 }
             }
             TestContext.WriteLine(sadhus + " sadhus of " + men + " men; " + red + " red of " + saris + " saris; tika on " + tika + " of " + pilgrims);
-            Assert.That(sadhus, Is.InRange(men * 6 / 100, men * 20 / 100));
+            Assert.That(sadhus, Is.EqualTo(0), "only the sim's sadhu row draws sadhus");
             Assert.That(elsewhere, Is.EqualTo(0));
+            for (uint seed = 1; seed <= 40; seed++)
+            {
+                CharacterRecipe sadhu = CharacterRecipe.ForPedestrian(PedArchetype.Sadhu, (int)seed, seed, StreetStyle.Pashupati, 0);
+                Assert.That(sadhu.Hair == CharacterRecipe.HairDreadlocks && sadhu[OutfitSlotKind.Torso].Item == OutfitItem.Robe, Is.True,
+                    "a sadhu at Pashupati wears saffron robes and jata");
+            }
             Assert.That(saris, Is.GreaterThan(400 * 6 / 10));
             Assert.That(red, Is.GreaterThan(saris / 2));
             Assert.That(tika, Is.GreaterThan(pilgrims / 2));

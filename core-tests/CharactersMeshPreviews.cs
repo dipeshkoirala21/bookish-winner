@@ -175,15 +175,14 @@ namespace Ghumante.Core.Tests
                 for (int i = 0; i < line.Count; i++) Append(all, Mesh(line[i], lod, HeadwearMode.Outfit, FaceState.Default), (i - line.Count * 0.5f) * 0.9f);
                 Write(Path.Combine(root, "lineup_lod" + lod + ".obj"), all);
             }
-            // Pashupati: pilgrims and the sadhus among them.
+            // Pashupati: three sadhus (the sim's sadhu row) and the pilgrims round them.
             var pash = new MeshData(65536, 196608) { HasUv0 = true };
             int placed = 0;
             for (uint seed = 1; seed < 80 && placed < 8; seed++)
             {
-                PedArchetype a = seed % 3 == 0 ? PedArchetype.KurtaSari : seed % 3 == 1 ? PedArchetype.DauraSuruwal : PedArchetype.UrbanCasual;
+                PedArchetype a = placed < 3 ? PedArchetype.Sadhu
+                    : seed % 3 == 0 ? PedArchetype.KurtaSari : seed % 3 == 1 ? PedArchetype.DauraSuruwal : PedArchetype.UrbanCasual;
                 CharacterRecipe r = CharacterRecipe.ForPedestrian(a, (int)seed, seed, StreetStyle.Pashupati, 0);
-                bool sadhu = r.Hair == CharacterRecipe.HairDreadlocks;
-                if (placed < 3 ? !sadhu : sadhu && placed > 4) continue;
                 Append(pash, Mesh(r, 0, HeadwearMode.Outfit, FaceState.Default), (placed++ - 3.5f) * 0.9f);
             }
             Write(Path.Combine(root, "pashupati.obj"), pash);

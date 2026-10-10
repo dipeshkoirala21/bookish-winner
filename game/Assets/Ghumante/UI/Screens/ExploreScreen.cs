@@ -586,6 +586,7 @@ namespace Ghumante.UI.Screens
             if (key == _hornKey) return;
             _hornKey = key;
             _hornLabel.text = Localizer.Get(key);
+            if (_horn != null) _horn.tooltip = Localizer.Get(key); // hover name matches the label ("Bell" on a bicycle)
         }
 
         /// <summary>Shows the small "Ride as passenger" button (a passenger seat is offered).</summary>
@@ -1010,7 +1011,7 @@ namespace Ghumante.UI.Screens
             if (_brake != null) _brake.tooltip = Localizer.Get("hud.brake_reverse");
             if (_passenger != null) _passenger.tooltip = Localizer.Get("hud.ride_passenger");
             if (_emote != null) _emote.tooltip = Localizer.Get("hud.namaste");
-            if (_horn != null) _horn.tooltip = Localizer.Get("hud.horn");
+            if (_horn != null) _horn.tooltip = Localizer.Get(_hornKey ?? "hud.horn");
             if (_bell != null) _bell.tooltip = Localizer.Get("hud.bell");
             ApplyActionText();
             ApplyPromptText();

@@ -144,8 +144,11 @@ namespace Ghumante.App.Explore
         private RoutePlanner _planner;
         private PlaceNamer _namer;
 
-        // Places the banner has named this session: a new one is a discovery (the player's face lights up).
-        private readonly HashSet<NameRecord> _seenPlaces = new HashSet<NameRecord>();
+        // Places the banner has named this session, by feature (PlaceNamer.CurrentKey, not by name text: two temples
+        // called "Ganesh Mandir" are two discoveries): a new one is a discovery (the player's face lights up).
+        private readonly HashSet<long> _seenPlaces = new HashSet<long>();
+        // The next place named is where the player arrived (the spawn, a teleport), not one they found: seen, no reaction.
+        private bool _quietNextPlace = true;
         private RouteGuide _guide;
         private SearchEntry _destination;
         private bool _blockedLastFrame;
@@ -278,6 +281,7 @@ namespace Ghumante.App.Explore
             _planner = null;
             _namer = null;
             _seenPlaces.Clear();
+            _quietNextPlace = true;
             _guide = null;
             _destination = null;
             if (_screen != null) Unwire();
@@ -372,6 +376,7 @@ namespace Ghumante.App.Explore
                 _planner = planner;
                 _spawn = spawn;
                 _namer = new PlaceNamer(search != null ? search.Index : null);
+                _quietNextPlace = true; // the spawn's own place is not a discovery
                 bool nepali = _localizer.Locale == Localizer.Nepali;
                 string place = spawn.Place != null ? spawn.Place.Display(nepali) : (nepali && !string.IsNullOrEmpty(manifest.NameNe) ? manifest.NameNe : manifest.NameEn);
                 _screen.ShowLoading("explore.loading.streets", place);
@@ -565,7 +570,7 @@ namespace Ghumante.App.Explore
             if (_placeTimer <= 0f)
             {
                 _placeTimer = PlaceInterval;
-                if (_namer != null && _namer.Update(_world.GroundQuery, position.X, position.Z)) OnPlaceChanged(_namer.Current);
+                if (_namer != null && _namer.Update(_world.GroundQuery, position.X, position.Z)) OnPlaceChanged(_namer.Current, _namer.CurrentKey);
             }
             UpdateRoute(dt, position);
             _screen.SetDebugClock(_world.TimeOfDayHours);
@@ -703,14 +708,15 @@ namespace Ghumante.App.Explore
             return _world != null ? _world.GroundQuery : null;
         }
 
-        /// <summary>The place banner changed: show it, and a place not named before this session (not the spawn's own)
-        /// is a discovery the player's face reacts to.</summary>
-        private void OnPlaceChanged(NameRecord place)
+        /// <summary>The place banner changed: show it, and a place not named before this session (not the spawn's own,
+        /// not the first one named after a teleport) is a discovery the player's face reacts to.</summary>
+        private void OnPlaceChanged(NameRecord place, long key)
         {
             _screen.SetPlace(place);
-            if (place == null || place.IsEmpty) return;
-            bool first = _seenPlaces.Count == 0;
-            if (!_seenPlaces.Add(place) || first) return;
+            if (place == null || place.IsEmpty || key == 0) return;
+            bool quiet = _quietNextPlace;
+            _quietNextPlace = false;
+            if (!_seenPlaces.Add(key) || quiet) return;
             _explorer.ReactFace(MoodCue.Discovery);
             // A short "Discovered: …" toast, at most one per DiscoveryToastGapS so a dense bazaar does not chatter.
             float now = Time.unscaledTime;
@@ -1131,6 +1137,7 @@ namespace Ghumante.App.Explore
             _explorer.Teleport(spawn.X, spawn.Z, spawn.HeadingRad, spawn.HeightHint);
             _rig.Snap();
             if (_namer != null) _namer.Reset();
+            _quietNextPlace = true; // the teleport's destination is not a discovery (the teleport has its own toast)
             _placeTimer = 0f;
             _screen.SetPlace(null);
             string name = entry.Name.Display(_localizer.Locale == Localizer.Nepali);

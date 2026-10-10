@@ -121,6 +121,8 @@ namespace Ghumante.Characters.Rides
                 WheelSocket w = _sockets[i];
                 float spin = (float)(pose.OdometerM / Math.Max(0.1f, w.Radius)) * rad2Deg;
                 float steer = w.Steers ? pose.SteerRad * rad2Deg : 0f;
+                // Left wheels are mirrored across their pivot's YZ plane (scale −1 on X), which commutes with a turn about X:
+                // they roll with the same spin as the right ones.
                 _wheels[i].localRotation = Quaternion.Euler(0f, steer, 0f) * Quaternion.Euler(spin % 360f, 0f, 0f);
             }
         }
@@ -149,11 +151,22 @@ namespace Ghumante.Characters.Rides
                 var pivot = new GameObject("Wheel " + i).transform;
                 pivot.SetParent(_body, false);
                 pivot.localPosition = new Vector3(w.X, w.Y, w.Z);
+                // A left wheel is the right wheel's mirror image, as on a real vehicle: the wheel mesh's +X face (hub
+                // nuts, the outer tyre of a dual pair, the tractor rim's dish) points outward on both sides, and directional
+                // treads (a tractor's chevron lugs) point the same way on both. A mirror rather than a half turn about Y,
+                // which would reverse the chevrons; Unity flips the culling of a negatively scaled renderer itself.
+                if (IsLeft(in w)) pivot.localScale = new Vector3(-1f, 1f, 1f);
                 Renderer(pivot, "Tyre", wheel, material, true);
                 _wheels[i] = pivot;
             }
             BuildTag(material);
             FleetTag = fleetTag;
+        }
+
+        /// <summary>A wheel on the left of the body (two-wheelers' wheels sit on the centre line and are not mirrored).</summary>
+        private static bool IsLeft(in WheelSocket w)
+        {
+            return w.X < -0.01f;
         }
 
         /// <summary>The green key tag: a small diamond hanging by the handlebar or the driver's mirror.</summary>

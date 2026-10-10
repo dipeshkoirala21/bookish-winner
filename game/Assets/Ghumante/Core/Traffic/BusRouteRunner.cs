@@ -150,12 +150,16 @@ namespace Ghumante.Core.Traffic
             {
                 if (_g.Version != _version) Rebuild();
                 double fx, fz;
-                if (!_sim.TryFocus(out fx, out fz)) return;
-                int alive = _sim.RoutedCount();
+                if (!_sim.TryFocus(out fx, out fz))
+                {
+                    _sim.RoutedPending = 0;
+                    return;
+                }
+                int alive = _sim.RoutedCount(), pending = 0;
                 float radius = _sim.Settings.FullRadiusM;
                 foreach (Segment seg in _segments)
                 {
-                    if (alive >= MaxRouted) break;
+                    if (alive + pending >= MaxRouted) break;
                     TransitRoute r = _routes.Routes[seg.Route];
                     double head = HeadwayS(r, hour);
                     // Departure k leaves the route's start at k·head and is (t − k·head)·v along the route at time t; the
@@ -163,7 +167,7 @@ namespace Ghumante.Core.Traffic
                     double t = _clock;
                     long kHi = (long)Math.Floor((t - seg.Offset / RouteSpeedMps) / head);
                     long kLo = (long)Math.Floor((t - (seg.Offset + seg.Length) / RouteSpeedMps) / head);
-                    for (long k = kHi; k >= kLo && alive < MaxRouted; k--)
+                    for (long k = kHi; k >= kLo && alive + pending < MaxRouted; k--)
                     {
                         long key = ((long)seg.Route << 32) ^ (k & 0xFFFFFFFFL);
                         int id;
@@ -182,15 +186,25 @@ namespace Ghumante.Core.Traffic
                         double dx = x - fx, dz = z - fz;
                         double dist = Math.Sqrt(dx * dx + dz * dz);
                         if (dist > radius) continue;
-                        if (dist < _sim.Settings.SpawnMinM && !_sim.OutOfView(x, z)) continue;
+                        if (dist < _sim.Settings.SpawnMinM && !_sim.OutOfView(x, z))
+                        {
+                            pending++; // due here but in plain view: hold its slot until it can appear unseen
+                            continue;
+                        }
                         byte livery = VehicleCatalog.At(seg.Variant).PickLivery((uint)SimRng.Mix((ulong)r.OsmRelationId, (ulong)k));
                         if (_sim.SpawnRouted(lane, s, seg.Variant, livery, seg.PlanIndex, li, out id))
                         {
                             _spawned[key] = id;
                             alive++;
                         }
+                        else
+                        {
+                            pending++; // no room yet (or the cap is full): the ambient spawner leaves its slot free
+                        }
                     }
                 }
+                // Routed vehicles share the moving-vehicle cap: the ambient spawner keeps these slots free.
+                _sim.RoutedPending = pending;
                 Prune();
             }
         }

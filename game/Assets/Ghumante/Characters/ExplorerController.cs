@@ -845,7 +845,8 @@ namespace Ghumante.Characters
             }
             if (_jump.Landed)
             {
-                _landCue = true;
+                // Only a landing hard enough to feel makes the player grin (the haptic's bar), not every small hop.
+                if (_jump.LandingSpeed >= FeltLandingMps) _landCue = true;
                 if (!ReducedMotion) _poser.Land(_jump.LandingSpeed);
                 FootstepAt(FootstepGait.Land);
                 if (_jump.RollLanding) Raise("hud.ta_da");
@@ -944,7 +945,8 @@ namespace Ghumante.Characters
             _avatar.Expression = _mood.Update(dt, sacred);
         }
 
-        /// <summary>A landing faster than this (m/s) makes the player grin (the same bar as the landing haptic).</summary>
+        /// <summary>A landing at least this fast (m/s), on foot or on a vehicle, makes the player grin (the same bar as the
+        /// landing haptic, <c>ExploreFeedback.FeltLandingMps</c>).</summary>
         private const float FeltLandingMps = 2.5f;
 
         private void React(float dt)

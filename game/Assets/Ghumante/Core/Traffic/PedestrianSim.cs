@@ -586,8 +586,8 @@ namespace Ghumante.Core.Traffic
         };
 
         /// <summary>Spawn weight (of about 91) of the sadhu archetype in the Pashupati district (the
-        /// <c>StreetStyle.Pashupati</c> circle, 350 m round the temple); 0 everywhere else. The crowd's street style
-        /// dresses a few more of the men there as sadhus (<c>CharacterRecipe.PashupatiSadhuShare</c>).</summary>
+        /// <c>StreetStyle.Pashupati</c> circle, 350 m round the temple); 0 everywhere else. This row is the only source of
+        /// sadhus: the crowd's recipe dresses each pedestrian as the archetype drawn here, so the drawn share is this one.</summary>
         public const float SadhuWeightPashupati = 6f;
 
         /// <summary>The archetype a pedestrian spawned at game position (<paramref name="x"/>, <paramref name="z"/>) in an
