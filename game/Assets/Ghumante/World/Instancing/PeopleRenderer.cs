@@ -22,8 +22,17 @@ namespace Ghumante.World.Instancing
     {
         public static Mesh UploadSkinned(MeshData m, SkinWeights w, HumanoidSkeleton skeleton, string name)
         {
+            return UploadSkinned(m, w, skeleton, name, null);
+        }
+
+        /// <summary>As <see cref="UploadSkinned(MeshData, SkinWeights, HumanoidSkeleton, string)"/> with the vertex colours
+        /// taken from <paramref name="rgba"/> (one RGBA per vertex, e.g. a crowd look recoloured by
+        /// <see cref="CrowdVariants.Recolour"/>) instead of the mesh's own; null uses the mesh's.</summary>
+        public static Mesh UploadSkinned(MeshData m, SkinWeights w, HumanoidSkeleton skeleton, string name, byte[] rgba)
+        {
             if (m == null) throw new ArgumentNullException(nameof(m));
             int n = m.VertexCount;
+            byte[] c = rgba != null && rgba.Length >= n * 4 ? rgba : m.Colors;
             var vertices = new Vector3[n];
             var normals = new Vector3[n];
             var colours = new Color32[n];
@@ -31,7 +40,7 @@ namespace Ghumante.World.Instancing
             {
                 vertices[i] = new Vector3(m.Positions[i * 3], m.Positions[i * 3 + 1], m.Positions[i * 3 + 2]);
                 normals[i] = new Vector3(m.Normals[i * 3], m.Normals[i * 3 + 1], m.Normals[i * 3 + 2]);
-                colours[i] = new Color32(m.Colors[i * 4], m.Colors[i * 4 + 1], m.Colors[i * 4 + 2], m.Colors[i * 4 + 3]);
+                colours[i] = new Color32(c[i * 4], c[i * 4 + 1], c[i * 4 + 2], c[i * 4 + 3]);
             }
             var triangles = new int[m.IndexCount];
             Array.Copy(m.Indices, triangles, m.IndexCount);
@@ -92,20 +101,28 @@ namespace Ghumante.World.Instancing
 
     /// <summary>
     /// Draws the crowd with the same generator as the player (W2_DESIGN 5.4 and 10.3, docs/research/w2/ref_characters.md):
-    /// every person shows one of the shared variant bodies of its archetype, place and carry prop
-    /// (<see cref="CrowdVariants"/>), built by <see cref="HumanoidMesher"/> on a worker thread and uploaded a few per frame.
-    /// Near and mid people are <see cref="SkinnedMeshRenderer"/>s from a fixed pool posed with
-    /// <see cref="CrowdPoser"/> (LOD0, LOD1 or LOD2 by <see cref="CrowdLodPlan"/>), far people are baked LOD2 poses
-    /// (<see cref="CrowdBaker"/>, six walk phases, standing, sitting, palms together, arm up) drawn with
-    /// <see cref="InstanceBatch"/> and tinted per person, so the four looks of a variant keep their colours with two far
-    /// shapes. While a body is still building, a person falls back to a coarser ready level. Call <see cref="Begin"/>, then
-    /// <see cref="Add"/> per person, then <see cref="End"/>, once per frame. Main thread only (the worker threads touch
-    /// only engine-free data).
+    /// every person is a look of <see cref="CrowdVariants"/> (one of 12 body shapes of its archetype, place and carry
+    /// prop, in one of 16 garment colours from its sim tint). Each shape is built by <see cref="HumanoidMesher"/> on a
+    /// worker thread with the garment tint mask (<see cref="CrowdVariants.Options"/>) and kept engine-free. Near and mid
+    /// people are <see cref="SkinnedMeshRenderer"/>s from a fixed pool posed with <see cref="CrowdPoser"/> (LOD0, LOD1 or
+    /// LOD2 by <see cref="CrowdLodPlan"/>), each showing its shape's mesh recoloured to its own garment colour
+    /// (<see cref="CrowdVariants.Recolour"/>, uploaded once per look and level, a few per frame). Far people draw the baked
+    /// poses of the same shape at the far level (<see cref="CrowdBaker"/>: six walk phases, standing, sitting, palms
+    /// together, arm up) with <see cref="InstanceBatch"/> and the same garment colour as an instance tint, so a person
+    /// looks the same in every band while the far crowd shares one batch per shape and frame. While a body is still
+    /// building, a person falls back to a coarser ready level. Call <see cref="Begin"/>, then <see cref="Add"/> per
+    /// person, then <see cref="End"/>, once per frame. Main thread only (the worker threads touch only engine-free data).
     /// </summary>
     public sealed class PeopleRenderer : IDisposable
     {
-        /// <summary>Uploads per frame (each is one character mesh).</summary>
+        /// <summary>Skinned mesh uploads per frame (each is one character mesh).</summary>
         public const int UploadsPerFrame = 2;
+
+        /// <summary>Far frames baked per frame (a far-level body skinned on the CPU, about 0.05 ms each).</summary>
+        public const int BakesPerFrame = 4;
+
+        /// <summary>Build slots per shape: skinned LOD0..2 and the far level (<see cref="HumanoidMesher.FarLod"/>).</summary>
+        private const int Levels = 4, FarSlot = 3;
 
         private sealed class Body
         {
@@ -113,18 +130,26 @@ namespace Ghumante.World.Instancing
             public CharacterRecipe Recipe;
             public HumanoidSkeleton Skeleton;
             public CrowdHold Hold;
-            public uint Tint;
-            public readonly Mesh[] Skinned = new Mesh[3];
-            public readonly bool[] Queued = new bool[3];
+
+            /// <summary>The garment colour of each look colour (0 = the shape has one colour only), as tints, and the look
+            /// that shows it first (identical looks share one skinned mesh).</summary>
+            public readonly uint[] Colour = new uint[CrowdVariants.Colours];
+            public readonly Vector4[] TintOf = new Vector4[CrowdVariants.Colours];
+            public readonly int[] LookOf = new int[CrowdVariants.Colours];
+            public bool Tinted;
+
+            // Tint-masked builds (kept while the body lives, for further looks and far bakes).
+            public readonly bool[] Queued = new bool[Levels];
+            public readonly MeshData[] Data = new MeshData[Levels];
+            public readonly SkinWeights[] Weights = new SkinWeights[Levels];
+
+            // Skinned meshes per look colour and level, and their triangles per level.
+            public readonly Mesh[] Looks = new Mesh[CrowdVariants.Colours * 3];
             public readonly int[] Tris = new int[3];
             public int LastUsed;
 
-            // Far: the tint-masked LOD2 for baking, its frames and their batches.
-            public MeshData FarMesh;
-            public SkinWeights FarWeights;
-            public bool FarQueued;
+            // Far: the baked frames of this shape and their batches (tinted per instance).
             public readonly InstanceBatch[] Frames = new InstanceBatch[CrowdVariants.FrameCount];
-            public int FarTris;
         }
 
         private sealed class Npc
@@ -133,26 +158,26 @@ namespace Ghumante.World.Instancing
             public Transform[] Bones;
             public SkinnedMeshRenderer Renderer;
             public Body Body;
-            public int Lod = -1;
+            public Mesh Mesh;
             public bool Active;
         }
 
         private struct Job
         {
             public Body Body;
-            public int Lod; // 0..2 skinned, 3 far
+            public int Slot;
         }
 
         private struct Result
         {
             public Body Body;
-            public int Lod;
+            public int Slot;
             public MeshData Mesh;
             public SkinWeights Weights;
         }
 
         private readonly Material _skinnedMaterial, _farMaterial;
-        private readonly int _tier;
+        private readonly int _tier, _keep;
         private readonly Dictionary<int, Body> _bodies = new Dictionary<int, Body>();
         private readonly Npc[] _pool;
         private readonly ConcurrentQueue<Job> _jobs = new ConcurrentQueue<Job>();
@@ -162,8 +187,10 @@ namespace Ghumante.World.Instancing
         private readonly List<int> _evict = new List<int>();
         private readonly Quat[] _local = new Quat[HumanoidSkeleton.BoneCount];
         private readonly CrowdBaker _baker = new CrowdBaker();
+        private readonly MeshData _bakeScratch = new MeshData(2048, 6144);
+        private byte[] _rgba = new byte[4096 * 4];
         private readonly Transform _root;
-        private int _poolUsed, _frame, _workers;
+        private int _poolUsed, _frame, _workers, _uploads, _bakes;
         private Bounds _bounds;
         private bool _disposed;
 
@@ -174,9 +201,11 @@ namespace Ghumante.World.Instancing
         {
             if (materials == null) throw new ArgumentNullException(nameof(materials));
             _skinnedMaterial = materials.instanced;
-            _farMaterial = materials.instancedTint;
+            _farMaterial = materials.instancedTint != null ? materials.instancedTint : materials.instanced;
             _tier = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
             int[] caps = CrowdLodPlan.Caps[_tier];
+            // Every drawn person may show a different shape: keep at least the shapes of full bands, plus some slack.
+            _keep = caps[0] + caps[1] + caps[2] + 16;
             var holder = new GameObject("Crowd");
             if (parent != null) holder.transform.SetParent(parent, false);
             _root = holder.transform;
@@ -191,10 +220,17 @@ namespace Ghumante.World.Instancing
 
         public int Draws { get; private set; }
 
-        /// <summary>Variant bodies alive (for the debug HUD).</summary>
+        /// <summary>Body shapes alive (for the debug HUD).</summary>
         public int BodyCount
         {
             get { return _bodies.Count; }
+        }
+
+        /// <summary>The hand prop of look <paramref name="key"/> (its umbrella or prayer wheel), for posing it before
+        /// <see cref="Add"/>: the walk then raises the hand that carries it.</summary>
+        public CrowdHold HoldOf(int key)
+        {
+            return BodyFor(CrowdVariants.ShapeKey(key)).Hold;
         }
 
         private Npc MakeNpc(int index)
@@ -230,6 +266,8 @@ namespace Ghumante.World.Instancing
             Tris = 0;
             Draws = 0;
             _poolUsed = 0;
+            _uploads = 0;
+            _bakes = 0;
             for (int i = 0; i < _used.Count; i++) _used[i].ResetCounters();
             _used.Clear();
             _usedSet.Clear();
@@ -238,27 +276,28 @@ namespace Ghumante.World.Instancing
 
         /// <summary>
         /// One person at scene position <paramref name="p"/> facing <paramref name="headingDeg"/> (clockwise from north):
-        /// body <paramref name="key"/> (<see cref="CrowdVariants.Key"/>) in <paramref name="band"/> (0 near, 1 mid,
+        /// look <paramref name="key"/> (<see cref="CrowdVariants.KeyOf"/>) in <paramref name="band"/> (0 near, 1 mid,
         /// 2 far) at <paramref name="rank"/> within the band (0 = nearest); <paramref name="walkPhase"/> picks the far
-        /// frame of a walk (<see cref="CrowdAnimation.WalkPhase"/>).
+        /// frame of a walk (<see cref="CrowdAnimation.WalkPhase"/>). Pose the person with <see cref="HoldOf"/>.
         /// </summary>
         public void Add(Vector3 p, float headingDeg, in PersonPose pose, int key, int band, int rank, PedClip clip, double walkPhase)
         {
-            Body body = BodyFor(key);
+            Body body = BodyFor(CrowdVariants.ShapeKey(key));
             body.LastUsed = _frame;
+            int colour = body.LookOf[CrowdVariants.ColourOf(key)];
             People++;
             Quaternion rot = Quaternion.Euler(0f, headingDeg, 0f);
             if (CrowdLodPlan.Skinned(band) && _poolUsed < _pool.Length)
             {
                 int want = CrowdLodPlan.MeshLod(_tier, band, rank);
-                int lod = Ready(body, want);
+                int lod = Ready(body, colour, want);
                 if (lod >= 0)
                 {
-                    Skinned(_pool[_poolUsed++], body, lod, p, rot, pose, band == 0);
+                    Skinned(_pool[_poolUsed++], body, colour, lod, p, rot, pose, band == 0);
                     return;
                 }
             }
-            Far(body, p, rot, clip, walkPhase);
+            Far(body, colour, p, rot, clip, walkPhase);
         }
 
         public void End()
@@ -285,42 +324,62 @@ namespace Ghumante.World.Instancing
 
         // ----- Bodies and building -----------------------------------------------------------------------------------
 
-        private Body BodyFor(int key)
+        private Body BodyFor(int shapeKey)
         {
-            if (_bodies.TryGetValue(key, out Body b)) return b;
-            CharacterRecipe r = CrowdVariants.Recipe(key);
-            b = new Body { Key = key, Recipe = r, Skeleton = new HumanoidSkeleton(r), Hold = CrowdVariants.HoldOf(r), Tint = HumanoidMesher.TintKeyOf(r) };
-            _bodies.Add(key, b);
+            if (_bodies.TryGetValue(shapeKey, out Body b)) return b;
+            CharacterRecipe r = CrowdVariants.Recipe(shapeKey);
+            b = new Body { Key = shapeKey, Recipe = r, Skeleton = new HumanoidSkeleton(r), Hold = CrowdVariants.HoldOf(r) };
+            b.Tinted = HumanoidMesher.TintKeyOf(r) != 0;
+            for (int c = 0; c < CrowdVariants.Colours; c++)
+            {
+                b.Colour[c] = CrowdVariants.GarmentColour(r, c);
+                b.TintOf[c] = b.Colour[c] != 0 ? Tint.Hex(b.Colour[c]) : Vector4.one;
+                b.LookOf[c] = CrowdVariants.CanonicalColour(r, c);
+            }
+            _bodies.Add(shapeKey, b);
             return b;
         }
 
-        /// <summary>The level to draw a body at: the wanted one when ready, else the nearest ready coarser or finer one
+        /// <summary>The level to draw a look at: the wanted one when ready, else the nearest ready coarser or finer one
         /// (the build is queued); −1 when none is ready yet.</summary>
-        private int Ready(Body b, int want)
+        private int Ready(Body b, int colour, int want)
         {
-            if (b.Skinned[want] != null) return want;
+            if (SkinnedMesh(b, colour, want) != null) return want;
             Queue(b, want);
             for (int l = want + 1; l <= 2; l++)
-                if (b.Skinned[l] != null) return l;
+                if (SkinnedMesh(b, colour, l) != null) return l;
             for (int l = want - 1; l >= 0; l--)
-                if (b.Skinned[l] != null) return l;
+                if (SkinnedMesh(b, colour, l) != null) return l;
             if (want != 2) Queue(b, 2);
             return -1;
         }
 
-        private void Queue(Body b, int lod)
+        /// <summary>The skinned mesh of a look at a level, uploading it (the shape's build recoloured) within the frame's
+        /// upload budget; null when the shape is not built yet or the budget is spent.</summary>
+        private Mesh SkinnedMesh(Body b, int colour, int lod)
         {
-            if (lod < 3)
+            int slot = colour * 3 + lod;
+            if (b.Looks[slot] != null) return b.Looks[slot];
+            MeshData data = b.Data[lod];
+            if (data == null || _uploads >= UploadsPerFrame) return null;
+            _uploads++;
+            byte[] rgba = null;
+            if (b.Tinted)
             {
-                if (b.Queued[lod]) return;
-                b.Queued[lod] = true;
+                if (_rgba.Length < data.VertexCount * 4) _rgba = new byte[data.VertexCount * 4 + 4096];
+                CrowdVariants.Recolour(data, b.Colour[colour], _rgba);
+                rgba = _rgba;
             }
-            else
-            {
-                if (b.FarQueued) return;
-                b.FarQueued = true;
-            }
-            _jobs.Enqueue(new Job { Body = b, Lod = lod });
+            b.Looks[slot] = CharacterMeshes.UploadSkinned(data, b.Weights[lod], b.Skeleton, "crowd_" + b.Key.ToString("X") + "_c" + colour + "_lod" + lod, rgba);
+            b.Tris[lod] = data.TriangleCount;
+            return b.Looks[slot];
+        }
+
+        private void Queue(Body b, int slot)
+        {
+            if (b.Queued[slot]) return;
+            b.Queued[slot] = true;
+            _jobs.Enqueue(new Job { Body = b, Slot = slot });
             Pump();
         }
 
@@ -340,12 +399,11 @@ namespace Ghumante.World.Instancing
             try
             {
                 if (_disposed) return;
-                var m = new MeshData(j.Lod == 0 ? 12288 : 4096, j.Lod == 0 ? 36864 : 12288);
+                var m = new MeshData(j.Slot == 0 ? 12288 : 4096, j.Slot == 0 ? 36864 : 12288);
                 var w = new SkinWeights(m.VertexCapacity);
-                var o = CharacterMeshOptions.For(HeadwearMode.Outfit);
-                o.TintMask = j.Lod == 3;
-                HumanoidMesher.Build(j.Body.Recipe, j.Lod >= 3 ? 2 : j.Lod, m, w, o);
-                _results.Enqueue(new Result { Body = j.Body, Lod = j.Lod, Mesh = m, Weights = w });
+                int lod = j.Slot == FarSlot ? HumanoidMesher.FarLod : j.Slot;
+                HumanoidMesher.Build(j.Body.Recipe, lod, m, w, CrowdVariants.Options(j.Body.Recipe));
+                _results.Enqueue(new Result { Body = j.Body, Slot = j.Slot, Mesh = m, Weights = w });
             }
             catch (Exception)
             {
@@ -357,30 +415,21 @@ namespace Ghumante.World.Instancing
             }
         }
 
-        /// <summary>Uploads finished builds (a few per frame).</summary>
+        /// <summary>Takes finished builds (uploads happen when a look is first drawn, a few per frame).</summary>
         private void Collect()
         {
-            for (int k = 0; k < UploadsPerFrame && _results.TryDequeue(out Result res); k++)
+            while (_results.TryDequeue(out Result res))
             {
                 Body b = res.Body;
-                if (!_bodies.ContainsKey(b.Key)) continue; // evicted meanwhile
-                if (res.Lod < 3)
-                {
-                    b.Skinned[res.Lod] = CharacterMeshes.UploadSkinned(res.Mesh, res.Weights, b.Skeleton, "crowd_" + b.Key.ToString("X") + "_lod" + res.Lod);
-                    b.Tris[res.Lod] = res.Mesh.TriangleCount;
-                }
-                else
-                {
-                    b.FarMesh = res.Mesh;
-                    b.FarWeights = res.Weights;
-                    b.FarTris = res.Mesh.TriangleCount;
-                }
+                if (!_bodies.TryGetValue(b.Key, out Body live) || !ReferenceEquals(live, b)) continue; // evicted meanwhile
+                b.Data[res.Slot] = res.Mesh;
+                b.Weights[res.Slot] = res.Weights;
             }
         }
 
         // ----- Drawing -----------------------------------------------------------------------------------------------
 
-        private void Skinned(Npc n, Body body, int lod, Vector3 p, Quaternion rot, in PersonPose pose, bool shadows)
+        private void Skinned(Npc n, Body body, int colour, int lod, Vector3 p, Quaternion rot, in PersonPose pose, bool shadows)
         {
             if (n.Body != body)
             {
@@ -388,12 +437,13 @@ namespace Ghumante.World.Instancing
                 V3[] bind = body.Skeleton.BindLocal;
                 for (int i = 1; i < n.Bones.Length; i++) n.Bones[i].localPosition = new Vector3(bind[i].X, bind[i].Y, bind[i].Z);
                 n.Body = body;
-                n.Lod = -1;
+                n.Mesh = null;
             }
-            if (n.Lod != lod)
+            Mesh mesh = body.Looks[colour * 3 + lod];
+            if (n.Mesh != mesh)
             {
-                n.Renderer.sharedMesh = body.Skinned[lod];
-                n.Lod = lod;
+                n.Renderer.sharedMesh = mesh;
+                n.Mesh = mesh;
             }
             n.Renderer.shadowCastingMode = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
             if (!n.Active)
@@ -416,35 +466,44 @@ namespace Ghumante.World.Instancing
             Draws++;
         }
 
-        private void Far(Body body, Vector3 p, Quaternion rot, PedClip clip, double walkPhase)
+        /// <summary>A far person: the baked frame of their shape at the far level with their garment colour as the
+        /// instance tint (baked on first use, a few per frame; until then another baked frame of the same shape stands
+        /// in).</summary>
+        private void Far(Body body, int colour, Vector3 p, Quaternion rot, PedClip clip, double walkPhase)
         {
-            Body far = BodyFor(CrowdVariants.FarKey(body.Key));
-            far.LastUsed = _frame;
-            if (far.FarMesh == null)
+            MeshData far = body.Data[FarSlot];
+            if (far == null)
             {
-                Queue(far, 3);
+                Queue(body, FarSlot);
                 return;
             }
             FarFrame f = CrowdVariants.FrameOf(clip, walkPhase);
-            InstanceBatch batch = far.Frames[(int)f];
+            InstanceBatch batch = body.Frames[(int)f];
+            if (batch == null && _bakes < BakesPerFrame)
+            {
+                _bakes++;
+                MeshData baked = _bakeScratch;
+                baked.Clear();
+                _baker.Bake(far, body.Weights[FarSlot], body.Skeleton, CrowdVariants.FramePose(f, body.Hold), baked);
+                Mesh mesh = CharacterMeshes.UploadStatic(baked, "crowd_far_" + body.Key.ToString("X") + "_" + f);
+                batch = new InstanceBatch(mesh, _farMaterial, baked.TriangleCount, true) { Shadows = ShadowCastingMode.Off };
+                body.Frames[(int)f] = batch;
+            }
             if (batch == null)
             {
-                var baked = new MeshData(far.FarMesh.VertexCount + 4, far.FarMesh.IndexCount + 6);
-                _baker.Bake(far.FarMesh, far.FarWeights, far.Skeleton, CrowdVariants.FramePose(f, far.Hold), baked);
-                Mesh mesh = CharacterMeshes.UploadStatic(baked, "crowd_far_" + far.Key.ToString("X") + "_" + f);
-                batch = new InstanceBatch(mesh, _farMaterial, baked.TriangleCount, true) { Shadows = ShadowCastingMode.Off };
-                far.Frames[(int)f] = batch;
+                // Over the bake budget: any frame of the same shape (a walker keeps walking, a sitter waits a frame).
+                for (int k = 0; k < body.Frames.Length && batch == null; k++) batch = body.Frames[((int)f + k) % body.Frames.Length];
+                if (batch == null) return;
             }
             batch.WorldBounds = _bounds;
             if (_usedSet.Add(batch)) _used.Add(batch);
-            batch.Add(Matrix4x4.TRS(p, rot, Vector3.one), Tint.Hex(body.Tint));
+            batch.Add(Matrix4x4.TRS(p, rot, Vector3.one), body.TintOf[colour]);
         }
 
-        /// <summary>Drops bodies unused for a while (a few seconds), beyond a small working set.</summary>
+        /// <summary>Drops shapes unused for a while (a few seconds), beyond the working set of full bands.</summary>
         private void Evict()
         {
-            int keep = _tier == 0 ? 24 : _tier == 1 ? 48 : 80;
-            if (_bodies.Count <= keep) return;
+            if (_bodies.Count <= _keep) return;
             _evict.Clear();
             foreach (KeyValuePair<int, Body> kv in _bodies)
                 if (_frame - kv.Value.LastUsed > 300 && !InPool(kv.Value)) _evict.Add(kv.Key);
@@ -465,18 +524,21 @@ namespace Ghumante.World.Instancing
 
         private static void Destroy(Body b)
         {
-            for (int l = 0; l < 3; l++)
+            for (int i = 0; i < b.Looks.Length; i++)
             {
-                Kill(b.Skinned[l]);
-                b.Skinned[l] = null;
+                Kill(b.Looks[i]);
+                b.Looks[i] = null;
+            }
+            for (int l = 0; l < Levels; l++)
+            {
+                b.Data[l] = null;
+                b.Weights[l] = null;
             }
             for (int f = 0; f < b.Frames.Length; f++)
             {
                 if (b.Frames[f] != null) b.Frames[f].DestroyMesh();
                 b.Frames[f] = null;
             }
-            b.FarMesh = null;
-            b.FarWeights = null;
         }
 
         private static void Kill(UnityEngine.Object o)

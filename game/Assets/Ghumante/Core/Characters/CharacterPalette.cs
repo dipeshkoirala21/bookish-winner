@@ -43,9 +43,9 @@ namespace Ghumante.Core.Characters
         /// <summary>Helmets (auto-equipped on every two-wheeler mount).</summary>
         public static readonly uint[] Helmet = { 0xE53935, 0x1E88E5, 0xFDD835, 0xFAFAFA, 0x212121, 0x43A047, 0xFB8C00, 0xEC6FA0 };
 
-        /// <summary>Dhaka topi ground colours as photographed in the valley (ref_characters.md §2): cream, pale pink,
-        /// light grey, white, and the rarer maroon and black grounds.</summary>
-        public static readonly uint[] TopiBase = { 0xF1E6D6, 0xEBC9C0, 0xD9D6D0, 0xF4EFE6, 0x7A2433, 0x232226 };
+        /// <summary>Dhaka topi ground colours as photographed in the valley (ref_characters.md §2): pale pink (the most
+        /// common today, the player's default), cream, light grey, white, and the rarer maroon and black grounds.</summary>
+        public static readonly uint[] TopiBase = { 0xF2D3CB, 0xF1E6D6, 0xD9D6D0, 0xF4EFE6, 0x7A2433, 0x232226 };
 
         /// <summary>The Bhadgaunle (kalo) topi is plain black.</summary>
         public static readonly uint[] Bhadgaunle = { 0x1A1A1C };
@@ -54,12 +54,12 @@ namespace Ghumante.Core.Characters
         public const int DhakaWeaves = 6;
 
         /// <summary>Palpali dhaka motif colours, four per weave (diagonal bands of stepped diamonds woven in a few
-        /// colours on the ground; ref_characters.md §2): Palpali classic (muted rose, salmon, slate, sage, as on most topis worn today), red
+        /// colours on the ground; ref_characters.md §2): Palpali classic (rose, salmon pink, plum grey, sage, on a pale pink ground, as on most topis worn today), red
         /// lattice (red, pink, white, black), ikat (slate, pink, teal, peach), check (pink, black, grey, yellow), earth
         /// (maroon, gold, black, cream), jade (green, rose, yellow, black).</summary>
         public static readonly uint[] DhakaMotifs =
         {
-            0xB85A6E, 0xE8956E, 0x4A4048, 0x6E9A78,
+            0xC85A72, 0xE89A86, 0x5A4A58, 0x6E9A78,
             0xC62838, 0xF07C8C, 0xFFFFFF, 0x2A2224,
             0x5A6A7A, 0xD97A8A, 0x3E8E8A, 0xF2C1A0,
             0xD94A78, 0x2A2A2E, 0x9A9EA6, 0xF2C230,

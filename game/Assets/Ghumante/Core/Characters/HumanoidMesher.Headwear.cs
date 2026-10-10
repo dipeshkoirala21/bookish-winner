@@ -11,9 +11,9 @@ namespace Ghumante.Core.Characters
 
         /// <summary>
         /// The Palpali dhaka weave as a cell pattern (ref_characters.md §2): woven cloth is a grid of threads, so the
-        /// topi's quads carry it directly. Families: diagonal rows of single motif dots between dotted dark lines, the
-        /// dot colours alternating row by row (weaves 0, 2, 5, the classic Palpali look); a lattice of small stepped
-        /// diamonds (1, 4); a check of small blocks with dark lines and bright dots (3).
+        /// topi's quads carry it directly. Families: dense diagonal bands (a dark zig-zag line, two motif rows, a broken
+        /// motif row and an accent row; weaves 0, 2, 5, the classic Palpali look); a lattice of small stepped diamonds
+        /// (1, 4); a check of small blocks with dark lines and bright dots (3).
         /// Returns 0 for the ground, 1..4 for motif colours 0..3.
         /// </summary>
         public static int DhakaCell(int weave, int col, int row)
@@ -45,14 +45,21 @@ namespace Ghumante.Core.Characters
                 }
                 default:
                 {
-                    // Diagonal rows of single-thread motifs, as the small butta of the Palpali weave read at this scale:
-                    // a dotted dark line, a row of motif dots alternating two colours band by band, and a row of dots in
-                    // the fourth colour, all on the ground (period 6 round the cap, so the 60 columns close seamlessly).
+                    // The dense Palpali diagonal (weaves 0, 2, 5; topi ref_02, ref_06, ref_07): bands six threads wide run
+                    // diagonally round the cap: a solid dark zig-zag line, two rows of the main motif colour broken by the
+                    // second colour, a row of motifs with the ground showing between them, then a mostly ground row with
+                    // small accent dots. About 70% of the cloth is motif, so the cap reads as its colours, not its ground
+                    // (period 12 round the cap, so the 60 columns close seamlessly).
                     int D = col + row, A = col - row;
-                    int band = FloorDiv(D, 3), k = Mod(D, 3);
-                    if (k == 0) return Mod(A, 2) == 0 ? 3 : 0;
-                    if (k == 1) return Mod(A, 3) == 0 ? (Mod(band, 2) == 0 ? 1 : 2) : 0;
-                    return Mod(A, 3) == 1 ? 4 : 0;
+                    switch (Mod(D, 6))
+                    {
+                        case 0: return 3;
+                        case 1: return Mod(A, 4) == 3 ? 2 : 1;
+                        case 2: return Mod(A, 4) == 1 ? 1 : 2;
+                        case 3: return Mod(A, 4) == 3 ? 0 : 1;
+                        case 4: return Mod(A, 3) == 0 ? 4 : 0;
+                        default: return Mod(A, 6) == 3 ? 2 : 0;
+                    }
                 }
             }
         }
@@ -117,81 +124,134 @@ namespace Ghumante.Core.Characters
             }
 
             /// <summary>
-            /// The Nepali topi (W2_DESIGN 6.1, ref_characters.md §2): a brimless cap on a round base that fits the head,
-            /// its walls leaning in to a crown pinched into a front-to-back ridge with a shallow trough in the middle;
-            /// the front stands <see cref="TopiFrontM"/> and the back <see cref="TopiBackM"/> (the real 3 : 2 on the
-            /// cartoon head), and it sits tilted <see cref="TopiTiltDeg"/> toward the left forehead. The dhaka
-            /// topi carries the Palpali weave as per-quad colours with the light lining at the rim; the Bhadgaunle
-            /// (kalo) topi is plain black.
+            /// The Nepali topi (W2_DESIGN 6.1, ref_characters.md §2), to the photos: a tall brimless cap worn high on the
+            /// head, its rim fitting the head a finger above the brows (narrower than the head's widest), its two side
+            /// walls standing near-vertical and then leaning in to a crisp creased ridge that runs from the front peak
+            /// (<see cref="TopiFrontM"/>) down to the back (<see cref="TopiBackM"/>) in a straight line, so it reads as a
+            /// trapezoid from the side and a tall pointed cap from the front. The front fold pulls the peak
+            /// <see cref="TopiPeakShift"/> of the rim's half-width toward one side (by the recipe), so one side of the front
+            /// rises steeper than the other, and the cap sits tilted <see cref="TopiTiltDeg"/> toward the left forehead. The
+            /// rim follows the head at its own tilted height with room over the hair. The dhaka topi carries the dense
+            /// Palpali weave as per-quad colours (rows of equal slant height, columns of equal rim length, so the cells
+            /// stay square up the walls) with the darker turned-in lining at the rim and a seam down the front fold; the
+            /// Bhadgaunle (kalo) topi is plain black.
             /// </summary>
             private void Topi(bool dhaka)
             {
                 Mat(MaterialChannel.Fabric);
                 float hs = _hs;
-                int cols = Lod == 0 ? TopiColumns : Lod == 1 ? 20 : 8, rows = Lod == 0 ? 11 : Lod == 1 ? 4 : 1;
+                int cols = Lod == 0 ? TopiColumns : Lod == 1 ? 20 : Mid ? 10 : 8;
+                // Wall rows up to the pinch, then pinch rows to the ridge.
+                int wallRows = Lod == 0 ? 7 : Lod == 1 ? 3 : 1, pinchRows = Lod == 0 ? 4 : Lod == 1 ? 2 : 1;
+                int rows = wallRows + pinchRows;
                 float baseY = TopiRimY * hs;
-                HeadSection(baseY, out float hx, out float hz);
-                float rx = hx * 1.05f + 0.004f, rz = hz * 1.05f + 0.004f;
                 float front = TopiFrontM * hs, back = TopiBackM * hs;
-                float trough = (TopiFoldDeg / 8f) * 0.014f * hs;
                 float tilt = MathF.Tan(TopiTiltDeg * Quat.Deg2Rad);
-                V3 pivot = _hc + new V3(0f, baseY, 0.004f * hs);
+                float clear = 0.011f * hs; // room over the hair under the cap (its shell sits 4–5 mm off the head)
+                HeadSection(baseY, out float hx0, out float hz0);
+                float side = (_r.Seed & 16u) != 0 ? 1f : -1f;
+                float peakX = side * TopiPeakShift * (hx0 + clear);
+                V3 pivot = _hc + new V3(0f, 0f, 0.004f * hs);
                 uint ground = dhaka ? CharacterPalette.Colour(OutfitItem.DhakaTopi, _head.Colour) : CharacterPalette.Bhadgaunle[0];
                 int weave = _head.Pattern;
-                // Grid: rows 0..rows the wall (base to the pinched top), row rows + 1 the ridge line.
-                int gr = rows + 2;
+                // Grid rows: 0 the rim, 1 the top of the turned-in lining (not on the far bodies), the wall up to the pinch,
+                // then the pinch up to the ridge (last row).
+                bool lining = Lod < 2;
+                int gr = rows + (lining ? 2 : 1);
                 _k.BeginGrid(gr, cols);
                 for (int i = 0; i < gr; i++)
                 {
-                    // Row 1 sits just above the rim so the light lining shows as a thin edge.
-                    float t = i == 0 ? 0f : i == 1 ? 0.045f : Math.Min(1f, 0.045f + 0.955f * (i - 1) / (float)rows);
+                    int k = lining ? i - 1 : i;
+                    float t = i == 0 ? 0f : lining && i == 1 ? 0.04f
+                            : k <= wallRows ? (lining ? 0.04f : 0f) + (TopiPinch - (lining ? 0.04f : 0f)) * k / wallRows
+                            : TopiPinch + (1f - TopiPinch) * (k - wallRows) / pinchRows;
+                    float w = TopiWall(t);
                     for (int j = 0; j < cols; j++)
                     {
                         float a = 6.28318530718f * j / cols;
                         float sa = MathF.Sin(a), ca = MathF.Cos(a);
-                        float h = back + (front - back) * (0.5f + 0.5f * ca);
-                        // The walls lean in steadily (a trapezoid from the front and from the side), then round over
-                        // into the front-to-back ridge.
-                        float sx = 1f - 0.4f * Math.Min(t, TopiPinchStart) / TopiPinchStart, sz = 1f - 0.2f * t;
-                        if (t > TopiPinchStart)
+                        // The rim fits the head at its own (tilted) height.
+                        float rimY = baseY + sa * (hx0 + clear) * tilt;
+                        HeadSection(rimY, out float hx, out float hz);
+                        float rx = hx + clear, rz = hz + clear;
+                        // The ridge point of this column: on the straight ridge from the back to the front peak, which leans
+                        // back from the rim and bends toward the fold side at the front.
+                        float s = 0.5f + 0.5f * ca;
+                        float zTop = ca >= 0f ? ca * rz * 0.84f : ca * rz * 0.9f;
+                        float xTop = peakX * s * s;
+                        float h = back + (front - back) * s;
+                        float x = xTop + (sa * rx - xTop) * w, z = zTop + (ca * rz - zTop) * w;
+                        float y = rimY + h * t;
+                        // The cloth turns in at the rim: the lowest row tucks a little toward the head.
+                        if (i == 0)
                         {
-                            float u = (t - TopiPinchStart) / (1f - TopiPinchStart);
-                            sx *= MathF.Sqrt(Math.Max(0f, 1f - u * u));
+                            x *= 0.985f;
+                            z *= 0.985f;
                         }
-                        if (i == gr - 1) sx = 0f;
-                        float bulge = 1f + 0.03f * MathF.Sin(t * MathF.PI);
-                        float x = sa * rx * sx * bulge, z = ca * rz * sz * bulge;
-                        // The trough along the ridge: the middle sits lower than the front and back peaks.
-                        float y = h * t - trough * MathF.Pow(MathF.Abs(sa), 1.5f) * MathF.Pow(t, 4f);
-                        // Tilt toward the left forehead: the wearer's right stands higher.
-                        y += x * tilt;
                         _k.GridSet(i, j, cols, pivot + new V3(x, y, z), ground, Bone.HeadAttach, Bone.HeadAttach, 1f, i == 0 ? 0.75f : 1f);
                     }
                 }
                 int quads = (gr - 1) * cols;
                 if (_topiQuads.Length < quads) _topiQuads = new uint[quads];
                 // The folded edge at the rim: the cloth turned in, a little darker than the ground.
-                uint lining = dhaka ? CharacterPalette.Shade(ground, 0.84f) : 0x2A2A2Eu;
+                uint liningRgb = dhaka ? CharacterPalette.Shade(ground, 0.8f) : 0x2A2A2Eu;
                 for (int i = 0; i < gr - 1; i++)
                 {
                     for (int j = 0; j < cols; j++)
                     {
                         uint c = ground;
-                        if (i == 0) c = lining;
+                        if (i == 0 && lining) c = liningRgb;
                         else if (dhaka)
                         {
-                            // Sample the weave at LOD0 resolution so coarser levels keep the same colours; the pattern
-                            // starts at the back so any seam hides there.
-                            int cc = (j * TopiColumns / cols + TopiColumns / 2) % TopiColumns, rr = (i - 1) * 10 / Math.Max(1, rows - 1);
+                            // The weave at LOD0 resolution (coarser levels sample it), starting at the back so the seam hides
+                            // there; rows count from the lining up the wall.
+                            int cc = (j * TopiColumns / cols + TopiColumns / 2) % TopiColumns;
+                            int rr = (Math.Max(0, i - 1) * 12) / rows;
                             int cell = DhakaCell(weave, cc, rr);
-                            if (Lod >= 2) cell = (i + j) % 3 == 0 ? 1 : 0;
                             if (cell > 0) c = CharacterPalette.DhakaMotif(weave, cell - 1);
+                            if (Lod >= 2) c = CharacterPalette.Mix(ground, CharacterPalette.DhakaMotif(weave, (i + j) % 3), 0.55f);
+                            // The front fold: a soft seam line from the rim up to the peak.
+                            if (Lod == 0 && (j == 0 || j == cols - 1) && i > 0) c = CharacterPalette.Shade(c, 0.82f);
                         }
                         else if ((i + j) % 2 == 0) c = 0x202024u; // a faint weave on the black cap
                         _topiQuads[i * cols + j] = c;
                     }
                 }
-                _k.EndGridColours(gr, cols, true, pivot + new V3(0f, 0.03f * hs, 0f), V3.Zero, _topiQuads, null);
+                _k.EndGridColours(gr, cols, true, _hc + new V3(0f, baseY + 0.03f * hs, 0f), V3.Zero, _topiQuads, null);
+            }
+
+            /// <summary>The topi wall's reach from the ridge toward the rim at height fraction <paramref name="t"/> of the
+            /// column (1 at the rim, 0 on the ridge): near-vertical walls tapering to 90% up to <see cref="TopiPinch"/>,
+            /// then pinched in to the ridge, meeting it at an angle (a crisp crease, not a dome).</summary>
+            private static float TopiWall(float t)
+            {
+                const float taper = 0.9f;
+                if (t <= TopiPinch) return 1f - (1f - taper) * t / TopiPinch;
+                float u = (t - TopiPinch) / (1f - TopiPinch);
+                return u >= 1f ? 0f : taper * (1f - MathF.Pow(u, TopiPinchExp));
+            }
+
+            /// <summary>The outer radius of the worn topi at angle <paramref name="a"/> (0 front, increasing toward the
+            /// wearer's right) and height <paramref name="y"/> above the head centre (its rim fits the head with room over
+            /// the hair), or 0 outside the cap's height.</summary>
+            private float TopiRadius(float a, float y)
+            {
+                float hs = _hs;
+                float sa = MathF.Sin(a), ca = MathF.Cos(a);
+                float clear = 0.011f * hs;
+                HeadSection(TopiRimY * hs, out float hx0, out _);
+                float rimY = TopiRimY * hs + sa * (hx0 + clear) * MathF.Tan(TopiTiltDeg * Quat.Deg2Rad);
+                float s = 0.5f + 0.5f * ca;
+                float h = (TopiBackM + (TopiFrontM - TopiBackM) * s) * hs;
+                float t = (y - rimY) / h;
+                if (t < 0f || t > 1f) return 0f;
+                HeadSection(rimY, out float hx, out float hz);
+                float rx = hx + clear, rz = hz + clear;
+                float w = TopiWall(t);
+                // Radius of the rim ellipse in this direction, shrunk toward the ridge (which lies near the centre line).
+                float rim = 1f / MathF.Sqrt(sa * sa / (rx * rx) + ca * ca / (rz * rz));
+                float ridge = MathF.Abs(ca) * (ca >= 0f ? 0.84f : 0.9f) * rz;
+                return ridge + (rim - ridge) * w;
             }
 
             private void Helmet()
@@ -373,36 +433,73 @@ namespace Ghumante.Core.Characters
                                  Bone.Neck);
             }
 
-            /// <summary>The namlo: the tumpline strap across the top of the forehead and down behind the ears to the load.</summary>
+            /// <summary>Colour of the namlo: woven jute or nettle fibre (porter ref_01).</summary>
+            private const uint NamloRgb = 0xA88B5Eu;
+
+            /// <summary>
+            /// The namlo (porter ref_01): a wide flat tumpline band across the upper forehead and back along the temples
+            /// above the ears, then the ropes down behind the shoulders to the load. The band follows the outermost surface
+            /// at every point: the topi's wall where a cap is worn (the band rides over its lower front), else the hair
+            /// over the head, so it never cuts into either. Five rows across its width give it a rounded section.
+            /// </summary>
             private void Namlo()
             {
                 if (Lod >= 2) return;
                 Mat(MaterialChannel.Fabric);
                 float hs = _hs;
-                uint strap = 0x8A6A44u;
-                // The band over the front of the head.
-                int n = Lod == 0 ? 9 : 5;
-                V3[] path = _k.PathBuffer(n, out float[] rx, out float[] rz);
+                bool topi = HasHeadwear && (HeadItem == OutfitItem.DhakaTopi || HeadItem == OutfitItem.BhadgaunleTopi);
+                int n = Lod == 0 ? 21 : 11;
+                const int rowsAcross = 5;
+                float halfW = 0.026f * hs, thick = 0.0045f * hs, frontY = 0.115f * hs, sideDrop = 0.058f * hs;
+                uint edge = CharacterPalette.Shade(NamloRgb, 0.82f);
+                _k.BeginGrid(rowsAcross, n);
                 for (int i = 0; i < n; i++)
                 {
-                    float a = -1.45f + 2.9f * i / (n - 1);
-                    float y = 0.13f * hs - 0.035f * hs * MathF.Abs(MathF.Sin(a));
-                    HeadSection(y, out float sx, out float sz);
-                    float off = HasHeadwear && HeadItem != OutfitItem.None ? 0.03f : 0.018f;
-                    path[i] = _hc + new V3(MathF.Sin(a) * (sx + off * hs), y, MathF.Cos(a) * (sz + off * hs));
-                    rx[i] = 0.018f * hs;
-                    rz[i] = 0.003f * hs;
+                    float a = -1.78f + 3.56f * i / (n - 1);
+                    float yc = frontY - sideDrop * (1f - MathF.Cos(a));
+                    for (int k = 0; k < rowsAcross; k++)
+                    {
+                        float u = k / (float)(rowsAcross - 1) * 2f - 1f; // −1 bottom edge .. 1 top edge
+                        float y = yc + u * halfW;
+                        // Edges stand clear of the chords of the surface below (no z-fighting with the cap or hair).
+                        float lift = 0.0025f * hs + thick * MathF.Sqrt(Math.Max(0f, 1f - u * u * 0.85f));
+                        float r = OuterRadius(a, y) + lift;
+                        var p = new V3(_hc.X + MathF.Sin(a) * r, _hc.Y + y, _hc.Z + MathF.Cos(a) * r);
+                        _k.GridSet(k, i, n, p, k == 0 || k == rowsAcross - 1 ? edge : NamloRgb, Bone.Head, Bone.Head, 1f);
+                    }
                 }
-                _k.Sweep(path, n, rx, rz, V3.Up, strap, 4, Bone.Head, LoftCap.Flat, LoftCap.Flat);
-                // Ropes from the temples down the back to the load.
+                _k.EndGrid(rowsAcross, n, false, _hc, V3.Up, null, false, false);
+                // Ropes from the band's ends (behind the temples) down the back to the load.
                 V3 attach = _sk.BindPosition[(int)Bone.BackAttach];
                 for (int s = -1; s <= 1; s += 2)
                 {
-                    V3 a = path[s < 0 ? 0 : n - 1];
-                    V3 b = attach + new V3(s * 0.17f, 0.12f, -0.12f);
-                    _k.Curve(a, (a + b) * 0.5f + new V3(s * 0.04f, 0.05f, -0.05f), b, Lod == 0 ? 5 : 3, 0.006f, 0.006f, 0.006f, 0.006f, V3.Right, strap, 4, Bone.Head,
-                             LoftCap.None, LoftCap.None, Bone.BackAttach, 0.5f);
+                    float a = s * 1.78f, yc = frontY - sideDrop * (1f - MathF.Cos(a));
+                    float r = OuterRadius(a, yc) + 0.004f * hs;
+                    V3 from = new V3(_hc.X + MathF.Sin(a) * r, _hc.Y + yc, _hc.Z + MathF.Cos(a) * r);
+                    V3 to = attach + new V3(s * 0.17f, 0.12f, -0.12f);
+                    _k.Curve(from, (from + to) * 0.5f + new V3(s * 0.04f, 0.05f, -0.05f), to, Lod == 0 ? 5 : 3, 0.007f, 0.006f, 0.007f, 0.006f, V3.Right, NamloRgb, 5,
+                             Bone.Head, LoftCap.Round, LoftCap.None, Bone.BackAttach, 0.5f);
                 }
+            }
+
+            /// <summary>The outermost radius round the head axis at angle <paramref name="a"/> (0 front, toward the wearer's
+            /// right) and height <paramref name="y"/> above the head centre: the head with its hair (a thin layer under a cap),
+            /// or the worn topi's wall where that stands further out.</summary>
+            private float OuterRadius(float a, float y)
+            {
+                float sa = MathF.Sin(a), ca = MathF.Cos(a);
+                HeadSection(y, out float hx, out float hz);
+                float head = 0f;
+                if (hx > 1e-4f && hz > 1e-4f)
+                {
+                    float e = HeadExponent;
+                    head = 1f / MathF.Pow(MathF.Pow(MathF.Abs(sa) / hx, e) + MathF.Pow(MathF.Abs(ca) / hz, e), 1f / e);
+                }
+                bool covered = HasHeadwear;
+                float hair = _r.Hair == CharacterRecipe.HairShaved ? 0.003f : covered ? 0.007f : 0.014f;
+                float r = head + hair * _hs;
+                if (covered && (HeadItem == OutfitItem.DhakaTopi || HeadItem == OutfitItem.BhadgaunleTopi)) r = Math.Max(r, TopiRadius(a, y));
+                return r;
             }
         }
     }

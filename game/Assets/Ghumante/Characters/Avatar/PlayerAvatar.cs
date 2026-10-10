@@ -1,6 +1,7 @@
 using System;
 using Ghumante.Core.Characters;
 using Ghumante.Core.Meshing;
+using Ghumante.World;
 using Ghumante.World.Instancing;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -10,7 +11,7 @@ namespace Ghumante.Characters.Avatar
 {
     /// <summary>
     /// The player's cartoon body (W2_DESIGN 6.1, docs/research/w2/ref_characters.md): the LOD0 <see cref="HumanoidMesher"/>
-    /// mesh of a <see cref="CharacterRecipe"/> (sculpted face, five-finger hands, shoes, the dhaka topi's weave) skinned to
+    /// mesh (on Low devices the light LOD0, <see cref="CrowdLodPlan.PlayerLight"/>) of a <see cref="CharacterRecipe"/> (sculpted face, five-finger hands, shoes, the dhaka topi's weave) skinned to
     /// the 37-bone <c>hum</c> rig in one <see cref="SkinnedMeshRenderer"/> (one draw call), drawn with the
     /// <c>Ghumante/ToonLit</c> material (vertex colours, UV0 = material channel and baked AO, no alpha). Two meshes are
     /// built once per wardrobe: one with the recipe's headwear and one with the helmet, swapped on every two-wheeler
@@ -225,22 +226,42 @@ namespace Ghumante.Characters.Avatar
             _renderer.sharedMesh = _helmet ? _helmetMesh : _outfitMesh;
         }
 
+        /// <summary>The device tier the player's mesh is built for: the open world's (<see cref="WorldRoot.Tier"/>), else
+        /// the active quality level (Bootstrap sets it from the detected tier).</summary>
+        private static int DeviceTierLevel()
+        {
+            WorldRoot world = WorldRoot.Active;
+            if (world != null) return (int)world.Tier;
+            return Mathf.Clamp(QualitySettings.GetQualityLevel(), 0, 2);
+        }
+
+        /// <summary>The player's build options on this device: the full LOD0, or on Low devices the light LOD0 (the face,
+        /// five-finger hands and topi of LOD0 on a LOD1 body, ≤ 7 k triangles), which leaves the nearest NPC its LOD1
+        /// inside the 21 k character slice (<see cref="CrowdLodPlan.PlayerLight"/>).</summary>
+        private static CharacterMeshOptions PlayerOptions(HeadwearMode headwear)
+        {
+            CharacterMeshOptions o = CharacterMeshOptions.For(headwear);
+            o.Light = CrowdLodPlan.PlayerLight(DeviceTierLevel());
+            return o;
+        }
+
         /// <summary>The LOD0 mesh with its face blend shapes (same topology in every face state).</summary>
         private Mesh BuildMesh(HeadwearMode headwear, string name)
         {
             var m = new MeshData(12288, 36864);
             var w = new SkinWeights(12288);
-            HumanoidMesher.Build(_recipe, CrowdLodPlan.PlayerLod(2), m, w, CharacterMeshOptions.For(headwear));
+            int lod = CrowdLodPlan.PlayerLod(DeviceTierLevel());
+            HumanoidMesher.Build(_recipe, lod, m, w, PlayerOptions(headwear));
             Mesh mesh = Upload(m, w, _skeleton, name);
             _hasShapes = true;
             var target = new MeshData(m.VertexCount + 16, m.IndexCount + 16);
             for (int i = 0; i <= Shapes.Length; i++)
             {
                 target.Clear();
-                CharacterMeshOptions o = CharacterMeshOptions.For(headwear);
+                CharacterMeshOptions o = PlayerOptions(headwear);
                 o.Face = i < Shapes.Length ? new FaceState(Shapes[i]) : new FaceState(FaceExpression.Smile, 1f);
                 o.SkipAo = true;
-                HumanoidMesher.Build(_recipe, CrowdLodPlan.PlayerLod(2), target, null, o);
+                HumanoidMesher.Build(_recipe, lod, target, null, o);
                 string shape = i < Shapes.Length ? Shapes[i].ToString() : "Blink";
                 if (!CharacterMeshes.AddBlendShape(mesh, shape, m, target)) _hasShapes = false;
             }

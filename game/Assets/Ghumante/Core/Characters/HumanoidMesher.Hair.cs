@@ -99,9 +99,12 @@ namespace Ghumante.Core.Characters
                 float back = longBack ? -0.17f * hs : -0.125f * hs;
                 bool pulledBack = style == 7 || style == 8 || style == 9 || style == 10 || style == 12 || style == CharacterRecipe.HairTwoPlaits;
                 if (pulledBack) front = 0.105f * hs;
-                float crown = covered ? 0.9f : style == 3 ? 1.04f : style == CharacterRecipe.HairQuiff ? 0.98f : 1f;
+                // Under a namlo the strap presses the hair flat across the forehead and temples: no curls, spikes, fringe
+                // locks or quiff stand out through it.
+                bool pressed = !covered && CharacterRecipe.UsesNamlo(_back.Item) && Lod < 2;
+                float crown = covered ? 0.9f : pressed ? 1f : style == 3 ? 1.04f : style == CharacterRecipe.HairQuiff ? 0.98f : 1f;
                 float partX = style == 1 ? 0.045f * hs : pulledBack || style == 6 || style == 5 ? 0.0001f : 0f;
-                float lift = style == CharacterRecipe.HairQuiff && !covered ? 0.03f * hs : 0f;
+                float lift = style == CharacterRecipe.HairQuiff && !covered && !pressed ? 0.03f * hs : 0f;
                 uint? capColour = style == 2 ? CharacterPalette.Mix(_hair, _skin, 0.3f) : (uint?)null;
                 HairCap(offset, front, side, back, crown, partX, lift, capColour);
                 if (style == CharacterRecipe.HairQuiff && Lod < 2)
@@ -125,10 +128,10 @@ namespace Ghumante.Core.Characters
                 switch (style)
                 {
                     case 1:
-                        if (!covered) SideFringe();
+                        if (!covered && !pressed) SideFringe();
                         break;
                     case 3:
-                        if (covered) break;
+                        if (covered || pressed) break;
                         int curls = Lod == 0 ? 18 : 10;
                         for (int i = 0; i < curls; i++)
                         {
@@ -142,7 +145,7 @@ namespace Ghumante.Core.Characters
                         }
                         break;
                     case 4:
-                        if (covered) break;
+                        if (covered || pressed) break;
                         for (int i = 0; i < 9; i++)
                         {
                             float th = -1.4f + i * 0.35f;
@@ -154,7 +157,7 @@ namespace Ghumante.Core.Characters
                     case 5:
                         // A bob to the jaw: a skirt round the sides and back, and a straight fringe.
                         BackSheet(-0.02f, -0.2f, 0.17f, 0.04f, false);
-                        if (!covered) StraightFringe(0.07f * hs);
+                        if (!covered && !pressed) StraightFringe(0.07f * hs);
                         break;
                     case 6:
                         BackSheet(-0.04f, -0.5f, 0.16f, 0.045f, true);

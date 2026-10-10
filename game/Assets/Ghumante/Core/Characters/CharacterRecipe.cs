@@ -381,6 +381,10 @@ namespace Ghumante.Core.Characters
             return ForPedestrian(archetype, tint, seed, StreetStyle.Urban, 0);
         }
 
+        /// <summary>The share of men walking at Pashupati (casual, daura suruwal, vendors) who are dressed as sadhus
+        /// (<see cref="StreetStyle.Pashupati"/>).</summary>
+        public const float PashupatiSadhuShare = 0.12f;
+
         /// <summary>An NPC body whose wardrobe follows the area type (see <see cref="StreetStyles.OfArea"/>).</summary>
         public static CharacterRecipe ForPedestrian(PedArchetype archetype, int tint, uint seed, AreaType area, int carry)
         {
@@ -415,7 +419,12 @@ namespace Ghumante.Core.Characters
                 Name = "",
             };
             byte c = (byte)(tint & 0x7F);
-            bool newar = style == StreetStyle.NewarTown, bazaar = style == StreetStyle.OldBazaar || newar;
+            bool pashupati = style == StreetStyle.Pashupati;
+            // Sadhus gather at Pashupati: some of the men walking there are dressed as one (saffron, jata, tilak).
+            if (pashupati && (archetype == PedArchetype.UrbanCasual || archetype == PedArchetype.DauraSuruwal || archetype == PedArchetype.Vendor) &&
+                rng.Chance(PashupatiSadhuShare))
+                archetype = PedArchetype.Sadhu;
+            bool newar = style == StreetStyle.NewarTown, bazaar = style == StreetStyle.OldBazaar || newar || pashupati;
             bool village = style == StreetStyle.Village, office = style == StreetStyle.Office, buddhist = style == StreetStyle.Buddhist;
             bool tourist = style == StreetStyle.Tourist;
             // Young people dye their hair brown now and then.
@@ -426,7 +435,7 @@ namespace Ghumante.Core.Characters
                 {
                     r.Figure = 1;
                     r.Age = rng.Chance(0.25f) ? AgeGroup.Elder : rng.Chance(0.12f) ? AgeGroup.Teen : AgeGroup.Adult;
-                    float sariP = r.Age == AgeGroup.Elder ? 0.65f : office ? 0.4f : 0.3f;
+                    float sariP = pashupati ? 0.8f : r.Age == AgeGroup.Elder ? 0.65f : office ? 0.4f : 0.3f;
                     r.Hair = rng.Of(7, 9, 8, 6, 9, 7, 11, 5);
                     if (buddhist && rng.Chance(0.5f))
                     {
@@ -442,6 +451,8 @@ namespace Ghumante.Core.Characters
                         r.Outfit = Slots(village && rng.Chance(0.4f) ? OutfitItem.Headscarf : OutfitItem.None, OutfitItem.Sari, OutfitItem.None,
                                          rng.Chance(0.7f) ? OutfitItem.Chappal : OutfitItem.LeatherShoes, OutfitItem.None, c);
                         r.Outfit[1].Pattern = (byte)rng.Range(4);
+                        // Pilgrims at Pashupati wear red and maroon most of all.
+                        if (pashupati && rng.Chance(0.6f)) r.Outfit[1].Colour = (byte)rng.Of(0, 0, 6, 1);
                         if (rng.Chance(0.5f)) r.Accents |= CharacterAccents.Pote;
                     }
                     else
@@ -638,6 +649,9 @@ namespace Ghumante.Core.Characters
                 case 5: r.Accents |= CharacterAccents.Umbrella; break;
             }
             if (r.Has(CharacterAccents.Umbrella)) r.Accents &= ~CharacterAccents.PrayerWheel;
+            // Most pilgrims come away from the temple with a tika.
+            if (pashupati && archetype != PedArchetype.Sadhu && archetype != PedArchetype.TrafficPolice && rng.Chance(0.7f) && !r.Has(CharacterAccents.Bindi))
+                r.Accents |= CharacterAccents.Tika;
             if (UsesNamlo(r.Outfit[(int)OutfitSlotKind.Back].Item))
             {
                 OutfitItem hat = r.Outfit[0].Item;
@@ -653,7 +667,7 @@ namespace Ghumante.Core.Characters
         /// office districts; more chappals and topis in the old bazaars and the villages.</summary>
         private static void CasualLocal(CharacterRecipe r, ref Pick rng, byte c, StreetStyle style)
         {
-            bool bazaar = style == StreetStyle.OldBazaar || style == StreetStyle.NewarTown;
+            bool bazaar = style == StreetStyle.OldBazaar || style == StreetStyle.NewarTown || style == StreetStyle.Pashupati;
             bool village = style == StreetStyle.Village || style == StreetStyle.Suburb;
             bool office = style == StreetStyle.Office;
             r.Age = rng.Chance(0.25f) ? AgeGroup.Teen : rng.Chance(bazaar ? 0.18f : 0.1f) ? AgeGroup.Elder : AgeGroup.Adult;

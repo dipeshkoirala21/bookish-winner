@@ -19,9 +19,10 @@ namespace Ghumante.Traffic
     /// <see cref="LifeHost.People"/> nearest first under the tier caps (1 / 4 / 13, 3 / 10 / 39, 6 / 20 / 78 in the near
     /// ≤ 15 m, mid ≤ 40 m and far ≤ 90 m bands) as one of the shared variant bodies of its archetype, the place it walks
     /// in (<see cref="StreetStyles"/>: Bhadgaunle topis in Bhaktapur, trek gear in Thamel, chuba at Boudha, office wear
-    /// on Durbar Marg) and its carry prop (<see cref="CrowdVariants"/>), skinned near and mid, baked far
-    /// (<see cref="PeopleRenderer"/>), animated by its clip (<see cref="PersonAnimation"/>: walk, run, carry, sit, pray,
-    /// namaste, chat, umbrella...); NPC footsteps near the camera on the surface under the foot
+    /// on Durbar Marg) and its carry prop (<see cref="CrowdVariants"/>: one of 12 body shapes by the agent's id, its
+    /// garment in one of 16 colours by the sim's tint), skinned near and mid, the same shape's baked frames in the same
+    /// colour far (<see cref="PeopleRenderer"/>), animated by its clip (<see cref="PersonAnimation"/>: walk, run, carry,
+    /// sit, pray, namaste, chat, umbrella...); NPC footsteps near the camera on the surface under the foot
     /// (<see cref="GroundSample.Foot"/>); and the traffic police officers of the visible chowks (<see cref="OfficerPosts"/>)
     /// on their podiums, cycling the five hand signals with the police phases. Attached to every <see cref="WorldRoot"/> by
     /// <see cref="WorldRoot.AnyReady"/>. Main thread only.
@@ -151,7 +152,9 @@ namespace Ghumante.Traffic
                 if (level < 0) continue;
                 int key = BodyKey(pp, areas);
                 var clip = (PedClip)pp.ClipId;
-                CrowdHold hold = pp.CarryProp == 5 ? CrowdHold.Umbrella : CrowdHold.None;
+                // The body's own hand prop (umbrella, or the prayer wheel of a kora walker) is posed before drawing, so the
+                // walk raises the hand that carries it in every band.
+                CrowdHold hold = _people.HoldOf(key);
                 PersonPose pose = PersonAnimation.Pose(clip, clipTime, prev, pp.SpeedMps, pp.AgentId, hold);
                 Vector3 at = At(pp, origin, age);
                 double phase = CrowdAnimation.WalkPhase(clipTime, pp.SpeedMps, clip == PedClip.Run);
@@ -179,15 +182,15 @@ namespace Ghumante.Traffic
             }
         }
 
-        /// <summary>The variant body of an agent: its archetype, the place it first showed in, its carry prop and its variant
-        /// number (cached per agent, so a person keeps their look while walking across district edges).</summary>
+        /// <summary>The look of an agent: its archetype, the place it first showed in, its carry prop, its body shape (from
+        /// its id) and its garment colour (from its sim tint, <see cref="CrowdVariants.KeyOf"/>); cached per agent, so a
+        /// person keeps their look while walking across district edges.</summary>
         private int BodyKey(in PedPose pp, AreaTypeGrid areas)
         {
             if (_bodyKey.TryGetValue(pp.AgentId, out int key)) return key;
             AreaType area = areas != null ? areas.At(pp.X, pp.Z) : AreaType.Unknown;
             StreetStyle style = StreetStyles.At(pp.X, pp.Z, area);
-            int carry = pp.CarryProp <= 5 ? pp.CarryProp : 0;
-            key = CrowdVariants.Key((PedArchetype)pp.Archetype, style, carry, CrowdVariants.VariantOf(pp.AgentId));
+            key = CrowdVariants.KeyOf((PedArchetype)pp.Archetype, style, pp.CarryProp, pp.AgentId, pp.Tint);
             _bodyKey[pp.AgentId] = key;
             return key;
         }

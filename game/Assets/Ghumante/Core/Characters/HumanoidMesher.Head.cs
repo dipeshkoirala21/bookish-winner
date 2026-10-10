@@ -173,8 +173,8 @@ namespace Ghumante.Core.Characters
             private void Head()
             {
                 Mat(MaterialChannel.Skin);
-                int cols = Lod == 0 ? 26 : Lod == 1 ? 12 : 7;
-                int rows = Lod == 0 ? 17 : Lod == 1 ? 8 : 5;
+                int cols = Lod == 0 ? 26 : Lod == 1 ? 12 : Mid ? 9 : 7;
+                int rows = Lod == 0 ? 17 : Lod == 1 ? 8 : Mid ? 6 : 5;
                 float pe = 2f / HeadExponent;
                 bool stubble = _r.Beard == FacialHair.Stubble || _r.Beard == FacialHair.ShortBeard || _r.Beard == FacialHair.Goatee ||
                                _r.Beard == FacialHair.LongBeard;
@@ -209,7 +209,7 @@ namespace Ghumante.Core.Characters
 
             private void Face()
             {
-                if (Lod >= 2)
+                if (Far)
                 {
                     // Far body: two dark eyes.
                     Mat(MaterialChannel.Plain);
@@ -217,6 +217,20 @@ namespace Ghumante.Core.Characters
                     {
                         V3 p = FacePoint(s * EyeX, EyeY, -0.002f, out V3 n);
                         _k.Ellipsoid(p, new V3(0.017f, 0.022f, 0.008f) * _hs, Quat.Euler(0f, s * 14f, 0f), CharacterPalette.Pupil, 5, 2, Bone.Head);
+                    }
+                    return;
+                }
+                if (Lod >= 2)
+                {
+                    // Mid-distance body: eye whites with dark irises looking out of them (they read at 15–40 m).
+                    Mat(MaterialChannel.Plain);
+                    for (int s = -1; s <= 1; s += 2)
+                    {
+                        EyeFrame(s, out V3 c, out V3 r, out Quat rot);
+                        _k.Ellipsoid(c, r, rot, CharacterPalette.EyeWhite, 5, 3, Bone.Head);
+                        V3 ip = BodyKit.PatchPoint(c, r, rot, 0f, -0.04f, -0.25f * r.Z, out V3 inrm);
+                        _k.Ellipsoid(ip, new V3(0.6f * r.X, 0.62f * r.Y, 0.5f * r.Z), rot, CharacterPalette.Iris[_r.EyeColour % CharacterPalette.Iris.Length] == CharacterPalette.Iris[0]
+                                         ? CharacterPalette.Pupil : CharacterPalette.Shade(CharacterPalette.Iris[_r.EyeColour % CharacterPalette.Iris.Length], 0.7f), 4, 2, Bone.Head);
                     }
                     return;
                 }

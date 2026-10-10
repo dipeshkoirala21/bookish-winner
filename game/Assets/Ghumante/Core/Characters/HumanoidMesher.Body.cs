@@ -319,12 +319,7 @@ namespace Ghumante.Core.Characters
 
             private uint LegColour(OutfitItem t, OutfitItem l, in GarmentPlan g)
             {
-                if (CharacterRecipe.IsFullLength(t)) return g.SkirtRgb != 0 ? g.SkirtRgb : g.Dress;
-                if (t == OutfitItem.PoliceUniform && (l == OutfitItem.Trousers || l == OutfitItem.None)) return CharacterPalette.PoliceTrousers;
-                if (l == OutfitItem.None) return t == OutfitItem.Kurta || t == OutfitItem.Daura ? g.Dress : 0x34383Eu;
-                if (l == OutfitItem.Suruwal && t == OutfitItem.Daura) return g.Dress;
-                if (l == OutfitItem.Suruwal && t == OutfitItem.Kurta) return CharacterPalette.At(CharacterPalette.Suruwal, _torso.Pattern);
-                return CharacterPalette.Colour(l, _legs.Colour);
+                return LowerColour(_torso, _legs, CharacterRecipe.IsFullLength(t) && g.SkirtRgb != 0 ? g.SkirtRgb : g.Dress);
             }
 
             // ----- Neck ---------------------------------------------------------------------------------------------
@@ -464,7 +459,7 @@ namespace Ghumante.Core.Characters
                 {
                     if (i > 0)
                         for (int k = 1; k < sub; k++) n = AddRingY(n, _ty[i - 1] + (_ty[i] - _ty[i - 1]) * k / sub);
-                    if (Lod >= 2 && (i == 1 || i == 3)) continue; // the far body keeps the silhouette rings only
+                    if (Far && (i == 1 || i == 3)) continue; // the far body keeps the silhouette rings only
                     n = AddRingY(n, _ty[i]);
                 }
                 if (_g.Baffles && Lod == 0)
@@ -485,13 +480,20 @@ namespace Ghumante.Core.Characters
                     uint col = TorsoColour(edge ? y - 0.003f : y + 0.0005f);
                     TorsoRing(y, col);
                 }
-                _k.EndLoft(_k.Seg(20, 6), Lod >= 2 ? LoftCap.Flat : LoftCap.Round, LoftCap.None);
+                _k.EndLoft(_k.Seg(20, Mid ? 8 : 6), Lod >= 2 ? LoftCap.Flat : LoftCap.Round, LoftCap.None);
                 if (Lod < 2 && band > 0f)
                 {
                     // The rib band stands a little proud of the body.
                     BandRing(hem + 0.004f, hem + band - 0.004f, 0.006f, _g.BandRgb);
                 }
-                if (_g.SkirtHemY > 0f) Skirt();
+                if (_g.SkirtHemY > 0f)
+                {
+                    // A skirt of another cloth (a school skirt under the shirt) stays out of the crowd's tint mask.
+                    bool scope = _k.TintScope;
+                    _k.TintScope = scope && _g.SkirtRgb == _k.TintKey;
+                    Skirt();
+                    _k.TintScope = scope;
+                }
                 if (_g.Belt) Belt();
                 TorsoDetails();
             }
@@ -526,9 +528,16 @@ namespace Ghumante.Core.Characters
 
             private uint TorsoColour(float y)
             {
-                if (y < _g.HemY) return _g.SkirtHemY > 0f && _g.SkirtRgb != 0 ? _g.SkirtRgb : _g.Lower;
+                if (y < _g.HemY) return OwnCloth(_g.SkirtHemY > 0f && _g.SkirtRgb != 0 ? _g.SkirtRgb : _g.Lower);
                 if (_g.BandH > 0f && y < _g.HemY + _g.BandH) return _g.BandRgb;
                 return _g.Top;
+            }
+
+            /// <summary>A colour of the lower body drawn inside the top's loft: kept out of the crowd's tint mask unless it is
+            /// the garment's own cloth (<see cref="BodyKit.NoTint"/>), so trousers never take the shirt's colour.</summary>
+            private uint OwnCloth(uint rgb)
+            {
+                return rgb == _k.TintKey ? rgb : rgb | BodyKit.NoTint;
             }
 
             private void TorsoRing(float y, uint rgb)

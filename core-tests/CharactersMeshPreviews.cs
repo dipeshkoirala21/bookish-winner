@@ -100,12 +100,165 @@ namespace Ghumante.Core.Tests
             Write(Path.Combine(root, "lineup_lod2.obj"), lineupLod2);
         }
 
-        /// <summary>The first pedestrian of an archetype (seeds 1, 2, ...) that matches <paramref name="want"/>.</summary>
-        private static CharacterRecipe FirstWith(PedArchetype a, StreetStyle style, Func<CharacterRecipe, bool> want)
+        /// <summary>
+        /// Close-ups for the detail fixes: the topi on the player and its weaves, the porters' namlo with and without a
+        /// topi, every footwear, the schoolchildren's bag straps, the mid-distance LOD2 and far lineups, and one crowd shape
+        /// in several garment colours (near recolour and far tint). Written under <c>characters/fix/</c>.
+        /// </summary>
+        [Test]
+        public void DumpDetailFixes()
         {
-            for (uint seed = 1; seed < 200; seed++)
+            string dir = Dir;
+            if (dir == null) Assert.Pass("set GHUMANTE_PREVIEW_DIR to write previews");
+            string root = Path.Combine(dir, "characters", "fix");
+            Directory.CreateDirectory(root);
+            var player = new CharacterRecipe { Skin = 5, Hair = 1, HairColour = 0, Seed = 7u };
+            float headY = new HumanoidSkeleton(player).Metrics.HeadBaseY;
+            Write(Path.Combine(root, "topi_player_head.obj"), Crop(Mesh(player, 0, HeadwearMode.Outfit, FaceState.Default), headY - 0.02f, 9f));
+            var weaves = new MeshData(65536, 196608) { HasUv0 = true };
+            for (int wv = 0; wv <= CharacterPalette.DhakaWeaves; wv++)
             {
-                CharacterRecipe r = CharacterRecipe.ForPedestrian(a, (int)seed, seed, style, 0);
+                CharacterRecipe r = player.Clone();
+                r[OutfitSlotKind.Head] = wv < CharacterPalette.DhakaWeaves ? new OutfitSlot(OutfitItem.DhakaTopi, (byte)wv, (byte)wv) : new OutfitSlot(OutfitItem.BhadgaunleTopi);
+                r.Hair = (byte)(wv % 4);
+                Append(weaves, Crop(Mesh(r, 0, HeadwearMode.Outfit, FaceState.Default), headY - 0.02f, 9f), (wv - 3f) * 0.5f);
+            }
+            Write(Path.Combine(root, "topi_weaves.obj"), weaves);
+            var topiLods = new MeshData(65536, 196608) { HasUv0 = true };
+            for (int lod = 0; lod <= HumanoidMesher.FarLod; lod++)
+                Append(topiLods, Crop(Mesh(player, lod, HeadwearMode.Outfit, FaceState.Default), headY - 0.02f, 9f), (lod - 1.5f) * 0.5f);
+            Write(Path.Combine(root, "topi_lods.obj"), topiLods);
+            // Porters: the doko's namlo over a topi and over bare hair.
+            CharacterRecipe porterTopi = FirstWith(PedArchetype.Porter, StreetStyle.OldBazaar, r => r[OutfitSlotKind.Head].Item == OutfitItem.DhakaTopi && CharacterRecipe.UsesNamlo(r[OutfitSlotKind.Back].Item), 1);
+            CharacterRecipe porterBare = FirstWith(PedArchetype.Porter, StreetStyle.OldBazaar, r => r[OutfitSlotKind.Head].Item == OutfitItem.None && CharacterRecipe.UsesNamlo(r[OutfitSlotKind.Back].Item), 1);
+            CharacterRecipe gas = CharacterRecipe.ForPedestrian(PedArchetype.Porter, 2, 19u, StreetStyle.Urban, 3);
+            var heads = new MeshData(65536, 196608) { HasUv0 = true };
+            Append(heads, Crop(Mesh(porterTopi, 0, HeadwearMode.Outfit, FaceState.Default), headY - 0.25f, 9f), -0.6f);
+            Append(heads, Crop(Mesh(porterBare, 0, HeadwearMode.Outfit, FaceState.Default), headY - 0.25f, 9f), 0f);
+            Append(heads, Crop(Mesh(gas, 0, HeadwearMode.Outfit, FaceState.Default), headY - 0.25f, 9f), 0.6f);
+            Write(Path.Combine(root, "namlo_heads.obj"), heads);
+            Write(Path.Combine(root, "porter_topi.obj"), Mesh(porterTopi, 0, HeadwearMode.Outfit, FaceState.Default));
+            // Footwear close-ups (below the knee), side by side.
+            OutfitItem[] feet = { OutfitItem.Chappal, OutfitItem.Barefoot, OutfitItem.Sneakers, OutfitItem.LeatherShoes, OutfitItem.TrekBoots };
+            var shoes = new MeshData(65536, 196608) { HasUv0 = true };
+            for (int i = 0; i < feet.Length; i++)
+            {
+                CharacterRecipe r = player.Clone();
+                r[OutfitSlotKind.Feet] = new OutfitSlot(feet[i], 0);
+                if (feet[i] == OutfitItem.Chappal || feet[i] == OutfitItem.Barefoot) r[OutfitSlotKind.Legs] = new OutfitSlot(OutfitItem.Shorts, 1);
+                Append(shoes, Crop(Mesh(r, 0, HeadwearMode.Outfit, FaceState.Default), -1f, 0.22f), (i - 2f) * 0.45f);
+            }
+            Write(Path.Combine(root, "feet.obj"), shoes);
+            // Schoolchildren with daypacks (the straps over the shirt, tie and pocket).
+            var school = new MeshData(65536, 196608) { HasUv0 = true };
+            int k = 0;
+            foreach (bool girl in new[] { true, false })
+                for (int lod = 0; lod <= 1; lod++)
+                {
+                    CharacterRecipe r = SchoolKid(girl);
+                    r[OutfitSlotKind.Back] = new OutfitSlot(OutfitItem.Daypack, 2);
+                    Append(school, Mesh(r, lod, HeadwearMode.Outfit, FaceState.Default), (k++ - 1.5f) * 0.7f);
+                }
+            Write(Path.Combine(root, "school_straps.obj"), school);
+            // The lineup at the mid-distance LOD2 and the far level.
+            var line = new List<CharacterRecipe>
+            {
+                CharacterRecipe.ForPedestrian(PedArchetype.DauraSuruwal, 0, 3u, StreetStyle.OldBazaar, 0), CharacterRecipe.ForPedestrian(PedArchetype.KurtaSari, 2, 4u, StreetStyle.Urban, 0),
+                CharacterRecipe.ForPedestrian(PedArchetype.KurtaSari, 5, 21u, StreetStyle.Urban, 0), CharacterRecipe.ForPedestrian(PedArchetype.Hakupatasi, 0, 5u, StreetStyle.NewarTown, 0),
+                CharacterRecipe.ForPedestrian(PedArchetype.Porter, 1, 5u, StreetStyle.OldBazaar, 1), CharacterRecipe.ForPedestrian(PedArchetype.Monk, 0, 6u, StreetStyle.Buddhist, 0),
+                CharacterRecipe.ForPedestrian(PedArchetype.Tourist, 3, 7u, StreetStyle.Tourist, 0), CharacterRecipe.ForPedestrian(PedArchetype.TrafficPolice, 0, 9u, StreetStyle.Urban, 0),
+                SchoolKid(true), CharacterRecipe.ForPedestrian(PedArchetype.UrbanCasual, 4, 12u, StreetStyle.Urban, 0), player,
+            };
+            for (int lod = 1; lod <= HumanoidMesher.FarLod; lod++)
+            {
+                var all = new MeshData(65536, 196608) { HasUv0 = true };
+                for (int i = 0; i < line.Count; i++) Append(all, Mesh(line[i], lod, HeadwearMode.Outfit, FaceState.Default), (i - line.Count * 0.5f) * 0.9f);
+                Write(Path.Combine(root, "lineup_lod" + lod + ".obj"), all);
+            }
+            // Pashupati: pilgrims and the sadhus among them.
+            var pash = new MeshData(65536, 196608) { HasUv0 = true };
+            int placed = 0;
+            for (uint seed = 1; seed < 80 && placed < 8; seed++)
+            {
+                PedArchetype a = seed % 3 == 0 ? PedArchetype.KurtaSari : seed % 3 == 1 ? PedArchetype.DauraSuruwal : PedArchetype.UrbanCasual;
+                CharacterRecipe r = CharacterRecipe.ForPedestrian(a, (int)seed, seed, StreetStyle.Pashupati, 0);
+                bool sadhu = r.Hair == CharacterRecipe.HairDreadlocks;
+                if (placed < 3 ? !sadhu : sadhu && placed > 4) continue;
+                Append(pash, Mesh(r, 0, HeadwearMode.Outfit, FaceState.Default), (placed++ - 3.5f) * 0.9f);
+            }
+            Write(Path.Combine(root, "pashupati.obj"), pash);
+            // One crowd shape in six garment colours: near (LOD1 recoloured) in front, far (baked, shader tint) behind.
+            int shape = CrowdVariants.Key(PedArchetype.KurtaSari, StreetStyle.Urban, 0, 4);
+            CharacterRecipe sr = CrowdVariants.Recipe(shape);
+            var looks = new MeshData(65536, 196608) { HasUv0 = true };
+            var near = new MeshData(16384, 49152);
+            var nearW = new SkinWeights(16384);
+            HumanoidMesher.Build(sr, 1, near, nearW, CrowdVariants.Options(sr));
+            var far = new MeshData(4096, 12288);
+            var farW = new SkinWeights(4096);
+            HumanoidMesher.Build(sr, HumanoidMesher.FarLod, far, farW, CrowdVariants.Options(sr));
+            var frame = new MeshData(4096, 12288);
+            new CrowdBaker().Bake(far, farW, new HumanoidSkeleton(sr), CrowdVariants.FramePose(FarFrame.Stand, CrowdVariants.HoldOf(sr)), frame);
+            for (int c = 0; c < 6; c++)
+            {
+                uint rgb = CrowdVariants.GarmentColour(sr, c * 3);
+                Append(looks, Recoloured(near, rgb), (c - 2.5f) * 0.8f);
+                Append(looks, Recoloured(frame, rgb), (c - 2.5f) * 0.8f, -1.6f);
+            }
+            Write(Path.Combine(root, "looks_near_far.obj"), looks);
+        }
+
+        /// <summary>A copy of <paramref name="m"/> with its tint mask applied in <paramref name="rgb"/> (the crowd's look).</summary>
+        private static MeshData Recoloured(MeshData m, uint rgb)
+        {
+            var c = new MeshData(m.VertexCount + 4, m.IndexCount + 4) { HasUv0 = true };
+            Append(c, m, 0f);
+            var rgba = new byte[m.VertexCount * 4];
+            CrowdVariants.Recolour(m, rgb, rgba);
+            for (int i = 0; i < m.VertexCount; i++)
+            {
+                c.Colors[i * 4] = rgba[i * 4];
+                c.Colors[i * 4 + 1] = rgba[i * 4 + 1];
+                c.Colors[i * 4 + 2] = rgba[i * 4 + 2];
+                c.Colors[i * 4 + 3] = 255;
+            }
+            return c;
+        }
+
+        /// <summary>The triangles of <paramref name="m"/> whose centroid lies between two heights.</summary>
+        internal static MeshData Crop(MeshData m, float y0, float y1)
+        {
+            var c = new MeshData(m.VertexCount + 4, m.IndexCount + 4) { HasUv0 = true };
+            var map = new int[m.VertexCount];
+            for (int i = 0; i < map.Length; i++) map[i] = -1;
+            for (int t = 0; t < m.IndexCount; t += 3)
+            {
+                int a = m.Indices[t], b = m.Indices[t + 1], d = m.Indices[t + 2];
+                float y = (m.Positions[a * 3 + 1] + m.Positions[b * 3 + 1] + m.Positions[d * 3 + 1]) / 3f;
+                if (y < y0 || y > y1) continue;
+                int[] tri = { a, b, d };
+                for (int q = 0; q < 3; q++)
+                {
+                    int v = tri[q];
+                    if (map[v] < 0)
+                    {
+                        uint rgba = (uint)(m.Colors[v * 4] << 24 | m.Colors[v * 4 + 1] << 16 | m.Colors[v * 4 + 2] << 8 | m.Colors[v * 4 + 3]);
+                        map[v] = c.AddVertex(m.Positions[v * 3], m.Positions[v * 3 + 1], m.Positions[v * 3 + 2], m.Normals[v * 3], m.Normals[v * 3 + 1],
+                                             m.Normals[v * 3 + 2], rgba, m.Uv0[v * 2], m.Uv0[v * 2 + 1]);
+                    }
+                    tri[q] = map[v];
+                }
+                c.AddTriangle(tri[0], tri[1], tri[2]);
+            }
+            return c;
+        }
+
+        /// <summary>The first pedestrian of an archetype (seeds 1, 2, ...) that matches <paramref name="want"/>.</summary>
+        private static CharacterRecipe FirstWith(PedArchetype a, StreetStyle style, Func<CharacterRecipe, bool> want, int carry = 0)
+        {
+            for (uint seed = 1; seed < 400; seed++)
+            {
+                CharacterRecipe r = CharacterRecipe.ForPedestrian(a, (int)seed, seed, style, carry);
                 if (want(r)) return r;
             }
             throw new InvalidOperationException("no " + a + " matches");

@@ -1,6 +1,7 @@
 # Reference brief: the people of the Kathmandu Valley as they look today (detail pass, package "characters")
 
-> Status: written 2026-10-10 for the detail pass (docs/W2_DETAIL_CONTRACT.md). It turns photographs and sources into
+> Status: written 2026-10-10 for the detail pass (docs/W2_DETAIL_CONTRACT.md), revised the same day after the review
+> (§2 topi, §7 namlo, §11 feet and straps, §12 crowd looks and levels, §13 open issues). It turns photographs and sources into
 > modelling rules for the character generator (`Core/Characters/HumanoidMesher*.cs`, `CharacterRecipe.cs`,
 > `CharacterPalette.cs`, `StreetStyles.cs`) and the crowd (`CrowdAnimation.cs`, `CrowdBodies.cs`,
 > `World/Instancing/PeopleRenderer.cs`, `Traffic/CrowdPresenter.cs`). `player_and_controls.md` §2 (the player's body
@@ -32,20 +33,24 @@ dress of each part of the valley. The crowd now uses the same generator (skinned
 | **Thamel, Freak Street** | Tourists and trekkers (bucket hats, fleeces, trek trousers, daypacks, boots), shopkeepers, young locals in jackets and jeans [thamel ref_04] | `Tourist`: about half the people are trekkers (`Tourist` archetype), sunglasses, daypacks |
 | **Boudhanath, Swayambhu** | Tibetan monks in maroon with the yellow dhonka, a few Theravada monks in orange, Tibetan women in the **chuba** with the striped **pangden** apron, prayer wheels and malas on the kora [monks ref_00, ref_03, ref_04, ref_06, ref_09] | `Buddhist`: monks, chubas, prayer wheels, malas |
 | **Durbar Marg, Putalisadak, Singha Durbar, New Baneshwor, Pulchowk** | Office workers: shirts and trousers, blazers, leather shoes, kurtas for women; some topis on officials [est] | `Office`: shirts, blazers, plain trousers, leather shoes |
+| **Pashupatinath, the Bagmati ghats, Deopatan** | Hindu pilgrims: women in red and maroon saris (most of all on Mondays and at Teej), men in daura suruwal with a dhaka topi, a tika on most foreheads; sadhus in saffron with piled jata, a long beard and the tripundra [sadhu ref_00, ref_03, ref_05] | `Pashupati` (circle r 350 m round the temple): saris (80%, mostly red, maroon or magenta), tika on 70%, and 12% of the men walking there dressed as sadhus (`CharacterRecipe.PashupatiSadhuShare`) |
 | **Rest of the metro, suburbs, villages** | Everyday clothes: T-shirts, hoodies, jackets, jeans, joggers; women in kurta suruwal; chappals everywhere; farmers with dokos and headscarves | `Urban`, `Suburb`, `Village` from the area type |
 
-The district circles (lon, lat, radius) are in `StreetStyles.cs`; the crowd picks a body variant per archetype, style,
-carry prop and one of four variants (`CrowdVariants.Key`).
+The district circles (lon, lat, radius) are in `StreetStyles.cs`. A crowd person is a look (`CrowdVariants.KeyOf`): one
+of 12 body shapes of its archetype, style and carry prop (picked by its id: age, figure, height, skin, hair, garments)
+in one of 16 garment colours (the sim's per-agent tint, stepping through the garment's own palette, so a kurta stays in
+kurta colours and a daura in daura cloth; uniforms, robes and the black haku patasi keep theirs).
 
 ## 2. The dhaka topi and the bhadgaunle topi
 
 | Feature | Real [photo / src] | Modelled (`HumanoidMesher.Headwear.cs`) |
 |---|---|---|
-| Shape | A soft brimless cap; the crown is pinched into a ridge from front to back so it reads as a trapezoid from the side, **higher at the front than at the back** (the "mountain") [topi ref_04, ref_06, ref_07; topi2 ref_02] | 60 × 13 grid (LOD0, `TopiColumns`): walls leaning in steadily to 60% of the base width (a trapezoid from the front and from the side), rounding over into the front-to-back ridge in the top 16% (`TopiPinchStart` 0.84), a trough along the ridge (`TopiFoldDeg` 8°) |
-| Size | About 9–10 cm high at the front, 6–7 cm at the back over a head of about 23 cm; laid flat roughly 18 × 26 cm [src: museum catalogue entries; topi ref_07] | Scaled with the cartoon head (0.40 m, 1.74× real): front 0.20 m, back 0.14 m (`TopiFrontM`, `TopiBackM`), the rim 0.068 m above the head centre (about 4 cm over the brows). The 3 : 2 front-to-back ratio is kept |
+| Shape | A brimless cap worn high; from the side a trapezoid whose top edge (a creased ridge) runs straight from the front peak down to the back; from the front a tall pointed cap: the walls stand near-vertical to about half their height, then lean in almost straight to the peak, which a fold pulls a little to one side [topi ref_02, ref_05, ref_09, ref_11; topi2 ref_02] | 60 columns × 11 wall rows (LOD0, `TopiColumns`): the rim fits the head at its own tilted height with 1.1 cm room over the hair, walls taper to 90% up to `TopiPinch` 0.55 of their height, then pinch in to the ridge (`TopiPinchExp` 1.3, meeting it at an angle: a crease, not a dome); the ridge's front end is shifted `TopiPeakShift` 0.12 of the rim half-width toward one side (by the recipe) and leans back to 84% of the rim |
+| Size | Photographs of men wearing it (front views ref_11, ref_02, topi2 ref_02; 3/4 ref_05, ref_09): the front peak stands about as high above the rim as the rim is above the chin; the back about 0.7 of the front; the rim about as wide as the forehead, narrower than the head at the temples. Laid flat roughly 18 × 26 cm [src: museum catalogue entries; topi ref_07] | On the cartoon head (0.40 m): front 0.27 m, back 0.19 m (`TopiFrontM`, `TopiBackM`), the rim 0.10 m above the head centre (`TopiRimY`, a finger above the brows), height to rim width ≈ 0.8, the rim inside the head's silhouette. The old 0.20 / 0.14 m cap on a 0.068 m rim read as a squat bowl (height ≈ half its width) |
 | How it is worn | Square on the head, the peak above the forehead, **tilted a little toward the left**; never pulled down over the ears [topi ref_00, ref_04; topi2 ref_02] | Tilted 6° (`TopiTiltDeg`); the right side stands higher than the left |
-| Dhaka weave | Hand-woven Palpali dhaka: a light ground (cream, white, pale pink, grey; sometimes maroon or black) with **diagonal bands of small stepped diamonds** in rose red, orange, black and leaf green; other weaves show red lattices, pink-black-grey checks with yellow, ikat-like blurs [topi ref_00, ref_08] | Per-quad vertex colours in the `Fabric` channel (`DhakaCell`), one quad ≈ 1.3 cm of real cloth: diagonal rows of single motif dots between dotted dark lines, lattices and checks, each repeating in a divisor of 60 so the cap closes without a seam. Six weaves — Palpali classic (muted, as on most topis worn today) `#B85A6E #E8956E #4A4048 #6E9A78`, red lattice `#C62838 #F07C8C #FFFFFF #2A2224`, ikat `#5A6A7A #D97A8A #3E8E8A #F2C1A0`, check `#D94A78 #2A2A2E #9A9EA6 #F2C230`, earth `#8A2E3A #E8B04A #2A2224 #EDE6D6`, jade `#2E8B57 #D9455B #F2C230 #2A2224`; grounds `#F1E6D6 #EBC9C0 #D9D6D0 #F4EFE6 #7A2433 #232226` |
-| Rim | The cloth is folded in at the rim; worn, the edge reads as a slightly darker line [topi ref_07; topi2 ref_02] | A thin first row in the ground colour × 0.84 |
+| Dhaka weave | Hand-woven Palpali dhaka, dense: the coloured motifs cover most of the cloth, so the cap reads as its colours (pink, rose, orange, grey, black lines, a little green) rather than its ground [topi ref_02, ref_06, ref_07, ref_11] | Per-quad vertex colours in the `Fabric` channel (`DhakaCell`), rows of equal slant height and columns of equal rim length so cells stay square up the walls; the classic diagonal now covers about 70% of the cloth (a solid dark zig-zag line, two motif rows, a broken motif row, an accent row; period 12, seamless). Six weaves — Palpali classic `#C85A72 #E89A86 #5A4A58 #6E9A78`, red lattice `#C62838 #F07C8C #FFFFFF #2A2224`, ikat `#5A6A7A #D97A8A #3E8E8A #F2C1A0`, check `#D94A78 #2A2A2E #9A9EA6 #F2C230`, earth `#8A2E3A #E8B04A #2A2224 #EDE6D6`, jade `#2E8B57 #D9455B #F2C230 #2A2224`; grounds `#F2D3CB` (pale pink, the most common today and the player's default) `#F1E6D6 #D9D6D0 #F4EFE6 #7A2433 #232226` |
+| Rim and fold | The cloth is folded in at the rim (a slightly darker line); a soft crease runs up the front from the rim to the peak [topi ref_02, ref_07; topi2 ref_02] | The lowest row tucks 1.5% toward the head in the ground × 0.8; the front column shaded × 0.82 as the fold's seam |
+| Under the cap | The hair shows below the rim at the sides and back only | The hair shell under a cap sits 4–5 mm off the head, the rim 11 mm; no hair vertex above the rim lies outside the cap (`CharactersMeshDetailTests.NoHairShowsThroughTheTopi`) |
 | Bhadgaunle (kalo) topi | The same cut in plain **black** cloth, worn by Newar elders in Bhaktapur and at ceremonies [photo: Bhaktapur squares; daura ref_00] | Same shape, `#1A1A1C`; recipes in `NewarTown` choose it more than twice as often |
 
 ## 3. Daura suruwal
@@ -87,7 +92,8 @@ carry prop and one of four variants (`CrowdVariants.Key`).
 
 | Feature | Real [photo] | Modelled |
 |---|---|---|
-| Doko | A conical bamboo basket, straw to light brown, about 50–60 cm tall, carried on the back with a **namlo** strap across the forehead [porter ref_00, ref_01] | Woven grid (alternating strands) `#B8935A`, a rim, a load (greens, fodder or firewood by pattern), the namlo over the forehead (hats are removed when the namlo is worn) |
+| Doko | A conical bamboo basket, straw to light brown, about 50–60 cm tall, carried on the back with a **namlo** strap across the forehead [porter ref_00, ref_01] | Woven grid (alternating strands) `#B8935A`, a rim, a load (greens, fodder or firewood by pattern) |
+| Namlo | A wide flat band of jute or nettle cloth (about 4–5 cm, light brown) across the upper forehead, back along the temples above the ears, then ropes down to the load; a cap stays on under it [porter ref_01] | A five-row band 5.2 cm wide (cartoon) `#A88B5E` with darker edges, built on the outermost surface at every point (`OuterRadius`: the topi's wall where one is worn, else the hair over the head) with 2.5 mm clearance, from temple to temple across the forehead, then two ropes to the load; under it the hair lies flat (no curls, spikes, fringe locks or quiff). Sun hats, caps and police caps come off; topis stay (`CharactersMeshDetailTests.TheNamloLiesOverTheTopiAndTheHair`) |
 | Other loads | Sacks, red LPG cylinders on porters' backs, babies in a shawl sling | Sack `#C9B48A`, gas cylinder `#C0392B` with valve guard, baby sling with the baby's head in a knitted cap; 8–12% of pedestrians carry something (W2_DESIGN 5.4) |
 | Gait | Porters lean forward and walk at 0.8× | `PedClip.Carry`: forward lean, shorter steps |
 
@@ -95,7 +101,7 @@ carry prop and one of four variants (`CrowdVariants.Key`).
 
 | Feature | Real [photo] | Modelled |
 |---|---|---|
-| Uniforms | **White or light blue shirts with striped ties**, navy or grey trousers or skirts (some schools maroon), grey or navy sweaters, black shoes, white socks; girls with **two plaits tied with ribbons** [school ref_00, ref_02, ref_05] | Shirt `#F5F5F2` / `#9EC9EA`, tie with stripes (maroon, navy, green), bottoms navy `#1F2D4F`, grey `#6B6E73` or maroon `#6B1F2A`, belt, two plaits with ribbons; children are 1.22 m and have bigger heads |
+| Uniforms | **White or light blue shirts with striped ties**, navy or grey trousers or skirts (some schools maroon), grey or navy sweaters, black shoes, white socks; girls with **two plaits tied with ribbons** [school ref_00, ref_02, ref_05] | Shirt `#F5F5F2` / `#9EC9EA`, tie with stripes (maroon, navy, green), bottoms navy `#1F2D4F`, grey `#6B6E73` or maroon `#6B1F2A`, belt, two plaits with ribbons; children are 1.22 m and have bigger heads. Daypack straps are one continuous band each (over the shoulder, down the chest, round under the arm) sampled every 2–3 cm on the torso surface with 1.3 cm clearance, rising further over the collar points and a shirt's flat chest pocket, so they never sink into a child's rounder chest |
 
 ## 9. Tourists and trekkers (Thamel)
 
@@ -120,8 +126,8 @@ anything (the sneakers carry a plain stitched side curve).
 | Brows, nose, mouth | Swept brows; a rounded nose bulb with wings and nostril shadows; a mouth with lips, teeth, tongue and interior whose shape follows the expression; cheek blush |
 | Face states | Smile (default), Neutral, Joy, WinceLaugh, Puff (after running), Calm (temples) and Blink: built as blend-shape targets of the player (`PlayerAvatar`) |
 | Ears | Ellipsoid with an inner fold (concha) and a lobe |
-| Hands | LOD0: a rounded palm, four two-joint fingers with a rest curl and nails, a two-joint thumb (`FingersLod0` = 5), skinned to the finger and thumb bones; LOD1 a mitten with a thumb; LOD2 one rounded shape |
-| Feet | Sneakers (white midsole, toe cap, collar, tongue, three laces, side curve), chappals (two-layer sole, Y strap, the bare foot with five toes), leather shoes, trek boots (lugged sole, shaft, hooks), bare feet |
+| Hands | LOD0: a rounded palm, four two-joint fingers with a rest curl and nails, a two-joint thumb (`FingersLod0` = 5), skinned to the finger and thumb bones; LOD1 and the mid-distance LOD2 a mitten with a thumb; the far body one rounded shape |
+| Feet | The bare foot is lofted from real sections: a narrow round heel (5.4 cm), the inner arch curving in, the instep high behind (7 cm), the ball widest (9.2 cm), closed at both ends; ankle bones (inner higher and further forward); five toes seated against the front along an oblique toe line (24°: the big toe reaches furthest, the little toe steps back), nails on the first three. Chappals: a coloured rubber sole under a white footbed, both with rounded heel and toe outlines, and the Y strap lying on the foot (the post between the first two toes, the two straps over the forefoot to the sole's sides at the arch, their thickness along the foot's surface normal). Sneakers, leather shoes and boots: the plan closes round the heel and the toe in circles of the heel and toe half widths, so the heel is a rounded counter facing outward (the old flat end cap faced inward and read as a slit down the heel); the collar is a padded lip on the upper's top edge; sneakers keep the white midsole, toe cap, tongue, three laces and a stitched side curve lying on the upper |
 | Skin | Ten numbered swatches #1 `#F3D3B5`, #2 `#EBC39E`, #3 `#E0B48C`, #4 `#D4A276`, #5 `#C69064`, #6 `#B67F55`, #7 `#A26D47`, #8 `#8C5A3A`, #9 `#744830`, #10 `#5C3826`, each with a shadow, blush and lip tone |
 | Hair | 17 styles (side fringe, curls, spikes, bob, long, braid with red tassel, ponytail, bun with pin, top knot, wavy, puffs, dreadlocks, two plaits, quiff with faded sides, shaved, receding) and facial hair (stubble, moustaches, short beard, goatee, long beard); ten colours from black `#1B1A1C` to white `#E6E2DA` |
 | Material channels | UV0 u = channel (Skin, Hair, Fabric, Leather, Rubber, Metal, Gilt, Plain ...), v = baked AO (capsule occluders, floor 0.42) per docs/W2_DETAIL_CONTRACT.md §5 |
@@ -130,25 +136,53 @@ anything (the sneakers carry a plain stitched side curve).
 
 | Level | Cap (triangles) | Typical | Used for |
 |---|---|---|---|
-| LOD0 | 9,600 body + 2,400 accessories = **12,000** | 9.8–11.4 k | The player (every tier) and the nearest NPC on High |
-| LOD1 | **3,000** | 2.0–2.9 k | Near NPCs on Mid and High, the nearest of the mid band |
-| LOD2 | **500** | 430–495 | The rest of the mid band (skinned) and the far band (baked poses, instanced with a tint) |
+| LOD0 | 9,600 body + 2,400 accessories = **12,000** | 10.2–11.9 k | The player on Mid and High, the nearest NPC on High |
+| Light LOD0 | **7,000** | 6.8 k | The player on Low (`CharacterMeshOptions.Light`): the full LOD0 face, five-finger hands and topi on a LOD1 body |
+| LOD1 | **3,000** | 2.3–3.0 k | The near band on every tier (so the person brushing past is never the far body), the nearest of the mid band on Mid and High |
+| LOD2 | **720** | 640–720 | The rest of the mid band (skinned): eye whites with irises, a nine-sided head, eight-sided arms and seven-sided legs, mitten hands with a thumb, soles in the shoe colour |
+| Far | **500** | 430–499 | The far band (`HumanoidMesher.FarLod`): baked poses of the person's own body shape |
 
-A recipe that would go over its cap is rebuilt with its accessories one step plainer (accents, then hair and back
-items, then headwear and footwear; `HumanoidMesher.DetailDrop`), so the caps hold for any combination; 98% of the
-crowd's everyday bodies need no drop. With the people caps of W2_DESIGN 10.4 the worst cases are Low 21.0 k, Mid
-48.0 k and High 93.0 k against the 21 / 50 / 95 k character slices (`CrowdLodPlan`).
+A recipe over its cap is rebuilt one step plainer (accents, then hair and back items, then headwear and footwear;
+from step 2 the LOD2 body takes the far body's segments), so the caps hold for every archetype, place and carry prop
+(tested over all of them); 93% of the everyday bodies need no drop and 97% keep their hair, load and headwear (the
+umbrella's canopy pushes some mid-distance bodies to plainer accents). With the people caps of W2_DESIGN 10.4 the worst
+cases are Low 19.4 k, Mid 50.0 k and High 94.7 k against the 21 / 50 / 95 k character slices (`CrowdLodPlan`).
+
+**Looks and bands.** Every band draws the same tint-masked build of a person's body shape (the garment's own cloth,
+fabric channel only; trousers or a skirt of another cloth are kept out by `BodyKit.NoTint`): the skinned near and mid
+bodies are recoloured on the CPU (`CrowdVariants.Recolour`, in linear light like the shader), the far band instances
+the shape's baked frames with the same colour as `_InstanceTint`, so nobody changes clothes, age, skin, hair or colour at
+40 m (tested vertex for vertex). In a simulated urban street no look is more than 1% and no shape more than 5% of the
+people, a High near-and-mid band of 26 people shows under one exact twin, and the far band of 78 walkers needs about 65
+instanced batches (one per shape and walk frame in view; colours ride on the tint).
 
 ## 13. Deviations and open points
 
-* **Topi size**: W2_DESIGN 6.1 gives 0.11 / 0.075 m, which does not clear the 0.40 m cartoon head; the cap scales with
-  the head (0.20 / 0.14 m) and keeps the ratio and the tilt.
+* **Topi size**: W2_DESIGN 6.1 gives 0.11 / 0.075 m, which does not clear the 0.40 m cartoon head; the cap follows the
+  photographs on the cartoon head (0.27 / 0.19 m over a rim 0.10 m above the head centre) and keeps the tilt.
 * **LOD0 budget**: raised from 5,000 + 600 to 12,000 for the requested detail (fingers, faces, garments); the crowd
   keeps within the slices by giving LOD0 to the player and one NPC only.
-* **Far crowd**: the design's VAT crowd is replaced by baked LOD2 frames (six walk phases, stand, sit, pray, arm up)
-  drawn with GPU instancing and a per-person tint; no textures.
+* **Far crowd**: the design's VAT crowd is replaced by baked far-level frames of each body shape (six walk phases,
+  stand, sit, pray, arm up) drawn with GPU instancing and the person's garment colour as the instance tint; no textures.
 * Saris and kurtas are plain colours with borders; printed motifs (other than the dhaka weave) are not modelled.
 * Hats are removed under the namlo strap; helmets replace all headwear on two-wheelers.
+* **Reference photos for the fixes**: Openverse and Wikimedia Commons were rate-limited during the review fixes
+  (HTTP 401 / 429), so the topi, porter and sadhu comparisons use the cached photos credited in §14
+  (side-by-side renders in `/home/user/wt/previews/characters/fix/compare_topi_fix.png`, `namlo_*.png`, `feet_*.png`).
+
+**Open issues for the lead (files outside this package):**
+
+* **collide** (`Core/Traffic/PedestrianSim.cs`): the Sadhu archetype has weight 0 in every mix row, so the sim never
+  spawns one. Give it weight near the Pashupati sacred zone, the kora and the ghats. Until then the `Pashupati` street
+  style dresses 12% of the men walking there as sadhus (`CharacterRecipe.PashupatiSadhuShare`).
+* **camera** (`Characters/ExplorerController.cs`): nothing sets `PlayerAvatar.Expression`; set `FaceExpression.Joy` on a
+  discovery and `FaceExpression.Calm` inside sacred zones (the blend shapes exist; only the blink and the run puff play).
+* **look** (`World/Shaders/ToonLit.shader`, optional): `_InstanceTint` only exists in instanced variants, so the skinned
+  near bodies carry their garment colour as recoloured meshes (one upload per look and level). A non-instanced tint
+  property set through a `MaterialPropertyBlock` would let every look of a shape share one skinned mesh.
+* **integration**: the far crowd now issues one instanced draw per body shape and walk frame in view (about 65 for 78
+  far walkers on High; at most 39 on Mid and 13 on Low) within the SRP batch budgets of 300 / 200 / 120; worth
+  watching in the V11 captures.
 
 ## 14. Photo credits (reference only, not in the repository)
 

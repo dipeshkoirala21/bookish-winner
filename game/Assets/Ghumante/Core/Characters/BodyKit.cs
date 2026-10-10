@@ -57,7 +57,14 @@ namespace Ghumante.Core.Characters
 
         public MeshData M;
         public SkinWeights W;
+
+        /// <summary>Kit level of detail, 0..2. The far crowd's level (<see cref="HumanoidMesher.FarLod"/>) builds at kit
+        /// level 2 with <see cref="Far"/> set.</summary>
         public int Lod;
+
+        /// <summary>The far crowd body (mesher level 3): level 2 with the fewest segments. Without it level 2 is the
+        /// mid-distance body, a little rounder (<see cref="Seg"/>).</summary>
+        public bool Far;
 
         /// <summary>Material channel written into UV0.x of the vertices that follow.</summary>
         public MaterialChannel Channel = MaterialChannel.Fabric;
@@ -66,15 +73,25 @@ namespace Ghumante.Core.Characters
         public float Ao = 1f;
 
         /// <summary>
-        /// Tint mask for the far crowd body (instanced, one tint per person): when set, vertices whose colour is
-        /// <see cref="TintKey"/> or a shade of it are written as grey with alpha 255 (the shader multiplies them by the
-        /// instance tint), every other vertex keeps its colour with alpha 0 (untinted). Off: every vertex is opaque
-        /// with alpha 255.
+        /// Tint mask for the crowd's looks (one garment colour per person, <see cref="CrowdVariants"/>): when set,
+        /// garment vertices (<see cref="TintScope"/>) whose colour is <see cref="TintKey"/> or a shade of it are written
+        /// as grey with alpha 255 (the far shader multiplies them by the instance tint, the near bodies are recoloured
+        /// the same way on the CPU), every other vertex keeps its colour with alpha 0 (untinted). Off: every vertex is
+        /// opaque with alpha 255.
         /// </summary>
         public bool TintMask;
 
-        /// <summary>The 0xRRGGBB colour replaced by the instance tint when <see cref="TintMask"/> is on.</summary>
+        /// <summary>The 0xRRGGBB colour replaced by the instance tint when <see cref="TintMask"/> is on (0: nothing).</summary>
         public uint TintKey;
+
+        /// <summary>Under <see cref="TintMask"/>, only vertices written while this is set (the builder sets it for the
+        /// garment: torso, sleeves and a matching lower garment) and in the <see cref="MaterialChannel.Fabric"/> channel
+        /// are masked, so eyes, teeth, skin, laces and soles never take a garment colour.</summary>
+        public bool TintScope;
+
+        /// <summary>A flag in the top byte of a colour handed to the kit: the vertex is never tint-masked (the trouser
+        /// colour of the hips inside the torso loft when the trousers are another cloth). Stripped before writing.</summary>
+        public const uint NoTint = 0x01000000u;
 
         private LoftRing[] _rings = new LoftRing[48];
         private int _ringCount;
@@ -88,11 +105,11 @@ namespace Ghumante.Core.Characters
             Lod = lod < 0 ? 0 : lod > 2 ? 2 : lod;
         }
 
-        /// <summary>Segments for a part that uses <paramref name="lod0"/> at LOD0: half at LOD1, a quarter (at least
-        /// <paramref name="min"/>) at LOD2.</summary>
+        /// <summary>Segments for a part that uses <paramref name="lod0"/> at LOD0: half at LOD1, a third at the mid-distance
+        /// LOD2 and a quarter on the far body (at least <paramref name="min"/>).</summary>
         public int Seg(int lod0, int min = 3)
         {
-            int n = Lod == 0 ? lod0 : Lod == 1 ? (lod0 + 1) / 2 : (lod0 + 3) / 4;
+            int n = Lod == 0 ? lod0 : Lod == 1 ? (lod0 + 1) / 2 : Far ? (lod0 + 3) / 4 : (lod0 + 2) / 3;
             return n < min ? min : n;
         }
 
@@ -102,7 +119,11 @@ namespace Ghumante.Core.Characters
         {
             V3 nn = n.Normalized;
             if (nn.LengthSq < 0.5f) nn = V3.Up;
-            int i = M.AddVertex(p.X, p.Y, p.Z, nn.X, nn.Y, nn.Z, TintMask ? Masked(rgb) : CharacterPalette.Rgba(rgb), (float)Channel, Ao);
+            bool keep = (rgb & NoTint) != 0;
+            rgb &= 0xFFFFFFu;
+            uint rgba = !TintMask ? CharacterPalette.Rgba(rgb)
+                        : !keep && TintScope && TintKey != 0 && Channel == MaterialChannel.Fabric ? Masked(rgb) : rgb << 8;
+            int i = M.AddVertex(p.X, p.Y, p.Z, nn.X, nn.Y, nn.Z, rgba, (float)Channel, Ao);
             if (W != null) W.Add(b0, b1, w0);
             return i;
         }

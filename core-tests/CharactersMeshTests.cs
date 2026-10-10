@@ -190,7 +190,8 @@ namespace Ghumante.Core.Tests
             Assert.That(bare, Is.EqualTo(1.55f).Within(0.03f));
             r[OutfitSlotKind.Head] = new OutfitSlot(OutfitItem.DhakaTopi);
             float topi = MaxY(r, HeadwearMode.Outfit);
-            Assert.That(topi - bare, Is.InRange(0.03f, 0.1f));
+            // The photo-true topi is worn high and stands tall (ref_characters.md §2): about 0.17 m over the cartoon crown.
+            Assert.That(topi - bare, Is.InRange(0.12f, 0.2f));
             Assert.That(MaxY(r, HeadwearMode.Helmet) - bare, Is.InRange(0.02f, 0.08f));
             var tall = new CharacterRecipe { Build = BodyBuild.D, Hair = 2 };
             tall[OutfitSlotKind.Head] = new OutfitSlot(OutfitItem.None);

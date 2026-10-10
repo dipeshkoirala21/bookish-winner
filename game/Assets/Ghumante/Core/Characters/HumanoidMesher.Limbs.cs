@@ -18,7 +18,9 @@ namespace Ghumante.Core.Characters
                               LoftCap startCap, LoftCap endCap, float[] radiusCurve = null, byte cuff = 0, uint cuffRgb = 0, bool foldsAtEnd = false,
                               bool foldsAtStart = false)
             {
-                int seg = _k.Seg(11, Lod >= 2 ? 4 : 5), rings = Lod >= 2 ? 2 : Lod == 1 ? 3 : 7;
+                // The mid-distance body keeps round limbs: eight sides on the arms, seven on the legs (the far body four).
+                bool leg = bone >= Bone.ThighL && bone <= Bone.ToeR;
+                int seg = _k.Seg(11, Mid ? (leg ? 7 : 8) : Lod >= 2 ? 4 : 5), rings = Lod >= 2 ? 2 : Lod == 1 ? 3 : 7;
                 if (Lod >= 2)
                 {
                     // The crowd body: joints hide the ends (shoulders in the torso, knees in the bulges, ankles in shoes).
@@ -132,7 +134,11 @@ namespace Ghumante.Core.Characters
                             _k.EndLoft(_k.Seg(12, 5), LoftCap.None, LoftCap.None);
                         }
                     }
+                    // The hands keep the build's level (the light LOD0 keeps its five-finger hands on LOD1 arms).
+                    int armLod = _k.Lod;
+                    if (_light) _k.Lod = _lod;
                     Hand(side, gloves);
+                    _k.Lod = armLod;
                 }
             }
 
@@ -152,7 +158,10 @@ namespace Ghumante.Core.Characters
                 Mat(gloves ? MaterialChannel.Fabric : MaterialChannel.Skin);
                 if (Lod >= 2)
                 {
-                    _k.Ellipsoid(w + new V3(s * 0.003f, -0.055f * hs, 0.006f * hs), new V3(0.022f, 0.06f * hs, 0.044f), Quat.Identity, col, 5, 2, hand, 2.2f, f1, 0.7f);
+                    _k.Ellipsoid(w + new V3(s * 0.003f, -0.055f * hs, 0.006f * hs), new V3(0.022f, 0.06f * hs, 0.044f), Quat.Identity, col, Mid ? 6 : 5, 2, hand, 2.2f, f1, 0.7f);
+                    // Mid-distance body: the thumb stands off the mitten, so the hand reads as a hand.
+                    if (Mid)
+                        _k.Ellipsoid(w + new V3(-s * 0.01f * hs, -0.04f * hs, 0.04f * hs), new V3(0.011f, 0.022f, 0.011f) * hs, Quat.Euler(-35f, 0f, 0f), col, 4, 2, t1, 2f, hand, 0.5f);
                     return;
                 }
                 V3 inward = new V3(-s, 0f, 0f);
@@ -363,12 +372,20 @@ namespace Ghumante.Core.Characters
                     Bone foot = (Bone)(25 + o), toe = (Bone)(26 + o);
                     if (Lod >= 2)
                     {
-                        // The crowd body: one shoe or foot each.
+                        // The crowd body: one shoe or foot each (the mid-distance body adds a sole in the shoe's sole colour or
+                        // the chappal's strap colour).
                         uint shoe = f == OutfitItem.Barefoot || f == OutfitItem.None ? _skin : f == OutfitItem.Chappal ? _skin : upper;
                         Mat(f == OutfitItem.Barefoot || f == OutfitItem.Chappal ? MaterialChannel.Skin : MaterialChannel.Leather);
                         float fs = FootScale;
-                        _k.Ellipsoid(new V3(ankle.X, 0.042f * fs, ankle.Z + 0.045f * fs), new V3(0.05f, 0.042f, 0.13f) * fs, Quat.Euler(-4f, 0f, 0f), shoe, 6, 2, foot,
+                        _k.Ellipsoid(new V3(ankle.X, 0.042f * fs, ankle.Z + 0.045f * fs), new V3(0.05f, 0.042f, 0.13f) * fs, Quat.Euler(-4f, 0f, 0f), shoe, Mid ? 7 : 6, 2, foot,
                                      2.4f, toe, 0.7f);
+                        if (Mid && f != OutfitItem.Barefoot && f != OutfitItem.None)
+                        {
+                            Mat(MaterialChannel.Rubber);
+                            uint sole = f == OutfitItem.Sneakers ? CharacterPalette.SoleWhite : f == OutfitItem.Chappal ? upper : f == OutfitItem.TrekBoots ? 0x2E2824u
+                                : CharacterPalette.Shade(upper, 0.6f);
+                            _k.Ellipsoid(new V3(ankle.X, 0.008f * fs, ankle.Z + 0.045f * fs), new V3(0.054f, 0.009f, 0.135f) * fs, Quat.Identity, sole, 6, 2, foot, 3f, toe, 0.7f);
+                        }
                         continue;
                     }
                     switch (f)
@@ -396,25 +413,39 @@ namespace Ghumante.Core.Characters
                 }
             }
 
-            /// <summary>Ring positions along a shoe (denser at the rounded heel and toe).</summary>
-            private static readonly float[] ShoeT = { 0f, 0.04f, 0.12f, 0.26f, 0.42f, 0.58f, 0.72f, 0.84f, 0.93f, 1f };
-            private static readonly float[] ShoeT1 = { 0f, 0.25f, 0.55f, 0.85f, 1f };
+            /// <summary>Ring positions along a shoe: dense round the heel and toe so the plan outline closes in a curve. The
+            /// first and last rings sit a fraction of a millimetre inside the ends, where the outline is about an eighth of
+            /// its width, so the end caps are tiny and the surface has already turned to face backward or forward.</summary>
+            private static readonly float[] ShoeT = { 0.0011f, 0.006f, 0.02f, 0.045f, 0.08f, 0.13f, 0.21f, 0.33f, 0.46f, 0.58f, 0.7f, 0.8f, 0.88f, 0.94f, 0.975f, 0.993f, 0.9988f };
+            private static readonly float[] ShoeT1 = { 0.0011f, 0.025f, 0.2f, 0.6f, 0.93f, 0.9988f };
+
+            /// <summary>The ring Z axis of lofts that run forward along the foot (X right): with it the loft's caps face out
+            /// of the ends (BodyKit's caps face along Z × X, the loft direction).</summary>
+            private static readonly V3 LoftDown = V3.Down;
+
+            /// <summary>Shoe length the profile is drawn for (the adult cartoon shoe).</summary>
+            private const float ShoeLenM = 0.25f;
 
             /// <summary>
             /// Shoe shape along its length (t 0 heel → 1 toe tip), in metres for the adult 0.25 m shoe: the half width of
-            /// the plan outline (a superellipse, widest at the ball), the half height of the upper and the height of the
-            /// upper's centre above the sole top (it rises from the toe to the instep and the collar).
+            /// the plan outline, the half height of the upper and the height of the upper's centre above the sole top. The
+            /// plan is widest at the ball (t ≈ 0.62), 72% of that at the heel and 62% at the toe, and closes round both
+            /// ends in circles of those half widths, so the heel is a rounded counter (never a knife edge) and the toe a
+            /// rounded cap. The upper is high at the heel and instep and falls to the toe.
             /// </summary>
             private static void ShoeProfile(float t, out float w, out float h, out float y)
             {
-                // Plan: a rounded outline widest at the ball (t ≈ 0.62), closing at the heel and the toe.
-                float u = t < 0.62f ? (0.62f - t) / 0.62f : (t - 0.62f) / 0.38f;
-                float plan = MathF.Pow(Math.Max(0f, 1f - MathF.Pow(Math.Min(1f, u), 2.4f)), 1f / 2.4f);
-                w = 0.051f * (0.08f + 0.92f * plan) * (0.9f + 0.12f * t);
-                // Height: high at the heel and instep, falling to the toe.
+                const float ball = 0.051f, heelW = 0.72f * ball, toeW = 0.62f * ball;
+                float baseW = t < 0.62f ? CharMath.Lerp(heelW, ball, CharMath.SmoothStep(t / 0.62f))
+                                        : CharMath.Lerp(ball, toeW, CharMath.SmoothStep((t - 0.62f) / 0.38f));
+                float zh = t * ShoeLenM, zt = (1f - t) * ShoeLenM;
+                float kh = zh < heelW ? MathF.Sqrt(Math.Max(0f, 1f - (1f - zh / heelW) * (1f - zh / heelW))) : 1f;
+                float kt = zt < toeW ? MathF.Sqrt(Math.Max(0f, 1f - (1f - zt / toeW) * (1f - zt / toeW))) : 1f;
+                w = baseW * (0.9f + 0.12f * t) * Math.Min(kh, kt);
+                // Height: high at the heel and instep, falling to the toe; the heel counter stays upright.
                 float rise = t < 0.35f ? 1f : 1f - 0.6f * (t - 0.35f) / 0.65f;
-                float tip = t > 0.9f ? 1f - 0.5f * (t - 0.9f) / 0.1f : 1f;
-                float heel = t < 0.06f ? 0.75f + 0.25f * t / 0.06f : 1f;
+                float tip = t > 0.9f ? 1f - 0.45f * (t - 0.9f) / 0.1f : 1f;
+                float heel = 0.9f + 0.1f * Math.Min(1f, t / 0.06f);
                 h = 0.034f * rise * tip * heel;
                 y = h * 0.95f;
             }
@@ -422,13 +453,13 @@ namespace Ghumante.Core.Characters
             /// <summary>
             /// A shoe as lofts along the foot: the sole (white midsole for sneakers, a dark lugged sole for trek boots, a
             /// thin welted sole for leather shoes) following the plan outline, the rounded upper with a toe cap, a padded
-            /// collar round the ankle, a tongue, laces across the instep and a stitched side curve; a high shaft with lace
-            /// hooks for boots. A gentle toe spring lifts the tip (P §2.3).
+            /// collar seated on the upper's top edge round the ankle, a tongue, laces across the instep and a stitched side
+            /// curve; a high shaft with lace hooks for boots. A gentle toe spring lifts the tip (P §2.3).
             /// </summary>
             private void Shoe(V3 ankle, float s, Bone foot, Bone toe, uint upper, uint sole, float soleH, float collarY, bool laces, bool sneaker)
             {
                 float fs = FootScale;
-                float heelZ = ankle.Z - 0.07f * fs, len = 0.25f * fs;
+                float heelZ = ankle.Z - 0.07f * fs, len = ShoeLenM * fs;
                 bool boot = collarY > 0.12f;
                 float[] ts = Lod == 0 ? ShoeT : ShoeT1;
                 int seg = _k.Seg(10, 6);
@@ -443,7 +474,7 @@ namespace Ghumante.Core.Characters
                     float spring = t > 0.75f ? (t - 0.75f) / 0.25f * 0.01f * fs : 0f;
                     _k.Ring(new LoftRing
                     {
-                        C = new V3(ankle.X + s * 0.004f * t, spring + sh * 0.5f, heelZ + len * t), AxisX = V3.Right, AxisZ = V3.Up,
+                        C = new V3(ankle.X + s * 0.004f * t, spring + sh * 0.5f, heelZ + len * t), AxisX = V3.Right, AxisZ = LoftDown,
                         Rx = Math.Max(0.002f, w * fs + 0.0035f * Math.Min(1f, w * 60f)), Rz = sh * 0.5f, Exp = 3.2f, Rgb = sole,
                         B0 = t > 0.65f ? toe : foot, B1 = foot, W0 = t > 0.65f ? 0.7f : 1f,
                     });
@@ -460,25 +491,27 @@ namespace Ghumante.Core.Characters
                     float spring = t > 0.75f ? (t - 0.75f) / 0.25f * 0.01f * fs : 0f;
                     _k.Ring(new LoftRing
                     {
-                        C = new V3(ankle.X + s * 0.004f * t, sh + yc * fs + spring - 0.003f * fs, heelZ + len * t), AxisX = V3.Right, AxisZ = V3.Up,
+                        C = new V3(ankle.X + s * 0.004f * t, sh + yc * fs + spring - 0.003f * fs, heelZ + len * t), AxisX = V3.Right, AxisZ = LoftDown,
                         Rx = Math.Max(0.002f, w * fs), Rz = Math.Max(0.002f, h * fs), Exp = 2.5f, Rgb = t > 0.8f ? cap : upper,
                         B0 = t > 0.65f ? toe : foot, B1 = foot, W0 = t > 0.65f ? 0.7f : 1f,
                     });
                 }
                 _k.EndLoft(seg, LoftCap.Flat, LoftCap.Flat);
-                // Collar round the ankle opening (a boot shaft rises higher).
+                // The collar round the ankle opening: a padded lip seated on the upper's top edge (a boot shaft rises higher).
                 if (Lod > 0 && !boot) return;
-                float top = boot ? collarY : ankle.Y + 0.012f;
-                float baseY = sh + 0.03f * fs;
+                ShoeProfile(0.2f, out float wc, out float hc, out float ycc);
+                float rim = sh + (ycc + hc) * fs - 0.003f * fs;
+                float rxC = Math.Min(wc * fs, 0.044f * fs), rzC = 0.047f * fs;
                 _k.BeginLoft();
-                for (int k = 0; k < 3; k++)
+                int collarRings = boot ? 3 : 3;
+                for (int k = 0; k < collarRings; k++)
                 {
-                    float y = baseY + (top - baseY) * k / 2f;
-                    float r = (boot ? 0.048f : 0.044f) * fs * (k == 2 ? 1.04f : 1f);
+                    float y = boot ? rim - 0.01f * fs + (collarY - rim + 0.01f * fs) * k / 2f : k == 0 ? rim - 0.012f * fs : k == 1 ? rim + 0.003f * fs : rim + 0.007f * fs;
+                    float grow = boot ? (k == 2 ? 1.06f : 1.02f) : k == 1 ? 1.06f : k == 2 ? 0.97f : 0.99f;
                     _k.Ring(new LoftRing
                     {
-                        C = new V3(ankle.X, y, ankle.Z - 0.016f * fs), AxisX = V3.Right, AxisZ = V3.Forward, Rx = r, Rz = r * 1.12f, Exp = 2.2f,
-                        Rgb = k == 2 ? CharacterPalette.Shade(upper, 0.72f) : upper, B0 = boot && k == 2 ? (Bone)((int)foot - 1) : foot, B1 = foot,
+                        C = new V3(ankle.X, y, ankle.Z - 0.017f * fs), AxisX = V3.Right, AxisZ = V3.Forward, Rx = rxC * grow, Rz = rzC * grow, Exp = 2.2f,
+                        Rgb = k == 0 ? upper : CharacterPalette.Shade(upper, 0.72f), B0 = boot && k == 2 ? (Bone)((int)foot - 1) : foot, B1 = foot,
                         W0 = boot && k == 2 ? 0.6f : 1f,
                     });
                 }
@@ -515,7 +548,10 @@ namespace Ghumante.Core.Characters
                             float t = 0.12f + 0.6f * i / (n - 1);
                             ShoeProfile(t, out float w, out float h, out float yc);
                             float bump = 1f - 4f * (i / (float)(n - 1) - 0.5f) * (i / (float)(n - 1) - 0.5f);
-                            path[i] = new V3(ankle.X + sideOut * (w * fs + 0.001f), sh + (yc - 0.4f * h + 0.012f * bump) * fs, heelZ + len * t);
+                            // On the upper's side at its own height (the section is a superellipse of exponent 2.5).
+                            float dy = -0.25f * h + 0.008f * bump;
+                            float across = MathF.Pow(Math.Max(0f, 1f - MathF.Pow(Math.Min(1f, MathF.Abs(dy) / Math.Max(1e-4f, h)), 2.5f)), 0.4f);
+                            path[i] = new V3(ankle.X + s * 0.004f * t + sideOut * (w * across * fs + 0.0008f), sh + (yc + dy) * fs - 0.003f * fs, heelZ + len * t);
                             rx[i] = 0.0028f * fs;
                             rz[i] = 0.0014f;
                         }
@@ -531,81 +567,230 @@ namespace Ghumante.Core.Characters
                 }
             }
 
-            /// <summary>A bare foot: a lofted foot with five toes at LOD0 (big toe biggest). <paramref name="lift"/> raises it
-            /// onto a sandal's footbed.</summary>
+            // ----- The bare foot and the chappal ---------------------------------------------------------------------------
+
+            /// <summary>Ring positions along the bare foot (heel to the toes' base), LOD0 and LOD1. LOD1 rounds the heel and the
+            /// toes with a smaller ring past each end instead of domes.</summary>
+            private static readonly float[] FootT = { 0f, 0.07f, 0.17f, 0.3f, 0.44f, 0.57f, 0.68f, 0.76f, 0.8f };
+            private static readonly float[] FootT1 = { -0.045f, 0.02f, 0.3f, 0.6f, 0.8f, 0.86f };
+
+            /// <summary>The bare foot's length (heel to the toes' base line, adult, at <see cref="ToeBaseT"/> = 0.8 of it), the
+            /// station where the toes begin, and the toe line's slant back from the big toe to the little toe.</summary>
+            private const float FootLenM = 0.228f, ToeBaseT = 0.8f, ToeLineDeg = 24f;
+
+            /// <summary>
+            /// The bare foot's section at <paramref name="t"/> (0 heel → <see cref="ToeBaseT"/> the toes' base), in metres
+            /// for the adult foot: half width (narrow heel, widest across the ball), half height (the instep high behind,
+            /// thinning to the toes) and the centre's shift toward the outside (the inner arch curves in).
+            /// </summary>
+            private static void FootSection(float t, out float w, out float h, out float outward)
+            {
+                float u = Math.Min(1f, t / ToeBaseT);
+                w = u < 0.78f ? CharMath.Lerp(0.027f, 0.046f, CharMath.SmoothStep(u / 0.78f)) : CharMath.Lerp(0.046f, 0.04f, (u - 0.78f) / 0.22f);
+                h = u < 0.35f ? CharMath.Lerp(0.025f, 0.036f, CharMath.SmoothStep(u / 0.35f)) : CharMath.Lerp(0.036f, 0.0115f, CharMath.SmoothStep((u - 0.35f) / 0.65f));
+                // The inner arch curves in through the middle; the toes' end narrows toward the big toe's side.
+                outward = 0.005f * MathF.Sin(MathF.PI * u) - (u > 0.78f ? 0.006f * (u - 0.78f) / 0.22f : 0f);
+            }
+
+            /// <summary>The bare foot's surface at <paramref name="t"/> and across-position <paramref name="across"/> (−1 the
+            /// inner edge, 1 the outer, 0 the middle) on its upper side, for a foot standing <paramref name="lift"/> above
+            /// the ground (the same section the foot is lofted from, so straps lie on it).</summary>
+            private V3 FootTop(V3 ankle, float s, float lift, float t, float across)
+            {
+                float fs = FootScale;
+                FootSection(t, out float w, out float h, out float outward);
+                float heelZ = ankle.Z - 0.052f * fs;
+                float a = Math.Max(-1f, Math.Min(1f, across));
+                const float e = FootExp;
+                float up = MathF.Pow(Math.Max(0f, 1f - MathF.Pow(MathF.Abs(a), e)), 1f / e);
+                float x = ankle.X + s * (outward * fs) + s * a * w * fs;
+                return new V3(x, lift + h * fs + up * h * fs + 0.002f, heelZ + FootLenM * fs * t);
+            }
+
+            /// <summary>The bare foot's outward surface normal at <paramref name="t"/> and <paramref name="across"/> on its upper
+            /// side (from the cross-section's superellipse; the slope along the foot is small and left out).</summary>
+            private V3 FootNormal(float s, float t, float across)
+            {
+                FootSection(t, out float w, out float h, out _);
+                const float e = FootExp;
+                float a = Math.Max(-1f, Math.Min(1f, across));
+                float up = MathF.Pow(Math.Max(0f, 1f - MathF.Pow(MathF.Abs(a), e)), 1f / e);
+                float nx = s * Math.Sign(a) * MathF.Pow(MathF.Abs(a), e - 1f) / w, ny = MathF.Pow(up, e - 1f) / h;
+                var nrm = new V3(nx, ny, 0f);
+                return nrm.LengthSq > 1e-12f ? nrm.Normalized : V3.Up;
+            }
+
+            private readonly V3[] _strapNrm = new V3[16];
+
+            /// <summary>Superellipse exponent of the bare foot's cross-section (2 = round; a little fuller for the sole).</summary>
+            private const float FootExp = 2.2f;
+
+            /// <summary>
+            /// A bare foot: a rounded lofted foot (narrow round heel, inner arch, high instep, wide ball) closed at both ends,
+            /// the ankle with its two ankle bones (LOD0), and five toes seated into the front of the foot, the big toe biggest,
+            /// their tips stepping back to the little toe, with nails on the first three. <paramref name="lift"/> raises it
+            /// onto a sandal's footbed.
+            /// </summary>
             private void BareFoot(V3 ankle, float s, Bone foot, Bone toe, float lift)
             {
                 Mat(MaterialChannel.Skin);
                 float fs = FootScale;
-                float heelZ = ankle.Z - 0.065f * fs, len = 0.22f * fs;
-                int rings = Lod == 0 ? 7 : 4;
+                float heelZ = ankle.Z - 0.052f * fs, len = FootLenM * fs;
+                float[] ts = Lod == 0 ? FootT : FootT1;
                 _k.BeginLoft();
-                for (int i = 0; i < rings; i++)
+                for (int i = 0; i < ts.Length; i++)
                 {
-                    float t = i / (float)(rings - 1);
-                    float w = (t < 0.6f ? CharMath.Lerp(0.032f, 0.046f, t / 0.6f) : CharMath.Lerp(0.046f, 0.04f, (t - 0.6f) / 0.4f)) * fs;
-                    float h = (t < 0.4f ? CharMath.Lerp(0.035f, 0.036f, t / 0.4f) : CharMath.Lerp(0.036f, 0.014f, (t - 0.4f) / 0.6f)) * fs;
-                    float y = lift + h + 0.002f;
+                    float t = ts[i];
+                    FootSection(Math.Max(0f, Math.Min(ToeBaseT, t)), out float w, out float h, out float outward);
+                    if (t < 0f)
+                    {
+                        w *= 0.55f;
+                        h *= 0.7f;
+                    }
+                    else if (t > ToeBaseT)
+                    {
+                        w *= 0.7f;
+                        h *= 0.65f;
+                    }
+                    // The front turns oblique, the outer side further back, along the toe line.
+                    float yaw = ToeLineDeg * Quat.Deg2Rad * CharMath.Clamp01((t - 0.7f) / (ToeBaseT - 0.7f));
                     _k.Ring(new LoftRing
                     {
-                        C = new V3(ankle.X + s * 0.006f * t, y, heelZ + len * t), AxisX = V3.Right, AxisZ = V3.Up, Rx = w, Rz = h, Exp = 2.4f, Rgb = _skin,
-                        B0 = t > 0.65f ? toe : foot, B1 = foot, W0 = t > 0.65f ? 0.7f : 1f,
+                        C = new V3(ankle.X + s * outward * fs, lift + h * fs + 0.002f, heelZ + len * t), AxisX = new V3(MathF.Cos(yaw), 0f, -s * MathF.Sin(yaw)),
+                        AxisZ = LoftDown, Rx = w * fs, Rz = h * fs, Exp = FootExp, Rgb = _skin, B0 = t > 0.62f ? toe : foot, B1 = foot, W0 = t > 0.62f ? 0.7f : 1f,
                     });
                 }
-                _k.EndLoft(_k.Seg(10, 6), Lod == 0 ? LoftCap.Round : LoftCap.Flat, Lod == 0 ? LoftCap.None : LoftCap.Flat);
+                // Closed at both ends: a round heel, and a flat front the toes sit against (LOD1, which has no toes, closes
+                // both ends on its small end rings).
+                _k.EndLoft(_k.Seg(11, 7), Lod == 0 ? LoftCap.Round : LoftCap.Flat, LoftCap.Flat);
                 // Ankle into the shin.
                 _k.Capsule(ankle + new V3(0f, 0.03f, 0f), new V3(ankle.X, lift + 0.03f * fs, ankle.Z - 0.01f), 0.036f, 0.038f * fs, _skin, foot, (Bone)((int)foot - 1), 8, 2,
                            false, LoftCap.None, LoftCap.None);
                 if (Lod > 0) return;
-                float tipZ = heelZ + len;
-                uint nail = CharacterPalette.Mix(_skin, 0xFFE4DCu, 0.4f);
+                // The ankle bones: the inner one higher and further forward than the outer.
+                uint bone = CharacterPalette.Shade(_skin, 1.04f);
+                _k.Ellipsoid(new V3(ankle.X - s * 0.031f * fs, ankle.Y + 0.004f * fs, ankle.Z + 0.004f * fs), new V3(0.007f, 0.012f, 0.01f) * fs, Quat.Identity, bone, 5, 3, foot);
+                _k.Ellipsoid(new V3(ankle.X + s * 0.032f * fs, ankle.Y - 0.006f * fs, ankle.Z - 0.008f * fs), new V3(0.007f, 0.011f, 0.0095f) * fs, Quat.Identity, bone, 5, 3, foot);
+                // Toes across the front, the big toe on the inner side (toward the body).
+                FootSection(ToeBaseT, out float wf, out _, out float of);
+                float baseZ = heelZ + len * ToeBaseT, cx = ankle.X + s * of * fs, tanLine = MathF.Tan(ToeLineDeg * Quat.Deg2Rad);
+                float inner = cx - s * wf * fs;
+                uint nail = CharacterPalette.Mix(_skin, 0xFFE4DCu, 0.45f);
+                float acc = 0f;
                 for (int k = 0; k < 5; k++)
                 {
-                    // Big toe on the inner side (toward the body).
-                    float across = (k - 0.15f) * 0.0175f * fs;
-                    float r = (k == 0 ? 0.0125f : 0.0085f - 0.0006f * k) * fs;
-                    float back = (k == 0 ? 0f : 0.004f + 0.0045f * k) * fs;
-                    var c = new V3(ankle.X + s * 0.006f - s * (0.026f * fs - across), lift + r + 0.001f, tipZ - back + 0.006f * fs);
-                    _k.Ellipsoid(c, new V3(r, r * 0.9f, r * 1.25f), Quat.Identity, _skin, k == 0 ? 6 : 5, 3, toe);
-                    if (k < 3) _k.Ellipsoid(c + new V3(0f, r * 0.55f, r * 0.55f), new V3(r * 0.62f, r * 0.2f, r * 0.55f), Quat.Euler(-20f, 0f, 0f), nail, 4, 2, toe);
+                    float rx = (k == 0 ? 0.0132f : 0.0095f - 0.0008f * k) * fs;
+                    float ry = rx * (k == 0 ? 0.9f : 0.95f);
+                    float rz = (k == 0 ? 0.022f : 0.0165f - 0.0013f * k) * fs;
+                    acc += rx;
+                    float x = inner + s * acc;
+                    acc += rx + 0.001f * fs;
+                    // Along the oblique front (the toe line steps back to the little toe), the back of each toe sunk into
+                    // the foot's front, the big toe reaching furthest.
+                    float lineZ = baseZ - s * (x - cx) * tanLine;
+                    var c = new V3(x, lift + ry + 0.0006f, lineZ + (k == 0 ? 0.6f : 0.5f) * rz);
+                    _k.Ellipsoid(c, new V3(rx, ry, rz), Quat.Euler(4f, 0f, 0f), _skin, k == 0 ? 7 : 6, k == 0 ? 4 : 3, toe);
+                    if (k < 3)
+                        _k.Ellipsoid(c + new V3(0f, ry * 0.62f, rz * 0.5f), new V3(rx * 0.62f, ry * 0.22f, rz * 0.42f), Quat.Euler(-14f, 0f, 0f), nail, 5, 2, toe);
                 }
             }
 
-            /// <summary>The everyday rubber chappal: a white footbed on a coloured sole with a Y strap from between the first
-            /// two toes, the bare foot on top.</summary>
+            /// <summary>The chappal's sole outline: half width along its length (rounded heel and toe in plan).</summary>
+            private static float ChappalWidth(float t)
+            {
+                float w = t < 0.65f ? CharMath.Lerp(0.039f, 0.05f, CharMath.SmoothStep(t / 0.65f)) : CharMath.Lerp(0.05f, 0.04f, (t - 0.65f) / 0.35f);
+                const float lenM = 0.25f;
+                float zh = t * lenM, zt = (1f - t) * lenM;
+                float kh = zh < 0.039f ? MathF.Sqrt(Math.Max(0f, 1f - (1f - zh / 0.039f) * (1f - zh / 0.039f))) : 1f;
+                float kt = zt < 0.04f ? MathF.Sqrt(Math.Max(0f, 1f - (1f - zt / 0.04f) * (1f - zt / 0.04f))) : 1f;
+                return w * Math.Min(kh, kt);
+            }
+
+            /// <summary>Ring positions along the chappal (dense at the rounded ends).</summary>
+            private static readonly float[] ChappalT = { 0.012f, 0.05f, 0.12f, 0.3f, 0.5f, 0.68f, 0.84f, 0.94f, 0.988f };
+            private static readonly float[] ChappalT1 = { 0.012f, 0.12f, 0.5f, 0.84f, 0.988f };
+
+            /// <summary>
+            /// The everyday rubber chappal (the valley's commonest footwear): a coloured sole under a white footbed, both with
+            /// a rounded heel and toe, the bare foot on top, and the Y strap lying on the foot: the post rises between the
+            /// first two toes and the two straps run back over the top of the forefoot to the sole's sides at the arch.
+            /// </summary>
             private void Chappal(V3 ankle, float s, Bone foot, Bone toe, uint strap)
             {
                 float fs = FootScale;
-                float heelZ = ankle.Z - 0.08f * fs, len = 0.25f * fs;
+                float heelZ = ankle.Z - 0.083f * fs, len = 0.265f * fs;
                 Mat(MaterialChannel.Rubber);
-                int rings = Lod == 0 ? 7 : 4;
+                float[] ts = Lod == 0 ? ChappalT : ChappalT1;
+                const float soleTop = 0.017f;
                 for (int layer = Lod == 0 ? 0 : 1; layer < 2; layer++)
                 {
                     _k.BeginLoft();
-                    for (int i = 0; i < rings; i++)
+                    for (int i = 0; i < ts.Length; i++)
                     {
-                        float t = i / (float)(rings - 1);
-                        float w = (t < 0.65f ? CharMath.Lerp(0.04f, 0.05f, t / 0.65f) : CharMath.Lerp(0.05f, 0.036f, (t - 0.65f) / 0.35f)) * fs;
+                        float t = ts[i];
+                        float w = ChappalWidth(t) * fs;
                         float y = layer == 0 ? 0.006f : 0.0145f;
                         _k.Ring(new LoftRing
                         {
-                            C = new V3(ankle.X + s * 0.005f * t, y, heelZ + len * t), AxisX = V3.Right, AxisZ = V3.Up, Rx = w, Rz = layer == 0 ? 0.006f : 0.0025f,
-                            Exp = 4f, Rgb = layer == 0 ? strap : 0xF2F0EAu, B0 = t > 0.65f ? toe : foot, B1 = foot, W0 = t > 0.65f ? 0.7f : 1f,
+                            C = new V3(ankle.X + s * 0.005f * t, y, heelZ + len * t), AxisX = V3.Right, AxisZ = LoftDown, Rx = layer == 0 ? w + 0.0015f : w,
+                            Rz = layer == 0 ? 0.006f : 0.0025f, Exp = 3.4f, Rgb = layer == 0 ? strap : 0xF2F0EAu, B0 = t > 0.65f ? toe : foot, B1 = foot,
+                            W0 = t > 0.65f ? 0.7f : 1f,
                         });
                     }
                     _k.EndLoft(_k.Seg(8, 6), LoftCap.Flat, LoftCap.Flat);
                 }
-                BareFoot(ankle, s, foot, toe, 0.017f);
-                // The Y strap.
+                BareFoot(ankle, s, foot, toe, soleTop);
+                // The Y strap on the foot's surface.
                 Mat(MaterialChannel.Rubber);
-                float tipZ = heelZ + len;
-                V3 post = new V3(ankle.X + s * 0.006f - s * 0.012f * fs, 0.03f, tipZ - 0.035f * fs);
-                V3 l0 = new V3(ankle.X - 0.046f * fs, 0.022f, ankle.Z + 0.03f * fs), r0 = new V3(ankle.X + 0.046f * fs, 0.022f, ankle.Z + 0.03f * fs);
-                V3 top = new V3(ankle.X + s * 0.004f, 0.062f * fs, ankle.Z + 0.065f * fs);
-                _k.Curve(post, (post + top) * 0.5f + new V3(0f, 0.012f, 0f), top, Lod == 0 ? 4 : 2, 0.006f, 0.008f, 0.003f, 0.003f, V3.Up, strap, Lod == 0 ? 5 : 4, toe,
-                         LoftCap.None, LoftCap.None, foot, 0.5f);
-                _k.Curve(l0, (l0 + top) * 0.5f + new V3(-0.006f, 0.02f, 0f), top, Lod == 0 ? 4 : 2, 0.008f, 0.008f, 0.003f, 0.003f, V3.Forward, strap, Lod == 0 ? 5 : 4, foot, LoftCap.None, LoftCap.None);
-                _k.Curve(r0, (r0 + top) * 0.5f + new V3(0.006f, 0.02f, 0f), top, Lod == 0 ? 4 : 2, 0.008f, 0.008f, 0.003f, 0.003f, V3.Forward, strap, Lod == 0 ? 5 : 4, foot, LoftCap.None, LoftCap.None);
+                float half = 0.0055f * fs, thick = 0.0022f * fs;
+                // The post: between the big toe and the second toe, from the footbed up to the top of the toes' base.
+                FootSection(ToeBaseT, out float wf, out _, out _);
+                float acrossPost = -1f + (2f * 0.0128f + 0.0006f) / wf;
+                V3 postTop = FootTop(ankle, s, soleTop, ToeBaseT - 0.02f, acrossPost) + new V3(0f, thick, 0f);
+                V3 postBase = new V3(postTop.X, soleTop + 0.002f, postTop.Z + 0.004f * fs);
+                int n = Lod == 0 ? 6 : 2;
+                V3[] path = _k.PathBuffer(Math.Max(n + 1, 3), out float[] rx, out float[] rz);
+                path[0] = postBase;
+                path[1] = postTop;
+                rx[0] = rx[1] = 0.003f * fs;
+                rz[0] = rz[1] = 0.003f * fs;
+                if (Lod == 0) _k.Sweep(path, 2, rx, rz, V3.Forward, strap, 5, toe, LoftCap.Flat, LoftCap.Round, foot, 0.6f);
+                // The two straps: from the post over the forefoot to the sole's sides at the arch, each a flat band whose
+                // thickness stands along the foot's surface normal (on top over the instep, outward down the sides).
+                const float endT = 0.46f;
+                int seg = Lod == 0 ? 5 : 4;
+                for (int sideOut = -1; sideOut <= 1; sideOut += 2)
+                {
+                    _k.BeginLoft();
+                    V3 prev = V3.Zero;
+                    for (int i = 0; i <= n; i++)
+                    {
+                        V3 p, nrm;
+                        if (i < n)
+                        {
+                            float v = i / (float)(n - 1);
+                            float t = CharMath.Lerp(ToeBaseT - 0.02f, endT, v);
+                            float across = CharMath.Lerp(acrossPost, sideOut * 1f, MathF.Pow(v, 0.75f));
+                            nrm = FootNormal(s, t, across);
+                            p = FootTop(ankle, s, soleTop, t, across) + nrm * (thick + 0.0008f);
+                        }
+                        else
+                        {
+                            // The last point drops onto the sole's edge.
+                            FootSection(endT, out float we, out _, out float oe);
+                            nrm = new V3(s * sideOut, 0.35f, 0f).Normalized;
+                            p = new V3(ankle.X + s * oe * fs + s * sideOut * (we * fs + thick + 0.0015f), soleTop + 0.0025f, ankle.Z - 0.052f * fs + FootLenM * fs * endT);
+                        }
+                        path[i] = p;
+                        _strapNrm[i] = nrm;
+                    }
+                    for (int i = 0; i <= n; i++)
+                    {
+                        V3 d = i == 0 ? path[1] - path[0] : i == n ? path[n] - path[n - 1] : path[i + 1] - path[i - 1];
+                        _k.Ring(path[i], d, _strapNrm[i], thick, half, strap, i < n / 2 ? toe : foot, foot, i < n / 2 ? 0.7f : 1f, 4f);
+                    }
+                    _k.EndLoft(seg, Lod == 0 ? LoftCap.Round : LoftCap.Flat, LoftCap.Flat);
+                }
             }
         }
     }

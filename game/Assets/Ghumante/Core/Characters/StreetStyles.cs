@@ -36,6 +36,10 @@ namespace Ghumante.Core.Characters
 
         /// <summary>Fields and hill villages: rolled trousers, headscarves, sun hats, dokos.</summary>
         Village = 7,
+
+        /// <summary>Pashupatinath and the Bagmati ghats: Hindu pilgrims (women mostly in red and maroon saris, men in daura
+        /// suruwal and dhaka topi, a tika on most foreheads) and the sadhus in saffron with their jata and tilak.</summary>
+        Pashupati = 8,
     }
 
     /// <summary>
@@ -47,6 +51,7 @@ namespace Ghumante.Core.Characters
         // lon, lat, radius (m), style. Earlier rows win (Freak Street sits inside the old bazaar, Thamel next to it).
         private static readonly double[] Circles =
         {
+            85.3488, 27.7105, 350, (double)StreetStyle.Pashupati, // Pashupatinath temple, the ghats and Deopatan
             85.3110, 27.7150, 450, (double)StreetStyle.Tourist, // Thamel
             85.3070, 27.7025, 150, (double)StreetStyle.Tourist, // Freak Street (Jhochhen)
             85.3620, 27.7215, 380, (double)StreetStyle.Buddhist, // Boudhanath kora

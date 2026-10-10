@@ -84,45 +84,101 @@ namespace Ghumante.Core.Characters
                 Straps(back - 0.02f, dark);
             }
 
-            /// <summary>Two shoulder straps (daypack): over the shoulder tops, down the front of the chest and round under
-            /// the arms to the sides.</summary>
+            /// <summary>
+            /// Two shoulder straps (daypack): from the top of the pack over the shoulder, down the front of the chest and
+            /// round under the arm to the pack's side, each one continuous band sampled densely on the torso's surface and
+            /// lifted a fixed clearance above it (over the shirt's pocket, placket, collar and tie), so the straps never
+            /// sink into a child's rounder chest; flat bands whose width lies along the surface; a buckle on each.
+            /// </summary>
             private void Straps(float backZ, uint rgb)
             {
-                float sh = _m.ShoulderY, lift = 0.011f + _g.Bulk;
+                float sh = _m.ShoulderY;
+                float clear = StrapClearance + _g.Bulk;
+                float sc = _r.Age == AgeGroup.Child ? 0.85f : 1f;
+                float half = 0.019f * sc, thick = 0.0045f;
                 Mat(MaterialChannel.Fabric);
-                for (int s = -1; s <= 1; s += 2)
+                int over = Lod == 0 ? 7 : 4, down = Lod == 0 ? 7 : 4, under = Lod == 0 ? 4 : 2;
+                int n = 1 + over + down + under;
+                if (_strapP.Length < n)
                 {
-                    V3[] path = _k.PathBuffer(5, out float[] rx, out float[] rz);
-                    path[0] = new V3(s * 0.075f, sh - 0.03f, backZ);
-                    path[1] = new V3(s * 0.105f, sh + 0.03f + _g.Bulk, -0.012f);
-                    path[2] = TorsoPoint(s * 0.4f, sh - 0.035f, lift, out V3 n2);
-                    path[3] = TorsoPoint(s * 0.48f, sh - 0.12f, lift, out V3 n3);
-                    path[4] = TorsoPoint(s * 0.55f, sh - 0.19f, lift, out V3 n4);
-                    for (int i = 0; i < 5; i++)
+                    _strapP = new V3[n];
+                    _strapN = new V3[n];
+                }
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float s = side;
+                    int k = 0;
+                    // Leaving the top of the pack behind the shoulder.
+                    _strapP[k] = TorsoPoint(s * 2.55f, sh - 0.06f, clear + 0.012f, out _strapN[k]);
+                    _strapP[k] = new V3(_strapP[k].X, _strapP[k].Y, Math.Min(_strapP[k].Z, backZ + 0.03f));
+                    k++;
+                    // Over the shoulder: from the back round the top of the shoulder to the front.
+                    for (int i = 1; i <= over; i++)
                     {
-                        rx[i] = 0.019f;
-                        rz[i] = 0.0045f;
+                        float v = i / (float)over;
+                        float a = s * CharMath.Lerp(2.45f, 0.42f, v);
+                        float y = CharMath.Lerp(sh - 0.045f, sh - 0.025f, v) + 0.05f * MathF.Sin(MathF.PI * v);
+                        _strapP[k] = TorsoPoint(a, y, clear, out _strapN[k]);
+                        k++;
                     }
-                    _k.Sweep(path, 5, rx, rz, V3.Right, rgb, 5, Bone.Chest, LoftCap.Flat, LoftCap.None);
+                    // Down the front of the chest, drifting out toward the side (riding over a shirt's chest pocket).
+                    for (int i = 1; i <= down; i++)
+                    {
+                        float v = i / (float)down;
+                        float a = s * CharMath.Lerp(0.42f, 0.56f, v), y = sh - 0.025f - 0.165f * sc * v;
+                        _strapP[k] = TorsoPoint(a, y, clear + PocketRise(a, y), out _strapN[k]);
+                        k++;
+                    }
+                    // Round under the arm to the pack's side.
+                    for (int i = 1; i <= under; i++)
+                    {
+                        float v = i / (float)under;
+                        _strapP[k] = TorsoPoint(s * CharMath.Lerp(0.56f, 1.35f, v), sh - 0.19f * sc - 0.07f * sc * v, clear, out _strapN[k]);
+                        k++;
+                    }
+                    _k.BeginLoft();
+                    for (int i = 0; i < k; i++)
+                    {
+                        V3 d = i == 0 ? _strapP[1] - _strapP[0] : i == k - 1 ? _strapP[k - 1] - _strapP[k - 2] : _strapP[i + 1] - _strapP[i - 1];
+                        uint c = i > over + down ? CharacterPalette.Shade(rgb, 0.9f) : rgb;
+                        // The ring's X axis along the surface normal: the band's thickness stands off the body, its width lies on it.
+                        _k.Ring(_strapP[i], d, _strapN[i], thick, half, c, Bone.Chest, Bone.Chest, 1f, 4f);
+                    }
+                    _k.EndLoft(6, LoftCap.Flat, LoftCap.Flat);
                     if (Lod > 0) continue;
-                    V3 a = path[4];
-                    V3 b = TorsoPoint(s * 1.25f, sh - 0.26f, lift, out V3 nb);
-                    V3[] p2 = _k.PathBuffer(3, out rx, out rz);
-                    p2[0] = a;
-                    p2[1] = TorsoPoint(s * 0.85f, sh - 0.235f, lift, out V3 nm);
-                    p2[2] = b;
-                    for (int i = 0; i < 3; i++)
-                    {
-                        rx[i] = 0.016f;
-                        rz[i] = 0.004f;
-                    }
-                    _k.Sweep(p2, 3, rx, rz, V3.Up, CharacterPalette.Shade(rgb, 0.9f), 5, Bone.Chest, LoftCap.None, LoftCap.Flat);
-                    // The buckle where the adjuster sits.
+                    // The buckle where the adjuster sits, three quarters down the front.
+                    int b = 1 + over + down * 3 / 4;
+                    V3 nb = _strapN[b];
                     Mat(MaterialChannel.Metal);
-                    _k.Ellipsoid(path[3] + n3 * 0.004f, new V3(0.014f, 0.008f, 0.004f), Quat.Euler(0f, MathF.Atan2(n3.X, n3.Z) * Quat.Rad2Deg, 0f), 0x2A2A2Eu, 6, 3, Bone.Chest, 4f);
+                    _k.Ellipsoid(_strapP[b] + nb * (thick + 0.002f), new V3(0.014f * sc, 0.008f, 0.004f), Quat.Euler(0f, MathF.Atan2(nb.X, nb.Z) * Quat.Rad2Deg, 0f), 0x2A2A2Eu,
+                                 6, 3, Bone.Chest, 4f);
                     Mat(MaterialChannel.Fabric);
                 }
             }
+
+            /// <summary>Daypack straps stand this far off the torso's surface (over plackets, collars and ties).</summary>
+            private const float StrapClearance = 0.013f;
+
+            /// <summary>Extra rise of a strap crossing a shirt's collar points and its flat chest pocket (<see cref="ShirtDetails"/>:
+            /// at angle ∓0.38, 0.12 m under the shoulder), whose edges stand off a small rounded chest.</summary>
+            private float PocketRise(float a, float y)
+            {
+                OutfitItem t = _torso.Item;
+                if (t != OutfitItem.Shirt && t != OutfitItem.Uniform && t != OutfitItem.SchoolShirt && t != OutfitItem.PoliceUniform) return 0f;
+                // The collar's points lie on the chest just under the neck.
+                float rise = 0.008f * CharMath.SmoothStep(CharMath.Clamp01((y - (_m.ShoulderY - 0.07f)) / 0.04f));
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    if (side > 0 && t != OutfitItem.PoliceUniform) continue; // one pocket, on the wearer's left
+                    // Full rise over the whole pocket (its flat edges stand off the chest most), easing off around it.
+                    float da = (a + side * -0.38f) / 0.42f, dy = (y - (_m.ShoulderY - 0.12f)) / 0.095f;
+                    float k = 1f - da * da - dy * dy;
+                    if (k > 0f) rise = Math.Max(rise, 0.012f * CharMath.SmoothStep(Math.Min(1f, 3f * k)));
+                }
+                return rise;
+            }
+
+            private V3[] _strapP = new V3[0], _strapN = new V3[0];
 
             /// <summary>The doko: a conical bamboo basket wider at the top, woven in a check of light and dark strips
             /// with a bound rim, leaning back from the porter's back; its load (vegetables or fodder) mounded on top.</summary>
