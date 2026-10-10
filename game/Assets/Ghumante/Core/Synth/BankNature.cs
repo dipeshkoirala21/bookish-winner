@@ -434,11 +434,15 @@ namespace Ghumante.Core.Synth
 
         private static void Courtyard(float[] o, ref BankContext c)
         {
-            // Soft murmur: a light walla, darker, plus distant pigeon coos.
-            Walla(o, ref c, 8, 0.3f);
+            // Quiet courtyard air (W2 detail pass decision 7: no crowd walla): the city's low rumble through the walls,
+            // a breath of wind in the eaves, and distant pigeon coos.
             var lp = default(Biquad);
-            lp.Set(BiquadKind.LowPass, 1500f, 0.7f, c.Rate);
-            for (int i = 0; i < o.Length; i++) o[i] = lp.Process(o[i]) * 0.8f;
+            lp.Set(BiquadKind.LowPass, 420f, 0.7f, c.Rate);
+            var hp = default(Biquad);
+            hp.Set(BiquadKind.HighPass, 55f, 0.7f, c.Rate);
+            var air = default(Biquad);
+            air.Set(BiquadKind.BandPass, 900f, 0.6f, c.Rate);
+            for (int i = 0; i < o.Length; i++) o[i] = hp.Process(lp.Process(c.Rng.Brown())) * 0.5f + air.Process(c.Rng.Pink()) * 0.04f;
             float peak = 0f;
             for (int i = 0; i < o.Length; i++) peak = Math.Max(peak, Math.Abs(o[i]));
             float t = c.Range(0.5f, 1.5f);

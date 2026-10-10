@@ -12,7 +12,8 @@ namespace Ghumante.Audio
     /// <see cref="ProceduralBank"/> sound and variant from the region seed, and the main thread turns them into
     /// AudioClips with <c>AudioClip.Create</c> + <c>SetData</c> in slices, within a per-frame time budget (2 ms, the
     /// ARCHITECTURE 7.2 upload cap). Low bakes fewer variants at ≤ 16 kHz. Sounds become playable as they arrive
-    /// (footsteps and horns first); asking for one that is not ready yet returns false.
+    /// (footsteps and horns first); asking for one that is not ready yet returns false. The crowd walla beds are skipped
+    /// unless asked for (W2 detail pass decision 7).
     /// </summary>
     internal sealed class ClipBank : IDisposable
     {
@@ -32,6 +33,7 @@ namespace Ghumante.Audio
         private readonly float[] _slice = new float[SliceSamples];
         private readonly Stopwatch _watch = new Stopwatch();
         private readonly bool _low;
+        private readonly bool _crowdWalla;
         private readonly uint _seed;
         private Thread _worker;
         private volatile bool _cancel;
@@ -44,10 +46,11 @@ namespace Ghumante.Audio
         private AudioClip _currentClip;
         private int _offset;
 
-        public ClipBank(uint seed, bool low)
+        public ClipBank(uint seed, bool low, bool crowdWalla = false)
         {
             _seed = seed;
             _low = low;
+            _crowdWalla = crowdWalla;
             int maxSound = 0;
             for (int i = 0; i < ProceduralBank.Count; i++) maxSound = Math.Max(maxSound, (int)ProceduralBank.InfoAt(i).Sound);
             _soundIndex = new int[maxSound + 1];
@@ -57,7 +60,7 @@ namespace Ghumante.Audio
             {
                 BankSoundInfo info = ProceduralBank.InfoAt(i);
                 _soundIndex[(int)info.Sound] = i;
-                int variants = low ? info.LowVariants : info.Variants;
+                int variants = VariantsToBake(info);
                 _clips[i] = new AudioClip[variants];
                 _expected += variants;
             }
@@ -90,6 +93,13 @@ namespace Ghumante.Audio
             _worker.Start();
         }
 
+        /// <summary>Variants this bank bakes of a sound: the tier's count, none for the crowd walla beds unless wanted.</summary>
+        private int VariantsToBake(in BankSoundInfo info)
+        {
+            if (!_crowdWalla && ProceduralBank.IsCrowdWalla(info.Sound)) return 0;
+            return _low ? info.LowVariants : info.Variants;
+        }
+
         private static int Order(BankSound s)
         {
             int v = (int)s;
@@ -110,7 +120,7 @@ namespace Ghumante.Audio
                     {
                         BankSoundInfo info = ProceduralBank.InfoAt(i);
                         if (Order(info.Sound) != pass) continue;
-                        int variants = _low ? info.LowVariants : info.Variants;
+                        int variants = VariantsToBake(info);
                         int rate = _low ? ProceduralBank.LowRate(info.SampleRate) : info.SampleRate;
                         for (int v = 0; v < variants && !_cancel; v++)
                         {

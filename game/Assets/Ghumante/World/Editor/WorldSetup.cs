@@ -9,7 +9,8 @@ using UnityEngine.SceneManagement;
 namespace Ghumante.World.EditorTools
 {
     /// <summary>
-    /// Editor setup of the world: the materials (called by Project Setup) and the <b>Ghumante &gt; World Preview</b>
+    /// Editor setup of the world: the materials with their look roles (called by Project Setup) and the
+    /// <b>Ghumante &gt; World Preview</b>
     /// menu, which builds a throw-away scene (camera, sun, <see cref="WorldRoot"/> + <see cref="WorldPreview"/>) and
     /// enters Play mode, so the streamed world can be flown through before the Explore flow exists.
     /// </summary>
@@ -26,8 +27,10 @@ namespace Ghumante.World.EditorTools
         /// <summary>
         /// Creates (or completes) the world materials under <see cref="MaterialsFolder"/> and the material set in
         /// <see cref="ResourcesFolder"/> that keeps them in builds. New materials get <see cref="WorldMaterialDefaults"/>;
-        /// existing ones keep their tuned values (only a wrong shader is corrected). Returns null when the shaders
-        /// are not imported yet.
+        /// existing ones keep their tuned values (only a wrong shader is corrected), and every ToonLit material gets its
+        /// look role (<see cref="WorldMaterialDefaults.RoleOf"/>: outline pass, occluder fade) for High, the superset of
+        /// the tiers; at runtime <see cref="WorldMaterialSet.Load"/> and <see cref="ToonLook"/> narrow it to the tier in use.
+        /// Returns null when the shaders are not imported yet.
         /// </summary>
         public static WorldMaterialSet EnsureMaterials()
         {
@@ -66,12 +69,16 @@ namespace Ghumante.World.EditorTools
             set.heroes = Ensure("GhumanteHeroes", toon, set.heroes, m => fresh.heroes = m);
             set.instanced = Ensure("GhumanteInstanced", toon, set.instanced, m => fresh.instanced = m);
             set.instancedTint = Ensure("GhumanteInstancedTint", toon, set.instancedTint, m => fresh.instancedTint = m);
+            set.props = Ensure("GhumanteProps", toon, set.props, m => fresh.props = m);
             set.trees = Ensure("GhumanteTrees", toon, set.trees, m => fresh.trees = m);
             set.lights = Ensure("GhumanteLights", lights, set.lights, m => fresh.lights = m);
             WorldMaterialDefaults.Apply(fresh); // only the materials created now
             WorldMaterialDefaults.ApplyExtras(fresh, false);
             MarkDirty(fresh);
             Object.DestroyImmediate(fresh);
+            // The look roles (outline pass, occluder fade) are structural: every material, every run (idempotent).
+            WorldMaterialDefaults.ApplyLookSuperset(set);
+            MarkDirty(set);
             EditorUtility.SetDirty(set);
             AssetDatabase.SaveAssets();
             return set;
@@ -139,7 +146,7 @@ namespace Ghumante.World.EditorTools
             Material[] all =
             {
                 set.terrain, set.roads, set.buildings, set.areas, set.route, set.sky, set.decals, set.bandB0, set.bandB1, set.bandB1Full,
-                set.bandB2, set.bandB3, set.heroes, set.instanced, set.instancedTint, set.trees, set.lights,
+                set.bandB2, set.bandB3, set.heroes, set.instanced, set.instancedTint, set.props, set.trees, set.lights,
             };
             for (int i = 0; i < all.Length; i++)
                 if (all[i] != null) EditorUtility.SetDirty(all[i]);

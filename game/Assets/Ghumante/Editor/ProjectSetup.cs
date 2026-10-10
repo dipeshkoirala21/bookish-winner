@@ -179,7 +179,12 @@ namespace Ghumante.EditorTools
             EnsureBootstrapScene(forceRebuild: false, panelSettings: panel);
             // World (M1 track C): the sample region in StreamingAssets/Regions and the world materials.
             RegionImport.EnsureSampleRegion();
+            // The materials carry the cartoon look roles (W2 detail pass: outline pass on near layers, occluder fade on
+            // buildings, temples, trees and props). The look needs no URP renderer feature: the outline is a material pass
+            // URP's opaque pass draws, the tier toggle is the shader LOD, and the textures and the occluder capsule are
+            // globals ToonLook sets itself (RuntimeInitializeOnLoadMethod + beginCameraRendering).
             WorldSetup.EnsureMaterials();
+            if (!Application.isBatchMode) ToonLookEditor.Refresh(); // re-bake the edit-mode textures with the new settings
             AssetDatabase.SaveAssets();
         }
 

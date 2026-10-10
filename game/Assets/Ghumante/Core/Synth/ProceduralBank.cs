@@ -138,6 +138,13 @@ namespace Ghumante.Core.Synth
     /// </summary>
     public static partial class ProceduralBank
     {
+        /// <summary>The crowd walla beds (W2 detail pass decision 7: off by default, so the runtime bank skips them
+        /// unless <see cref="AmbienceInputs.CrowdWalla"/> is wanted).</summary>
+        public static bool IsCrowdWalla(BankSound s)
+        {
+            return s == BankSound.BedCrowdDense || s == BankSound.BedCrowdLight || s == BankSound.BedCrowdKora;
+        }
+
         public const int Rate32k = 32000;
         public const int Rate22k = 22050;
         public const int Rate16k = 16000;

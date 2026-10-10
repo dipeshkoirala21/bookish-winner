@@ -299,7 +299,65 @@ namespace Ghumante.Core.Tests
             var core = new AmbienceInputs { Hour = 12f, Month = 10 };
             core.SetArea(1, 1f);
             AmbienceModel.BedGains(core, b);
-            Assert.That(b[crowd], Is.GreaterThan(0.8f), "old core is a dense crowd at midday");
+            Assert.That(b[crowd], Is.EqualTo(0f), "decision 7: no crowd walla unless asked for");
+            core.CrowdWalla = true;
+            AmbienceModel.BedGains(core, b);
+            Assert.That(b[crowd], Is.GreaterThan(0.8f), "with the walla on, the old core is a dense crowd at midday");
+        }
+
+        [Test]
+        public void CrowdWallaIsOffByDefaultEverywhere()
+        {
+            // W2 detail pass decision 7: the crowd walla bed is removed (off by default); traffic, sacred courtyards,
+            // birds and weather beds stay.
+            Span<float> b = stackalloc float[AmbienceModel.BedCount];
+            int dense = BankSound.BedCrowdDense - BankSound.BedBase, light = BankSound.BedCrowdLight - BankSound.BedBase;
+            int kora = BankSound.BedCrowdKora - BankSound.BedBase, traffic = BankSound.BedTrafficHum - BankSound.BedBase;
+            int courtyard = BankSound.BedCourtyard - BankSound.BedBase;
+            Assert.That(default(AmbienceInputs).CrowdWalla, Is.False);
+            for (int area = 0; area <= 6; area++)
+            for (byte sacred = 0; sacred <= 5; sacred++)
+            for (float hour = 0.5f; hour < 24f; hour += 3f)
+            {
+                var a = new AmbienceInputs { Hour = hour, Month = 10, SacredKind = sacred };
+                a.SetArea(area, 1f);
+                AmbienceModel.BedGains(a, b);
+                string where = "area " + area + ", sacred " + sacred + ", " + hour + " h";
+                Assert.That(b[dense] + b[light] + b[kora], Is.EqualTo(0f), where);
+            }
+            var urban = Urban(12f);
+            AmbienceModel.BedGains(urban, b);
+            Assert.That(b[traffic], Is.GreaterThan(0.3f), "traffic stays");
+            var temple = new AmbienceInputs { Hour = 7f, Month = 10, SacredKind = 1 };
+            temple.SetArea(1, 1f);
+            AmbienceModel.BedGains(temple, b);
+            Assert.That(b[courtyard], Is.GreaterThan(0.3f), "the courtyard air stays (now without walla)");
+
+            Assert.That(ProceduralBank.IsCrowdWalla(BankSound.BedCrowdDense) && ProceduralBank.IsCrowdWalla(BankSound.BedCrowdLight) &&
+                        ProceduralBank.IsCrowdWalla(BankSound.BedCrowdKora), Is.True);
+            for (int i = 0; i < ProceduralBank.Count; i++)
+            {
+                BankSound s = ProceduralBank.InfoAt(i).Sound;
+                bool walla = s == BankSound.BedCrowdDense || s == BankSound.BedCrowdLight || s == BankSound.BedCrowdKora;
+                Assert.That(ProceduralBank.IsCrowdWalla(s), Is.EqualTo(walla), s.ToString());
+            }
+        }
+
+        [Test]
+        public void KeptSoundsSitAtTheirMixTargets()
+        {
+            // Level targets at 10 m (W2_DESIGN 7.1 "Mixer", A §6.6): what stays after the walla is gone keeps its place.
+            Assert.That(SoundClasses.Get(SoundClass.PlayerEngine).LevelDbAt10M, Is.EqualTo(-14f), "player engine");
+            Assert.That(SoundClasses.Get(SoundClass.TwoWheeler).LevelDbAt10M, Is.EqualTo(-20f), "NPC motorbike pass-by");
+            Assert.That(SoundClasses.Get(SoundClass.Heavy).LevelDbAt10M, Is.EqualTo(-16f), "bus pass-by");
+            Assert.That(SoundClasses.Get(SoundClass.Horn).LevelDbAt10M, Is.EqualTo(-10f), "horn tap");
+            Assert.That(SoundClasses.Get(SoundClass.ShrineBell).LevelDbAt10M, Is.EqualTo(-18f), "shrine bell");
+            Assert.That(SoundClasses.Get(SoundClass.GreatBell).LevelDbAt10M, Is.EqualTo(-12f), "great bell");
+            Assert.That(SoundClasses.Get(SoundClass.Crow).LevelDbAt10M, Is.EqualTo(-24f), "crow");
+            Assert.That(SoundClasses.Get(SoundClass.Ambience).LevelDbAt10M, Is.EqualTo(-24f), "beds");
+            Assert.That(SoundClasses.Get(SoundClass.PlayerFootstep).LevelDbAt10M, Is.EqualTo(-22f), "footsteps");
+            // Aircraft stay loud overhead (a jet at 10 m would be far louder than everything else in the street).
+            Assert.That(SoundClasses.Get(SoundClass.Jet).LevelDbAt10M, Is.GreaterThan(SoundClasses.Get(SoundClass.Horn).LevelDbAt10M));
         }
 
         [Test]

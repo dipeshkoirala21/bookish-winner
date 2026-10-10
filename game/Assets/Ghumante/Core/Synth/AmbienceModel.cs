@@ -103,6 +103,9 @@ namespace Ghumante.Core.Synth
         public float LaneWidthM;
         /// <summary>True inside a car, bus or truck with a close camera (VehicleInterior snapshot).</summary>
         public bool InVehicle;
+        /// <summary>The crowd walla beds (dense, light, kora). Off by default (W2 detail pass decision 7: the owner found
+        /// the background crowd noise annoying); footsteps, engines, horns, bells, birds and aircraft are unaffected.</summary>
+        public bool CrowdWalla;
 
         public void SetArea(int areaType, float w)
         {
@@ -317,16 +320,17 @@ namespace Ghumante.Core.Synth
             for (int i = 0; i < BedCount; i++) beds[i] = 0f;
 
             float crowd = m.Crowd;
+            float wallaBeds = a.CrowdWalla ? 1f : 0f; // decision 7: no crowd walla unless asked for
             float traffic = m.Traffic;
             float birds = m.Birds * (1f - 0.75f * rain);            // −12 dB in heavy rain
             float crowdRain = 1f - 0.5f * rain;                       // −6 dB
             float insects = m.Insects * (season == Season.Winter ? 0.3f : season == Season.Monsoon ? 1.3f : 1f) * (1f - 0.6f * rain);
             float river = season == Season.Monsoon ? 1f : 0.5f;      // rivers +6 dB in monsoon
 
-            beds[Bed(BankSound.BedCrowdDense)] += z[(int)AmbienceZone.OldCore] * crowd * crowdRain;
+            beds[Bed(BankSound.BedCrowdDense)] += z[(int)AmbienceZone.OldCore] * crowd * crowdRain * wallaBeds;
             beds[Bed(BankSound.BedTrafficHum)] += z[(int)AmbienceZone.OldCore] * 0.5f * traffic;
             beds[Bed(BankSound.BedTrafficHum)] += z[(int)AmbienceZone.Urban] * traffic;
-            beds[Bed(BankSound.BedCrowdLight)] += z[(int)AmbienceZone.Urban] * 0.6f * crowd * crowdRain;
+            beds[Bed(BankSound.BedCrowdLight)] += z[(int)AmbienceZone.Urban] * 0.6f * crowd * crowdRain * wallaBeds;
             beds[Bed(BankSound.BedTrafficHum)] += z[(int)AmbienceZone.PeriUrban] * 0.35f * traffic;
             beds[Bed(BankSound.BedBirdsPeri)] += z[(int)AmbienceZone.PeriUrban] * 0.8f * birds;
             beds[Bed(BankSound.BedWind)] += z[(int)AmbienceZone.Fields] * 0.7f;
@@ -334,8 +338,8 @@ namespace Ghumante.Core.Synth
             beds[Bed(BankSound.BedWindLeaves)] += z[(int)AmbienceZone.Forest];
             beds[Bed(BankSound.BedBirdsPeri)] += z[(int)AmbienceZone.Forest] * 0.6f * birds;
             beds[Bed(BankSound.BedCourtyard)] += z[(int)AmbienceZone.TempleCompound] * Math.Max(0.25f, Math.Max(0.6f * crowd, m.Sacred));
-            beds[Bed(BankSound.BedCrowdKora)] += z[(int)AmbienceZone.StupaKora] * Math.Max(0.3f, crowd) * crowdRain;
-            beds[Bed(BankSound.BedCrowdDense)] += z[(int)AmbienceZone.DurbarSquare] * 0.8f * crowd * crowdRain;
+            beds[Bed(BankSound.BedCrowdKora)] += z[(int)AmbienceZone.StupaKora] * Math.Max(0.3f, crowd) * crowdRain * wallaBeds;
+            beds[Bed(BankSound.BedCrowdDense)] += z[(int)AmbienceZone.DurbarSquare] * 0.8f * crowd * crowdRain * wallaBeds;
             beds[Bed(BankSound.BedCourtyard)] += z[(int)AmbienceZone.DurbarSquare] * 0.3f;
             beds[Bed(BankSound.BedRiver)] += z[(int)AmbienceZone.Ghat] * river;
             beds[Bed(BankSound.BedCourtyard)] += z[(int)AmbienceZone.Ghat] * 0.5f * Math.Max(0.3f, m.Sacred);
