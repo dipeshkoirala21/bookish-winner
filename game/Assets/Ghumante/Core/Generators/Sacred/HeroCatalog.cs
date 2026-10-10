@@ -53,8 +53,49 @@ namespace Ghumante.Core.Generators.Sacred
         public float[] PlinthWidths, EaveWidths, EaveHeights, TerraceWidths, TerraceTops;
         public float DomeDiameterM, DomeRiseM, HarmikaHM, HarmikaWM, SpireHM, ParasolHM, FinialHM, DrumDiameterM;
         public int Terraces, FlagLines, BuddhaNiches, Pavilions1, Pavilions2, Windows, Spouts;
+
+        /// <summary>Stupa look (Boudha, Swayambhu, generic) and the gate distance on the door side (0 = none).</summary>
+        public StupaStyle StupaStyle;
+
+        public float GateDistM;
         public bool WheelNiches, EastStair365, CompoundWall;
+
+        /// <summary>The curated line of a hero's great stair as lon/lat pairs from its head at the monument to its foot
+        /// (Swayambhu: OSM way 24707651, highway=steps, 265 m). The builder follows the anchor tile's own steps way where
+        /// it has one and these points beyond the tile edge.</summary>
+        public double[] StairPath;
+
+        /// <summary>The ground drop below the stair head (m) at each <see cref="StairPath"/> point [S: the Copernicus GLO-30
+        /// terrain of the region pack along the line]: the stair follows it past the anchor tile's edge, where a hero build
+        /// has no terrain to sample.</summary>
+        public float[] StairDropM;
         public uint RoofColour, WallColour, PlinthColour;
+
+        /// <summary>Detail flags from the reference photos (ref_temples.md): the red eave fringe of the Kathmandu
+        /// Durbar Square temples, Taleju's bell gajur, a ring of posts round the sanctum, whitewashed upper storeys with a
+        /// balcony (Kasthamandap), lime-washed painted guardians, a white stair balustrade (Maju Dega), a bronze bell and
+        /// lamp pillars in front.</summary>
+        public bool Fringe, GajurBell, Ambulatory, PlasterUpper, Balcony, PaintedGuardians, WhiteStair, FrontBell;
+
+        /// <summary>Brass lattice screens round the ambulatory (Annapurna, Asan).</summary>
+        public bool Grille;
+
+        /// <summary>A ridged top roof with this many gilt finials in a row (Bhairavnath: 7).</summary>
+        public byte RidgeFinials;
+
+        /// <summary>A house-temple's skirt roof over the ground storey (Bhimsen, Patan).</summary>
+        public bool SkirtRoof;
+
+        public byte LampPillars;
+
+        /// <summary>Strut pitch along the walls (0 = the 1.1 m formula).</summary>
+        public float StrutPitchM;
+
+        /// <summary>Roof pitches and the gajur share of the total height (0 = generator defaults).</summary>
+        public float PitchBottomDeg, PitchTopDeg, GajurFrac;
+
+        /// <summary>Upper storey width as a fraction of its eave (0 = derived; Kasthamandap's wide hall 0.86).</summary>
+        public float UpperWallFrac;
 
         public HeroRecipe Clone()
         {
@@ -64,10 +105,15 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Triangle budget of a LOD (W2_DESIGN 3.2 hero table).</summary>
         public int Budget(int lod)
         {
-            int[] a = { 25000, 8000, 2000, 200 }, b = { 12000, 3000, 800, 200 };
             lod = lod < 0 ? 0 : lod > 3 ? 3 : lod;
-            return Centrepiece ? a[lod] : b[lod];
+            return Centrepiece ? BudgetA[lod] : BudgetB[lod];
         }
+
+        /// <summary>Hero LOD ceilings, class A (centrepieces) and B (W2_DESIGN 3.2, raised in the W2 detail pass for the
+        /// rounded, detailed replicas: carved struts, bells and the sculpted guardian figures, about 1,500 triangles each
+        /// on a centrepiece close-up; LOD0 only shows above 0.35 of the screen height, and HeroLodBudget steps heroes down
+        /// until the slice fits).</summary>
+        public static readonly int[] BudgetA = { 36000, 9000, 2000, 200 }, BudgetB = { 18000, 4500, 800, 200 };
     }
 
     /// <summary>
@@ -129,14 +175,24 @@ namespace Ghumante.Core.Generators.Sacred
                 Id = "her.ktm.boudhanath", Name = "Boudhanath", Osm = "w56688295", Form = HeroForm.Stupa, Kind = HeritageKind.Stupa, Centrepiece = true,
                 Lat = 27.721436, Lon = 85.362004, PlanW = 81.5f, PlanD = 81.5f, HeightM = 36f, YawDeg = 180f, DomeDiameterM = 33.5f, DrumDiameterM = 38f,
                 Terraces = 3, TerraceWidths = new[] { 81.5f, 62.5f, 50.2f }, TerraceTops = new[] { 4f, 8f, 10.5f }, DomeRiseM = 10.0f,
-                HarmikaHM = 4f, HarmikaWM = 7f, SpireHM = 8f, ParasolHM = 1.5f, FinialHM = 1.5f, FlagLines = 80, WheelNiches = true,
+                HarmikaHM = 4f, HarmikaWM = 7f, SpireHM = 8f, ParasolHM = 1.5f, FinialHM = 1.5f, FlagLines = 64, WheelNiches = true,
+                StupaStyle = StupaStyle.Boudha, GateDistM = 46f,
             });
             l.Add(new HeroRecipe
             {
                 Id = "her.ktm.swayambhunath", Name = "Swayambhunath", Osm = "w201223707", Form = HeroForm.Stupa, Kind = HeritageKind.Stupa, Centrepiece = true,
                 Lat = 27.714931, Lon = 85.290391, PlanW = 26.7f, PlanD = 26.7f, HeightM = 33f, YawDeg = 90f, DomeDiameterM = 26.7f, DrumDiameterM = 28.3f,
-                Terraces = 0, DomeRiseM = 11f, HarmikaHM = 4f, HarmikaWM = 6f, SpireHM = 12f, ParasolHM = 1.5f, FinialHM = 3.5f, FlagLines = 40,
-                BuddhaNiches = 5, EastStair365 = true,
+                Terraces = 0, DomeRiseM = 11f, HarmikaHM = 4f, HarmikaWM = 6f, SpireHM = 12f, ParasolHM = 1.5f, FinialHM = 3.5f, FlagLines = 20,
+                BuddhaNiches = 5, EastStair365 = true, StupaStyle = StupaStyle.Swayambhu,
+                // OSM way 24707651 (highway=steps, handrail, paving stones), head (west) to foot (east).
+                StairPath = new[]
+                {
+                    85.2907471, 27.7148686, 85.2909742, 27.7148334, 85.2913938, 27.7147807, 85.2915185, 27.7147662, 85.2915980, 27.7147341,
+                    85.2916173, 27.7147263, 85.2916976, 27.7146915, 85.2917896, 27.7145666, 85.2920999, 27.7144909, 85.2924150, 27.7144265,
+                    85.2927454, 27.7143632, 85.2929961, 27.7144425, 85.2930405, 27.7144395, 85.2931792, 27.7144840, 85.2932198, 27.7144735,
+                    85.2932408, 27.7144769, 85.2932757, 27.7144733,
+                },
+                StairDropM = new[] { 0f, 9.57f, 23.70f, 29.90f, 34.13f, 35.11f, 38.02f, 40.40f, 48.81f, 57.91f, 66.62f, 74.33f, 75.21f, 77.15f, 77.55f, 77.76f, 78.14f },
             });
             l.Add(new HeroRecipe
             {
@@ -159,6 +215,9 @@ namespace Ghumante.Core.Generators.Sacred
             pashupati.EaveWidths = new[] { 18.5f, 13.3f };
             pashupati.VahanaDistM = 6f;
             pashupati.Pataka = true;
+            pashupati.FrontBell = true;
+            pashupati.LampPillars = 2;
+            pashupati.Ambulatory = true;
             l.Add(pashupati);
 
             // --- Kathmandu Durbar Square ---------------------------------------------------------------------------
@@ -170,34 +229,52 @@ namespace Ghumante.Core.Generators.Sacred
             taleju.CoreFrac = 0.2f;
             taleju.Pataka = true;
             taleju.CompoundWall = true;
+            taleju.GajurBell = true;
+            taleju.Fringe = true;
+            taleju.RoofColour = Meshing.MeshColor.FromHex(0x96814A); // aged gilt copper, darker than new gilding
+            // The twelve stages step in about 1 m each to a 26 m top platform that holds the walled compound.
+            taleju.PlinthWidths = new float[12];
+            for (int i = 0; i < 12; i++) taleju.PlinthWidths[i] = 47.7f - 2f * 1.0f * i;
             l.Add(taleju);
             l.Add(new HeroRecipe
             {
                 Id = "her.ktm.kasthamandap", Name = "Kasthamandap", Osm = "w183558418", Form = HeroForm.Mandapa, Kind = HeritageKind.Mandapa, PlanW = 21.8f,
-                PlanD = 21.4f, Tiers = 3, PlinthLevels = 1, StepRiseM = 1.0f, HeightM = 20f, YawDeg = 90f, CoreFrac = 0.55f, Guardians = GuardianSet.None,
-                Lat = 27.703934, Lon = 85.305779,
+                PlanD = 21.4f, Tiers = 3, PlinthLevels = 1, StepRiseM = 1.0f, HeightM = 20f, YawDeg = 90f, CoreFrac = 0.78f, Guardians = GuardianSet.None,
+                Lat = 27.703934, Lon = 85.305779, Fringe = true, PlasterUpper = true, Balcony = true, PitchBottomDeg = 21f, PitchTopDeg = 30f,
+                // A squat hall: a very wide, low first roof over the open ground floor, a white storey with the balcony
+                // gallery, a second roof and a small third one (photos: refs/temples/kasthamandap).
+                EaveWidths = new[] { 25.5f, 19.0f, 11.0f }, EaveHeights = new[] { 4.8f, 10.8f, 15.6f }, GajurFrac = 0.08f, UpperWallFrac = 0.86f,
             });
             HeroRecipe maju = Pagoda("her.ktm.maju_dega", "Maju Dega", "w183562980", 22.6f, 22.2f, 3, 9, 0.67f, 25f, 90f);
             maju.Lat = 27.704264;
             maju.Lon = 85.306174;
             maju.CoreFrac = 0.35f;
             maju.PlinthColour = Meshing.MeshColor.FromHex(0x9A5A32);
+            maju.Ambulatory = true;
+            maju.Fringe = true;
+            maju.WhiteStair = true;
             l.Add(maju);
             HeroRecipe trailokya = Pagoda("her.ktm.trailokya_mohan", "Trailokya Mohan Narayan", "w1414593331", 13.1f, 12.5f, 3, 5, 0.6f, 18f, 270f);
             trailokya.Lat = 27.703958;
             trailokya.Lon = 85.306275;
             trailokya.VahanaDistM = 6f;
             trailokya.VahanaGaruda = true;
+            trailokya.Ambulatory = true;
+            trailokya.Fringe = true;
             l.Add(trailokya);
             HeroRecipe jagannath = Pagoda("her.ktm.jagannath", "Jagannath", "w169429518", 14.7f, 14.3f, 2, 3, 0.5f, 15f, 270f);
             jagannath.Lat = 27.704647;
             jagannath.Lon = 85.307220;
+            jagannath.Ambulatory = true;
+            jagannath.Fringe = true;
             l.Add(jagannath);
             l.Add(new HeroRecipe
             {
                 Id = "her.ktm.shiva_parvati", Name = "Shiva-Parvati", Osm = "w185882281", Form = HeroForm.HouseTemple, Kind = HeritageKind.HouseTemple,
                 PlanW = 15.8f, PlanD = 10.9f, Storeys = 2, PlinthLevels = 2, StepRiseM = 0.4f, HeightM = 10f, YawDeg = 190f, Figures = true,
-                RoofColour = Meshing.MeshColor.FromHex(0xFC8C64), Lat = 27.704413, Lon = 85.306492,
+                // Photos (refs/temples/shivaparvati 01, 03, 06): brown-red tiles over a red valance, five gilt finials on the
+                // long ridge, carved arched windows across the front, the couple at the central upper window.
+                RoofColour = Meshing.MeshColor.FromHex(0x9C4A34), Fringe = true, Lat = 27.704413, Lon = 85.306492,
             });
             l.Add(new HeroRecipe
             {
@@ -230,12 +307,27 @@ namespace Ghumante.Core.Generators.Sacred
             annapurna.Lat = 27.70737;
             annapurna.Lon = 85.31222;
             annapurna.Finish = RoofFinish.GiltAll;
+            annapurna.FrontBell = true;
+            // Photos (refs/temples/annapurna_qb09e, ref_temples 5.2): it stands at street level on one low step, the first
+            // roof broad and low (eave about 3 m) over an ambulatory screened by a brass lattice all round, two small
+            // upper roofs on carved struts, all three heavily gilded but weathered dark, a long gilt pataka from the
+            // finial down the front; no stone lions.
+            annapurna.StepRiseM = 0.3f;
+            annapurna.Ambulatory = true;
+            annapurna.Grille = true;
+            annapurna.Pataka = true;
+            annapurna.Guardians = GuardianSet.None;
+            annapurna.CoreFrac = 0.52f;
+            annapurna.EaveWidths = new[] { 9.6f, 6.0f, 4.0f };
+            annapurna.EaveHeights = new[] { 3.1f, 6.6f, 9.0f };
+            annapurna.RoofColour = Meshing.MeshColor.FromHex(0xA88A48); // weathered gilding
+            annapurna.PlinthColour = Meshing.MeshColor.FromHex(0x8C857A); // stone paving step
             l.Add(annapurna);
             l.Add(new HeroRecipe
             {
                 Id = "her.ktm.kathesimbhu", Name = "Kathesimbhu", Osm = "n3377725834", Form = HeroForm.Stupa, Kind = HeritageKind.Stupa, PlanW = 15f,
                 PlanD = 15f, HeightM = 12f, YawDeg = 180f, DomeDiameterM = 11f, Terraces = 1, TerraceWidths = new[] { 15f }, TerraceTops = new[] { 1.0f },
-                FlagLines = 16, Lat = 27.709542, Lon = 85.309756,
+                FlagLines = 16, Lat = 27.709542, Lon = 85.309756, StupaStyle = StupaStyle.Swayambhu,
             });
             l.Add(new HeroRecipe
             {
@@ -263,14 +355,23 @@ namespace Ghumante.Core.Generators.Sacred
             HeroRecipe vish = Pagoda("her.ptn.vishwanath", "Vishwanath", "w328903213", 12.6f, 11.4f, 2, 2, 0.65f, 15f, 90f);
             vish.Lat = 27.673711;
             vish.Lon = 85.325134;
-            vish.RoofColour = Meshing.MeshColor.FromHex(0xC27C36);
+            // Photos (refs/temples/vishwanath 01): two heavy brown-red tile roofs, the first very broad over an open ring of
+            // carved posts all round the sanctum, a pale valance under the eaves, the stone elephants at the stair.
+            vish.RoofColour = Meshing.MeshColor.FromHex(0x8A4632);
             vish.Guardians = GuardianSet.Elephants;
+            vish.FrontBell = true;
+            vish.Ambulatory = true;
+            vish.Fringe = true;
+            vish.CoreFrac = 0.5f;
+            vish.EaveWidths = new[] { 13.6f, 9.8f };
             l.Add(vish);
             l.Add(new HeroRecipe
             {
                 Id = "her.ptn.bhimsen", Name = "Bhimsen (Patan)", Osm = "w326472980", Form = HeroForm.HouseTemple, Kind = HeritageKind.HouseTemple,
                 PlanW = 11.5f, PlanD = 11.4f, Storeys = 3, PlinthLevels = 1, StepRiseM = 0.5f, HeightM = 14f, YawDeg = 90f, GiltBalcony = true,
-                Lat = 27.673873, Lon = 85.325182,
+                // Photos (refs/temples/bhimsen_a 00): a broad skirt roof with its valance round the ground storey, the gilt
+                // front above it and the steep top roof with an ornate gilt finial.
+                SkirtRoof = true, Fringe = true, Lat = 27.673873, Lon = 85.325182,
             });
             l.Add(new HeroRecipe
             {
@@ -296,9 +397,15 @@ namespace Ghumante.Core.Generators.Sacred
             kumbh.Lat = 27.676581;
             kumbh.Lon = 85.326046;
             kumbh.TierShrink = 0.76f;
+            // Photos (refs/temples/kumbh_b 00): a broad, low first roof over a wide ground storey, the four upper tiers
+            // stacked tight and narrowing fast above it.
+            kumbh.CoreFrac = 0.62f;
+            kumbh.EaveWidths = new[] { 14.2f, 9.4f, 7.8f, 6.4f, 5.0f };
+            kumbh.EaveHeights = new[] { 4.6f, 9.0f, 12.4f, 15.6f, 18.7f };
             kumbh.Finish = RoofFinish.GiltTop;
             kumbh.Pataka = true;
             kumbh.VahanaDistM = 5f;
+            kumbh.FrontBell = true;
             l.Add(kumbh);
 
             // --- Bhaktapur ------------------------------------------------------------------------------------------
@@ -312,11 +419,24 @@ namespace Ghumante.Core.Generators.Sacred
             nyatapola.CoreFrac = 0.45f;
             nyatapola.Guardians = GuardianSet.Nyatapola;
             nyatapola.RoofColour = Meshing.MeshColor.FromHex(0x7A2E22);
+            nyatapola.Ambulatory = true;
+            nyatapola.StrutPitchM = 1.9f;
+            nyatapola.GajurFrac = 0.045f; // roof to 31.7 m + a 1.5 m finial (temples.md 4.6)
             l.Add(nyatapola);
             HeroRecipe bhairav = Pagoda("her.bkt.bhairavnath", "Bhairavnath", "w185746728", 16.9f, 14.6f, 3, 1, 1.0f, 20f, 270f);
             bhairav.Lat = 27.671094;
             bhairav.Lon = 85.429470;
-            bhairav.Pataka = true;
+            bhairav.Ambulatory = true;
+            bhairav.FrontBell = true;
+            // Photos (refs/temples/bhairavnath 01, 05): a massive rectangular temple whose broad roofs nearly cover the
+            // plan, the top one a ridged gilt-metal roof with a red valance and a row of seven gilt finials with banners.
+            bhairav.CoreFrac = 0.66f;
+            bhairav.EaveWidths = new[] { 17.6f, 13.2f, 9.8f };
+            bhairav.EaveHeights = new[] { 6.4f, 11.2f, 15.3f };
+            bhairav.Finish = RoofFinish.GiltTop;
+            bhairav.Fringe = true;
+            bhairav.RidgeFinials = 7;
+            bhairav.StrutPitchM = 1.25f;
             l.Add(bhairav);
             l.Add(new HeroRecipe
             {
@@ -338,6 +458,8 @@ namespace Ghumante.Core.Generators.Sacred
             datta.Lat = 27.673539;
             datta.Lon = 85.435359;
             datta.Guardians = GuardianSet.Wrestlers;
+            datta.Ambulatory = true;
+            datta.LampPillars = 2;
             l.Add(datta);
             l.Add(new HeroRecipe
             {

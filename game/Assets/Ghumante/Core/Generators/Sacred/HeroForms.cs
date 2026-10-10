@@ -1,5 +1,6 @@
 using System;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Shapes;
 
 namespace Ghumante.Core.Generators.Sacred
 {
@@ -11,118 +12,191 @@ namespace Ghumante.Core.Generators.Sacred
         public float PlinthRiseM;
         public bool GiltBalcony, Figures, Lions;
         public uint RoofColour, WallColour;
+
+        /// <summary>A hero replica (richer figures).</summary>
+        public bool Hero;
+
+        /// <summary>The red cloth valance under the eaves (Kathmandu Durbar Square: Shiva-Parvati).</summary>
+        public bool Fringe;
+
+        /// <summary>A broad skirt roof round the walls over the ground storey, on struts, with its fringe (Bhimsen, Patan:
+        /// the temple reads as two roofs).</summary>
+        public bool SkirtRoof;
+
+        /// <summary>Spacing multiplier of the repeated detail (≥ 1; 0 = 1), raised by <see cref="SacredSelector.Thin"/>
+        /// so a large generic structure keeps its LOD0 form within the generic ceiling.</summary>
+        public float DetailScale;
     }
 
-    /// <summary>The generators for the hero forms that are not pagodas, stupas or shikharas: house-temples, the open-air
-    /// relief, a pillar with a kneeling figure, palace towers, the Dharahara, gates, palace fronts, bell pavilions, hitis,
-    /// bahal courts and the vajra. Each builds in a <see cref="GenFrame"/> (+W through the main door) and returns its
-    /// triangles; heights match the recipe exactly.</summary>
-    public static class HeroForms
+    /// <summary>The generators for the hero forms that are not pagodas, stupas or shikharas (ref_temples 5): house-temples,
+    /// the open-air relief, a pillar with a kneeling figure, palace towers, the Dharahara, gates, palace fronts, bell
+    /// pavilions, hitis, bahal courts and the vajra. Each builds in a <see cref="GenFrame"/> (+W through the main door)
+    /// from the detailed parts kit (mouldings, carved doors and windows, real roofs with struts and bells), writes the
+    /// material channels and baked AO, and returns its triangles; heights match the recipe exactly.</summary>
+    public static partial class HeroForms
     {
+        [ThreadStatic] private static Profile2 _prof;
+
+        private static Profile2 Prof
+        {
+            get { return (_prof ?? (_prof = new Profile2(48))).Clear(false); }
+        }
+
         // ---------------------------------------------------------------------------------------------------------
         // House-temple
         // ---------------------------------------------------------------------------------------------------------
 
         public static int HouseTemple(in HouseTempleParams p, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            double hw = 0.5 * p.W, hd = 0.5 * p.D;
+            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            KitFrame kf = f.Kit;
+            Affine3 k = SacredDraw.Xf(kf);
+            double hw = 0.5 * p.W, hd = 0.5 * p.D, ds = Math.Max(1.0, p.DetailScale);
             int levels = Math.Max(0, p.PlinthLevels);
             double rise = p.PlinthRiseM > 0 ? p.PlinthRiseM : 0.4, plinthTop = levels * rise;
+            if (lod >= 3)
+            {
+                double tot = p.TotalHeightM > 0 ? p.TotalHeightM : plinthTop + Math.Max(1, p.Storeys) * 2.6 + 0.35 * Math.Max(p.W, p.D);
+                double wt = plinthTop + 0.62 * (tot - plinthTop);
+                SacredDraw.Box(m, k, -hw, hw, -0.3, wt, -hd, hd, Looks.WallGlazed, BoxFaces.All & ~BoxFaces.Bottom);
+                Lod3Roof(m, k, hw + 0.8, hd + 0.8, wt, tot, Looks.Of(p.RoofColour != 0 ? p.RoofColour : SacredPalette.Tile, MaterialChannel.RoofTile));
+                if (stats != null)
+                {
+                    stats.TopM = (float)tot;
+                    stats.PlinthLevels = levels;
+                    stats.DoorYawDeg = f.YawDeg;
+                }
+                SacredDraw.Bake(m, v0, i0, f.GroundY);
+                return m.TriangleCount - t0;
+            }
             for (int i = 0; i < levels; i++)
             {
                 double ins = 0.4 * i;
-                MeshKit.Box(m, k, -hw - 0.6 + ins, hw + 0.6 - ins, i == 0 ? -0.4 : i * rise, (i + 1) * rise, -hd - 0.6 + ins, hd + 0.6 - ins, SacredPalette.BrickPlinth, BoxFaces.All & ~BoxFaces.Bottom);
-                if (c != null)
-                {
-                    double x, y, z;
-                    k.ToWorld(0, 0, 0, out x, out y, out z);
-                    c.AddBox(x, z, f.GroundY + i * rise, f.GroundY + (i + 1) * rise, hw + 0.6 - ins, hd + 0.6 - ins, k.UX, k.UZ, GenColliderFlags.Walkable, GenColliders.Brick);
-                }
+                SacredParts.PlinthLevel(m, k, hw + 0.6 - ins, hd + 0.6 - ins, i * rise, (i + 1) * rise, i == 0 ? 0.4 : 0.05, Looks.PlinthBrick, Looks.PlinthCoping, lod);
+                if (c != null) c.AddBox(kf.OX, kf.OZ, f.GroundY + i * rise, f.GroundY + (i + 1) * rise, hw + 0.6 - ins, hd + 0.6 - ins, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Brick);
             }
-            if (levels > 0) SacredKit.Stair(m, c, k, -0.8, 0.8, hd + 0.6, plinthTop / Math.Tan(38 * Math.PI / 180), 0, plinthTop, lod, SacredPalette.BrickPlinth, GenColliders.Stone);
+            double run = plinthTop / Math.Tan(38 * Math.PI / 180);
+            if (levels > 0) SacredParts.Stair(m, c, kf, k, 0.9, hd + 0.6 - 0.4 * (levels - 1), run + 0.4 * (levels - 1), 0, plinthTop, 0, 0, Looks.Stone, Looks.Stone, lod, GenColliders.Stone);
             int storeys = Math.Max(1, p.Storeys);
             double total = p.TotalHeightM > 0 ? p.TotalHeightM : plinthTop + storeys * 2.6 + 0.35 * Math.Max(p.W, p.D);
-            double roofRise = Math.Min(0.35 * Math.Max(p.W, p.D), 0.4 * (total - plinthTop));
-            double wallTop = total - roofRise;
+            double finial = Math.Min(1.2, 0.08 * total);
+            double roofRise = Math.Min(0.3 * Math.Max(p.W, p.D), 0.36 * (total - plinthTop - finial));
+            double wallTop = total - finial - roofRise + 0.35;
             double sH = (wallTop - plinthTop) / storeys;
-            uint wall = p.WallColour != 0 ? p.WallColour : SacredPalette.BrickDachi;
-            MeshKit.Box(m, k, -hw, hw, plinthTop, wallTop, -hd, hd, wall, BoxFaces.All & ~BoxFaces.Bottom);
-            SacredKit.SanctumDoor(m, k, 0, plinthTop, hd, 1.0, Math.Min(2.0, sH - 0.3), SacredPalette.WoodCarved, lod);
-            KitFrame side = k;
+            ShapeBrush wall = p.WallColour != 0 ? Looks.Of(p.WallColour, MaterialChannel.BrickGlazed) : Looks.WallGlazed;
+            for (int s = 0; s < storeys; s++)
+                SacredParts.BandedWall(m, k, hw, hd, plinthTop + s * sH, plinthTop + (s + 1) * sH, wall, Looks.WoodDark, lod, true, s == storeys - 1);
+            SacredDraw.CapRect(m, k, 0, 0, hw, hd, wallTop, true, wall);
+            // Ground floor: the closed sanctum door and two side doors; upper floors: carved windows.
+            double dh = Math.Min(2.0, sH - 0.4);
+            SacredParts.Door(m, k, 0, plinthTop, hd, 1.0, dh, Looks.WoodDark, lod, true, plinthTop + sH - 0.2);
             int windows = 0;
             for (int sd = 0; sd < 4; sd++)
             {
+                Affine3 side = SacredDraw.Turn(k, 0, 0, 0, sd * 0.5 * Math.PI);
                 double half = sd % 2 == 0 ? hd : hw, along = sd % 2 == 0 ? hw : hd;
-                int bays = Math.Max(1, Math.Min(5, (int)Math.Round(2 * along / 1.8)));
-                for (int s = 1; s < storeys; s++)
+                int bays = Math.Max(1, Math.Min(5, (int)Math.Round(2 * along / (1.9 * ds))));
+                if (bays % 2 == 0) bays++;
+                for (int s = 0; s < storeys; s++)
                 {
-                    double v0 = plinthTop + s * sH;
-                    if (lod <= 1) MeshKit.Box(m, side, -along, along, v0 - 0.1, v0 + 0.1, half, half + 0.15, SacredPalette.WoodCarved, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+                    double vs = plinthTop + s * sH;
                     for (int b = 0; b < bays; b++)
                     {
-                        double u = -along + 2 * along * (b + 0.5) / bays;
-                        bool centre = sd == 0 && b == bays / 2 && s == storeys - 1;
-                        uint pane = centre && p.Figures ? SacredPalette.SanctumDark : MeshColor.Scale(SacredPalette.WoodCarved, 1.3f);
-                        MeshKit.Box(m, side, u - 0.5, u + 0.5, v0 + 0.3, v0 + Math.Min(1.5, sH - 0.4), half, half + 0.08, SacredPalette.WoodCarved, lod <= 1 ? BoxFaces.Wall : BoxFaces.Front);
-                        MeshKit.Panel(m, side, u - 0.36, v0 + 0.42, u + 0.36, v0 + Math.Min(1.38, sH - 0.52), half + 0.085, pane);
-                        windows++;
-                        if (centre && p.Figures && lod <= 1)
+                        double u = bays == 1 ? 0 : -along + 2 * along * (b + 0.5) / bays;
+                        bool centre = b == bays / 2;
+                        if (s == 0)
                         {
-                            // Shiva and Parvati looking out of the central upper window.
-                            for (int q = -1; q <= 1; q += 2)
+                            if (sd == 0 && centre) continue;
+                            if (sd == 0 && p.Figures && lod <= 1)
                             {
-                                double x, y, z;
-                                side.ToWorld(u + q * 0.17, v0 + 0.85, half + 0.15, out x, out y, out z);
-                                MeshKit.Blob(m, x, y, z, 0.13, 0.2, 0.1, MeshColor.FromHex(0xF4F1E8));
-                                MeshKit.Blob(m, x, y + 0.27, z, 0.09, 0.09, 0.09, MeshColor.FromHex(0xF4F1E8));
+                                // Shiva-Parvati's front: a row of tall carved windows under cusped arches (refs shivaparvati 01, 06).
+                                ArchedWindow(m, side, u, vs + 0.35, half, Math.Min(1.5, 2 * along / bays - 0.5), Math.Min(2.3, sH - 0.6), lod);
+                                windows++;
+                                continue;
                             }
+                            if (lod <= 1 && (sd == 0 || b % 2 == 1)) SacredParts.LatticeWindow(m, side, u, vs + 0.55 * sH, half, 0.7, 0.8, Looks.WoodDark, lod + (sd == 0 ? 0 : 1));
+                            continue;
                         }
+                        double ww = centre && sd == 0 ? 1.3 : 0.85, wh = Math.Min(1.25, sH - 0.8);
+                        if (centre && sd == 0 && p.Figures && s == storeys - 1)
+                        {
+                            // Shiva and Parvati looking out of the open central window.
+                            SacredDraw.Panel(m, side, u - 0.5 * ww, vs + 0.45, u + 0.5 * ww, vs + 0.45 + wh, half + 0.012, Looks.Dark);
+                            SacredParts.LatticeWindow(m, side, u, vs + 0.45 + 0.5 * wh, half, ww, wh, Looks.WoodDark, 1);
+                            if (lod <= 1) Figures(m, side, u, vs + 0.45, half + 0.12, lod);
+                        }
+                        else
+                        {
+                            SacredParts.LatticeWindow(m, side, u, vs + 0.4 + 0.5 * wh, half, ww, wh, Looks.WoodDark, lod + (sd == 0 ? 0 : 1));
+                        }
+                        windows++;
                     }
                 }
-                side = side.TurnedRight();
             }
-            if (p.GiltBalcony)
+            if (p.SkirtRoof)
             {
-                double v0 = plinthTop + (storeys - 1) * sH;
-                MeshKit.Box(m, k, -0.8 * hw, 0.8 * hw, v0 - 0.15, v0 + 1.2, hd, hd + 0.7, SacredPalette.Gilt, BoxFaces.All & ~BoxFaces.Back);
-                MeshKit.Panel(m, k, -0.7 * hw, v0 + 0.1, 0.7 * hw, v0 + 1.05, hd + 0.705, SacredPalette.GiltLo);
-            }
-            // Hipped tile roof with an overhang and three gilt finials along the ridge.
-            uint roof = p.RoofColour != 0 ? p.RoofColour : SacredPalette.Tile;
-            var rx = new double[4];
-            var rz = new double[4];
-            double[] us = { -hw - 1.0, hw + 1.0, hw + 1.0, -hw - 1.0 }, ws = { -hd - 1.0, -hd - 1.0, hd + 1.0, hd + 1.0 };
-            for (int q = 0; q < 4; q++)
-            {
-                double y;
-                k.ToWorld(us[q], 0, ws[q], out rx[q], out y, out rz[q]);
-            }
-            if (Polygon.SignedArea(rx, rz, 4) < 0)
-            {
-                Array.Reverse(rx);
-                Array.Reverse(rz);
-            }
-            double cx, cy, cz;
-            k.ToWorld(0, 0, 0, out cx, out cy, out cz);
-            MeshKit.Loft(m, rx, rz, 4, cx, cz, f.GroundY + wallTop - 0.4, 1.0, f.GroundY + total, 0.15, roof);
-            MeshKit.Loft(m, rx, rz, 4, cx, cz, f.GroundY + wallTop - 0.4, 1.0, f.GroundY + wallTop - 0.4, 0.75, SacredPalette.WoodCarved);
-            if (lod <= 1)
-            {
-                for (int q = -1; q <= 1; q++)
+                // A lean-to skirt roof round all four walls from an eave 1.5 m out up to the wall above the ground storey.
+                double sv = plinthTop + sH + 0.25, over = Math.Min(1.8, 0.14 * Math.Max(p.W, p.D) + 0.2), riseS = 0.55 * over;
+                uint stile = p.RoofColour != 0 ? p.RoofColour : SacredPalette.Tile;
+                var skirt = new RoofSpec
                 {
-                    double x, y, z;
-                    k.ToWorld(q * 0.15 * hw, total, 0, out x, out y, out z);
-                    SacredKit.Gajur(m, x, z, y - 0.05, 0.9, 0.18, lod, SacredPalette.Gilt);
+                    EaveU = hw + over, EaveW = hd + over, EaveV = sv - riseS, TopU = hw + 0.02, TopW = hd + 0.02, TopV = sv, WallU = hw, WallW = hd,
+                    WallTopV = sv - riseS + 0.1, Lift = 0.04 * (hw + over), Sag = 0.01 * over, FasciaH = 0.18, CoursePitch = 0.62 * ds, FringePitch = 0.7 * ds,
+                    Fringe = p.Fringe, FringeH = 0.3, Horns = true,
+                    Roof = Looks.Of(stile, MaterialChannel.RoofTile), Ridge = Looks.Of(MeshColor.Scale(stile, 0.72f), MaterialChannel.RoofTile), Fascia = Looks.WoodDark,
+                    Soffit = Looks.Ao(Looks.WoodDark, 0.55f), Horn = Looks.WoodDark,
+                };
+                SacredParts.Roof(m, k, skirt, lod);
+                if (lod <= 1)
+                {
+                    SacredParts.Struts(m, k, skirt, plinthTop + 0.55 * sH, PagodaGenerator.StrutsPerSide(2 * hw, 1.3 * ds), PagodaGenerator.StrutsPerSide(2 * hd, 1.3 * ds), false,
+                                       Looks.WoodDark, 37u, lod);
                 }
             }
-            if (p.Lions)
+            if (p.GiltBalcony && lod <= 1)
             {
-                SacredKit.Guardian(m, k, -1.0, hd + 0.6 + plinthTop / Math.Tan(38 * Math.PI / 180) - 0.3, 0, 1.1, 0, lod);
-                SacredKit.Guardian(m, k, 1.0, hd + 0.6 + plinthTop / Math.Tan(38 * Math.PI / 180) - 0.3, 0, 1.1, 0, lod);
+                // Bhimsen's gilt balcony across the top floor of the front.
+                double vb = plinthTop + (storeys - 1) * sH;
+                Mould b = SacredDraw.M;
+                b.Add(0, vb - 0.2, Looks.Gilt).Add(0.75, vb + 0.05).Add(0.75, vb + 1.15, Looks.GiltAged).Add(0.68, vb + 1.25, Looks.Gilt).Add(0, vb + 1.25);
+                double[] pu = ShapeScratch.U2, pw = ShapeScratch.W2;
+                int n = SacredDraw.Rect(0, hd - 0.4, 0.8 * hw, 0.4, pu, pw);
+                SacredDraw.Ring(m, k, pu, pw, n, b);
+                for (int q = 0; q < 6; q++)
+                {
+                    double u = -0.7 * hw + 1.4 * hw * (q + 0.5) / 6;
+                    SacredDraw.Panel(m, k, u - 0.08 * hw, vb + 0.25, u + 0.08 * hw, vb + 1.0, hd + 0.36, Looks.GiltHi);
+                }
+                SacredParts.HipRoof(m, SacredDraw.At(k, 0, 0, hd + 0.1), 0.8 * hw, 0.4, vb + 1.85, 0.35, 0.15, vb + 2.15, true, 0, false, lod + 1);
             }
-            if (c != null) c.AddBox(cx, cz, f.GroundY + plinthTop, f.GroundY + total, hw, hd, k.UX, k.UZ, GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, GenColliders.Brick);
+            // Hipped tile roof with struts and bells, gilt finials along the ridge.
+            uint tile = p.RoofColour != 0 ? p.RoofColour : SacredPalette.Tile;
+            double apex = total - finial;
+            RoofSpec r = SacredParts.HipRoof(m, k, hw, hd, wallTop, Math.Min(1.4, 0.12 * Math.Max(p.W, p.D) + 0.4), 0.35, apex, false, tile, p.Fringe, lod);
+            if (lod <= 1)
+            {
+                SacredParts.Struts(m, k, r, wallTop - 1.3, PagodaGenerator.StrutsPerSide(2 * hw, 1.1 * ds), PagodaGenerator.StrutsPerSide(2 * hd, 1.1 * ds), ds < 1.5, Looks.WoodDark, 31u, lod);
+                SacredParts.Bells(m, k, r, 0.5 * ds, 1.0, false, lod);
+            }
+            // Gilt finials along the ridge: five on a long one (Shiva-Parvati), the middle one tallest.
+            int fin = r.TopU > 1.2 ? 5 : r.TopU > 0.2 ? 3 : 1;
+            for (int q = 0; q < fin; q++)
+            {
+                // Five stand close together at the middle of a long ridge (refs shivaparvati 03); three spread along a short one.
+                double u = fin == 1 ? 0 : fin == 5 ? (q - 2) * Math.Min(0.75, 0.2 * r.TopU) : -0.85 * r.TopU + 1.7 * r.TopU * q / (fin - 1);
+                double fh = q == fin / 2 ? finial : 0.75 * finial;
+                SacredParts.Gajur(m, SacredDraw.At(k, u, 0, 0), apex - 0.05, fh + 0.05, q == fin / 2 ? 0.24 : 0.2, Looks.Gilt, lod);
+            }
+            if (p.Lions && lod <= 2)
+            {
+                double gw = hd + 0.6 + run - 0.2;
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                {
+                    SacredParts.Pedestal(m, k, sgn * 1.35, 0, gw, 0.3, 0.38, 0.5, Looks.Stone, lod);
+                    SacredFigures.Guardian(m, k, sgn * 1.35, 0.5, gw, 1.2, GuardianKind.Lion, true, p.Hero ? SacredFigures.Hero : SacredFigures.Generic, lod, sgn);
+                }
+            }
+            if (c != null) c.AddBox(kf.OX, kf.OZ, f.GroundY + plinthTop, f.GroundY + total, hw, hd, kf.UX, kf.UZ, GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, GenColliders.Brick);
             if (stats != null)
             {
                 stats.TopM = (float)total;
@@ -130,91 +204,166 @@ namespace Ghumante.Core.Generators.Sacred
                 stats.PlinthTopM = (float)plinthTop;
                 stats.DoorYawDeg = f.YawDeg;
                 stats.Windows = windows;
+                stats.SanctumHalfU = (float)hw;
+                stats.SanctumHalfW = (float)hd;
+                stats.SanctumV0 = (float)plinthTop;
+                stats.SanctumV1 = (float)(plinthTop + sH);
             }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
+        }
+
+        /// <summary>A tall carved window under a cusped arch at u on the wall plane w from sill height v: a dark opening
+        /// with a carved lattice lower panel, a stepped wooden frame with lintel ears and the lobed arch over it.</summary>
+        private static void ArchedWindow(MeshData m, in Affine3 k, double u, double v, double w, double width, double height, int lod)
+        {
+            double hu = 0.5 * width, archR = hu, top = v + height, spring = top - 0.75 * archR;
+            SacredDraw.Panel(m, k, u - hu, v + 0.6, u + hu, spring, w + 0.01, Looks.Recess);
+            SacredDraw.Box(m, k, u - hu, u + hu, v, v + 0.6, w, w + 0.06, Looks.WoodMid, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            if (lod == 0)
+            {
+                // The carved lattice of the lower panel.
+                for (int q = 1; q < 4; q++)
+                {
+                    double lu = u - hu + width * q / 4;
+                    SacredDraw.Box(m, k, lu - 0.025, lu + 0.025, v + 0.05, v + 0.55, w + 0.06, w + 0.1, Looks.WoodDark, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                }
+            }
+            // Jambs, the lintel with its ears and the sill.
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                SacredDraw.Box(m, k, u + sgn * hu - 0.09, u + sgn * hu + 0.09, v, spring, w, w + 0.12, Looks.WoodDark, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Box(m, k, u - hu - 0.3, u + hu + 0.3, v - 0.12, v, w, w + 0.14, Looks.WoodDark, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Box(m, k, u - hu - 0.3, u + hu + 0.3, top, top + 0.16, w, w + 0.14, Looks.WoodDark, BoxFaces.Wall | BoxFaces.Bottom);
+            SacredDraw.Panel(m, k, u - hu, spring, u + hu, top, w + 0.005, Looks.WoodMid);
+            ShikharaGenerator.Arch(m, k, u, spring, w + 0.04, width, 0.75 * archR, 0.12, 0.1, true, Looks.WoodDark, lod);
+        }
+
+        /// <summary>A four-sided pyramid roof (LOD3).</summary>
+        private static void Lod3Roof(MeshData m, in Affine3 k, double hu, double hw, double v0, double v1, in ShapeBrush b)
+        {
+            for (int s = 0; s < 4; s++)
+            {
+                double au, aw, bu, bw, ou, ow;
+                SacredParts.OnRect(s, -1, hu, hw, out au, out aw);
+                SacredParts.OnRect(s, 1, hu, hw, out bu, out bw);
+                SacredParts.Out(s, out ou, out ow);
+                SacredDraw.Tri(m, k, au, v0, aw, bu, v0, bw, 0, v1, 0, ou, 1, ow, b);
+            }
+        }
+
+        /// <summary>The white painted Shiva and Parvati leaning out of the central window, side by side.</summary>
+        private static void Figures(MeshData m, in Affine3 k, double u, double v, double w, int lod)
+        {
+            ShapeBrush white = Looks.Of(MeshColor.FromHex(0xF4F1E8), MaterialChannel.Paint);
+            int s = lod == 0 ? 6 : 4;
+            for (int q = -1; q <= 1; q += 2)
+            {
+                double x = u + q * 0.24;
+                Shapes.Ellipsoid(m, SacredDraw.At(k, x, v + 0.45, w), white, 0.17, 0.26, 0.12, s, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(k, x, v + 0.85, w + 0.02), white, 0.11, 0.13, 0.11, s, false);
+                Shapes.Cone(m, SacredDraw.At(k, x, v + 0.95, w + 0.02), Looks.Gilt, 0.08, 0.16, 5, 0, 0, false);
+                Shapes.Capsule(m, Affine3.RotationX(0.5 * Math.PI).Then(SacredDraw.At(k, x - q * 0.1, v + 0.3, w - 0.05)), white, 0.05, 0.4, 4);
+            }
         }
 
         // ---------------------------------------------------------------------------------------------------------
         // Kal Bhairav relief, Yoganarendra column, vajra
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>An open-air stone relief on a platform, no roof (Kal Bhairav: black-blue body, six arms, gilt crown).</summary>
-        public static int Relief(float platformW, float platformD, float reliefH, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
-        {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            MeshKit.Box(m, k, -0.5 * platformW, 0.5 * platformW, -0.3, 0.45, -0.5 * platformD, 0.5 * platformD, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            double slabW = Math.Min(platformW - 0.6, 0.75 * reliefH), back = -0.5 * platformD + 0.5;
-            MeshKit.Box(m, k, -0.5 * slabW, 0.5 * slabW, 0.45, 0.45 + reliefH, back - 0.4, back, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            uint body = MeshColor.FromHex(0x1F2A44);
-            double x, y, z;
-            k.ToWorld(0, 0.45 + 0.42 * reliefH, back + 0.25, out x, out y, out z);
-            MeshKit.Blob(m, x, y, z, 0.28 * slabW, 0.3 * reliefH, 0.25, body);
-            k.ToWorld(0, 0.45 + 0.8 * reliefH, back + 0.3, out x, out y, out z);
-            MeshKit.Blob(m, x, y, z, 0.15 * slabW, 0.12 * reliefH, 0.22, MeshColor.FromHex(0xF2C230));
-            MeshKit.Frustum(m, x, z, 0.14 * slabW, y + 0.08 * reliefH, 0.05 * slabW, y + 0.2 * reliefH, 6, true, SacredPalette.Gilt);
-            if (lod <= 1)
-            {
-                for (int a = 0; a < 6; a++)
-                {
-                    double side = a < 3 ? -1 : 1, lvl = 0.45 + reliefH * (0.35 + 0.12 * (a % 3));
-                    double ax, ay, az, bx, by, bz;
-                    k.ToWorld(side * 0.15 * slabW, lvl, back + 0.25, out ax, out ay, out az);
-                    k.ToWorld(side * 0.45 * slabW, lvl + 0.15 * reliefH * (a % 3 - 1), back + 0.25, out bx, out by, out bz);
-                    MeshKit.Bar(m, ax, ay, az, bx, by, bz, 0.12, body);
-                }
-            }
-            if (c != null)
-            {
-                k.ToWorld(0, 0, 0, out x, out y, out z);
-                c.AddBox(x, z, f.GroundY - 0.3, f.GroundY + 0.45, 0.5 * platformW, 0.5 * platformD, k.UX, k.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
-            }
-            if (stats != null)
-            {
-                stats.TopM = (float)(0.45 + reliefH);
-                stats.DoorYawDeg = f.YawDeg;
-            }
-            return m.TriangleCount - t0;
-        }
-
-        /// <summary>A stone pillar with a lotus capital and a kneeling gilt figure under a cobra hood (Yoganarendra
+        /// <summary>A stone pillar with a lotus capital and a kneeling gilt king under a cobra hood (Yoganarendra
         /// Malla), or with a Garuda when <paramref name="garuda"/>.</summary>
         public static int Column(float heightM, bool garuda, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            MeshKit.Box(m, k, -1.0, 1.0, -0.3, 0.4, -1.0, 1.0, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, -0.6, 0.6, 0.4, 0.8, -0.6, 0.6, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            double shaft = Math.Max(1.0, heightM - 0.8 - 1.45); // plinth 0.8, capital + figure 1.45
-            MeshKit.Cylinder(m, f.X, f.Z, 0.3, f.GroundY + 0.8, f.GroundY + 0.8 + shaft, lod <= 1 ? 8 : 4, false, SacredPalette.StoneGrey);
-            double top = f.GroundY + 0.8 + shaft;
-            MeshKit.Frustum(m, f.X, f.Z, 0.35, top, 0.65, top + 0.35, 8, true, garuda ? SacredPalette.StoneGrey : SacredPalette.Gilt);
-            uint fig = garuda ? SacredPalette.StoneGrey : SacredPalette.Gilt;
-            MeshKit.Blob(m, f.X, top + 0.75, f.Z, 0.3, 0.4, 0.3, fig);
-            MeshKit.Blob(m, f.X, top + 1.25, f.Z, 0.18, 0.18, 0.18, fig);
-            if (!garuda && lod <= 1) SacredKit.Torana(m, k, 0, top + 0.9, -0.3, 1.3, SacredPalette.Gilt, lod);
-            if (c != null) c.AddBox(f.X, f.Z, f.GroundY, f.GroundY + heightM, 1.0, 1.0, k.UX, k.UZ, GenColliderFlags.NoClimb, GenColliders.Stone);
+            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            KitFrame kf = f.Kit;
+            Affine3 k = SacredDraw.Xf(kf);
+            SacredParts.PlinthLevel(m, k, 1.0, 1.0, 0, 0.4, 0.3, Looks.Stone, Looks.StoneLight, lod);
+            SacredParts.PlinthLevel(m, k, 0.65, 0.65, 0.4, 0.8, 0.05, Looks.Stone, Looks.StoneLight, lod);
+            double figH = 1.45, shaft = Math.Max(1.0, heightM - 0.8 - figH);
+            Profile2 p = Prof;
+            double y0 = 0.8, y1 = 0.8 + shaft;
+            p.Add(0, y0).Add(0.42, y0, true).Add(0.42, y0 + 0.15, true).Add(0.3, y0 + 0.25).Add(0.3, y0 + 0.35, true).Add(0.27, y0 + 0.4)
+             .Add(0.25, y1 - 0.5).Add(0.3, y1 - 0.42, true).Add(0.24, y1 - 0.35).Add(0.32, y1 - 0.15).Add(0.55, y1, true).Add(0, y1);
+            Shapes.Lathe(m, k, Looks.Stone, p, SacredParts.Seg(12, lod));
+            ShapeBrush fig = garuda ? Looks.Stone : Looks.Gilt;
+            if (garuda)
+            {
+                SacredFigures.Garuda(m, k, 0, y1, 0, figH, Looks.Stone, lod);
+            }
+            else
+            {
+                // The kneeling king with folded hands, his crown and the cobra hood behind.
+                int s = lod == 0 ? 8 : 4;
+                Shapes.Ellipsoid(m, SacredDraw.At(k, 0, y1 + 0.25, 0), fig, 0.32, 0.22, 0.3, s, s >= 8);
+                Shapes.Ellipsoid(m, SacredDraw.At(k, 0, y1 + 0.62, 0.02), fig, 0.24, 0.3, 0.18, s, s >= 8);
+                Shapes.Ellipsoid(m, SacredDraw.At(k, 0, y1 + 1.02, 0.04), fig, 0.15, 0.16, 0.15, s, s >= 8);
+                Shapes.Cone(m, SacredDraw.At(k, 0, y1 + 1.12, 0.04), Looks.GiltHi, 0.14, 0.3, 6, 0, 0, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(k, 0, y1 + 0.66, 0.2), fig, 0.08, 0.12, 0.06, 4, false);
+                if (lod <= 1)
+                {
+                    double[] hx = ShapeScratch.U, hz = ShapeScratch.W;
+                    int hn = 0, heads = 7;
+                    hx[hn] = -0.45;
+                    hz[hn++] = 0;
+                    hx[hn] = 0.45;
+                    hz[hn++] = 0;
+                    for (int i = 0; i <= heads; i++)
+                    {
+                        double a = Math.PI * i / heads, rr = i % 2 == 0 ? 0.62 : 0.52;
+                        hx[hn] = rr * Math.Cos(a);
+                        hz[hn++] = -(0.6 + rr * Math.Sin(a));
+                    }
+                    Shapes.BevelExtrude(m, SacredDraw.Basis(k, 0, y1 + 0.55, -0.22, 1, 0, 0, 0, 0, 1), Looks.Gilt, hx, hz, hn, 0.08, 0.03, 1, BevelStyle.Round, true, false);
+                }
+            }
+            if (c != null) c.AddBox(f.X, f.Z, f.GroundY, f.GroundY + heightM, 1.0, 1.0, kf.UX, kf.UZ, GenColliderFlags.NoClimb, GenColliders.Stone);
             if (stats != null)
             {
-                stats.TopM = (float)(top + 1.45 - f.GroundY);
+                stats.TopM = (float)(y1 + figH);
                 stats.DoorYawDeg = f.YawDeg;
             }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
         }
 
-        /// <summary>Swayambhu's great gilt vajra (about 3 m long) on its drum pedestal.</summary>
+        /// <summary>Swayambhu's great gilt vajra (about 3 m long) on its drum pedestal (a mandala drum with a band of
+        /// animal reliefs).</summary>
         public static int Vajra(in GenFrame f, MeshData m)
         {
-            int t0 = m.TriangleCount;
-            MeshKit.Cylinder(m, f.X, f.Z, 1.4, f.GroundY - 0.2, f.GroundY + 1.1, 12, true, SacredPalette.StoneGrey);
-            KitFrame k = f.Kit;
-            double ax, ay, az, bx, by, bz;
-            k.ToWorld(-1.3, 1.6, 0, out ax, out ay, out az);
-            k.ToWorld(1.3, 1.6, 0, out bx, out by, out bz);
-            MeshKit.Bar(m, ax, ay, az, bx, by, bz, 0.25, SacredPalette.Gilt);
-            MeshKit.Blob(m, ax, ay, az, 0.45, 0.45, 0.45, SacredPalette.Gilt);
-            MeshKit.Blob(m, bx, by, bz, 0.45, 0.45, 0.45, SacredPalette.Gilt);
-            MeshKit.Blob(m, f.X, f.GroundY + 1.6, f.Z, 0.3, 0.3, 0.3, SacredPalette.GiltHi);
+            return Vajra(f, 0, m);
+        }
+
+        /// <summary>The vajra at a LOD (LOD2 and beyond: a drum and a bar).</summary>
+        public static int Vajra(in GenFrame f, int lod, MeshData m)
+        {
+            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            Affine3 k = SacredDraw.Xf(f.Kit);
+            if (lod >= 2)
+            {
+                Shapes.Cylinder(m, SacredDraw.At(k, 0, -0.2, 0), Looks.Stone, 1.45, 1.3, 8, 0, 0, false, true);
+                Shapes.Capsule(m, Affine3.RotationZ(0.5 * Math.PI).Then(SacredDraw.At(k, 1.4, 1.6, 0)), Looks.Gilt, 0.3, 2.8, 4);
+                return m.TriangleCount - t0;
+            }
+            Profile2 p = Prof;
+            p.Add(0, -0.2).Add(1.5, -0.2, true).Add(1.5, 0.15, true).Add(1.35, 0.2).Add(1.35, 0.85).Add(1.45, 0.95, true).Add(1.45, 1.1, true).Add(0, 1.1);
+            Shapes.Lathe(m, k, Looks.Stone, p, 20);
+            Shapes.Sphere(m, SacredDraw.At(k, 0, 1.6, 0), Looks.GiltHi, 0.32, 10);
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+            {
+                Profile2 b = Prof;
+                b.Add(0, 0).Add(0.24, 0.05).Add(0.38, 0.3).Add(0.3, 0.55).Add(0.12, 0.75).Add(0, 0.8);
+                Affine3 x = Affine3.RotationZ(sgn * 0.5 * Math.PI).Then(SacredDraw.At(k, -sgn * 0.3, 1.6, 0));
+                Shapes.Lathe(m, x, Looks.Gilt, b, 10);
+                for (int q = 0; q < 4; q++)
+                {
+                    double a = 0.5 * Math.PI * q + 0.25 * Math.PI, cy = Math.Cos(a) * 0.32, cz = Math.Sin(a) * 0.32;
+                    Path3 t = new Path3(4);
+                    t.Add(sgn * 0.75, 1.6 + cy, cz).Add(sgn * 1.1, 1.6 + 1.2 * cy, 1.2 * cz).Add(sgn * 1.45, 1.6 + 0.4 * cy, 0.4 * cz);
+                    Shapes.Tube(m, k, Looks.Gilt, t, 0.06, 5, true, false, default, 0.03);
+                }
+                Shapes.Cone(m, Affine3.RotationZ(-sgn * 0.5 * Math.PI).Then(SacredDraw.At(k, sgn * 1.25, 1.6, 0)), Looks.Gilt, 0.08, 0.35, 6, 0, 0, false);
+            }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
         }
 
@@ -222,119 +371,96 @@ namespace Ghumante.Core.Generators.Sacred
         // Towers
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>A Newar palace tower (the nine-storey Basantapur tower): brick storeys with lattice windows, tiered
-        /// sloped roofs on the upper storeys and a top pavilion with a gilt finial.</summary>
-        public static int PalaceTower(float w, float d, int storeys, int roofTiers, float totalM, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
-        {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            double topRoof = 0.35 * w, sH = (totalM - topRoof) / storeys;
-            double hw = 0.5 * w, hd = 0.5 * d;
-            int windows = 0;
-            for (int s = 0; s < storeys; s++)
-            {
-                double v0 = s * sH, shrink = s >= storeys - roofTiers ? 1.0 - 0.06 * (s - (storeys - roofTiers)) : 1.0;
-                double ux = hw * shrink, wx = hd * shrink;
-                MeshKit.Box(m, k, -ux, ux, s == 0 ? -0.3 : v0, v0 + sH, -wx, wx, SacredPalette.BrickDachi, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-                if (s >= storeys - roofTiers && s > 0)
-                {
-                    // A skirt roof at the base of each upper storey.
-                    double x, y, z;
-                    k.ToWorld(0, 0, 0, out x, out y, out z);
-                    var rx = new double[4];
-                    var rz = new double[4];
-                    double ex = ux + 1.0, ez = wx + 1.0;
-                    double[] us = { -ex, ex, ex, -ex }, ws = { -ez, -ez, ez, ez };
-                    for (int q = 0; q < 4; q++)
-                    {
-                        double yy;
-                        k.ToWorld(us[q], 0, ws[q], out rx[q], out yy, out rz[q]);
-                    }
-                    if (Polygon.SignedArea(rx, rz, 4) < 0)
-                    {
-                        Array.Reverse(rx);
-                        Array.Reverse(rz);
-                    }
-                    MeshKit.Loft(m, rx, rz, 4, x, z, f.GroundY + v0 - 0.4, 1.0, f.GroundY + v0 + 0.5, ux / ex, SacredPalette.Tile);
-                }
-                if (lod <= 1 && s > 0)
-                {
-                    KitFrame side = k;
-                    for (int sd = 0; sd < 4; sd++)
-                    {
-                        double half = sd % 2 == 0 ? wx : ux;
-                        MeshKit.Panel(m, side, -0.6, v0 + 0.5, 0.6, v0 + Math.Min(sH - 0.4, 1.6), half + 0.01, SacredPalette.WoodCarved);
-                        windows++;
-                        side = side.TurnedRight();
-                    }
-                }
-            }
-            double cx, cy, cz;
-            k.ToWorld(0, 0, 0, out cx, out cy, out cz);
-            double tw = hw * (1.0 - 0.06 * (roofTiers - 1));
-            MeshKit.Frustum(m, cx, cz, (tw + 1.0) * Math.Sqrt(2), f.GroundY + totalM - topRoof - 0.3, 0.0, f.GroundY + totalM - 0.6, 4, false, SacredPalette.Tile);
-            SacredKit.Gajur(m, cx, cz, f.GroundY + totalM - 0.8, 0.8, 0.2, lod, SacredPalette.Gilt);
-            if (c != null) c.AddBox(cx, cz, f.GroundY, f.GroundY + totalM, hw, hd, k.UX, k.UZ, GenColliderFlags.NoClimb, GenColliders.Brick);
-            if (stats != null)
-            {
-                stats.TopM = totalM;
-                stats.Tiers = roofTiers;
-                stats.Windows = windows;
-                stats.DoorYawDeg = f.YawDeg;
-            }
-            return m.TriangleCount - t0;
-        }
-
-        /// <summary>The 2021 Dharahara: a 14.2 m base ring, a white fluted shaft of 22 storeys tapering to a 9.3 m top
-        /// drum with a balcony ring, a cone cap and a bronze mast, to exactly <paramref name="totalM"/>.</summary>
+        /// <summary>The 2021 Dharahara (rebuilt "in the old style with a larger diameter"): a moulded podium, a white
+        /// fluted shaft of 22 storeys tapering to the top drum, storey bands and window slots, the balcony gallery with its
+        /// railing, the cupola and the bronze mast, to exactly <paramref name="totalM"/>.</summary>
         public static int Dharahara(float totalM, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
-            int t0 = m.TriangleCount;
+            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            Affine3 k = SacredDraw.Xf(f.Kit);
             double s = totalM / 72.0;
-            double baseTop = 1.0 * s, shaftTop = 58.0 * s, drumTop = 63.0 * s, coneTop = 66.0 * s;
-            int sides = lod == 0 ? 32 : lod == 1 ? 16 : 8;
-            uint white = MeshColor.FromHex(0xF7F6F0);
-            MeshKit.Cylinder(m, f.X, f.Z, 7.1, f.GroundY - 0.3, f.GroundY + baseTop, sides, true, white);
-            // Fluted shaft: a ring with alternating radii, lofted with a slight taper.
-            var x = new double[sides];
-            var z = new double[sides];
-            for (int i = 0; i < sides; i++)
+            double baseTop = 1.4 * s, shaftTop = 57.0 * s, galleryTop = 58.4 * s, drumTop = 63.0 * s, capTop = 67.0 * s;
+            int sides = lod == 0 ? 32 : lod == 1 ? 20 : 10;
+            ShapeBrush white = Looks.Of(MeshColor.FromHex(0xF7F5EF), MaterialChannel.Plaster), trim = Looks.Of(MeshColor.FromHex(0xE6E1D6), MaterialChannel.Plaster);
+            Profile2 pb = Prof;
+            pb.Add(0, -0.3).Add(7.6, -0.3, true).Add(7.6, 0.4 * baseTop, true).Add(7.2, 0.5 * baseTop, true).Add(7.2, baseTop, true).Add(0, baseTop);
+            Shapes.Lathe(m, k, trim, pb, sides);
+            // Fluted shaft.
+            int rows = lod == 0 ? 23 : lod == 1 ? 8 : 2, n = sides;
+            int fst = m.VertexCount;
+            for (int r = 0; r <= rows; r++)
             {
-                double a = 2 * Math.PI * i / sides, r = 5.15 * (i % 2 == 0 ? 1.0 : 0.92);
-                x[i] = f.X + r * Math.Cos(a);
-                z[i] = f.Z + r * Math.Sin(a);
+                double t = (double)r / rows, y = baseTop + (shaftTop - baseTop) * t, rad = 5.4 * (1 - 0.16 * t);
+                bool band = lod == 0 && r > 0 && r < rows;
+                for (int i = 0; i <= n; i++)
+                {
+                    double a = 2 * Math.PI * i / n, flute = i % 2 == 0 ? 1.0 : 0.93, rr = rad * flute * (band ? 1.02 : 1.0);
+                    SacredDraw.V(m, k, rr * Math.Sin(a), y, rr * Math.Cos(a), Math.Sin(a), 0.05, Math.Cos(a), band ? trim : white);
+                }
             }
-            MeshKit.Loft(m, x, z, sides, f.X, f.Z, f.GroundY + baseTop, 1.0, f.GroundY + shaftTop, 0.85, white);
+            SacredDraw.Grid(m, fst, rows + 1, n + 1, false, null);
             if (lod <= 1)
             {
-                KitFrame k = f.Kit;
-                int storeys = 22;
+                int storeys = 22, slots = 0;
                 double sh = (shaftTop - baseTop) / storeys;
-                for (int q = 1; q < storeys; q++)
+                for (int q = 1; q < storeys; q += lod == 0 ? 1 : 3)
                 {
-                    KitFrame side = k;
-                    double rr = 5.15 * (1 - 0.15 * q / storeys) * 0.97;
+                    double t = (q * sh) / (shaftTop - baseTop), rr = 5.4 * (1 - 0.16 * t);
                     for (int sd = 0; sd < 4; sd++)
                     {
-                        MeshKit.Panel(m, side, -0.18, baseTop + q * sh + 0.4, 0.18, baseTop + q * sh + 0.4 + 0.6 * sh, rr, MeshColor.FromHex(0x3A4A5C));
-                        side = side.TurnedRight();
+                        Affine3 side = SacredDraw.Turn(k, 0, 0, 0, sd * 0.5 * Math.PI + 0.25 * Math.PI * (q % 2));
+                        SacredDraw.Panel(m, side, -0.22, baseTop + q * sh + 0.35, 0.22, baseTop + q * sh + 0.35 + 0.55 * sh, rr + 0.02, Looks.Of(MeshColor.FromHex(0x3A4A5C), MaterialChannel.Glass));
+                        slots++;
                     }
                 }
-                if (stats != null) stats.Windows = 4 * (storeys - 1);
+                if (stats != null) stats.Windows = slots;
             }
-            // Balcony ring, top drum, cone cap and the bronze mast.
-            MeshKit.Frustum(m, f.X, f.Z, 6.2, f.GroundY + shaftTop - 0.3, 6.2, f.GroundY + shaftTop, sides, true, white);
-            MeshKit.Frustum(m, f.X, f.Z, 6.2, f.GroundY + shaftTop - 0.3, 4.4, f.GroundY + shaftTop - 0.9, sides, false, white);
-            if (lod <= 1) MeshKit.Cylinder(m, f.X, f.Z, 6.15, f.GroundY + shaftTop, f.GroundY + shaftTop + 1.1, sides, false, MeshColor.FromHex(0xC9CED6));
-            MeshKit.Cylinder(m, f.X, f.Z, 4.65, f.GroundY + shaftTop, f.GroundY + drumTop, sides, false, white);
-            MeshKit.Frustum(m, f.X, f.Z, 5.0, f.GroundY + drumTop, 0.3, f.GroundY + coneTop, sides, false, white);
-            MeshKit.Frustum(m, f.X, f.Z, 0.25, f.GroundY + coneTop, 0.05, f.GroundY + totalM, 6, false, MeshColor.FromHex(0x8C6B3A));
-            if (c != null) c.AddBox(f.X, f.Z, f.GroundY, f.GroundY + totalM, 7.1, 7.1, 1, 0, GenColliderFlags.NoClimb, GenColliders.Concrete);
+            // Gallery slab, railing posts, top drum, cupola, mast.
+            Profile2 pg = Prof;
+            pg.Add(0, shaftTop - 0.6).Add(4.6, shaftTop - 0.6, true).Add(6.4, shaftTop - 0.05, true).Add(6.4, shaftTop + 0.25, true).Add(0, shaftTop + 0.25);
+            Shapes.Lathe(m, k, trim, pg, sides);
+            if (lod <= 1)
+            {
+                Profile2 rail = Prof;
+                rail.Add(6.25, galleryTop - 0.02).Add(6.35, galleryTop + 0.02, true).Add(6.35, galleryTop + 0.1, true).Add(6.25, galleryTop + 0.1);
+                Shapes.Lathe(m, k, Looks.Of(MeshColor.FromHex(0xC9CED6), MaterialChannel.Metal), rail, sides);
+                int posts = lod == 0 ? 24 : 12;
+                for (int q = 0; q < posts; q++)
+                {
+                    double a = 2 * Math.PI * q / posts;
+                    Shapes.Cylinder(m, SacredDraw.At(k, 6.3 * Math.Sin(a), shaftTop + 0.25, 6.3 * Math.Cos(a)), Looks.Of(MeshColor.FromHex(0xC9CED6), MaterialChannel.Metal), 0.04,
+                                    galleryTop + 0.05 - shaftTop - 0.25, 4, 0, 0, false, false);
+                }
+            }
+            Profile2 pd = Prof;
+            pd.Add(0, shaftTop + 0.2).Add(4.7, shaftTop + 0.2, true).Add(4.7, drumTop - 0.6).Add(5.1, drumTop - 0.3, true).Add(5.1, drumTop, true).Add(4.6, drumTop, true);
+            int cap = lod == 0 ? 8 : 4;
+            for (int q = 1; q <= cap; q++)
+            {
+                double a = 0.5 * Math.PI * q / cap;
+                pd.Add(4.6 * Math.Cos(a) + 0.25 * (q == cap ? 1 : 0), drumTop + (capTop - drumTop) * Math.Sin(a), q == cap);
+            }
+            pd.Add(0, capTop);
+            Shapes.Lathe(m, k, white, pd, sides);
+            if (lod <= 1)
+            {
+                for (int sd = 0; sd < 8; sd++)
+                {
+                    Affine3 side = SacredDraw.Turn(k, 0, 0, 0, sd * 0.25 * Math.PI);
+                    SacredDraw.Panel(m, side, -0.45, shaftTop + 1.0, 0.45, drumTop - 1.0, 4.72, Looks.Of(MeshColor.FromHex(0x3A4A5C), MaterialChannel.Glass));
+                }
+            }
+            Profile2 pm = Prof;
+            pm.Add(0, capTop - 0.1).Add(0.45, capTop - 0.1, true).Add(0.35, capTop + 0.4).Add(0.5, capTop + 0.9).Add(0.2, capTop + 1.3).Add(0.12, totalM - 1.5)
+              .Add(0.22, totalM - 1.2).Add(0.06, totalM - 0.5).Add(0, totalM);
+            Shapes.Lathe(m, k, Looks.Of(MeshColor.FromHex(0x8C6A3A), MaterialChannel.Metal), pm, lod == 0 ? 10 : 6);
+            if (c != null) c.AddBox(f.X, f.Z, f.GroundY, f.GroundY + totalM, 7.6, 7.6, 1, 0, GenColliderFlags.NoClimb, GenColliders.Concrete);
             if (stats != null)
             {
                 stats.TopM = totalM;
                 stats.DoorYawDeg = f.YawDeg;
             }
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
         }
 
@@ -342,220 +468,79 @@ namespace Ghumante.Core.Generators.Sacred
         // Gates and palace fronts
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>A palace gate: <paramref name="golden"/> = Bhaktapur's Golden Gate (gilt torana and door in a red
-        /// gatehouse set in white walls); else Hanuman Dhoka (gilt door, the Hanuman statue in red cloth under an
-        /// umbrella, two lions).</summary>
-        public static int Gate(bool golden, float widthM, float heightM, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
-        {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            double hw = 0.5 * widthM + 1.0, depth = 2.5;
-            const double RoofH = 1.4;
-            heightM = (float)Math.Max(3.0, heightM - RoofH); // the recipe height includes the gatehouse roof
-            uint house = golden ? SacredPalette.WoodRed : SacredPalette.BrickDachi;
-            MeshKit.Box(m, k, -hw, hw, -0.3, heightM, -depth, 0, house, BoxFaces.All & ~BoxFaces.Bottom);
-            double dw = Math.Min(widthM - 0.6, 2.4), dh = Math.Min(heightM - 1.4, 3.2);
-            MeshKit.Box(m, k, -0.5 * dw - 0.2, 0.5 * dw + 0.2, 0, dh + 0.2, 0, 0.12, SacredPalette.Gilt, BoxFaces.Wall);
-            MeshKit.Panel(m, k, -0.5 * dw, 0, 0.5 * dw, dh, 0.125, golden ? SacredPalette.SanctumDark : SacredPalette.GiltLo);
-            SacredKit.Torana(m, k, 0, dh + 0.25, 0.13, dw + 0.8, SacredPalette.Gilt, lod);
-            MeshKit.Frustum(m, f.X - k.WX * 1.2, f.Z - k.WZ * 1.2, hw * 1.25, f.GroundY + heightM, 0.3, f.GroundY + heightM + RoofH, 4, false, SacredPalette.Tile);
-            if (golden)
-            {
-                MeshKit.Box(m, k, -hw - 14, -hw, -0.3, heightM - 1.0, -depth + 0.5, -0.3, MeshColor.FromHex(0xF4F2EC), BoxFaces.All & ~BoxFaces.Bottom);
-                MeshKit.Box(m, k, hw, hw + 14, -0.3, heightM - 1.0, -depth + 0.5, -0.3, MeshColor.FromHex(0xF4F2EC), BoxFaces.All & ~BoxFaces.Bottom);
-            }
-            else
-            {
-                // Hanuman to the left of the gate, under an umbrella; lions either side.
-                double x, y, z;
-                k.ToWorld(-hw - 1.6, 0, 1.2, out x, out y, out z);
-                MeshKit.Box(m, k, -hw - 2.3, -hw - 0.9, 0, 1.0, 0.5, 1.9, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-                MeshKit.Blob(m, x, f.GroundY + 1.9, z, 0.45, 0.9, 0.4, SacredPalette.Sindoor);
-                MeshKit.Cylinder(m, x, z, 0.04, f.GroundY + 1.0, f.GroundY + 3.6, 4, false, MeshColor.FromHex(0x5A5A5A));
-                MeshKit.Frustum(m, x, z, 1.0, f.GroundY + 3.3, 0.0, f.GroundY + 3.8, 8, false, SacredPalette.Sindoor);
-                SacredKit.Guardian(m, k, -0.5 * dw - 1.0, 1.0, 0, 1.3, 0, lod);
-                SacredKit.Guardian(m, k, 0.5 * dw + 1.0, 1.0, 0, 1.3, 0, lod);
-            }
-            if (c != null)
-            {
-                double x, y, z;
-                k.ToWorld(-0.5 * hw - 0.5 * dw, 0, -0.5 * depth, out x, out y, out z);
-                c.AddBox(x, z, f.GroundY, f.GroundY + heightM, 0.5 * (hw - 0.5 * dw), 0.5 * depth, k.UX, k.UZ, GenColliderFlags.NoClimb, GenColliders.Brick);
-                k.ToWorld(0.5 * hw + 0.5 * dw, 0, -0.5 * depth, out x, out y, out z);
-                c.AddBox(x, z, f.GroundY, f.GroundY + heightM, 0.5 * (hw - 0.5 * dw), 0.5 * depth, k.UX, k.UZ, GenColliderFlags.NoClimb, GenColliders.Brick);
-            }
-            if (stats != null)
-            {
-                stats.TopM = heightM + (float)RoofH;
-                stats.DoorYawDeg = f.YawDeg;
-            }
-            return m.TriangleCount - t0;
-        }
-
-        /// <summary>A palace block: <paramref name="rana"/> = a neoclassical Rana front (white stucco, tall French windows,
-        /// cornice, pediment and balustrade; Gaddi Baithak); else a Newar palace range with a row of carved windows on the
-        /// upper floor (<paramref name="upperWindows"/>: 55 for the 55-Window Palace, 0.9 m pitch).</summary>
-        public static int Palace(bool rana, float w, float d, float h, int storeys, int upperWindows, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
-        {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            double hw = 0.5 * w, hd = 0.5 * d;
-            double roofRise = rana ? 1.0 : 0.25 * d, wallTop = h - roofRise, sH = wallTop / storeys;
-            uint wall = rana ? MeshColor.FromHex(0xF8F5EC) : SacredPalette.BrickDachi;
-            MeshKit.Box(m, k, -hw, hw, -0.4, wallTop, -hd, hd, wall, BoxFaces.All & ~BoxFaces.Bottom);
-            int windows = 0;
-            if (rana)
-            {
-                int bays = Math.Max(3, (int)Math.Round(w / 3.3));
-                for (int s = 0; s < storeys; s++)
-                {
-                    for (int b = 0; b < bays; b++)
-                    {
-                        double u = -hw + w * (b + 0.5) / bays;
-                        MeshKit.Box(m, k, u - 0.75, u + 0.75, s * sH + 0.6, s * sH + Math.Min(sH - 0.5, 3.2), hd, hd + 0.1, MeshColor.FromHex(0xFFFFFF), lod <= 1 ? BoxFaces.Wall : BoxFaces.Front);
-                        MeshKit.Panel(m, k, u - 0.6, s * sH + 0.7, u + 0.6, s * sH + Math.Min(sH - 0.6, 3.1), hd + 0.105, MeshColor.FromHex(0x4E7D52));
-                        windows++;
-                    }
-                    MeshKit.Box(m, k, -hw, hw, (s + 1) * sH - 0.2, (s + 1) * sH, hd, hd + 0.3, MeshColor.FromHex(0xFFFFFF), BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-                }
-                // Cornice, pediment over the central bays and the balustrade.
-                MeshKit.Box(m, k, -hw - 0.4, hw + 0.4, wallTop - 0.4, wallTop, -hd - 0.4, hd + 0.5, MeshColor.FromHex(0xFFFFFF), BoxFaces.All & ~BoxFaces.Bottom);
-                MeshKit.TriLocal(m, k, -0.2 * w, wallTop, hd + 0.5, 0.2 * w, wallTop, hd + 0.5, 0, wallTop + 0.12 * w, hd + 0.5, 0, 0, 1, MeshColor.FromHex(0xFFFFFF));
-                MeshKit.Box(m, k, -hw, hw, wallTop, h, hd - 0.2, hd + 0.2, MeshColor.FromHex(0xF1E3BE), BoxFaces.Front | BoxFaces.Top | BoxFaces.Back);
-            }
-            else
-            {
-                for (int s = 0; s < storeys; s++)
-                {
-                    int count = s == storeys - 1 && upperWindows > 0 ? upperWindows : Math.Max(1, (int)Math.Round(w / 2.5));
-                    double pitch = w / count;
-                    for (int b = 0; b < count; b++)
-                    {
-                        double u = -hw + pitch * (b + 0.5), ww = Math.Min(0.75, 0.8 * pitch);
-                        if (lod <= 1) MeshKit.Box(m, k, u - 0.5 * ww - 0.06, u + 0.5 * ww + 0.06, s * sH + 0.5, s * sH + Math.Min(sH - 0.3, 1.6), hd, hd + 0.08, SacredPalette.WoodCarved, BoxFaces.Front | BoxFaces.Top);
-                        MeshKit.Panel(m, k, u - 0.5 * ww, s * sH + 0.6, u + 0.5 * ww, s * sH + Math.Min(sH - 0.4, 1.5), hd + 0.085, MeshColor.Scale(SacredPalette.WoodCarved, 1.4f));
-                        if (s == storeys - 1) windows++;
-                    }
-                }
-                var rx = new double[4];
-                var rz = new double[4];
-                double[] us = { -hw - 1.0, hw + 1.0, hw + 1.0, -hw - 1.0 }, ws = { -hd - 1.0, -hd - 1.0, hd + 1.0, hd + 1.0 };
-                for (int q = 0; q < 4; q++)
-                {
-                    double y;
-                    k.ToWorld(us[q], 0, ws[q], out rx[q], out y, out rz[q]);
-                }
-                if (Polygon.SignedArea(rx, rz, 4) < 0)
-                {
-                    Array.Reverse(rx);
-                    Array.Reverse(rz);
-                }
-                double cx0, cy0, cz0;
-                k.ToWorld(0, 0, 0, out cx0, out cy0, out cz0);
-                MeshKit.Loft(m, rx, rz, 4, cx0, cz0, f.GroundY + wallTop - 0.3, 1.0, f.GroundY + h, 0.5, SacredPalette.Tile);
-            }
-            double cx, cy, cz;
-            k.ToWorld(0, 0, 0, out cx, out cy, out cz);
-            if (c != null) c.AddBox(cx, cz, f.GroundY, f.GroundY + h, hw, hd, k.UX, k.UZ, GenColliderFlags.NoClimb, GenColliders.Brick);
-            if (stats != null)
-            {
-                stats.TopM = h;
-                stats.Windows = windows;
-                stats.DoorYawDeg = f.YawDeg;
-            }
-            return m.TriangleCount - t0;
-        }
-
-        /// <summary>A bell pavilion: four posts on a plinth, a hipped tile roof (to <paramref name="totalM"/>) and the bell.</summary>
+        /// <summary>A bell pavilion: a moulded plinth, four carved posts, a hipped tile roof with struts (to
+        /// <paramref name="totalM"/>) and the great bronze bell hung under it.</summary>
         public static int BellPavilion(float w, float d, float totalM, in GenFrame f, int lod, MeshData m, GenColliders c)
         {
-            int t0 = m.TriangleCount;
+            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            KitFrame kf = f.Kit;
+            Affine3 k = SacredDraw.Xf(kf);
             float roofRise = (float)Math.Min(2.2, 0.2 * Math.Max(w, d));
             float eaveM = Math.Max(2.4f, totalM - roofRise);
-            KitFrame k = f.Kit;
             double hw = 0.5 * w, hd = 0.5 * d;
-            MeshKit.Box(m, k, -hw, hw, -0.3, 0.6, -hd, hd, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredParts.PlinthLevel(m, k, hw, hd, 0, 0.6, 0.3, Looks.Stone, Looks.StoneLight, lod);
+            double pu = hw - 0.6, pw = hd - 0.6;
             for (int q = 0; q < 4; q++)
-            {
-                double u = (q % 2 == 0 ? -1 : 1) * (hw - 0.5), ww = (q < 2 ? -1 : 1) * (hd - 0.5), x, y, z;
-                k.ToWorld(u, 0, ww, out x, out y, out z);
-                MeshKit.Cylinder(m, x, z, 0.18, f.GroundY + 0.6, f.GroundY + eaveM, lod <= 1 ? 6 : 4, false, SacredPalette.StoneGrey);
-            }
-            MeshKit.Frustum(m, f.X, f.Z, Math.Sqrt(hw * hw + hd * hd) + 0.6, f.GroundY + eaveM, 0.2, f.GroundY + totalM, 4, false, SacredPalette.Tile);
-            MeshKit.Frustum(m, f.X, f.Z, 0.9, f.GroundY + eaveM - 2.2, 0.45, f.GroundY + eaveM - 0.6, 10, true, MeshColor.FromHex(0x8C6B3A));
-            if (c != null) c.AddBox(f.X, f.Z, f.GroundY - 0.3, f.GroundY + 0.6, hw, hd, k.UX, k.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+                SacredParts.Post(m, k, (q % 2 == 0 ? -1 : 1) * pu, (q < 2 ? -1 : 1) * pw, 0.6, eaveM - 0.3, 0.3, Looks.WoodDark, lod);
+            SacredDraw.Box(m, k, -pu - 0.2, pu + 0.2, eaveM - 0.3, eaveM, -pw - 0.2, pw + 0.2, Looks.WoodDark, BoxFaces.All);
+            RoofSpec r = SacredParts.HipRoof(m, k, pu + 0.2, pw + 0.2, eaveM + 0.25, Math.Max(0.6, hw - pu), 0.3, totalM, false, 0, false, lod);
+            if (lod <= 1) SacredParts.Struts(m, k, r, eaveM - 0.25, 2, 2, false, Looks.WoodDark, 3u, lod);
+            Profile2 p = Prof;
+            double bh = 1.8, br = 0.85, by = eaveM - 0.45 - bh;
+            p.Add(0, 0).Add(br * 1.05, 0, true).Add(br, 0.08 * bh).Add(0.85 * br, 0.3 * bh).Add(0.7 * br, 0.65 * bh).Add(0.62 * br, 0.88 * bh).Add(0.35 * br, bh).Add(0, bh);
+            Shapes.Lathe(m, SacredDraw.At(k, 0, by, 0), Looks.Bronze, p, SacredParts.Seg(16, lod));
+            if (c != null) c.AddBox(f.X, f.Z, f.GroundY - 0.3, f.GroundY + 0.6, hw, hd, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
         }
 
-        /// <summary>A hiti (stone water spouts): stage 1 draws the sunken pit as a raised stone rim with a dark floor,
-        /// steps on the door side and the makara spouts on the back wall.</summary>
+        /// <summary>A hiti (stone water spouts; stage 1 keeps the ground level): a stone rim, steps descending on three
+        /// sides to a dark stone floor, a back wall with a small deity niche over each carved makara spout and its stream.</summary>
         public static int Hiti(float w, float d, int spouts, bool flowing, in GenFrame f, int lod, MeshData m, GenColliders c)
         {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            double hw = 0.5 * w, hd = 0.5 * d, rim = 0.5;
-            MeshKit.Box(m, k, -hw, hw, -0.2, 0.35, -hd, -hd + rim, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, -hw, -hw + rim, -0.2, 0.35, -hd + rim, hd, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, hw - rim, hw, -0.2, 0.35, -hd + rim, hd, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.QuadLocal(m, k, -hw + rim, 0.02, -hd + rim, hw - rim, 0.02, -hd + rim, hw - rim, 0.02, hd, -hw + rim, 0.02, hd, 0, 1, 0, MeshColor.FromHex(0x3A3F3A));
+            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            KitFrame kf = f.Kit;
+            Affine3 k = SacredDraw.Xf(kf);
+            double hw = 0.5 * w, hd = 0.5 * d;
+            ShapeBrush stone = Looks.Stone, light = Looks.StoneLight;
+            if (lod >= 3)
+            {
+                SacredDraw.Box(m, k, -hw, hw, -0.2, 0.5, -hd, hd, light, BoxFaces.All & ~BoxFaces.Bottom);
+                SacredDraw.Bake(m, v0, i0, f.GroundY);
+                return m.TriangleCount - t0;
+            }
+            // Rim and descending steps (rings of decreasing size).
+            int steps = lod == 0 ? 3 : 1;
+            for (int q = 0; q < steps; q++)
+            {
+                double ins = 0.45 * q, top = 0.5 - 0.15 * q;
+                SacredParts.PlinthLevel(m, k, hw - ins, hd - ins, -0.2, top, 0, q == 0 ? light : stone, light, Math.Max(lod, 2));
+            }
+            SacredDraw.CapRect(m, k, 0, 0, hw - 0.45 * steps, hd - 0.45 * steps, 0.06 + 0.5 - 0.15 * steps, true, Looks.Of(MeshColor.FromHex(0x4A4E48), MaterialChannel.Flagstone, 0.7f));
+            // Back wall with niches and spouts.
+            double bw = -hd + 0.2;
+            SacredDraw.Box(m, k, -hw, hw, -0.2, 1.9, bw - 0.4, bw, light, BoxFaces.All & ~BoxFaces.Bottom);
             int n = Math.Max(1, spouts);
             for (int q = 0; q < n; q++)
             {
-                double u = -hw + rim + (w - 2 * rim) * (q + 0.5) / n;
-                MeshKit.Box(m, k, u - 0.15, u + 0.15, 0.25, 0.5, -hd + rim, -hd + rim + 0.8, SacredPalette.StoneGrey, BoxFaces.All & ~BoxFaces.Back);
+                double u = -hw + w * (q + 0.5) / n;
+                if (lod <= 1)
+                {
+                    SacredDraw.Panel(m, k, u - 0.25, 1.2, u + 0.25, 1.7, bw + 0.005, Looks.Recess);
+                    ShikharaGenerator.Arch(m, k, u, 1.7, bw + 0.005, 0.56, 0.2, 0.05, 0.05, true, light, lod + 1);
+                }
+                Path3 sp = new Path3(4);
+                sp.Add(u, 0.95, bw).Add(u, 0.98, bw + 0.45).Add(u, 0.9, bw + 0.8);
+                Shapes.Tube(m, k, stone, sp, 0.14, lod == 0 ? 6 : 4, true, false, default, 0.08);
+                if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(k, u, 1.0, bw + 0.25), stone, 0.2, 0.17, 0.22, 4, false);
                 if (flowing && lod <= 1)
-                    MeshKit.Panel(m, k.TurnedRight(), -hd + rim + 0.75, 0.02, -hd + rim + 0.8, 0.27, -u, MeshColor.FromHex(0x9CC9E0));
+                    SacredDraw.Quad(m, k, u - 0.05, 0.88, bw + 0.82, u + 0.05, 0.88, bw + 0.82, u + 0.07, 0.07, bw + 0.95, u - 0.07, 0.07, bw + 0.95, 0, 0.1, 1,
+                                    Looks.Of(MeshColor.FromHex(0x9CC9E0), MaterialChannel.Water));
             }
+            if (c != null) c.AddBox(kf.OX, kf.OZ, f.GroundY - 0.2, f.GroundY + 0.5, hw, hd, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+            SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
         }
 
-        /// <summary>A bahal or palace courtyard: a quadrangle of ranges around a walkable court, the gate in the middle of
-        /// the front range (torana and lions), the court open to the sky. Returns the court's inner half sizes through
-        /// <paramref name="innerHalfU"/> and <paramref name="innerHalfW"/>.</summary>
-        public static int Courtyard(float w, float d, float rangeDepthM, float heightM, bool lions, uint wall, in GenFrame f, int lod, MeshData m, GenColliders c,
-                                    out double innerHalfU, out double innerHalfW)
-        {
-            int t0 = m.TriangleCount;
-            KitFrame k = f.Kit;
-            double hw = 0.5 * w, hd = 0.5 * d, r = Math.Min(rangeDepthM, 0.3 * Math.Min(w, d));
-            innerHalfU = hw - r;
-            innerHalfW = hd - r;
-            double gate = 1.0;
-            // Front range split by the gate passage; back and side ranges whole.
-            Range(m, k, -hw, -gate, hd - r, hd, heightM, wall, c);
-            Range(m, k, gate, hw, hd - r, hd, heightM, wall, c);
-            Range(m, k, -hw, hw, -hd, -hd + r, heightM, wall, c);
-            Range(m, k, -hw, -hw + r, -hd + r, hd - r, heightM, wall, c);
-            Range(m, k, hw - r, hw, -hd + r, hd - r, heightM, wall, c);
-            MeshKit.Box(m, k, -gate, gate, 2.0, heightM, hd - r, hd, wall, BoxFaces.All & ~BoxFaces.Bottom);
-            SacredKit.Torana(m, k, 0, 2.0, hd + 0.01, 2.4, SacredPalette.Gilt, lod);
-            if (lions)
-            {
-                SacredKit.Guardian(m, k, -gate - 0.7, hd + 0.7, 0, 1.1, 0, lod);
-                SacredKit.Guardian(m, k, gate + 0.7, hd + 0.7, 0, 1.1, 0, lod);
-            }
-            // Court paving (walkable).
-            MeshKit.QuadLocal(m, k, -innerHalfU, 0.05, -innerHalfW, innerHalfU, 0.05, -innerHalfW, innerHalfU, 0.05, innerHalfW, -innerHalfU, 0.05, innerHalfW,
-                              0, 1, 0, SacredPalette.StoneGrey);
-            if (c != null)
-            {
-                double x, y, z;
-                k.ToWorld(0, 0, 0, out x, out y, out z);
-                c.AddBox(x, z, f.GroundY - 0.3, f.GroundY + 0.05, innerHalfU, innerHalfW, k.UX, k.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
-            }
-            return m.TriangleCount - t0;
-        }
-
-        private static void Range(MeshData m, in KitFrame k, double u0, double u1, double w0, double w1, double h, uint wall, GenColliders c)
-        {
-            MeshKit.Box(m, k, u0, u1, -0.3, h, w0, w1, wall, BoxFaces.All & ~BoxFaces.Bottom);
-            MeshKit.Box(m, k, u0 - 0.4, u1 + 0.4, h, h + 0.15, w0 - 0.4, w1 + 0.4, SacredPalette.Tile, BoxFaces.All);
-            if (c != null)
-            {
-                double x, y, z;
-                k.ToWorld(0.5 * (u0 + u1), 0, 0.5 * (w0 + w1), out x, out y, out z);
-                c.AddBox(x, z, y - 0.3, y + h, 0.5 * (u1 - u0), 0.5 * (w1 - w0), k.UX, k.UZ, GenColliderFlags.NoClimb, GenColliders.Brick);
-            }
-        }
     }
 }
