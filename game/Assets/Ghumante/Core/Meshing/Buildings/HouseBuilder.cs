@@ -4,59 +4,149 @@ using Ghumante.Core.Generators;
 
 namespace Ghumante.Core.Meshing
 {
+    /// <summary>What a house needs to know about its surroundings: the road corridors (overhang clearance) and the
+    /// other footprints of the tile (corners are only rounded where nothing abuts them).</summary>
+    internal struct HouseEnv
+    {
+        public Clearance Clear;
+        public BuildingBands.FootprintIndex Neighbours;
+        public int Index;
+    }
+
     /// <summary>
-    /// The B0 facade and roof grammar for one house (W2_DESIGN 2.3, 2.6): NEWAR (house door or shop dalan, tikijhya,
-    /// sanjhya, gajhya, floor bands, a jhingati gable parallel to the street on struts, the pikha apron), NEWAR_HYBRID
-    /// (Newar floors G-2, plain upper floors, an eave hood, a flat terrace), MODERN_URBAN (columns, slab bands, windows
-    /// with chhajja, balconies, shopfronts and signs, raw-brick sides) and RANA_PALACE (tall French windows, cornice,
-    /// balustrade). Flat roofs carry the parapet, stair cabin and the seeded roof props (tanks, solar racks, rebar
-    /// stubs, dishes, terrace umbrellas). Plot split on long fronts (KTM core, Patan, Thamel, Kirtipur). The drop level
-    /// removes detail in the §2.4 order: 1 lattice relief, 2 struts (a fascia stripe instead), 3 floor bands, 4 roof
-    /// props; the sanjhya is never dropped.
+    /// The B0 facade and roof grammar for one house (W2_DESIGN 2.3, 2.6; docs/research/w2/ref_buildings.md for what each
+    /// place looks like today). The footprint is split into plots along the street front (4-8 m in the split profiles);
+    /// every plot is its own house: archetype draw, storey count, palette, eave or parapet height and roof, so a merged
+    /// footprint reads as the row of houses it is. Each plot is clipped from the footprint, its exposed convex corners
+    /// rounded, its body walls raised (raw brick sides on painted houses, a brick-to-plaster seam on hybrids) on a stone
+    /// or concrete plinth, its street facade cut with real openings (recessed windows with frames, lattice, doors,
+    /// shop bays) and dressed per archetype (<c>HouseBuilder.Facades.cs</c>), and its roof built
+    /// (<c>HouseBuilder.Roofs.cs</c>): a jhingati gable on struts, or a flat terrace with parapet, coping, stair cabin and
+    /// the roof props. Nothing below <see cref="Roads.RoadClearance.MinOverheadClearanceM"/> projects into a road
+    /// corridor (<see cref="Clearance"/>). Every vertex carries its <see cref="MaterialChannel"/> and baked AO in UV0.
+    /// The drop level removes detail in the W2_DESIGN §2.4 order (lattice relief and small props, struts and tile
+    /// courses, floor bands and railings, roof props); the sanjhya is never dropped.
     /// </summary>
-    internal static class HouseBuilder
+    internal static partial class HouseBuilder
     {
         public const int MaxDrop = 4;
         private const uint PurposePlots = 0x504C4F54;
         private const uint PurposeFacade = 0x46414344;
         private const uint PurposeProps = 0x50524F50;
+        private const uint PurposePlotArch = 0x50415243;
+        private const int MaxPlots = 16, MaxFloors = 18;
 
         private sealed class Scratch
         {
             public double[] X = new double[64], Z = new double[64];
-            public int[] Tris = new int[192], Next = new int[64], Prev = new int[64];
-            public double[] PlotU = new double[16];
+            public double[] PlotU = new double[MaxPlots + 2];
+            public double[] PX = new double[128], PZ = new double[128];
+            public double[] DX = new double[256], DZ = new double[256];
+            public byte[] DK = new byte[256];
+            public double[] NX = new double[256], NZ = new double[256];
+            public int[] Tris = new int[768], Next = new int[256], Prev = new int[256];
+            public double[] Floors = new double[(MaxPlots + 1) * MaxFloors];
+            public Plot[] Plots = new Plot[MaxPlots + 1];
+            public KitHole[] Holes = new KitHole[48];
 
             public void Ensure(int n)
             {
-                if (X.Length >= n) return;
-                int cap = Math.Max(n, X.Length * 2);
-                X = new double[cap];
-                Z = new double[cap];
-                Tris = new int[cap * 3];
-                Next = new int[cap];
-                Prev = new int[cap];
+                if (X.Length < n)
+                {
+                    int cap = Math.Max(n, X.Length * 2);
+                    X = new double[cap];
+                    Z = new double[cap];
+                }
+                int need = 4 * n + 16;
+                if (PX.Length < need)
+                {
+                    PX = new double[need];
+                    PZ = new double[need];
+                }
+                int dneed = 3 * need;
+                if (DX.Length < dneed)
+                {
+                    DX = new double[dneed];
+                    DZ = new double[dneed];
+                    DK = new byte[dneed];
+                    NX = new double[dneed];
+                    NZ = new double[dneed];
+                    Tris = new int[3 * dneed];
+                    Next = new int[dneed];
+                    Prev = new int[dneed];
+                }
             }
         }
 
         [ThreadStatic] private static Scratch _scratch;
 
-        /// <summary>Everything the facade code needs about one house.</summary>
+        /// <summary>Detail switches for a drop level.</summary>
+        private struct Detail
+        {
+            /// <summary>Lattice screens are never dropped (the identity of a Newar window); they get coarser.</summary>
+            public double LatticePitch;
+
+            public bool Small, Struts, Courses, Grilles, Bands, Rails, Props;
+            public int Segs;
+
+            public static Detail For(int drop)
+            {
+                return new Detail
+                {
+                    LatticePitch = drop < 1 ? 0.16 : drop < 2 ? 0.19 : drop < 4 ? 0.24 : 0.3, Small = drop < 1, Struts = drop < 2, Courses = drop < 2,
+                    Grilles = drop < 2, Bands = drop < 3, Rails = drop < 3, Props = drop < 4, Segs = drop < 1 ? 2 : drop < 3 ? 1 : 0,
+                };
+            }
+        }
+
+        private enum Edge : byte
+        {
+            Body = 0,
+            Front = 1,
+            PartitionLow = 2,
+            PartitionHigh = 3,
+            Arc = 4,
+        }
+
+        /// <summary>Everything the facade code needs about one building.</summary>
         private struct House
         {
             public HousePlan Plan;
             public StyleParams Style;
             public KitFrame F;
             public double L, D;
-            public double Ground, Base, Top;
+            public double Ground, Base;
             public int Drop;
-            public bool Rect;
+            public Detail Det;
             public GenColliders Colliders;
             public double CX, CZ, AreaM2;
+            public Clearance Clear;
+            public BuildingGround G;
+            public BuildingBands.FootprintIndex Neighbours;
+            public int Index;
+            public int Plots;
+            public bool Corner;
+            public double SecondAX, SecondAZ, SecondBX, SecondBZ;
+        }
+
+        /// <summary>One house of a (possibly merged) footprint.</summary>
+        private struct Plot
+        {
+            public int Index;
+            public double U0, U1, FU0, FU1, Depth;
+            public BuildingArchetype Arch;
+            public int Storeys;
+            public double Plinth, Top, Parapet;
+            public bool Flat, Gable, Shop, Rect, TileHood, Glazed, ExposedBrick, PaintedSides;
+            public uint Front, Wall, Trim, Wood, Roof, Seed;
+            public MaterialChannel FrontCh, WallCh;
+            public int PolyStart, PolyCount, DispStart, DispCount;
+            public double RidgeV, Cant;
         }
 
         /// <summary>Build one house at a drop level; returns false when the footprint is degenerate.</summary>
-        public static bool Build(BuildingRecord b, in HousePlan plan, ref RoadSurface g, float sinkM, int drop, MeshData m, GenColliders c)
+        public static bool Build(BuildingRecord b, in HousePlan plan, ref BuildingGround g, in HouseEnv env, float sinkM, int drop, MeshData m,
+                                 GenColliders c)
         {
             Scratch s = _scratch ?? (_scratch = new Scratch());
             int n = LoadRing(b.Rings[0], s);
@@ -69,6 +159,8 @@ namespace Ghumante.Core.Meshing
                 area = -area;
             }
             if (area < 1.0) return false;
+            s.Ensure(n + 8);
+            int vStart = m.VertexCount;
             int fe = FrontIndex(b.Rings[0], plan.FrontEdge, s, n);
             double ax = s.X[fe], az = s.Z[fe];
             int fj = fe + 1 == n ? 0 : fe + 1;
@@ -80,8 +172,9 @@ namespace Ghumante.Core.Meshing
             ground = Math.Min(ground, g.Height(cxm, czm));
             var h = new House
             {
-                Plan = plan, Style = BuildingGrammar.For(plan.Profile), F = new KitFrame(ax, ground, az, bx - ax, bz - az),
-                Ground = ground, Drop = drop, Colliders = c, CX = cxm, CZ = czm, AreaM2 = area,
+                Plan = plan, Style = BuildingGrammar.For(plan.Profile), F = new KitFrame(ax, ground, az, bx - ax, bz - az), Ground = ground, Drop = drop,
+                Det = Detail.For(drop), Colliders = c, CX = cxm, CZ = czm, AreaM2 = area, Clear = env.Clear, G = g, Neighbours = env.Neighbours,
+                Index = env.Index,
             };
             h.L = Math.Sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
             if (h.L < 1.0) return false;
@@ -92,61 +185,78 @@ namespace Ghumante.Core.Meshing
                 if (-w > depth) depth = -w;
             }
             h.D = Math.Max(1.0, depth);
-            h.Rect = n <= 6 && area >= 0.82 * h.L * h.D;
             h.Base = plan.MinHeightM > 0 ? ground + plan.MinHeightM : ground - sinkM;
-            h.Top = ground + plan.WallTopM;
-
-            // Body walls: every edge but the front (the facade draws it), from the base to the wall top; flat roofs carry
-            // a parapet on top of the walls.
-            bool flat = plan.Roof == PlanRoof.Flat || !h.Rect && plan.Roof == PlanRoof.Gable;
-            double parapet = flat ? (plan.Archetype == BuildingArchetype.ModernUrban ? 1.0 : 0.9) : 0.0;
-            for (int i = 0; i < n; i++)
+            int se = SecondIndex(b.Rings[0], plan.SecondEdge, s, n, fe);
+            if (se >= 0)
             {
-                if (i == fe) continue;
-                int j = i + 1 == n ? 0 : i + 1;
-                double dx = s.X[j] - s.X[i], dz = s.Z[j] - s.Z[i];
-                if (dx * dx + dz * dz < 1e-6) continue;
-                uint col = i == plan.SecondEdge ? plan.Front : plan.Wall;
-                MeshKit.Quad(m, s.X[i], h.Base, s.Z[i], s.X[j], h.Base, s.Z[j], s.X[j], h.Top + parapet, s.Z[j], s.X[i], h.Top + parapet, s.Z[i],
-                             dz, 0, -dx, col);
+                int sj = se + 1 == n ? 0 : se + 1;
+                h.Corner = true;
+                h.SecondAX = s.X[se];
+                h.SecondAZ = s.Z[se];
+                h.SecondBX = s.X[sj];
+                h.SecondBZ = s.Z[sj];
             }
 
             int plots = Plots(ref h, s);
+            h.Plots = plots;
+            int used = 0;
             for (int p = 0; p < plots; p++)
             {
-                double u0 = s.PlotU[p], u1 = s.PlotU[p + 1];
-                var prng = new GrammarRng(GrammarRng.Mix(plan.Seed, (uint)p), PurposeFacade);
-                uint front = p == 0 ? plan.Front : PlotColour(ref h, ref prng);
-                FrontWall(ref h, u0, u1, front, parapet, m);
-                switch (plan.Archetype)
-                {
-                    case BuildingArchetype.Newar:
-                        NewarPlot(ref h, ref prng, u0, u1, plan.Storeys, front, m);
-                        break;
-                    case BuildingArchetype.NewarHybrid:
-                        NewarPlot(ref h, ref prng, u0, u1, Math.Min(3, plan.Storeys), front, m);
-                        HybridUpper(ref h, ref prng, u0, u1, front, m);
-                        break;
-                    case BuildingArchetype.RanaPalace:
-                        RanaFront(ref h, u0, u1, m);
-                        break;
-                    default:
-                        ModernPlot(ref h, ref prng, u0, u1, front, m);
-                        break;
-                }
+                Plot pl = default(Plot);
+                pl.Index = p;
+                pl.U0 = s.PlotU[p];
+                pl.U1 = s.PlotU[p + 1];
+                pl.PolyStart = used;
+                pl.PolyCount = ClipPlot(ref h, s, n, p == 0 ? double.NegativeInfinity : pl.U0, p == plots - 1 ? double.PositiveInfinity : pl.U1, used);
+                used += pl.PolyCount;
+                Measure(ref h, s, ref pl);
+                Configure(ref h, s, ref pl);
+                s.Plots[p] = pl;
+            }
+            int disp = 0;
+            for (int p = 0; p < plots; p++)
+            {
+                Plot pl = s.Plots[p];
+                if (pl.PolyCount < 3) continue;
+                pl.DispStart = disp;
+                pl.DispCount = Display(ref h, s, ref pl, env, disp);
+                disp += pl.DispCount;
+                s.Plots[p] = pl;
+            }
+            for (int p = 0; p < plots; p++)
+            {
+                Plot pl = s.Plots[p];
+                if (pl.PolyCount < 3 || pl.DispCount < 3) continue;
+                var rng = new GrammarRng(pl.Seed, PurposeFacade);
+                BodyWalls(ref h, s, ref pl, m);
+                Facade(ref h, s, ref pl, ref rng, m);
+                Roof(ref h, s, ref pl, ref rng, m);
             }
 
-            // Roof.
-            if (!flat && plan.Roof == PlanRoof.Gable) NewarRoof(ref h, s, plots, m);
-            else if (flat) FlatRoof(ref h, s, n, parapet, m);
-            else
+            // Courtyard walls of holes, facing into the courtyard (no roof over the courtyard).
+            for (int r = 1; r < b.Rings.Length; r++)
             {
-                // Hip, skillion, pyramid and other tagged shapes on houses: a pyramid cap over the footprint.
-                MeshKit.Loft(m, s.X, s.Z, n, cxm, czm, h.Top, 1.0, h.Top + Math.Max(0.8, plan.RoofRiseM), Polygon.IsConvex(s.X, s.Z, n) ? 0.0 : 0.6,
-                             plan.RoofColour);
+                int hn = LoadRing(b.Rings[r], s);
+                if (hn < 3) continue;
+                double ha = Polygon.SignedArea(s.X, s.Z, hn);
+                if (Math.Abs(ha) < 0.25) continue;
+                if (ha > 0)
+                {
+                    Array.Reverse(s.X, 0, hn);
+                    Array.Reverse(s.Z, 0, hn);
+                }
+                int v0 = m.VertexCount;
+                MeshKit.RingWalls(m, s.X, s.Z, hn, h.Base, ground + s.Plots[0].Top, s.Plots[0].Wall);
+                WallPaint(ref h, s.Plots[0].WallCh, 1f).Apply(m, v0);
             }
+            h.Clear.Clamp(m, vStart, ref h.G);
+            g = h.G;
             return true;
         }
+
+        // -------------------------------------------------------------------------------------------------------------
+        // Footprint and plots
+        // -------------------------------------------------------------------------------------------------------------
 
         private static int LoadRing(int[] ring, Scratch s)
         {
@@ -172,7 +282,16 @@ namespace Ghumante.Core.Meshing
             {
                 double x = ring[2 * front] / 100.0, z = ring[2 * front + 1] / 100.0;
                 for (int i = 0; i < n; i++)
-                    if (s.X[i] == x && s.Z[i] == z) return i;
+                    if (s.X[i] == x && s.Z[i] == z)
+                    {
+                        // The ring may have been reversed: the front then starts at the edge's other end.
+                        int j = i + 1 == n ? 0 : i + 1, k = i == 0 ? n - 1 : i - 1;
+                        int fj = front + 1 == ring.Length / 2 ? 0 : front + 1;
+                        double ex = ring[2 * fj] / 100.0, ez = ring[2 * fj + 1] / 100.0;
+                        if (s.X[j] == ex && s.Z[j] == ez) return i;
+                        if (s.X[k] == ex && s.Z[k] == ez) return k;
+                        return i;
+                    }
             }
             int best = 0;
             double bl = -1;
@@ -189,12 +308,28 @@ namespace Ghumante.Core.Meshing
             return best;
         }
 
+        private static int SecondIndex(int[] ring, int second, Scratch s, int n, int fe)
+        {
+            if (second < 0 || second >= ring.Length / 2) return -1;
+            double x = ring[2 * second] / 100.0, z = ring[2 * second + 1] / 100.0;
+            int sj = second + 1 == ring.Length / 2 ? 0 : second + 1;
+            double ex = ring[2 * sj] / 100.0, ez = ring[2 * sj + 1] / 100.0;
+            for (int i = 0; i < n; i++)
+            {
+                int j = i + 1 == n ? 0 : i + 1, k = i == 0 ? n - 1 : i - 1;
+                if (s.X[i] == x && s.Z[i] == z && s.X[j] == ex && s.Z[j] == ez) return i == fe ? -1 : i;
+                if (s.X[i] == ex && s.Z[i] == ez && s.X[j] == x && s.Z[j] == z) return i == fe ? -1 : i;
+                if (s.X[i] == x && s.Z[i] == z && s.X[k] == ex && s.Z[k] == ez) return k == fe ? -1 : k;
+            }
+            return -1;
+        }
+
         /// <summary>Plot boundaries along the front (W2_DESIGN 2.3 plot split): fronts over 9 m in the split profiles
         /// become 4-8 m plots.</summary>
         private static int Plots(ref House h, Scratch s)
         {
             s.PlotU[0] = 0;
-            if (!h.Style.PlotSplit || h.L <= 9.0 || !BuildingGrammar.IsHouse(h.Plan.Archetype) || h.Plan.Archetype == BuildingArchetype.RanaPalace)
+            if (!h.Style.PlotSplit || h.L <= 9.0 || h.Plan.Archetype == BuildingArchetype.RanaPalace || h.Plan.Archetype == BuildingArchetype.Generic && h.Plan.Profile == StyleProfile.None)
             {
                 s.PlotU[1] = h.L;
                 return 1;
@@ -202,7 +337,7 @@ namespace Ghumante.Core.Meshing
             var rng = new GrammarRng(h.Plan.Seed, PurposePlots);
             int k = 0;
             double u = 0;
-            while (h.L - u > 8.0 && k < s.PlotU.Length - 2)
+            while (h.L - u > 8.0 && k < MaxPlots - 1)
             {
                 double w = rng.Range(4f, 8f);
                 if (h.L - (u + w) < 4.0) w = 0.5 * (h.L - u);
@@ -213,517 +348,511 @@ namespace Ghumante.Core.Meshing
             return k;
         }
 
-        private static uint PlotColour(ref House h, ref GrammarRng rng)
+        private static double U(ref House h, double x, double z)
         {
-            switch (h.Plan.Archetype)
+            return (x - h.F.OX) * h.F.UX + (z - h.F.OZ) * h.F.UZ;
+        }
+
+        private static double W(ref House h, double x, double z)
+        {
+            return (x - h.F.OX) * h.F.WX + (z - h.F.OZ) * h.F.WZ;
+        }
+
+        /// <summary>Clip the footprint to the slab u0 ≤ u ≤ u1 of the front frame (Sutherland-Hodgman, twice) into the
+        /// plot polygon arrays at <paramref name="at"/>. Returns the point count.</summary>
+        private static int ClipPlot(ref House h, Scratch s, int n, double u0, double u1, int at)
+        {
+            // Pass 1 into PX/PZ at `at + 2n + 8` (temporary), pass 2 into `at`.
+            int tmp = at + 2 * n + 8;
+            if (s.PX.Length < tmp + 2 * n + 8)
             {
-                case BuildingArchetype.Newar: return BuildingGrammar.BrickColour(h.Style, ref rng);
-                case BuildingArchetype.NewarHybrid: return rng.Chance(0.5f) ? BuildingGrammar.BrickColour(h.Style, ref rng) : BuildingGrammar.ModernPaintColour(ref rng);
-                default: return BuildingGrammar.ModernPaintColour(ref rng);
+                Array.Resize(ref s.PX, 2 * (tmp + 2 * n + 8));
+                Array.Resize(ref s.PZ, 2 * (tmp + 2 * n + 8));
             }
-        }
-
-        private static void FrontWall(ref House h, double u0, double u1, uint c, double parapet, MeshData m)
-        {
-            MeshKit.QuadLocal(m, h.F, u0, h.Base - h.Ground, 0, u1, h.Base - h.Ground, 0, u1, h.Top - h.Ground + parapet, 0,
-                              u0, h.Top - h.Ground + parapet, 0, 0, 0, 1, c);
-        }
-
-        private static double Floor(ref House h, int k)
-        {
-            return h.Plan.FloorBase(k);
-        }
-
-        private static double StoreyH(ref House h, int k)
-        {
-            return h.Plan.StoreyScale * BuildingGrammar.StoreyHeightM(h.Plan.Archetype, k, h.Plan.ShopGround);
-        }
-
-        /// <summary>Bay count: <c>clamp(round(width / 1.6), 1, 7)</c>, odd from 4.5 m (a centre bay).</summary>
-        private static int Bays(double width)
-        {
-            int n = (int)Math.Round(width / 1.6);
-            n = n < 1 ? 1 : n > 7 ? 7 : n;
-            if (width >= 4.5 && n % 2 == 0) n = n == 7 ? 7 : n + 1 > 7 ? n - 1 : n + 1;
-            return n;
-        }
-
-        // ---------------------------------------------------------------------------------------------------------
-        // NEWAR
-        // ---------------------------------------------------------------------------------------------------------
-
-        private static void NewarPlot(ref House h, ref GrammarRng rng, double u0, double u1, int floors, uint wall, MeshData m)
-        {
-            KitFrame f = h.F;
-            double w = u1 - u0;
-            int bays = Bays(w);
-            double bayW = w / bays;
-            uint wood = h.Plan.Wood;
-            uint lattice = MeshColor.Scale(BuildingGrammar.SalMid, 0.85f);
-            uint band = h.Style.CarvedBands ? BuildingGrammar.SalMid : (h.Style.HasBrick ? h.Style.BrickJoint : MeshColor.Scale(wall, 0.7f));
-
-            // G: shop dalan or house door, on a pikha apron.
-            double g0 = Floor(ref h, 0), gH = StoreyH(ref h, 0);
-            bool shop = h.Plan.ShopGround && (h.Plan.Archetype == BuildingArchetype.Newar || h.Plan.Archetype == BuildingArchetype.NewarHybrid);
-            if (shop)
+            int k = 0;
+            for (int i = 0; i < n; i++)
             {
-                int posts = Math.Max(2, Math.Min(4, (int)Math.Round(w / 1.5) + 1));
-                uint shutter = BuildingGrammar.Shutter[rng.Int(0, BuildingGrammar.Shutter.Length - 1)];
-                double sh = Math.Min(gH - 0.1, 2.4);
-                MeshKit.Panel(m, f, u0 + 0.1, g0, u1 - 0.1, g0 + sh, 0.02, shutter);
-                for (int k = 0; k < posts; k++)
+                int j = i + 1 == n ? 0 : i + 1;
+                double ui = U(ref h, s.X[i], s.Z[i]), uj = U(ref h, s.X[j], s.Z[j]);
+                bool ini = ui >= u0, inj = uj >= u0;
+                if (ini)
                 {
-                    double u = u0 + 0.1 + (w - 0.32) * k / (posts - 1);
-                    MeshKit.Box(m, f, u, u + 0.12, g0, g0 + sh, 0, 0.12, wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                    s.PX[tmp + k] = s.X[i];
+                    s.PZ[tmp + k] = s.Z[i];
+                    k++;
                 }
-                Sign(ref h, ref rng, u0 + 0.2, u1 - 0.2, g0 + sh, m);
-            }
-            else
-            {
-                double uc = u0 + 0.5 * w, dw = rng.Range(0.75f, 0.9f), dh = rng.Range(1.45f, 1.7f);
-                MeshKit.Box(m, f, uc - 0.5 * dw - 0.12, uc + 0.5 * dw + 0.12, g0, g0 + dh + 0.12, 0, 0.06, wood, BoxFaces.Wall);
-                MeshKit.Panel(m, f, uc - 0.5 * dw, g0, uc + 0.5 * dw, g0 + dh, 0.062, MeshColor.FromHex(0x2A1A12));
-                MeshKit.Box(m, f, uc - 0.5 * dw - 0.42, uc + 0.5 * dw + 0.42, g0 + dh + 0.12, g0 + dh + 0.24, 0, 0.09, wood, BoxFaces.Wall);
-                MeshKit.Box(m, f, uc - 0.15, uc + 0.15, g0 + dh + 0.3, g0 + dh + 0.55, 0, 0.04, BuildingGrammar.Sindoor, BoxFaces.Front | BoxFaces.Top);
-                for (int k = 0; k < bays; k++)
+                if (ini != inj)
                 {
-                    double bc = u0 + (k + 0.5) * bayW;
-                    if (Math.Abs(bc - uc) < 0.6 * bayW) continue;
-                    MeshKit.Panel(m, f, bc - 0.25, g0 + 1.0, bc + 0.25, g0 + 1.6, 0.01, wood);
-                }
-                // Pikha apron.
-                double ph = Math.Max(0.3, h.Plan.PlinthM + 0.15);
-                MeshKit.Box(m, f, u0, u1, h.Base - h.Ground, ph, 0, 0.6, BuildingGrammar.PlinthStone, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
-                if (h.Colliders != null)
-                {
-                    double cx, cy, cz;
-                    f.ToWorld(0.5 * (u0 + u1), 0, 0.3, out cx, out cy, out cz);
-                    h.Colliders.AddBox(cx, cz, h.Base, h.Ground + ph, 0.5 * w, 0.3, f.UX, f.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+                    double t = (u0 - ui) / (uj - ui);
+                    s.PX[tmp + k] = s.X[i] + (s.X[j] - s.X[i]) * t;
+                    s.PZ[tmp + k] = s.Z[i] + (s.Z[j] - s.Z[i]) * t;
+                    k++;
                 }
             }
-
-            for (int k = 1; k < floors && k < h.Plan.Storeys; k++)
+            int m = 0;
+            for (int i = 0; i < k; i++)
             {
-                double b0 = Floor(ref h, k), sH = StoreyH(ref h, k);
-                if (h.Drop < 3) MeshKit.Box(m, f, u0, u1, b0 - 0.12, b0 + 0.12, 0, 0.18, band, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-                bool attic = k == h.Plan.Storeys - 1 && k >= 3 && h.Plan.Archetype == BuildingArchetype.Newar;
-                double uc = u0 + 0.5 * w;
-                if (k == 2 || (k > 2 && !attic && h.Plan.Archetype == BuildingArchetype.Newar && rng.Chance(0.3f)))
+                int j = i + 1 == k ? 0 : i + 1;
+                double xi = s.PX[tmp + i], zi = s.PZ[tmp + i], xj = s.PX[tmp + j], zj = s.PZ[tmp + j];
+                double ui = U(ref h, xi, zi), uj = U(ref h, xj, zj);
+                bool ini = ui <= u1, inj = uj <= u1;
+                if (ini)
                 {
-                    // Sanjhya in the centre bay (a long sanjhya on 15% of wide fronts); never dropped.
-                    double sw = w >= 7 && rng.Chance(0.15f) ? w - 0.6 : w >= 4.5 ? Math.Min(rng.Range(2.4f, 3.6f), w - 0.6) : Math.Min(1.2, w - 0.4);
-                    Sanjhya(ref h, uc, sw, b0 + 0.3, Math.Min(1.35, sH - 0.5), rng.Range(0.3f, 0.6f), wood, lattice, rng.Chance(0.1f), m);
-                    for (int bay = 0; bay < bays; bay++)
+                    s.PX[at + m] = xi;
+                    s.PZ[at + m] = zi;
+                    m++;
+                }
+                if (ini != inj)
+                {
+                    double t = (u1 - ui) / (uj - ui);
+                    s.PX[at + m] = xi + (xj - xi) * t;
+                    s.PZ[at + m] = zi + (zj - zi) * t;
+                    m++;
+                }
+            }
+            // Drop repeated points.
+            int o = 0;
+            for (int i = 0; i < m; i++)
+            {
+                double x = s.PX[at + i], z = s.PZ[at + i];
+                if (o > 0 && Math.Abs(x - s.PX[at + o - 1]) < 1e-4 && Math.Abs(z - s.PZ[at + o - 1]) < 1e-4) continue;
+                s.PX[at + o] = x;
+                s.PZ[at + o] = z;
+                o++;
+            }
+            while (o > 1 && Math.Abs(s.PX[at + o - 1] - s.PX[at]) < 1e-4 && Math.Abs(s.PZ[at + o - 1] - s.PZ[at]) < 1e-4) o--;
+            return o;
+        }
+
+        private static void Measure(ref House h, Scratch s, ref Plot p)
+        {
+            double maxD = 0, minW = double.MaxValue, maxW = double.MinValue, minU = double.MaxValue, maxU = double.MinValue;
+            for (int i = 0; i < p.PolyCount; i++)
+            {
+                double x = s.PX[p.PolyStart + i], z = s.PZ[p.PolyStart + i];
+                double w = W(ref h, x, z), u = U(ref h, x, z);
+                if (-w > maxD) maxD = -w;
+                if (w < minW) minW = w;
+                if (w > maxW) maxW = w;
+                minU = Math.Min(minU, u);
+                maxU = Math.Max(maxU, u);
+            }
+            p.Depth = Math.Max(1.0, maxD);
+            double area = p.PolyCount >= 3 ? Math.Abs(SignedArea(s.PX, s.PZ, p.PolyStart, p.PolyCount)) : 0;
+            // "Rect" enough for a gable over the plot's frame box: most of the box covered, nothing outside it (the
+            // roof would leave it open) and nothing in front of the street line.
+            p.Rect = p.PolyCount >= 4 && area >= 0.7 * (p.U1 - p.U0) * p.Depth && minU >= p.U0 - 0.3 && maxU <= p.U1 + 0.3 && minW > -p.Depth - 0.01 &&
+                     maxW < 0.05;
+        }
+
+        private static double SignedArea(double[] x, double[] z, int start, int n)
+        {
+            double a = 0;
+            for (int i = 0; i < n; i++)
+            {
+                int j = i + 1 == n ? 0 : i + 1;
+                a += x[start + i] * z[start + j] - x[start + j] * z[start + i];
+            }
+            return 0.5 * a;
+        }
+
+        /// <summary>The plot's archetype, storeys, heights, roof and colours. Plot 0 is the plan; the others draw their
+        /// own archetype (40%), storeys (one or two fewer on 45%) and palette, never taller than the plan (the B1
+        /// extrusion is the envelope).</summary>
+        private static void Configure(ref House h, Scratch s, ref Plot p)
+        {
+            HousePlan plan = h.Plan;
+            StyleParams st = h.Style;
+            p.Seed = p.Index == 0 ? plan.Seed : GrammarRng.Mix(plan.Seed, (uint)p.Index * 0x9E37u + 1u);
+            var rng = new GrammarRng(p.Seed, PurposePlotArch);
+            p.Arch = plan.Archetype;
+            p.Storeys = plan.Storeys;
+            if (p.Index > 0)
+            {
+                if (BuildingGrammar.IsNewarProfile(plan.Profile) && rng.Chance(0.4f))
+                {
+                    float r = rng.Next() * (st.NewarShare + st.HybridShare + st.ModernShare);
+                    p.Arch = r < st.NewarShare ? BuildingArchetype.Newar : r < st.NewarShare + st.HybridShare ? BuildingArchetype.NewarHybrid : BuildingArchetype.ModernUrban;
+                }
+                if (p.Storeys > 2 && rng.Chance(0.45f)) p.Storeys -= p.Storeys >= 5 && rng.Chance(0.4f) ? 2 : 1;
+            }
+            if (p.Arch == BuildingArchetype.Newar && p.Storeys > 5) p.Arch = BuildingArchetype.NewarHybrid;
+            if (p.Arch == BuildingArchetype.Generic) p.Arch = BuildingArchetype.ModernUrban;
+            p.Shop = p.Index == 0 ? plan.ShopGround : p.Arch != BuildingArchetype.RanaPalace && p.Storeys >= 2 &&
+                                                       rng.Chance(plan.MainLane ? st.ShopMain : st.ShopSide);
+            bool newarish = p.Arch == BuildingArchetype.Newar || p.Arch == BuildingArchetype.NewarHybrid;
+            p.Plinth = newarish ? 0.15 + 0.3 * ((p.Seed >> 7 & 0xFF) / 255.0) : p.Arch == BuildingArchetype.RanaPalace ? plan.PlinthM : 0.3;
+            if (p.Index == 0) p.Plinth = plan.PlinthM;
+            int fb = p.Index * MaxFloors;
+            double v = plan.MinHeightM + p.Plinth;
+            int storeys = Math.Min(p.Storeys, MaxFloors - 2);
+            p.Storeys = storeys;
+            for (int k = 0; k < storeys; k++)
+            {
+                s.Floors[fb + k] = v;
+                v += plan.StoreyScale * BuildingGrammar.StoreyHeightM(p.Arch, k, p.Shop);
+            }
+            s.Floors[fb + storeys] = v;
+            p.Top = v;
+            // Newar houses carry the jhingati gable; hybrids too where the heritage rules ask for sloped tile roofs (the
+            // profile's tile share: Bhaktapur 70%, Patan 45%) or the plan says so.
+            bool tiled = p.Arch == BuildingArchetype.Newar ||
+                         p.Arch == BuildingArchetype.NewarHybrid && (p.Index == 0 ? plan.TileRoof : rng.Chance(st.TileRoofShare));
+            p.Gable = tiled && p.Rect && p.Depth <= 13.5 && p.U1 - p.U0 >= 2.5;
+            p.Flat = !p.Gable;
+            if (p.Index == 0 && plan.Roof != PlanRoof.Flat && plan.Roof != PlanRoof.Gable) p.Flat = true; // tagged odd shapes: a terrace
+            p.Parapet = p.Flat ? (p.Arch == BuildingArchetype.ModernUrban ? 1.0 : 0.9) : 0.0;
+            p.TileHood = p.Arch == BuildingArchetype.NewarHybrid && rng.Chance(Math.Max(0.35f, st.TileRoofShare));
+
+            // Colours.
+            var pal = new GrammarRng(p.Seed, 0x50414C54);
+            p.Wood = st.BlackWindowShare > 0 && pal.Chance(st.BlackWindowShare) ? BuildingGrammar.PaintedBlack
+                : plan.Profile == StyleProfile.Bungamati && pal.Chance(0.4f) ? BuildingGrammar.SalLight
+                : (plan.Profile == StyleProfile.Patan || plan.Profile == StyleProfile.KathmanduCore) && pal.Chance(0.22f) ? BuildingGrammar.PaintedGreen
+                : plan.Profile == StyleProfile.KathmanduCore && pal.Chance(0.15f) ? BuildingGrammar.PaintedBrown : BuildingGrammar.SalDark;
+            bool heritage = BuildingGrammar.IsNewarProfile(plan.Profile);
+            switch (p.Arch)
+            {
+                case BuildingArchetype.Newar:
+                    p.Wall = p.Index == 0 ? plan.Wall : BuildingGrammar.BrickColour(st, ref pal);
+                    p.Front = p.Wall;
+                    p.WallCh = MaterialChannel.Brick;
+                    p.FrontCh = st.CarvedBands || plan.Profile == StyleProfile.Patan ? MaterialChannel.BrickGlazed : MaterialChannel.Brick;
+                    if ((plan.Profile == StyleProfile.Bungamati || plan.Profile == StyleProfile.Khokana) && pal.Chance(0.4f))
                     {
-                        double bc = u0 + (bay + 0.5) * bayW;
-                        if (Math.Abs(bc - uc) < 0.5 * sw + 0.4) continue;
-                        Tikijhya(ref h, bc, b0 + 0.4, Math.Min(bayW - 0.3, 0.75), Math.Min(0.95, sH - 0.7), wood, lattice, m);
+                        // Village houses: mud or ochre plaster over the brick, red-painted timber.
+                        p.Front = pal.Chance(0.5f) ? BuildingGrammar.MudPlaster : BuildingGrammar.Ochre;
+                        p.FrontCh = MaterialChannel.Plaster;
+                        if (pal.Chance(0.5f)) p.Wood = BuildingGrammar.PaintedRed;
                     }
-                }
-                else if (attic)
+                    p.Roof = p.Index == 0 && plan.TileRoof ? plan.RoofColour : BuildingGrammar.JhingatiColour(ref pal);
+                    break;
+                case BuildingArchetype.NewarHybrid:
+                    p.Wall = BuildingGrammar.BrickColour(st, ref pal);
+                    p.ExposedBrick = heritage && pal.Chance(0.55f);
+                    p.Front = p.ExposedBrick ? p.Wall : BuildingGrammar.ModernPaintColour(plan.Profile, ref pal);
+                    p.WallCh = MaterialChannel.Brick;
+                    p.FrontCh = p.ExposedBrick ? MaterialChannel.Brick : MaterialChannel.Paint;
+                    p.Roof = BuildingGrammar.Concrete;
+                    break;
+                case BuildingArchetype.RanaPalace:
+                    p.Wall = plan.Wall;
+                    p.Front = plan.Wall;
+                    p.WallCh = MaterialChannel.Plaster;
+                    p.FrontCh = MaterialChannel.Plaster;
+                    p.Roof = BuildingGrammar.Concrete;
+                    break;
+                default:
+                    if (p.Index == 0)
+                    {
+                        p.Front = plan.Front;
+                        p.Wall = plan.Wall;
+                    }
+                    else
+                    {
+                        p.Front = st.GlazedTileShare > 0 && pal.Chance(st.GlazedTileShare) ? BuildingGrammar.Glazed[pal.Int(0, BuildingGrammar.Glazed.Length - 1)]
+                            : BuildingGrammar.ModernPaintColour(plan.Profile, ref pal);
+                        p.Wall = pal.Chance(0.6f) ? BuildingGrammar.RawBrick : p.Front;
+                    }
+                    p.Glazed = Array.IndexOf(BuildingGrammar.Glazed, p.Front) >= 0;
+                    p.ExposedBrick = p.Front == BuildingGrammar.RawBrick;
+                    p.FrontCh = p.Glazed ? MaterialChannel.BrickGlazed : p.ExposedBrick ? MaterialChannel.Brick
+                        : p.Front == BuildingGrammar.RawConcrete ? MaterialChannel.Concrete : MaterialChannel.Paint;
+                    p.PaintedSides = p.Wall != BuildingGrammar.RawBrick;
+                    p.WallCh = p.PaintedSides ? (p.Glazed ? MaterialChannel.Paint : p.FrontCh) : MaterialChannel.Brick;
+                    if (p.PaintedSides && p.Glazed) p.Wall = MeshColor.Scale(p.Front, 0.95f);
+                    p.Roof = BuildingGrammar.Concrete;
+                    break;
+            }
+            p.Trim = pal.Chance(0.5f) ? MeshColor.FromHex(0xFFFFFF) : MeshColor.Scale(p.Front, 0.8f);
+            if (p.Gable && p.Arch != BuildingArchetype.Newar) p.Roof = BuildingGrammar.JhingatiColour(ref pal);
+            if (p.Gable)
+            {
+                double pitch = (h.Style.RoofPitchDeg + (pal.Next() - 0.5f) * 4f) * Math.PI / 180.0;
+                p.RidgeV = p.Top + 0.5 * p.Depth * Math.Tan(pitch);
+            }
+            else p.RidgeV = p.Top + p.Parapet;
+        }
+
+        private static double FloorBase(Scratch s, in Plot p, int k)
+        {
+            if (k < 0) k = 0;
+            if (k > p.Storeys) k = p.Storeys;
+            return s.Floors[p.Index * MaxFloors + k];
+        }
+
+        /// <summary>The display polygon of a plot: its clipped ring with the exposed convex corners rounded (two
+        /// segments, smooth normals) and every edge classified (front, body, partition, arc). Returns the point count.</summary>
+        private static int Display(ref House h, Scratch s, ref Plot p, in HouseEnv env, int at)
+        {
+            int n = p.PolyCount, o = 0;
+            double r = p.Arch == BuildingArchetype.Newar ? 0.1 : 0.16;
+            for (int i = 0; i < n; i++)
+            {
+                int ip = i == 0 ? n - 1 : i - 1, inx = i + 1 == n ? 0 : i + 1;
+                double x = s.PX[p.PolyStart + i], z = s.PZ[p.PolyStart + i];
+                double px = s.PX[p.PolyStart + ip], pz = s.PZ[p.PolyStart + ip], nx = s.PX[p.PolyStart + inx], nz = s.PZ[p.PolyStart + inx];
+                Edge kin = Classify(ref h, ref p, px, pz, x, z), kout = Classify(ref h, ref p, x, z, nx, nz);
+                double dix = x - px, diz = z - pz, li = Math.Sqrt(dix * dix + diz * diz);
+                double dox = nx - x, doz = nz - z, lo = Math.Sqrt(dox * dox + doz * doz);
+                bool round = r > 0 && h.Det.Segs > 0 && li > 4 * r && lo > 4 * r && kin != Edge.PartitionLow && kin != Edge.PartitionHigh &&
+                             kout != Edge.PartitionLow && kout != Edge.PartitionHigh;
+                if (round)
                 {
-                    // Gajhya under the eave.
-                    double gw = Math.Min(1.2, w - 0.4), gh = Math.Min(0.7, sH - 0.4);
-                    MeshKit.Box(m, f, uc - 0.5 * gw - 0.1, uc + 0.5 * gw + 0.1, b0 + 0.2, b0 + 0.3 + gh, 0, 0.4, wood, BoxFaces.Wall | BoxFaces.Bottom);
-                    MeshKit.Panel(m, f, uc - 0.5 * gw, b0 + 0.3, uc + 0.5 * gw, b0 + 0.2 + gh, 0.405, lattice);
+                    double cr = dix * doz - diz * dox;
+                    round = cr > 0.05 * li * lo; // convex (counter-clockwise ring), not nearly straight
+                }
+                if (round && env.Neighbours != null)
+                {
+                    // Something abutting the corner: keep it square (no notch in a continuous row).
+                    double bxo = diz / li + doz / lo, bzo = -dix / li - dox / lo, bl = Math.Sqrt(bxo * bxo + bzo * bzo);
+                    if (bl > 1e-6 && env.Neighbours.Inside(x + bxo / bl * 0.45, z + bzo / bl * 0.45, env.Index)) round = false;
+                    if (round && (env.Neighbours.Inside(x + diz / li * 0.4 + dix / li * 0.3, z - dix / li * 0.4 + diz / li * 0.3, env.Index) ||
+                                  env.Neighbours.Inside(x + doz / lo * 0.4 - dox / lo * 0.3, z - dox / lo * 0.4 - doz / lo * 0.3, env.Index)))
+                        round = false;
+                }
+                if (!round)
+                {
+                    s.DX[at + o] = x;
+                    s.DZ[at + o] = z;
+                    s.DK[at + o] = (byte)kout;
+                    o++;
+                    continue;
+                }
+                double ux = dix / li, uz = diz / li, vx = dox / lo, vz = doz / lo;
+                double ax = x - ux * r, az = z - uz * r, bx = x + vx * r, bz = z + vz * r;
+                double n0x = uz, n0z = -ux, n2x = vz, n2z = -vx;
+                double mx = 0.25 * ax + 0.5 * x + 0.25 * bx, mz = 0.25 * az + 0.5 * z + 0.25 * bz;
+                double n1x = n0x + n2x, n1z = n0z + n2z, nl = Math.Sqrt(n1x * n1x + n1z * n1z);
+                n1x /= nl;
+                n1z /= nl;
+                s.DX[at + o] = ax;
+                s.DZ[at + o] = az;
+                s.DK[at + o] = (byte)Edge.Arc;
+                s.NX[at + o] = n0x;
+                s.NZ[at + o] = n0z;
+                o++;
+                s.DX[at + o] = mx;
+                s.DZ[at + o] = mz;
+                s.DK[at + o] = (byte)Edge.Arc;
+                s.NX[at + o] = n1x;
+                s.NZ[at + o] = n1z;
+                o++;
+                s.DX[at + o] = bx;
+                s.DZ[at + o] = bz;
+                s.DK[at + o] = (byte)kout;
+                s.NX[at + o] = n2x;
+                s.NZ[at + o] = n2z;
+                o++;
+            }
+            // Facade range: the extent of the front edges.
+            p.FU0 = double.MaxValue;
+            p.FU1 = double.MinValue;
+            for (int i = 0; i < o; i++)
+            {
+                if (s.DK[at + i] != (byte)Edge.Front) continue;
+                int j = i + 1 == o ? 0 : i + 1;
+                double ua = U(ref h, s.DX[at + i], s.DZ[at + i]), ub = U(ref h, s.DX[at + j], s.DZ[at + j]);
+                p.FU0 = Math.Min(p.FU0, Math.Min(ua, ub));
+                p.FU1 = Math.Max(p.FU1, Math.Max(ua, ub));
+            }
+            if (p.FU0 > p.FU1)
+            {
+                p.FU0 = p.U0;
+                p.FU1 = p.U0; // no front: nothing to dress
+            }
+            return o;
+        }
+
+        private static Edge Classify(ref House h, ref Plot p, double ax, double az, double bx, double bz)
+        {
+            double ua = U(ref h, ax, az), ub = U(ref h, bx, bz), wa = W(ref h, ax, az), wb = W(ref h, bx, bz);
+            if (p.Index > 0 && Math.Abs(ua - p.U0) < 2e-3 && Math.Abs(ub - p.U0) < 2e-3) return Edge.PartitionLow;
+            if (p.Index < h.Plots - 1 && Math.Abs(ua - p.U1) < 2e-3 && Math.Abs(ub - p.U1) < 2e-3) return Edge.PartitionHigh;
+            if (Math.Abs(wa) < 0.03 && Math.Abs(wb) < 0.03 && ub - ua > 0.05) return Edge.Front;
+            return Edge.Body;
+        }
+
+        // -------------------------------------------------------------------------------------------------------------
+        // Paint
+        // -------------------------------------------------------------------------------------------------------------
+
+        /// <summary>Walls: dark at the ground contact, open 1.6 m above it; downward faces darker.</summary>
+        private static KitPaint WallPaint(ref House h, MaterialChannel ch, float ao)
+        {
+            return KitPaint.Of(ch, ao).WithGround(h.Ground, 0.5f, 1.6f);
+        }
+
+        /// <summary>An element fixed to the facade plane w = 0 of frame f: dark where it meets the wall.</summary>
+        private static void Fixed(ref House h, in KitFrame f, MeshData m, int v0, MaterialChannel ch, float ao = 1f)
+        {
+            KitPaint.Of(ch, ao).WithGround(h.Ground, 0.6f, 1.2f).WithWall(f, 0, 0.62f, 0.22f).Apply(m, v0);
+        }
+
+        /// <summary>The inside of an opening of the given depth: open at the wall face, dark at the back.</summary>
+        private static void Recess(ref House h, in KitFrame f, MeshData m, int v0, MaterialChannel ch, double depth, float ao = 1f)
+        {
+            KitPaint.Of(ch, ao).WithWall(f, -depth, 0.45f, (float)Math.Max(0.05, depth)).Apply(m, v0);
+        }
+
+        private static void Free(ref House h, MeshData m, int v0, MaterialChannel ch, float ao = 1f)
+        {
+            KitPaint.Of(ch, ao).WithGround(h.Ground, 0.6f, 1.0f).Apply(m, v0);
+        }
+
+        // -------------------------------------------------------------------------------------------------------------
+        // Clearance
+        // -------------------------------------------------------------------------------------------------------------
+
+        /// <summary>How far an element over [u0, u1] of the facade whose lowest point is <paramref name="v"/> above the
+        /// house's ground may project (decision 2): <paramref name="want"/>, or the free depth before a road corridor.</summary>
+        private static double Allow(ref House h, in KitFrame f, double u0, double u1, double v, double want)
+        {
+            if (!h.Clear.Active) return want;
+            return h.Clear.Depth(f, u0, u1, 0, h.Ground + v, want, ref h.G);
+        }
+
+        // -------------------------------------------------------------------------------------------------------------
+        // Body walls
+        // -------------------------------------------------------------------------------------------------------------
+
+        /// <summary>The plot's non-front walls (and its rounded corners) from the base to the wall top (plus the
+        /// parapet), a partition wall only where this plot rises above its neighbour, the hybrid brick-to-plaster seam
+        /// and the plinth course.</summary>
+        private static void BodyWalls(ref House h, Scratch s, ref Plot p, MeshData m)
+        {
+            int at = p.DispStart, n = p.DispCount;
+            double top = h.Ground + p.Top + p.Parapet, bottom = h.Base;
+            double seam = p.Arch == BuildingArchetype.NewarHybrid && p.Storeys > 3 ? h.Ground + FloorBase(s, p, 3) : double.NaN;
+            for (int i = 0; i < n; i++)
+            {
+                int j = i + 1 == n ? 0 : i + 1;
+                var kind = (Edge)s.DK[at + i];
+                double ax = s.DX[at + i], az = s.DZ[at + i], bx = s.DX[at + j], bz = s.DZ[at + j];
+                double dx = bx - ax, dz = bz - az, len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 1e-3) continue;
+                if (kind == Edge.Front) continue;
+                bool frontArc = kind == Edge.Arc && (Touches(s, at, n, i, Edge.Front));
+                uint col = frontArc ? p.Front : p.Wall;
+                MaterialChannel ch = frontArc ? p.FrontCh : p.WallCh;
+                int v0 = m.VertexCount;
+                if (kind == Edge.PartitionLow || kind == Edge.PartitionHigh)
+                {
+                    int nb = kind == Edge.PartitionLow ? p.Index - 1 : p.Index + 1;
+                    Plot q = s.Plots[nb];
+                    double from = h.Ground + Math.Max(0, q.Gable ? q.Top : q.Top + q.Parapet);
+                    if (p.Gable || top <= from + 1e-3) continue;
+                    MeshKit.Quad(m, ax, from, az, bx, from, bz, bx, top, bz, ax, top, az, dz, 0, -dx, col);
+                    WallPaint(ref h, ch, 1f).WithGround(from, 0.55f, 0.8f).Apply(m, v0);
+                    continue;
+                }
+                if (kind == Edge.Arc)
+                {
+                    double n0x = s.NX[at + i], n0z = s.NZ[at + i], n1x = s.NX[at + j], n1z = s.NZ[at + j];
+                    if (!double.IsNaN(seam) && !frontArc)
+                    {
+                        KitRound.QuadSmooth(m, ax, bottom, az, bx, bottom, bz, bx, seam, bz, ax, seam, az, n0x, 0, n0z, n1x, 0, n1z, n1x, 0, n1z, n0x, 0, n0z, col);
+                        WallPaint(ref h, ch, 1f).Apply(m, v0);
+                        v0 = m.VertexCount;
+                        KitRound.QuadSmooth(m, ax, seam, az, bx, seam, bz, bx, top, bz, ax, top, az, n0x, 0, n0z, n1x, 0, n1z, n1x, 0, n1z, n0x, 0, n0z, p.Front);
+                        WallPaint(ref h, p.FrontCh == MaterialChannel.Brick ? MaterialChannel.Plaster : p.FrontCh, 1f).Apply(m, v0);
+                        continue;
+                    }
+                    KitRound.QuadSmooth(m, ax, bottom, az, bx, bottom, bz, bx, top, bz, ax, top, az, n0x, 0, n0z, n1x, 0, n1z, n1x, 0, n1z, n0x, 0, n0z, col);
+                    WallPaint(ref h, ch, 1f).Apply(m, v0);
+                    continue;
+                }
+                bool street = h.Corner && OnSegment(ax, az, bx, bz, h.SecondAX, h.SecondAZ, h.SecondBX, h.SecondBZ) || FacesStreet(ref h, ax, az, bx, bz, len);
+                if (street && SideFacade(ref h, s, ref p, ax, az, bx, bz, m)) continue;
+                if (!double.IsNaN(seam))
+                {
+                    MeshKit.Quad(m, ax, bottom, az, bx, bottom, bz, bx, seam, bz, ax, seam, az, dz, 0, -dx, col);
+                    WallPaint(ref h, ch, 1f).Apply(m, v0);
+                    v0 = m.VertexCount;
+                    uint upper = p.ExposedBrick ? MeshColor.Scale(p.Wall, 1.06f) : MeshColor.Lerp(p.Front, BuildingGrammar.Concrete, 0.35f);
+                    MeshKit.Quad(m, ax, seam, az, bx, seam, bz, bx, top, bz, ax, top, az, dz, 0, -dx, upper);
+                    WallPaint(ref h, p.ExposedBrick ? MaterialChannel.Brick : MaterialChannel.Plaster, 1f).Apply(m, v0);
                 }
                 else
                 {
-                    for (int bay = 0; bay < bays; bay++)
-                        Tikijhya(ref h, u0 + (bay + 0.5) * bayW, b0 + 0.4, Math.Min(bayW - 0.3, 0.75), Math.Min(0.95, sH - 0.7), wood, lattice, m);
+                    MeshKit.Quad(m, ax, bottom, az, bx, bottom, bz, bx, top, bz, ax, top, az, dz, 0, -dx, col);
+                    WallPaint(ref h, ch, 1f).Apply(m, v0);
+                }
+                // Plinth course along the exposed straight walls.
+                if (len > 0.6 && p.Plinth > 0.1)
+                {
+                    var f = new KitFrame(ax, h.Ground, az, dx, dz);
+                    v0 = m.VertexCount;
+                    FacadeKit.Ledge(m, f, 0, len, h.Base - h.Ground, p.Plinth - (h.Base - h.Ground) + 0.05, 0.05, 0.03, 0, PlinthColour(ref h, ref p));
+                    Free(ref h, m, v0, PlinthChannel(ref p));
                 }
             }
         }
 
-        /// <summary>Tikijhya: a framed lattice window (opaque inset) with lintel ears and, above drop level 1, a
-        /// lattice relief.</summary>
-        private static void Tikijhya(ref House h, double uc, double sill, double ww, double wh, uint wood, uint lattice, MeshData m)
+        /// <summary>True when a body wall looks onto a street: a road corridor within 4 m in front of its middle and
+        /// no other building against it (walls on lanes get windows and shops, not blank brick).</summary>
+        private static bool FacesStreet(ref House h, double ax, double az, double bx, double bz, double len)
         {
-            if (ww < 0.3 || wh < 0.3) return;
-            KitFrame f = h.F;
-            MeshKit.Box(m, f, uc - 0.5 * ww - 0.15, uc + 0.5 * ww + 0.15, sill - 0.15, sill + wh + 0.12, 0, 0.08, wood, BoxFaces.Wall);
-            MeshKit.Panel(m, f, uc - 0.5 * ww, sill, uc + 0.5 * ww, sill + wh, 0.081, lattice);
-            if (h.Drop < 1)
+            if (!h.Clear.Active || len < 2.5) return false;
+            double nx = (bz - az) / len, nz = -(bx - ax) / len;
+            for (int k = 1; k <= 3; k++)
             {
-                double x0, y0, z0, x1, y1, z1;
-                f.ToWorld(uc - 0.5 * ww, sill, 0.1, out x0, out y0, out z0);
-                f.ToWorld(uc + 0.5 * ww, sill + wh, 0.1, out x1, out y1, out z1);
-                MeshKit.Bar(m, x0, y0, z0, x1, y1, z1, 0.04, wood);
-                f.ToWorld(uc + 0.5 * ww, sill, 0.1, out x0, out y0, out z0);
-                f.ToWorld(uc - 0.5 * ww, sill + wh, 0.1, out x1, out y1, out z1);
-                MeshKit.Bar(m, x0, y0, z0, x1, y1, z1, 0.04, wood);
+                double t = 0.25 * k, mx = ax + (bx - ax) * t, mz = az + (bz - az) * t;
+                if (h.Neighbours != null && h.Neighbours.Inside(mx + nx * 0.8, mz + nz * 0.8, h.Index)) continue;
+                if (h.Clear.FreeAt(mx + nx * 0.3, mz + nz * 0.3) < 4.0) return true;
+            }
+            return false;
+        }
+
+        private static bool Touches(Scratch s, int at, int n, int i, Edge kind)
+        {
+            // Walk the arc run both ways to the first non-arc edge.
+            for (int k = 1; k < 4; k++)
+            {
+                int j = (i - k + n) % n;
+                if ((Edge)s.DK[at + j] != Edge.Arc) return (Edge)s.DK[at + j] == kind || NextIs(s, at, n, i, kind);
+            }
+            return NextIs(s, at, n, i, kind);
+        }
+
+        private static bool NextIs(Scratch s, int at, int n, int i, Edge kind)
+        {
+            for (int k = 1; k < 4; k++)
+            {
+                int j = (i + k) % n;
+                if ((Edge)s.DK[at + j] != Edge.Arc) return (Edge)s.DK[at + j] == kind;
+            }
+            return false;
+        }
+
+        private static bool OnSegment(double ax, double az, double bx, double bz, double sx, double sz, double ex, double ez)
+        {
+            double d1 = Plane2.PointSeg(ax, az, sx, sz, ex, ez), d2 = Plane2.PointSeg(bx, bz, sx, sz, ex, ez);
+            return d1 < 0.05 && d2 < 0.05;
+        }
+
+        private static uint PlinthColour(ref House h, ref Plot p)
+        {
+            switch (p.Arch)
+            {
+                case BuildingArchetype.Newar:
+                case BuildingArchetype.NewarHybrid:
+                    return h.Plan.Profile == StyleProfile.Kirtipur || h.Plan.Profile == StyleProfile.Bhaktapur ? BuildingGrammar.PlinthStone : MeshColor.Scale(p.Wall, 0.8f);
+                case BuildingArchetype.RanaPalace:
+                    return BuildingGrammar.RanaShadow;
+                default:
+                    return MeshColor.Scale(BuildingGrammar.Concrete, 0.88f);
             }
         }
 
-        /// <summary>Sanjhya: a projecting bay window on two brackets with a lattice face and a small sloped hood.</summary>
-        private static void Sanjhya(ref House h, double uc, double sw, double v0, double sh, double proj, uint wood, uint lattice, bool marigold, MeshData m)
+        private static MaterialChannel PlinthChannel(ref Plot p)
         {
-            if (sw < 0.6 || sh < 0.5) return;
-            KitFrame f = h.F;
-            MeshKit.Box(m, f, uc - 0.5 * sw, uc + 0.5 * sw, v0, v0 + sh, 0, proj, wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Bottom);
-            MeshKit.Panel(m, f, uc - 0.5 * sw + 0.12, v0 + 0.1, uc + 0.5 * sw - 0.12, v0 + sh - 0.1, proj + 0.005, lattice);
-            MeshKit.QuadLocal(m, f, uc - 0.5 * sw - 0.1, v0 + sh, proj + 0.15, uc + 0.5 * sw + 0.1, v0 + sh, proj + 0.15,
-                              uc + 0.5 * sw + 0.1, v0 + sh + 0.3, 0, uc - 0.5 * sw - 0.1, v0 + sh + 0.3, 0, 0, 1, 0.5, BuildingGrammar.SalDark);
-            MeshKit.Box(m, f, uc - 0.5 * sw + 0.1, uc - 0.5 * sw + 0.25, v0 - 0.35, v0, 0, proj * 0.8, wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Bottom);
-            MeshKit.Box(m, f, uc + 0.5 * sw - 0.25, uc + 0.5 * sw - 0.1, v0 - 0.35, v0, 0, proj * 0.8, wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Bottom);
-            if (marigold && h.Drop < 4) MeshKit.Box(m, f, uc - 0.2, uc + 0.2, v0 - 0.02, v0 + 0.22, proj, proj + 0.25, BuildingGrammar.Marigold, BoxFaces.Wall);
-        }
-
-        /// <summary>The jhingati gable with its ridge parallel to the street, one segment per plot group (eave steps of
-        /// 0.2-0.6 m between groups of 2-4 plots), overhanging front and back, on struts (or a fascia stripe).</summary>
-        private static void NewarRoof(ref House h, Scratch s, int plots, MeshData m)
-        {
-            KitFrame f = h.F;
-            double pitch = h.Style.RoofPitchDeg * Math.PI / 180.0, tan = Math.Tan(pitch);
-            double ovr = h.Style.EaveOverhangM;
-            var rng = new GrammarRng(h.Plan.Seed, PurposePlots ^ 0x5A5A);
-            double top = h.Top - h.Ground;
-            int p = 0;
-            double step = 0;
-            while (p < plots)
+            switch (p.Arch)
             {
-                int group = Math.Min(plots - p, rng.Int(2, 4));
-                double u0 = s.PlotU[p], u1 = s.PlotU[p + group];
-                double t = top + step;
-                uint tile = BuildingGrammar.JhingatiColour(ref rng);
-                if (p == 0) tile = h.Plan.RoofColour;
-                double ext0 = p == 0 ? 0.3 : 0, ext1 = p + group == plots ? 0.3 : 0;
-                double ridgeW = -0.5 * h.D, ridgeV = t + 0.5 * h.D * tan;
-                double eaveF = t - ovr * tan, eaveB = t - ovr * tan;
-                double a = u0 - ext0, b = u1 + ext1;
-                // Front and back planes.
-                MeshKit.QuadLocal(m, f, a, eaveF, ovr, b, eaveF, ovr, b, ridgeV, ridgeW, a, ridgeV, ridgeW, 0, 1, 1, tile);
-                MeshKit.QuadLocal(m, f, a, eaveB, -h.D - ovr, b, eaveB, -h.D - ovr, b, ridgeV, ridgeW, a, ridgeV, ridgeW, 0, 1, -1, tile);
-                // Undersides of the overhangs (seen from the street).
-                uint under = MeshColor.Scale(BuildingGrammar.SalDark, 1.1f);
-                MeshKit.QuadLocal(m, f, a, eaveF, ovr, b, eaveF, ovr, b, t, 0, a, t, 0, 0, -1, 0, under);
-                MeshKit.QuadLocal(m, f, a, eaveB, -h.D - ovr, b, eaveB, -h.D - ovr, b, t, -h.D, a, t, -h.D, 0, -1, 0, under);
-                // Ridge cap.
-                MeshKit.Box(m, f, a, b, ridgeV - 0.05, ridgeV + 0.12, ridgeW - 0.12, ridgeW + 0.12, BuildingGrammar.JhingatiRidge, BoxFaces.Top | BoxFaces.Front | BoxFaces.Back);
-                // Gable ends (wall colour): visible at the row ends and at eave steps.
-                MeshKit.TriLocal(m, f, u0, t, 0, u0, t, -h.D, u0, ridgeV, ridgeW, -1, 0, 0, h.Plan.Wall);
-                MeshKit.TriLocal(m, f, u1, t, 0, u1, t, -h.D, u1, ridgeV, ridgeW, 1, 0, 0, h.Plan.Wall);
-                if (step > 0)
-                {
-                    // Raise the walls of a stepped group to its eave.
-                    MeshKit.QuadLocal(m, f, u0, top, 0, u1, top, 0, u1, t, 0, u0, t, 0, 0, 0, 1, h.Plan.Front);
-                    MeshKit.QuadLocal(m, f, u0, top, -h.D, u1, top, -h.D, u1, t, -h.D, u0, t, -h.D, 0, 0, -1, h.Plan.Wall);
-                }
-                // Struts along the front eave, plain on houses; a fascia stripe from drop level 2.
-                if (h.Drop < 2)
-                {
-                    double spacing = rng.Range(1.2f, 1.8f);
-                    int count = Math.Max(1, (int)Math.Floor((u1 - u0) / spacing));
-                    for (int k = 0; k < count; k++)
-                    {
-                        double u = u0 + (k + 0.5) * (u1 - u0) / count;
-                        double x0, y0, z0, x1, y1, z1;
-                        f.ToWorld(u, t - 1.15, 0.06, out x0, out y0, out z0);
-                        f.ToWorld(u, eaveF + 0.12, ovr - 0.15, out x1, out y1, out z1);
-                        MeshKit.Bar(m, x0, y0, z0, x1, y1, z1, 0.12, h.Plan.Wood);
-                    }
-                }
-                else
-                {
-                    MeshKit.Panel(m, f, u0, t - 0.35, u1, t, 0.01, h.Plan.Wood);
-                }
-                p += group;
-                step = rng.Range(0.2f, 0.6f) * (rng.Chance(0.5f) ? 1 : 0);
-            }
-        }
-
-        // ---------------------------------------------------------------------------------------------------------
-        // NEWAR_HYBRID upper floors
-        // ---------------------------------------------------------------------------------------------------------
-
-        private static void HybridUpper(ref House h, ref GrammarRng rng, double u0, double u1, uint front, MeshData m)
-        {
-            KitFrame f = h.F;
-            double w = u1 - u0;
-            if (h.Plan.Storeys > 3)
-            {
-                // The single-slope eave hood at the old eave line, on 2-4 struts.
-                double v = Floor(ref h, 3), depth = rng.Range(0.6f, 0.9f), drop = depth * Math.Tan(27 * Math.PI / 180);
-                uint hood = h.Plan.TileRoof ? h.Plan.RoofColour : MeshColor.FromHex(0x3D7CC9);
-                MeshKit.QuadLocal(m, f, u0, v - drop, depth, u1, v - drop, depth, u1, v, 0, u0, v, 0, 0, 1, 1, hood);
-                MeshKit.QuadLocal(m, f, u0, v - drop, depth, u1, v - drop, depth, u1, v, 0, u0, v, 0, 0, -1, -1, BuildingGrammar.SalDark);
-                if (h.Drop < 2)
-                {
-                    int struts = Math.Max(2, Math.Min(4, (int)Math.Round(w / 1.6)));
-                    for (int k = 0; k < struts; k++)
-                    {
-                        double u = u0 + (k + 0.5) * w / struts, x0, y0, z0, x1, y1, z1;
-                        f.ToWorld(u, v - 0.9, 0.05, out x0, out y0, out z0);
-                        f.ToWorld(u, v - drop, depth - 0.1, out x1, out y1, out z1);
-                        MeshKit.Bar(m, x0, y0, z0, x1, y1, z1, 0.1, h.Plan.Wood);
-                    }
-                }
-            }
-            int bays = Math.Max(1, Bays(w) / 2 + 1);
-            for (int k = 3; k < h.Plan.Storeys; k++)
-            {
-                double b0 = Floor(ref h, k);
-                if (h.Drop < 3) MeshKit.Box(m, f, u0, u1, b0 - 0.08, b0 + 0.08, 0, 0.1, MeshColor.Scale(front, 0.85f), BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-                for (int bay = 0; bay < bays; bay++)
-                {
-                    double uc = u0 + (bay + 0.5) * w / bays;
-                    MeshKit.Panel(m, f, uc - 0.4, b0 + 0.75, uc + 0.4, b0 + 2.15, 0.01, BuildingGrammar.Glass);
-                    MeshKit.Box(m, f, uc - 0.5, uc + 0.5, b0 + 0.68, b0 + 0.75, 0, 0.08, h.Plan.Trim, BoxFaces.Front | BoxFaces.Top);
-                }
-                if (k == h.Plan.Storeys - 1 && rng.Chance(0.3f)) Balcony(ref h, ref rng, u0 + 0.5 * w, Math.Min(2.4, w - 0.6), b0, m);
-            }
-        }
-
-        // ---------------------------------------------------------------------------------------------------------
-        // MODERN_URBAN
-        // ---------------------------------------------------------------------------------------------------------
-
-        private static void ModernPlot(ref House h, ref GrammarRng rng, double u0, double u1, uint front, MeshData m)
-        {
-            KitFrame f = h.F;
-            double w = u1 - u0;
-            uint trim = h.Plan.Trim;
-            double g0 = Floor(ref h, 0), gH = StoreyH(ref h, 0);
-            // Ground floor: shopfront with shutters and a sign, or a door and windows.
-            if (h.Plan.ShopGround)
-            {
-                int bays = Math.Max(1, (int)Math.Round(w / 2.6));
-                uint shutter = BuildingGrammar.Shutter[rng.Int(0, BuildingGrammar.Shutter.Length - 1)];
-                double sh = Math.Min(gH - 0.4, 2.7);
-                for (int k = 0; k < bays; k++)
-                {
-                    double a = u0 + w * k / bays + 0.12, b = u0 + w * (k + 1) / bays - 0.12;
-                    MeshKit.Panel(m, f, a, g0, b, g0 + sh, 0.02, shutter);
-                }
-                Sign(ref h, ref rng, u0 + 0.15, u1 - 0.15, g0 + sh, m);
-            }
-            else
-            {
-                double uc = u0 + 0.5 * w;
-                MeshKit.Panel(m, f, uc - 0.5, g0, uc + 0.5, g0 + 2.1, 0.02, MeshColor.FromHex(0x5A3A28));
-                if (w > 4)
-                {
-                    MeshKit.Panel(m, f, u0 + 0.5, g0 + 0.9, u0 + 1.7, g0 + 2.2, 0.01, BuildingGrammar.Glass);
-                    MeshKit.Panel(m, f, u1 - 1.7, g0 + 0.9, u1 - 0.5, g0 + 2.2, 0.01, BuildingGrammar.Glass);
-                }
-            }
-            // Columns at the plot edges and every 3-4.5 m.
-            int cols = Math.Max(2, (int)Math.Round(w / 3.8) + 1);
-            for (int k = 0; k < cols; k++)
-            {
-                double u = u0 + (w - 0.25) * k / (cols - 1);
-                MeshKit.Box(m, f, u, u + 0.25, g0, h.Top - h.Ground, 0, 0.06, MeshColor.Scale(front, 0.92f), BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
-            }
-            bool balconies = rng.Chance(0.5f) && w >= 4.5;
-            int windows = Math.Max(1, Math.Min(4, (int)Math.Round(w / 2.8)));
-            for (int k = 1; k < h.Plan.Storeys; k++)
-            {
-                double b0 = Floor(ref h, k);
-                if (h.Drop < 3) MeshKit.Box(m, f, u0, u1, b0 - 0.15, b0, 0, 0.08, trim, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-                double uc = u0 + 0.5 * w;
-                if (balconies) Balcony(ref h, ref rng, uc, Math.Min(2.6, w * 0.4), b0, m);
-                for (int j = 0; j < windows; j++)
-                {
-                    double c = u0 + (j + 0.5) * w / windows;
-                    if (balconies && Math.Abs(c - uc) < 1.4) continue;
-                    MeshKit.Panel(m, f, c - 0.6, b0 + 0.9, c + 0.6, b0 + 2.25, 0.01, BuildingGrammar.Glass);
-                    MeshKit.Box(m, f, c - 0.75, c + 0.75, b0 + 2.35, b0 + 2.45, 0, 0.4, trim, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
-                }
-                // Thamel: vertical blade signs on the upper floors.
-                if (h.Style.SignsMax > 1 && k <= 3 && rng.Chance(0.4f))
-                {
-                    double u = rng.Chance(0.5f) ? u0 + 0.3 : u1 - 0.35;
-                    uint col = BuildingGrammar.Sign[rng.Int(0, BuildingGrammar.Sign.Length - 1)];
-                    MeshKit.Box(m, f, u, u + 0.06, b0 + 0.3, b0 + 2.3, 0.1, 0.1 + rng.Range(0.4f, 0.6f), col, BoxFaces.All & ~BoxFaces.Back);
-                }
-            }
-        }
-
-        private static void Balcony(ref House h, ref GrammarRng rng, double uc, double bw, double floorBase, MeshData m)
-        {
-            if (bw < 1.0) return;
-            KitFrame f = h.F;
-            double d = rng.Range(0.9f, 1.2f);
-            uint rail = BuildingGrammar.Railing[rng.Int(0, BuildingGrammar.Railing.Length - 1)];
-            MeshKit.Box(m, f, uc - 0.5 * bw, uc + 0.5 * bw, floorBase - 0.15, floorBase, 0, d, BuildingGrammar.Concrete, BoxFaces.All & ~BoxFaces.Back);
-            MeshKit.Box(m, f, uc - 0.5 * bw, uc + 0.5 * bw, floorBase, floorBase + 0.95, d - 0.05, d, rail, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top);
-            MeshKit.Panel(m, f, uc - 0.45, floorBase, uc + 0.45, floorBase + 2.1, 0.01, BuildingGrammar.Glass);
-        }
-
-        /// <summary>Generic signboards over a shopfront: one board, or 3-8 stacked boards in Thamel.</summary>
-        private static void Sign(ref House h, ref GrammarRng rng, double u0, double u1, double v, MeshData m)
-        {
-            if (u1 - u0 < 0.8) return;
-            KitFrame f = h.F;
-            int n = h.Style.SignsMax > 1 ? rng.Int(Math.Min(2, h.Style.SignsMin), Math.Min(4, h.Style.SignsMax)) : 1;
-            for (int k = 0; k < n; k++)
-            {
-                uint col = BuildingGrammar.Sign[rng.Int(0, BuildingGrammar.Sign.Length - 1)];
-                double hgt = rng.Range(0.6f, 0.9f), a = u0, b = u1;
-                if (n > 1)
-                {
-                    double seg = (u1 - u0) / Math.Min(n, 2);
-                    a = u0 + seg * (k % 2);
-                    b = a + seg - 0.1;
-                }
-                double y = v + 0.05 + (k / 2) * 1.0;
-                MeshKit.Box(m, f, a, b, y, y + hgt, 0, 0.08, col, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
-            }
-        }
-
-        // ---------------------------------------------------------------------------------------------------------
-        // RANA_PALACE
-        // ---------------------------------------------------------------------------------------------------------
-
-        private static void RanaFront(ref House h, double u0, double u1, MeshData m)
-        {
-            KitFrame f = h.F;
-            double w = u1 - u0;
-            int bays = Math.Max(1, (int)Math.Round(w / 3.3));
-            for (int k = 0; k < h.Plan.Storeys; k++)
-            {
-                double b0 = Floor(ref h, k), sH = StoreyH(ref h, k);
-                for (int bay = 0; bay < bays; bay++)
-                {
-                    double uc = u0 + (bay + 0.5) * w / bays, wh = Math.Min(3.0, sH - 0.8);
-                    MeshKit.Box(m, f, uc - 0.75, uc + 0.75, b0 + 0.5, b0 + 0.6 + wh, 0, 0.08, MeshColor.FromHex(0xFFFFFF), BoxFaces.Wall);
-                    MeshKit.Panel(m, f, uc - 0.6, b0 + 0.6, uc + 0.6, b0 + 0.5 + wh, 0.085, BuildingGrammar.RanaShutter);
-                }
-                if (h.Drop < 3) MeshKit.Box(m, f, u0, u1, b0 - 0.15, b0 + 0.1, 0, 0.2, MeshColor.FromHex(0xFFFFFF), BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-            }
-            double top = h.Top - h.Ground;
-            MeshKit.Box(m, f, u0 - 0.3, u1 + 0.3, top - 0.35, top, 0, 0.5, MeshColor.FromHex(0xFFFFFF), BoxFaces.All & ~BoxFaces.Back);
-        }
-
-        // ---------------------------------------------------------------------------------------------------------
-        // Flat roofs and roof props
-        // ---------------------------------------------------------------------------------------------------------
-
-        private static void FlatRoof(ref House h, Scratch s, int n, double parapet, MeshData m)
-        {
-            double y = h.Top;
-            // Inner parapet faces and the deck.
-            if (parapet > 0)
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    int j = i + 1 == n ? 0 : i + 1;
-                    double dx = s.X[j] - s.X[i], dz = s.Z[j] - s.Z[i];
-                    MeshKit.Quad(m, s.X[i], y, s.Z[i], s.X[j], y, s.Z[j], s.X[j], y + parapet, s.Z[j], s.X[i], y + parapet, s.Z[i], -dz, 0, dx,
-                                 MeshColor.Scale(h.Plan.Wall, 0.9f));
-                }
-            }
-            bool convex = Polygon.IsConvex(s.X, s.Z, n, 0.0);
-            int tris = Polygon.Triangulate(s.X, s.Z, n, s.Tris, s.Next, s.Prev, convex);
-            for (int t = 0; t < tris; t++)
-            {
-                int a = s.Tris[3 * t], b = s.Tris[3 * t + 1], c = s.Tris[3 * t + 2];
-                MeshKit.Tri(m, s.X[a], y, s.Z[a], s.X[b], y, s.Z[b], s.X[c], y, s.Z[c], 0, 1, 0, h.Plan.RoofColour);
-            }
-            if (h.Colliders != null) h.Colliders.AddBox(h.CX, h.CZ, h.Base, y, 0.5 * h.L, 0.5 * h.D, h.F.UX, h.F.UZ, GenColliderFlags.Walkable, GenColliders.Concrete);
-            Props(ref h, s, n, y, m);
-        }
-
-        private static bool Inside(Scratch s, int n, double x, double z)
-        {
-            bool inside = false;
-            for (int i = 0, j = n - 1; i < n; j = i++)
-                if ((s.Z[i] > z) != (s.Z[j] > z) && x < (s.X[j] - s.X[i]) * (z - s.Z[i]) / (s.Z[j] - s.Z[i]) + s.X[i]) inside = !inside;
-            return inside;
-        }
-
-        /// <summary>A point inside the footprint at frame coordinates (u, w), pulled toward the centroid until inside.</summary>
-        private static bool Spot(ref House h, Scratch s, int n, double u, double w, out double x, out double z)
-        {
-            double y;
-            h.F.ToWorld(u, 0, w, out x, out y, out z);
-            for (int k = 0; k < 4; k++)
-            {
-                if (Inside(s, n, x, z)) return true;
-                x = 0.5 * (x + h.CX);
-                z = 0.5 * (z + h.CZ);
-            }
-            return Inside(s, n, x, z);
-        }
-
-        /// <summary>Roof props of flat roofs (W2_DESIGN 2.6), seeded per building; all dropped at drop level 4.</summary>
-        private static void Props(ref House h, Scratch s, int n, double y, MeshData m)
-        {
-            var rng = new GrammarRng(h.Plan.Seed, PurposeProps);
-            bool house = h.Plan.Archetype == BuildingArchetype.ModernUrban || h.Plan.Archetype == BuildingArchetype.NewarHybrid ||
-                         h.Plan.Archetype == BuildingArchetype.Generic;
-            if (!house) return;
-            // Stair cabin (mumty) on every flat roof of 3+ storeys: 8-15% of the roof area, 2.4 m high, at the back.
-            if (h.Plan.Storeys >= 3)
-            {
-                double side = Math.Max(1.8, Math.Min(3.5, Math.Sqrt(rng.Range(0.08f, 0.15f) * h.AreaM2)));
-                double x, z;
-                if (Spot(ref h, s, n, 0.5 * h.L, -0.7 * h.D, out x, out z))
-                {
-                    MeshKit.OrientedBox(m, x, z, y, y + 2.4, 0.5 * side, 0.5 * side, h.F.UX, h.F.UZ, h.Plan.Front, BoxFaces.All & ~BoxFaces.Bottom);
-                    var cab = new KitFrame(x, y, z, h.F.UX, h.F.UZ);
-                    MeshKit.Panel(m, cab, -0.4, 0, 0.4, 2.0, 0.5 * side + 0.01, MeshColor.FromHex(0x5A3A28));
-                }
-            }
-            if (h.Drop >= 4) return;
-            // Water tanks on 60-80% of flat roofs, 1-3 each, on a stand.
-            if (rng.Chance(0.7f))
-            {
-                int tanks = rng.Int(1, 3);
-                for (int k = 0; k < tanks; k++)
-                {
-                    double x, z;
-                    if (!Spot(ref h, s, n, h.L * rng.Range(0.2f, 0.8f), -h.D * rng.Range(0.2f, 0.5f), out x, out z)) continue;
-                    double r = 0.5 * rng.Range(0.9f, 1.3f), th = rng.Range(1.0f, 1.6f), stand = rng.Range(0.3f, 1.5f);
-                    MeshKit.OrientedBox(m, x, z, y, y + stand, r, r, h.F.UX, h.F.UZ, BuildingGrammar.Concrete, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-                    MeshKit.Cylinder(m, x, z, r, y + stand, y + stand + th, 8, true, BuildingGrammar.Tank[rng.Int(0, BuildingGrammar.Tank.Length - 1)]);
-                }
-            }
-            // Solar water heater on 15-25%: a 2 × 1.5 m rack tilted 30-45 degrees to the south.
-            if (rng.Chance(0.2f))
-            {
-                double x, z;
-                if (Spot(ref h, s, n, h.L * 0.3, -h.D * 0.3, out x, out z))
-                {
-                    double tilt = rng.Range(30f, 45f) * Math.PI / 180;
-                    var sol = new KitFrame(x, y + 0.4, z, 1, 0); // U east, W south... W = (U.z, -U.x) = (0, -1): south
-                    double rise = 1.5 * Math.Sin(tilt), run = 1.5 * Math.Cos(tilt);
-                    MeshKit.QuadLocal(m, sol, -1.0, 0, 0.5 * run, 1.0, 0, 0.5 * run, 1.0, rise, -0.5 * run, -1.0, rise, -0.5 * run, 0, 1, 1, MeshColor.FromHex(0x2E4A7A));
-                    MeshKit.QuadLocal(m, sol, -1.0, 0, 0.5 * run, 1.0, 0, 0.5 * run, 1.0, rise, -0.5 * run, -1.0, rise, -0.5 * run, 0, -1, -1, MeshColor.FromHex(0x9AA0A6));
-                }
-            }
-            // Rebar stubs on 30-50% of growing MODERN houses of 4+ storeys.
-            if (h.Plan.Archetype == BuildingArchetype.ModernUrban && h.Plan.Storeys >= 4 && rng.Chance(0.4f))
-            {
-                int stubs = rng.Int(4, 8);
-                for (int k = 0; k < stubs; k++)
-                {
-                    double x, z;
-                    double u = k % 2 == 0 ? 0.3 : h.L - 0.3, w = -h.D * (k / 2) / Math.Max(1, stubs / 2 - 1) * 0.9 - 0.3;
-                    if (!Spot(ref h, s, n, u, w, out x, out z)) continue;
-                    MeshKit.OrientedBox(m, x, z, y, y + rng.Range(0.3f, 1.0f), 0.05, 0.05, h.F.UX, h.F.UZ, BuildingGrammar.Rust, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-                }
-            }
-            // Satellite dish on 10-20%.
-            if (rng.Chance(0.15f))
-            {
-                double x, z;
-                if (Spot(ref h, s, n, h.L * 0.8, -0.3, out x, out z))
-                    MeshKit.Frustum(m, x, z, 0.4, y + 0.6, 0.05, y + 0.85, 6, false, MeshColor.FromHex(0xE6E6E6));
-            }
-            // Rooftop restaurant umbrellas (Thamel, Boudha kora).
-            if (h.Style.RoofTerraceShare > 0 && rng.Chance(h.Style.RoofTerraceShare))
-            {
-                int umbrellas = rng.Int(1, 3);
-                for (int k = 0; k < umbrellas; k++)
-                {
-                    double x, z;
-                    if (!Spot(ref h, s, n, h.L * (k + 1) / (umbrellas + 1), -h.D * 0.35, out x, out z)) continue;
-                    uint col = BuildingGrammar.Sign[rng.Int(0, 3)];
-                    MeshKit.Cylinder(m, x, z, 0.03, y, y + 2.2, 4, false, MeshColor.FromHex(0xDDDDDD));
-                    MeshKit.Frustum(m, x, z, 1.2, y + 1.95, 0.0, y + 2.4, 8, false, col);
-                    MeshKit.Frustum(m, x, z, 1.2, y + 1.95, 1.0, y + 1.93, 8, false, col);
-                }
+                case BuildingArchetype.Newar:
+                case BuildingArchetype.NewarHybrid: return MaterialChannel.Stone;
+                case BuildingArchetype.RanaPalace: return MaterialChannel.Plaster;
+                default: return MaterialChannel.Concrete;
             }
         }
     }

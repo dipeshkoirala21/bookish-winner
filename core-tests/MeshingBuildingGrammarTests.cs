@@ -89,13 +89,13 @@ namespace Ghumante.Core.Tests
 
         /// <summary>B0 triangles per building of the densest tile (houses only; parts and sacred buildings use
         /// their own budgets).</summary>
-        private static Dictionary<int, int> B0Tris(TileData t, BuildingOptions o, out Tally houses)
+        private static Dictionary<int, int> B0Tris(TileData t, BuildingOptions o, out Tally houses, int stride = 1)
         {
             var h = new TileHeightSampler(t, 2);
             var per = new Dictionary<int, int>();
             houses = new Tally();
             var m = new MeshData();
-            for (int i = 0; i < t.Buildings.Count; i++)
+            for (int i = 0; i < t.Buildings.Count; i += stride)
             {
                 m.Clear();
                 if (!BuildingDetailMesher.One(t, i, h, o, m, null)) continue;
@@ -110,7 +110,7 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void B0HousesAverageUnder900AndNeverExceedTheCap()
+        public void B0HousesAreRichButNeverExceedTheCap()
         {
             TileData t = StreamingSampleRegion.Tile(Asan);
             Tally houses;
@@ -118,8 +118,16 @@ namespace Ghumante.Core.Tests
             double avg = (double)houses.Tris / houses.Count;
             TestContext.WriteLine("B0 houses {0}: avg {1:0} tris, max {2}", houses.Count, avg, houses.Max);
             Assert.That(houses.Count, Is.GreaterThan(3000));
-            Assert.That(avg, Is.LessThanOrEqualTo(900));
-            Assert.That(houses.Max, Is.LessThanOrEqualTo(2500));
+            // The detail pass: about three times the stage-1 grammar per house (rounded, real openings, lattice, props),
+            // held under the per-house cap by the drop levels.
+            Assert.That(avg, Is.GreaterThan(1500), "not the boxy stage-1 houses");
+            Assert.That(avg, Is.LessThanOrEqualTo(4200));
+            Assert.That(houses.Max, Is.LessThanOrEqualTo(BuildingBandTable.B0CapTris));
+            // The Low tier's cap holds too.
+            Tally low;
+            B0Tris(t, new BuildingOptions { B0CapTris = BuildingBandTable.B0CapFor(0) }, out low, 7);
+            TestContext.WriteLine("B0 houses at the Low cap: avg {0:0}, max {1}", (double)low.Tris / low.Count, low.Max);
+            Assert.That(low.Max, Is.LessThanOrEqualTo(BuildingBandTable.B0CapFor(0)));
             // Generic sacred buildings stay inside their own LOD0 budgets (§3.2: 6,000 for a 3-tier pagoda).
             for (int i = 0; i < t.Buildings.Count; i++)
                 if (BuildingGrammar.Plan(t, i).Sacred && per.ContainsKey(i)) Assert.That(per[i], Is.LessThanOrEqualTo(6000), "sacred " + i);
@@ -155,7 +163,7 @@ namespace Ghumante.Core.Tests
                 if (!BuildingGrammar.IsHouse(p.Archetype) || p.Sacred || (t.Buildings[i].Flags & (BuildingFlags.Part | BuildingFlags.HasParts)) != 0) continue;
                 if (p.Archetype != BuildingArchetype.Newar) continue;
                 var full = new MeshData();
-                BuildingDetailMesher.One(t, i, h, new BuildingOptions(), full, null);
+                BuildingDetailMesher.One(t, i, h, new BuildingOptions { B0CapTris = 1000000 }, full, null);
                 if (full.TriangleCount < 600) continue;
                 var b1 = new MeshData();
                 BuildingMesher.Build(SingleTile(t, i), new TileHeightSampler(SingleTile(t, i), 2), new BuildingOptions(), b1);
@@ -193,25 +201,24 @@ namespace Ghumante.Core.Tests
         {
             TileData t = StreamingSampleRegion.Tile(Asan);
             var h = new TileHeightSampler(t, 2);
-            Tally houses;
-            Dictionary<int, int> b0 = B0Tris(t, new BuildingOptions(), out houses);
-            double b0All = b0.Values.Sum() / (double)b0.Count;
             var counts = new Dictionary<BuildingBand, double>();
             foreach (BuildingBand band in new[] { BuildingBand.B1Styled, BuildingBand.B2Prism, BuildingBand.B3Block })
             {
                 var m = new MeshData();
-                int drawn = BuildingMesher.Build(t, h, new BuildingOptions { Band = band }, m);
+                int drawn = BuildingMesher.Build(t, h, new BuildingOptions { Band = band, FrontDetail = true }, m);
                 Assert.That(drawn, Is.GreaterThan(0), band.ToString());
                 MeshingChecks.AssertWellFormed(m, band.ToString());
+                Assert.That(m.HasUv0, Is.True, band + " carries channels and AO");
                 counts[band] = (double)m.TriangleCount / t.Buildings.Count;
             }
-            TestContext.WriteLine("tris per building: B0 {0:0}, B1 {1:0.0}, B2 {2:0.0}, B3 {3:0.0}", b0All, counts[BuildingBand.B1Styled],
-                                  counts[BuildingBand.B2Prism], counts[BuildingBand.B3Block]);
+            TestContext.WriteLine("tris per building: B1 {0:0.0}, B2 {1:0.0}, B3 {2:0.0}", counts[BuildingBand.B1Styled], counts[BuildingBand.B2Prism],
+                                  counts[BuildingBand.B3Block]);
             Assert.That(counts[BuildingBand.B1Styled], Is.LessThanOrEqualTo(70 * 1.15));
             Assert.That(counts[BuildingBand.B2Prism], Is.LessThanOrEqualTo(10 * 1.15));
             Assert.That(counts[BuildingBand.B3Block], Is.LessThan(counts[BuildingBand.B2Prism]));
 
-            // §2.4 budget check: buildings in each band's ring around the camera at Asan, 40% in the frustum.
+            // §2.4 budget check with the detail pass's band table: buildings in each band's ring around the camera at
+            // Asan, 40% in the frustum; B0 at the tier's cap.
             double cx, cz;
             Geo.WorldFrame.LonLatToGame(85.3122, 27.7074, out cx, out cz);
             cx -= Asan.X0;
@@ -228,28 +235,36 @@ namespace Ghumante.Core.Tests
                 }
                 dist[i] = Math.Sqrt(Math.Pow(x / (r.Length / 2) - cx, 2) + Math.Pow(z / (r.Length / 2) - cz, 2));
             }
-            // Low / Mid / High: band outer radii and the table's totals.
-            double[][] radii = { new[] { 35.0, 120, 350, 750 }, new[] { 60.0, 200, 500, 1250 }, new[] { 80.0, 250, 700, 1750 } };
-            double[] table = { 20000, 63000, 115000 };
             string[] tier = { "Low", "Mid", "High" };
+            var b0 = new MeshData();
             for (int k = 0; k < 3; k++)
             {
-                double inner = 0, total = 0;
+                var o0 = new BuildingOptions { B0CapTris = BuildingBandTable.B0CapFor(k) };
+                double total = 0;
                 var bandTris = new double[4];
+                int inB0 = 0;
                 for (int i = 0; i < t.Buildings.Count; i++)
                 {
                     double d = dist[i];
-                    int band = d < radii[k][0] ? 0 : d < radii[k][1] ? 1 : d < radii[k][2] ? 2 : d < radii[k][3] ? 3 : -1;
+                    int band = d < BuildingBandTable.OuterM(k, 0) ? 0 : d < BuildingBandTable.OuterM(k, 1) ? 1 : d < BuildingBandTable.OuterM(k, 2) ? 2 :
+                               d < BuildingBandTable.OuterM(k, 3) ? 3 : -1;
                     if (band < 0) continue;
-                    double tris = band == 0 ? (b0.ContainsKey(i) ? b0[i] : 0) : band == 1 ? counts[BuildingBand.B1Styled] :
-                                  band == 2 ? counts[BuildingBand.B2Prism] : counts[BuildingBand.B3Block];
+                    double tris;
+                    if (band == 0)
+                    {
+                        b0.Clear();
+                        tris = BuildingDetailMesher.One(t, i, h, o0, b0, null) ? b0.TriangleCount : 0;
+                        inB0++;
+                    }
+                    else tris = band == 1 ? counts[BuildingBand.B1Styled] : band == 2 ? counts[BuildingBand.B2Prism] : counts[BuildingBand.B3Block];
                     bandTris[band] += 0.4 * tris;
-                    if (band < 3) inner += 0.4 * tris;
                     total += 0.4 * tris;
                 }
-                TestContext.WriteLine("{0}: B0 {1:0} B1 {2:0} B2 {3:0} B3 {4:0} total {5:0} (table {6})", tier[k], bandTris[0], bandTris[1], bandTris[2],
-                                      bandTris[3], total, table[k]);
-                Assert.That(total, Is.LessThanOrEqualTo(table[k] * 1.15), tier[k]);
+                double slice = BuildingBandTable.SliceTris(k);
+                TestContext.WriteLine("{0}: B0 {1:0} ({2} buildings) B1 {3:0} B2 {4:0} B3 {5:0} total {6:0} (table {7})", tier[k], bandTris[0], inB0, bandTris[1],
+                                      bandTris[2], bandTris[3], total, slice);
+                Assert.That(total, Is.LessThanOrEqualTo(slice * 1.15), tier[k]);
+                Assert.That(inB0, Is.GreaterThan(3), tier[k] + ": B0 still covers the street around the camera");
             }
         }
     }

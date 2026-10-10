@@ -60,8 +60,20 @@ namespace Ghumante.World.Buildings
         public DetailCells(BandConfig bands, BuildingOptions options, Material material)
         {
             _bands = bands;
-            _options = options;
+            _options = options ?? new BuildingOptions { Band = BuildingBand.B0KitLite };
             _material = material;
+        }
+
+        /// <summary>A copy of the options with the tier's B0 cap, taken when a cell build starts (the caller's instance is
+        /// shared with the other bands and its hide set may change between builds).</summary>
+        private static BuildingOptions WithCap(BuildingOptions o, int cap)
+        {
+            return new BuildingOptions
+            {
+                SinkM = o.SinkM, SkipLandmarks = o.SkipLandmarks, MinAreaM2 = o.MinAreaM2, Parapets = o.Parapets, Band = BuildingBand.B0KitLite,
+                Styled = o.Styled, FrontDetail = o.FrontDetail, HiddenRefs = o.HiddenRefs, B0CapTris = cap > 0 ? cap : o.B0CapTris,
+                RoadGuard = o.RoadGuard, Corridors = o.Corridors,
+            };
         }
 
         /// <summary>Triangles of the cells shown this frame.</summary>
@@ -213,7 +225,7 @@ namespace Ghumante.World.Buildings
             _lastDispatchMs = nowMs;
             var src = e.Source;
             var sampler = e.Sampler;
-            BuildingOptions options = _options;
+            BuildingOptions options = WithCap(_options, _bands.B0CapTris);
             Task.Run(() =>
             {
                 try

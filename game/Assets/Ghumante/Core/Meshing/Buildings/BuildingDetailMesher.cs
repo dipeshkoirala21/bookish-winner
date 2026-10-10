@@ -2,6 +2,7 @@ using System;
 using Ghumante.Core.Data;
 using Ghumante.Core.Generators;
 using Ghumante.Core.Generators.Sacred;
+using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Meshing
 {
@@ -90,29 +91,51 @@ namespace Ghumante.Core.Meshing
             return drawn;
         }
 
-        /// <summary>One building at B0. Houses over the cap drop detail level by level; at the last level the house
-        /// stays as built (the sanjhya is never dropped) unless it is still over the cap, when the B1 extrusion is used.</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TileData, BuildingBands.FootprintIndex> Neighbours =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<TileData, BuildingBands.FootprintIndex>();
+
+        /// <summary>The tile's footprint index (built once per tile): which corners abut a neighbour.</summary>
+        internal static BuildingBands.FootprintIndex NeighbourIndex(TileData t)
+        {
+            return Neighbours.GetValue(t, k => new BuildingBands.FootprintIndex(k));
+        }
+
+        /// <summary>One building at B0. Footprints in a road corridor are trimmed (or the building is skipped when it
+        /// stands in the road, <see cref="BuildingFootprints"/>); houses over the cap drop detail level by level; at
+        /// the last level the house stays as built (the sanjhya is never dropped) unless it is still over the cap,
+        /// when the B1 extrusion is used.</summary>
         public static bool One(TileData t, int i, IHeightSampler h, BuildingOptions o, MeshData m, GenColliders c)
         {
-            BuildingRecord b = t.Buildings[i];
+            if (o == null) o = new BuildingOptions();
+            IRoadCorridorQuery q = o.CorridorsFor(t);
+            BuildingFootprints guard = BuildingFootprints.For(t, q);
+            if (guard.Dropped(i)) return false;
+            BuildingRecord b = guard.Record(i);
             if (o.SkipLandmarks && (b.Flags & BuildingFlags.Landmark) != 0) return false;
             if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) return false;
             if (SacredSelector.HostOf(t, i) >= 0) return false; // a part of a generic sacred outline: the host draws it
             if ((b.Flags & BuildingFlags.HasParts) != 0 && !SacredSelector.DrawsGeneric(b)) return false; // its parts are drawn instead
-            HousePlan plan = BuildingGrammar.Plan(t, i);
-            if ((b.Flags & BuildingFlags.Part) != 0) return BuildingMesher.Styled(t, i, h, o, plan, m);
+            HousePlan plan = guard.Adjust(i, BuildingGrammar.Plan(t, i));
+            if ((b.Flags & BuildingFlags.Part) != 0) return BuildingMesher.Styled(t, b, h, o, plan, m);
             if (plan.Sacred)
             {
-                if (SacredSelector.BuildGeneric(t, i, h, 0, m, c)) return true;
-                return BuildingMesher.Styled(t, i, h, o, plan, m);
+                int vs = m.VertexCount;
+                if (SacredSelector.BuildGeneric(t, i, h, 0, m, c))
+                {
+                    KitPaint.FillUnset(m, vs);
+                    return true;
+                }
+                return BuildingMesher.Styled(t, b, h, o, plan, m);
             }
-            if (!BuildingGrammar.IsHouse(plan.Archetype)) return BuildingMesher.Styled(t, i, h, o, plan, m);
-            var g = new RoadSurface(t, h);
+            if (!BuildingGrammar.IsHouse(plan.Archetype)) return BuildingMesher.Styled(t, b, h, o, plan, m);
+            var env = new HouseEnv { Clear = new Clearance(t, q), Neighbours = NeighbourIndex(t), Index = i };
             int v0 = m.VertexCount, i0 = m.IndexCount;
+            bool uv0 = m.HasUv0;
             int boxes0 = c == null ? 0 : c.Boxes.Count, ramps0 = c == null ? 0 : c.Ramps.Count;
             for (int drop = 0; drop <= HouseBuilder.MaxDrop; drop++)
             {
-                if (!HouseBuilder.Build(b, plan, ref g, o.SinkM, drop, m, c)) return false;
+                var g = new BuildingGround(t, h);
+                if (!HouseBuilder.Build(b, plan, ref g, env, o.SinkM, drop, m, c)) return false;
                 if ((m.IndexCount - i0) / 3 <= o.B0CapTris) return true;
                 m.VertexCount = v0;
                 m.IndexCount = i0;
@@ -122,7 +145,7 @@ namespace Ghumante.Core.Meshing
                     c.Ramps.RemoveRange(ramps0, c.Ramps.Count - ramps0);
                 }
             }
-            return BuildingMesher.Styled(t, i, h, o, plan, m);
+            return BuildingMesher.Styled(t, b, h, o, plan, m);
         }
     }
 }

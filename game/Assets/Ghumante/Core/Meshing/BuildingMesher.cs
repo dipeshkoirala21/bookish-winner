@@ -1,6 +1,7 @@
 using System;
 using Ghumante.Core.Data;
 using Ghumante.Core.Generators.Sacred;
+using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Meshing
 {
@@ -30,17 +31,38 @@ namespace Ghumante.Core.Meshing
         public bool Styled = true;
 
         /// <summary>B1 street-front detail (W2_DESIGN 2.4): the front paint, a floor band and one window-row quad per
-        /// storey on the front edge (about 70 triangles a building instead of about 20). Meant for the B1 ring only
-        /// (35-120 m Low, 60-200 m Mid, 80-250 m High): off by default so whole-tile builds stay within the W1 budget
-        /// until the band scheduler draws far buildings as B2/B3.</summary>
+        /// storey on the front edge (about 12 triangles more per building at Asan). The detail pass's band table
+        /// (BuildingBandTable) budgets B1 with it on, since B1 now takes over from the richer B0 nearer the camera; it
+        /// stays off by default so whole-tile builds (the streaming budget tests) keep the W1 cost until the B1 layer's
+        /// options turn it on.</summary>
         public bool FrontDetail = false;
 
         /// <summary>Buildings (BLDG osm_ref) hidden under a hero replica (D5 hide zones); null = none.</summary>
         public System.Collections.Generic.ISet<ulong> HiddenRefs;
 
-        /// <summary>B0 triangle cap per house (W2_DESIGN 2.4): over it the grammar drops detail (lattice relief,
-        /// struts, floor bands, roof props) until it fits.</summary>
-        public int B0CapTris = 2500;
+        /// <summary>B0 triangle cap per house (W2_DESIGN 2.4, raised for the detail pass): over it the grammar drops
+        /// detail (lattice relief and small props, struts and tile courses, floor bands and railings, roof props) until
+        /// it fits.</summary>
+        public int B0CapTris = BuildingBandTable.B0CapTris;
+
+        /// <summary>Keep buildings out of the roads (docs/W2_DETAIL_CONTRACT.md decisions 1 and 2): footprints that
+        /// intrude into a road corridor are trimmed back to it (or dropped when the house stands in the road) in every
+        /// band, and nothing below <see cref="RoadClearance.MinOverheadClearanceM"/> projects over a corridor in B0. On by
+        /// default.</summary>
+        public bool RoadGuard = true;
+
+        /// <summary>The road corridors of a tile (the roads package's <c>RoadCorridorIndex.ForTile</c>); null uses the
+        /// building package's stand-in built from the tile's roads at their game widths. Must return the same
+        /// instance for the same tile (the guard is cached per tile and corridor source).</summary>
+        public Func<TileData, IRoadCorridorQuery> Corridors;
+
+        /// <summary>The corridor query for a tile under these options (null when <see cref="RoadGuard"/> is off).</summary>
+        public IRoadCorridorQuery CorridorsFor(TileData t)
+        {
+            if (!RoadGuard || t == null) return null;
+            IRoadCorridorQuery q = Corridors != null ? Corridors(t) : null;
+            return q ?? RoadCorridorStandIn.For(t);
+        }
     }
 
     /// <summary>
@@ -123,10 +145,12 @@ namespace Ghumante.Core.Meshing
             }
             Scratch s = _scratch ?? (_scratch = new Scratch());
             var ground = new Ground(t, h);
+            BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
             int drawn = 0;
             for (int i = 0; i < t.Buildings.Count; i++)
             {
-                BuildingRecord b = t.Buildings[i];
+                if (guard.Dropped(i)) continue;
+                BuildingRecord b = guard.Record(i);
                 if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) continue;
                 if (o.Styled)
                 {
@@ -140,8 +164,13 @@ namespace Ghumante.Core.Meshing
                     }
                     if ((b.Flags & BuildingFlags.HasParts) != 0) continue; // its parts are drawn instead (DATA_FORMATS 1.6)
                 }
-                HousePlan plan = o.Styled ? BuildingGrammar.Plan(t, i) : default(HousePlan);
-                if (One(b, ref ground, o, s, m, o.Styled, plan)) drawn++;
+                HousePlan plan = o.Styled ? guard.Adjust(i, BuildingGrammar.Plan(t, i)) : default(HousePlan);
+                int v0 = m.VertexCount;
+                if (One(b, ref ground, o, s, m, o.Styled, plan))
+                {
+                    drawn++;
+                    if (o.Styled) BuildingBandTable.PaintFar(m, v0, plan, o.SinkM);
+                }
             }
             return drawn;
         }
@@ -150,9 +179,18 @@ namespace Ghumante.Core.Meshing
         /// Returns false when skipped.</summary>
         internal static bool Styled(TileData t, int index, IHeightSampler h, BuildingOptions o, in HousePlan plan, MeshData m)
         {
+            return Styled(t, t.Buildings[index], h, o, plan, m);
+        }
+
+        /// <summary>One record (possibly trimmed out of a road) as a B1 styled extrusion, painted with channels and AO.</summary>
+        internal static bool Styled(TileData t, BuildingRecord b, IHeightSampler h, BuildingOptions o, in HousePlan plan, MeshData m)
+        {
             Scratch s = _scratch ?? (_scratch = new Scratch());
             var ground = new Ground(t, h);
-            return One(t.Buildings[index], ref ground, o ?? new BuildingOptions(), s, m, true, plan);
+            int v0 = m.VertexCount;
+            if (!One(b, ref ground, o ?? new BuildingOptions(), s, m, true, plan)) return false;
+            BuildingBandTable.PaintFar(m, v0, plan, (o ?? new BuildingOptions()).SinkM);
+            return true;
         }
 
         private static RoofShape ShapeOf(PlanRoof r)
@@ -181,11 +219,13 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>True when <see cref="Build"/> draws building <paramref name="index"/> of a tile (hidden refs, generic
-        /// sacred outlines with parts and the parts they draw included).</summary>
+        /// sacred outlines with parts and the parts they draw, and houses dropped by the road guard included).</summary>
         public static bool IsDrawn(TileData t, int index, BuildingOptions o)
         {
             if (o == null) o = new BuildingOptions();
-            BuildingRecord b = t.Buildings[index];
+            BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
+            if (guard.Dropped(index)) return false;
+            BuildingRecord b = guard.Record(index);
             if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) return false;
             if (o.Styled && SacredSelector.HostOf(t, index) >= 0) return false;
             if (o.Styled && SacredSelector.DrawsGeneric(b)) return Ring(b, o, _scratch ?? (_scratch = new Scratch()));

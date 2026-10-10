@@ -1,4 +1,5 @@
 using System;
+using Ghumante.Core.Meshing;
 
 namespace Ghumante.World.Buildings
 {
@@ -53,30 +54,20 @@ namespace Ghumante.World.Buildings
         /// <summary>Low never uses hero LOD0 (W2_DESIGN 3.2).</summary>
         public bool HeroLod0Allowed;
 
-        /// <summary>The tier's bands: 0 Low, 1 Mid, 2 High (StreamingConfig tier numbering).</summary>
+        /// <summary>B0 triangle cap per house on this tier (Core BuildingBandTable.B0CapFor); the B0 cells build with it.</summary>
+        public int B0CapTris;
+
+        /// <summary>The tier's bands: 0 Low, 1 Mid, 2 High (StreamingConfig tier numbering). Radii and caps come from
+        /// the Core band table of the detail pass (BuildingBandTable): B0 is richer and ends nearer, B1 takes over.</summary>
         public static BandConfig ForTier(int tier)
         {
-            switch (tier <= 0 ? 0 : tier >= 2 ? 2 : 1)
+            int k = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
+            return new BandConfig
             {
-                case 0:
-                    return new BandConfig
-                    {
-                        B0OuterM = 35f, B1OuterM = 120f, B2OuterM = 350f, B3OuterM = 750f, CellCacheSize = 24,
-                        HeroBudgetTris = 20000, HeroLod0Allowed = false,
-                    };
-                case 1:
-                    return new BandConfig
-                    {
-                        B0OuterM = 60f, B1OuterM = 200f, B2OuterM = 500f, B3OuterM = 1250f, CellCacheSize = 48,
-                        HeroBudgetTris = 40000, HeroLod0Allowed = true,
-                    };
-                default:
-                    return new BandConfig
-                    {
-                        B0OuterM = 80f, B1OuterM = 250f, B2OuterM = 700f, B3OuterM = 1750f, CellCacheSize = 96,
-                        HeroBudgetTris = 60000, HeroLod0Allowed = true,
-                    };
-            }
+                B0OuterM = BuildingBandTable.OuterM(k, 0), B1OuterM = BuildingBandTable.OuterM(k, 1), B2OuterM = BuildingBandTable.OuterM(k, 2),
+                B3OuterM = BuildingBandTable.OuterM(k, 3), CellCacheSize = k == 0 ? 24 : k == 1 ? 48 : 96, HeroBudgetTris = k == 0 ? 20000 : k == 1 ? 40000 : 60000,
+                HeroLod0Allowed = k > 0, B0CapTris = BuildingBandTable.B0CapFor(k),
+            };
         }
 
         /// <summary>Inner and outer radius a band draws (B1 with <paramref name="b1Full"/> starts at 0: its B0 cells

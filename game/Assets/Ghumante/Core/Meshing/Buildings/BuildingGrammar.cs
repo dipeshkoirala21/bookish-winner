@@ -349,11 +349,38 @@ namespace Ghumante.Core.Meshing
         public static readonly uint[] Jhingati = Hex(0xB8322B, 0xD2452E, 0xE2603A, 0xEC8A3E, 0x6F5A3C);
         private static readonly float[] JhingatiShare = { 25, 35, 25, 10, 5 };
         public static readonly uint JhingatiRidge = MeshColor.FromHex(0x9E3A26);
-        private static readonly uint[] Cgi = Hex(0x3D7CC9, 0x3FA35C, 0xC9433A, 0xA2603A, 0xB9BEC3);
+        public static readonly uint[] Cgi = Hex(0x3D7CC9, 0x3FA35C, 0xC9433A, 0xA2603A, 0xB9BEC3);
         public static readonly uint RawBrick = MeshColor.FromHex(0xB8654A);
         public static readonly uint NeutralBrick = MeshColor.FromHex(0xB4543A);
         public static readonly uint SalDark = MeshColor.FromHex(0x4A2C1C);
         public static readonly uint SalMid = MeshColor.FromHex(0x6B4129);
+        public static readonly uint SalLight = MeshColor.FromHex(0x8E5B37);
+        public static readonly uint PaintedBrown = MeshColor.FromHex(0x5A3222);
+        /// <summary>Green-painted window frames and shutters (Patan and Kathmandu lanes).</summary>
+        public static readonly uint PaintedGreen = MeshColor.FromHex(0x2F6E4E);
+        /// <summary>Red-painted doors and windows of the southern villages (Bungamati, Khokana).</summary>
+        public static readonly uint PaintedRed = MeshColor.FromHex(0x9E2B25);
+        public static readonly uint Hay = MeshColor.FromHex(0xC9A24E);
+        public static readonly uint RawConcrete = MeshColor.FromHex(0xABA79F);
+        public static readonly uint RanaShadow = MeshColor.FromHex(0xD9CDB0);
+        public static readonly uint RanaTrim = MeshColor.FromHex(0xFFFFFF);
+        public static readonly uint Brass = MeshColor.FromHex(0xD9A93A);
+        public static readonly uint Ochre = MeshColor.FromHex(0xE0A845);
+        public static readonly uint MudPlaster = MeshColor.FromHex(0xC9A27A);
+        public static readonly uint Interior = MeshColor.FromHex(0x2A211C);
+        public static readonly uint DoorDark = MeshColor.FromHex(0x3A2418);
+        public static readonly uint Aluminium = MeshColor.FromHex(0xC9CED3);
+        public static readonly uint SteelDark = MeshColor.FromHex(0x2E3440);
+        /// <summary>Window glass as it reads from the street in the valley: tinted blue, teal, brown or plain dark.</summary>
+        public static readonly uint[] GlassTints = Hex(0x3E5F7A, 0x2F6B6E, 0x5A4A3A, 0x34495E, 0x4A7A9A);
+        /// <summary>Aluminium composite cladding of new commercial blocks (silver, blue, red, champagne).</summary>
+        public static readonly uint[] Acp = Hex(0xC4C9CE, 0x2F6FB0, 0xC23B33, 0xD8C8A0, 0x5B6B7A);
+        /// <summary>Awnings: tin and canvas.</summary>
+        public static readonly uint[] Awning = Hex(0x3D7CC9, 0x2FA84F, 0xE8483A, 0xF2C230, 0xB9BEC3, 0xF07A2A);
+        /// <summary>Clothes on the line and goods at shop fronts.</summary>
+        public static readonly uint[] Cloth = Hex(0xD93A2B, 0xF2C230, 0x2E6FD8, 0xFFFFFF, 0xE85D9E, 0x2E9E4F, 0x7A1F1F, 0xF59A3B);
+        public static readonly uint Foliage = MeshColor.FromHex(0x3E8E3A);
+        public static readonly uint FoliageLight = MeshColor.FromHex(0x6DB33F);
         public static readonly uint PaintedBlack = MeshColor.FromHex(0x2B221D);
         public static readonly uint Sindoor = MeshColor.FromHex(0xE23B2A);
         public static readonly uint Marigold = MeshColor.FromHex(0xF6A21B);
@@ -388,6 +415,22 @@ namespace Ghumante.Core.Meshing
 
         public static uint ModernPaintColour(ref GrammarRng rng)
         {
+            return ModernPaint[rng.Pick(ModernPaintShare)];
+        }
+
+        /// <summary>Weathered plaster of the old cores (Asan, Indra Chowk, Patan, Kirtipur): off-white, beige, grey
+        /// plaster, faded peach, pink, sage and yellow (ref_buildings.md §1: the cores are muted, the bright pastels are the
+        /// metro's).</summary>
+        public static readonly uint[] CorePaint = Hex(0xE8E2D6, 0xD9CBB0, 0xC9C2B5, 0xE6C9A8, 0xD8B4A6, 0xBFC9C2, 0xEAD9A0, 0xDCD3C4);
+
+        /// <summary>A paint colour for a modern or hybrid front in a profile: the old cores draw 65% from the muted
+        /// <see cref="CorePaint"/>, Thamel and the Boudha kora 40%, the metro and the rim the pastel set.</summary>
+        public static uint ModernPaintColour(StyleProfile profile, ref GrammarRng rng)
+        {
+            float muted = profile == StyleProfile.KathmanduCore || profile == StyleProfile.Patan || profile == StyleProfile.Kirtipur ||
+                          profile == StyleProfile.Thimi || profile == StyleProfile.Bhaktapur || profile == StyleProfile.Panauti ? 0.65f
+                : profile == StyleProfile.Thamel || profile == StyleProfile.BoudhaKora ? 0.4f : 0f;
+            if (muted > 0 && rng.Chance(muted)) return CorePaint[rng.Int(0, CorePaint.Length - 1)];
             return ModernPaint[rng.Pick(ModernPaintShare)];
         }
 
@@ -511,7 +554,7 @@ namespace Ghumante.Core.Meshing
                     break;
                 case BuildingArchetype.NewarHybrid:
                     plan.Wall = BrickColour(p, ref pal);
-                    plan.Front = IsNewarProfile(f.Profile) && pal.Chance(0.6f) ? plan.Wall : ModernPaintColour(ref pal);
+                    plan.Front = IsNewarProfile(f.Profile) && pal.Chance(0.6f) ? plan.Wall : ModernPaintColour(f.Profile, ref pal);
                     plan.RoofColour = plan.TileRoof ? JhingatiColour(ref pal) : Concrete;
                     break;
                 case BuildingArchetype.RanaPalace:
@@ -521,7 +564,7 @@ namespace Ghumante.Core.Meshing
                     break;
                 case BuildingArchetype.ModernUrban:
                 case BuildingArchetype.Generic:
-                    plan.Front = p.GlazedTileShare > 0 && pal.Chance(p.GlazedTileShare) ? Glazed[pal.Int(0, Glazed.Length - 1)] : ModernPaintColour(ref pal);
+                    plan.Front = p.GlazedTileShare > 0 && pal.Chance(p.GlazedTileShare) ? Glazed[pal.Int(0, Glazed.Length - 1)] : ModernPaintColour(f.Profile, ref pal);
                     if (p.GompaAccentShare > 0 && pal.Chance(p.GompaAccentShare)) plan.Front = GompaWhite;
                     plan.Wall = pal.Chance(0.6f) ? RawBrick : plan.Front;
                     plan.RoofColour = plan.Roof == PlanRoof.Skillion ? Cgi[pal.Int(0, Cgi.Length - 1)] : Concrete;

@@ -24,8 +24,9 @@ namespace Ghumante.Core.Meshing
 
         public static int Prisms(TileData t, IHeightSampler h, BuildingOptions o, MeshData m)
         {
-            var g = new RoadSurface(t, h);
-            var index = new FootprintIndex(t);
+            var g = new BuildingGround(t, h);
+            var index = BuildingDetailMesher.NeighbourIndex(t);
+            BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
             var hx = new double[64];
             var hz = new double[64];
             var bx = new double[8];
@@ -33,7 +34,8 @@ namespace Ghumante.Core.Meshing
             int drawn = 0;
             for (int i = 0; i < t.Buildings.Count; i++)
             {
-                BuildingRecord b = t.Buildings[i];
+                if (guard.Dropped(i)) continue;
+                BuildingRecord b = guard.Record(i);
                 if (o.SkipLandmarks && (b.Flags & BuildingFlags.Landmark) != 0) continue;
                 if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) continue;
                 if ((b.Flags & BuildingFlags.HasParts) != 0) continue;
@@ -64,7 +66,8 @@ namespace Ghumante.Core.Meshing
                 }
                 double area = Math.Abs(Polygon.SignedArea(bx, bz, k));
                 if (area < o.MinAreaM2) continue;
-                HousePlan plan = BuildingGrammar.Plan(t, i);
+                HousePlan plan = guard.Adjust(i, BuildingGrammar.Plan(t, i));
+                int v0 = m.VertexCount;
                 double cx = 0, cz = 0, ground = double.MaxValue;
                 for (int q = 0; q < k; q++)
                 {
@@ -87,6 +90,7 @@ namespace Ghumante.Core.Meshing
                     MeshKit.Quad(m, bx[q], y0, bz[q], bx[r], y0, bz[r], bx[r], y1, bz[r], bx[q], y1, bz[q], ez, 0, -ex, c);
                 }
                 MeshKit.ConvexCap(m, bx, bz, k, y1, true, plan.RoofColour);
+                BuildingBandTable.PaintFar(m, v0, plan, o.SinkM);
                 drawn++;
             }
             return drawn;
@@ -239,9 +243,11 @@ namespace Ghumante.Core.Meshing
             var built = new double[n * n];
             var maxH = new double[n * n];
             var colour = new uint[n * n];
+            BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
             for (int i = 0; i < t.Buildings.Count; i++)
             {
-                BuildingRecord b = t.Buildings[i];
+                if (guard.Dropped(i)) continue;
+                BuildingRecord b = guard.Record(i);
                 if (o.SkipLandmarks && (b.Flags & BuildingFlags.Landmark) != 0) continue;
                 if (o.HiddenRefs != null && o.HiddenRefs.Contains(b.OsmRef)) continue;
                 int[] r = b.Rings[0];
@@ -271,7 +277,7 @@ namespace Ghumante.Core.Meshing
             for (int c = 0; c < n * n; c++)
                 if (built[c] >= MinCover * cell * cell && maxH[c] > 0) step[c] = Math.Max(1, (int)Math.Round(maxH[c] / HeightStepM));
             var used = new bool[n * n];
-            var g = new RoadSurface(t, h);
+            var g = new BuildingGround(t, h);
             int boxes = 0;
             for (int j = 0; j < n; j++)
             for (int i = 0; i < n; i++)
@@ -298,7 +304,7 @@ namespace Ghumante.Core.Meshing
             return boxes;
         }
 
-        private static void Box(TileData t, ref RoadSurface g, int i, int j, int w, int d, int n, double cell, int s, int[] step, uint c,
+        private static void Box(TileData t, ref BuildingGround g, int i, int j, int w, int d, int n, double cell, int s, int[] step, uint c,
                                 BuildingOptions o, MeshData m)
         {
             double x0 = i * cell, z0 = j * cell, x1 = (i + w) * cell, z1 = (j + d) * cell;
@@ -306,12 +312,20 @@ namespace Ghumante.Core.Meshing
             ground = Math.Min(ground, g.Height(0.5 * (x0 + x1), 0.5 * (z0 + z1)));
             double y0 = ground - o.SinkM, y1 = ground + s * HeightStepM;
             uint roof = MeshColor.Scale(c, 0.85f);
+            int v0 = m.VertexCount;
             // Walls: skip a side whose whole neighbour row is at least as tall.
             if (!Covered(step, n, i, j - 1, w, 1, s)) MeshKit.Quad(m, x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0, 0, 0, -1, c);
             if (!Covered(step, n, i, j + d, w, 1, s)) MeshKit.Quad(m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, c);
             if (!Covered(step, n, i - 1, j, 1, d, s)) MeshKit.Quad(m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, c);
             if (!Covered(step, n, i + w, j, 1, d, s)) MeshKit.Quad(m, x1, y0, z0, x1, y0, z1, x1, y1, z1, x1, y1, z0, 1, 0, 0, c);
             MeshKit.Quad(m, x0, y1, z0, x1, y1, z0, x1, y1, z1, x0, y1, z1, 0, 1, 0, roof);
+            KitPaint.Begin(m);
+            for (int v = v0; v < m.VertexCount; v++)
+            {
+                double ny = m.Normals[3 * v + 1], y = m.Positions[3 * v + 1], tt = (y - ground) / 3.0;
+                m.Uv0[2 * v] = (float)(ny > 0.5 ? MaterialChannel.Concrete : MaterialChannel.Plaster);
+                m.Uv0[2 * v + 1] = (float)(tt <= 0 ? 0.6 : tt >= 1 ? 1.0 : 0.6 + 0.4 * tt);
+            }
         }
 
         private static bool Covered(int[] step, int n, int i, int j, int w, int d, int s)
