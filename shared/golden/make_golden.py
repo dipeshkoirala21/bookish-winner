@@ -313,7 +313,7 @@ def make_tile_data_w2() -> TileData:
                 x_cm=-1, z_cm=-2, yaw_cdeg=0),
     ]
     # One RSTR per road (pre-canonical order, like RATR): a bridge with a ramp, deck and lowered/draped points and a
-    # corridor shift; a draped car road; a lowered underpass with a clearance (large and negative heights).
+    # corridor shift; a passage under a building; a lowered underpass with a clearance (large and negative heights).
     from ghumante_pipeline.model import RoadStructureFlags as SF, RoadStructureKind as SK
     from ghumante_pipeline.tile_format import DECK_DECK, DECK_DRAPED, DECK_RAMP, RoadStructureRec
 
@@ -326,13 +326,16 @@ def make_tile_data_w2() -> TileData:
     role2[-1] = DECK_DRAPED
     deck2 = -1250 - 400 * np.arange(n2, dtype=np.int64)
     td.road_structures = [
+        # Shifts every 5 m: 17 for the 5 corridor samples (80 m) of road 0.
         RoadStructureRec(kind=SK.BRIDGE, layer=1, flags=SF.CAR_ACCESSIBLE | SF.WATER_CROSSING | SF.DECK_FROM_TAGS
                          | SF.OVER_ROAD, clearance_cm=0, railing_dm=11, deck_role=role0, deck_cm=deck0,
-                         shift_cm=np.array([0, -35, 120, 16384, -16385], dtype=np.int64)),
-        RoadStructureRec(kind=SK.NONE, layer=0, flags=SF.CAR_ACCESSIBLE),
+                         shift_cm=np.array([0, -35, 120, 16384, -16385, 7, 7, 0, 0, -1, 0, 0, 0, 0, 0, 3, 64],
+                                           dtype=np.int64)),
+        RoadStructureRec(kind=SK.PASSAGE, layer=0, flags=SF.CAR_ACCESSIBLE | SF.DECK_FROM_TAGS, clearance_cm=450),
         RoadStructureRec(kind=SK.UNDERPASS, layer=-1, flags=SF.LOWERED | SF.DECK_FROM_TAGS | SF.SQUEEZED,
                          clearance_cm=571, railing_dm=0, deck_role=role2, deck_cm=deck2),
     ]
+    td.meta = {**(td.meta or {}), "ratr_corridor": "final"}  # the detail pass's final-corridor marker
     td.areas[0].flags = int(tile_format.AreaFlags.SACRED_NO_VEHICLE | tile_format.AreaFlags.HERITAGE_ZONE)
     td.areas[0].kind = AreaKind.COURTYARD
     return td

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Ghumante.Core.Data;
+using Ghumante.Core.Meshing.Roads;
 using NUnit.Framework;
 
 namespace Ghumante.Core.Tests
@@ -74,13 +75,18 @@ namespace Ghumante.Core.Tests
                 {
                     shifts++;
                     Assert.That(s.CorridorShiftCm, Is.EqualTo(sh));
-                    Assert.That(sh.Length, Is.EqualTo(td.RoadAttrs[i].CorridorCount), "one shift per corridor sample");
+                    Assert.That(RoadStructureRecord.ShiftCountFits(sh.Length, td.RoadAttrs[i].CorridorCount), Is.True,
+                                "a shift every 5 m along the corridor samples' length");
                 }
             }
             Assert.That(decks, Is.GreaterThanOrEqualTo(2));
             Assert.That(shifts, Is.EqualTo(1));
             Assert.That(td.RoadStructures.Any(s => s.Kind == RoadStructureKind.Bridge && s.IsElevated), Is.True);
             Assert.That(td.RoadStructures.Any(s => s.Kind == RoadStructureKind.Underpass && s.Has(RoadStructureFlags.Lowered)), Is.True);
+            RoadStructureRecord passage = td.RoadStructures.First(s => s.Kind == RoadStructureKind.Passage);
+            Assert.That(passage.ClearanceM, Is.EqualTo(4.5f).Within(1e-6), "a gateway keeps RoadClearance.MinOverheadClearanceM");
+            Assert.That(passage.HasHeights, Is.False);
+            Assert.That(td.FinalCorridors, Is.True, "META ratr_corridor = final");
         }
 
         [Test]
@@ -97,6 +103,7 @@ namespace Ghumante.Core.Tests
             Assert.That(s.IsElevated, Is.False);
             Assert.That(s.ShiftAtM(30), Is.EqualTo(0f));
             Assert.That(s.RoleAt(0), Is.EqualTo(DeckPointRole.Draped));
+            Assert.That(td.FinalCorridors, Is.False, "a stage-1 tile: RATR corridors are the space between buildings");
         }
 
         [Test]
@@ -113,6 +120,7 @@ namespace Ghumante.Core.Tests
             JsonElement f = enums.GetProperty("enums").GetProperty("RoadStructureFlags");
             Assert.That(f.GetProperty("CAR_ACCESSIBLE").GetInt32(), Is.EqualTo((int)RoadStructureFlags.CarAccessible));
             Assert.That(f.GetProperty("FOOT_OVERBRIDGE").GetInt32(), Is.EqualTo((int)RoadStructureFlags.FootOverbridge));
+            Assert.That(k.GetProperty("PASSAGE").GetInt32(), Is.EqualTo((int)RoadStructureKind.Passage));
             Assert.That(f.GetProperty("OVER_ROAD").GetInt32(), Is.EqualTo((int)RoadStructureFlags.OverRoad));
             Assert.That(enums.GetProperty("enums").GetProperty("BuildingFrontFlags").GetProperty("TRIMMED_FOR_ROAD").GetInt32(),
                         Is.EqualTo((int)BuildingFrontFlags.TrimmedForRoad));
@@ -210,8 +218,9 @@ namespace Ghumante.Core.Tests
             return w.Bytes();
         }
 
-        /// <summary>A bridge: draped start, a ramp at 1300.25 m, a deck at 1301.00 m; two shifts.</summary>
-        private static W Rstr(int deckPoints = 3, int shifts = 2)
+        /// <summary>A bridge: draped start, a ramp at 1300.25 m, a deck at 1301.00 m; five shifts (every 5 m, the
+        /// 20 m of two RATR corridor samples).</summary>
+        private static W Rstr(int deckPoints = 3, int shifts = 5)
         {
             var w = new W().Varint(1).U8((int)RoadStructureKind.Bridge).U8(1).U8(0x07).Varint(0).U8(11).Varint((ulong)deckPoints);
             if (deckPoints > 0) w.Varint(0).Deck(130025, true).Deck(75, false);
@@ -236,9 +245,10 @@ namespace Ghumante.Core.Tests
             Assert.That(float.IsNaN(s.DeckY[0]), Is.True);
             Assert.That(s.DeckY[1], Is.EqualTo(1300.25f).Within(1e-3));
             Assert.That(s.DeckY[2], Is.EqualTo(1301.00f).Within(1e-3));
-            Assert.That(s.CorridorShiftCm, Is.EqualTo(new[] { -35, 120 }));
+            Assert.That(s.CorridorShiftCm, Is.EqualTo(new[] { -35, 120, 120, 120, 120 }));
             Assert.That(s.ShiftAtM(0), Is.EqualTo(-0.35f).Within(1e-6));
-            Assert.That(s.ShiftAtM(10), Is.EqualTo(0.425f).Within(1e-6));
+            Assert.That(s.ShiftAtM(2.5), Is.EqualTo(0.425f).Within(1e-6));
+            Assert.That(s.ShiftAtM(12.5), Is.EqualTo(1.2f).Within(1e-6));
             Assert.That(s.ShiftAtM(500), Is.EqualTo(1.2f).Within(1e-6));
             Assert.That(s.DeckDepth, Is.EqualTo(RoadStructureRecord.DeckDepthM));
 
@@ -261,8 +271,11 @@ namespace Ghumante.Core.Tests
             Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("RSTR", Rstr(3, 0).Bytes()))));
             // Deck points must equal the road's points (context included).
             Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RSTR", Rstr(4, 0).Bytes()))));
-            // Shifts must match the RATR corridor samples (and need RATR).
+            // Shifts must cover the RATR corridor samples' length every 5 m (and need RATR).
             Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RATR", Ratr(3)), C("RSTR", Rstr().Bytes()))));
+            Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RATR", Ratr(2)), C("RSTR", Rstr(3, 4).Bytes()))));
+            Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RATR", Ratr(2)), C("RSTR", Rstr(3, 9).Bytes()))));
+            Assert.DoesNotThrow(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RATR", Ratr(2)), C("RSTR", Rstr(3, 8).Bytes()))));
             Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RSTR", Rstr().Bytes()))));
             // Trailing bytes.
             Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RATR", Ratr(2)),
@@ -271,6 +284,23 @@ namespace Ghumante.Core.Tests
             byte[] full = Rstr().Bytes();
             Assert.Throws<InvalidDataException>(() => TileReader.Decode(Tile(C("ROAD", Road()), C("RATR", Ratr(2)),
                                                                              C("RSTR", full.Take(full.Length - 1).ToArray()))));
+        }
+
+        private static byte[] Meta(string json)
+        {
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(json);
+            return new W().Varint((ulong)utf8.Length).Bytes().Concat(utf8).ToArray();
+        }
+
+        [Test]
+        public void MetaMarksFinalCorridors()
+        {
+            Assert.That(TileReader.Decode(Tile(C("META", Meta("{\"ratr_corridor\":\"final\",\"region\":\"x\"}")))).FinalCorridors, Is.True);
+            Assert.That(TileReader.Decode(Tile(C("META", Meta("{\"region\":\"x\", \"ratr_corridor\" : \"final\"}")))).FinalCorridors, Is.True);
+            Assert.That(TileReader.Decode(Tile(C("META", Meta("{\"ratr_corridor\":\"finalish\"}")))).FinalCorridors, Is.False);
+            Assert.That(TileReader.Decode(Tile(C("META", Meta("{\"note\":\"ratr_corridor\",\"region\":\"final\"}")))).FinalCorridors, Is.False);
+            Assert.That(TileReader.Decode(Tile(C("META", Meta("{\"region\":\"x\"}")))).FinalCorridors, Is.False);
+            Assert.That(TileReader.Decode(Tile(C("ROAD", Road()))).FinalCorridors, Is.False, "no META: a stage-1 reading");
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -299,7 +329,7 @@ namespace Ghumante.Core.Tests
                     }
                     if (a.CorridorDm.Any(dm => dm < 48))
                         Assert.That(s.Has(RoadStructureFlags.Squeezed), Is.True, "corridor under 4.8 m only where squeezed");
-                    if (s.HasShift) Assert.That(s.CorridorShiftCm.Length, Is.EqualTo(a.CorridorCount));
+                    if (s.HasShift) Assert.That(RoadStructureRecord.ShiftCountFits(s.CorridorShiftCm.Length, a.CorridorCount), Is.True);
                     if (s.Kind == RoadStructureKind.Bridge && s.Has(RoadStructureFlags.WaterCrossing) && s.IsElevated) bridgesOverWater++;
                     if (s.Has(RoadStructureFlags.FootOverbridge) && s.IsElevated) footOverbridges++;
                     if (s.Kind == RoadStructureKind.Underpass && s.ClearanceM > 0)
@@ -331,6 +361,281 @@ namespace Ghumante.Core.Tests
         private static bool RoadWidthClassAllowsCars(RoadClass c)
         {
             return c == RoadClass.Residential || c == RoadClass.Unclassified || c == RoadClass.Service || c == RoadClass.LivingStreet;
+        }
+
+        private static bool IsFootClass(RoadClass c)
+        {
+            return c == RoadClass.Footway || c == RoadClass.Path || c == RoadClass.Steps || c == RoadClass.Cycleway || c == RoadClass.Bridleway;
+        }
+
+        /// <summary>Class ramp grade (pipeline structures.GRADE).</summary>
+        private static double ClassGrade(RoadClass c)
+        {
+            switch (c)
+            {
+                case RoadClass.Motorway:
+                case RoadClass.Trunk:
+                case RoadClass.Primary:
+                    return 0.05;
+                case RoadClass.Secondary:
+                case RoadClass.Tertiary:
+                    return 0.06;
+                case RoadClass.Track:
+                    return 0.10;
+                default:
+                    return 0.08;
+            }
+        }
+
+        /// <summary>The terrain the pipeline solved against: the tile's quantised HGHT samples, bilinear inside the cell
+        /// (tile-local metres).</summary>
+        private static double Terrain(TileData t, double x, double z)
+        {
+            int n = t.HeightsN;
+            double step = t.Tile.Size / (n - 1);
+            double fi = x / step, fj = z / step;
+            int i0 = Math.Max(0, Math.Min(n - 2, (int)Math.Floor(fi)));
+            int j0 = Math.Max(0, Math.Min(n - 2, (int)Math.Floor(fj)));
+            double u = Math.Max(0, Math.Min(1, fi - i0)), v = Math.Max(0, Math.Min(1, fj - j0));
+            return (t.HeightAt(j0, i0) * (1 - u) + t.HeightAt(j0, i0 + 1) * u) * (1 - v) +
+                   (t.HeightAt(j0 + 1, i0) * (1 - u) + t.HeightAt(j0 + 1, i0 + 1) * u) * v;
+        }
+
+        /// <summary>A road piece's points (tile metres) and surface heights (deck or terrain).</summary>
+        private static void Profile(TileData t, int road, out double[] x, out double[] z, out double[] y)
+        {
+            RoadRecord r = t.Roads[road];
+            RoadStructureRecord s = t.RoadStructureOf(road);
+            int n = r.PointCount;
+            x = new double[n];
+            z = new double[n];
+            y = new double[n];
+            for (int k = 0; k < n; k++)
+            {
+                x[k] = r.Points[2 * k] / 100.0;
+                z[k] = r.Points[2 * k + 1] / 100.0;
+                float d;
+                y[k] = s.TryHeightAt(k, out d) ? d : Terrain(t, x[k], z[k]);
+            }
+        }
+
+        private static bool Inside(TileData t, double x, double z)
+        {
+            return x >= 0 && z >= 0 && x <= t.Tile.Size && z <= t.Tile.Size;
+        }
+
+        /// <summary>
+        /// W2 detail-pass review: no road steps. Along every motor-road piece with heights, the offset from the terrain
+        /// changes by at most <see cref="RoadStructureRecord.SteepestRampGrade"/> per metre (+0.1 m), and a deck's
+        /// height by at most that or the terrain's own fall; points that two pieces share in a tile carry one height
+        /// (a difference of 6 m or more is a grade separation whose stations coincide at the crossing, not a step).
+        /// </summary>
+        [Test]
+        public void SampleRoadHeightsNeverStepAndAgreeAtSharedPoints()
+        {
+            int pairs = 0, aboveClassGrade = 0, shared = 0;
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                if (t.Roads.Count == 0 || t.HeightsN < 2) continue;
+                var at = new Dictionary<long, KeyValuePair<double, ulong>>();
+                for (int i = 0; i < t.Roads.Count; i++)
+                {
+                    RoadRecord r = t.Roads[i];
+                    RoadStructureRecord s = t.RoadStructureOf(i);
+                    double[] x, z, y;
+                    Profile(t, i, out x, out z, out y);
+                    for (int k = 0; k < x.Length; k++)
+                    {
+                        if (!Inside(t, x[k], z[k])) continue;
+                        long key = ((long)r.Points[2 * k] << 32) ^ (uint)r.Points[2 * k + 1];
+                        KeyValuePair<double, ulong> prev;
+                        if (!at.TryGetValue(key, out prev))
+                        {
+                            at[key] = new KeyValuePair<double, ulong>(y[k], r.OsmWayId);
+                            continue;
+                        }
+                        double dy = Math.Abs(prev.Key - y[k]);
+                        if (dy >= 6.0) continue;
+                        shared++;
+                        Assert.That(dy, Is.LessThanOrEqualTo(0.05), id + ": w" + r.OsmWayId + " and w" + prev.Value + " meet at different heights");
+                    }
+                    if (s.DeckY == null || IsFootClass(r.RoadClass)) continue;
+                    for (int k = 0; k + 1 < x.Length; k++)
+                    {
+                        if (!Inside(t, x[k], z[k]) || !Inside(t, x[k + 1], z[k + 1])) continue;
+                        DeckPointRole ra = s.RoleAt(k), rb = s.RoleAt(k + 1);
+                        if (ra == DeckPointRole.Draped && rb == DeckPointRole.Draped) continue;
+                        double L = Math.Sqrt((x[k + 1] - x[k]) * (x[k + 1] - x[k]) + (z[k + 1] - z[k]) * (z[k + 1] - z[k]));
+                        if (L < 0.05) continue;
+                        double ta = Terrain(t, x[k], z[k]), tb = Terrain(t, x[k + 1], z[k + 1]);
+                        pairs++;
+                        string what = id + ": w" + r.OsmWayId + " point " + k;
+                        if (ra == DeckPointRole.Deck && rb == DeckPointRole.Deck)
+                        {
+                            Assert.That(Math.Abs(y[k + 1] - y[k]), Is.LessThanOrEqualTo(Math.Max(RoadStructureRecord.SteepestRampGrade * L, Math.Abs(tb - ta)) + 0.1), what + " (deck)");
+                            continue;
+                        }
+                        double step = Math.Abs((y[k + 1] - tb) - (y[k] - ta));
+                        Assert.That(step, Is.LessThanOrEqualTo(RoadStructureRecord.SteepestRampGrade * L + 0.1), what + " steps");
+                        if (step > ClassGrade(r.RoadClass) * L + 0.1) aboveClassGrade++;
+                    }
+                }
+            }
+            Assert.That(pairs, Is.GreaterThan(1000), "ramp and deck segments checked");
+            Assert.That(shared, Is.GreaterThan(1000), "junction points checked");
+            Assert.That(aboveClassGrade, Is.LessThan(pairs / 20), "steeper than the class grade only on a few riverside connectors");
+        }
+
+        /// <summary>
+        /// Decision 3 under the deck's whole width: wherever a deck passes over another road in the sample, every point
+        /// of the lower road within half the deck road's corridor of its centreline keeps 5.5 m (−5 cm) to the deck's
+        /// underside (deck surface − <see cref="RoadStructureRecord.DeckDepthFor"/>).
+        /// </summary>
+        [Test]
+        public void SampleClearanceHoldsUnderTheWholeDeck()
+        {
+            int crossings = 0, samples = 0;
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                if (t.Roads.Count == 0 || t.HeightsN < 2) continue;
+                for (int u = 0; u < t.Roads.Count; u++)
+                {
+                    RoadStructureRecord su = t.RoadStructureOf(u);
+                    if (su.DeckY == null) continue;
+                    double[] ux, uz, uy;
+                    Profile(t, u, out ux, out uz, out uy);
+                    var tu = t;
+                    Func<int, double, double, double, double> hu = (k, f, px, pz) => SurfaceAt(tu, su, k, f, uy, px, pz);
+                    double depth = su.DeckDepthFor(t.Roads[u].RoadClass);
+                    int[] cdm = t.RoadAttrOf(u).CorridorDm;
+                    double half = 0.5 * (cdm.Length > 0 ? cdm.Min() / 10.0 : 4.8);
+                    for (int l = 0; l < t.Roads.Count; l++)
+                    {
+                        if (l == u) continue;
+                        double[] lx, lz, ly;
+                        Profile(t, l, out lx, out lz, out ly);
+                        RoadStructureRecord sl = t.RoadStructureOf(l);
+                        for (int a = 0; a + 1 < ux.Length; a++)
+                        {
+                            if (su.RoleAt(a) != DeckPointRole.Deck && su.RoleAt(a + 1) != DeckPointRole.Deck) continue;
+                            for (int b = 0; b + 1 < lx.Length; b++)
+                            {
+                                double sa, sb;
+                                if (!Intersect(ux[a], uz[a], ux[a + 1], uz[a + 1], lx[b], lz[b], lx[b + 1], lz[b + 1], out sa, out sb)) continue;
+                                double cx = lx[b] + sb * (lx[b + 1] - lx[b]), cz = lz[b] + sb * (lz[b + 1] - lz[b]);
+                                if (!Inside(t, cx, cz)) continue;
+                                double yu = hu(a, sa, cx, cz), yl = SurfaceAt(t, sl, b, sb, ly, cx, cz);
+                                if (yu - depth - yl < 2.0) continue; // a junction or an at-grade crossing, not a grade separation
+                                crossings++;
+                                // Walk the lower road both ways from the crossing while it stays under the deck road's corridor.
+                                for (int dir = -1; dir <= 1; dir += 2)
+                                {
+                                    int seg = b;
+                                    double f = sb;
+                                    for (double walked = 0; walked <= 60.0; walked += 0.5)
+                                    {
+                                        double px, pz;
+                                        if (!WalkTo(lx, lz, ref seg, ref f, dir, walked == 0 ? 0 : 0.5, out px, out pz)) break;
+                                        double py = SurfaceAt(t, sl, seg, f, ly, px, pz);
+                                        double qy, dist;
+                                        bool interior;
+                                        if (!Nearest(ux, uz, hu, px, pz, out dist, out qy, out interior)) continue;
+                                        if (dist > half) continue;
+                                        if (!interior) continue; // beyond the deck road's piece: its approach way carries it
+                                        samples++;
+                                        Assert.That(qy - depth - py, Is.GreaterThanOrEqualTo(RoadClearance.MinUnderpassClearanceM - 0.05),
+                                                    id + ": w" + t.Roads[l].OsmWayId + " under w" + t.Roads[u].OsmWayId + " at " + px.ToString("F1") + "," + pz.ToString("F1"));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Assert.That(crossings, Is.GreaterThan(20), "decks over roads in the sample");
+            Assert.That(samples, Is.GreaterThan(crossings * 5), "lower-road points under the decks");
+        }
+
+        private static bool Intersect(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz, out double s, out double u)
+        {
+            s = u = 0;
+            double rx = bx - ax, rz = bz - az, qx = dx - cx, qz = dz - cz;
+            double den = rx * qz - rz * qx;
+            if (Math.Abs(den) < 1e-12) return false;
+            double wx = cx - ax, wz = cz - az;
+            s = (wx * qz - wz * qx) / den;
+            u = (wx * rz - wz * rx) / den;
+            return s >= 0 && s <= 1 && u >= 0 && u <= 1;
+        }
+
+        /// <summary>The surface height at fraction <paramref name="f"/> of segment <paramref name="k"/> of a road piece
+        /// (point (px, pz)): the terrain where both ends are draped, else linear between the two point heights (a
+        /// point between two vertices is draped only when both are, DATA_FORMATS 1.15).</summary>
+        private static double SurfaceAt(TileData t, RoadStructureRecord s, int k, double f, double[] y, double px, double pz)
+        {
+            if (s.RoleAt(k) == DeckPointRole.Draped && s.RoleAt(k + 1) == DeckPointRole.Draped) return Terrain(t, px, pz);
+            return y[k] + f * (y[k + 1] - y[k]);
+        }
+
+        /// <summary>Move <paramref name="step"/> metres along a polyline from (seg, f) in direction dir; false past an end.</summary>
+        private static bool WalkTo(double[] x, double[] z, ref int seg, ref double f, int dir, double step, out double px, out double pz)
+        {
+            px = pz = 0;
+            double left = step;
+            while (true)
+            {
+                double L = Math.Sqrt((x[seg + 1] - x[seg]) * (x[seg + 1] - x[seg]) + (z[seg + 1] - z[seg]) * (z[seg + 1] - z[seg]));
+                double room = L <= 1e-9 ? 0 : (dir > 0 ? (1 - f) * L : f * L);
+                if (left <= room || L <= 1e-9 && left <= 0)
+                {
+                    if (L > 1e-9) f += dir * left / L;
+                    break;
+                }
+                left -= room;
+                if (dir > 0)
+                {
+                    if (seg + 2 >= x.Length) return false;
+                    seg++;
+                    f = 0;
+                }
+                else
+                {
+                    if (seg == 0) return false;
+                    seg--;
+                    f = 1;
+                }
+            }
+            px = x[seg] + f * (x[seg + 1] - x[seg]);
+            pz = z[seg] + f * (z[seg + 1] - z[seg]);
+            return true;
+        }
+
+        /// <summary>Nearest point of a polyline: distance, interpolated height, and whether it lies inside the polyline
+        /// (not clamped to its first or last point).</summary>
+        private static bool Nearest(double[] x, double[] z, Func<int, double, double, double, double> height, double px, double pz, out double dist, out double qy, out bool interior)
+        {
+            dist = double.MaxValue;
+            qy = 0;
+            interior = false;
+            for (int k = 0; k + 1 < x.Length; k++)
+            {
+                double ex = x[k + 1] - x[k], ez = z[k + 1] - z[k];
+                double l2 = ex * ex + ez * ez;
+                double f = l2 <= 1e-12 ? 0 : ((px - x[k]) * ex + (pz - z[k]) * ez) / l2;
+                bool clamped = (f < 0 && k == 0) || (f > 1 && k + 2 == x.Length);
+                f = Math.Max(0, Math.Min(1, f));
+                double qx = x[k] + f * ex, qz = z[k] + f * ez;
+                double d = Math.Sqrt((qx - px) * (qx - px) + (qz - pz) * (qz - pz));
+                if (d < dist)
+                {
+                    dist = d;
+                    qy = height(k, f, qx, qz);
+                    interior = !clamped;
+                }
+            }
+            return x.Length >= 2;
         }
     }
 }

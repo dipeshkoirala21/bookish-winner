@@ -736,7 +736,7 @@ def build_report(manifest: dict, stats: dict, warnings: list[str]) -> str:
         det = w2.get("detail") or {}
         if det:
             lines += ["", "## Detail pass (docs/W2_DETAIL_CONTRACT.md decisions 1, 3-5)", ""]
-            for k in ("structures", "corridors", "trim", "car"):
+            for k in ("structures", "corridors", "protected_clip", "trim", "remaining", "car"):
                 if k in det:
                     lines.append(f"* **{k}**: `{json.dumps(det[k], ensure_ascii=False, sort_keys=True)}`")
             lines.append(f"* **routing**: {s.get('graph_no_car_ways', 0)} ways lost CAR, JEEP and BUS "

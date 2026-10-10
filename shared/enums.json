@@ -604,7 +604,8 @@
    "FLYOVER": 2,
    "UNDERPASS": 3,
    "TUNNEL": 4,
-   "FORD": 5
+   "FORD": 5,
+   "PASSAGE": 6
   },
   "RoadStructureFlags": {
    "CAR_ACCESSIBLE": 1,

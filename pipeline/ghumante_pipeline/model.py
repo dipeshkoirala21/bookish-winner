@@ -714,6 +714,7 @@ class RoadStructureKind(IntEnum):
     UNDERPASS = 3  # passes under a bridge or flyover deck (lowered profile when the deck cannot clear it)
     TUNNEL = 4  # a real tunnel (not drawn in W2, kept out of car routes)
     FORD = 5  # ford=yes
+    PASSAGE = 6  # under a building that stays intact (tunnel=building_passage, covered, indoor): a gateway to mesh
 
 
 class RoadStructureFlags(IntFlag):

@@ -75,7 +75,8 @@ def test_golden_content_covers_the_formats(generated):
     assert {c["fourcc"] for c in w2["chunks"]} == {"AREA", "BFNT", "BIOM", "BLDG", "HGHT", "JNCT", "LINE", "META",
                                                    "NAME", "POIS", "PROP", "RATR", "ROAD", "RSTR", "SEED"}
     rs = w2["road_structures"]
-    assert len(rs) == len(w2["roads"]) and {r["kind"] for r in rs} == {0, 1, 3}
+    assert len(rs) == len(w2["roads"]) and {r["kind"] for r in rs} == {1, 3, 6}  # bridge, underpass, passage
+    assert w2["meta"]["ratr_corridor"] == "final"  # the final-corridor marker (DATA_FORMATS 1.10)
     assert any(r["shift_cm"] for r in rs) and any(v is not None and v < 0 for r in rs for v in r["deck_cm"])
     assert all(len(r["deck_role"]) in (0, len(rd["points"]) // 2) for r, rd in zip(rs, w2["roads"]))
     assert len(w2["road_attrs"]) == len(w2["roads"]) and len(w2["building_fronts"]) == len(w2["buildings"])

@@ -193,6 +193,12 @@ namespace Ghumante.Core.Data
         /// <summary>The META chunk's JSON text, or null.</summary>
         public string MetaJson;
 
+        /// <summary>True when META says <c>"ratr_corridor": "final"</c> (W2 detail pass, DATA_FORMATS 1.10 and 1.11):
+        /// <see cref="RoadAttrRecord.CorridorDm"/> holds the final game corridor of every drawn road (never 0, never
+        /// reduced by a further clearance). False for older packs, where it is the stage-1 space between buildings
+        /// (2 x min(dLeft, dRight), 0 = open). Readers use this marker, not the presence of RSTR.</summary>
+        public bool FinalCorridors;
+
         public bool HasDetail
         {
             get { return (Flags & Ght.FlagHasDetail) != 0; }

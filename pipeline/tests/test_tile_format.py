@@ -132,8 +132,8 @@ def make_tile(seed: int = 0, n_roads=40, n_lines=10, n_bldg=200, n_areas=12, n_p
                 kind=int(rng.integers(0, 6)), layer=int(rng.integers(-3, 4)), flags=int(rng.integers(0, 256)),
                 clearance_cm=int(rng.integers(0, 900)) * int(rng.random() < 0.3), railing_dm=int(rng.integers(0, 15)),
                 deck_role=role, deck_cm=rng.integers(120000, 140000, len(role)).astype(np.int64),
-                shift_cm=(rng.integers(-300, 300, len(a.corridor_dm)).astype(np.int64)
-                          if rng.random() < 0.3 else np.zeros(0, dtype=np.int64))))
+                shift_cm=(rng.integers(-300, 300, 4 * len(a.corridor_dm) - int(rng.integers(0, 4))).astype(np.int64)
+                          if rng.random() < 0.3 and len(a.corridor_dm) else np.zeros(0, dtype=np.int64))))
         for b in td.buildings:
             n = len(b.rings[0])
             fe = int(rng.integers(0, n)) if rng.random() < 0.8 else 255
@@ -806,7 +806,8 @@ def _rstr_tile():
              RoadRec(osm_way_id=5, road_class=13, points=np.array([[100, 100], [900, 100]]))]
     attrs = [RoadAttrRec(corridor_dm=np.array([90, 96])), RoadAttrRec(corridor_dm=np.array([48]))]
     structs = [RoadStructureRec(kind=1, layer=1, flags=0x07, railing_dm=11, deck_role=np.array([0, 2, 1, 1]),
-                                deck_cm=np.array([0, 130120, 130480, 130475]), shift_cm=np.array([0, -35])),
+                                deck_cm=np.array([0, 130120, 130480, 130475]),
+                                shift_cm=np.array([0, -35, -40, -40, 0])),  # every 5 m: 2 corridor samples -> 5..8
                RoadStructureRec(kind=0, flags=0)]
     return TileData(tile=TILE, data_version=2, roads=roads, road_attrs=attrs, road_structures=structs, has_detail=True)
 
@@ -819,8 +820,17 @@ def test_rstr_round_trip_and_order():
     assert s0.kind == 0 and len(s0.deck_role) == 0 and len(s0.shift_cm) == 0
     assert s1.kind == 1 and s1.layer == 1 and s1.flags == 7 and s1.railing_dm == 11
     assert s1.deck_role.tolist() == [0, 2, 1, 1] and s1.deck_cm.tolist() == [0, 130120, 130480, 130475]
-    assert s1.shift_cm.tolist() == [0, -35]
+    assert s1.shift_cm.tolist() == [0, -35, -40, -40, 0]
     assert out == canonicalize(td)
+
+
+def test_rstr_shift_count_ties_to_the_corridor_samples():
+    from ghumante_pipeline.tile_format import shift_count_ok
+
+    assert shift_count_ok(0, 0) and shift_count_ok(0, 3)
+    assert shift_count_ok(1, 1) and shift_count_ok(4, 1) and not shift_count_ok(5, 1)
+    assert not shift_count_ok(4, 2) and shift_count_ok(5, 2) and shift_count_ok(8, 2) and not shift_count_ok(9, 2)
+    assert not shift_count_ok(1, 0)
 
 
 def test_rstr_validation():
@@ -833,12 +843,12 @@ def test_rstr_validation():
     s = dataclasses.replace(td.road_structures[0], deck_role=np.array([1, 1]), deck_cm=np.array([1, 2]))
     with pytest.raises(ValueError, match="deck points"):
         encode_tile(dataclasses.replace(td, road_structures=[s, td.road_structures[1]]))
-    s = dataclasses.replace(td.road_structures[0], shift_cm=np.array([1, 2, 3]))
+    s = dataclasses.replace(td.road_structures[0], shift_cm=np.array([1, 2, 3, 4]))
     with pytest.raises(ValueError, match="shifts"):
         encode_tile(dataclasses.replace(td, road_structures=[s, td.road_structures[1]]))
     # All-draped deck arrays and all-zero shifts are written as none.
     s = dataclasses.replace(td.road_structures[0], deck_role=np.zeros(4, dtype=np.uint8), deck_cm=np.ones(4, dtype=np.int64),
-                            shift_cm=np.zeros(2, dtype=np.int64))
+                            shift_cm=np.zeros(5, dtype=np.int64))
     out = decode_tile(encode_tile(dataclasses.replace(td, road_structures=[s, td.road_structures[1]])))
     assert len(out.road_structures[1].deck_role) == 0 and len(out.road_structures[1].shift_cm) == 0
 

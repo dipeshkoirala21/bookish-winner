@@ -7,8 +7,13 @@ namespace Ghumante.Core.Data
 
     /// <summary>
     /// Attributes of one ROAD record (RATR, same order as ROAD). <see cref="CorridorDm"/> holds the corridor samples
-    /// every 20 m from the piece's first rendered point: <c>2 × min(dLeft, dRight)</c> to the first building in
-    /// decimetres, 0 = open (no building within 40 m). Empty when unknown; never null in decoded data.
+    /// every 20 m from the piece's first rendered point, in decimetres. In a W2 detail-pass tile
+    /// (<see cref="TileData.FinalCorridors"/>, META <c>"ratr_corridor": "final"</c>) each sample is the road's final
+    /// game corridor (DATA_FORMATS.md 1.11): the full width of the clear band the carriageway, shoulders and
+    /// footpaths are drawn in, at least <c>RoadClearance.MinCorridorM</c> 4.8 m (narrower only where SQUEEZED between
+    /// protected footprints), the minimum over ±20 m around the sample, never 0, with no further clearance to
+    /// subtract; buildings were trimmed back to it. In older tiles it is the stage-1 measurement
+    /// <c>2 × min(dLeft, dRight)</c> to the first building, 0 = open. Empty when unknown; never null in decoded data.
     /// </summary>
     public struct RoadAttrRecord
     {

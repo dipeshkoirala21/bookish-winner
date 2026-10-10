@@ -447,7 +447,7 @@
    "wall_material": 2
   }
  ],
- "bytes": 1767,
+ "bytes": 1797,
  "chunks": [
   {
    "codec": 1,
@@ -495,48 +495,48 @@
    "codec": 1,
    "fourcc": "META",
    "offset": 1132,
-   "stored_size": 141
+   "stored_size": 157
   },
   {
    "codec": 1,
    "fourcc": "NAME",
-   "offset": 1273,
+   "offset": 1289,
    "stored_size": 174
   },
   {
    "codec": 0,
    "fourcc": "POIS",
-   "offset": 1447,
+   "offset": 1463,
    "stored_size": 48
   },
   {
    "codec": 1,
    "fourcc": "PROP",
-   "offset": 1495,
+   "offset": 1511,
    "stored_size": 60
   },
   {
    "codec": 0,
    "fourcc": "RATR",
-   "offset": 1555,
+   "offset": 1571,
    "stored_size": 53
   },
   {
    "codec": 0,
    "fourcc": "ROAD",
-   "offset": 1608,
+   "offset": 1624,
    "stored_size": 99
   },
   {
    "codec": 1,
    "fourcc": "RSTR",
-   "offset": 1707,
-   "stored_size": 46
+   "offset": 1723,
+   "stored_size": 60
   },
   {
    "codec": 0,
    "fourcc": "SEED",
-   "offset": 1753,
+   "offset": 1783,
    "stored_size": 14
   }
  ],
@@ -1198,6 +1198,7 @@
  ],
  "meta": {
   "note": "नमस्ते \"quoted\"",
+  "ratr_corridor": "final",
   "region": "golden_region",
   "sources": {
    "dem": "glo30",
@@ -1205,7 +1206,7 @@
    "osm": "d41d8cd98f00b204e9800998ecf8427e"
   }
  },
- "meta_json": "{\"note\":\"नमस्ते \\\"quoted\\\"\",\"region\":\"golden_region\",\"sources\":{\"dem\":\"glo30\",\"landcover\":\"worldcover\",\"osm\":\"d41d8cd98f00b204e9800998ecf8427e\"}}",
+ "meta_json": "{\"note\":\"नमस्ते \\\"quoted\\\"\",\"ratr_corridor\":\"final\",\"region\":\"golden_region\",\"sources\":{\"dem\":\"glo30\",\"landcover\":\"worldcover\",\"osm\":\"d41d8cd98f00b204e9800998ecf8427e\"}}",
  "names": [
   [
    "बागमती",
@@ -1248,7 +1249,7 @@
    ""
   ]
  ],
- "payload_crc32": 2515970352,
+ "payload_crc32": 1062957732,
  "pois": [
   {
    "ele_dm": 88488,
@@ -1410,11 +1411,11 @@
    "shift_cm": []
   },
   {
-   "clearance_cm": 0,
+   "clearance_cm": 450,
    "deck_cm": [],
    "deck_role": [],
-   "flags": 1,
-   "kind": 0,
+   "flags": 5,
+   "kind": 6,
    "layer": 0,
    "railing_dm": 0,
    "shift_cm": []
@@ -1442,7 +1443,19 @@
     -35,
     120,
     16384,
-    -16385
+    -16385,
+    7,
+    7,
+    0,
+    0,
+    -1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    64
    ]
   }
  ],

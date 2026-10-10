@@ -234,6 +234,7 @@ namespace Ghumante.Core.Data
             if (r != null)
             {
                 td.MetaJson = r.Str();
+                td.FinalCorridors = MetaHasString(td.MetaJson, "ratr_corridor", "final");
                 Done(r, "META");
             }
             return td;
@@ -518,10 +519,35 @@ namespace Ghumante.Core.Data
             }
         }
 
+        /// <summary>True when the flat JSON object <paramref name="json"/> maps <paramref name="key"/> to the string
+        /// <paramref name="value"/> (whitespace around the colon allowed; no escapes in either).</summary>
+        internal static bool MetaHasString(string json, string key, string value)
+        {
+            if (json == null) return false;
+            string k = "\"" + key + "\"";
+            int i = json.IndexOf(k, StringComparison.Ordinal);
+            while (i >= 0)
+            {
+                int j = i + k.Length;
+                while (j < json.Length && char.IsWhiteSpace(json[j])) j++;
+                if (j < json.Length && json[j] == ':')
+                {
+                    j++;
+                    while (j < json.Length && char.IsWhiteSpace(json[j])) j++;
+                    string v = "\"" + value + "\"";
+                    return string.CompareOrdinal(json, j, v, 0, v.Length) == 0;
+                }
+                i = json.IndexOf(k, i + 1, StringComparison.Ordinal);
+            }
+            return false;
+        }
+
         /// <summary>
         /// RSTR (DATA_FORMATS 1.15): one record per ROAD record, same order. Deck codes per point: 0 = draped, else
         /// <c>code - 1 = (zigzag(y_cm - prev_cm) &lt;&lt; 1) | ramp</c> with <c>prev_cm</c> the previous non-draped
-        /// height (0 before the first); shifts are svarint centimetres, one per RATR corridor sample.
+        /// height (0 before the first); shifts are svarint centimetres, one every
+        /// <see cref="RoadStructureRecord.ShiftSpacingM"/> from the piece's first rendered point
+        /// (<see cref="RoadStructureRecord.ShiftCountFits"/> ties their count to the RATR corridor samples).
         /// </summary>
         private static void ReadRoadStructures(BinReader r, TileData td)
         {
@@ -576,7 +602,7 @@ namespace Ghumante.Core.Data
                 if (ns != 0)
                 {
                     int nc = ratr ? td.RoadAttrs[k].CorridorCount : 0;
-                    if (ns != nc)
+                    if (!RoadStructureRecord.ShiftCountFits(ns, nc))
                         throw new InvalidDataException("RSTR " + k + ": " + ns + " shifts for " + nc + " RATR corridor samples");
                     s.CorridorShiftCm = new int[ns];
                     for (int i = 0; i < ns; i++) s.CorridorShiftCm[i] = SvarintInt(r);

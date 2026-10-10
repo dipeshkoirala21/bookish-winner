@@ -208,6 +208,8 @@ class _State:
 
 
 _STATE: _State | None = None
+META_CORRIDOR_KEY = "ratr_corridor"  # META: "final" = RATR.corridor_dm is the W2 detail pass's final game corridor
+META_CORRIDOR_FINAL = "final"
 
 
 def _segment_cells(lines: Sequence[np.ndarray], size: float, tx_lo: int, tx_hi: int, ty_lo: int, ty_hi: int
@@ -378,9 +380,10 @@ def _prepare(region: Region, extract: Extract, dem: DemSampler, lc_by_level: dic
     if w2 is not None:
         from .style import RoadSegments
 
-        st.road_by_id = {int(r.osm_id): r for r in ex.roads}
-        st.road_segments = RoadSegments.build(st.roads_game, [r.osm_id for r in ex.roads], [r.cls for r in ex.roads])
-        st.road_nodes = frozenset(int(n) for r in ex.roads for n in np.asarray(r.node_ids).tolist())
+        st.road_by_id = {int(r.osm_id): r for r in st.extract.roads}
+        rs = st.extract.roads
+        st.road_segments = RoadSegments.build(st.roads_game, [r.osm_id for r in rs], [r.cls for r in rs])
+        st.road_nodes = frozenset(int(n) for r in st.extract.roads for n in np.asarray(r.node_ids).tolist())
         if ex.props:
             x, z = projection.lonlat_to_game(np.array([p.lon for p in ex.props]), np.array([p.lat for p in ex.props]))
             st.prop_xz = np.stack([np.asarray(x), np.asarray(z)], axis=1)
@@ -423,35 +426,54 @@ def _prepare_detail(st: _State, region: Region, tiles_by_level: dict[int, list[T
             return np.full(len(np.atleast_1d(x)), int(AreaType.URBAN))
         return np.asarray(w2.grid.at(np.asarray(x), np.asarray(z)), dtype=np.int64).reshape(-1)
 
-    mids = np.array([p[len(p) // 2] if len(p) else (0.0, 0.0) for p in st.roads_game], dtype=np.float64).reshape(-1, 2)
-    way_area = area_at(mids[:, 0], mids[:, 1]) if len(mids) else np.zeros(0, dtype=np.int64)
-    real = np.array([cor.real_width(r, int(way_area[i])) for i, r in enumerate(ex.roads)])
-    terrain = sts.LeafTerrain(st.dem.sample_game, projection.tile_size(st.leaf), st.region.height_grid)
-    S = sts.analyse(ex.roads, st.roads_game, st.road_ids_game, ex.lines, st.lines_game, ex.areas, st.area_geoms,
-                    terrain, real_width=lambda i: float(real[i]))
-    for i, ws in S.ways.items():
-        if ws.pts is not None:
-            st.roads_game[i] = ws.pts
-            st.road_ids_game[i] = ws.node_ids
-    st.road_cum = [cumulative(p) for p in st.roads_game]
-    t1 = time.perf_counter()
+    def real_widths(roads, game):
+        mids = np.array([p[len(p) // 2] if len(p) else (0.0, 0.0) for p in game], dtype=np.float64).reshape(-1, 2)
+        way_area = area_at(mids[:, 0], mids[:, 1]) if len(mids) else np.zeros(0, dtype=np.int64)
+        return np.array([cor.real_width(r, int(way_area[i])) for i, r in enumerate(roads)])
+
+    real = real_widths(ex.roads, st.roads_game)
+    protected = np.array([cor.is_protected(b) or (b.osm_type, int(b.osm_id)) in st.landmark_refs
+                          for b in ex.buildings], dtype=bool)
+    # Roads never run inside a protected footprint: those stretches are removed before anything else.
+    under = {i for i, r in enumerate(ex.roads)
+             if (r.tunnel and int(r.layer) < 0) or (r.tunnel and not cor.is_passage(r)) or
+             cor.is_passage(r, float(cumulative(st.roads_game[i])[-1]) if len(st.roads_game[i]) else None)}
+    over = {i for i, r in enumerate(ex.roads) if r.bridge or int(r.layer) > 0}
+    clip = cor.clip_at_protected(ex.roads, st.roads_game, st.road_ids_game, st.bld_rings, protected,
+                                 lambda i: 0.5 * max(cor.MIN_CORRIDOR_M, 1.25 * float(real[i])), under, over)
+    if len(clip.roads) != len(ex.roads) or clip.clipped:
+        import dataclasses
+
+        st.extract = ex = dataclasses.replace(ex, roads=clip.roads)
+        st.roads_game, st.road_ids_game = clip.game, clip.ids
+        real = real_widths(ex.roads, st.roads_game)
 
     # Corridors from the raw outlines (parts excluded from the measurement).
     outl = [np.zeros((0, 2)) if (b.flags & BuildingFlags.PART) else st.bld_rings[i][0]
             for i, b in enumerate(ex.buildings)]
-    protected = np.array([cor.is_protected(b) or (b.osm_type, int(b.osm_id)) in st.landmark_refs
-                          for b in ex.buildings], dtype=bool)
     heritage = None
     if w2.sacred is not None and getattr(w2.sacred, "geom", None) is not None:
         heritage = lambda x, z: np.asarray(shapely.contains_xy(w2.sacred.geom, x, z), dtype=bool)  # noqa: E731
     C = cor.compute(ex.roads, st.roads_game, area_at, outl, protected,
                     dual_partner=(w2.dual.partner if w2.dual is not None else {}), heritage_at=heritage)
+    t1 = time.perf_counter()
+    passages = cor.passages(ex.roads, st.roads_game, outl, [b.min_height_m for b in ex.buildings])
+    terrain = sts.LeafTerrain(st.dem.sample_game, projection.tile_size(st.leaf), st.region.height_grid)
+    S = sts.analyse(ex.roads, st.roads_game, st.road_ids_game, ex.lines, st.lines_game, ex.areas, st.area_geoms,
+                    terrain, real_width=lambda i: float(real[i]), corridor_width=C.width, area_type=area_at,
+                    passages=passages)
+    for i, ws in S.ways.items():
+        if ws.pts is not None:
+            st.roads_game[i] = ws.pts
+            st.road_ids_game[i] = ws.node_ids
+    st.road_cum = [cumulative(p) for p in st.roads_game]
     t2 = time.perf_counter()
-    st.car_ok = np.array([sts.car_accessible(r, float(real[i]), C.galli(i), int(S.kinds[i]))
+    # Decision 5 reads the surveyed width as tagged (not the class floor it is clamped to for drawing).
+    st.car_ok = np.array([sts.car_accessible(r, cor.car_width(r, float(real[i])), C.galli(i), int(S.kinds[i]))
                           for i, r in enumerate(ex.roads)], dtype=bool)
 
-    # Trim the buildings back to the bands (tunnels never trim).
-    skip = {i for i in range(len(ex.roads)) if int(S.kinds[i]) == int(RoadStructureKind.TUNNEL)}
+    # Trim the buildings back to the bands (tunnels and passages under buildings never trim).
+    skip = {i for i in range(len(ex.roads)) if int(S.kinds[i]) == int(RoadStructureKind.TUNNEL)} | set(passages)
     bands, owners = cor.corridor_bands(C, st.roads_game, skip)
     if leaf_box is not None and len(bands):
         bands = shapely.clip_by_rect(bands, *leaf_box)
@@ -463,6 +485,14 @@ def _prepare_detail(st: _State, region: Region, tiles_by_level: dict[int, list[T
         keep = ~shapely.is_empty(exact)
         exact, exact_owners = exact[keep], exact_owners[keep]
     intr = cor.protected_intrusions(st.bld_rings, protected, exact, exact_owners)
+    curated = cor.load_protected_intrusions_ok()
+    bad = {f"{ex.buildings[b].osm_type}{ex.buildings[b].osm_id}": a for b, (a, _r) in intr.items()
+           if a > cor.PROTECTED_INTRUSION_MAX_M2}
+    bad = {k: v for k, v in bad.items() if k not in curated}
+    if bad:
+        raise ValueError(f"road corridors enter protected footprints by more than {cor.PROTECTED_INTRUSION_MAX_M2} m2 "
+                         f"(fix the data or curate them in config/{cor.PROTECTED_INTRUSIONS_PATH}): "
+                         f"{dict(sorted(bad.items())[:20])}")
     T = cor.trim_buildings(st.bld_rings, protected, bands, owners)
     for bi, rings in T.rings.items():
         st.bld_rings[bi] = rings
@@ -474,6 +504,8 @@ def _prepare_detail(st: _State, region: Region, tiles_by_level: dict[int, list[T
     trimmed = set(T.trimmed) | {k for k in range(len(ex.buildings), len(st.bld_rings))}
     st.trimmed = frozenset(trimmed)
     st.structures, st.corridors = S, C
+    # Readers tell the final-corridor meaning of RATR.corridor_dm by this META key (DATA_FORMATS 1.10).
+    st.meta = {**(st.meta or {}), META_CORRIDOR_KEY: META_CORRIDOR_FINAL}
     t3 = time.perf_counter()
     kinds = {RoadStructureKind(int(k)).name: int(v) for k, v in zip(*np.unique(S.kinds, return_counts=True))}
     prot_roads = sorted({int(ex.roads[r].osm_id) for _a, rs in intr.values() for r in rs})
@@ -481,6 +513,7 @@ def _prepare_detail(st: _State, region: Region, tiles_by_level: dict[int, list[T
     w2.detail["report"] = S.report
     st.detail_stats = {
         "structures": {**S.stats, "kinds": kinds}, "corridors": C.stats,
+        "protected_clip": clip.stats,
         "trim": {**T.stats, "protected_near_bands": len(T.protected_hits),
                  "protected_intruded": len(intr),
                  "protected_intrusion_m2": {"total": round(sum(a for a, _ in intr.values()), 1),
@@ -488,9 +521,18 @@ def _prepare_detail(st: _State, region: Region, tiles_by_level: dict[int, list[T
                  "protected_intruded_refs": sorted(f"{ex.buildings[b].osm_type}{ex.buildings[b].osm_id}"
                                                    for b in intr)[:200],
                  "roads_into_protected": prot_roads[:200]},
+        # Cases decision 3 leaves (docs/research/w2/data_detail_pass.md): URBAN / OLD_CORE embankments over 3 m,
+        # motor ramps steeper than their class grade, and crossings where a deck lands on the road.
+        "remaining": {
+            "embankments_over_3m": {str(int(ex.roads[i].osm_id)): h
+                                    for i, h in sorted(getattr(S, "embankments", {}).items(), key=lambda kv: -kv[1])},
+            "steep_ramps": {str(int(ex.roads[i].osm_id)): g
+                            for i, g in sorted(getattr(S, "steep_ramps", {}).items(), key=lambda kv: -kv[1])},
+            "crossings_at_abutment": [[int(ex.roads[c.upper].osm_id), int(ex.roads[c.lower].osm_id)]
+                                      for c in S.at_abutment]},
         "car": {"ways": int(len(ex.roads)), "car_accessible": int(st.car_ok.sum()),
                 "galli": int(sum(1 for w in C.ways.values() if w.galli))},
-        "timing_s": {"structures": round(t1 - t0, 2), "corridors": round(t2 - t1, 2), "trim": round(t3 - t2, 2)},
+        "timing_s": {"corridors": round(t1 - t0, 2), "structures": round(t2 - t1, 2), "trim": round(t3 - t2, 2)},
     }
     w2.detail["stats"] = st.detail_stats
     return set(T.removed)

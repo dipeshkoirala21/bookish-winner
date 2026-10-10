@@ -172,6 +172,9 @@ def test_w2_outputs_are_deterministic(synth, synth_again):
 # ---------------------------------------------------------------------------------------------------------------
 def test_every_road_has_a_structure_record_and_a_corridor(leaves):
     from ghumante_pipeline.model import RoadStructureFlags as SF
+    from ghumante_pipeline.tile_format import shift_count_ok
+
+    assert all(td.meta and td.meta.get("ratr_corridor") == "final" for td in leaves)  # the final-corridor marker
 
     n = 0
     for td in leaves:
@@ -181,7 +184,7 @@ def test_every_road_has_a_structure_record_and_a_corridor(leaves):
             if not s.flags & int(SF.SQUEEZED):
                 assert int(a.corridor_dm.min()) >= 48  # RoadClearance.MinCorridorM
             assert len(s.deck_role) in (0, len(r.points))
-            assert len(s.shift_cm) in (0, len(a.corridor_dm))
+            assert shift_count_ok(len(s.shift_cm), len(a.corridor_dm))
             n += 1
     assert n > 40
 

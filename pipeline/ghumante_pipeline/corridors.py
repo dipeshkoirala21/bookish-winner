@@ -24,10 +24,21 @@ So ``C`` is the real width widened by W2_DESIGN 4, never below 4.8 m (three moto
 gallis included) and never below a surveyed width; where buildings stand closer than that, they are trimmed.
 
 **Protected footprints** (``LANDMARK`` heroes and the temple, shikhara, stupa, chorten and shrine archetypes) are
-never trimmed. Where one would intrude, the corridor shifts away from it (``SHIFT_MARGIN_M`` clear), tapered
-1:20 along the way; with protected footprints on both sides it narrows to the space between them (``SQUEEZED``).
+never trimmed. Where one would intrude beside a way, the corridor shifts away from it (``SHIFT_MARGIN_M`` clear),
+tapered 1:20 along the way (``_fit_between``); with protected footprints on both sides it narrows to the space
+between them (``SQUEEZED``). ``RSTR.shift_cm`` samples the shift every ``SHIFT_SAMPLE_M`` with the largest shift of
+each spacing, so a reader that interpolates never shifts less. A way that runs **into or through** a protected
+footprint is clipped before anything else (``clip_at_protected``): it stops ``CLIP_MARGIN_M`` outside the outline
+and is pulled back until its flat corridor end clears it; a way cut in two continues as an extra road with the same
+OSM id. Decks passing over keep their middle, tunnels and passages pass under. The build fails when a corridor
+still enters a protected footprint by more than ``PROTECTED_INTRUSION_MAX_M2`` (curated exceptions in
+``config/curated/protected_intrusions.yaml``).
 
-**Trimming** (``trim_buildings``): every drawn road except TUNNEL ways builds its band from the stations (each
+**Passages** (``passages``): ways under a building that stays intact (``tunnel=building_passage``, ``covered``,
+``indoor``, short layer >= 0 tunnels; the dhoka passages into Newar bahal courtyards) never trim the buildings they
+pass under; RSTR marks them PASSAGE with the gateway's free height.
+
+**Trimming** (``trim_buildings``): every drawn road except TUNNEL and PASSAGE ways builds its band from the stations (each
 sub-segment buffered by the larger of its two half-widths, round joins, ``TRIM_EPS_M`` extra; +0.5 m where the
 corridor is shifted); each other building and part loses what lies inside the bands. Every remaining polygon of at
 least ``SLIVER_M2`` is kept (a building a road cuts in two becomes two records with the same ``osm_ref``, the larger
@@ -71,7 +82,8 @@ RAY_M = 30.0
 NEAR_M = 20.0
 TAPER = 20.0
 SAMPLE_M = 20.0
-SHIFT_MARGIN_M = 0.3
+SHIFT_SAMPLE_M = 5.0  # RSTR shift_cm spacing (DATA_FORMATS 1.15)
+SHIFT_MARGIN_M = 0.5  # covers the 1 : 20 taper between the 10 m stations (a band never comes closer than ~0.2 m)
 TRIM_EPS_M = 0.05
 SIMPLIFY_M = 0.03
 OPEN_M = 0.05  # opening radius against hair-thin spikes after the difference
@@ -118,6 +130,58 @@ def tagged_width(r: RoadFeature) -> float | None:
         return None
     w = float(w)
     return w if 0.5 * floor_m(int(r.cls)) <= w <= 40.0 else None
+
+
+def car_width(r: RoadFeature, real: float) -> float:
+    """The width decision 5 tests (``structures.car_accessible``): the plausible ``width`` tag as surveyed, else the
+    W2_DESIGN 4.1 default ``real`` (never the class floor a narrow tag is clamped to for drawing)."""
+    t = tagged_width(r)
+    return float(t) if t is not None else float(real)
+
+
+_NO = frozenset({"", "no", "false", "0"})
+
+
+def is_passage(r: RoadFeature, length_m: float | None = None) -> bool:
+    """A way under a building that stays intact: ``tunnel=building_passage``, ``covered`` or ``indoor`` (any value
+    but no), or a tunnel of at most 60 m on layer >= 0 (``structures.tunnel_type`` "passage")."""
+    ex = r.extra or {}
+    t = (ex.get("tunnel") or "").strip().lower()
+    if t == "building_passage":
+        return True
+    if (ex.get("covered") or "").strip().lower() not in _NO or (ex.get("indoor") or "").strip().lower() not in _NO:
+        return True
+    return bool(r.tunnel) and t not in ("avalanche_protector", "no") and int(r.layer) >= 0 \
+        and length_m is not None and length_m <= 60.0
+
+
+def passages(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], outlines: Sequence[np.ndarray],
+             min_heights: Sequence[float | None]) -> dict[int, float]:
+    """Passage ways (``is_passage``) -> the free height their gateway keeps: ``RoadClearance.MinOverheadClearanceM``
+    4.5 m, or the tagged ``building:min_height`` of a footprint they run under when that is higher. They never trim
+    the buildings they pass under (decision 1 keeps the house; the buildings package meshes the gateway)."""
+    from .structures import MIN_OVERHEAD_CLEARANCE_M
+
+    cand = []
+    for i, r in enumerate(roads):
+        p = roads_game[i]
+        if len(p) < 2:
+            continue
+        if is_passage(r, float(wp.cumulative(p)[-1])):
+            cand.append(i)
+    out: dict[int, float] = {}
+    if not cand:
+        return out
+    polys = np.empty(len(outlines), dtype=object)
+    polys[:] = [shapely.polygons(np.asarray(o, dtype=np.float64)) if len(o) >= 3 else shapely.Polygon()
+                for o in outlines]
+    tree = shapely.STRtree(polys)
+    for i in cand:
+        ln = shapely.linestrings(np.asarray(roads_game[i], dtype=np.float64))
+        hits = tree.query(ln, predicate="intersects")
+        mh = [float(min_heights[k]) for k in hits.tolist() if min_heights[k]]
+        out[i] = max([MIN_OVERHEAD_CLEARANCE_M] + mh)
+    return out
 
 
 def real_width(r: RoadFeature, area: int) -> float:
@@ -222,8 +286,14 @@ class WayCorridor:
         c = pc.window_min(arcs, SAMPLE_M)
         dm = np.maximum(1, np.floor(c * 10.0 + 1e-6)).astype(np.int64)
         if np.any(self.shift != 0):
-            ps = wp.Profile(self.arcs, self.shift, self.total, self.closed)
-            sh = np.rint(ps.at(arcs) * 100.0).astype(np.int64)
+            # Shifts every SHIFT_SAMPLE_M, each the largest shift (by side) within one spacing: a reader that
+            # interpolates linearly between them never shifts less than the profile does.
+            ks = int(math.floor(max(0.0, length) / SHIFT_SAMPLE_M + 1e-9)) + 1
+            sa = a0 + SHIFT_SAMPLE_M * np.arange(ks)
+            pos = wp.Profile(self.arcs, np.maximum(self.shift, 0.0), self.total, self.closed)
+            neg = wp.Profile(self.arcs, np.maximum(-self.shift, 0.0), self.total, self.closed)
+            sp, sn = pos.window_max(sa, SHIFT_SAMPLE_M), neg.window_max(sa, SHIFT_SAMPLE_M)
+            sh = np.rint(np.where(sp >= sn, sp, -sn) * 100.0).astype(np.int64)
         else:
             sh = np.zeros(0, dtype=np.int64)
         return dm, sh
@@ -237,6 +307,14 @@ class Corridors:
     def galli(self, i: int) -> bool:
         w = self.ways.get(i)
         return bool(w is not None and w.galli)
+
+    def width(self, i: int, a0: float, a1: float) -> float | None:
+        """The widest corridor of road ``i`` between arcs ``a0`` and ``a1`` (None for a road without one)."""
+        w = self.ways.get(i)
+        if w is None:
+            return None
+        prof = wp.Profile(w.arcs, w.c, w.total, w.closed)
+        return float(prof.window_max(np.array([0.5 * (a0 + a1)]), max(0.0, 0.5 * (a1 - a0)))[0])
 
 
 def _rays(pos: np.ndarray, tan: np.ndarray, polys: np.ndarray, tree, ray_m: float) -> tuple[np.ndarray, np.ndarray]:
@@ -280,16 +358,25 @@ def _near(pos: np.ndarray, tan: np.ndarray, polys: np.ndarray, tree) -> np.ndarr
     return out
 
 
-def _side_near(pos: np.ndarray, tan: np.ndarray, polys: np.ndarray, tree) -> tuple[np.ndarray, np.ndarray]:
-    """Nearest distance from each station's centreline stretch to a polygon on its left and on its right (by the
-    side of the closest point; inf beyond NEAR_M), and whether the stretch touches a polygon."""
+def _point_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    ab = b - a
+    L2 = np.sum(ab * ab, axis=1)
+    t = np.clip(np.sum((p - a) * ab, axis=1) / np.maximum(L2, 1e-18), 0.0, 1.0)
+    return np.hypot(*(a + ab * t[:, None] - p).T)
+
+
+def _side_near(pos: np.ndarray, tan: np.ndarray, back: np.ndarray, fwd: np.ndarray, polys: np.ndarray,
+               tree) -> tuple[np.ndarray, np.ndarray]:
+    """Nearest distance from each station's centreline stretch (from ``back`` to ``fwd``, the way's own points
+    STATION_M / 2 either side, clipped at its ends) to a polygon on its left and on its right (by the side of the
+    closest point; inf beyond NEAR_M), and whether the stretch touches a polygon. Polygons that lie only ahead of
+    or behind the stretch (beyond a way's end) are not beside it and do not count."""
     n = len(pos)
     hit = np.full((2, n), np.inf)
     touch = np.zeros(n, dtype=bool)
     if n == 0 or tree is None:
         return hit, touch
-    h = 0.5 * STATION_M
-    segs = shapely.linestrings(np.stack([pos - h * tan, pos, pos + h * tan], axis=1))
+    segs = shapely.linestrings(np.stack([back, pos, fwd], axis=1))
     pairs = tree.query(segs, predicate="dwithin", distance=NEAR_M)
     if not pairs.shape[1]:
         return hit, touch
@@ -297,12 +384,27 @@ def _side_near(pos: np.ndarray, tan: np.ndarray, polys: np.ndarray, tree) -> tup
     d = shapely.distance(segs[si], polys[pi])
     sl = shapely.shortest_line(segs[si], polys[pi])
     c = shapely.get_coordinates(sl).reshape(-1, 2, 2)
-    q = c[:, 1] - pos[si]
+    # The side is taken at the closest point of the stretch, with the tangent of the segment it lies on.
+    on = c[:, 0]
+    q = c[:, 1] - on
     zero = d <= 1e-9
     if zero.any():  # the stretch touches the footprint: its side is the side of the footprint's centroid
         cen = shapely.get_coordinates(shapely.centroid(polys[pi[zero]]))
-        q[zero] = cen - pos[si[zero]]
-    cross = tan[si, 0] * q[:, 1] - tan[si, 1] * q[:, 0]
+        q[zero] = cen - on[zero]
+    t0 = pos[si] - back[si]
+    t1 = fwd[si] - pos[si]
+    d0 = _point_segment_distance(on, back[si], pos[si])
+    d1 = _point_segment_distance(on, pos[si], fwd[si])
+    t = np.where((d0 <= d1)[:, None] & (np.hypot(*t0.T) > 1e-9)[:, None], t0, t1)
+    t = np.where((np.hypot(*t.T) > 1e-9)[:, None], t, tan[si])
+    t = t / np.maximum(np.hypot(*t.T), 1e-12)[:, None]
+    # Not beside the stretch: the closest point is an end of a stretch that ends there (a way's end).
+    at_end = ((np.hypot(*(on - back[si]).T) < 1e-6) & (np.hypot(*t0.T) < 1e-9)) | \
+             ((np.hypot(*(on - fwd[si]).T) < 1e-6) & (np.hypot(*t1.T) < 1e-9))
+    ahead = np.abs(t[:, 0] * q[:, 0] + t[:, 1] * q[:, 1]) > np.abs(t[:, 0] * q[:, 1] - t[:, 1] * q[:, 0])
+    beside = zero | ~(at_end & ahead)
+    si, d, q, t = si[beside], d[beside], q[beside], t[beside]
+    cross = t[:, 0] * q[:, 1] - t[:, 1] * q[:, 0]
     left = cross >= 0
     np.minimum.at(hit[0], si[left], d[left])
     np.minimum.at(hit[1], si[~left], d[~left])
@@ -338,6 +440,37 @@ def _upper_envelope(arcs: np.ndarray, v: np.ndarray, slope: float) -> np.ndarray
     return -_envelope(arcs, -v, slope)
 
 
+def _fit_between(arcs: np.ndarray, C: np.ndarray, pl: np.ndarray, pr: np.ndarray) -> tuple[np.ndarray, np.ndarray,
+                                                                                            bool]:
+    """Corridor widths and lateral shifts (+ = left) that keep the band SHIFT_MARGIN_M clear of the protected
+    outlines at ``pl`` (left) and ``pr`` (right) of every station, with the shift changing by at most 1 : 20 and
+    as close to 0 as that allows; the corridor narrows only where both sides leave no room for it."""
+    m = SHIFT_MARGIN_M
+    C = C.astype(np.float64).copy()
+    both = np.isfinite(pl) & np.isfinite(pr)
+    room = np.where(both, np.maximum(pl + pr - 2.0 * m, 0.1), np.inf)
+    squeezed = bool((C > room + 1e-9).any())
+    for _ in range(8):
+        C = np.minimum(C, room)
+        C = np.minimum(C, _envelope(arcs, C, 1.0 / TAPER))
+        hi = np.where(np.isfinite(pl), pl - m - 0.5 * C, np.inf)
+        lo = np.where(np.isfinite(pr), -(pr - m - 0.5 * C), -np.inf)
+        L = _upper_envelope(arcs, lo, 1.0 / TAPER)
+        U = _envelope(arcs, hi, 1.0 / TAPER)
+        conflict = L > U + 1e-6
+        if not conflict.any():
+            break
+        # Tapers from both sides meet: narrow the corridor there until the band fits.
+        room = np.where(conflict, np.minimum(room, C - (L - U)), room)
+        room = np.maximum(room, 0.1)
+        squeezed = True
+    shift = np.minimum(np.maximum(0.0, L), U)
+    clash = (L > U) & np.isfinite(L) & np.isfinite(U)
+    shift[clash] = 0.5 * (L[clash] + U[clash])
+    shift = np.where(np.isfinite(shift), shift, 0.0)
+    return C, shift, squeezed
+
+
 def compute(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], area_at: Callable,
             outlines: Sequence[np.ndarray], protected: np.ndarray, dual_partner: dict | None = None,
             heritage_at: Callable | None = None, drawn: np.ndarray | None = None) -> Corridors:
@@ -359,7 +492,7 @@ def compute(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], area
     tree_all = shapely.STRtree(polys[all_idx]) if len(all_idx) else None
     tree_prot = shapely.STRtree(polys[prot_idx]) if len(prot_idx) else None
     # Stations of every way, in one batch.
-    w_of, arcs_l, pos_l, tan_l = [], [], [], []
+    w_of, arcs_l, pos_l, tan_l, back_l, fwd_l = [], [], [], [], [], []
     n_st = 0  # stations so far: the batch offset of the next way
     meta = {}
     for i, r in enumerate(roads):
@@ -373,12 +506,16 @@ def compute(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], area
         k = max(2, int(math.ceil(total / STATION_M)) + 1)
         arcs = np.linspace(0.0, total, k)
         pos, tan = wp.at_arcs(pts, cum, arcs)
+        bk, _ = wp.at_arcs(pts, cum, np.clip(arcs - 0.5 * STATION_M, 0.0, total))
+        fw, _ = wp.at_arcs(pts, cum, np.clip(arcs + 0.5 * STATION_M, 0.0, total))
         meta[i] = (n_st, k, total, wp.is_closed(pts))
         n_st += k
         w_of.append(np.full(k, i))
         arcs_l.append(arcs)
         pos_l.append(pos)
         tan_l.append(tan)
+        back_l.append(bk)
+        fwd_l.append(fw)
     if not meta:
         res.stats = dict(st)
         return res
@@ -386,7 +523,7 @@ def compute(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], area
     Tn = np.concatenate(tan_l)
     hit, inside = _rays(P, Tn, polys[all_idx], tree_all, RAY_M)
     near = _near(P, Tn, polys[all_idx], tree_all)
-    phit, pinside = _side_near(P, Tn, polys[prot_idx], tree_prot)
+    phit, pinside = _side_near(P, Tn, np.concatenate(back_l), np.concatenate(fwd_l), polys[prot_idx], tree_prot)
     areas_all = np.asarray(area_at(P[:, 0], P[:, 1]), dtype=np.int64).reshape(-1)
     herit = np.asarray(heritage_at(P[:, 0], P[:, 1]), dtype=bool).reshape(-1) if heritage_at is not None \
         else np.zeros(len(P), dtype=bool)
@@ -412,44 +549,14 @@ def compute(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], area
         lim = S - CLEARANCE_M
         C = np.maximum(F, np.minimum(N + E, lim))
         C = np.maximum(_envelope(arcs, C, 1.0 / TAPER), F)
-        # Protected footprints: shift away, or squeeze between two.
+        # Protected footprints: the band [shift - C/2, shift + C/2] (lateral, + = left) keeps SHIFT_MARGIN_M from
+        # the nearest protected outline on each side; it narrows only where both sides leave no room (SQUEEZED).
         pl, pr = phit[0, sl].copy(), phit[1, sl].copy()
         st["stations_touching_protected"] += int(pinside[sl].sum())
-        half = 0.5 * C
-        need_r = np.where(pl < half + SHIFT_MARGIN_M, half + SHIFT_MARGIN_M - pl, 0.0)  # move right (shift < 0)
-        need_l = np.where(pr < half + SHIFT_MARGIN_M, half + SHIFT_MARGIN_M - pr, 0.0)  # move left (shift > 0)
-        shift_pos = np.zeros(k)
-        shift_neg = np.zeros(k)
-        squeeze = np.full(k, np.inf)
-        for t in range(k):
-            if need_r[t] > 0 and need_l[t] > 0:
-                squeeze[t] = max(0.0, pl[t] + pr[t] - 2.0 * SHIFT_MARGIN_M)
-                c_mid = 0.5 * (pl[t] - pr[t])  # centre between the two (left positive)
-                if c_mid >= 0:
-                    shift_pos[t] = c_mid
-                else:
-                    shift_neg[t] = -c_mid
-            elif need_r[t] > 0:
-                if pr[t] < half[t] + need_r[t] + SHIFT_MARGIN_M:
-                    squeeze[t] = max(0.0, pl[t] + pr[t] - 2.0 * SHIFT_MARGIN_M)
-                    c_mid = 0.5 * (pl[t] - pr[t])
-                    shift_pos[t], shift_neg[t] = (c_mid, 0.0) if c_mid >= 0 else (0.0, -c_mid)
-                else:
-                    shift_neg[t] = need_r[t]
-            elif need_l[t] > 0:
-                if pl[t] < half[t] + need_l[t] + SHIFT_MARGIN_M:
-                    squeeze[t] = max(0.0, pl[t] + pr[t] - 2.0 * SHIFT_MARGIN_M)
-                    c_mid = 0.5 * (pl[t] - pr[t])
-                    shift_pos[t], shift_neg[t] = (c_mid, 0.0) if c_mid >= 0 else (0.0, -c_mid)
-                else:
-                    shift_pos[t] = need_l[t]
-        squeezed = bool(np.isfinite(squeeze).any())
+        C, shift, squeezed = _fit_between(arcs, C, pl, pr)
         if squeezed:
-            C = np.minimum(C, _envelope(arcs, squeeze, 1.0 / TAPER))
             st["ways_squeezed"] += 1
-        shift = np.zeros(k)
-        if shift_pos.any() or shift_neg.any():
-            shift = _upper_envelope(arcs, shift_pos, 1.0 / TAPER) - _upper_envelope(arcs, shift_neg, 1.0 / TAPER)
+        if np.any(shift != 0):
             st["ways_shifted"] += 1
         # Galli: an untagged car-class way that stays narrow on both sides for GALLI_MIN_M.
         galli = False
@@ -478,6 +585,164 @@ def compute(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], area
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Protected footprints: roads never run inside them
+# ---------------------------------------------------------------------------------------------------------------
+CLIP_MARGIN_M = 0.3  # a road clipped at a protected footprint stops this far outside its outline
+CLIP_MIN_PIECE_M = 1.0
+CLIP_STEP_M = 0.5
+PROTECTED_INTRUSION_MAX_M2 = 1.0  # the build fails when a corridor still enters a protected footprint by more
+PROTECTED_INTRUSIONS_PATH = "curated/protected_intrusions.yaml"  # curated exceptions (config/), by building ref
+
+
+@dataclass
+class ProtectedClip:
+    """Roads with the stretches inside protected footprints removed (``clip_at_protected``)."""
+
+    roads: list
+    game: list
+    ids: list
+    src: list  # output road index -> input road index (a road a footprint cuts in two continues as an extra road)
+    clipped: dict = field(default_factory=dict)  # input road index -> metres removed
+    stats: dict = field(default_factory=dict)
+
+
+def clip_at_protected(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], ids: Sequence[np.ndarray],
+                      rings: Sequence[Sequence[np.ndarray]], protected: np.ndarray, half_m: Callable[[int], float],
+                      skip: set, ends_only: set = frozenset()) -> ProtectedClip:
+    """Remove every stretch of a road centreline inside a protected footprint (heroes and temples are never
+    trimmed, so no road may run through them): the road stops ``CLIP_MARGIN_M`` outside the outline and is pulled
+    back further until its flat corridor end (half width ``half_m(i)``) clears the outline; a road a footprint
+    cuts in two becomes two roads with the same OSM way (the extra one appended, ``src``). ``skip``: ways that pass
+    under (tunnels) or through a gateway (passages); ``ends_only``: ways that pass over (bridges, layer > 0), which
+    only lose the stretches at their ends (a bridge landing at a temple, e.g. Rani Pokhari's)."""
+    import copy
+
+    out = ProtectedClip(roads=list(roads), game=list(roads_game), ids=list(ids), src=list(range(len(roads))))
+    st: dict = defaultdict(int)
+    idx = np.flatnonzero(np.asarray(protected, dtype=bool))
+    if not len(idx):
+        return out
+    polys = np.empty(len(idx), dtype=object)
+    polys[:] = [shapely.make_valid(shapely.Polygon(np.asarray(rings[k][0], dtype=np.float64)))
+                if len(rings[k]) and len(rings[k][0]) >= 3 else shapely.Polygon() for k in idx]
+    tree = shapely.STRtree(polys)
+    for i, r in enumerate(roads):
+        p = np.asarray(roads_game[i], dtype=np.float64)
+        if i in skip or len(p) < 2 or int(r.cls) == int(RoadClass.UNKNOWN):
+            continue
+        line = shapely.LineString(p)
+        hits = tree.query(line, predicate="intersects")
+        if not len(hits):
+            continue
+        U = shapely.union_all(polys[hits])
+        rest = shapely.difference(line, shapely.buffer(U, CLIP_MARGIN_M, quad_segs=4))
+        parts = [g for g in _line_parts(rest) if g.length >= CLIP_MIN_PIECE_M]
+        parts.sort(key=lambda g: float(line.project(shapely.Point(g.coords[0]))))
+        if i in ends_only and len(parts) > 1:
+            # A deck passes over: keep it whole between its first and last stretch outside the footprints.
+            a0 = min(float(line.project(shapely.Point(g.coords[0]))) for g in parts)
+            a1 = max(float(line.project(shapely.Point(g.coords[-1]))) for g in parts)
+            parts = [shapely.LineString(_sub_polyline(p, wp.cumulative(p), a0, a1))]
+        h = max(0.5 * MIN_CORRIDOR_M, float(half_m(i)))
+        kept = []
+        for g in parts:
+            c = np.asarray(g.coords, dtype=np.float64)
+            if len(c) >= 2 and line.project(shapely.Point(c[0])) > line.project(shapely.Point(c[-1])):
+                c = c[::-1]
+            cut0 = float(np.hypot(*(c[0] - p[0]))) > 1e-6
+            cut1 = float(np.hypot(*(c[-1] - p[-1]))) > 1e-6
+            c = _pull_back(c, U, h, cut0, cut1)
+            if c is not None:
+                kept.append(c)
+        removed = float(line.length - sum(float(wp.cumulative(c)[-1]) for c in kept))
+        out.clipped[i] = round(removed, 2)
+        st["roads_clipped"] += 1
+        st["metres_removed"] += removed
+        vid = {(float(x), float(z)): int(n) for (x, z), n in zip(p.tolist(), np.asarray(ids[i]).tolist())}
+        def ids_of(c: np.ndarray) -> np.ndarray:
+            return np.array([vid.get((float(x), float(z)), 0) for x, z in c.tolist()], dtype=np.int64)
+        if not kept:
+            out.game[i] = np.zeros((0, 2))
+            out.ids[i] = np.zeros(0, dtype=np.int64)
+            st["roads_removed"] += 1
+            continue
+        out.game[i] = kept[0]
+        out.ids[i] = ids_of(kept[0])
+        if len(kept) > 1:
+            st["roads_split"] += 1
+            if int(r.cls) not in FOOT and int(r.cls) != int(RoadClass.PEDESTRIAN):
+                st["motor_roads_split"] += 1
+        for c in kept[1:]:
+            out.roads.append(copy.copy(r))
+            out.game.append(c)
+            out.ids.append(ids_of(c))
+            out.src.append(i)
+    st["metres_removed"] = round(float(st.get("metres_removed", 0.0)), 1)
+    out.stats = dict(st)
+    return out
+
+
+def _pull_back(c: np.ndarray, U, h: float, cut0: bool, cut1: bool) -> np.ndarray | None:
+    """Shorten a clipped piece at its cut ends until its flat corridor end (half width ``h``) clears ``U``."""
+    for _ in range(int(4 * h / CLIP_STEP_M) + 2):
+        if len(c) < 2:
+            return None
+        cum = wp.cumulative(c)
+        if cum[-1] < CLIP_MIN_PIECE_M:
+            return None
+        bad0 = cut0 and _cap_hits(c, cum, U, h, start=True)
+        bad1 = cut1 and _cap_hits(c, cum, U, h, start=False)
+        if not (bad0 or bad1):
+            return c
+        a0 = CLIP_STEP_M if bad0 else 0.0
+        a1 = cum[-1] - (CLIP_STEP_M if bad1 else 0.0)
+        if a1 - a0 < CLIP_MIN_PIECE_M:
+            return None
+        c = _sub_polyline(c, cum, a0, a1)
+    return None
+
+
+def _cap_hits(c: np.ndarray, cum: np.ndarray, U, h: float, start: bool) -> bool:
+    L = min(float(cum[-1]), 2.0 * h)
+    seg = _sub_polyline(c, cum, 0.0, L) if start else _sub_polyline(c, cum, float(cum[-1]) - L, float(cum[-1]))
+    band = shapely.buffer(shapely.LineString(seg), h, cap_style="flat", quad_segs=4)
+    return float(shapely.area(shapely.intersection(band, U))) > 0.05
+
+
+def _sub_polyline(c: np.ndarray, cum: np.ndarray, a0: float, a1: float) -> np.ndarray:
+    inner = (cum > a0 + 1e-9) & (cum < a1 - 1e-9)
+    p0, _ = wp.at_arcs(c, cum, [a0])
+    p1, _ = wp.at_arcs(c, cum, [a1])
+    return np.concatenate([p0, c[inner], p1])
+
+
+def _line_parts(g) -> list:
+    if g is None or g.is_empty:
+        return []
+    if g.geom_type == "LineString":
+        return [g]
+    if hasattr(g, "geoms"):
+        out = []
+        for q in g.geoms:
+            out += _line_parts(q)
+        return out
+    return []
+
+
+def load_protected_intrusions_ok() -> frozenset:
+    """Curated building refs (``w123``) whose protected footprint a corridor may still enter (config/curated)."""
+    from .config import CONFIG_DIR
+
+    path = CONFIG_DIR / PROTECTED_INTRUSIONS_PATH
+    if not path.exists():
+        return frozenset()
+    import yaml
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return frozenset(str(e["ref"]) for e in (data.get("allowed") or []) if e and e.get("ref"))
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Trimming
 # ---------------------------------------------------------------------------------------------------------------
 @dataclass
@@ -488,6 +753,35 @@ class TrimResult:
     removed: set = field(default_factory=set)
     protected_hits: dict[int, list[int]] = field(default_factory=dict)  # protected building -> road indices
     stats: dict = field(default_factory=dict)
+
+
+def _point_normals(pos: np.ndarray, closed: bool) -> np.ndarray:
+    """Left normals at the points of a polyline: the segment normal at open ends, else the mitred bisector of the
+    two segment normals (scaled by 1 / cos(half the turn), at most 2), so an offset polyline keeps its distance."""
+    d = np.diff(pos, axis=0)
+    L = np.hypot(d[:, 0], d[:, 1])
+    nrm = np.zeros_like(d)
+    good = L > 1e-9
+    nrm[good] = np.stack([-d[good, 1], d[good, 0]], axis=1) / L[good, None]
+    for k in range(1, len(nrm)):  # zero-length segments carry the previous normal
+        if not good[k]:
+            nrm[k] = nrm[k - 1]
+    for k in range(len(nrm) - 2, -1, -1):
+        if not good[k] and good[k + 1]:
+            nrm[k] = nrm[k + 1]
+    out = np.zeros_like(pos)
+    if not len(nrm):
+        return out
+    out[0], out[-1] = nrm[0], nrm[-1]
+    if closed:
+        out[0] = out[-1] = nrm[-1] + nrm[0]
+    out[1:-1] = nrm[:-1] + nrm[1:]
+    n = np.hypot(out[:, 0], out[:, 1])
+    ok = n > 1e-9
+    out[ok] /= n[ok, None]
+    ref = np.concatenate([nrm[:1], nrm[1:], nrm[-1:]]) if len(nrm) > 1 else np.repeat(nrm, 2, axis=0)
+    cosh = np.clip(np.sum(out * ref, axis=1), 0.5, 1.0)
+    return out / cosh[:, None]
 
 
 def corridor_bands(cor: Corridors, roads_game: Sequence[np.ndarray], skip: set,
@@ -501,6 +795,7 @@ def corridor_bands(cor: Corridors, roads_game: Sequence[np.ndarray], skip: set,
         pts = np.asarray(roads_game[i], dtype=np.float64)
         cum = wp.cumulative(pts)
         arcs = np.unique(np.concatenate([cum, w.arcs]))
+        arcs = arcs[np.concatenate([[True], np.diff(arcs) > 1e-6])]  # no zero-length pieces (no joint at an end)
         pos, _ = wp.at_arcs(pts, cum, arcs)
         pc = wp.Profile(w.arcs, w.c, w.total, w.closed)
         cc = pc.at(arcs)
@@ -508,14 +803,8 @@ def corridor_bands(cor: Corridors, roads_game: Sequence[np.ndarray], skip: set,
             sh = wp.Profile(w.arcs, w.shift, w.total, w.closed).at(arcs)
         else:
             sh = np.zeros(len(arcs))
-        a, b = pos[:-1], pos[1:]
-        d = b - a
-        L = np.hypot(d[:, 0], d[:, 1])
-        good = L > 1e-6
-        nrm = np.zeros_like(d)
-        nrm[good] = np.stack([-d[good, 1], d[good, 0]], axis=1) / L[good, None]
-        a2 = a + nrm * sh[:-1, None]
-        b2 = b + nrm * sh[1:, None]
+        off = pos + _point_normals(pos, w.closed) * sh[:, None] if np.any(sh != 0) else pos
+        a2, b2 = off[:-1], off[1:]
         r = 0.5 * np.maximum(cc[:-1], cc[1:])
         if not exact:
             r = r + TRIM_EPS_M + np.where((sh[:-1] != 0) | (sh[1:] != 0), 0.5, 0.0)
@@ -525,12 +814,11 @@ def corridor_bands(cor: Corridors, roads_game: Sequence[np.ndarray], skip: set,
         owner.append(np.full(len(r), i))
         # Round joints at every inner point (and all points of a closed way): discs of the larger radius.
         if len(r) > 1:
-            jr = np.maximum(r[:-1], r[1:])
-            joints.append(0.5 * (b2[:-1] + a2[1:]))
-            jrad.append(jr + 0.5 * np.hypot(*(b2[:-1] - a2[1:]).T))
-            jown.append(np.full(len(jr), i))
+            joints.append(off[1:-1])
+            jrad.append(np.maximum(r[:-1], r[1:]))
+            jown.append(np.full(len(r) - 1, i))
         if w.closed and len(r) > 1:
-            joints.append(0.5 * (b2[-1:] + a2[:1]))
+            joints.append(off[:1])
             jrad.append(np.array([max(r[0], r[-1])]))
             jown.append(np.array([i]))
     if not segs_a:

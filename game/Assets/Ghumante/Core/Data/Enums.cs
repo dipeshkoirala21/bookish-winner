@@ -716,6 +716,7 @@ namespace Ghumante.Core.Data
         Underpass = 3,
         Tunnel = 4,
         Ford = 5,
+        Passage = 6,
     }
 
     [Flags]

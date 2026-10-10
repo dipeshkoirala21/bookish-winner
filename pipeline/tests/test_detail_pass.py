@@ -154,7 +154,10 @@ def test_protected_footprints_shift_or_squeeze():
     T = cor.trim_buildings([[temple], [house]], np.array([True, False]), bands, owners)
     assert 0 not in T.trimmed and 1 in T.trimmed  # the temple is never trimmed; the house gives way
     dm, sh = w.samples(0.0, 80.0)
-    assert len(sh) == len(dm) and sh.min() < 0
+    assert len(dm) == 5 and len(sh) == 17 and sh.min() < 0  # shifts every 5 m (RSTR_SHIFT_SPACING_M)
+    # Linear interpolation of the shift samples never shifts less than the profile (no temple intrusion).
+    x = np.linspace(0.0, 80.0, 321)
+    assert np.all(np.interp(x, 5.0 * np.arange(17), sh / 100.0) <= wp.Profile(w.arcs, w.shift, 80.0).at(x) + 0.011)
     # Temples on both sides: the corridor narrows to the gap between them.
     C, _ = _compute([fw], [temple, rect(25, -9, 45, -1.0)], protected=[True, True])
     w = C.ways[0]
@@ -180,7 +183,7 @@ def test_trim_removes_slivers_and_keeps_the_largest_part():
 # ---------------------------------------------------------------------------------------------------------------
 # structures
 # ---------------------------------------------------------------------------------------------------------------
-def _analyse(roads, lines=(), areas=(), terrain=None):
+def _analyse(roads, lines=(), areas=(), terrain=None, corridor_width=None, passages=None, area_type=None):
     rs = [r for r, _, _ in roads]
     pts = [p for _, p, _ in roads]
     ids = [i for _, _, i in roads]
@@ -189,7 +192,43 @@ def _analyse(roads, lines=(), areas=(), terrain=None):
     areas = list(areas)
     ag = [a.polygon for a in areas]
     return sts.analyse(rs, pts, ids, lines, lg, areas, ag, terrain or flat(),
-                       real_width=lambda i: cor.real_width(rs[i], URBAN))
+                       real_width=lambda i: cor.real_width(rs[i], URBAN), corridor_width=corridor_width,
+                       passages=passages, area_type=area_type)
+
+
+def _heights(S, roads, terrain):
+    """Way index -> (points, absolute heights, roles), terrain where draped."""
+    out = {}
+    for k, (r, p, _ids) in enumerate(roads):
+        ws = S.ways.get(k)
+        if ws is not None and ws.pts is not None:
+            T = terrain(ws.pts[:, 0], ws.pts[:, 1])
+            out[k] = (ws.pts, np.where(ws.role != DECK_DRAPED, ws.h, T), ws.role, ws.node_ids, T)
+        else:
+            pp = np.asarray(p, dtype=np.float64)
+            T = terrain(pp[:, 0], pp[:, 1])
+            out[k] = (pp, T, np.zeros(len(pp), dtype=np.uint8), np.asarray(_ids), T)
+    return out
+
+
+def _assert_continuous(S, roads, terrain, steep=False):
+    """No step anywhere: on the ground the offset from the terrain changes by at most the class grade per metre
+    (STEEP_GRADE where a connector had to steepen), on decks the height itself; shared nodes agree."""
+    hs = _heights(S, roads, terrain)
+    at_node = {}
+    for k, (pts, h, role, ids, T) in hs.items():
+        cls = int(roads[k][0].cls)
+        g = sts.STEEP_GRADE if steep and cls not in sts.FOOT_CLASSES else sts.grade(cls)
+        L = np.hypot(*np.diff(pts, axis=0).T)
+        deck = (role[:-1] == DECK_DECK) & (role[1:] == DECK_DECK)
+        dd = np.abs(np.diff(h - T))
+        if cls not in sts.FOOT_CLASSES:
+            assert np.all(np.where(deck, np.abs(np.diff(h)), dd) <= g * L + 0.05), (roads[k][0].osm_id, dd.max())
+        for nid, y in zip(np.asarray(ids).tolist(), h.tolist()):
+            if nid > 0:
+                at_node.setdefault(nid, []).append(y)
+    for nid, ys in at_node.items():
+        assert max(ys) - min(ys) <= 0.02, (nid, ys)
 
 
 def _river(oid=900, x=100.0, width=None):
@@ -309,6 +348,13 @@ def test_pond_causeway_and_water_area_span():
     assert p[deck, 0].min() <= 48.0 + 1e-6 and p[deck, 0].max() >= 92.0 - 1e-6
     assert (rec.deck_cm[deck] / 100.0).min() >= 1300.0 - 0.5 + 1.0 - 1e-6
     assert any(e["water"] == ["Rani Pokhari"] for e in S.report)
+    # Lakes and ponds are never incised, in the city either (AreaKind and LineKind values overlap: WATER_LAKE == 1
+    # == RIVER, so the incised tables are kept apart).
+    for kind in (AreaKind.WATER_LAKE, AreaKind.WATER_POND):
+        lake = AreaFeature(osm_type="w", osm_id=78, kind=kind, polygon=shapely.Polygon(rect(50, -30, 90, 30)))
+        S = _analyse([r], areas=[lake], area_type=lambda x, z: np.full(len(np.atleast_1d(x)), URBAN))
+        rec, p = _piece(S, 0, r[1])
+        assert (rec.deck_cm[rec.deck_role == DECK_DECK] / 100.0).min() >= 1300.0 - 0.5 + 1.0 - 1e-6, kind
 
 
 def test_leaf_terrain_matches_the_tile_grid():
@@ -342,3 +388,174 @@ def test_routing_drops_car_modes_from_no_car_ways():
     gone = [int(m) for m in g.edge_access if not m & int(Travel.CAR)]
     assert gone and all(m & int(Travel.MOTORBIKE) and m & int(Travel.BICYCLE) and not m & int(Travel.BUS)
                         and not m & int(Travel.JEEP) for m in gone)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# heights: continuity, clearance under the whole deck, riverside cuttings, foot overbridges (review fixes)
+# ---------------------------------------------------------------------------------------------------------------
+def test_ramps_never_step_and_shared_nodes_agree():
+    lower = road(1, cls=RoadClass.PRIMARY, pts=((0, 0), (190, 0), (300, 0), (400, 0)), ids=[10, 11, 12, 13])
+    deck = road(2, cls=RoadClass.TRUNK, pts=((150, -60), (150, 60)), ids=[20, 21], bridge=True, layer=1)
+    south = road(3, cls=RoadClass.TRUNK, pts=((150, -300), (150, -60)), ids=[22, 20])
+    north = road(4, cls=RoadClass.TRUNK, pts=((150, 60), (150, 90)), ids=[21, 23])
+    link = road(5, cls=RoadClass.RESIDENTIAL, pts=((150, 90), (190, 0)), ids=[23, 11])  # loops back to the road below
+    side = road(6, cls=RoadClass.RESIDENTIAL, pts=((150, 90), (150, 400)), ids=[23, 24])
+    foot = road(7, cls=RoadClass.FOOTWAY, pts=((300, -12), (300, 12)), ids=[30, 31], bridge=True, layer=1)
+    street = road(8, cls=RoadClass.RESIDENTIAL, pts=((250, -12), (300, -12), (350, -12)), ids=[40, 30, 41])
+    roads = [lower, deck, south, north, link, side, foot, street]
+    S = _analyse(roads)
+    _assert_continuous(S, roads, flat())
+    for c in S.crossings:
+        assert c.clearance_m >= sts.MIN_UNDERPASS_CLEARANCE_M - 0.05
+    st, _ = _piece(S, 7, street[1])
+    assert len(st.deck_role) == 0  # the footbridge's stairs end at the street: it is never lifted
+    fb, _ = _piece(S, 6, foot[1])
+    assert fb.flags & int(SF.FOOT_OVERBRIDGE) and fb.deck_cm.max() / 100.0 >= 1300.0 + 5.5 + 0.6 - 0.05
+    low, _ = _piece(S, 0, lower[1])
+    assert len(low.deck_role) == 0 or not (low.flags & int(SF.LOWERED))  # the primary below is never dug out
+
+
+def test_clearance_holds_under_the_whole_deck_width():
+    def slope(x, z):
+        return 1300.0 + 0.18 * np.asarray(x, dtype=np.float64) + 0.0 * np.asarray(z, dtype=np.float64)
+
+    lower = road(1, cls=RoadClass.RESIDENTIAL, pts=((0, 0), (200, 0)))
+    upper = road(2, cls=RoadClass.TRUNK, pts=((100, -150), (100, 150)), bridge=True, layer=1)
+    widths = {0: 6.0, 1: 27.2}
+    S = _analyse([lower, upper], terrain=slope, corridor_width=lambda i, a0, a1: widths[i])
+    hs = _heights(S, [lower, upper], slope)
+    up_pts, up_h = hs[1][0], hs[1][1]
+    y_deck = float(np.interp(150.0, wp.cumulative(up_pts), up_h))  # the deck over z = 0
+    lo_pts, lo_h = hs[0][0], hs[0][1]
+    for x in np.arange(100.0 - 13.6, 100.0 + 13.6 + 1e-9, 0.25):
+        y = float(np.interp(x, lo_pts[:, 0], lo_h))
+        assert y_deck - sts.DECK_DEPTH_M - y >= sts.MIN_UNDERPASS_CLEARANCE_M - 0.05, x
+
+
+def _channel(x, z):
+    x = np.asarray(x, dtype=np.float64)
+    return 1300.0 - 6.0 * np.exp(-((x - 100.0) ** 2) / (2 * 15.0 ** 2)) + 0.0 * np.asarray(z, dtype=np.float64)
+
+
+def test_a_bank_road_sinks_under_its_river_bridge_before_the_deck_rises():
+    bank = road(1, cls=RoadClass.RESIDENTIAL, pts=((125, -300), (125, 300)))
+    bridge = road(2, cls=RoadClass.SECONDARY, pts=((60, 0), (140, 0)), ids=[20, 21], bridge=True, layer=1)
+    west = road(3, cls=RoadClass.SECONDARY, pts=((-200, 0), (60, 0)), ids=[22, 20])
+    east = road(4, cls=RoadClass.SECONDARY, pts=((140, 0), (400, 0)), ids=[21, 23])
+    roads = [bank, bridge, west, east]
+    S = _analyse(roads, lines=[_river()], terrain=_channel)
+    _assert_continuous(S, roads, _channel)
+    c = [c for c in S.crossings if c.lower == 0][0]
+    assert c.riverside and c.clearance_m >= sts.MIN_UNDERPASS_CLEARANCE_M - 0.05
+    rec, p = _piece(S, 0, bank[1])
+    assert rec.flags & int(SF.LOWERED)
+    hs = _heights(S, roads, _channel)
+    k = np.argmin(np.abs(hs[0][0][:, 1]))
+    surface = float(_channel(np.array([100.0]), np.array([0.0]))[0]) - 1.5
+    assert surface + sts.RIVER_FLOOR_M - 1e-6 <= hs[0][1][k] < float(_channel(np.array([125.0]), np.array([0.0]))[0]) - 2.0
+    # The deck rises only for what the cutting cannot take: its approach embankments stay low (over the bank road
+    # at the terrain they would be some 4.6 m high).
+    embankment = max(float(np.max(hs[k2][1] - hs[k2][4])) for k2 in (2, 3))
+    assert embankment < 2.0
+
+
+def test_a_footbridge_beside_a_road_does_not_take_its_river():
+    car = road(1, cls=RoadClass.TERTIARY, pts=((0, 0), (200, 0)))
+    foot = road(2, cls=RoadClass.PATH, pts=((90, 4.5), (110, 4.5)), bridge=True)
+    S = _analyse([car, foot], lines=[_river()])
+    assert int(S.kinds[0]) == int(SK.BRIDGE)
+    rec, _ = _piece(S, 0, car[1])
+    assert rec.flags & int(SF.WATER_CROSSING) and (rec.deck_role == DECK_DECK).any() and rec.railing_dm == 11
+    # A residential road crossing the river 17 m from a road bridge that crosses it too gets its own span.
+    bridge = road(3, cls=RoadClass.TERTIARY, pts=((60, 17), (140, 17)), bridge=True)
+    res = road(4, pts=((0, 0), (200, 0)))
+    S = _analyse([bridge, res], lines=[_river()])
+    assert int(S.kinds[1]) == int(SK.BRIDGE)
+
+
+def test_passages_keep_the_house_and_carry_a_gateway_clearance():
+    house = rect(40, -6, 52, 6)
+    passage = road(1, cls=RoadClass.FOOTWAY, pts=((30, 0), (60, 0)), tunnel=True, extra={"tunnel": "building_passage"})
+    covered = road(2, cls=RoadClass.FOOTWAY, pts=((30, 20), (60, 20)), extra={"covered": "yes"})
+    plain = road(3, cls=RoadClass.FOOTWAY, pts=((30, 40), (60, 40)))
+    rs = [passage[0], covered[0], plain[0]]
+    pts = [passage[1], covered[1], plain[1]]
+    pas = cor.passages(rs, pts, [house], [7.5])
+    assert pas == {0: 7.5, 1: sts.MIN_OVERHEAD_CLEARANCE_M}  # the tagged min_height is higher than 4.5 m
+    S = _analyse([passage, covered, plain], passages=pas)
+    assert int(S.kinds[0]) == int(SK.PASSAGE) and int(S.kinds[2]) == int(SK.NONE)
+    rec, _ = _piece(S, 0, passage[1])
+    assert rec.kind == int(SK.PASSAGE) and rec.clearance_cm == 750
+    C, _ = _compute([passage], [house], protected=[False])
+    bands, owners = cor.corridor_bands(C, [passage[1]], set(pas))
+    T = cor.trim_buildings([[house]], np.zeros(1, dtype=bool), bands, owners)
+    assert not T.trimmed and not T.removed  # the house over the passage stays whole
+
+
+def test_roads_stop_at_protected_footprints():
+    temple = rect(50, -5, 60, 5)
+    into = road(1, cls=RoadClass.PATH, pts=((0, 0), (55, 0)))  # ends inside the temple
+    through = road(2, cls=RoadClass.RESIDENTIAL, pts=((55, -60), (55, 60)), ids=[21, 22])  # runs through it
+    over = road(3, cls=RoadClass.FOOTWAY, pts=((55, -30), (55, 30)), ids=[31, 32], bridge=True, layer=1)
+    rs = [into[0], through[0], over[0]]
+    pts = [into[1], through[1], over[1]]
+    ids = [into[2], through[2], over[2]]
+    out = cor.clip_at_protected(rs, pts, ids, [[temple]], np.array([True]), lambda i: 2.4, set(), {2})
+    poly = shapely.Polygon(temple)
+    assert len(out.roads) == 4 and out.src == [0, 1, 2, 1]  # the residential continues on the far side
+    assert shapely.LineString(out.game[0]).distance(poly) >= cor.CLIP_MARGIN_M - 1e-6
+    assert out.game[0][0].tolist() == [0.0, 0.0] and out.ids[0][0] == into[2][0]
+    for k in (1, 3):
+        assert shapely.LineString(out.game[k]).distance(poly) >= cor.CLIP_MARGIN_M - 1e-6
+        assert out.roads[k].osm_id == 2
+    assert np.allclose(out.game[2], over[1])  # a deck passing over is kept whole
+    # The clipped roads' flat corridor ends clear the outline.
+    C, _ = _compute([(out.roads[k], out.game[k], out.ids[k]) for k in (0, 1, 3)], [], protected=[])
+    bands, owners = cor.corridor_bands(C, [out.game[k] for k in (0, 1, 3)], set(), exact=True)
+    intr = cor.protected_intrusions([[temple]], np.array([True]), bands, owners)
+    assert not intr
+
+
+def test_the_car_rule_reads_the_surveyed_width():
+    narrow = road(1, cls=RoadClass.TERTIARY, width_m=2.0)[0]
+    assert cor.real_width(narrow, URBAN) == pytest.approx(3.0)  # drawn at the class floor
+    assert cor.car_width(narrow, cor.real_width(narrow, URBAN)) == pytest.approx(2.0)
+    assert not sts.car_accessible(narrow, cor.car_width(narrow, 3.0), False, int(SK.NONE))
+    untagged = road(2, cls=RoadClass.TERTIARY)[0]
+    assert sts.car_accessible(untagged, cor.car_width(untagged, cor.real_width(untagged, URBAN)), False,
+                              int(SK.NONE))
+
+
+def test_a_deck_landing_on_a_road_is_not_an_underpass():
+    street = road(1, pts=((0, 10), (200, 10)))
+    landing = road(2, cls=RoadClass.FOOTWAY, pts=((60, -40), (60, 11)), bridge=True, layer=1)  # ends 1 m past it
+    spanning = road(3, cls=RoadClass.FOOTWAY, pts=((140, -10), (140, 30)), bridge=True, layer=1)
+    S = _analyse([street, landing, spanning])
+    assert [(c.upper, c.lower) for c in S.crossings] == [(2, 0)]
+    assert [(c.upper, c.lower) for c in S.at_abutment] == [(1, 0)] and S.stats["crossings_at_abutment"] == 1
+    assert int(S.kinds[1]) == int(SK.BRIDGE) and int(S.kinds[2]) == int(SK.FLYOVER)
+    # A deck that another deck way continues has no abutment there (a long viaduct mapped as several ways).
+    a = road(4, cls=RoadClass.TRUNK, pts=((100, -60), (100, 11)), ids=[40, 41], bridge=True, layer=1)
+    b = road(5, cls=RoadClass.TRUNK, pts=((100, 11), (100, 80)), ids=[41, 42], bridge=True, layer=1)
+    S = _analyse([street, a, b])
+    assert {(c.upper, c.lower) for c in S.crossings} == {(1, 0)} and not S.at_abutment
+
+
+def test_urban_rivers_are_incised_so_bank_roads_sink_and_bridges_stay_at_street_level():
+    bank = road(1, cls=RoadClass.RESIDENTIAL, pts=((125, -300), (125, 300)))
+    bridge = road(2, cls=RoadClass.SECONDARY, pts=((60, 0), (140, 0)), ids=[20, 21], bridge=True, layer=1)
+    west = road(3, cls=RoadClass.SECONDARY, pts=((-200, 0), (60, 0)), ids=[22, 20])
+    east = road(4, cls=RoadClass.SECONDARY, pts=((140, 0), (400, 0)), ids=[21, 23])
+    roads = [bank, bridge, west, east]
+    raise_m, sink_m = {}, {}
+    for at in (int(AreaType.RURAL), URBAN):
+        S = _analyse(roads, lines=[_river()], area_type=lambda x, z, at=at: np.full(len(np.atleast_1d(x)), at))
+        _assert_continuous(S, roads, flat(), steep=True)
+        c = [c for c in S.crossings if c.lower == 0][0]
+        assert c.riverside and c.clearance_m >= sts.MIN_UNDERPASS_CLEARANCE_M - 0.05
+        hs = _heights(S, roads, flat())
+        raise_m[at] = float(np.max(hs[1][1])) - 1300.0
+        sink_m[at] = 1300.0 - float(np.min(hs[0][1]))
+    # Rural: the DEM channel (1.5 m) lets the bank road sink 0.5 m; urban (4.5 m incised) 3.5 m.
+    assert sink_m[URBAN] >= 3.5 - 0.05 and sink_m[int(AreaType.RURAL)] <= 0.5 + 0.05
+    assert raise_m[URBAN] <= raise_m[int(AreaType.RURAL)] - 2.5

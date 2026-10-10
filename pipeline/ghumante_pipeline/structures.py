@@ -7,44 +7,59 @@ borders agree; ``Structures.piece_record`` then reads the values back for one cl
 Classification (``analyse``)
 ----------------------------
 * **Effective layer**: the OSM ``layer``; else +1 for a bridge and -1 for a tunnel (``tunnel=yes``; a
-  ``building_passage`` and any tunnel of at most ``PASSAGE_MAX_M`` on layer >= 0 is a passage, i.e. an ordinary
-  ground road).
+  ``building_passage`` and any tunnel of at most ``PASSAGE_MAX_M`` on layer >= 0 is a passage, i.e. a ground road).
 * **Water crossings**: a road crosses a waterway line (river, stream, canal; ditches and drains only for tagged
   bridges; lines tagged ``tunnel``/``culvert`` never) or a water area (riverbank, lake, pond). A tagged bridge that
   crosses water is a BRIDGE with WATER_CROSSING. An untagged road crossing a waterway line gets an **inferred
   bridge span** there: the water area's inside interval when the crossing lies in one, else the line's width
   (tagged, or ``LINE_WIDTH_M`` by kind) plus ``SPAN_MARGIN_M`` on each side, divided by the sine of the crossing
   angle. Lakes and ponds also make spans where a road runs at least ``POND_MIN_M`` over them. A crossing within
-  ``BRIDGE_SNAP_M`` of a tagged bridge belongs to that bridge (mapping offsets), and fords never get spans.
+  ``BRIDGE_SNAP_M`` of a tagged bridge belongs to that bridge only when the bridge is the same road (it shares a
+  node with the crossing way, or runs parallel to it with the same class and name), is not a foot bridge next to a
+  motor road, and does not cross that water line itself (``_snap_bridge``); fords never get spans.
+* **Water surface**: the lowest terrain along the waterway within ``SURFACE_SEARCH_M`` of the crossing (or along the
+  road inside a water area) minus the channel depth (``LINE_WATER``, ``AREA_WATER``); rivers and streams crossing
+  URBAN or OLD_CORE ground are incised deeper (``INCISED_LINE_M``, ``INCISED_AREA_M``: the 30 m DEM smooths
+  their sand-mined channels away, and the valley's bridges stand at street level).
 * **Grade separations**: two ways whose lines cross at a point that is not a shared OSM node, on different
   effective layers. The higher one is the upper: a tagged bridge over it, or an untagged way on layer > 0 (a
   flyover mapped without ``bridge``), becomes a deck; it is a FLYOVER when it crosses no water (FOOT_OVERBRIDGE for
   footways, paths, steps, cycleways, bridleways and pedestrian streets), and gets OVER_ROAD. The lower one is an
-  UNDERPASS with the clearance measured under the deck. A tunnel-tagged lower way under a ground road is lowered (LOWERED); a layer < 0
-  way meeting a ground road without a shared node and without a tunnel tag is an at-grade crossing (ignored).
-* TUNNEL: a tunnel that passes under no road (not drawn in W2, kept out of car routes); FORD: ``ford=yes``.
+  UNDERPASS with the clearance measured under the deck. A tunnel-tagged lower way under a ground road is lowered
+  (LOWERED); a layer < 0 way meeting a ground road without a shared node and without a tunnel tag is an at-grade
+  crossing (ignored), and so is a crossing within ``ABUTMENT_M`` (across the lower road) of a deck end that no
+  other deck way continues: the bridge lands on that road there (``Structures.at_abutment``).
+* TUNNEL: a tunnel that passes under no road (not drawn in W2, kept out of car routes); FORD: ``ford=yes``;
+  PASSAGE: a way under a building that stays intact (``corridors.passages``), with the gateway's free height.
 
 Deck heights (``_solve``)
 -------------------------
-Every way that carries a deck or a lowered profile, and the ways up to two junctions away, are cut into
+Every way that carries a deck or a lowered profile, and every way within ``NEIGH_M`` of path from one, is cut into
 **stations** every ``STATION_M`` (plus their vertices and every interval end). Stations at the same OSM node are
 one graph vertex. Terrain is the runtime's: the leaf tiles' quantised ``HGHT`` samples, bilinear (``LeafTerrain``).
 
 1. **Base deck line**: each connected run of deck stations is interpolated harmonically (linearly along a chain)
    between its **abutments**, the deck stations that touch a ground road or end a way, which sit on the terrain;
-   a deck never runs below the terrain under it.
-2. **Requirements**: over water the deck is at least the water surface + the kind's clearance (rivers 3 m: the
-   lowest terrain along the waterway within ``SURFACE_SEARCH_M`` minus the channel depth); over a road it is at
-   least that road's surface + ``MIN_UNDERPASS_CLEARANCE_M`` + the deck depth (``DECK_DEPTH_M``, foot decks
-   ``FOOT_DECK_DEPTH_M``) along the lower road's corridor.
-3. **Ramps**: requirements spread outwards as cones with the class's maximum grade (``GRADE``), through the deck
-   and on into the approach roads until they meet the terrain (those stations are RAMP; a way that is not a
-   structure itself but carries such a ramp gets APPROACH). The final height is the maximum of the base line and
-   every cone.
-4. **Lowered underpasses**: under a ground road a tunnel-tagged lower way must stay at least the clearance + deck
-   depth below the upper road's surface; the requirement spreads as an inverted cone with the same grades until it
-   meets the terrain.
-5. Requirements on stacked structures depend on the lower heights, so steps 1-4 repeat until nothing changes.
+   a deck never runs below it or below the terrain under it.
+2. **Bounds**: over water a deck is at least the water surface + the kind's clearance (rivers 3 m). Every station
+   may sink at most ``MAX_CUT_M``; a riverside road under a river bridge (inside the river corridor, within
+   ``RIVER_ZONE_M`` of the crossing) at most to the water surface + ``RIVER_FLOOR_M``.
+3. **Crossings**: the upper road's stretch over the lower road's corridor (``Crossing.iv_u``) and the lower road's
+   stretch under the upper road's corridor (``iv_l``, both at most ``MAX_FLAT_M`` either side) are coupled: every
+   upper station is at least ``MIN_UNDERPASS_CLEARANCE_M`` + the deck depth above **every** lower station, so the
+   clearance holds under the deck's whole width, not only at the centreline.
+4. **One linear programme per connected neighbourhood** (``_solve_component``) finds the offsets from the terrain:
+   along every ground edge the offset changes by at most the class grade per metre (``GRADE``; foot ways
+   ``FOOT_GRADE``, stairs), along every deck edge the height itself does, so a road never steps and stations at a
+   shared node are one value. It minimises raising (1 per metre of offset and metre of road), sinking (cheap for
+   tunnel-tagged underpasses, the roads their cuttings continue as and riverside roads; else ``W_LOWER``),
+   URBAN / OLD_CORE embankments over ``EMBANK_CAP_M`` (``W_EMBANK``), stations where the solved neighbourhood meets
+   unsolved ways leaving the terrain (``W_PIN``), motor roads lifted by a foot structure (``W_PIN_FOOT``: its
+   stairs end at the road instead) and, where the class grade cannot close a loop between a deck and the road
+   under it, ramps steepened up to ``STEEP_GRADE`` (``W_STEEP``). Missing clearance costs ``W_CLEAR`` (in effect
+   never). The active set grows (``INFLUENCE_*``) until no solution presses against its boundary.
+5. Stations off the terrain become RAMP (embankments, cuttings) or keep DECK; ways that are not structures but
+   carry such a ramp get APPROACH, lowered stretches LOWERED.
 
 Car access (decision 5, ``car_accessible``): a motor class (trunk to service, track, road), an access mask with
 CAR or JEEP, a real width of at least ``CAR_MIN_REAL_M`` (the plausible ``width`` tag, else the W2_DESIGN 4.1
@@ -65,8 +80,8 @@ import numpy as np
 import shapely
 
 from . import wayprofile as wp
-from .model import AreaKind, LineKind, RoadClass, RoadFeature, RoadStructureFlags as SF, RoadStructureKind as SK, \
-    Travel
+from .model import AreaKind, AreaType, LineKind, RoadClass, RoadFeature, RoadStructureFlags as SF, \
+    RoadStructureKind as SK, Travel
 from .tile_format import DECK_DECK, DECK_DRAPED, DECK_RAMP, RoadStructureRec
 
 MIN_UNDERPASS_CLEARANCE_M = 5.5  # RoadClearance.MinUnderpassClearanceM
@@ -74,9 +89,9 @@ DECK_DEPTH_M = 1.2  # vehicle deck: surface to underside (the bridges package ke
 FOOT_DECK_DEPTH_M = 0.6
 STATION_M = 5.0
 EPS_M = 0.02
-MAX_RAMP_M = 400.0  # an approach ramp never runs further than this from its structure
 PASSAGE_MAX_M = 60.0
 BRIDGE_SNAP_M = 20.0
+ABUTMENT_M = 2.0  # a road whose centreline crosses a deck this close to its abutment meets the bridge there
 SPAN_MARGIN_M = 2.0
 POND_MIN_M = 3.0
 SURFACE_SEARCH_M = {int(LineKind.RIVER): 40.0, int(LineKind.CANAL): 20.0, int(LineKind.STREAM): 20.0,
@@ -88,6 +103,12 @@ LINE_WATER = {int(LineKind.RIVER): (1.5, 3.0), int(LineKind.CANAL): (1.0, 2.0), 
               int(LineKind.DITCH): (0.5, 1.0)}
 AREA_WATER = {int(AreaKind.WATER_RIVER): (1.5, 3.0), int(AreaKind.WATER_LAKE): (0.5, 1.0),
               int(AreaKind.WATER_POND): (0.5, 1.0)}
+# Channel depth below the lowest terrain where a river or stream crosses URBAN or OLD_CORE ground: the valley's
+# rivers run in channels incised by decades of sand mining (the Bagmati at Thapathali "down a canyon"), which the
+# 30 m DEM smooths away, so the street-level bridges stand several metres above the water.
+INCISED_LINE_M = {int(LineKind.RIVER): 4.5, int(LineKind.STREAM): 2.5}  # by LineKind
+INCISED_AREA_M = {int(AreaKind.WATER_RIVER): 4.5}  # by AreaKind (riverbanks)
+INCISED_AREAS = frozenset((int(AreaType.URBAN), int(AreaType.OLD_CORE)))
 SPAN_LINES = frozenset((int(LineKind.RIVER), int(LineKind.CANAL), int(LineKind.STREAM)))
 WATER_LINES = SPAN_LINES | {int(LineKind.DITCH)}
 POND_AREAS = frozenset((int(AreaKind.WATER_LAKE), int(AreaKind.WATER_POND)))
@@ -112,8 +133,34 @@ FOOT_GRADE = 0.5
 STAIR_CLASSES = frozenset(int(c) for c in (RoadClass.FOOTWAY, RoadClass.PATH, RoadClass.STEPS, RoadClass.CYCLEWAY,
                                            RoadClass.BRIDLEWAY, RoadClass.PEDESTRIAN))
 DEFAULT_GRADE = 0.08
-KIND_RANK = {int(SK.BRIDGE): 5, int(SK.FLYOVER): 4, int(SK.UNDERPASS): 3, int(SK.TUNNEL): 2, int(SK.FORD): 1,
-             int(SK.NONE): 0}
+KIND_RANK = {int(SK.BRIDGE): 6, int(SK.FLYOVER): 5, int(SK.UNDERPASS): 4, int(SK.TUNNEL): 3, int(SK.FORD): 2,
+             int(SK.PASSAGE): 1, int(SK.NONE): 0}
+MIN_CORRIDOR_M = 4.8  # RoadClearance.MinCorridorM
+MIN_OVERHEAD_CLEARANCE_M = 4.5  # RoadClearance.MinOverheadClearanceM: the free height a PASSAGE gateway keeps
+MAX_FLAT_M = 60.0  # a crossing's stretch over / under the other corridor never runs further than this either side
+# Height solver (``_solve``): costs per metre of offset from the terrain and metre of road (a linear programme).
+W_RAISE = 1.0
+W_LOWER_CHEAP = 0.01  # tunnel-tagged underpasses and riverside roads under a river bridge sink first
+W_LOWER = 1.0e4  # any other road sinks only when no deck can clear it (a ramp looping back under its own deck)
+W_EMBANK = 50.0  # per metre an URBAN or OLD_CORE embankment rises above EMBANK_CAP_M
+EMBANK_CAP_M = 3.0
+W_PIN = 1.0e4  # leaving the terrain where the solved neighbourhood meets an unsolved way
+W_PIN_FOOT = 1.0e5  # a motor road lifted by a foot structure (its stairs end at the road instead, steeper if need be)
+W_STAIR = 1.0e4  # per metre a foot way steps beyond its stair grade
+W_CLEAR = 1.0e7  # per metre of missing underpass clearance (decision 3: in effect never)
+W_STEEP = 2.0e4  # per metre of rise beyond the class grade (per metre of road), up to STEEP_GRADE
+STEEP_GRADE = 0.15
+MAX_CUT_M = 12.0
+NEIGH_M = 600.0  # solved neighbourhood: every way within this path distance of a structure
+INFLUENCE_MARGIN_M = 4.0
+INFLUENCE_GRADE = 0.05
+# A road within this distance of a river's (stream's, canal's) bank line lies in its corridor (the floodplain a
+# river bridge spans: the Bagmati and Bishnumati bank roads run up to ~70 m from the mapped centreline).
+RIVERSIDE_M = {int(LineKind.RIVER): 80.0, int(LineKind.CANAL): 30.0, int(LineKind.STREAM): 30.0}
+RIVER_ZONE_M = 300.0  # how far along the bank roads a riverside cutting may run
+CUT_ZONE_M = 300.0  # how far a tunnel-tagged underpass's cutting may run on into the roads it continues as
+RIVER_FLOOR_M = 1.0  # a lowered riverside road stays this far above the water surface
+DEBUG = False  # keep the solver's arrays on Structures._dbg (tests and tools)
 _YES_LINE_TUNNEL = frozenset({"yes", "culvert", "true", "1", "flooded"})
 
 
@@ -243,6 +290,11 @@ class Crossing:
     a_upper: float
     a_lower: float
     sin: float
+    iv_u: tuple[float, float] | None = None  # the upper road's arcs over the lower road's corridor
+    iv_l: tuple[float, float] | None = None  # the lower road's arcs under the upper road's corridor
+    need_m: float = 0.0  # clearance + upper deck depth
+    clearance_m: float = 0.0  # solved: lowest upper surface - deck depth - highest lower surface over the overlap
+    riverside: bool = False  # the lower road runs along the river the upper road bridges
 
 
 @dataclass
@@ -254,6 +306,7 @@ class Structures:
     kinds: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))  # way-level dominant kind
     layers: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     crossings: list[Crossing] = field(default_factory=list)
+    at_abutment: list[Crossing] = field(default_factory=list)  # crossings dropped where a deck lands on the road
     report: list[dict] = field(default_factory=list)
     stats: dict = field(default_factory=dict)
 
@@ -391,11 +444,17 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
             lines: Sequence, lines_game: Sequence[np.ndarray], areas: Sequence, area_geoms: Sequence,
             terrain: Callable[[np.ndarray, np.ndarray], np.ndarray],
             real_width: Callable[[int], float] | None = None,
-            galli: Callable[[int], bool] | None = None) -> Structures:
+            galli: Callable[[int], bool] | None = None,
+            corridor_width: Callable[[int, float, float], float | None] | None = None,
+            area_type: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
+            passages: dict[int, float] | None = None) -> Structures:
     """Classify every way and solve deck heights (module docstring). ``roads_game``/``node_ids`` are the deduped
     game polylines (``oneway=-1`` reversed) and their node ids; ``real_width(i)`` gives road ``i``'s W2_DESIGN 4.1
     real width (for car access, widths in the report and lower-road corridors) and ``galli(i)`` whether a stretch
-    of it is a galli (``corridors``)."""
+    of it is a galli (``corridors``). ``corridor_width(i, a0, a1)`` is the widest final corridor of road ``i``
+    between arcs ``a0`` and ``a1`` (``corridors.Corridors.width``; else 1.25 x real + 4 m, at least 4.8 m),
+    ``area_type(x, z)`` the AreaType grid (the URBAN / OLD_CORE embankment cap) and ``passages`` the ways that
+    pass under a building that stays intact, with the free height their gateway keeps (kind PASSAGE)."""
     n = len(roads)
     res = Structures()
     res.kinds = np.zeros(n, dtype=np.int64)
@@ -437,10 +496,17 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
     bridge_lines[:] = [road_lines[i] for i in bridges]
     btree = shapely.STRtree(bridge_lines) if len(bridges) else None
 
+    def incised(table: dict, kind: int, depth: float, x: float, z: float) -> float:
+        if area_type is None or kind not in table:
+            return depth
+        at = int(np.asarray(area_type(np.array([x]), np.array([z]))).reshape(-1)[0])
+        return max(depth, table[kind]) if at in INCISED_AREAS else depth
+
     def water_surface_line(m: int, x: float, z: float) -> tuple[float, float]:
         k = wl_idx[m]
         kind = int(lines[k].kind)
         depth, clear = LINE_WATER[kind]
+        depth = incised(INCISED_LINE_M, kind, depth, x, z)
         a = float(shapely.line_locate_point(w_lines[m], shapely.Point(x, z)))
         R = SURFACE_SEARCH_M[kind]
         arcs = np.arange(a - R, a + R + 1e-9, 4.0)
@@ -487,6 +553,8 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
                 st = np.arange(a0, a1 + 1e-9, 2.0)
                 pos, _ = wp.at_arcs(roads_game[i], cums[i], st)
                 depth, clear = AREA_WATER[kind]
+                mid = pos[len(pos) // 2]
+                depth = incised(INCISED_AREA_M, kind, depth, float(mid[0]), float(mid[1]))
                 surf = float(np.min(terrain(pos[:, 0], pos[:, 1]))) - depth
                 area_iv.append((a0, a1, surf, clear, kind))
                 if areas[k].name is not None and (areas[k].name.en or areas[k].name.default):
@@ -501,14 +569,17 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
                     continue
                 if not tagged and btree is not None:
                     near = btree.query(shapely.Point(x, z), predicate="dwithin", distance=BRIDGE_SNAP_M)
-                    if len(near):
-                        # A mapping offset: the river belongs to the tagged bridge next to it.
-                        b = bridges[int(sorted(near.tolist())[0])]
+                    b = _snap_bridge(i, li, near, bridges, roads, road_lines, node_ids, w_lines, roads_game, cums,
+                                     x, z) if len(near) else None
+                    if b is not None:
+                        # A mapping offset: the river belongs to the tagged bridge this road continues into.
                         surf, clear = water_surface_line(li, x, z)
                         deck_req.append((b, 0.0, float(totals[b]), surf + clear))
                         deck_flags[b] |= int(SF.WATER_CROSSING)
                         stats["water_snapped_to_bridge"] += 1
                         continue
+                    if len(near):
+                        stats["water_not_snapped"] += 1
                 crossed = True
                 a = float(shapely.line_locate_point(line, shapely.Point(x, z)))
                 surf, clear = water_surface_line(li, x, z)
@@ -584,6 +655,35 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
                 _, tu = wp.at_arcs(roads_game[up], cums[up], [au])
                 _, tl = wp.at_arcs(roads_game[lo], cums[lo], [al])
                 crossings.append(Crossing(up, lo, float(x), float(z), au, al, max(_sin_angle(tu[0], tl[0]), 0.25)))
+    # A deck spans a road only when the road lies between its abutments: a crossing within ABUTMENT_M (across the
+    # road, so along the deck / sin) of a deck end that no other deck continues is where the bridge lands on that
+    # road (a junction mapped without a shared node, the bank road at a bridge head), not an underpass.
+    deck_way = valid & np.array([(r.bridge or int(layers[i]) > 0) and ttypes[i] != "tunnel" for i, r in enumerate(roads)],
+                                dtype=bool)
+    node_deck: dict[int, int] = defaultdict(int)
+    for i in np.flatnonzero(deck_way).tolist():
+        for nid in set(int(v) for v in np.asarray(node_ids[i]).tolist() if v > 0):
+            node_deck[nid] += 1
+
+    def abutment_dist(u: int, a: float) -> float:
+        if not deck_way[u] or wp.is_closed(roads_game[u]):
+            return math.inf
+        ids = np.asarray(node_ids[u])
+        out = math.inf
+        for nid, d in ((int(ids[0]), a), (int(ids[-1]), float(totals[u]) - a)):
+            if nid > 0 and node_deck.get(nid, 0) > 1:
+                continue  # another deck way continues the structure here
+            out = min(out, d)
+        return out
+
+    kept = []
+    for c in crossings:
+        if abutment_dist(c.upper, c.a_upper) * c.sin < ABUTMENT_M:
+            stats["crossings_at_abutment"] += 1
+            res.at_abutment.append(c)
+            continue
+        kept.append(c)
+    crossings = kept
     crossings.sort(key=lambda c: (int(roads[c.upper].osm_id), int(roads[c.lower].osm_id), c.a_upper))
     res.crossings = crossings
     uppers = {c.upper for c in crossings}
@@ -645,9 +745,18 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
     res.kinds = kinds
 
     # --- heights -------------------------------------------------------------------------------------------------
-    res._tunnel_lowered = tunnel_lowered  # type: ignore[attr-defined]
+    water = _water_zones(lines, wl_idx, w_lines, areas, wa_idx, w_areas, water_surface_line)
     _solve(res, roads, roads_game, node_ids, cums, totals, layers, ttypes, deck_iv, span_iv, deck_flags, deck_req,
-           crossings, terrain, rw, stats)
+           crossings, terrain, rw, stats, corridor_width, water, area_type, tunnel_lowered)
+    # Passages under buildings that stay intact (decision 1 keeps them; the gateway keeps decision 2's height).
+    for i, clear in sorted((passages or {}).items()):
+        if not valid[i] or int(res.kinds[i]) != int(SK.NONE):
+            continue
+        res.kinds[i] = int(SK.PASSAGE)
+        ws = res.ways.setdefault(i, WayStructure(layer=int(layers[i])))
+        ws.features.append(Feature(0.0, float(totals[i]), int(SK.PASSAGE), int(SF.DECK_FROM_TAGS), float(clear)))
+        ws.features.sort(key=lambda f: (f.a0, f.a1, f.kind, f.flags, f.clearance_m))
+        stats["passages"] += 1
     for k in ("tunnels", "fords"):
         stats.setdefault(k, 0)
     stats["tunnels"] = int((kinds == int(SK.TUNNEL)).sum())
@@ -658,37 +767,179 @@ def analyse(roads: Sequence[RoadFeature], roads_game: Sequence[np.ndarray], node
     return res
 
 
+def _snap_bridge(i: int, li: int, near, bridges, roads, road_lines, node_ids, w_lines, roads_game, cums,
+                 x: float, z: float) -> int | None:
+    """The tagged bridge an untagged road's water crossing belongs to (a mapping offset), or None: the bridge must be
+    the same road (it shares a node with the crossing way, or runs parallel to it with the same class and name),
+    must not be a foot bridge next to a motor road, and must not cross that water line itself (then the road's own
+    crossing is a second one and gets its own span)."""
+    ids_i = {int(v) for v in np.asarray(node_ids[i]).tolist() if v > 0}
+    motor_i = int(roads[i].cls) not in FOOT_DECK_CLASSES
+    name_i = (roads[i].name.default or roads[i].name.en) if roads[i].name is not None else ""
+    for t in sorted(int(v) for v in np.asarray(near).tolist()):
+        b = bridges[t]
+        if b == i:
+            continue
+        if motor_i and int(roads[b].cls) in FOOT_DECK_CLASSES:
+            continue
+        if shapely.intersects(road_lines[b], w_lines[li]):
+            continue
+        same = bool(ids_i & {int(v) for v in np.asarray(node_ids[b]).tolist() if v > 0})
+        if not same and name_i and int(roads[b].cls) == int(roads[i].cls):
+            name_b = (roads[b].name.default or roads[b].name.en) if roads[b].name is not None else ""
+            if name_b == name_i:
+                a_i = float(shapely.line_locate_point(road_lines[i], shapely.Point(x, z)))
+                a_b = float(shapely.line_locate_point(road_lines[b], shapely.Point(x, z)))
+                _, ti = wp.at_arcs(roads_game[i], cums[i], [a_i])
+                _, tb = wp.at_arcs(roads_game[b], cums[b], [a_b])
+                same = abs(float(ti[0][0] * tb[0][0] + ti[0][1] * tb[0][1])) >= 0.9
+        if same:
+            return b
+    return None
+
+
+def _water_zones(lines, wl_idx, w_lines, areas, wa_idx, w_areas, water_surface_line) -> _Water | None:
+    """River corridors: every river, stream and canal line grown by half its width + RIVERSIDE_M, and every
+    riverbank area grown by 30 m."""
+    span = [m for m, k in enumerate(wl_idx) if int(lines[k].kind) in SPAN_LINES]
+    parts = []
+    for m in span:
+        ln = lines[wl_idx[m]]
+        w = float(ln.width_m) if ln.width_m and ln.width_m > 0 else LINE_WIDTH_M[int(ln.kind)]
+        parts.append(shapely.buffer(w_lines[m], 0.5 * w + RIVERSIDE_M.get(int(ln.kind), 30.0), quad_segs=4))
+    for a, k in enumerate(wa_idx):
+        if int(areas[k].kind) == int(AreaKind.WATER_RIVER):
+            parts.append(shapely.buffer(w_areas[a], 30.0, quad_segs=4))
+    if not span:
+        return None
+    zone = shapely.union_all(np.asarray(parts, dtype=object)) if parts else None
+    geoms = np.empty(len(span), dtype=object)
+    geoms[:] = [w_lines[m] for m in span]
+    return _Water(zone, geoms, lambda k, x, z: water_surface_line(span[k], x, z)[0])
+
+
+def _neighbourhood(core: set, roads_game, node_ids, cums, radius: float) -> list[int]:
+    """Ways with a vertex within ``radius`` metres of path along the road network from any ``core`` way."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import dijkstra
+
+    key: dict[int, int] = {}
+    rows: list[int] = []
+    cols: list[int] = []
+    wts: list[float] = []
+    way_nodes: dict[int, np.ndarray] = {}
+    for i, p in enumerate(roads_game):
+        if len(p) < 2:
+            continue
+        ids = np.asarray(node_ids[i]).tolist()
+        idx = []
+        for k, nid in enumerate(ids):
+            kk = int(nid) if nid > 0 else -(i * 1_000_003 + k + 1)
+            j = key.get(kk)
+            if j is None:
+                j = key[kk] = len(key)
+            idx.append(j)
+        L = np.maximum(np.diff(cums[i]), 1e-6)
+        rows += idx[:-1]
+        cols += idx[1:]
+        wts += L.tolist()
+        way_nodes[i] = np.asarray(idx, dtype=np.int64)
+    if not key:
+        return sorted(core)
+    G = coo_matrix((wts, (rows, cols)), shape=(len(key), len(key))).tocsr()
+    src = np.unique(np.concatenate([way_nodes[i] for i in core if i in way_nodes] or [np.zeros(0, np.int64)]))
+    if not len(src):
+        return sorted(core)
+    d = dijkstra(G, directed=False, indices=src, limit=radius, min_only=True)
+    reach = np.isfinite(d)
+    return sorted(i for i, nodes in way_nodes.items() if i in core or reach[nodes].any())
+
+
+def _within(src: list[int], adj, e_u, e_v, e_len, e_ok, radius: float, keep=None) -> list[int]:
+    """Vertices within ``radius`` metres of path from ``src`` over the ``e_ok`` edges (and through ``keep``
+    vertices only, when given), sources included."""
+    dist = {int(v): 0.0 for v in src}
+    heap = [(0.0, v) for v in sorted(dist)]
+    while heap:
+        d, u = heapq.heappop(heap)
+        if d > dist.get(u, np.inf) + 1e-9:
+            continue
+        for k in adj[u]:
+            if not e_ok[k]:
+                continue
+            v = int(e_v[k] if e_u[k] == u else e_u[k])
+            nd = d + float(e_len[k])
+            if nd <= radius and (keep is None or keep[v]) and nd < dist.get(v, np.inf) - 1e-9:
+                dist[v] = nd
+                heapq.heappush(heap, (nd, v))
+    return sorted(dist)
+
+
+def _maxplus(src: np.ndarray, adj, e_u, e_v, e_w) -> np.ndarray:
+    """Max-plus propagation: out[v] = max_s (src[s] - sum of e_w along a path s -> v); -inf where unreached
+    (stops at 0)."""
+    lab = np.array(src, dtype=np.float64, copy=True)
+    heap = [(-lab[v], v) for v in np.flatnonzero(lab > 0).tolist()]
+    heapq.heapify(heap)
+    while heap:
+        negh, u = heapq.heappop(heap)
+        h = -negh
+        if h < lab[u] - 1e-12:
+            continue
+        for k in adj[u]:
+            v = e_v[k] if e_u[k] == u else e_u[k]
+            cand = h - e_w[k]
+            if cand > lab[v] + 1e-9 and cand > 0:
+                lab[v] = cand
+                heapq.heappush(heap, (-cand, v))
+    return lab
+
+
+class _Water:
+    """The river corridors (bank zones) and their water surfaces, for lowering riverside roads under a bridge."""
+
+    def __init__(self, zone, line_geoms, surface_at) -> None:
+        self.zone = zone
+        self.lines = line_geoms
+        self.tree = shapely.STRtree(line_geoms) if len(line_geoms) else None
+        self.surface_at = surface_at  # (line index, x, z) -> water surface height
+        if zone is not None and not zone.is_empty:
+            shapely.prepare(zone)
+
+    def mask(self, x: np.ndarray, z: np.ndarray) -> np.ndarray:
+        if self.zone is None or self.zone.is_empty or not len(x):
+            return np.zeros(len(x), dtype=bool)
+        return np.asarray(shapely.contains_xy(self.zone, x, z), dtype=bool)
+
+    def surface(self, x: float, z: float) -> float | None:
+        """Water surface of the nearest river, stream or canal when (x, z) lies in a river corridor."""
+        if self.tree is None or not self.mask(np.array([x]), np.array([z]))[0]:
+            return None
+        k = int(self.tree.nearest(shapely.Point(x, z)))
+        return float(self.surface_at(k, x, z))
+
+
 def _solve(res: Structures, roads, roads_game, node_ids, cums, totals, layers, ttypes, deck_iv, span_iv, deck_flags,
-           deck_req, crossings, terrain, rw, stats) -> None:
+           deck_req, crossings, terrain, rw, stats, cw, water: _Water | None, area_type, tunnel_lowered: set) -> None:
     n = len(roads)
     lowered_ways = {c.lower for c in crossings if c.upper not in deck_iv and c.lower not in deck_iv
-                    and ttypes[c.lower] == "tunnel"}
-    core = set(deck_iv) | lowered_ways | {c.lower for c in crossings} | {c.upper for c in crossings}
-    # Neighbourhood: ways sharing a node with the core, two hops out.
-    by_node: dict[int, list[int]] = defaultdict(list)
-    for i in range(n):
-        if len(roads_game[i]) < 2:
-            continue
-        for nid in set(np.asarray(node_ids[i]).tolist()):
-            if nid > 0:
-                by_node[nid].append(i)
-    ways = set(core)
-    frontier = set(core)
-    for _hop in range(2):
-        nxt = set()
-        for i in frontier:
-            for nid in set(np.asarray(node_ids[i]).tolist()):
-                if nid > 0:
-                    nxt.update(by_node.get(nid, ()))
-        nxt -= ways
-        ways |= nxt
-        frontier = nxt
-    ways = sorted(w for w in ways if len(roads_game[w]) >= 2 and totals[w] > 0)
+                    and ttypes[c.lower] == "tunnel"} | set(tunnel_lowered)
+    joins = list(res.at_abutment)  # a deck landing on a road: the two meet there, at one height
+    core = set(deck_iv) | lowered_ways | {c.lower for c in crossings} | {c.upper for c in crossings} \
+        | {c.lower for c in joins}
     if not core:
-        _features(res, roads, totals, layers, ttypes, deck_iv, span_iv, deck_flags, crossings, {}, rw)
+        _features(res, roads, totals, layers, ttypes, deck_iv, span_iv, deck_flags, crossings, False)
         return
+    ways = _neighbourhood(core, roads_game, node_ids, cums, NEIGH_M)
+    ways = [w for w in ways if len(roads_game[w]) >= 2 and totals[w] > 0]
+    way_set = set(ways)
 
-    # --- stations ------------------------------------------------------------------------------------------------
+    def corridor_w(i: int, a: float) -> float:
+        # The widest corridor within one RATR sample spacing (the runtime draws the window minima of it).
+        w = cw(i, a - 20.0, a + 20.0) if cw is not None else None
+        return float(w) if w is not None and w > 0 else max(MIN_CORRIDOR_M, 1.25 * rw(i) + 4.0)
+
+    # --- crossing intervals: the stretches of each road that lie over / under the other road's corridor -------
     req_iv: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
     for (i, a0, a1, h) in deck_req:
         req_iv[i].append((a0, a1, h))
@@ -699,17 +950,22 @@ def _solve(res: Structures, roads, roads_game, node_ids, cums, totals, layers, t
     for i, iv in req_iv.items():
         for a0, a1, _h in iv:
             extra_arcs[i] += [a0, a1]
-    flat: dict[tuple[int, int], tuple[float, float]] = {}
     for c in crossings:
-        lw = max(4.8, 1.25 * rw(c.lower) + 4.0)
-        f = min(60.0, (0.5 * lw + 1.0) / c.sin)
-        flat[(id(c), 0)] = (c.a_upper - f, c.a_upper + f)
-        uw = max(4.8, 1.25 * rw(c.upper) + 2.0)
-        fl = min(60.0, (0.5 * uw + 1.0) / c.sin)
-        flat[(id(c), 1)] = (c.a_lower - fl, c.a_lower + fl)
-        extra_arcs[c.upper] += [c.a_upper - f, c.a_upper + f, c.a_upper]
-        extra_arcs[c.lower] += [c.a_lower - fl, c.a_lower + fl, c.a_lower]
+        wu, wl = corridor_w(c.upper, c.a_upper), corridor_w(c.lower, c.a_lower)
+        s = max(c.sin, 0.25)
+        cot = math.sqrt(max(0.0, 1.0 - s * s)) / s
+        fu = min(MAX_FLAT_M, (0.5 * wl + 1.0) / s + 0.5 * wu * cot)
+        fl = min(MAX_FLAT_M, (0.5 * wu + 1.0) / s + 0.5 * wl * cot)
+        c.iv_u = (max(0.0, c.a_upper - fu), min(float(totals[c.upper]), c.a_upper + fu))
+        c.iv_l = (max(0.0, c.a_lower - fl), min(float(totals[c.lower]), c.a_lower + fl))
+        c.need_m = MIN_UNDERPASS_CLEARANCE_M + deck_depth(int(roads[c.upper].cls))
+        extra_arcs[c.upper] += [c.iv_u[0], c.iv_u[1], c.a_upper]
+        extra_arcs[c.lower] += [c.iv_l[0], c.iv_l[1], c.a_lower]
+    for c in joins:
+        extra_arcs[c.upper].append(c.a_upper)
+        extra_arcs[c.lower].append(c.a_lower)
 
+    # --- stations ------------------------------------------------------------------------------------------------
     st_way: list[int] = []
     st_arc: list[float] = []
     st_vertex: list[int] = []  # vertex index in the way, -1 for an inserted station
@@ -760,6 +1016,7 @@ def _solve(res: Structures, roads, roads_game, node_ids, cums, totals, layers, t
         return a
 
     first_at: dict[int, int] = {}
+    st_node = np.zeros(ns, dtype=np.int64)
     for s in range(ns):
         v = st_vertex_a[s]
         if v < 0:
@@ -767,129 +1024,258 @@ def _solve(res: Structures, roads, roads_game, node_ids, cums, totals, layers, t
         nid = int(np.asarray(node_ids[st_way_a[s]])[v])
         if nid <= 0:
             continue
+        st_node[s] = nid
         if nid in first_at:
             ra, rb = find(first_at[nid]), find(s)
             if ra != rb:
                 parent[max(ra, rb)] = min(ra, rb)
         else:
             first_at[nid] = s
+    # A deck that lands on a road meets it there: the two stations are one vertex, like a shared node.
+    for c in joins:
+        if c.upper not in way_st or c.lower not in way_st:
+            continue
+        su = way_st[c.upper][int(np.argmin(np.abs(st_arc_a[way_st[c.upper]] - c.a_upper)))]
+        sl = way_st[c.lower][int(np.argmin(np.abs(st_arc_a[way_st[c.lower]] - c.a_lower)))]
+        ra, rb = find(int(su)), find(int(sl))
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+            stats["abutment_joins"] += 1
     gv = np.array([find(s) for s in range(ns)])
     uniq, gidx = np.unique(gv, return_inverse=True)
     nv = len(uniq)
     vpos = np.zeros((nv, 2))
     vpos[gidx] = pos
-    terr = terrain(vpos[:, 0], vpos[:, 1])
+    terr = np.asarray(terrain(vpos[:, 0], vpos[:, 1]), dtype=np.float64)
 
-    # Edges and deck membership.
+    # Edges.
     e_u, e_v, e_len, e_g, e_deck, e_way = [], [], [], [], [], []
     st_deck = np.zeros(ns, dtype=bool)
     for w in ways:
         s = way_st[w]
         a = st_arc_a[s]
         iv = deck_iv.get(w, [])
-        if iv:
-            for a0, a1 in iv:
-                st_deck[s[(a >= a0 - 1e-6) & (a <= a1 + 1e-6)]] = True
+        for a0, a1 in iv:
+            st_deck[s[(a >= a0 - 1e-6) & (a <= a1 + 1e-6)]] = True
         g = grade(int(roads[w].cls))
         for t in range(len(s) - 1):
-            L = float(a[t + 1] - a[t])
             mid = 0.5 * (a[t] + a[t + 1])
-            dk = any(a0 - 1e-6 <= mid <= a1 + 1e-6 for a0, a1 in iv)
             e_u.append(int(gidx[s[t]]))
             e_v.append(int(gidx[s[t + 1]]))
-            e_len.append(L)
+            e_len.append(float(a[t + 1] - a[t]))
             e_g.append(g)
-            e_deck.append(dk)
-            e_way.append(int(s[t]))
+            e_deck.append(any(a0 - 1e-6 <= mid <= a1 + 1e-6 for a0, a1 in iv))
+            e_way.append(w)
+    ne = len(e_u)
     e_u_a, e_v_a = np.array(e_u, dtype=np.int64), np.array(e_v, dtype=np.int64)
-    e_len_a, e_g_a, e_deck_a = np.array(e_len), np.array(e_g), np.array(e_deck, dtype=bool)
+    e_len_a, e_g_a, e_deck_a = np.maximum(np.array(e_len), 1e-6), np.array(e_g), np.array(e_deck, dtype=bool)
+    e_cls = np.array([int(roads[w].cls) for w in e_way], dtype=np.int64)
+    e_foot = np.isin(e_cls, list(FOOT_CLASSES))
+    e_stair = np.isin(e_cls, list(STAIR_CLASSES))
     adj: list[list[int]] = [[] for _ in range(nv)]
-    for k in range(len(e_u)):
+    for k in range(ne):
         adj[e_u[k]].append(k)
         adj[e_v[k]].append(k)
     v_deck = np.zeros(nv, dtype=bool)
     v_ground = np.zeros(nv, dtype=bool)
-    for k in range(len(e_u)):
-        if e_deck_a[k]:
-            v_deck[e_u[k]] = v_deck[e_v[k]] = True
-        else:
-            v_ground[e_u[k]] = v_ground[e_v[k]] = True
+    v_len = np.zeros(nv)
+    np.add.at(v_len, e_u_a, 0.5 * e_len_a)
+    np.add.at(v_len, e_v_a, 0.5 * e_len_a)
+    v_len = np.maximum(v_len, 0.5)
+    v_deck[e_u_a[e_deck_a]] = True
+    v_deck[e_v_a[e_deck_a]] = True
+    v_ground[e_u_a[~e_deck_a]] = True
+    v_ground[e_v_a[~e_deck_a]] = True
     deg = np.zeros(nv, dtype=np.int64)
     np.add.at(deg, e_u_a, 1)
     np.add.at(deg, e_v_a, 1)
     abut = v_deck & (v_ground | (deg <= 1))
+    v_motor = np.zeros(nv, dtype=bool)
+    v_motor[e_u_a[~e_stair]] = True
+    v_motor[e_v_a[~e_stair]] = True
+    v_stair = np.zeros(nv, dtype=bool)
+    v_stair[e_u_a[e_stair]] = True
+    v_stair[e_v_a[e_stair]] = True
 
     # 1. Base deck line: harmonic interpolation per deck component (Dirichlet at the abutments).
     base = terr.copy()
     _harmonic(base, v_deck, abut, e_u_a, e_v_a, e_len_a, e_deck_a, terr)
     base = np.where(v_deck, np.maximum(base, terr), terr)
 
-    # Per-station requirement intervals (deck minima); crossing constraints depend on heights (iterated).
-    # Stations under a deck never rise (the deck clears them), stations over a lowered underpass never sink.
-    blocked_up = np.zeros(nv, dtype=bool)
-    blocked_down = np.zeros(nv, dtype=bool)
+    # 2. Bounds on the offset from the terrain (delta = H - terrain).
+    lo = np.full(nv, -MAX_CUT_M)
+    lo[v_deck] = np.maximum(base[v_deck] - terr[v_deck], 0.0)
+    v_foot_src = np.zeros(nv, dtype=bool)
+    for w, ivs in req_iv.items():
+        if w not in way_st:
+            continue
+        s = way_st[w]
+        a = st_arc_a[s]
+        for a0, a1, h in ivs:
+            g = gidx[s[(a >= a0 - 1e-6) & (a <= a1 + 1e-6)]]
+            lo[g] = np.maximum(lo[g], h - terr[g])
+            if int(roads[w].cls) in FOOT_DECK_CLASSES:
+                v_foot_src[g] = True
+    wl = np.full(nv, W_LOWER)
+    # Tunnel-tagged underpasses sink cheaply, and so do the ground roads their cuttings run on into.
+    cut_src = [int(v) for w in sorted(lowered_ways) if w in way_st for v in np.unique(gidx[way_st[w]]).tolist()]
+    for u in _within(cut_src, adj, e_u_a, e_v_a, e_len_a, ~e_deck_a, CUT_ZONE_M):
+        wl[u] = W_LOWER_CHEAP
+
+    def iv_vertices(w: int, a0: float, a1: float) -> np.ndarray:
+        """The stations bracketing [a0, a1] (linear interpolation between them covers the whole interval)."""
+        s = way_st.get(w)
+        if s is None:
+            return np.zeros(0, dtype=np.int64)
+        a = st_arc_a[s]
+        k0 = max(0, int(np.searchsorted(a, a0 + 1e-6, side="right")) - 1)
+        k1 = min(len(a) - 1, int(np.searchsorted(a, a1 - 1e-6, side="left")))
+        return np.unique(gidx[s[k0:k1 + 1]])
+
+    cross_u: list[np.ndarray] = []
+    cross_l: list[np.ndarray] = []
     for c in crossings:
-        for w, (f0, f1), blk in ((c.lower, flat[(id(c), 1)], blocked_up), (c.upper, flat[(id(c), 0)], blocked_down)):
-            s = way_st.get(w)
-            if s is None:
-                continue
-            a = st_arc_a[s]
-            blk[gidx[s[(a >= f0 - 1e-6) & (a <= f1 + 1e-6)]]] = True
-    foot_way = {w: int(roads[w].cls) in FOOT_DECK_CLASSES for w in ways}
+        vu = iv_vertices(c.upper, *c.iv_u)
+        vl = iv_vertices(c.lower, *c.iv_l)
+        both = np.intersect1d(vu, vl)
+        if len(both):  # a junction of the two ways inside the stretch: it carries the upper road
+            vl = np.setdiff1d(vl, both)
+            stats["crossings_sharing_a_junction"] += 1
+        cross_u.append(vu)
+        cross_l.append(vl)
 
-    def station_req(H: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        req = [np.full(nv, -np.inf), np.full(nv, -np.inf)]  # vehicle, foot sources
-        cap = [np.full(nv, np.inf), np.full(nv, np.inf)]
-        for w, ivs in req_iv.items():
-            if w not in way_st:
+    # 3. Riverside roads under a river bridge may sink toward the water (a cutting) before the deck rises.
+    c_river = [False] * len(crossings)
+    if water is not None:
+        river_v = water.mask(vpos[:, 0], vpos[:, 1]) & ~v_deck
+        for ci, c in enumerate(crossings):
+            if any(a0 - 1e-6 <= c.a_lower <= a1 + 1e-6 for a0, a1 in deck_iv.get(c.lower, ())) \
+                    or not (deck_flags.get(c.upper, 0) & int(SF.WATER_CROSSING)):
                 continue
-            s = way_st[w]
-            a = st_arc_a[s]
-            for a0, a1, h in ivs:
-                m = (a >= a0 - 1e-6) & (a <= a1 + 1e-6)
-                np.maximum.at(req[foot_way[w]], gidx[s[m]], h)
-        for c in crossings:
-            hl = _height_at(H, gidx, way_st, st_arc_a, c.lower, c.a_lower)
-            hu = _height_at(H, gidx, way_st, st_arc_a, c.upper, c.a_upper)
-            if not (math.isfinite(hl) and math.isfinite(hu)):
+            if c.upper in span_iv and not roads[c.upper].bridge and not any(
+                    a0 - 1e-6 <= c.a_upper <= a1 + 1e-6 for a0, a1 in span_iv[c.upper]):
                 continue
-            if c.upper in deck_iv:
-                f0, f1 = flat[(id(c), 0)]
-                s = way_st[c.upper]
-                a = st_arc_a[s]
-                m = (a >= f0 - 1e-6) & (a <= f1 + 1e-6)
-                np.maximum.at(req[foot_way[c.upper]], gidx[s[m]],
-                              hl + MIN_UNDERPASS_CLEARANCE_M + deck_depth(int(roads[c.upper].cls)))
-            elif c.lower in lowered_ways:
-                f0, f1 = flat[(id(c), 1)]
-                s = way_st[c.lower]
-                a = st_arc_a[s]
-                m = (a >= f0 - 1e-6) & (a <= f1 + 1e-6)
-                np.minimum.at(cap[foot_way[c.lower]], gidx[s[m]],
-                              hu - MIN_UNDERPASS_CLEARANCE_M - deck_depth(int(roads[c.upper].cls)))
-        return req[0], req[1], cap[0], cap[1]
+            surf = water.surface(c.x, c.z)
+            if surf is None:
+                continue
+            c_river[ci] = True
+            floor = surf + RIVER_FLOOR_M
+            # The bank roads reachable from the stretch under the deck without leaving the river corridor.
+            for u in _within(cross_l[ci].tolist(), adj, e_u_a, e_v_a, e_len_a, ~e_deck_a, RIVER_ZONE_M, river_v):
+                wl[u] = W_LOWER_CHEAP
+                lo[u] = max(lo[u], min(floor - terr[u], 0.0))
+        stats["riverside_crossings"] = int(sum(c_river))
 
-    e_stair = np.array([int(roads[st_way_a[s0]].cls) in STAIR_CLASSES for s0 in e_way], dtype=bool)
-    H = base.copy()
-    lowered = np.zeros(nv, dtype=bool)
-    for _it in range(5):
-        req_v, req_f, cap_v, cap_f = station_req(H)
-        up = np.maximum(
-            _cones_up(req_v, base, terr, v_deck, adj, e_u_a, e_v_a, e_len_a, e_g_a, None, blocked_up),
-            _cones_up(req_f, base, terr, v_deck, adj, e_u_a, e_v_a, e_len_a, e_g_a, e_stair, blocked_up))
-        Hn = np.where(v_deck, np.maximum(base, up), np.where(up > terr + EPS_M, up, terr))
-        down = np.minimum(
-            _cones_down(cap_v, terr, v_deck, adj, e_u_a, e_v_a, e_len_a, e_g_a, None, blocked_down),
-            _cones_down(cap_f, terr, v_deck, adj, e_u_a, e_v_a, e_len_a, e_g_a, e_stair, blocked_down))
-        low = (down < Hn - EPS_M) & ~v_deck
-        Hn = np.where(low, down, Hn)
-        if np.allclose(Hn, H, atol=1e-4) and _it > 0:
-            H = Hn
-            lowered = low
+    # 4. Pins: vertices shared with ways outside the solved neighbourhood stay on the terrain.
+    pin = np.zeros(nv)
+    node_ways: dict[int, int] = defaultdict(int)
+    for i in range(n):
+        if len(roads_game[i]) < 2:
+            continue
+        for nid in set(np.asarray(node_ids[i]).tolist()):
+            if nid > 0 and i not in way_set:
+                node_ways[nid] += 1
+    for s in np.flatnonzero(st_node > 0).tolist():
+        if node_ways.get(int(st_node[s]), 0):
+            pin[gidx[s]] = W_PIN
+    v_boundary = pin > 0
+
+    if area_type is not None:
+        at = np.asarray(area_type(vpos[:, 0], vpos[:, 1]), dtype=np.int64).reshape(-1)
+        # Motor-road embankments only: a foot overbridge's stairs must climb the full clearance anyway.
+        v_urban = np.isin(at, [int(AreaType.URBAN), int(AreaType.OLD_CORE)]) & ~v_deck & v_motor
+    else:
+        v_urban = np.zeros(nv, dtype=bool)
+
+    # 5. Active vertices: everything a structure may move (influence cones with a margin), in components.
+    e_w_inf = INFLUENCE_GRADE * e_len_a
+    foot_cross = [int(roads[c.upper].cls) in FOOT_DECK_CLASSES for c in crossings]
+
+    e_footdeck = e_deck_a & np.isin(e_cls, list(FOOT_DECK_CLASSES))
+    v_vehdeck = np.zeros(nv, dtype=bool)
+    v_vehdeck[e_u_a[e_deck_a & ~e_footdeck]] = True
+    v_vehdeck[e_v_a[e_deck_a & ~e_footdeck]] = True
+
+    def sources(margin: float, vehicle_only: bool) -> np.ndarray:
+        dk = v_vehdeck if vehicle_only else v_deck
+        src = np.where(dk | ((lo > 0) & ~(v_foot_src & vehicle_only)), np.maximum(lo, 0.0) + margin, -np.inf)
+        for ci, c in enumerate(crossings):
+            if vehicle_only and foot_cross[ci] and not c_river[ci] and c.lower not in lowered_ways:
+                continue
+            vu, vl = cross_u[ci], cross_l[ci]
+            top = float(np.max(terr[vl] + np.maximum(lo[vl], 0.0))) if len(vl) else float(terr[vu].max())
+            if len(vu):
+                src[vu] = np.maximum(src[vu], top + c.need_m - terr[vu] + margin)
+            if len(vl):
+                src[vl] = np.maximum(src[vl], c.need_m + margin)
+        return src
+
+    v_cross = np.zeros(nv, dtype=bool)
+    for ci in range(len(crossings)):
+        v_cross[cross_u[ci]] = True
+        v_cross[cross_l[ci]] = True
+    margin = INFLUENCE_MARGIN_M
+    veh = _maxplus(sources(margin, True), adj, e_u_a, e_v_a, e_w_inf) > 0
+    pin_foot = v_motor & v_stair & ~veh & ~v_vehdeck & ~v_cross
+    pin = np.where(pin_foot & (pin == 0), W_PIN_FOOT, pin)
+    delta = np.zeros(nv)
+    lp_stats: dict = defaultdict(int)
+    for attempt in range(3):
+        inf = _maxplus(sources(margin, False), adj, e_u_a, e_v_a, e_w_inf)
+        active = (inf > 0) | v_deck | v_cross | (lo > 0)
+        delta = np.zeros(nv)
+        lp_stats = defaultdict(int)
+        comps = _components(active, e_u_a, e_v_a, cross_u, cross_l)
+        tight = False
+        for comp in comps:
+            d, info = _solve_component(comp, terr, base, lo, wl, pin, v_deck, v_urban, v_len, adj, e_u_a, e_v_a,
+                                       e_len_a, e_g_a, e_deck_a, e_foot, active, crossings, cross_u, cross_l)
+            delta[comp] = d
+            for k, v in info.items():
+                lp_stats[k] += v
+            tight |= bool(info.get("tight_boundary", 0))
+        if not tight:
             break
-        H = Hn
-        lowered = low
+        margin *= 2.5
+        stats["influence_retries"] += 1
+    H = terr + delta
+    lowered = delta < -EPS_M
+    if DEBUG:
+        res._dbg = dict(terr=terr, H=H, lo=lo, wl=wl, pin=pin, base=base, cross_u=cross_u, cross_l=cross_l,  # type: ignore[attr-defined]
+                        gidx=gidx, way_st=way_st, arc=st_arc_a, vpos=vpos, v_deck=v_deck, v_urban=v_urban, adj=adj,
+                        e_u=e_u_a, e_v=e_v_a, e_len=e_len_a, e_g=e_g_a, e_deck=e_deck_a, e_way=e_way)
     stats["stations"] = int(ns)
+    for k, v in lp_stats.items():
+        if k != "tight_boundary":
+            stats[k] += v
+    stats["pins_violated"] = int((np.abs(delta[v_boundary]) > 1e-3).sum())
+
+    # Clearance at every crossing, over the whole overlap of the two corridors.
+    for ci, c in enumerate(crossings):
+        vu, vl = cross_u[ci], cross_l[ci]
+        if len(vu) and len(vl):
+            cl = float(H[vu].min()) - deck_depth(int(roads[c.upper].cls)) - float(H[vl].max())
+        else:
+            cl = 0.0
+        c.clearance_m = max(0.0, cl)
+        c.riverside = c_river[ci]
+        if cl < MIN_UNDERPASS_CLEARANCE_M - 0.05:
+            stats["crossings_short_of_clearance"] += 1
+    # Motor-road ramps steeper than their class grade (connectors the class grade cannot close), per way (reported).
+    e_way_a = np.asarray(e_way, dtype=np.int64)
+    rise = np.abs(delta[e_u_a] - delta[e_v_a])
+    steep = ~e_deck_a & ~e_foot & (rise > e_g_a * e_len_a + 0.01)
+    res.steep_ramps = {}  # type: ignore[attr-defined]
+    for k in np.flatnonzero(steep).tolist():
+        w = int(e_way_a[k])
+        res.steep_ramps[w] = round(max(res.steep_ramps.get(w, 0.0), float(rise[k] / e_len_a[k])), 3)  # type: ignore[attr-defined]
+    # Embankments over the URBAN / OLD_CORE cap, per way (reported).
+    over = v_urban & (delta > EMBANK_CAP_M + 0.05)
+    res.embankments = {}  # type: ignore[attr-defined]
+    for w in ways:
+        g = gidx[way_st[w]]
+        if over[g].any() and int(roads[w].cls) not in FOOT_DECK_CLASSES:
+            res.embankments[w] = round(float(delta[g].max()), 2)  # type: ignore[attr-defined]
 
     # --- per-way roles, densified polylines ---------------------------------------------------------------------
     for w in ways:
@@ -911,7 +1297,7 @@ def _solve(res: Structures, roads, roads_game, node_ids, cums, totals, layers, t
                        np.asarray(node_ids[w])[np.maximum(st_vertex_a[s[keep]], 0)], 0)
         pts, ids_d = wp.dedupe(pts, ids)
         k_role = role[keep]
-        k_h = H[g[keep]]
+        k_h = np.where(k_role != DECK_DRAPED, H[g[keep]], terr[g[keep]])
         dkeep = np.ones(int(keep.sum()), dtype=bool)
         pk = pos[s[keep]]
         dkeep[1:] = np.any(pk[1:] != pk[:-1], axis=1)
@@ -924,17 +1310,9 @@ def _solve(res: Structures, roads, roads_game, node_ids, cums, totals, layers, t
         ws._arcs = a[keep][dkeep]  # type: ignore[attr-defined]
         ws._lowered = lowered[g[keep]][dkeep]  # type: ignore[attr-defined]
         ws._terr = terr[g[keep]][dkeep]  # type: ignore[attr-defined]
-        ws._lowered_way = w in lowered_ways or w in getattr(res, "_tunnel_lowered", ())  # type: ignore[attr-defined]
-    _features(res, roads, totals, layers, ttypes, deck_iv, span_iv, deck_flags, crossings,
-              {"H": H, "gidx": gidx, "way_st": way_st, "arc": st_arc_a, "terr": terr}, rw)
+        ws._lowered_way = w in lowered_ways  # type: ignore[attr-defined]
+    _features(res, roads, totals, layers, ttypes, deck_iv, span_iv, deck_flags, crossings, True)
     stats["ways_with_heights"] = sum(1 for ws in res.ways.values() if ws.pts is not None)
-
-
-def _height_at(H, gidx, way_st, st_arc, w: int, a: float) -> float:
-    s = way_st.get(w)
-    if s is None:
-        return float("nan")
-    return float(np.interp(a, st_arc[s], H[gidx[s]]))
 
 
 def _harmonic(base, v_deck, abut, e_u, e_v, e_len, e_deck, terr) -> None:
@@ -985,64 +1363,165 @@ def _harmonic(base, v_deck, abut, e_u, e_v, e_len, e_deck, terr) -> None:
         base[free] = np.asarray(x).reshape(-1)
 
 
-def _cones_up(req, base, terr, v_deck, adj, e_u, e_v, e_len, e_g, e_ok, blocked) -> np.ndarray:
-    """Max-plus propagation of minimum heights with the edge grades. On ground it stops where it meets the terrain,
-    at ``blocked`` stations (under a deck) and ``MAX_RAMP_M`` from the structure; ``e_ok`` limits the edges (foot
-    structures continue only into stair classes)."""
-    lab = np.full(len(req), -np.inf)
-    dist = np.zeros(len(req))
-    heap = []
-    for v in np.flatnonzero(np.isfinite(req)).tolist():
-        if req[v] > base[v] + 1e-9 or v_deck[v]:
-            lab[v] = req[v]
-            heapq.heappush(heap, (-req[v], v))
-    while heap:
-        negh, u = heapq.heappop(heap)
-        h = -negh
-        if h < lab[u] - 1e-12:
-            continue
-        for k in adj[u]:
-            if e_ok is not None and not e_ok[k]:
-                continue
-            v = e_v[k] if e_u[k] == u else e_u[k]
-            cand = h - e_g[k] * e_len[k]
-            if cand <= lab[v] + 1e-9:
-                continue
-            if not v_deck[v]:
-                d = (0.0 if v_deck[u] else dist[u]) + e_len[k]
-                if cand <= terr[v] + EPS_M or blocked[v] or d > MAX_RAMP_M:
-                    continue
-                dist[v] = d
-            lab[v] = cand
-            heapq.heappush(heap, (-cand, v))
-    return lab
+def _components(active: np.ndarray, e_u, e_v, cross_u, cross_l) -> list[np.ndarray]:
+    """Connected components of the active vertices (edges between active vertices, plus the two stretches of every
+    crossing, which one clearance constraint couples)."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    nv = len(active)
+    m = active[e_u] & active[e_v]
+    rows = [e_u[m]]
+    cols = [e_v[m]]
+    for vu, vl in zip(cross_u, cross_l):
+        allv = np.concatenate([vu, vl])
+        if len(allv) > 1:
+            rows.append(np.full(len(allv) - 1, allv[0]))
+            cols.append(allv[1:])
+    r = np.concatenate(rows) if rows else np.zeros(0, dtype=np.int64)
+    c = np.concatenate(cols) if cols else np.zeros(0, dtype=np.int64)
+    A = coo_matrix((np.ones(len(r)), (r, c)), shape=(nv, nv))
+    _ncomp, lab = connected_components(A, directed=False)
+    idx = np.flatnonzero(active)
+    order = np.argsort(lab[idx], kind="stable")
+    idx = idx[order]
+    labs = lab[idx]
+    cuts = np.flatnonzero(np.diff(labs)) + 1
+    return [p for p in np.split(idx, cuts) if len(p)]
 
 
-def _cones_down(cap, terr, v_deck, adj, e_u, e_v, e_len, e_g, e_ok, blocked) -> np.ndarray:
-    """Min-plus propagation of maximum heights (lowered underpasses) until they meet the terrain (same limits as
-    ``_cones_up``; decks are never lowered)."""
-    lab = np.full(len(cap), np.inf)
-    dist = np.zeros(len(cap))
-    heap = []
-    for v in np.flatnonzero(np.isfinite(cap)).tolist():
-        lab[v] = cap[v]
-        heapq.heappush(heap, (cap[v], v))
-    while heap:
-        h, u = heapq.heappop(heap)
-        if h > lab[u] + 1e-12:
-            continue
-        for k in adj[u]:
-            if e_ok is not None and not e_ok[k]:
+def _solve_component(comp, terr, base, lo, wl, pin, v_deck, v_urban, v_len, adj, e_u, e_v, e_len, e_g, e_deck,
+                     e_foot, active, crossings, cross_u, cross_l) -> tuple[np.ndarray, dict]:
+    """One linear programme: the offsets from the terrain of the component's vertices that keep every bound
+    (decks, water, floors), every grade (decks: absolute heights; ground: the offset changes by at most the grade
+    per metre, so a road never steps) and every clearance, at the least cost (raising 1 per metre of offset and
+    metre of road, cheap lowering for tunnel-tagged underpasses and riverside roads, penalties for the rest).
+    Vertices outside the component stay on the terrain."""
+    from scipy.optimize import linprog
+    from scipy.sparse import coo_matrix
+
+    K = len(comp)
+    loc = {int(v): t for t, v in enumerate(comp.tolist())}
+    info: dict = defaultdict(int)
+    info["lp_components"] = 1
+    info["lp_vertices"] = K
+    # Variables: p[K], n[K] (delta = p - n), then extras appended.
+    cost: list[float] = []
+    bounds: list[tuple[float, float | None]] = []
+    for v in comp.tolist():
+        cost.append(float(v_len[v] * W_RAISE + pin[v]))
+        bounds.append((max(lo[v], 0.0), None))
+    for v in comp.tolist():
+        cost.append(float(v_len[v] * wl[v] + pin[v]))
+        bounds.append((0.0, max(-lo[v], 0.0)))
+    nvar = 2 * K
+    rows: list[int] = []
+    cols: list[int] = []
+    vals: list[float] = []
+    rhs: list[float] = []
+
+    def add_row(entries: list[tuple[int, float]], b: float) -> None:
+        r = len(rhs)
+        for col, val in entries:
+            rows.append(r)
+            cols.append(col)
+            vals.append(val)
+        rhs.append(b)
+
+    def dvar(v: int) -> list[tuple[int, float]]:
+        t = loc[v]
+        return [(t, 1.0), (K + t, -1.0)]
+
+    def neg(e: list[tuple[int, float]]) -> list[tuple[int, float]]:
+        return [(c, -x) for c, x in e]
+
+    stair_cols: list[int] = []
+    steep_cols: list[int] = []
+    clear_cols: list[int] = []
+    emb_cols: list[int] = []
+    seen = set()
+    boundary_edges: list[tuple[int, int, float]] = []  # (inside vertex, edge, limit)
+    for v in comp.tolist():
+        for k in adj[v]:
+            if k in seen:
                 continue
-            v = e_v[k] if e_u[k] == u else e_u[k]
-            cand = h + e_g[k] * e_len[k]
-            d = dist[u] + e_len[k]
-            if cand >= lab[v] - 1e-9 or cand >= terr[v] - EPS_M or v_deck[v] or blocked[v] or d > MAX_RAMP_M:
-                continue
-            dist[v] = d
-            lab[v] = cand
-            heapq.heappush(heap, (cand, v))
-    return lab
+            seen.add(k)
+            a, b = int(e_u[k]), int(e_v[k])
+            L = float(e_len[k])
+            g = float(e_g[k])
+            if e_deck[k]:
+                G = max(g, abs(base[a] - base[b]) / L)
+                off = terr[a] - terr[b]  # deltas: (Ta + da) - (Tb + db) <= G L
+                lim_ab, lim_ba = G * L - off, G * L + off
+            else:
+                lim_ab = lim_ba = g * L
+            slack: list[tuple[int, float]] = []
+            if e_foot[k]:
+                cost.append(W_STAIR)
+                bounds.append((0.0, None))
+                slack = [(nvar, -1.0)]
+                stair_cols.append(nvar)
+                nvar += 1
+            elif not e_deck[k] and g < STEEP_GRADE:
+                # A ramp may steepen (to STEEP_GRADE at most) where the class grade cannot close a loop between a
+                # deck and the road under it; it never steps.
+                cost.append(W_STEEP * L)
+                bounds.append((0.0, (STEEP_GRADE - g) * L))
+                slack = [(nvar, -1.0)]
+                steep_cols.append(nvar)
+                nvar += 1
+            ia, ib = a in loc, b in loc
+            if ia and ib:
+                add_row(dvar(a) + neg(dvar(b)) + slack, lim_ab)
+                add_row(dvar(b) + neg(dvar(a)) + slack, lim_ba)
+            elif ia:
+                add_row(dvar(a) + slack, lim_ab)
+                add_row(neg(dvar(a)) + slack, lim_ba)
+                boundary_edges.append((a, k, min(lim_ab, lim_ba)))
+            else:
+                add_row(neg(dvar(b)) + slack, lim_ab)
+                add_row(dvar(b) + slack, lim_ba)
+                boundary_edges.append((b, k, min(lim_ab, lim_ba)))
+    # URBAN / OLD_CORE embankments above the cap.
+    for v in comp.tolist():
+        if v_urban[v]:
+            cost.append(W_EMBANK * float(v_len[v]))
+            bounds.append((0.0, None))
+            add_row(dvar(v) + [(nvar, -1.0)], EMBANK_CAP_M)
+            emb_cols.append(nvar)
+            nvar += 1
+    # Clearances: M >= every lower height; every upper height >= M + need (soft).
+    cis = [ci for ci in range(len(crossings)) if len(cross_u[ci]) and len(cross_l[ci])
+           and int(cross_u[ci][0]) in loc]
+    for ci in cis:
+        m_col = nvar
+        cost.append(0.0)
+        bounds.append((None, None))
+        s_col = nvar + 1
+        clear_cols.append(s_col)
+        cost.append(W_CLEAR)
+        bounds.append((0.0, None))
+        nvar += 2
+        for y in cross_l[ci].tolist():
+            add_row(dvar(y) + [(m_col, -1.0)], -float(terr[y]))
+        for x in cross_u[ci].tolist():
+            add_row(neg(dvar(x)) + [(m_col, 1.0), (s_col, -1.0)], float(terr[x]) - crossings[ci].need_m)
+    A = coo_matrix((vals, (rows, cols)), shape=(len(rhs), nvar)).tocsr() if rhs else None
+    r = linprog(np.asarray(cost), A_ub=A, b_ub=np.asarray(rhs) if rhs else None, bounds=bounds, method="highs")
+    if r.status != 0 or r.x is None:
+        info["lp_failed"] += 1
+        return np.maximum(lo[comp], 0.0), info
+    x = r.x
+    d = x[:K] - x[K:2 * K]
+    d = np.where(np.abs(d) < 1e-7, 0.0, d)
+    for v, k, lim in boundary_edges:
+        if abs(d[loc[v]]) > 1e-3 and abs(d[loc[v]]) >= lim - 1e-4:
+            info["tight_boundary"] += 1
+    info["stair_steps"] += int((x[stair_cols] > 1e-3).sum()) if stair_cols else 0
+    info["steep_ramp_edges"] += int((x[steep_cols] > 1e-3).sum()) if steep_cols else 0
+    info["clearance_slack"] += int((x[clear_cols] > 1e-3).sum()) if clear_cols else 0
+    info["embankment_over_cap_vertices"] += int((x[emb_cols] > 0.05).sum()) if emb_cols else 0
+    return d, info
 
 
 def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -1061,7 +1540,8 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return out
 
 
-def _features(res: Structures, roads, totals, layers, ttypes, deck_iv, span_iv, deck_flags, crossings, sol, rw) -> None:
+def _features(res: Structures, roads, totals, layers, ttypes, deck_iv, span_iv, deck_flags, crossings,
+              solved: bool) -> None:
     kinds = res.kinds
     for i in range(len(roads)):
         k = int(kinds[i])
@@ -1105,19 +1585,12 @@ def _features(res: Structures, roads, totals, layers, ttypes, deck_iv, span_iv, 
                 else:
                     ws.features.append(Feature(float(arcs[r0]), float(arcs[r1]), int(SK.NONE),
                                                int(SF.LOWERED | SF.APPROACH)))
-    # Underpass clearances.
+    # Underpasses: the lower road's stretch under the upper road's corridor, with the clearance over all of it.
     for c in crossings:
         ws = res.ways.setdefault(c.lower, WayStructure(layer=int(layers[c.lower])))
-        if sol:
-            hu = _height_at(sol["H"], sol["gidx"], sol["way_st"], sol["arc"], c.upper, c.a_upper)
-            hl = _height_at(sol["H"], sol["gidx"], sol["way_st"], sol["arc"], c.lower, c.a_lower)
-            clear = max(0.0, hu - deck_depth(int(roads[c.upper].cls)) - hl)
-        else:
-            clear = 0.0
-        uw = max(4.8, 1.25 * rw(c.upper) + 2.0)
-        f = min(60.0, (0.5 * uw + 1.0) / c.sin)
-        ws.features.append(Feature(c.a_lower - f, c.a_lower + f, int(SK.UNDERPASS), 0, clear))
-        c.clearance_m = clear  # type: ignore[attr-defined]
+        clear = float(c.clearance_m) if solved else 0.0
+        a0, a1 = c.iv_l if c.iv_l is not None else (c.a_lower, c.a_lower)
+        ws.features.append(Feature(a0, a1, int(SK.UNDERPASS), 0, clear))
     for ws in res.ways.values():
         ws.features.sort(key=lambda f: (f.a0, f.a1, f.kind, f.flags, f.clearance_m))
 

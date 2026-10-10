@@ -32,8 +32,8 @@ empty (chunk omitted) or exactly as long as its base list.
 W2 detail pass: ``RSTR`` (road structures, one record per ``ROAD`` record,
 same order, sorted with them like ``RATR``): kind, effective layer, flags,
 clearance, railing height, per-point deck heights (draped / deck / ramp) and
-per-corridor-sample lateral shifts (as many as the ``RATR`` record's corridor
-samples, or none).
+lateral corridor shifts every 5 m (``RSTR_SHIFT_SPACING_M``; ``shift_count_ok``
+ties their count to the ``RATR`` record's corridor samples), or none.
 
 ``encode_tile`` canonicalises its input first (``canonicalize``): records are
 sorted as the spec requires (with full-content tie-breaks), the name table is
@@ -93,6 +93,15 @@ KNOWN_FOURCCS = (FOURCC_AREA, FOURCC_BFNT, FOURCC_BIOM, FOURCC_BLDG, FOURCC_HGHT
                  FOURCC_META, FOURCC_NAME, FOURCC_POIS, FOURCC_PROP, FOURCC_RATR, FOURCC_ROAD, FOURCC_RSTR,
                  FOURCC_SEED)
 EDGE_NONE = 255  # BFNT front_edge / second_edge: no edge
+RSTR_SHIFT_SPACING_M = 5.0  # RSTR shift_cm: one sample every 5 m from the piece's first rendered point
+
+
+def shift_count_ok(n_shift: int, n_corridor: int) -> bool:
+    """RSTR ``shift_count`` is 0, or covers the piece every 5 m: floor(length / 5) + 1 samples, where the RATR
+    record holds floor(length / 20) + 1 corridor samples."""
+    return n_shift == 0 or (n_corridor >= 1 and 4 * (n_corridor - 1) + 1 <= n_shift <= 4 * n_corridor)
+
+
 DECK_DRAPED = 0  # RSTR deck_role: the point lies on the terrain
 DECK_DECK = 1  # RSTR deck_role: the point is on a structure deck (bridge, flyover, underpass trough)
 DECK_RAMP = 2  # RSTR deck_role: the point is on an approach ramp (embankment or cutting), not a deck
@@ -305,8 +314,8 @@ class RoadStructureRec(_Record):
     ``deck_role`` (uint8 per ROAD point, context points included, or empty = draped everywhere) says what each
     point stands on (``DECK_DRAPED`` / ``DECK_DECK`` / ``DECK_RAMP``); ``deck_cm`` (int64, same length) holds the
     absolute surface height in game centimetres where the role is not draped (ignored where it is).
-    ``shift_cm`` (int64 per RATR corridor sample, or empty) is the lateral corridor shift, + = left of the point
-    order."""
+    ``shift_cm`` (int64 every ``RSTR_SHIFT_SPACING_M`` from the piece's first rendered point, or empty) is the
+    lateral corridor shift, + = left of the point order."""
 
     kind: int = 0  # model.RoadStructureKind
     layer: int = 0  # effective layer
@@ -857,7 +866,7 @@ def _canonical_structure(s: RoadStructureRec, n_points: int, n_corridor: int, k:
     shift = np.ascontiguousarray(shift, dtype=np.int64).reshape(-1)
     if len(shift) and not shift.any():
         shift = shift[:0]
-    if len(shift) not in (0, n_corridor):
+    if not shift_count_ok(len(shift), n_corridor):
         raise ValueError(f"RSTR {k}: {len(shift)} shifts for {n_corridor} RATR corridor samples")
     for v, what, lo, hi in ((s.kind, "kind", 0, 255), (s.layer, "layer", -128, 127), (s.flags, "flags", 0, 255),
                             (s.railing_dm, "railing_dm", 0, 255), (s.clearance_cm, "clearance_cm", 0, 1 << 32)):
@@ -1409,6 +1418,6 @@ def decode_tile(blob: bytes) -> TileData:
             if len(s.deck_role) not in (0, len(rd.points)):
                 raise ValueError(f"RSTR {k}: {len(s.deck_role)} deck points for a road of {len(rd.points)} points")
             nc = len(td.road_attrs[k].corridor_dm) if td.road_attrs else 0
-            if len(s.shift_cm) not in (0, nc):
+            if not shift_count_ok(len(s.shift_cm), nc):
                 raise ValueError(f"RSTR {k}: {len(s.shift_cm)} shifts for {nc} RATR corridor samples")
     return td
