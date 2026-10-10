@@ -21,18 +21,19 @@ namespace Ghumante.Core.Generators.Ornaments
         /// <summary>Shahid Gate: a pointed stone arch with a lantern holding a bust and two side pavilions with busts.</summary>
         MemorialArch = 4,
 
-        /// <summary>The Maitighar Mandala: a square platform with a coloured mandala inlay, a marigold collar and a
-        /// colonnade.</summary>
+        /// <summary>The Maitighar Mandala: a stepped square platform with a coloured mandala inlay, a marigold collar
+        /// and a colonnade.</summary>
         Mandala = 5,
-
-        /// <summary>A slim square clock tower with four clock faces and a small dome.</summary>
-        ClockTower = 6,
 
         /// <summary>A tall flag pole with the national flag.</summary>
         FlagPole = 7,
 
         /// <summary>Only the traffic police post (busy chowks without a real island).</summary>
         PolicePodium = 8,
+
+        /// <summary>A big old shade tree on a raised red-brick platform (a chautari), as at Lagankhel Chowk; any
+        /// shrine under it belongs to the Sacred generators.</summary>
+        ShadeTree = 9,
     }
 
     /// <summary>The recognisable pose of a statue figure (respectful: pose, attire and finish only).</summary>
@@ -195,17 +196,6 @@ namespace Ghumante.Core.Generators.Ornaments
         Umbrella = 2,
     }
 
-    /// <summary>Plan shape of an island.</summary>
-    public enum IslandShape : byte
-    {
-        /// <summary>A circle of <see cref="RoundaboutSite.RadiusM"/>.</summary>
-        Round = 0,
-
-        /// <summary>A stadium (rounded rectangle) of half length <see cref="RoundaboutSite.HalfLengthM"/> across the
-        /// facing direction and half width <see cref="RoundaboutSite.RadiusM"/> along it (Shahid Gate).</summary>
-        Stadium = 1,
-    }
-
     /// <summary>A statue: who it shows (an English label for the docs and the info card, never Devanagari made by
     /// code), how it stands and what it wears, and its pedestal and platform. Figures are respectful generic
     /// likenesses: pose, attire and finish only, never a portrait or a caricature.</summary>
@@ -302,6 +292,11 @@ namespace Ghumante.Core.Generators.Ornaments
         /// <summary>Bearing (degrees clockwise from north) the centrepiece faces; NaN = face the main arm.</summary>
         public float FacingDeg;
 
+        /// <summary>Where the centrepiece stands relative to the island centre, in game metres east and north (the
+        /// Maitighar Mandala sits off to one side of its island). The decorator pulls it in as far as the island the
+        /// road layout drew needs (<see cref="RoundaboutDecorator"/>).</summary>
+        public float OffsetEastM, OffsetNorthM;
+
         /// <summary>Variation seed (FNV-1a of the junction node).</summary>
         public uint Seed;
 
@@ -312,19 +307,20 @@ namespace Ghumante.Core.Generators.Ornaments
         }
     }
 
-    /// <summary>Where an island is: centre in tile-local metres, its plan, the mountable apron inside its edge, the
+    /// <summary>Where an island is: centre in tile-local metres, its radius, the mountable apron inside its edge, the
     /// height of the surrounding road surface above the terrain, and the bearing of the main approach arm.</summary>
     public struct RoundaboutSite
     {
         public double X, Z;
 
-        /// <summary>Island radius (round) or half width along the facing direction (stadium), in metres.</summary>
+        /// <summary>Island radius in metres (0 = no island: a police chowk's post alone at the junction).</summary>
         public float RadiusM;
 
-        /// <summary>Half length across the facing direction (stadium only).</summary>
-        public float HalfLengthM;
-
-        public IslandShape Shape;
+        /// <summary>The island is one the road layout drew (<c>RoadLayout.Islands</c>): lanes run round it, so the road
+        /// corridor guard (<see cref="RoundaboutDecorator.DecorOptions.Corridors"/>) ignores the disc itself (the
+        /// corridor index covers junction caps and rings, island included) and only checks what would stand outside
+        /// it. False for standalone sites, which must keep clear of every corridor.</summary>
+        public bool LayoutIsland;
 
         /// <summary>Mountable cobble apron inside the island edge (buses on rings), 0 for none.</summary>
         public float ApronM;
@@ -358,13 +354,86 @@ namespace Ghumante.Core.Generators.Ornaments
         public Centrepiece Centre;
         public string DesignId;
 
+        /// <summary>The island radius actually drawn (0 = none: post alone, or a standalone site the road corridors
+        /// leave no room for).</summary>
+        public float RadiusM;
+
+        /// <summary>Furniture or centrepiece items skipped because no free spot was left (on the island, clear of the
+        /// centrepiece and of the road corridors).</summary>
+        public int Skipped;
+
+        /// <summary>Plan footprints of the centrepiece and of every piece of furniture placed (tile-local), for checks
+        /// and colliders.</summary>
+        public readonly System.Collections.Generic.List<OrnamentFootprint> Footprints = new System.Collections.Generic.List<OrnamentFootprint>();
+
         public void Clear()
         {
-            Triangles = Vertices = Flowers = Shrubs = Trees = LampPosts = RailingPosts = Figures = Busts = Steps = Jets = 0;
+            Triangles = Vertices = Flowers = Shrubs = Trees = LampPosts = RailingPosts = Figures = Busts = Steps = Jets = Skipped = 0;
             BaseTriangles = CentreTriangles = GardenTriangles = FurnitureTriangles = 0;
-            TopM = IslandTopY = 0f;
+            TopM = IslandTopY = RadiusM = 0f;
             Centre = Centrepiece.Garden;
             DesignId = null;
+            Footprints.Clear();
+        }
+    }
+
+    /// <summary>What a plan footprint holds.</summary>
+    public enum FootprintKind : byte
+    {
+        Centrepiece = 0,
+        PolicePost = 1,
+        Lamp = 2,
+        Sign = 3,
+        FlagPole = 4,
+        Tree = 5,
+        Bed = 6,
+    }
+
+    /// <summary>
+    /// A plan footprint (tile-local metres): a rounded rectangle of half sizes (<see cref="HalfU"/>, <see cref="HalfW"/>)
+    /// along the bearing <see cref="YawDeg"/> (w forward), grown by <see cref="Round"/>. A disc has zero half sizes
+    /// and radius <see cref="Round"/>.
+    /// </summary>
+    public struct OrnamentFootprint
+    {
+        public FootprintKind Kind;
+        public double X, Z;
+        public double HalfU, HalfW, Round;
+        public double YawDeg;
+
+        public static OrnamentFootprint Disc(FootprintKind kind, double x, double z, double r)
+        {
+            return new OrnamentFootprint { Kind = kind, X = x, Z = z, Round = r };
+        }
+
+        public static OrnamentFootprint Box(FootprintKind kind, double x, double z, double halfU, double halfW, double yawDeg, double round = 0)
+        {
+            return new OrnamentFootprint { Kind = kind, X = x, Z = z, HalfU = halfU, HalfW = halfW, YawDeg = yawDeg, Round = round };
+        }
+
+        /// <summary>Signed distance (m) from (x, z) to the footprint's edge: negative inside.</summary>
+        public double Distance(double x, double z)
+        {
+            double a = YawDeg * Math.PI / 180.0, s = Math.Sin(a), c = Math.Cos(a);
+            double dx = x - X, dz = z - Z;
+            // Frame: u right (bearing + 90), w forward (bearing).
+            double u = dx * c - dz * s, w = dx * s + dz * c;
+            double qu = Math.Abs(u) - HalfU, qw = Math.Abs(w) - HalfW;
+            double ou = Math.Max(qu, 0), ow = Math.Max(qw, 0);
+            return Math.Sqrt(ou * ou + ow * ow) + Math.Min(Math.Max(qu, qw), 0) - Round;
+        }
+
+        /// <summary>Farthest distance of the footprint from (x, z).</summary>
+        public double Reach(double x, double z)
+        {
+            double a = YawDeg * Math.PI / 180.0, s = Math.Sin(a), c = Math.Cos(a), best = 0;
+            for (int k = 0; k < 4; k++)
+            {
+                double u = (k & 1) == 0 ? -HalfU : HalfU, w = (k & 2) == 0 ? -HalfW : HalfW;
+                double px = X + u * c + w * s, pz = Z - u * s + w * c;
+                best = Math.Max(best, Math.Sqrt((px - x) * (px - x) + (pz - z) * (pz - z)));
+            }
+            return best + Round;
         }
     }
 

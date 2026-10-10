@@ -27,76 +27,17 @@ namespace Ghumante.Core.Generators.Ornaments
             Grow(c, n + 1);
             RoundaboutSite s = c.Site;
             double r = Math.Max(0.5, s.RadiusM - inset);
-            if (s.Shape == IslandShape.Round)
-            {
-                for (int k = 0; k < n; k++)
-                {
-                    // Compass angle decreasing = counter-clockwise seen from above.
-                    double a = -2 * Math.PI * k / n;
-                    double sx = Math.Sin(a), cz = Math.Cos(a);
-                    c.Xs[k] = s.X + r * sx;
-                    c.Zs[k] = s.Z + r * cz;
-                    c.Nx[k] = sx;
-                    c.Nz[k] = cz;
-                }
-                return 2 * Math.PI * r;
-            }
-            // Stadium in the centrepiece frame: straight sides along u at w = ±r, semicircles at u = ±half.
-            double half = Math.Max(0, s.HalfLengthM - s.RadiusM);
-            double perim = 4 * half + 2 * Math.PI * r;
             for (int k = 0; k < n; k++)
             {
-                double t = perim * k / n, u, w, nu, nw;
-                StadiumPoint(t, half, r, out u, out w, out nu, out nw);
-                double x, z;
-                c.Local(u, w, out x, out z);
-                c.Xs[k] = x;
-                c.Zs[k] = z;
-                double fa = c.FacingDeg * Math.PI / 180.0, sn = Math.Sin(fa), cs = Math.Cos(fa);
-                c.Nx[k] = nu * cs + nw * sn;
-                c.Nz[k] = -nu * sn + nw * cs;
+                // Compass angle decreasing = counter-clockwise seen from above.
+                double a = -2 * Math.PI * k / n;
+                double sx = Math.Sin(a), cz = Math.Cos(a);
+                c.Xs[k] = s.X + r * sx;
+                c.Zs[k] = s.Z + r * cz;
+                c.Nx[k] = sx;
+                c.Nz[k] = cz;
             }
-            return perim;
-        }
-
-        private static void StadiumPoint(double t, double half, double r, out double u, out double w, out double nu, out double nw)
-        {
-            // Start at (half, -r) going +w (counter-clockwise in the u-right, w-forward plane seen from above is
-            // u → w; the frame's handedness flips it once mapped, which Outline does not care about).
-            double l1 = 2 * r * Math.PI / 2;
-            if (t < l1)
-            {
-                double a = -Math.PI / 2 + t / r;
-                u = half + r * Math.Cos(a);
-                w = r * Math.Sin(a);
-                nu = Math.Cos(a);
-                nw = Math.Sin(a);
-                return;
-            }
-            t -= l1;
-            if (t < 2 * half)
-            {
-                u = half - t;
-                w = r;
-                nu = 0;
-                nw = 1;
-                return;
-            }
-            t -= 2 * half;
-            if (t < l1)
-            {
-                double a = Math.PI / 2 + t / r;
-                u = -half + r * Math.Cos(a);
-                w = r * Math.Sin(a);
-                nu = Math.Cos(a);
-                nw = Math.Sin(a);
-                return;
-            }
-            t -= l1;
-            u = -half + t;
-            w = -r;
-            nu = 0;
-            nw = -1;
+            return 2 * Math.PI * r;
         }
 
         private static void Grow(OrnCtx c, int n)
@@ -275,8 +216,7 @@ namespace Ghumante.Core.Generators.Ornaments
                 case GardenStyle.Marigold:
                 {
                     double r = rc + 0.45 * span, w = Math.Min(1.1, 0.3 * span);
-                    OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, 0, 0, 360, segs), true, w, 0.38, OrnamentPalette.MarigoldOrange,
-                                      OrnamentPalette.MarigoldYellow, MaterialChannel.Foliage, 0.06, seed, 0.35);
+                    RingMound(c, r, 0, 360, segs, 0, 0, w, 0.38, OrnamentPalette.MarigoldOrange, OrnamentPalette.MarigoldYellow, 0.06, seed, 0.35, true);
                     Blooms(c, r, w, 0.42, (int)(2 * Math.PI * r / 0.9), OrnamentPalette.MarigoldOrange, OrnamentPalette.MarigoldYellow, seed);
                     if (span > 2.6) Hedge(c, ri - 0.55, 0.5, 0.55, segs);
                     break;
@@ -290,6 +230,7 @@ namespace Ghumante.Core.Generators.Ornaments
                     {
                         double ang = 2 * Math.PI * (b + 0.5) / bushes;
                         double x = s.X + r * Math.Sin(ang), z = s.Z + r * Math.Cos(ang);
+                        if (c.Clearance(x, z) < 0.45) continue;
                         RoseBush(c, x, c.TopY(x, z), z, seed + (uint)b);
                     }
                     if (span > 2.6) Hedge(c, ri - 0.55, 0.5, 0.6, segs);
@@ -299,15 +240,11 @@ namespace Ghumante.Core.Generators.Ornaments
                 {
                     // Sweeping marigold border near the kerb, an inner wavy bed, round clipped shrubs, palms.
                     double r = ri - 0.9;
-                    OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, 0, 0, 360, segs, 0.04, 7), true, 0.9, 0.36,
-                                      OrnamentPalette.MarigoldYellow, OrnamentPalette.MarigoldOrange, MaterialChannel.Foliage, 0.06, seed, 0.4);
+                    RingMound(c, r, 0, 360, segs, 0.04, 7, 0.9, 0.36, OrnamentPalette.MarigoldYellow, OrnamentPalette.MarigoldOrange, 0.06, seed, 0.4, true);
                     Blooms(c, r, 0.9, 0.4, (int)(2 * Math.PI * r / 1.1), OrnamentPalette.MarigoldYellow, OrnamentPalette.MarigoldOrange, seed);
                     if (span > 5)
-                    {
-                        double r2 = rc + 0.35 * span;
-                        OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r2, 0, 20, 300, segs / 2, 0.12, 3), false, 0.8, 0.32,
-                                          OrnamentPalette.MarigoldOrange, OrnamentPalette.MarigoldYellow, MaterialChannel.Foliage, 0.06, seed + 7, 0.5, false);
-                    }
+                        RingMound(c, rc + 0.35 * span, 20, 300, segs / 2, 0.12, 3, 0.8, 0.32, OrnamentPalette.MarigoldOrange, OrnamentPalette.MarigoldYellow, 0.06,
+                                  seed + 7, 0.5, false);
                     Shrubs(c, rc + 0.5, ri - 1.8, seed);
                     break;
                 }
@@ -321,10 +258,8 @@ namespace Ghumante.Core.Generators.Ornaments
                     for (int q = 0; q < arcs; q++)
                     {
                         bool white = (q & 1) == 0;
-                        OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, 0, sweep * q + 8, sweep - 16, arcSegs), false, white ? 1.3 : 1.0, 0.34,
-                                          white ? OrnamentPalette.FlowerWhite : OrnamentPalette.MarigoldYellow,
-                                          white ? OrnamentPalette.LeafGreen : OrnamentPalette.MarigoldOrange, MaterialChannel.Foliage, 0.05, seed + (uint)q,
-                                          white ? 0.25 : 0.35);
+                        RingMound(c, r, sweep * q + 8, sweep - 16, arcSegs, 0, 0, white ? 1.3 : 1.0, 0.34, white ? OrnamentPalette.FlowerWhite : OrnamentPalette.MarigoldYellow,
+                                  white ? OrnamentPalette.LeafGreen : OrnamentPalette.MarigoldOrange, 0.05, seed + (uint)q, white ? 0.25 : 0.35, true);
                     }
                     Hedge(c, ri - 0.45, 0.5, 0.55, segs);
                     break;
@@ -334,12 +269,15 @@ namespace Ghumante.Core.Generators.Ornaments
                     break;
                 case GardenStyle.Paved:
                 {
+                    // Potted plants round a statue's paving (New Road); a chautari's paving stays bare.
+                    if (c.Design.Centre == Centrepiece.ShadeTree) break;
                     int pots = Math.Max(3, (int)(2 * Math.PI * (ri - 0.7) / 3.2));
                     if (c.Lod >= 2) pots = Math.Min(pots, 4);
                     for (int p = 0; p < pots; p++)
                     {
                         double ang = 2 * Math.PI * (p + 0.5) / pots;
                         double x = s.X + (ri - 0.7) * Math.Sin(ang), z = s.Z + (ri - 0.7) * Math.Cos(ang);
+                        if (c.Clearance(x, z) < 0.45) continue;
                         OrnamentKit.Pot(c, x, c.TopY(x, z), z, 0.3, seed + (uint)p);
                     }
                     break;
@@ -379,7 +317,7 @@ namespace Ghumante.Core.Generators.Ornaments
                     break;
                 case GardenStyle.Paved:
                 {
-                    int pots = c.Lod == 1 ? 4 : 0;
+                    int pots = c.Lod == 1 && c.Design.Centre != Centrepiece.ShadeTree ? 4 : 0;
                     for (int p = 0; p < pots; p++)
                     {
                         double ang = 2 * Math.PI * (p + 0.5) / pots;
@@ -412,23 +350,73 @@ namespace Ghumante.Core.Generators.Ornaments
                 double ang = 2 * Math.PI * (i + OrnamentSeed.Unit(seed, 3 * i)) / count;
                 double rr = r + (OrnamentSeed.Unit(seed, 3 * i + 1) - 0.5) * 0.6 * width;
                 double x = s.X + rr * Math.Sin(ang), z = s.Z + rr * Math.Cos(ang);
+                // Only where the bed itself is drawn (RingMound leaves gaps round furniture and the centrepiece).
+                if (c.Clearance(s.X + r * Math.Sin(ang), s.Z + r * Math.Cos(ang)) < 0.5 * width + 0.05) continue;
                 OrnamentKit.Bloom(c, x, c.TopY(x, z) + h, z, 0.1, OrnamentSeed.Unit(seed, 3 * i + 2) < 0.5 ? a : b);
             }
         }
 
         private static void Hedge(OrnCtx c, double r, double width, double height, int segs)
         {
-            RoundaboutSite s = c.Site;
-            OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, 0, 0, 360, segs), true, width, height, OrnamentPalette.Hedge,
-                              OrnamentPalette.HedgeLight, MaterialChannel.Foliage, 0.025, c.Seed ^ 0x77u, 0.5, false);
+            RingMound(c, r, 0, 360, segs, 0, 0, width, height, OrnamentPalette.Hedge, OrnamentPalette.HedgeLight, 0.025, c.Seed ^ 0x77u, 0.5, false);
             if (c.Stats != null) c.Stats.Shrubs++;
         }
 
         private static void SoilRing(OrnCtx c, double r, double w, int segs)
         {
+            RingMound(c, r, 0, 360, segs, 0, 0, w, 0.08, OrnamentPalette.Soil, OrnamentPalette.Soil, 0, c.Seed, 1, true, -0.02, MaterialChannel.Dirt);
+        }
+
+        /// <summary>
+        /// A bed or hedge mound along the circle (or arc from <paramref name="startDeg"/> over <paramref name="sweepDeg"/>)
+        /// of radius r round the island centre, with an optional wobble: drawn as the arcs that stay clear of every
+        /// footprint taken (a gap round the police post, a lamp, a tree, the sign), or as one closed loop when nothing
+        /// stands in the way.
+        /// </summary>
+        private static void RingMound(OrnCtx c, double r, double startDeg, double sweepDeg, int segs, double wobble, int lobes, double width, double height,
+                                      uint a, uint b, double bump, uint seed, double cell, bool smooth, double lift = 0, MaterialChannel ch = MaterialChannel.Foliage)
+        {
             RoundaboutSite s = c.Site;
-            OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, -0.02, 0, 360, segs), true, w, 0.08, OrnamentPalette.Soil,
-                              OrnamentPalette.Soil, MaterialChannel.Dirt, 0, c.Seed, 1);
+            bool full = sweepDeg >= 359.9;
+            int n = Math.Max(full ? 8 : 2, Math.Min(c.Blocked.Length - 1, 2 * segs));
+            double clear = 0.5 * width + 0.05;
+            int samples = full ? n : n + 1, blocked = 0;
+            for (int k = 0; k < samples; k++)
+            {
+                double deg = startDeg + sweepDeg * k / n, ang = deg * Math.PI / 180.0;
+                double rr = r * (1 + wobble * Math.Sin(lobes * ang));
+                bool hit = c.Clearance(s.X + rr * Math.Sin(ang), s.Z + rr * Math.Cos(ang)) < clear;
+                c.Blocked[k] = hit;
+                if (hit) blocked++;
+            }
+            if (blocked == 0)
+            {
+                OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, lift, startDeg, sweepDeg, segs, wobble, lobes), full, width, height, a, b, ch, bump,
+                                  seed, cell, smooth);
+                return;
+            }
+            if (blocked == samples) return;
+            // Runs of free samples; a full ring starts its walk at a blocked sample so no run wraps round.
+            int origin = 0;
+            if (full)
+                while (!c.Blocked[origin]) origin++;
+            int run = -1;
+            for (int q = 0; q <= samples; q++)
+            {
+                int k = full ? (origin + q) % samples : q;
+                bool free = q < samples && !c.Blocked[k] && !(full && q == 0);
+                if (free && run < 0) run = q;
+                if (free || run < 0) continue;
+                int len = q - run;
+                if (len >= 2)
+                {
+                    double d0 = startDeg + sweepDeg * (full ? origin + run : run) / n, d1 = d0 + sweepDeg * (len - 1) / n;
+                    int arcSegs = Math.Max(1, (int)Math.Round((double)segs * (len - 1) / n));
+                    OrnamentKit.Mound(c, OrnamentKit.Ring(c, c.Path, s.X, s.Z, r, lift, d0, d1 - d0, arcSegs, wobble, lobes), false, width, height, a, b, ch,
+                                      bump, seed + (uint)run, cell, smooth);
+                }
+                run = -1;
+            }
         }
 
         private static void RoseBush(OrnCtx c, double x, double y, double z, uint seed)
@@ -447,11 +435,13 @@ namespace Ghumante.Core.Generators.Ornaments
         }
 
         /// <summary>Round clipped shrubs (golden and dark green), purple bougainvillea, palms and small conifers
-        /// scattered over the lawn between r0 and r1, deterministic.</summary>
+        /// scattered over the lawn between r0 and r1, deterministic. Every crown stays over the island (at most over its
+        /// kerb top), never over the road: an item whose crown would reach past the edge moves in, or is left out.</summary>
         private static void Shrubs(OrnCtx c, double r0, double r1, uint seed)
         {
             if (r1 <= r0 + 0.3) return;
             RoundaboutSite s = c.Site;
+            double edge = InnerRadius(s) + 0.5 * KerbTopM;
             double area = Math.PI * (r1 * r1 - r0 * r0);
             int n = Math.Min(c.Lod == 0 ? 9 : c.Lod == 1 ? 5 : 3, (int)(area / 16));
             int palms = 0;
@@ -459,9 +449,23 @@ namespace Ghumante.Core.Generators.Ornaments
             {
                 double ang = 2 * Math.PI * (i + 0.6 * OrnamentSeed.Unit(seed, 11 * i)) / Math.Max(1, n);
                 double rr = Math.Sqrt(r0 * r0 + (r1 * r1 - r0 * r0) * OrnamentSeed.Unit(seed, 11 * i + 1));
-                double x = s.X + rr * Math.Sin(ang), z = s.Z + rr * Math.Cos(ang);
-                float y = c.TopY(x, z);
                 float kind = OrnamentSeed.Unit(seed, 11 * i + 2);
+                // Crown reach from the stem: clipped balls up to 0.9 m, a palm's lean and fronds 2.3 m, a conifer 0.9 m.
+                bool palm = kind >= 0.82 && kind < 0.92 && c.Lod == 0 && palms < 2;
+                double reach = c.Lod >= 2 ? 0.6 : kind < 0.82 ? 0.9 : palm ? 2.3 : 0.9;
+                rr = Math.Min(rr, edge - reach);
+                if (rr < r0 || rr < 0) continue;
+                double x = s.X + rr * Math.Sin(ang), z = s.Z + rr * Math.Cos(ang);
+                // Not in the police post, a lamp, a tree or the sign.
+                if (c.Clearance(x, z) < Math.Min(reach, 0.9) + 0.1) continue;
+                // Nothing tall in front of or behind a centrepiece: palms and conifers there become clipped shrubs, so
+                // the statue, the gate or the mandala stays in view from the arms it faces.
+                if (kind >= 0.82 && HasCentrepiece(c) && InSightline(c, x, z))
+                {
+                    kind = 0.3f;
+                    palm = false;
+                }
+                float y = c.TopY(x, z);
                 if (c.Lod >= 2)
                 {
                     Shapes.Sphere(c.M, Affine3.Translation(x, y + 0.5, z) * Affine3.Scaling(1, 0.8, 1), OrnamentKit.B(kind < 0.5 ? OrnamentPalette.ShrubGolden : OrnamentPalette.Hedge, MaterialChannel.Foliage), 0.6, 5, c.L);
@@ -481,7 +485,7 @@ namespace Ghumante.Core.Generators.Ornaments
                 {
                     OrnamentKit.Clump(c, x, y + 0.5, z, 0.6, 0.5, 0.55, OrnamentPalette.Bougainvillea, MaterialChannel.Foliage, 8, 0.3, seed + (uint)i);
                 }
-                else if (kind < 0.92 && c.Lod == 0 && palms < 2)
+                else if (palm)
                 {
                     Palm(c, x, y, z, 2.6 + 1.4 * OrnamentSeed.Unit(seed, 11 * i + 4), seed + (uint)i);
                     palms++;
@@ -494,61 +498,82 @@ namespace Ghumante.Core.Generators.Ornaments
             }
         }
 
-        /// <summary>Planting of a stadium island (Shahid Gate): a marigold border and a clipped hedge following the
-        /// island outline inside the railing, and round shrubs at the four ends.</summary>
-        public static void EdgeBeds(OrnCtx c)
+        private static bool HasCentrepiece(OrnCtx c)
         {
-            if (c.Lod >= 3) return;
+            Centrepiece k = c.Design.Centre;
+            return k != Centrepiece.Garden && k != Centrepiece.PolicePodium;
+        }
+
+        /// <summary>True when (x, z) lies within 40 degrees of the centrepiece's facing axis, in front or behind.</summary>
+        private static bool InSightline(OrnCtx c, double x, double z)
+        {
+            double b = Math.Atan2(x - c.CX, z - c.CZ) * 180.0 / Math.PI - c.FacingDeg;
+            b = Math.Abs(b % 180.0);
+            if (b > 90) b = 180 - b;
+            return b < 40;
+        }
+
+        /// <summary>A raised round planter at tile-local (x, z): a brick ring wall with a coping, soil, a mound of
+        /// marigolds and a clipped shrub in the middle (generic island centres, Maitighar's round feature bed).
+        /// Returns its footprint radius.</summary>
+        public static double RaisedBed(OrnCtx c, double x, double z, double r)
+        {
             MeshData m = c.M;
-            RoundaboutSite s = c.Site;
+            float y = c.TopY(x, z);
             int v0 = m.VertexCount, i0 = m.IndexCount;
-            double inset = Math.Max(0, s.ApronM) + KerbTopM + 0.9;
-            double perim = Outline(c, 8, inset);
-            int n = c.Lod == 0 ? Math.Max(24, Math.Min(80, (int)(perim / 1.1))) : c.Lod == 1 ? 32 : 16;
-            Outline(c, n, inset);
-            Path3 p = c.Path.Clear();
-            for (int k = 0; k < n; k++) p.Add(c.Xs[k], c.TopY(c.Xs[k], c.Zs[k]), c.Zs[k]);
-            OrnamentKit.Mound(c, p, true, 0.9, 0.38, OrnamentPalette.MarigoldOrange, OrnamentPalette.MarigoldYellow, MaterialChannel.Foliage, 0.06,
-                              c.Seed, 0.35);
-            if (c.Lod == 0)
+            if (c.Lod >= 2)
             {
-                for (int k = 0; k < n; k += 3)
-                    OrnamentKit.Bloom(c, c.Xs[k], c.TopY(c.Xs[k], c.Zs[k]) + 0.42, c.Zs[k], 0.1,
-                                      (k & 2) == 0 ? OrnamentPalette.MarigoldOrange : OrnamentPalette.MarigoldYellow);
+                Shapes.Cylinder(m, Affine3.Translation(x, y - 0.1, z), OrnamentKit.B(OrnamentPalette.BrickPlanter, MaterialChannel.Brick), r + 0.25, 0.45, 8, 0, 0, false, false, c.L);
+                Shapes.Dome(m, Affine3.Translation(x, y + 0.33, z), OrnamentKit.B(OrnamentPalette.MarigoldOrange, MaterialChannel.Foliage), r + 0.2, 0.5, 8, false, c.L);
+                return r + 0.4;
             }
-            if (c.Lod >= 1)
+            Shapes.Cylinder(m, Affine3.Translation(x, y - 0.1, z), OrnamentKit.B(OrnamentPalette.BrickPlanter, MaterialChannel.Brick), r + 0.25, 0.45, 28, 0.04, 1, false, true, c.L);
+            Shapes.Dome(m, Affine3.Translation(x, y + 0.33, z), OrnamentKit.B(OrnamentPalette.Soil, MaterialChannel.Dirt), r, 0.12, 20, false, c.L);
+            Path3 ring = c.Path.Clear();
+            int n = c.Lod == 0 ? 28 : 14;
+            for (int k = 0; k < n; k++)
             {
-                c.Ao(v0, i0, c.CentreTopY - 0.2, 0.4f);
-                return;
+                double a = 2 * Math.PI * k / n, px = x + 0.72 * r * Math.Sin(a), pz = z + 0.72 * r * Math.Cos(a);
+                ring.Add(px, y + 0.35, pz);
             }
-            Outline(c, n, inset + 0.9);
-            p = c.Path.Clear();
-            for (int k = 0; k < n; k++) p.Add(c.Xs[k], c.TopY(c.Xs[k], c.Zs[k]), c.Zs[k]);
-            OrnamentKit.Mound(c, p, true, 0.55, 0.6, OrnamentPalette.Hedge, OrnamentPalette.HedgeLight, MaterialChannel.Foliage, 0.025, c.Seed ^ 0x77u, 0.5, false);
-            for (int k = 0; k < 4; k++)
-            {
-                double u = (k & 1) == 0 ? -1 : 1, w = (k & 2) == 0 ? -1 : 1, x, z;
-                c.Local(u * (s.HalfLengthM - 3.2), w * (s.RadiusM - 2.6), out x, out z);
-                OrnamentKit.Clump(c, x, c.TopY(x, z) + 0.6, z, 0.75, 0.62, 0.75, OrnamentPalette.ShrubGolden, MaterialChannel.Foliage, 12, 0.08, c.Seed + (uint)k);
-                if (c.Stats != null) c.Stats.Shrubs++;
-            }
-            c.Ao(v0, i0, c.CentreTopY - 0.2, 0.4f);
+            OrnamentKit.Mound(c, ring, true, 0.5 * r, 0.3, OrnamentPalette.MarigoldOrange, OrnamentPalette.MarigoldYellow, MaterialChannel.Foliage, 0.05, c.Seed + 3, 0.25);
+            OrnamentKit.Clump(c, x, y + 0.35 + 0.55 * r, z, 0.45 * r, 0.55 * r, 0.45 * r, OrnamentPalette.Hedge, MaterialChannel.Foliage, 12, 0.12, c.Seed + 5);
+            c.Ao(v0, i0, y - 0.1, 0.4f);
+            if (c.Stats != null) c.Stats.Shrubs++;
+            return r + 0.4;
         }
 
         // ------------------------------------------------------------------ trees
 
-        /// <summary>A ring of <paramref name="count"/> trees at radius r: columnar Ashoka-like conifers alternating with
-        /// round-crowned shade trees.</summary>
+        /// <summary>A ring of <paramref name="count"/> trees at radius r round the island centre: columnar Ashoka-like
+        /// conifers alternating with round-crowned shade trees; a tree whose spot is taken (centrepiece, furniture) or
+        /// on a road corridor moves along the ring a little or is left out.</summary>
         public static void TreeRing(OrnCtx c, double r, int count)
         {
             if (count <= 0 || c.Lod >= 3) return;
-            RoundaboutSite s = c.Site;
             MeshData m = c.M;
             if (c.Lod == 2) count = Math.Min(count, 4);
+            double inner = InnerRadius(c.Site), edge = inner + 0.5 * KerbTopM;
             for (int i = 0; i < count; i++)
             {
-                double ang = 2 * Math.PI * (i + 0.5) / count + c.FacingDeg * Math.PI / 180.0;
-                double x = s.X + r * Math.Sin(ang), z = s.Z + r * Math.Cos(ang);
+                double prefer = 360.0 * (i + 0.5) / count + c.FacingDeg;
+                if (HasCentrepiece(c))
+                {
+                    // Keep the centrepiece in view from the arms it faces: no tree within 40 degrees of its axis.
+                    double rel = ((prefer - c.FacingDeg) % 180.0 + 180.0) % 180.0;
+                    if (rel < 45) prefer += 45 - rel;
+                    else if (rel > 135) prefer -= rel - 135;
+                }
+                // The crown stays over the island (a shade tree's lobes reach 2.4 m from the trunk, a conifer 1.4 m): its
+                // lowest leaves hang below the 4.5 m overhead clearance.
+                double rt = Math.Min(r, edge - ((i & 1) == 0 ? 1.4 : 2.4));
+                double x, z, deg;
+                if (rt < 1.0 || !c.FindSpot(prefer, rt, 0.5, 1.2, inner, 6, 0.4 * 360.0 / count, out x, out z, out deg))
+                {
+                    c.Skip();
+                    continue;
+                }
+                c.Take(OrnamentFootprint.Disc(FootprintKind.Tree, x, z, 0.5));
                 float y = c.TopY(x, z);
                 int v0 = m.VertexCount, i0 = m.IndexCount;
                 if ((i & 1) == 0) Conifer(c, x, y, z, 6 + 2 * OrnamentSeed.Unit(c.Seed, 40 + i), c.Seed + (uint)i);
@@ -644,27 +669,36 @@ namespace Ghumante.Core.Generators.Ornaments
 
         // ------------------------------------------------------------------ paths, railing, lamps, sign, police
 
-        /// <summary>Radial stone paths from the kerb to the centrepiece footprint (radius rc).</summary>
-        public static void Paths(OrnCtx c, int count, double rc, double width)
+        /// <summary>Stone paths from the kerb (at the facing bearing and every 360/count degrees from it) straight towards
+        /// the centrepiece, ending at its footprint (radial for a centred one, converging on an offset mandala).</summary>
+        public static void Paths(OrnCtx c, int count, double width)
         {
             if (count <= 0 || c.Lod >= 2) return;
             MeshData m = c.M;
             RoundaboutSite s = c.Site;
             double ri = InnerRadius(s);
-            if (ri - rc < 1) return;
             int v0 = m.VertexCount, i0 = m.IndexCount;
             for (int p = 0; p < count; p++)
             {
                 double ang = (c.FacingDeg + 360.0 * p / count) * Math.PI / 180.0;
-                double sx = Math.Sin(ang), cz = Math.Cos(ang), px = cz, pz = -sx;
-                int steps = Math.Max(2, (int)((ri - rc) / 1.5));
+                double ex = s.X + (ri + 0.05) * Math.Sin(ang), ez = s.Z + (ri + 0.05) * Math.Cos(ang);
+                double dx = c.CX - ex, dz = c.CZ - ez, len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 1) continue;
+                dx /= len;
+                dz /= len;
+                // Walk in from the kerb until the centrepiece's footprint (or the centre).
+                double run = 0;
+                while (run + 0.25 < len && c.CentreClearance(ex + (run + 0.25) * dx, ez + (run + 0.25) * dz) > 0.1) run += 0.25;
+                if (run < 1) continue;
+                double px = dz, pz = -dx;
+                int steps = Math.Max(2, (int)(run / 1.5));
                 int vb = m.VertexCount;
                 for (int k = 0; k <= steps; k++)
                 {
-                    double r = rc + (ri + 0.05 - rc) * k / steps;
+                    double t = run * (1.0 - (double)k / steps);
                     for (int side = -1; side <= 1; side += 2)
                     {
-                        double x = s.X + r * sx + side * 0.5 * width * px, z = s.Z + r * cz + side * 0.5 * width * pz;
+                        double x = ex + t * dx + side * 0.5 * width * px, z = ez + t * dz + side * 0.5 * width * pz;
                         m.AddVertex((float)x, c.TopY(x, z) + 0.025f, (float)z, 0, 1, 0, OrnamentPalette.PathStone, (float)MaterialChannel.Flagstone, 1f);
                     }
                 }
@@ -781,50 +815,65 @@ namespace Ghumante.Core.Generators.Ornaments
         private static readonly double[] s_ironRails = { 0.08, 0.92 };
         private static readonly double[] s_whiteRails = { 1.0 };
 
-        /// <summary>Solar street lights evenly round the island, arms pointing out over the ring road.</summary>
+        /// <summary>Solar street lights evenly round the island near the kerb, arms pointing out over the ring road
+        /// (above the 4.5 m overhead clearance); each moves along the ring to a free spot or is left out.</summary>
         public static void Lamps(OrnCtx c, int count, double height)
         {
             if (count <= 0 || c.Lod >= 3) return;
             RoundaboutSite s = c.Site;
-            double r = InnerRadius(s) - 0.7;
-            if (r < 1.5) r = Math.Max(0.6, InnerRadius(s) * 0.6);
+            double inner = InnerRadius(s);
+            double r = inner - 0.7;
+            if (r < 1.5) r = Math.Max(0.6, inner * 0.6);
             for (int i = 0; i < count; i++)
             {
-                double deg = c.FacingDeg + 360.0 * (i + 0.5) / count;
-                double a = deg * Math.PI / 180.0;
-                double x, z;
-                if (s.Shape == IslandShape.Stadium)
+                double x, z, deg;
+                if (!c.FindSpot(c.FacingDeg + 360.0 * (i + 0.5) / count, r, 0.3, 0.3, inner, 5, 0.45 * 360.0 / count, out x, out z, out deg))
                 {
-                    // Corners of the stadium.
-                    double u = (i & 1) == 0 ? -1 : 1, w = (i & 2) == 0 ? -1 : 1;
-                    c.Local(u * (s.HalfLengthM - 1.6), w * (s.RadiusM - 1.4), out x, out z);
-                    deg = Math.Atan2(x - s.X, z - s.Z) * 180 / Math.PI;
+                    c.Skip();
+                    continue;
                 }
-                else
-                {
-                    x = s.X + r * Math.Sin(a);
-                    z = s.Z + r * Math.Cos(a);
-                }
+                c.Take(OrnamentFootprint.Disc(FootprintKind.Lamp, x, z, 0.3));
                 OrnamentKit.SolarLamp(c, x, z, deg, height);
             }
         }
 
-        /// <summary>The traffic police post at the island edge, a little off the main arm so it does not hide the
-        /// centrepiece.</summary>
+        /// <summary>Plan radius of a police post: the drum on its step, the compact drum without the step, or the
+        /// podium under its umbrella (the canopy at 2 m reaches 1.15 m).</summary>
+        public static double PostRadius(PoliceStyle style, bool compact)
+        {
+            return style == PoliceStyle.Umbrella ? 1.15 : compact ? 0.74 : 0.95;
+        }
+
+        /// <summary>
+        /// The traffic police post on the island near the kerb, a little off the main arm so it does not hide the
+        /// centrepiece, at the nearest bearing where it stands clear of everything already placed (statue platform,
+        /// basin, mandala) and of the road corridors; the compact drum without its step where the full one does not
+        /// fit. Left out (counted in <see cref="OrnamentStats.Skipped"/>) when the island has no room at all.
+        /// </summary>
         public static void Police(OrnCtx c, PoliceStyle style)
         {
             if (style == PoliceStyle.None || c.Lod >= 3) return;
             RoundaboutSite s = c.Site;
-            double ri = InnerRadius(s);
-            double deg = c.Site.MainArmDeg + (ri > 3 ? 55 : 0);
-            double r = Math.Max(0, ri - 1.1);
-            double a = deg * Math.PI / 180.0;
-            double x = s.X + r * Math.Sin(a), z = s.Z + r * Math.Cos(a);
-            PolicePost(c, x, c.TopY(x, z), z, deg, style);
+            double inner = InnerRadius(s);
+            double prefer = s.MainArmDeg + (inner > 3 ? 55 : 0);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                bool compact = pass == 1;
+                if (compact && style == PoliceStyle.Umbrella) break;
+                double pr = PostRadius(style, compact);
+                double r = Math.Max(0, inner - pr - 0.05);
+                double x, z, deg;
+                if (!c.FindSpot(prefer, r, pr, 0.15, inner, 10, 180, out x, out z, out deg)) continue;
+                c.Take(OrnamentFootprint.Disc(FootprintKind.PolicePost, x, z, pr));
+                PolicePost(c, x, c.TopY(x, z), z, deg, style, compact);
+                return;
+            }
+            c.Skip();
         }
 
-        /// <summary>A traffic police post at (x, y, z) facing <paramref name="deg"/>.</summary>
-        public static void PolicePost(OrnCtx c, double x, double y, double z, double deg, PoliceStyle style)
+        /// <summary>A traffic police post at (x, y, z) facing <paramref name="deg"/> (<paramref name="compact"/>: the
+        /// drum without its step, for tight islands).</summary>
+        public static void PolicePost(OrnCtx c, double x, double y, double z, double deg, PoliceStyle style, bool compact = false)
         {
             MeshData m = c.M;
             int v0 = m.VertexCount, i0 = m.IndexCount;
@@ -861,8 +910,8 @@ namespace Ghumante.Core.Generators.Ornaments
             // Drum: step, white drum with a blue band, top rail, central post with the box sign, roof and solar panel.
             int pr = c.Lod == 0 ? 14 : 10;
             double rim = c.Lod == 0 ? 0.03 : 0;
-            Shapes.Cylinder(m, f, white, 0.95, 0.18, pr, rim, 1, false, true, c.L);
-            Shapes.Cylinder(m, f * Affine3.Translation(0, 0.18, 0), white, 0.72, 0.85, pr, rim, 1, false, true, c.L);
+            if (!compact) Shapes.Cylinder(m, f, white, 0.95, 0.18, pr, rim, 1, false, true, c.L);
+            Shapes.Cylinder(m, f * Affine3.Translation(0, compact ? 0 : 0.18, 0), white, 0.72, compact ? 1.03 : 0.85, pr, rim, 1, false, true, c.L);
             Shapes.Cylinder(m, f * Affine3.Translation(0, 0.68, 0), blue, 0.735, 0.14, pr, 0, 0, false, false, c.L);
             if (c.Lod == 0)
             {
@@ -887,15 +936,21 @@ namespace Ghumante.Core.Generators.Ornaments
             c.Ao(v0, i0, y);
         }
 
-        /// <summary>A keep-left sign (blue disc, white arrow, no text) at the island nose facing the main arm.</summary>
+        /// <summary>A keep-left sign (blue disc, white arrow, no text) near the kerb facing the main arm, at a free
+        /// spot (or left out).</summary>
         public static void KeepLeftSign(OrnCtx c)
         {
             if (c.Lod >= 1) return;
             RoundaboutSite s = c.Site;
-            double r = InnerRadius(s) - 0.25;
-            double deg = s.MainArmDeg - (r > 3 ? 18 : 0);
-            double a = deg * Math.PI / 180.0;
-            double x = s.X + r * Math.Sin(a), z = s.Z + r * Math.Cos(a);
+            double inner = InnerRadius(s);
+            double r = inner - 0.45;
+            double x, z, deg;
+            if (r < 0.3 || !c.FindSpot(s.MainArmDeg - (r > 3 ? 18 : 0), r, 0.42, 0.15, inner, 8, 64, out x, out z, out deg))
+            {
+                c.Skip();
+                return;
+            }
+            c.Take(OrnamentFootprint.Disc(FootprintKind.Sign, x, z, 0.42));
             float y = c.TopY(x, z);
             MeshData m = c.M;
             int v0 = m.VertexCount, i0 = m.IndexCount;

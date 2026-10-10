@@ -1,5 +1,6 @@
 using System;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Roads;
 using Ghumante.Core.Meshing.Shapes;
 
 namespace Ghumante.Core.Generators.Ornaments
@@ -8,7 +9,9 @@ namespace Ghumante.Core.Generators.Ornaments
     /// Per-build state of the ornament generators: the mesh, the LOD, the island site and the terrain, plus reusable
     /// scratch profiles and paths. One instance per thread (<see cref="For"/>), so a tile build allocates nothing once
     /// the scratch has grown. Heights: <see cref="Ground"/> is the terrain, <see cref="RoadY"/> the road surface round
-    /// the island, <see cref="TopY"/> the lawn (or paving) of the island.
+    /// the island, <see cref="TopY"/> the lawn (or paving) of the island. Placement: the centrepiece stands at
+    /// (<see cref="CX"/>, <see cref="CZ"/>) and registers its footprint; furniture asks <see cref="FindSpot"/> for a
+    /// place on the island clear of every footprint already taken and of the road corridors.
     /// </summary>
     internal sealed class OrnCtx
     {
@@ -29,11 +32,19 @@ namespace Ghumante.Core.Generators.Ornaments
         /// <summary>Kerb top above the road surface.</summary>
         public float KerbH = 0.22f;
 
-        /// <summary>Lawn top at the island centre (absolute).</summary>
+        /// <summary>Lawn top at the centrepiece centre (absolute).</summary>
         public float CentreTopY;
 
         /// <summary>Centrepiece facing (degrees clockwise from north).</summary>
         public double FacingDeg;
+
+        /// <summary>Centrepiece centre (tile-local): the island centre plus the design's offset, pulled in to fit.</summary>
+        public double CX, CZ;
+
+        /// <summary>Road corridor guard (null = off) and the disc it ignores (the layout island itself).</summary>
+        public IRoadCorridorQuery Corridors;
+
+        public double ExemptX, ExemptZ, ExemptR;
 
         private float _lastGround;
 
@@ -44,8 +55,16 @@ namespace Ghumante.Core.Generators.Ornaments
         public double[] Xs = new double[512], Zs = new double[512], Nx = new double[512], Nz = new double[512];
         public double[] Ys = new double[64], Ss = new double[64];
 
+        /// <summary>Blocked samples of a garden ring (beds and hedges leave gaps round furniture).</summary>
+        public readonly bool[] Blocked = new bool[257];
+
         /// <summary>Small scratch polygons (niche frames, spandrels).</summary>
         public readonly double[] Ax = new double[64], Ay = new double[64], Aw = new double[64];
+
+        /// <summary>Footprints taken so far on this island.</summary>
+        private OrnamentFootprint[] _taken = new OrnamentFootprint[32];
+
+        private int _takenCount;
 
         [ThreadStatic] private static OrnCtx s_ctx;
 
@@ -54,7 +73,8 @@ namespace Ghumante.Core.Generators.Ornaments
             return s_ctx ?? (s_ctx = new OrnCtx());
         }
 
-        public void Begin(MeshData m, IHeightSampler h, in RoundaboutSite site, in RoundaboutDesign design, int lod, OrnamentStats stats)
+        public void Begin(MeshData m, IHeightSampler h, in RoundaboutSite site, in RoundaboutDesign design, int lod, OrnamentStats stats,
+                          IRoadCorridorQuery corridors)
         {
             M = m;
             H = h;
@@ -66,10 +86,31 @@ namespace Ghumante.Core.Generators.Ornaments
             Stats = stats;
             KerbH = 0.22f;
             _lastGround = 0f;
+            _takenCount = 0;
+            Corridors = corridors;
+            ExemptX = site.X;
+            ExemptZ = site.Z;
+            ExemptR = site.LayoutIsland ? site.RadiusM : 0;
             float g;
             if (h != null && h.TryHeight(site.TileX0 + site.X, site.TileZ0 + site.Z, out g)) _lastGround = g;
-            CentreTopY = TopY(site.X, site.Z);
+            CX = site.X;
+            CZ = site.Z;
+            CentreTopY = TopY(CX, CZ);
             FacingDeg = float.IsNaN(design.FacingDeg) ? site.MainArmDeg : design.FacingDeg;
+        }
+
+        /// <summary>Place the centrepiece: <paramref name="reach"/> is its farthest extent from its own centre. The
+        /// design's offset is kept as far as the island allows: the centrepiece stays inside the planting radius
+        /// <paramref name="inner"/> with <paramref name="garden"/> metres of garden beyond it on the offset side, and
+        /// sits at the centre of an island too small for that.</summary>
+        public void PlaceCentre(double reach, double inner, double garden)
+        {
+            double ox = Design.OffsetEastM, oz = Design.OffsetNorthM, o = Math.Sqrt(ox * ox + oz * oz);
+            double room = Math.Max(0, Math.Min(o, inner - reach - garden));
+            double k = o > 1e-6 ? room / o : 0;
+            CX = Site.X + ox * k;
+            CZ = Site.Z + oz * k;
+            CentreTopY = TopY(CX, CZ);
         }
 
         /// <summary>Terrain height at a tile-local point (the last good height where the sampler has none).</summary>
@@ -100,19 +141,121 @@ namespace Ghumante.Core.Generators.Ornaments
             return (float)(Ground(x, z) + Site.RoadLiftM + KerbH + (Site.ApronM > 0 ? 0.05 : 0) + dome);
         }
 
-        /// <summary>The frame of the centrepiece: origin at the island centre on <see cref="CentreTopY"/>, +Z towards
+        /// <summary>The frame of the centrepiece: origin at its centre on <see cref="CentreTopY"/>, +Z towards
         /// <see cref="FacingDeg"/>.</summary>
         public Affine3 CentreFrame(double lift = 0)
         {
-            return Affine3.Translation(Site.X, CentreTopY + lift, Site.Z) * Affine3.Yaw(FacingDeg);
+            return Affine3.Translation(CX, CentreTopY + lift, CZ) * Affine3.Yaw(FacingDeg);
         }
 
         /// <summary>Tile-local point of centrepiece-frame (u, w): u right, w forward (towards the facing).</summary>
         public void Local(double u, double w, out double x, out double z)
         {
             double a = FacingDeg * Math.PI / 180.0, s = Math.Sin(a), c = Math.Cos(a);
-            x = Site.X + u * c + w * s;
-            z = Site.Z - u * s + w * c;
+            x = CX + u * c + w * s;
+            z = CZ - u * s + w * c;
+        }
+
+        // ------------------------------------------------------------------ placement
+
+        /// <summary>Register a footprint (also recorded in the stats).</summary>
+        public void Take(in OrnamentFootprint f)
+        {
+            if (_takenCount == _taken.Length) Array.Resize(ref _taken, _taken.Length * 2);
+            _taken[_takenCount++] = f;
+            if (Stats != null) Stats.Footprints.Add(f);
+        }
+
+        /// <summary>The first footprint of a kind taken so far.</summary>
+        public bool TryFind(FootprintKind kind, out OrnamentFootprint f)
+        {
+            for (int i = 0; i < _takenCount; i++)
+            {
+                if (_taken[i].Kind != kind) continue;
+                f = _taken[i];
+                return true;
+            }
+            f = default(OrnamentFootprint);
+            return false;
+        }
+
+        /// <summary>Distance from (x, z) to the nearest footprint taken so far (+infinity when none).</summary>
+        public double Clearance(double x, double z)
+        {
+            double best = double.PositiveInfinity;
+            for (int i = 0; i < _takenCount; i++) best = Math.Min(best, _taken[i].Distance(x, z));
+            return best;
+        }
+
+        /// <summary>Distance from (x, z) to the nearest centrepiece footprint (+infinity when none).</summary>
+        public double CentreClearance(double x, double z)
+        {
+            double best = double.PositiveInfinity;
+            for (int i = 0; i < _takenCount; i++)
+                if (_taken[i].Kind == FootprintKind.Centrepiece) best = Math.Min(best, _taken[i].Distance(x, z));
+            return best;
+        }
+
+        /// <summary>The smallest radius round the island centre (in 0.25 m steps, up to <paramref name="max"/>) whose
+        /// circle has a point at least <paramref name="gap"/> clear of every footprint taken so far: where the garden's
+        /// rings can start (right outside a round centrepiece, in front of and behind Shahid Gate, beside an offset
+        /// mandala); beds on such rings leave gaps where the centrepiece stands.</summary>
+        public double FreeRadius(double max, double gap)
+        {
+            for (double r = 0.25; r < max; r += 0.25)
+            {
+                for (int k = 0; k < 48; k++)
+                {
+                    double a = 2 * Math.PI * k / 48;
+                    if (Clearance(Site.X + r * Math.Sin(a), Site.Z + r * Math.Cos(a)) >= gap) return r;
+                }
+            }
+            return max;
+        }
+
+        /// <summary>True when a disc of radius r at (x, z) would stand on a road corridor: outside the exempt layout
+        /// island and closer than r to a corridor (always false without a corridor guard).</summary>
+        public bool OnRoad(double x, double z, double r)
+        {
+            if (Corridors == null) return false;
+            double ex = x - ExemptX, ez = z - ExemptZ;
+            if (ExemptR > 0 && Math.Sqrt(ex * ex + ez * ez) + r <= ExemptR) return false;
+            return Corridors.SignedDistance(Site.TileX0 + x, Site.TileZ0 + z) < r;
+        }
+
+        /// <summary>
+        /// A free spot for a round item of radius <paramref name="itemR"/> (plus <paramref name="gap"/> clearance to the
+        /// footprints already taken): on the circle of radius <paramref name="r"/> round the island centre, at the
+        /// bearing nearest <paramref name="preferDeg"/> (tried in steps of <paramref name="stepDeg"/> either side, up to
+        /// <paramref name="maxTurnDeg"/>), inside the planting radius <paramref name="inner"/> and off the road
+        /// corridors. False when there is none.
+        /// </summary>
+        public bool FindSpot(double preferDeg, double r, double itemR, double gap, double inner, double stepDeg, double maxTurnDeg,
+                             out double x, out double z, out double deg)
+        {
+            x = z = deg = 0;
+            if (r + itemR > inner + 1e-6) return false;
+            int steps = (int)Math.Floor(maxTurnDeg / Math.Max(1, stepDeg));
+            for (int k = 0; k <= 2 * steps; k++)
+            {
+                int q = (k + 1) / 2;
+                double d = preferDeg + ((k & 1) == 1 ? q : -q) * stepDeg;
+                double a = d * Math.PI / 180.0;
+                double px = Site.X + r * Math.Sin(a), pz = Site.Z + r * Math.Cos(a);
+                if (Clearance(px, pz) < itemR + gap) continue;
+                if (OnRoad(px, pz, itemR)) continue;
+                x = px;
+                z = pz;
+                deg = d;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Count an item that found no free spot.</summary>
+        public void Skip()
+        {
+            if (Stats != null) Stats.Skipped++;
         }
 
         public int VStart
@@ -553,8 +696,10 @@ namespace Ghumante.Core.Generators.Ornaments
                 Pennants(m, xf, ox, oy, OrnamentPalette.FlagCrimson, 0.006 * h, strips, w);
                 if (c.Lod < 2)
                 {
-                    // Moon (upper pennant) and sun (lower pennant) on both faces.
-                    StarOrDisc(m, xf, 0.17 * w, 0.88 * w, 0.1 * w, 0, c.Lod == 0 ? 12 : 8, 0.014 * h);
+                    // Moon (upper pennant): a crescent, horns up, cradling a disc with eight rays. Sun (lower
+                    // pennant): a disc with twelve rays. White on both faces.
+                    Crescent(m, xf, 0.19 * w, 0.835 * w, 0.115 * w, c.Lod == 0 ? 12 : 6, 0.014 * h);
+                    StarOrDisc(m, xf, 0.19 * w, 0.875 * w, 0.072 * w, 0.62, 8, 0.014 * h);
                     StarOrDisc(m, xf, 0.2 * w, 0.29 * w, 0.14 * w, 0.62, 12, 0.014 * h);
                 }
             }
@@ -674,9 +819,11 @@ namespace Ghumante.Core.Generators.Ornaments
 
         [ThreadStatic] private static double[] s_tx, s_ty;
 
+        /// <summary>A disc of <paramref name="n"/> points, or with <paramref name="spike"/> &gt; 0 a star of
+        /// <paramref name="n"/> triangular rays (inner radius r·(1 − 0.35·spike)), double-sided.</summary>
         private static void StarOrDisc(MeshData m, in Affine3 xf, double cx, double cy, double r, double spike, int n, double thick)
         {
-            int k = spike > 0 ? 24 : n;
+            int k = spike > 0 ? 2 * n : n;
             for (int i = 0; i < k; i++)
             {
                 double a = 2 * Math.PI * i / k;
@@ -685,6 +832,43 @@ namespace Ghumante.Core.Generators.Ornaments
                 s_fy[i] = cy + rr * Math.Sin(a);
             }
             FlatPoly(m, xf, OrnamentPalette.FlagWhite, MaterialChannel.Fabric, s_fx, s_fy, k, thick);
+        }
+
+        /// <summary>
+        /// A white crescent, horns up, double-sided: the part of the disc of radius <paramref name="r"/> at (cx, cy)
+        /// outside a second disc of radius 0.85·r raised by 0.45·r, built as a band of quads between the two lower arcs
+        /// (a crescent is not star-shaped, so it cannot be fanned).
+        /// </summary>
+        private static void Crescent(MeshData m, in Affine3 xf, double cx, double cy, double r, int segs, double thick)
+        {
+            const double r2 = 0.85, d = 0.45;
+            double hy = (1 - r2 * r2 + d * d) / (2 * d), hx = Math.Sqrt(Math.Max(0, 1 - hy * hy));
+            double a0 = Math.Atan2(hy, -hx), a1 = Math.Atan2(hy, hx) + 2 * Math.PI;
+            double b0 = Math.Atan2(hy - d, -hx), b1 = Math.Atan2(hy - d, hx) + 2 * Math.PI;
+            if (a0 < 0) a0 += 2 * Math.PI;
+            if (b0 < 0) b0 += 2 * Math.PI;
+            for (int side = 0; side < 2; side++)
+            {
+                double dz = side == 0 ? 0.5 * thick : -0.5 * thick, nz = side == 0 ? 1 : -1;
+                double onx, ony, onz;
+                xf.Normal(0, 0, nz, out onx, out ony, out onz);
+                Norm(ref onx, ref ony, ref onz);
+                int v0 = m.VertexCount;
+                for (int k = 0; k <= segs; k++)
+                {
+                    double t = (double)k / segs, a = a0 + (a1 - a0) * t, b = b0 + (b1 - b0) * t, ox, oy, oz;
+                    xf.Point(cx + r * Math.Cos(a), cy + r * Math.Sin(a), dz, out ox, out oy, out oz);
+                    m.AddVertex((float)ox, (float)oy, (float)oz, (float)onx, (float)ony, (float)onz, OrnamentPalette.FlagWhite, (float)MaterialChannel.Fabric, 1f);
+                    xf.Point(cx + r * r2 * Math.Cos(b), cy + r * (d + r2 * Math.Sin(b)), dz, out ox, out oy, out oz);
+                    m.AddVertex((float)ox, (float)oy, (float)oz, (float)onx, (float)ony, (float)onz, OrnamentPalette.FlagWhite, (float)MaterialChannel.Fabric, 1f);
+                }
+                for (int k = 0; k < segs; k++)
+                {
+                    int a = v0 + 2 * k;
+                    if (k > 0) Tri(m, a, a + 2, a + 1);
+                    if (k < segs - 1) Tri(m, a + 1, a + 2, a + 3);
+                }
+            }
         }
 
         // ------------------------------------------------------------------ street furniture
