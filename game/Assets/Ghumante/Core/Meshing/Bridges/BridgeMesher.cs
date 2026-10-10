@@ -116,6 +116,16 @@ namespace Ghumante.Core.Meshing.Bridges
             return n;
         }
 
+        /// <summary>Mesh the underpass trench walls of a layout into <paramref name="m"/> (the streamer builds spans one by
+        /// one with <see cref="BuildSpan"/> for per-span LODs, and the trenches with this); returns the trenches drawn.</summary>
+        public static int BuildTrenches(BridgeLayout layout, IHeightSampler h, BridgeOptions o, MeshData m)
+        {
+            if (layout == null) throw new ArgumentNullException(nameof(layout));
+            if (m == null) throw new ArgumentNullException(nameof(m));
+            for (int i = 0; i < layout.Trenches.Count; i++) Trench(Context(layout, h, o), layout.Trenches[i], m);
+            return layout.Trenches.Count;
+        }
+
         /// <summary>Plan distance (m) from tile-local point (x, z) to a span's centreline, for <see cref="BridgeOptions.LodFor"/>.</summary>
         public static double Distance(BridgeSpan sp, double x, double z)
         {

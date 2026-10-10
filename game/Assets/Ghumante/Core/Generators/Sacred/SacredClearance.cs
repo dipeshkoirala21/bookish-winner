@@ -35,11 +35,19 @@ namespace Ghumante.Core.Generators.Sacred
             _heights = heights;
         }
 
-        /// <summary>The clearance of a tile from the sacred generators' own corridor stand-in (<see cref="SacredRoads"/>)
-        /// until the roads package's index is wired in.</summary>
+        /// <summary>The road corridors of a tile in game metres that every sacred generator keeps clear: the roads
+        /// package's <c>RoadCorridorIndex.ForTile</c>, which the world sets when it opens (the streamer's
+        /// <c>MeshingSettings.Corridors</c>; it must be thread-safe, builds run on workers). Null: the sacred generators'
+        /// own stand-in (<see cref="SacredRoads"/>), as in tests and tools.</summary>
+        public static Func<TileData, IRoadCorridorQuery> Corridors;
+
+        /// <summary>The clearance of a tile from <see cref="Corridors"/>, or from the sacred generators' own corridor
+        /// stand-in (<see cref="SacredRoads"/>) when none is set.</summary>
         public static SacredClearance For(TileData tile, IHeightSampler heights)
         {
-            return new SacredClearance(SacredRoads.For(tile), tile, heights);
+            Func<TileData, IRoadCorridorQuery> f = Corridors;
+            IRoadCorridorQuery q = f != null ? f(tile) : null;
+            return new SacredClearance(q ?? SacredRoads.For(tile), tile, heights);
         }
 
         /// <summary>Signed distance (m) from a tile-local point to the nearest corridor edge (negative inside).</summary>

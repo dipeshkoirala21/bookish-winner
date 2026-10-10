@@ -46,7 +46,8 @@ namespace Ghumante.Wildlife
         /// <summary>
         /// Optional: the roads package's corridor query for a tile (RoadCorridorIndex.ForTile), so the fauna use exactly
         /// the widened corridor the road mesher draws; without it the ground index estimates corridors from the road
-        /// widths. Set once by the integration before the world opens.
+        /// widths. Null (the default) takes the open world's own (<see cref="WorldRoot.RoadCorridors"/>, the roads
+        /// package's RoadCorridorIndex.ForTile); set it only to override that.
         /// </summary>
         public static Func<TileData, IRoadCorridorQuery> CorridorFactory;
 
@@ -151,7 +152,7 @@ namespace Ghumante.Wildlife
             _active.Clear();
             Herds.Clear();
             _ground.Clear();
-            _ground.CorridorFactory = CorridorFactory;
+            _ground.CorridorFactory = CorridorFactory ?? world.RoadCorridors; // the world's: the same corridors the roads draw
             _shownSource.Clear();
             _sourceRefs.Clear();
             _habitat.Index = _ground;
