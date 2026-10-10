@@ -61,6 +61,11 @@ namespace Ghumante.Core.Driving
 
         /// <summary>True when a walkable structure top or ramp (<see cref="StructureColliders"/>) carries the point.</summary>
         public bool OnStructure;
+
+        // ---- detail pass (docs/W2_DETAIL_CONTRACT.md §3) ----
+
+        /// <summary>True on the deck of a bridge or flyover (as opposed to the road or terrain under it).</summary>
+        public bool OnDeck;
     }
 
     /// <summary>

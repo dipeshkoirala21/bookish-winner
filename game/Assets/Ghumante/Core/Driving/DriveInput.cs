@@ -51,5 +51,9 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Left the road surface.</summary>
         OffRoad = 16,
+
+        /// <summary>Ran into something solid (a house, wall, tree, railing, parked vehicle) and lost at least
+        /// <see cref="ArcadeVehicle.HitWallMinMps"/>; <see cref="ArcadeVehicle.LastImpactMps"/> says how much.</summary>
+        HitWall = 32,
     }
 }

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Bridges;
+using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Driving
 {
@@ -27,10 +29,27 @@ namespace Ghumante.Core.Driving
     /// and ramps carrying anyone whose feet are within <see cref="StepUpM"/> below them, while higher tops and no-climb
     /// boxes block like walls; <see cref="GroundSample.Foot"/> reports the structure material, a paved AREA, the road
     /// surface or the biome, in that order.</item>
+    /// <item>Detail pass (docs/W2_DETAIL_CONTRACT.md §1, §3): the ground is layered. Bridges and flyovers with
+    /// structure heights (<see cref="RoadStructureRecord.DeckY"/>), the bridges package's decks
+    /// (<see cref="IBridgeDeckQuery"/>, per tile through <see cref="DeckFactory"/> or global through <see cref="Decks"/>)
+    /// and bridges without heights (the straight deck) carry whoever stands on them, and only them: a deck counts when
+    /// it is at most <see cref="DeckStepUpM"/> above the asker's feet, so a road under a bridge or flyover stays the
+    /// ground below it. Underpasses and other roads with structure heights follow those heights (a lowered road has a
+    /// hard edge). A deck underside lower than the body blocks like a wall.</item>
+    /// <item>Solids (<see cref="ISolidQuery"/>, <see cref="IViewObstacleQuery"/>): building footprints, point objects and
+    /// railings of every exact tile (<see cref="TileSolids"/>), and every registered structure collider (boxes,
+    /// cylinders, walls) block swept bodies at any speed and stop chase cameras.</item>
     /// </list>
     /// Not thread safe: use it from one thread (the main thread). Queries do not allocate.
+    /// <para><b>Wiring (integration package).</b> Before streaming starts set <see cref="DeckFactory"/> to the bridges
+    /// package's <c>BridgeDeckIndex.ForTile</c>, <see cref="CorridorFactory"/> to the roads package's
+    /// <c>RoadCorridorIndex.ForTile</c> (so footprint solids are trimmed to the same corridor the buildings package trims
+    /// the drawn houses to; without it they stop at the carriageway and leave walls on the footpaths) and
+    /// <see cref="HiddenBuildingRefs"/> to the hero set's hidden refs. Pass every exact tile's
+    /// <see cref="BuildRoadIndex"/> result to <see cref="Add(TileId, TileHeightSampler, RoadSpatialIndex)"/>, also for a tile
+    /// without roads (it carries that tile's solids).</para>
     /// </summary>
-    public sealed class TileGroundQuery : ILayeredGroundQuery, IRoadQuery, IStructureGround
+    public sealed partial class TileGroundQuery : ILayeredGroundQuery, IRoadQuery, IStructureGround, ISolidQuery, IViewObstacleQuery
     {
         /// <summary>Upper bound on any road's reach from its centreline (W2 game carriageway, dual shift and
         /// footpaths), used to look across tile edges.</summary>
@@ -48,14 +67,48 @@ namespace Ghumante.Core.Driving
         /// <summary>A bridge deck more than this above the asker's height is overhead, not underfoot.</summary>
         public const float DeckStepUpM = 1.5f;
 
+        /// <summary>A bridge or flyover deck with structure heights is stepped onto from at most this below it (the data
+        /// joins decks to their approach roads; higher, its side is a wall guarded by railings).</summary>
+        public const float StructureDeckStepUpM = 0.6f;
+
+        /// <summary>A road with structure heights more than this off the draped surface has a hard edge (a lowered
+        /// underpass between retaining walls): beside it lies the terrain, not a ramp.</summary>
+        public const float HardEdgeM = 0.5f;
+
         private sealed class Entry
         {
             public TileId Area;
             public TileData Source;
             public TileHeightSampler Sampler;
-            public RoadSpatialIndex Roads; // exact areas with drawn roads only
+            public RoadSpatialIndex Roads; // exact areas only (it may have no segments: a tile without drawn roads)
+            public bool CountsRoads; // Roads has segments: the area counts for the finest road level
             public PavingIndex Paving; // exact areas only (null for cropped areas)
+            public SolidSet Solids; // exact areas only (null for cropped areas)
+            public IBridgeDeckQuery Decks; // the bridges package's deck index of an exact area, or null
         }
+
+        // ---- options (set before tiles are added) ----
+
+        /// <summary>Build the solids of every exact tile (<see cref="TileSolids"/>). Default on.</summary>
+        public bool TileSolidsEnabled = true;
+
+        /// <summary>Building refs drawn by hero replicas (their generators emit colliders): left out of the footprint
+        /// solids. Set it to the hero set's hidden refs before tiles are added.</summary>
+        public ISet<ulong> HiddenBuildingRefs;
+
+        /// <summary>The road corridors of a tile (roads package <c>RoadCorridorIndex.ForTile</c>) that footprint solids
+        /// are kept out of; null: the drawn carriageways of the road index stand in.</summary>
+        public Func<TileData, IRoadCorridorQuery> CorridorFactory;
+
+        /// <summary>The deck index of a tile (bridges package <c>BridgeDeckIndex.ForTile</c>); null: structure heights
+        /// and the straight deck answer.</summary>
+        public Func<TileData, IBridgeDeckQuery> DeckFactory;
+
+        /// <summary>A deck query consulted everywhere besides the per-tile ones (tests, merged indexes); may be null.</summary>
+        public IBridgeDeckQuery Decks;
+
+        private readonly List<Entry> _near = new List<Entry>();
+        private bool _inlineSolids;
 
         /// <summary>Paved AREA triangles of one tile (squares, courtyards, compounds, car parks) in game metres, bucketed
         /// in a 32 m grid over the tile square.</summary>
@@ -216,7 +269,15 @@ namespace Ghumante.Core.Driving
         {
             if (tile == null) throw new ArgumentNullException(nameof(tile));
             if (step < 1) throw new ArgumentOutOfRangeException(nameof(step));
-            Add(tile.Tile, new TileHeightSampler(tile, step), BuildRoadIndex(tile));
+            _inlineSolids = true;
+            try
+            {
+                Add(tile.Tile, new TileHeightSampler(tile, step), BuildRoadIndex(tile));
+            }
+            finally
+            {
+                _inlineSolids = false;
+            }
         }
 
         /// <summary>Adds (or replaces) <paramref name="area"/> drawn from <paramref name="source"/> (the area itself or
@@ -225,12 +286,23 @@ namespace Ghumante.Core.Driving
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (step < 1) throw new ArgumentOutOfRangeException(nameof(step));
-            Add(area, TileHeightSampler.ForArea(source, area, step), area == source.Tile ? BuildRoadIndex(source) : null);
+            _inlineSolids = true;
+            try
+            {
+                Add(area, TileHeightSampler.ForArea(source, area, step), area == source.Tile ? BuildRoadIndex(source) : null);
+            }
+            finally
+            {
+                _inlineSolids = false;
+            }
         }
 
         /// <summary>Adds (or replaces) an area with a prebuilt sampler (the one its terrain/road meshes used) and road
         /// index (null: no roads). The sampler must sample <paramref name="area"/>; the index must belong to the
-        /// sampler's source, and only an exact area may carry one.</summary>
+        /// sampler's source, and only an exact area may carry one. An exact area's solids and decks come with the index
+        /// from <see cref="BuildRoadIndex"/> (built on the worker, also for a tile without drawn roads: then it carries
+        /// only them); an area added without one has none (its detail is not drawn), except through the overloads taking
+        /// the tile itself, which build them here.</summary>
         public void Add(TileId area, TileHeightSampler sampler, RoadSpatialIndex roads)
         {
             if (sampler == null) throw new ArgumentNullException(nameof(sampler));
@@ -240,22 +312,54 @@ namespace Ghumante.Core.Driving
                 throw new ArgumentException("a road index needs an exact area of its own tile", nameof(roads));
             Remove(area);
             bool exact = sampler.SourceTile != null && area == sampler.SourceTile.Tile;
-            _areas[area] = new Entry
+            var e = new Entry
             {
                 Area = area, Source = sampler.SourceTile, Sampler = sampler, Roads = roads,
+                CountsRoads = roads != null && roads.SegmentCount > 0,
                 Paving = exact ? PavingIndex.Build(sampler.SourceTile) : null,
             };
+            if (exact)
+            {
+                // Solids and decks come with the road index when it was built on a worker; otherwise build them here.
+                if (roads != null && roads.Prepared)
+                {
+                    e.Solids = roads.Solids;
+                    e.Decks = roads.Decks;
+                }
+                else if (_inlineSolids || roads != null)
+                {
+                    e.Solids = BuildSolids(sampler.SourceTile, roads != null && roads.SegmentCount > 0 ? roads : null);
+                    e.Decks = DeckFactory != null ? DeckFactory(sampler.SourceTile) : null;
+                }
+            }
+            _areas[area] = e;
             _levelCount[area.Level]++;
-            if (roads != null) _roadLevelCount[area.Level]++;
+            if (e.CountsRoads) _roadLevelCount[area.Level]++;
+            AddSolids(area.Key, e.Solids);
         }
 
-        /// <summary>The road index <see cref="Add(TileData, int)"/> builds: null when the tile draws no roads.</summary>
+        /// <summary>The road index <see cref="Add(TileData, int)"/> builds. It also carries the tile's solids
+        /// (<see cref="TileSolids"/>) and deck index (<see cref="DeckFactory"/>), so building it on a worker keeps that work
+        /// off the main thread (the factories and <see cref="HiddenBuildingRefs"/> are then used from that worker: they
+        /// must be safe to call there). A tile without drawn roads gets an index without segments that carries only its
+        /// solids and decks (its houses are solid on the streaming path too); null only when the tile has neither.</summary>
         public RoadSpatialIndex BuildRoadIndex(TileData tile)
         {
             if (tile == null) throw new ArgumentNullException(nameof(tile));
-            if (tile.Roads.Count == 0) return null;
             var idx = new RoadSpatialIndex(tile, _roadOptions);
-            return idx.SegmentCount > 0 ? idx : null;
+            idx.Solids = BuildSolids(tile, idx.SegmentCount > 0 ? idx : null);
+            idx.Decks = DeckFactory != null ? DeckFactory(tile) : null;
+            idx.Prepared = true;
+            if (idx.SegmentCount == 0 && idx.Solids == null && idx.Decks == null) return null;
+            return idx;
+        }
+
+        private SolidSet BuildSolids(TileData tile, RoadSpatialIndex roads)
+        {
+            if (!TileSolidsEnabled || tile == null || !tile.HasDetail) return null;
+            IRoadCorridorQuery corridors = CorridorFactory != null ? CorridorFactory(tile) : null;
+            SolidSet set = TileSolids.Build(tile, roads, corridors, HiddenBuildingRefs, _roadOptions);
+            return set.Count > 0 ? set : null;
         }
 
         public bool Remove(TileId area)
@@ -263,8 +367,9 @@ namespace Ghumante.Core.Driving
             Entry e;
             if (!_areas.TryGetValue(area, out e)) return false;
             _areas.Remove(area);
+            RemoveSolids(area.Key);
             _levelCount[area.Level]--;
-            if (e.Roads != null) _roadLevelCount[area.Level]--;
+            if (e.CountsRoads) _roadLevelCount[area.Level]--;
             return true;
         }
 
@@ -273,6 +378,8 @@ namespace Ghumante.Core.Driving
             _areas.Clear();
             _structures.Clear();
             _structureKeys.Clear();
+            _solidKeys.Clear();
+            _solidSets.Clear();
             Array.Clear(_levelCount, 0, _levelCount.Length);
             Array.Clear(_roadLevelCount, 0, _roadLevelCount.Length);
         }
@@ -334,10 +441,19 @@ namespace Ghumante.Core.Driving
         }
 
         /// <summary>
-        /// The ground at (x, z) for someone at height <paramref name="nearY"/>: a bridge deck counts only when it is
-        /// at most <see cref="DeckStepUpM"/> above them; otherwise the road or terrain under the bridge answers.
+        /// The ground at (x, z) for someone whose feet are at <paramref name="nearY"/>: a bridge or flyover deck counts
+        /// only when it is at most <see cref="DeckStepUpM"/> above them (the highest such deck; any deck when nearY is
+        /// +∞); otherwise the road or terrain under it answers. False where no ground is known or where something solid
+        /// at body height stands there (a structure box, a deck underside lower than the body): a wall.
         /// </summary>
         public bool TrySample(double x, double z, float nearY, out GroundSample s)
+        {
+            return SampleCore(x, z, nearY, out s) && Structures(x, z, nearY, ref s);
+        }
+
+        /// <summary>The layered ground at (x, z) for feet at <paramref name="nearY"/> before structure colliders and deck
+        /// undersides: a deck within reach, else the road or terrain (false where no ground is known).</summary>
+        private bool SampleCore(double x, double z, float nearY, out GroundSample s)
         {
             s = default(GroundSample);
             Entry e = FinestTerrain(x, z);
@@ -360,37 +476,59 @@ namespace Ghumante.Core.Driving
                 s.Surface = FootSurfaces.GroupOf(paved);
             }
 
-            // A bridge deck within reach of the asker wins; otherwise the roads that are not bridges.
-            const float margin = RoadSpatialIndex.OnRoadMarginM;
+            // 1. A bridge or flyover deck within reach of the asker.
             RoadHit hit;
+            float deckY, dnx, dny, dnz;
+            if (TryDeckAt(x, z, nearY, h, out hit, out deckY, out dnx, out dny, out dnz))
+            {
+                s.OnRoad = true;
+                s.OnDeck = true;
+                s.Height = deckY;
+                s.Nx = dnx;
+                s.Ny = dny;
+                s.Nz = dnz;
+                if (hit.Road != null)
+                {
+                    s.Surface = SurfaceGroups.Of(hit.Road.Surface);
+                    s.Foot = FootSurfaces.OfRoad(hit.Road.Surface, hit.Road.RoadClass);
+                    SetRoad(ref s, ref hit);
+                }
+                else
+                {
+                    s.Surface = SurfaceGroup.Paved;
+                    s.Foot = FootSurface.Concrete;
+                }
+                return true;
+            }
+
+            // 2. The roads that are not bridges or flyovers (draped, lowered underpasses, fords) and their footpaths.
             float road = h, deckGrade = 0f;
             bool spans = false;
-            bool found = TryNearestRoad(x, z, margin, RoadFlags.Bridge, RoadFlags.None, out hit) && hit.OnRoad
-                         && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade) && road <= nearY + DeckStepUpM;
-            if (!found)
+            bool found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit)
+                         && (hit.OnRoad || hit.OnFootpath);
+            if (found && hit.OnFootpath)
             {
-                found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.Bridge, out hit)
-                        && (hit.OnRoad || hit.OnFootpath);
-                if (found && hit.OnFootpath)
-                {
-                    // A raised footpath: the paver top at kerb height above the ribbon lift, never a ramp.
-                    s.Height = h + RoadLiftM(hit.Road) + _roadOptions.KerbHeightM;
-                    s.OnFootpath = true;
-                    s.Foot = FootSurface.Concrete;
-                    s.Surface = SurfaceGroup.Paved;
-                    SetRoad(ref s, ref hit);
-                    return Structures(x, z, nearY, ref s);
-                }
-                found = found && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
-                if (!found) return Structures(x, z, nearY, ref s);
+                // A raised footpath: the paver top at kerb height above the ribbon (or the structure surface), never a ramp.
+                float surface, grade;
+                RoadSpatialIndex idx = IndexOf(ref hit);
+                s.Height = idx != null && idx.TrySurfaceHeight(in hit, out surface, out grade)
+                    ? surface + _roadOptions.KerbHeightM
+                    : h + RoadLiftM(hit.Road) + _roadOptions.KerbHeightM;
+                s.OnFootpath = true;
+                s.Foot = FootSurface.Concrete;
+                s.Surface = SurfaceGroup.Paved;
+                SetRoad(ref s, ref hit);
+                return true;
             }
+            found = found && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
+            if (!found) return true;
 
             RoadRecord r = hit.Road;
             s.OnRoad = true;
             s.Height = road;
             if (spans)
             {
-                // On a deck spanning a dip, the slope is the deck's, not the valley's under it.
+                // On a deck spanning a dip (or a road with its own heights), the slope is the road's, not the terrain's.
                 float gx = deckGrade * hit.DirX, gz = deckGrade * hit.DirZ;
                 float inv = 1f / MathF.Sqrt(gx * gx + 1f + gz * gz);
                 s.Nx = -gx * inv;
@@ -400,7 +538,152 @@ namespace Ghumante.Core.Driving
             s.Surface = SurfaceGroups.Of(r.Surface);
             s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
             SetRoad(ref s, ref hit);
-            return Structures(x, z, nearY, ref s);
+            return true;
+        }
+
+        /// <summary>The road index of the tile a hit came from (null when that tile is gone).</summary>
+        private RoadSpatialIndex IndexOf(ref RoadHit hit)
+        {
+            Entry e;
+            return hit.Tile != null && _areas.TryGetValue(hit.Tile.Tile, out e) ? e.Roads : null;
+        }
+
+        /// <summary>The loaded exact areas with roads (finest road level) within <paramref name="reach"/> of (x, z), into
+        /// <see cref="_near"/>, in tile order.</summary>
+        private void NearRoadEntries(double x, double z, double reach)
+        {
+            _near.Clear();
+            if (!InWorld(x, z)) return;
+            int level = FinestRoadLevel();
+            if (level < 0) return;
+            double size = TileId.SizeAt(level);
+            int n = 1 << level;
+            int tx0 = Math.Max(0, (int)Math.Floor((x - reach) / size)), tx1 = Math.Min(n - 1, (int)Math.Floor((x + reach) / size));
+            int tz0 = Math.Max(0, (int)Math.Floor((z - reach) / size)), tz1 = Math.Min(n - 1, (int)Math.Floor((z + reach) / size));
+            for (int ty = tz0; ty <= tz1; ty++)
+            for (int tx = tx0; tx <= tx1; tx++)
+            {
+                Entry e;
+                if (_areas.TryGetValue(new TileId(level, tx, ty), out e) && e.Roads != null) _near.Add(e);
+            }
+        }
+
+        /// <summary>
+        /// The deck under (x, z) that a body with feet at <paramref name="nearY"/> stands on (the highest within reach:
+        /// <see cref="DeckStepUpM"/> for drawn decks and straight decks, <see cref="StructureDeckStepUpM"/> for structure
+        /// heights): the bridges package's decks first, then structure heights, then the straight deck of a bridge
+        /// without heights. Fills the elevated road under the point when there is one.
+        /// </summary>
+        private bool TryDeckAt(double x, double z, float nearY, float terrain, out RoadHit hit, out float deckY, out float nx, out float ny,
+                               out float nz)
+        {
+            hit = default(RoadHit);
+            deckY = float.NegativeInfinity;
+            nx = 0f;
+            ny = 1f;
+            nz = 0f;
+            bool found = false;
+            bool finite = !float.IsInfinity(nearY);
+            float limit = finite ? nearY + DeckStepUpM : float.PositiveInfinity;
+
+            // a) The bridges package's deck geometry (exactly what is drawn).
+            float y, ax, ay, az;
+            if (Decks != null && Decks.TryDeck(x, z, finite ? nearY : float.MaxValue, out y, out ax, out ay, out az) && y <= limit && y > deckY)
+            {
+                deckY = y;
+                nx = ax;
+                ny = ay;
+                nz = az;
+                found = true;
+            }
+            NearRoadEntries(x, z, TileGroundQuery.MaxRoadHalfWidthM);
+            for (int i = 0; i < _near.Count; i++)
+            {
+                IBridgeDeckQuery d = _near[i].Decks;
+                if (d == null || !d.TryDeck(x, z, finite ? nearY : float.MaxValue, out y, out ax, out ay, out az) || y > limit || !(y > deckY)) continue;
+                deckY = y;
+                nx = ax;
+                ny = ay;
+                nz = az;
+                found = true;
+            }
+            bool external = found;
+
+            // b) Structure heights of bridges and flyovers.
+            for (int i = 0; i < _near.Count; i++)
+            {
+                RoadSpatialIndex idx = _near[i].Roads;
+                if (!idx.HasDecks) continue;
+                RoadHit h;
+                float grade;
+                if (!idx.TryDeck(x, z, nearY, StructureDeckStepUpM, out h, out y, out grade)) continue;
+                if (external)
+                {
+                    // The drawn deck decides the height; the structure record names the road.
+                    if (hit.Road == null && Math.Abs(y - deckY) < 1.5f) hit = h;
+                    continue;
+                }
+                if (found && !(y > deckY)) continue;
+                deckY = y;
+                hit = h;
+                float gx = grade * h.DirX, gz = grade * h.DirZ;
+                float inv = 1f / MathF.Sqrt(gx * gx + 1f + gz * gz);
+                nx = -gx * inv;
+                ny = inv;
+                nz = -gz * inv;
+                found = true;
+            }
+
+            // c) A bridge without heights: the mesher's straight deck between its lifted ends.
+            RoadHit lh;
+            if (TryNearestRoad(x, z, RoadSpatialIndex.OnRoadMarginM, RoadFlags.None, RoadFlags.None, RoadLayer.Elevated, out lh) && lh.OnRoad)
+            {
+                RoadSpatialIndex idx = IndexOf(ref lh);
+                if (idx != null && idx.SurfaceHeights(lh.RoadIndex) == null)
+                {
+                    float road, grade;
+                    bool spans;
+                    if (TryRoadHeight(terrain, ref lh, out road, out spans, out grade) && road <= limit)
+                    {
+                        if (external)
+                        {
+                            if (hit.Road == null) hit = lh;
+                        }
+                        else if (!found || road > deckY)
+                        {
+                            deckY = road;
+                            hit = lh;
+                            if (spans)
+                            {
+                                float gx = grade * lh.DirX, gz = grade * lh.DirZ;
+                                float inv = 1f / MathF.Sqrt(gx * gx + 1f + gz * gz);
+                                nx = -gx * inv;
+                                ny = inv;
+                                nz = -gz * inv;
+                            }
+                            else
+                            {
+                                // Not spanning anything: an ordinary road surface over the terrain.
+                                Entry te = FinestTerrain(x, z);
+                                float th, tx, ty, tz;
+                                if (te != null && te.Sampler.TrySample(x, z, out th, out tx, out ty, out tz))
+                                {
+                                    nx = tx;
+                                    ny = ty;
+                                    nz = tz;
+                                }
+                            }
+                            found = true;
+                        }
+                    }
+                }
+            }
+            if (external && hit.Road == null)
+            {
+                RoadHit eh;
+                if (TryNearestRoad(x, z, RoadSpatialIndex.DeckKerbM, RoadFlags.None, RoadFlags.None, RoadLayer.Elevated, out eh)) hit = eh;
+            }
+            return found;
         }
 
         private static void SetRoad(ref GroundSample s, ref RoadHit hit)
@@ -419,6 +702,7 @@ namespace Ghumante.Core.Driving
         /// (and takes its material); a box blocking the body makes the point a wall (false).</summary>
         private bool Structures(double x, double z, float nearY, ref GroundSample s)
         {
+            if (!float.IsInfinity(nearY) && CeilingBlocks(x, z, Math.Max(nearY, s.Height), BodyHeightM)) return false;
             if (_structures.Count == 0) return true;
             float best = s.Height, gx = 0f, gz = 0f;
             FootSurface foot = s.Foot;
@@ -452,6 +736,7 @@ namespace Ghumante.Core.Driving
         {
             if (c == null) throw new ArgumentNullException(nameof(c));
             var set = new StructureSet(tileKey, c, BodyRadiusM + StructureColliders.SoftMarginM);
+            AddSolids(tileKey | StructureKeyBit, set.Solids.Count > 0 ? set.Solids : null);
             int i = _structureKeys.BinarySearch(tileKey);
             if (i >= 0)
             {
@@ -465,6 +750,7 @@ namespace Ghumante.Core.Driving
 
         public void Unregister(ulong tileKey)
         {
+            RemoveSolids(tileKey | StructureKeyBit);
             int i = _structureKeys.BinarySearch(tileKey);
             if (i < 0) return;
             _structureKeys.RemoveAt(i);
@@ -490,7 +776,15 @@ namespace Ghumante.Core.Driving
                 if (!set.Covers(x, z)) continue;
                 set.Query(x, z, feetY, StepUpM, BodyHeightM, BodyRadiusM, ref best, ref foot, ref gx, ref gz, ref found, ref blocked);
             }
-            return blocked;
+            if (blocked) return true;
+            for (int i = 0; i < _solidSets.Count; i++)
+            {
+                SolidSet set = _solidSets[i];
+                if (set.Overlaps(x - BodyRadiusM, z - BodyRadiusM, x + BodyRadiusM, z + BodyRadiusM)
+                    && set.Blocked(x, z, BodyRadiusM, feetY, StepUpM, BodyHeightM))
+                    return true;
+            }
+            return CeilingBlocks(x, z, feetY, BodyHeightM);
         }
 
         private bool TryPaving(double x, double z, out FootSurface f)
@@ -525,11 +819,15 @@ namespace Ghumante.Core.Driving
 
         /// <summary>
         /// Height of the road surface at the query point: terrain + the ribbon lift across the road, ramping down to
-        /// the terrain over the on-road margin outside the edge (a kerb ramp, not a cliff). On a bridge, the mesher's
-        /// straight deck between the lifted heights of the piece's rendered ends, never below the lifted terrain;
-        /// <paramref name="spans"/> tells when that deck is above the terrain under it, with its rise per metre along
-        /// the road direction in <paramref name="grade"/>. A spanning deck has a hard edge: beside it (in the margin)
-        /// this returns false and the ground is whatever lies below.
+        /// the terrain over the on-road margin outside the edge (a kerb ramp, not a cliff). A road with structure heights
+        /// (<see cref="RoadSpatialIndex.SurfaceHeights"/>: an underpass, a ford, a deck) follows them, with
+        /// <paramref name="spans"/> set and its grade along the road; one more than <see cref="HardEdgeM"/> off the draped
+        /// surface has a hard edge (beside it, in the margin, this returns false and the terrain answers). A bridge
+        /// without heights follows the mesher's straight deck between the lifted heights of the piece's rendered ends,
+        /// never below the lifted terrain; <paramref name="spans"/> tells when that deck is above the terrain under it,
+        /// with its rise per metre along the road direction in <paramref name="grade"/>; then the deck runs flat out to its
+        /// kerb (<see cref="RoadSpatialIndex.DeckKerbM"/> beyond the carriageway, where its railing stands) and has a hard
+        /// edge beyond.
         /// </summary>
         private bool TryRoadHeight(float terrain, ref RoadHit hit, out float height, out bool spans, out float grade)
         {
@@ -539,33 +837,47 @@ namespace Ghumante.Core.Driving
             float ramp = 1f;
             if (hit.EdgeDistanceM > 0f) ramp = Math.Max(0f, 1f - hit.EdgeDistanceM / RoadSpatialIndex.OnRoadMarginM);
             float deck = terrain + lift;
-            if ((hit.Road.Flags & RoadFlags.Bridge) != 0 && hit.PieceLengthM > 0f)
+            Entry e;
+            RoadSpatialIndex idx = hit.Tile != null && _areas.TryGetValue(hit.Tile.Tile, out e) ? e.Roads : null;
+            float sy, sg;
+            if (idx != null && idx.TrySurfaceHeight(in hit, out sy, out sg))
             {
-                Entry e;
-                if (_areas.TryGetValue(hit.Tile.Tile, out e))
+                if (Math.Abs(sy - deck) > HardEdgeM && hit.EdgeDistanceM > 0f)
                 {
-                    int first, last;
-                    RoadSpatialIndex.RenderedRange(hit.Road, out first, out last);
-                    int[] p = hit.Road.Points;
-                    double ax, az, bx, bz;
-                    hit.Tile.LocalToGame(p[2 * first], p[2 * first + 1], out ax, out az);
-                    hit.Tile.LocalToGame(p[2 * last], p[2 * last + 1], out bx, out bz);
-                    float ha, hb;
-                    if (e.Sampler.TryHeightClamped(ax, az, out ha) && e.Sampler.TryHeightClamped(bx, bz, out hb))
+                    height = terrain;
+                    return false;
+                }
+                spans = true;
+                grade = sg;
+                height = terrain + (sy - terrain) * ramp;
+                return true;
+            }
+            bool elevated = idx != null ? idx.IsElevated(hit.RoadIndex) : (hit.Road.Flags & RoadFlags.Bridge) != 0;
+            if (elevated && hit.PieceLengthM > 0f && _areas.TryGetValue(hit.Tile.Tile, out e))
+            {
+                int first, last;
+                RoadSpatialIndex.RenderedRange(hit.Road, out first, out last);
+                int[] p = hit.Road.Points;
+                double ax, az, bx, bz;
+                hit.Tile.LocalToGame(p[2 * first], p[2 * first + 1], out ax, out az);
+                hit.Tile.LocalToGame(p[2 * last], p[2 * last + 1], out bx, out bz);
+                float ha, hb;
+                if (e.Sampler.TryHeightClamped(ax, az, out ha) && e.Sampler.TryHeightClamped(bx, bz, out hb))
+                {
+                    float f = Math.Clamp(hit.AlongM / hit.PieceLengthM, 0f, 1f);
+                    float line = ha + (hb - ha) * f + lift;
+                    if (line > deck)
                     {
-                        float f = Math.Clamp(hit.AlongM / hit.PieceLengthM, 0f, 1f);
-                        float line = ha + (hb - ha) * f + lift;
-                        if (line > deck)
+                        // The deck reaches its kerb (where the railing stands) flat; beyond it lies the ground below.
+                        if (hit.EdgeDistanceM > RoadSpatialIndex.DeckKerbM)
                         {
-                            if (hit.EdgeDistanceM > 0f)
-                            {
-                                height = terrain;
-                                return false;
-                            }
-                            deck = line;
-                            spans = true;
-                            grade = (hb - ha) / hit.PieceLengthM;
+                            height = terrain;
+                            return false;
                         }
+                        height = line;
+                        spans = true;
+                        grade = (hb - ha) / hit.PieceLengthM;
+                        return true;
                     }
                 }
             }
@@ -594,6 +906,13 @@ namespace Ghumante.Core.Driving
         /// (<see cref="RoadSpatialIndex.TryNearest(double, double, double, RoadFlags, RoadFlags, out RoadHit)"/>).</summary>
         public bool TryNearestRoad(double x, double z, double maxDistM, RoadFlags mustHave, RoadFlags mustNotHave, out RoadHit hit)
         {
+            return TryNearestRoad(x, z, maxDistM, mustHave, mustNotHave, RoadLayer.Any, out hit);
+        }
+
+        /// <summary>As <see cref="TryNearestRoad(double, double, double, RoadFlags, RoadFlags, out RoadHit)"/> on one level
+        /// of roads (<see cref="RoadLayer"/>: bridges and flyovers, or everything else).</summary>
+        public bool TryNearestRoad(double x, double z, double maxDistM, RoadFlags mustHave, RoadFlags mustNotHave, RoadLayer layer, out RoadHit hit)
+        {
             hit = default(RoadHit);
             if (!InWorld(x, z) || double.IsNaN(maxDistM)) return false;
             int level = FinestRoadLevel();
@@ -612,7 +931,7 @@ namespace Ghumante.Core.Driving
                 var id = new TileId(level, tx, ty);
                 if (!_areas.TryGetValue(id, out e) || e.Roads == null) continue;
                 RoadHit h;
-                if (!e.Roads.TryNearest(x, z, maxDistM, mustHave, mustNotHave, out h)) continue;
+                if (!e.Roads.TryNearest(x, z, maxDistM, mustHave, mustNotHave, layer, out h)) continue;
                 if (!found || h.EdgeDistanceM < hit.EdgeDistanceM || h.EdgeDistanceM == hit.EdgeDistanceM && id.Key < bestKey)
                 {
                     hit = h;

@@ -4,6 +4,19 @@ using Ghumante.Core.Meshing;
 
 namespace Ghumante.Core.Driving
 {
+    /// <summary>Which level of roads a lookup considers (layered ground, docs/W2_DETAIL_CONTRACT.md §3).</summary>
+    public enum RoadLayer : byte
+    {
+        /// <summary>Every drawn road.</summary>
+        Any = 0,
+
+        /// <summary>Bridges and flyovers only (<see cref="RoadSpatialIndex.IsElevated"/>).</summary>
+        Elevated = 1,
+
+        /// <summary>Everything but bridges and flyovers (draped roads, underpasses, fords).</summary>
+        Ground = 2,
+    }
+
     /// <summary>Result of <see cref="RoadSpatialIndex.TryNearest(double, double, double, out RoadHit)"/>.</summary>
     public struct RoadHit
     {
@@ -76,6 +89,15 @@ namespace Ghumante.Core.Driving
     /// </summary>
     public sealed class RoadSpatialIndex
     {
+        /// <summary>The tile's solids, built with the index by <see cref="TileGroundQuery.BuildRoadIndex"/> (may be null).</summary>
+        internal SolidSet Solids;
+
+        /// <summary>The tile's deck index from <see cref="TileGroundQuery.DeckFactory"/> (may be null).</summary>
+        internal Meshing.Bridges.IBridgeDeckQuery Decks;
+
+        /// <summary>True once <see cref="TileGroundQuery.BuildRoadIndex"/> attached the solids and decks.</summary>
+        internal bool Prepared;
+
         public const double DefaultCellM = 32.0;
 
         /// <summary>Cap on grid cells per side (bounds memory for big tiles; cells grow instead).</summary>
@@ -86,6 +108,12 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Widest raised footpath any profile draws (search reach beyond the carriageway).</summary>
         public const float MaxFootpathM = 6f;
+
+        /// <summary>Deck beyond the carriageway edge on each side of a bridge or flyover (kerb), where its railing stands.</summary>
+        public const float DeckKerbM = 0.5f;
+
+        /// <summary>Structural depth of a deck under its surface (for clearance and camera checks).</summary>
+        public const float DeckThicknessM = 1.2f;
 
         private readonly TileData _tile;
         private readonly double _x0, _z0, _cell;
@@ -98,6 +126,10 @@ namespace Ghumante.Core.Driving
         private readonly float[] _roadHalfWidth, _roadLength; // per road record (half width: the widest along the piece)
         private readonly RoadLayout _layout; // W2 widths, or null (W1 widths)
         private readonly bool[] _dual, _bridge;
+        private readonly bool[] _elevated; // bridge or flyover (structure data, else the Bridge flag)
+        private readonly float[][] _surfaceY; // absolute surface heights per point (RoadStructureRecord.DeckY), or null
+        private readonly int _elevatedSegs;
+        private readonly bool _anyElevated;
 
         // CSR grid: segments of cell c are _cellSegs[_cellStart[c] .. _cellStart[c + 1]).
         private readonly int[] _cellStart, _cellSegs;
@@ -143,6 +175,22 @@ namespace Ghumante.Core.Driving
             _layout = drawn.WidthModel && roads.Count > 0 ? RoadLayout.For(t) : null;
             _dual = new bool[roads.Count];
             _bridge = new bool[roads.Count];
+            _elevated = new bool[roads.Count];
+            _surfaceY = new float[roads.Count][];
+            bool structures = t.RoadStructures.Count == roads.Count && roads.Count > 0;
+            for (int r = 0; r < roads.Count; r++)
+            {
+                if (structures)
+                {
+                    RoadStructureRecord st = t.RoadStructures[r];
+                    _elevated[r] = st.Kind == RoadStructureKind.Bridge || st.Kind == RoadStructureKind.Flyover;
+                    if (st.DeckY != null && st.DeckY.Length == roads[r].PointCount) _surfaceY[r] = st.DeckY;
+                }
+                else
+                {
+                    _elevated[r] = (roads[r].Flags & RoadFlags.Bridge) != 0;
+                }
+            }
             _roadHalfWidth = new float[roads.Count];
             _roadLength = new float[roads.Count];
             var include = new bool[roads.Count];
@@ -173,7 +221,7 @@ namespace Ghumante.Core.Driving
                 {
                     RoadWidthProfile prof = _layout.Profiles[r];
                     _dual[r] = _layout.Attrs[r].Has(RoadAttrFlags.Dual);
-                    _bridge[r] = (rec.Flags & RoadFlags.Bridge) != 0 || !drawn.CrossSections;
+                    _bridge[r] = (rec.Flags & RoadFlags.Bridge) != 0 || _elevated[r] || !drawn.CrossSections;
                     // Widest reach of the drawn carriageway: max width, plus the outward shift of a dual carriageway.
                     half = 0.5f * prof.MaxWidth + (_dual[r] ? 0.5f * Math.Max(0f, prof.MaxWidth - prof.RealM) : 0f);
                 }
@@ -194,6 +242,8 @@ namespace Ghumante.Core.Driving
                     _along[s] = (float)along;
                     _road[s] = r;
                     _seg[s] = k;
+                    if (_elevated[r] && _surfaceY[r] != null) _elevatedSegs++;
+                    if (_elevated[r]) _anyElevated = true;
                     double dx = _bx[s] - _ax[s], dz = _bz[s] - _az[s];
                     along += Math.Sqrt(dx * dx + dz * dz);
                     s++;
@@ -240,6 +290,44 @@ namespace Ghumante.Core.Driving
         public float HalfWidthM(int roadIndex)
         {
             return _roadHalfWidth[roadIndex];
+        }
+
+        /// <summary>True for a bridge or flyover: the tile's <see cref="RoadStructureRecord"/> says so, or (without
+        /// structure data) the road carries <see cref="RoadFlags.Bridge"/>.</summary>
+        public bool IsElevated(int roadIndex)
+        {
+            return _elevated[roadIndex];
+        }
+
+        /// <summary>The absolute surface heights per point of a road (its <see cref="RoadStructureRecord.DeckY"/>), or
+        /// null when it is draped on the terrain.</summary>
+        public float[] SurfaceHeights(int roadIndex)
+        {
+            return _surfaceY[roadIndex];
+        }
+
+        /// <summary>True when any bridge or flyover of the tile has deck heights.</summary>
+        public bool HasDecks
+        {
+            get { return _elevatedSegs > 0; }
+        }
+
+        /// <summary>The road surface height of a hit on a road with structure heights (interpolated between the
+        /// segment's points), or false when the road is draped.</summary>
+        public bool TrySurfaceHeight(in RoadHit hit, out float y, out float gradeAlong)
+        {
+            y = 0f;
+            gradeAlong = 0f;
+            if (hit.Road == null || hit.RoadIndex < 0 || hit.RoadIndex >= _surfaceY.Length) return false;
+            float[] d = _surfaceY[hit.RoadIndex];
+            if (d == null || hit.Segment < 0 || hit.Segment + 1 >= d.Length) return false;
+            float a = d[hit.Segment], b = d[hit.Segment + 1];
+            y = a + (b - a) * hit.T;
+            int[] p = hit.Road.Points;
+            double dx = (p[2 * hit.Segment + 2] - p[2 * hit.Segment]) / 100.0, dz = (p[2 * hit.Segment + 3] - p[2 * hit.Segment + 1]) / 100.0;
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            gradeAlong = len > 1e-6 ? (float)((b - a) / len) : 0f;
+            return true;
         }
 
         /// <summary>The road layout whose widths the index follows (null with W1 widths).</summary>
@@ -300,9 +388,18 @@ namespace Ghumante.Core.Driving
         /// <paramref name="mustHave"/> and none of <paramref name="mustNotHave"/> (e.g. only bridges, or no bridges).</summary>
         public bool TryNearest(double x, double z, double maxDistM, RoadFlags mustHave, RoadFlags mustNotHave, out RoadHit hit)
         {
+            return TryNearest(x, z, maxDistM, mustHave, mustNotHave, RoadLayer.Any, out hit);
+        }
+
+        /// <summary>As <see cref="TryNearest(double, double, double, RoadFlags, RoadFlags, out RoadHit)"/>, restricted to
+        /// one level of roads (<see cref="RoadLayer"/>).</summary>
+        public bool TryNearest(double x, double z, double maxDistM, RoadFlags mustHave, RoadFlags mustNotHave, RoadLayer layer, out RoadHit hit)
+        {
             hit = default(RoadHit);
             bool filter = mustHave != RoadFlags.None || mustNotHave != RoadFlags.None;
+            bool wantElevated = layer == RoadLayer.Elevated;
             if (_ax.Length == 0 || double.IsNaN(x) || double.IsNaN(z) || double.IsNaN(maxDistM)) return false;
+            if (wantElevated && !_anyElevated) return false;
             double px = x - _x0, pz = z - _z0;
             double reach = maxDistM + MaxHalfWidthM;
             if (reach < 0) return false;
@@ -320,6 +417,7 @@ namespace Ghumante.Core.Driving
                 for (int k = _cellStart[c], end = _cellStart[c + 1]; k < end; k++)
                 {
                     int i = _cellSegs[k];
+                    if (layer != RoadLayer.Any && _elevated[_road[i]] != wantElevated) continue;
                     if (filter)
                     {
                         RoadFlags f = _tile.Roads[_road[i]].Flags;
@@ -359,7 +457,13 @@ namespace Ghumante.Core.Driving
                 }
             }
             if (best < 0) return false;
+            Fill(best, bestT, bestD, bestEdge, px, pz, ref hit);
+            return true;
+        }
 
+        /// <summary>Completes a hit on segment <paramref name="best"/> (local point px, pz).</summary>
+        private void Fill(int best, double bestT, double bestD, double bestEdge, double px, double pz, ref RoadHit hit)
+        {
             int r = _road[best];
             double sx = _bx[best] - _ax[best], sz = _bz[best] - _az[best];
             double slen = Math.Sqrt(sx * sx + sz * sz);
@@ -389,7 +493,301 @@ namespace Ghumante.Core.Driving
             float footHere = hit.LateralM - sh < 0f ? fl0 : fr0;
             hit.OnFootpath = bestEdge > 0 && footHere > 0f && bestEdge <= footHere;
             hit.OnRoad = bestEdge <= OnRoadMarginM && !hit.OnFootpath;
+        }
+
+        // ---- segment access for the footprint guard (TileSolids) ----
+
+        /// <summary>Road record index of segment <paramref name="i"/>.</summary>
+        internal int SegmentRoad(int i)
+        {
+            return _road[i];
+        }
+
+        /// <summary>
+        /// Appends to <paramref name="into"/> every segment of <paramref name="layer"/> whose drawn carriageway may reach
+        /// the game box (the cells of the box grown by <paramref name="extraM"/> plus the widest half width), each once:
+        /// <paramref name="stamp"/> (one entry per segment) marks the gathered ones with <paramref name="stampValue"/>,
+        /// which the caller changes per call.
+        /// </summary>
+        internal void GatherSegments(double minX, double minZ, double maxX, double maxZ, double extraM, RoadLayer layer, int[] stamp,
+                                     int stampValue, System.Collections.Generic.List<int> into)
+        {
+            if (_ax.Length == 0) return;
+            double reach = MaxHalfWidthM + Math.Max(0.0, extraM);
+            double size = _n * _cell;
+            double x0 = minX - _x0 - reach, x1 = maxX - _x0 + reach, z0 = minZ - _z0 - reach, z1 = maxZ - _z0 + reach;
+            if (x1 < 0 || z1 < 0 || x0 > size || z0 > size) return;
+            bool wantElevated = layer == RoadLayer.Elevated;
+            int cx0 = CellOf(x0), cx1 = CellOf(x1), cz0 = CellOf(z0), cz1 = CellOf(z1);
+            for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++)
+            {
+                int c = cz * _n + cx;
+                for (int k = _cellStart[c], end = _cellStart[c + 1]; k < end; k++)
+                {
+                    int i = _cellSegs[k];
+                    if (stamp[i] == stampValue) continue;
+                    stamp[i] = stampValue;
+                    if (layer != RoadLayer.Any && _elevated[_road[i]] != wantElevated) continue;
+                    into.Add(i);
+                }
+            }
+        }
+
+        /// <summary>The game-metre bounding box of segment <paramref name="i"/>'s centreline.</summary>
+        internal void SegmentBounds(int i, out double minX, out double minZ, out double maxX, out double maxZ)
+        {
+            minX = _x0 + Math.Min(_ax[i], _bx[i]);
+            maxX = _x0 + Math.Max(_ax[i], _bx[i]);
+            minZ = _z0 + Math.Min(_az[i], _bz[i]);
+            maxZ = _z0 + Math.Max(_az[i], _bz[i]);
+        }
+
+        /// <summary>
+        /// Signed distance from game (x, z) to the drawn carriageway of segment <paramref name="i"/> (negative inside),
+        /// as <see cref="TryNearest(double, double, double, out RoadHit)"/> measures it, with the point's offset to the
+        /// right of the centreline (<paramref name="lateral"/>), the carriageway's half width and centre shift where the
+        /// point projects, the unclamped segment parameter (outside 0..1 past an end), the clamped centreline point and the
+        /// distance to it.
+        /// </summary>
+        internal double SegmentEdge(int i, double x, double z, out double lateral, out float half, out float shift, out double tRaw,
+                                    out double footX, out double footZ, out double centreDist)
+        {
+            double px = x - _x0, pz = z - _z0;
+            double ax = _ax[i], az = _az[i];
+            double dx = _bx[i] - ax, dz = _bz[i] - az;
+            double len2 = dx * dx + dz * dz;
+            tRaw = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
+            double t = tRaw < 0 ? 0 : tRaw > 1 ? 1 : tRaw;
+            double len = Math.Sqrt(len2);
+            lateral = len > 0 ? ((px - ax) * dz - (pz - az) * dx) / len : 0.0;
+            footX = _x0 + ax + t * dx;
+            footZ = _z0 + az + t * dz;
+            double qx = ax + t * dx - px, qz = az + t * dz - pz;
+            centreDist = Math.Sqrt(qx * qx + qz * qz);
+            if (_layout == null)
+            {
+                half = _roadHalfWidth[_road[i]];
+                shift = 0f;
+                return centreDist - half;
+            }
+            int r = _road[i];
+            RoadWidthProfile prof = _layout.Profiles[r];
+            float w = prof.WidthAt(_along[i] + t * len);
+            half = 0.5f * w;
+            shift = _dual[r] ? -0.5f * (w - prof.RealM) : 0f; // as SectionAt
+            double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
+            double side = Math.Abs(lateral - shift) - half;
+            return side > 0 ? Math.Sqrt(side * side + over * over) : over > 0 ? over : side;
+        }
+
+        /// <summary>The end points of segment <paramref name="i"/>'s centreline in game metres.</summary>
+        internal void SegmentEnds(int i, out double ax, out double az, out double bx, out double bz)
+        {
+            ax = _x0 + _ax[i];
+            az = _z0 + _az[i];
+            bx = _x0 + _bx[i];
+            bz = _z0 + _bz[i];
+        }
+
+        /// <summary>Distance from game (x, z) to segment <paramref name="i"/>'s centreline; minus
+        /// <see cref="HalfWidthM"/> of its road it bounds the distance to its carriageway from below.</summary>
+        internal double SegmentDistance(int i, double x, double z)
+        {
+            double px = x - _x0, pz = z - _z0;
+            double ax = _ax[i], az = _az[i];
+            double dx = _bx[i] - ax, dz = _bz[i] - az;
+            double len2 = dx * dx + dz * dz;
+            double t = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            double qx = ax + t * dx - px, qz = az + t * dz - pz;
+            return Math.Sqrt(qx * qx + qz * qz);
+        }
+
+        /// <summary>The lateral extent of segment <paramref name="i"/>'s drawn carriageway, right of its centreline
+        /// (negative left), over the whole segment (sampled along it): the strip between <paramref name="lo"/> and
+        /// <paramref name="hi"/>.</summary>
+        internal void SegmentStrip(int i, out double lo, out double hi)
+        {
+            int r = _road[i];
+            if (_layout == null)
+            {
+                hi = _roadHalfWidth[r];
+                lo = -hi;
+                return;
+            }
+            double dx = _bx[i] - _ax[i], dz = _bz[i] - _az[i];
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            RoadWidthProfile prof = _layout.Profiles[r];
+            int samples = Math.Max(2, (int)Math.Ceiling(len / Math.Max(0.5, prof.StepM)) + 1);
+            lo = double.PositiveInfinity;
+            hi = double.NegativeInfinity;
+            for (int k = 0; k < samples; k++)
+            {
+                float w = prof.WidthAt(_along[i] + len * k / (samples - 1));
+                float shift = _dual[r] ? -0.5f * (w - prof.RealM) : 0f; // as SectionAt
+                lo = Math.Min(lo, shift - 0.5 * w);
+                hi = Math.Max(hi, shift + 0.5 * w);
+            }
+        }
+
+        /// <summary>True when a carriageway is a capsule round its centreline (W1 widths) rather than strips cut square at
+        /// each segment end (the W2 layout).</summary>
+        internal bool RoundEnds
+        {
+            get { return _layout == null; }
+        }
+
+        /// <summary>Unit direction of segment <paramref name="i"/> (from its first point to its second).</summary>
+        internal void SegmentDirection(int i, out double ux, out double uz)
+        {
+            double dx = _bx[i] - _ax[i], dz = _bz[i] - _az[i];
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            ux = len > 0 ? dx / len : 1.0;
+            uz = len > 0 ? dz / len : 0.0;
+        }
+
+        /// <summary>Signed distance from local (px, pz) to the drawn carriageway of segment i (negative inside), with the
+        /// segment parameter and distance to the centreline.</summary>
+        private double EdgeOf(int i, double px, double pz, out double t, out double d)
+        {
+            double ax = _ax[i], az = _az[i];
+            double dx = _bx[i] - ax, dz = _bz[i] - az;
+            double len2 = dx * dx + dz * dz;
+            double tRaw = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0;
+            t = tRaw < 0 ? 0 : tRaw > 1 ? 1 : tRaw;
+            double qx = ax + t * dx - px, qz = az + t * dz - pz;
+            d = Math.Sqrt(qx * qx + qz * qz);
+            if (_layout == null) return d - _roadHalfWidth[_road[i]];
+            double len = Math.Sqrt(len2);
+            double lat = len > 0 ? ((px - ax) * dz - (pz - az) * dx) / len : d;
+            double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
+            float half, shift, fl, fr;
+            SectionAt(_road[i], _along[i] + t * len, out half, out shift, out fl, out fr);
+            double side = Math.Abs(lat - shift) - half;
+            return side > 0 ? Math.Sqrt(side * side + over * over) : over > 0 ? over : side;
+        }
+
+        /// <summary>
+        /// The deck of a bridge or flyover with structure heights under (x, z) (within its carriageway plus
+        /// <see cref="DeckKerbM"/>) that a body with feet at <paramref name="nearY"/> stands on: the highest deck at most
+        /// <paramref name="reachM"/> above the feet (any deck when nearY is +∞). Fills the road hit and the deck height
+        /// and its rise per metre along the road. Exact ties go to the lower segment index.
+        /// </summary>
+        public bool TryDeck(double x, double z, float nearY, float reachM, out RoadHit hit, out float deckY, out float gradeAlong)
+        {
+            hit = default(RoadHit);
+            deckY = 0f;
+            gradeAlong = 0f;
+            if (_elevatedSegs == 0 || double.IsNaN(x) || double.IsNaN(z)) return false;
+            double px = x - _x0, pz = z - _z0;
+            double reach = MaxHalfWidthM + DeckKerbM;
+            double size = _n * _cell;
+            if (px < -reach || pz < -reach || px > size + reach || pz > size + reach) return false;
+            float limit = float.IsPositiveInfinity(nearY) ? float.PositiveInfinity : nearY + reachM;
+            int cx0 = CellOf(px - reach), cx1 = CellOf(px + reach), cz0 = CellOf(pz - reach), cz1 = CellOf(pz + reach);
+            int best = -1;
+            double bestT = 0, bestD = 0, bestEdge = 0;
+            float bestY = float.NegativeInfinity;
+            for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++)
+            {
+                int c = cz * _n + cx;
+                for (int k = _cellStart[c], end = _cellStart[c + 1]; k < end; k++)
+                {
+                    int i = _cellSegs[k];
+                    int r = _road[i];
+                    if (!_elevated[r] || _surfaceY[r] == null) continue;
+                    double t, d;
+                    double edge = EdgeOf(i, px, pz, out t, out d);
+                    if (edge > DeckKerbM) continue;
+                    float[] ys = _surfaceY[r];
+                    int sg = _seg[i];
+                    float y = ys[sg] + (ys[sg + 1] - ys[sg]) * (float)t;
+                    if (y > limit) continue;
+                    if (y > bestY || y == bestY && i < best)
+                    {
+                        best = i;
+                        bestY = y;
+                        bestT = t;
+                        bestD = d;
+                        bestEdge = edge;
+                    }
+                }
+            }
+            if (best < 0) return false;
+            Fill(best, bestT, bestD, bestEdge, px, pz, ref hit);
+            hit.OnRoad = true;
+            hit.OnFootpath = false;
+            deckY = bestY;
+            float dummy;
+            TrySurfaceHeight(in hit, out dummy, out gradeAlong);
             return true;
+        }
+
+        /// <summary>True when the slab of a bridge or flyover with structure heights (its surface down to
+        /// <see cref="DeckThicknessM"/> below, over its deck and railing) covers (x, z) and overlaps the heights
+        /// (lowY, highY): a body spanning them there would stand inside the deck.</summary>
+        public bool SlabOverlaps(double x, double z, float lowY, float highY, float pad = 0f)
+        {
+            if (_elevatedSegs == 0 || double.IsNaN(x) || double.IsNaN(z)) return false;
+            double px = x - _x0, pz = z - _z0;
+            double reach = MaxHalfWidthM + DeckKerbM + 0.3 + pad;
+            double size = _n * _cell;
+            if (px < -reach || pz < -reach || px > size + reach || pz > size + reach) return false;
+            int cx0 = CellOf(px - reach), cx1 = CellOf(px + reach), cz0 = CellOf(pz - reach), cz1 = CellOf(pz + reach);
+            for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++)
+            {
+                int c = cz * _n + cx;
+                for (int k = _cellStart[c], end = _cellStart[c + 1]; k < end; k++)
+                {
+                    int i = _cellSegs[k];
+                    int r = _road[i];
+                    if (!_elevated[r] || _surfaceY[r] == null) continue;
+                    double t, d;
+                    if (EdgeOf(i, px, pz, out t, out d) > DeckKerbM + 0.3 + pad) continue;
+                    float[] ys = _surfaceY[r];
+                    int sg = _seg[i];
+                    float top = ys[sg] + (ys[sg + 1] - ys[sg]) * (float)t;
+                    if (top > lowY && top - DeckThicknessM < highY) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The lowest deck underside (surface − <see cref="DeckThicknessM"/>) of a bridge or flyover with
+        /// structure heights above (x, z) and higher than <paramref name="fromY"/>, within its deck and railing.</summary>
+        public bool TryCeiling(double x, double z, float fromY, out float undersideY)
+        {
+            undersideY = float.PositiveInfinity;
+            if (_elevatedSegs == 0 || double.IsNaN(x) || double.IsNaN(z)) return false;
+            double px = x - _x0, pz = z - _z0;
+            double reach = MaxHalfWidthM + DeckKerbM + 0.3;
+            double size = _n * _cell;
+            if (px < -reach || pz < -reach || px > size + reach || pz > size + reach) return false;
+            int cx0 = CellOf(px - reach), cx1 = CellOf(px + reach), cz0 = CellOf(pz - reach), cz1 = CellOf(pz + reach);
+            bool found = false;
+            for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++)
+            {
+                int c = cz * _n + cx;
+                for (int k = _cellStart[c], end = _cellStart[c + 1]; k < end; k++)
+                {
+                    int i = _cellSegs[k];
+                    int r = _road[i];
+                    if (!_elevated[r] || _surfaceY[r] == null) continue;
+                    double t, d;
+                    if (EdgeOf(i, px, pz, out t, out d) > DeckKerbM + 0.3) continue;
+                    float[] ys = _surfaceY[r];
+                    int sg = _seg[i];
+                    float under = ys[sg] + (ys[sg + 1] - ys[sg]) * (float)t - DeckThicknessM;
+                    if (under <= fromY || under >= undersideY) continue;
+                    undersideY = under;
+                    found = true;
+                }
+            }
+            return found;
         }
     }
 }

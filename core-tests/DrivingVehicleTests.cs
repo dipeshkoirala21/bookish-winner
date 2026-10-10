@@ -692,7 +692,8 @@ namespace Ghumante.Core.Tests
         [Test]
         public void RidesThroughRealKathmandu()
         {
-            TileGroundQuery g = DrivingData.SampleGround();
+            // The straight line crosses houses: this checks the ground only, so the tiles' solids stay out.
+            TileGroundQuery g = DrivingData.SampleGround(false);
             double x, z, bx, bz;
             DrivingData.ThamelMarg(out x, out z);
             WorldFrame.LonLatToGame(85.362, 27.7215, out bx, out bz); // Boudhanath

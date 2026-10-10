@@ -85,7 +85,9 @@ namespace Ghumante.Core.Traffic
     /// and JNCT through the shared <see cref="RoadLayout"/> (so lanes sit inside the drawn carriageway), and stitched at
     /// tile seams through the pieces' cut ends. Only motor-legal pieces with a game width of at least 1.8 m carry lanes,
     /// with class masks from <see cref="RoadWidthModel.AccessFor"/>; lanes inside sacred zones are dropped
-    /// (SACRED_NO_VEHICLE). Lane k (0 = kerb) of a two-way road lies left of the travel direction; one-way carriageways
+    /// (SACRED_NO_VEHICLE), and cars, buses and trucks only get lanes on car-accessible roads (<see cref="RoadAccess"/>);
+    /// lanes on bridges, flyovers and underpasses follow the structure heights. Lane k (0 = kerb) of a two-way road lies
+    /// left of the travel direction; one-way carriageways
     /// spread their lanes over the width; two-way roads under 5.5 m real carry one shared lane per direction on the
     /// centreline. Junction nodes get Bézier connectors (0.4 × chord handles) with conflict sets, a controller (police,
     /// signal, roundabout or priority) and clockwise rings where JNCT records a roundabout without ring ways.
@@ -1263,6 +1265,7 @@ namespace Ghumante.Core.Traffic
                 public RoadAttrRecord Attr;
                 public int First, Last;
                 public double[] Along;
+                public float[] SurfaceY; // structure heights per point (decks, underpasses), or null
             }
 
             private sealed class JInfo
@@ -1290,6 +1293,8 @@ namespace Ghumante.Core.Traffic
                     float minW = prof.Count > 0 ? prof.MinWidth : 0f;
                     if (minW < MinLaneWidthM) continue;
                     uint mask = TrafficTables.ClassesFor(RoadWidthModel.AccessFor(minW, r, a));
+                    // Cars, buses and trucks keep to car-accessible roads (decision 5); motorbikes and bicycles go anywhere.
+                    mask = RoadAccess.Restrict(mask, t, ri, prof.RealM);
                     if ((mask & ~VehicleClasses.Bit(VehicleClass.Bicycle) & ~VehicleClasses.Bit(VehicleClass.Rickshaw)) == 0 &&
                         (r.RoadClass == RoadClass.Footway || r.RoadClass == RoadClass.Path || r.RoadClass == RoadClass.Steps ||
                          r.RoadClass == RoadClass.Cycleway || r.RoadClass == RoadClass.Bridleway || r.RoadClass == RoadClass.Pedestrian))
@@ -1304,6 +1309,7 @@ namespace Ghumante.Core.Traffic
                         Ring = a.Has(RoadAttrFlags.RingMember), Dual = a.Has(RoadAttrFlags.Dual), Service = a.Has(RoadAttrFlags.ServiceRoad),
                     };
                     p.Oneway = (r.Flags & RoadFlags.Oneway) != 0 || p.Ring;
+                    p.SurfaceY = RoadAccess.SurfaceHeights(t, ri);
                     p.Along = new double[r.PointCount];
                     for (int i = first + 1; i <= last; i++)
                         p.Along[i] = p.Along[i - 1] + Math.Sqrt(Sq((r.Points[2 * i] - r.Points[2 * i - 2]) / 100.0) +
@@ -1748,8 +1754,8 @@ namespace Ghumante.Core.Traffic
                             zs[i] = cz[src] + nz[src] * lat;
                             if (src == n / 2) offMid = lat;
                             float h;
-                            if (!sampler.TryHeightClamped(xs[i], zs[i], out h)) h = 0f;
-                            ys[i] = h + lift;
+                            if (p.SurfaceY != null) ys[i] = RoadAccess.SurfaceAt(p.SurfaceY, p.Along, p.First, p.Last, cs[src]);
+                            else ys[i] = (sampler.TryHeightClamped(xs[i], zs[i], out h) ? h : 0f) + lift;
                         }
                         var lane = new Lane
                         {
