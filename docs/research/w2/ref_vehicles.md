@@ -6,7 +6,12 @@
 > §5.2; this file adds which models are on the street now, what their silhouettes look like, part proportions
 > (cm), colours (hex, cartoon-boosted about +10 % saturation over the photo) and the details a Kathmandu local checks
 > first. Photos were fetched with `/home/user/wt/refimg.py` (Openverse: Flickr and Wikimedia, open licences) into
-> `/home/user/wt/refs/vehicles/<topic>/` and are **reference only**: never copied into the repo, never traced.
+> `/home/user/wt/refs/vehicles/<topic>/`, and (fixer pass) straight from the Wikimedia Commons API into
+> `/home/user/wt/refs/vehicles/c_<topic>/` where Openverse had nothing usable (Sajha bus, Kathmandu e-bus, Safa
+> tempo, tipper, Alto K10, Dolphin, Nexon EV); they are **reference only**: never copied into the repo, never traced.
+> Several early Openverse folders hold credits only (sajha, sajha2, microbus, dolphin, police, apache, ather,
+> ktm_traffic, street_traffic, hiace) and some early sheets paired models with unrelated photos; §10 lists the photos
+> each model was actually checked against.
 > Tags: [S] sourced (URL in §9), [E] estimate from photos, [V] verify with a reviewer.
 >
 > **Branding rule (ASSET_MANIFEST):** no logos, badges, model names, wordmarks, operator names or real liveries.
@@ -121,7 +126,7 @@ plate front (0.45 × 0.11) and rear (0.30 × 0.185), wheels with alloy or steel+
 | **Creta / Seltos type** (SUV) | 433 × 179 × 164, wb 261 | crossover with a big parametric grille, split lamps, roof rails, floating roof |
 | **Land Cruiser Prado type** (SUV) | 484 × 188.5 × 189, wb 279 | large box, **big chrome grille**, upright greenhouse, rear-mounted spare wheel, side steps |
 | **Bolero Pik-Up type** | 521 × 170 × 186.5, wb 326 | **flat-fronted single cab**, simple grille with vertical slats, tall flat bed with drop sides, white or silver |
-| **Hilux type** (double cab) | 532 × 185.5 × 181.5, wb 308 | double cab, chrome grille, wide arches, short bed, roll bar |
+| **Hilux type** (double cab) | 532 × 185.5 × 181.5, wb 308 | **double cab** (two rows of doors, the B pillar between them, a long roof), chrome grille, lamps sweeping back into the fenders, wide arches, short bed (≈ 1.5 m) with a roll bar; photos o_hilux 01/02 (Asylumkid CC BY-SA 2.0; usf1fan2 CC BY 2.0) |
 | Police jeep | Bolero class | white with a blue band, blue light bar, "प्रहरी / POLICE" only as stripes at far LODs; no weapons [V] |
 | Ambulance | Hiace / Eeco van | white with a red band and red/blue beacon; **no Red Cross emblem** |
 
@@ -136,16 +141,27 @@ plate front (0.45 × 0.11) and rear (0.30 × 0.185), wheels with alloy or steel+
 * Electric micros (King Long type): the same box with a **smooth closed nose and a full-width lamp band**.
 
 ### 3.2 Safa tempo
-* 360 × 145 × 190 cm, wheelbase 210 cm, three wheels (one in front) [E]. **Narrow driver cab** with a big flat
-  windscreen and **one round headlamp** in the nose, a **wider passenger box** behind with open windows, a rear
-  entry step with a grab rail, a flat roof with a luggage lip.
-* White `#F4F4F0` body with **green `#2E8B57` stripes and lettering**, black skirt `#263238`, yellow route board.
+* 360 × 145 × 190 cm, wheelbase 210 cm, three wheels (one in front) [E]. One cream box: the **driver's cab a little
+  narrower** (≈ 8 %) than the **passenger box** behind it, a near-vertical front that is mostly a **big flat
+  windscreen** (≈ 60 cm tall, almost the cab width) in a black rubber frame under the rounded roof edge; below it
+  the cream front panel with the **green belt stripe**, **two round headlamps low in its corners** with amber
+  indicators beside them and the plate between; the **single front wheel stands under the panel on a short fork
+  with a green mudguard**, open to view from the side; **open doorways** (no doors) either side of the cab with a
+  grab handle; three windows a side on the passenger box; a rear entry step with a grab rail; a flat roof with a
+  luggage lip and the route board over the screen [S photos c_safa 00/01, Krish Dulal, CC BY-SA 3.0; safa2 00/01].
+  (The first brief said "one round headlamp"; the Kathmandu photos show two.)
+* White/cream `#F4F4F0` body with **green `#2E8B57` stripes and lettering**, black skirt `#263238`, yellow route board.
 
 ### 3.3 Sajha green city bus
 * 10.5 × 2.5 × 3.2 m. Older diesel: front engine, high floor, **flat front with a two-piece windscreen**, a front
   door on the left, **green body `#2E7D32` with a lighter green `#66BB6A` band and a white roof**. Electric
   (CHTC Kinwin): **low floor**, a big one-piece curved windscreen, two doors, roof-mounted battery pods, green and
   white. No operator logo, own stripe layout.
+* From the photos (c_sajha 00 "Sajha Yatayat", Krish Dulal, CC BY-SA 3.0; c_ebus 00 "Electric Bus in Kathmandu",
+  Gaurav Dhwaj Khadka, CC BY-SA 4.0): the **windscreen is the dominant front feature**, about 60 % of the face,
+  framed in black rubber, with the destination display over it and the lamps in the bumper line; the side has a
+  continuous black window band and (on Sajha) a white sweep along the lower body. The model puts the screen on the
+  hull's own flat front face (no plan curve on the city buses) so it is never buried in the body.
 
 ### 3.4 Minibus (Tata 709 type)
 * 7.2 × 2.1 × 2.85 m. **Semi-forward cab with a short hood** in front of the windscreen, a split windscreen,
@@ -173,11 +189,24 @@ plate front (0.45 × 0.11) and rear (0.30 × 0.185), wheels with alloy or steel+
   (flowers, eyes, mountains) on the cargo sides; **tassels and chains** hanging from the bumper; **mud flaps** with
   painted eyes; reflectors; "HORN PLEASE" on the tailgate (stripes only at far LODs) [S Onlinekhabar].
 * Photos: refs/vehicles/truck_art (01 "Metamorphosis of the trusty truck", LilyinNepal CC BY-SA; 03 "Nepali
-  decorated and colourful truck").
+  decorated and colourful truck"); tata_truck 00/05; horn_please 00 ("Horn Please! A common message on the back").
+* As modelled: the **crown** is an arched board as wide as the cab over the windscreen (shoulders stepping up to a
+  centre peak, ≈ 0.85 m tall), on a canopy carried forward from the cargo body's headboard; it is painted with
+  multicolour border bands, two cream name boards with red script (a headline and hanging strokes, no real words),
+  a gold medallion, amber corner lamps and a fringe of coloured tassels over the screen. The tailgate carries a
+  painted board with **"HORN PLEASE" in cream stroke capitals** between two flower roundels (PlateGlyphs gained the
+  Latin capitals A E H L N O P R S for it; the phrase is a road custom, not a brand) and cream bars at LOD1. The
+  split windscreen panes lie in the plane of the cab's raked front, each in a rubber frame.
 
 ### 4.2 Tipper
 * 7.6 × 2.5 × 3.1 m, tandem rear axle. Modern flat-fronted **cab-over** cab, **rectangular steel tipper box**
   (orange `#F57F17`) with a canopy over the cab and reinforcing ribs on the sides.
+* From the photo (c_tipper 00, a Tata Daewoo 8×4 tipper on a red Nepali-format plate, Mosbatho, CC BY 4.0): the box
+  rides on a subframe above the chassis, its **floor rises toward the tail** (a long trapezoid side, not a plank
+  wall), **vertical box-section ribs and a heavy top rail** on the sides, a **tall front wall carrying the canopy**
+  over the cab roof, a top-hinged tailgate; the cab front is upright with a big split screen, a black slatted
+  grille band and rectangular lamps in the bumper. The model adds a heap of sand in the box (the valley's tippers
+  haul sand and gravel).
 
 ### 4.3 Water tanker
 * 7.5 × 2.4 × 3.0 m. Old Tata cab, an **elliptical tank** (blue `#1E88E5` or white, often painted red/blue) with a
@@ -242,6 +271,25 @@ Two-wheelers dominate (55-72 % per road class); within them scooter : commuter :
 The model *type* inside a catalogue entry is picked from the agent id by the weights in `VehicleMesher.ModelFor`
 (e.g. commuter: Pulsar type 40 %, Shine/SP type 25 %, streetfighter 35 %).
 
+## 8a. How the car model types are told apart (as built)
+
+The finding "Swift, i10 and Alto share one body" is answered by per-type proportions and fronts
+(`VehicleMesher.CarProportions` and `SpecFor`); every lamp is now a lens lying on the curved nose or tail of the body
+hull (`HullLamps`: dark housing border, lens, smoked inner housing, chrome-ringed projector), not a pod stuck on it.
+
+| Type | Width | Front (what the photo shows → what the model draws) |
+|---|---|---|
+| Swift | 1.70 m, alloys | big swept lamps rising from the grille's top corners and wrapping round the fender corner; a wide hexagonal honeycomb grille right under them; fog lamps low in the corners; black A/B pillars, roof spoiler |
+| i10 Nios | 1.68 m, steel + covers | teardrop lamps at the corners; the **big cascading grille** widening downwards in a silver surround with horizontal slats and the **boomerang LED DRLs** in its lower corners |
+| Alto K10 | 1.50 m (narrow), short overhangs | swept teardrop lamps over a **big honeycomb "smile" grille** between them; tall narrow greenhouse with little tumblehome |
+| Dolphin | 1.77 m, long overhangs, roof 1.52 m | closed nose, slim swept lamps high on it with an LED strip, a wide low intake, vertical vents in the bumper corners |
+| Nexon EV | 1.78 m, short | a **gloss-black band right across the nose with the DRL strip** on its top edge, main lamps low in the bumper corners, cladding, roof rails |
+| Atto 3 | 1.79 m, long | slim lamps joined by one light bar across the closed nose; rear light bar |
+
+Photo-vs-render sheets (same angle, photo left): `/home/user/wt/previews/vehicles/compare/sheet.png` (Swift, i10,
+Alto, Dolphin, Nexon) and `/home/user/wt/previews/vehicles/compare2/sheet.png` (Safa front and side, Sajha diesel,
+Kathmandu e-bus, decorated truck front, HORN PLEASE tailgate, tipper, Hilux, Nexon).
+
 ## 9. Sources
 * Meroauto, "Top five motorcycles by import volume in Nepal in 2025": https://www.en.meroauto.com/top-five-motorcycles-by-import-volume-in-nepal-in-2025/
 * Meroauto, "TVS races ahead of Honda in Nepal's scooter battle": https://www.en.meroauto.com/tvs-races-ahead-of-honda-in-nepals-scooter-battle/
@@ -256,3 +304,39 @@ The model *type* inside a catalogue entry is picked from the agent id by the wei
 * Royal Enfield, New Classic 350 spec sheet: https://www.royalenfield.com/content/dam/open-pdf/royal-enfield-new-classic-350.pdf
 * Khetiwadi, Mahindra 575 DI: https://www.khetiwadi.com/tractor/detail/9/mahindra-575-di
 * Photo credits: see `credits.txt` in each `/home/user/wt/refs/vehicles/<topic>/` folder (title, author, licence, URL).
+
+## 10. Photos each model was checked against
+
+| Model | Photos (folder under /home/user/wt/refs/vehicles) |
+|---|---|
+| Swift type | swift 03, 04, 07 (2018+ Swift, Wikimedia/Flickr, see credits.txt) |
+| i10 Nios type | i10 00 (Grand i10 Nios 2022), 02 |
+| Alto type | c_alto 00/01 (Vis M, CC BY-SA 4.0), 03 |
+| Dolphin type | c_dolphin 00/05 (Alexander-93, CC BY-SA 4.0) |
+| Nexon EV type | c_nexon 01-03 (Rajasekhar1961 CC BY-SA 4.0; DriveSpark CC BY 3.0) |
+| Hilux type | o_hilux 01/02 |
+| Safa tempo | c_safa 00/01 (Krish Dulal, CC BY-SA 3.0), safa2 00/01 |
+| Sajha diesel bus | c_sajha 00 (Krish Dulal, CC BY-SA 3.0) |
+| Electric city bus | c_ebus 00 (Gaurav Dhwaj Khadka, CC BY-SA 4.0) |
+| Decorated truck | truck_art 01/03, tata_truck 00/05, horn_please 00 |
+| Tipper | c_tipper 00 (Mosbatho, CC BY 4.0) |
+
+## 11. Open issues (outside this package)
+
+* **camera — the player's car wheels.** `Characters/Rides/DrivenVehicleView.cs` builds the body with
+  `cache.CreateUnique(variant, livery, Lod0, plateSeed)` (model type `ModelFor(variant, plateSeed)`) but places the
+  wheels from `VehicleMesher.Wheels(entry)` (the first model type's sockets) and meshes them with
+  `cache.Wheel(radius, width, Lod0)`. Car model types now differ in track (the Alto type is 20 cm narrower than the
+  Swift type), so a borrowed Alto- or i10-type car gets the Swift type's track. Fix (two lines in the camera
+  package): `_sockets = VehicleMesher.Wheels(_entry, VehicleMesher.ModelFor(variant, plateSeed));` and
+  `cache.Wheel(w, VehicleLod.Lod0)`. `StyleFor(radius, width)` is unambiguous now (tested over every socket), so the
+  style is already right; only the track needs the model type. `Wheel(radius, width, lod)` is not marked
+  `[Obsolete]`: CS0618 is an error in the Unity compile check and its caller is camera-owned.
+* **integration — warm-up (for information).** TrafficPresenter prewarms LOD2, the parked levels and every
+  LOD0/LOD1 wheel at load, warms the 155 LOD1 bodies (≈ 8 MB) on worker threads over the first seconds
+  (`VehicleMeshCache.WarmStep`), and builds the plated LOD0 bodies on workers too (`RequestUnique`), uploading one
+  finished body a frame (`Pump`); an agent keeps its shared coarser body until its own is ready. Nothing is meshed on
+  the main thread while driving. If other presenters (parked fleet, garage) adopt `VehicleMeshCache`, they should
+  share the presenter's cache instance.
+* **look — Sajha livery sweep.** The Sajha photo's white sweep along the lower side is drawn as straight bands
+  (decals cannot follow the wheel arches); a texture-space livery would do it properly.

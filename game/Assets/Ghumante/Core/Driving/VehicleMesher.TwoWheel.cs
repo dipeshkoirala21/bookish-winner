@@ -81,6 +81,12 @@ namespace Ghumante.Core.Driving
                 HullAdd(0.64, 0, 0.50, 0.16, 0.15, 0.08, 0.05);
             }
             HullEmit(ref c, paint, 3, true, true);
+            // Rear indicators sit on the flanks of the tapering tail, sunk two thirds into it (sampled from the hull itself,
+            // so they never hang in the air beside a narrow tail).
+            double tz = niu || activa ? -0.455 : -0.49, ty = niu || activa ? 0.66 : 0.74, bz = tz + 0.13, bcv, bhu, bhv;
+            HullSectionAt(bz, out bcv, out bhu, out bhv);
+            const double blinkR = 0.016;
+            double bx = bhu - 0.35 * blinkR, by = bcv + 0.2 * bhv;
             if (c.L0 && !electric)
             {
                 // Side graphic / chrome strip on the rear body.
@@ -215,12 +221,16 @@ namespace Ghumante.Core.Driving
                 Fil(ref c, cv, 0.06, 2);
                 SideExtrude(ref c, Metal(CrankC), cv, -0.15, -0.06, 0.03, 1);
                 if (c.L0) Ell(ref c, Plain(TrimC), -0.10, 0.48, 0.30, 0.06, 0.05, 0.12, 0.6, 0.6, 8); // air box
+                // The engine unit under the rear body (cylinder and crankcase between the CVT case and the silencer),
+                // and the exhaust header that carries the silencer.
+                RBox(ref c, Plain(EngineC), 0.02, 0.32, 0.36, 0.20, 0.16, 0.30, 0.05, 2);
                 if (c.L1)
                 {
                     Path3 h = P;
-                    h.Add(0.02, 0.24, 0.48).Add(0.10, 0.22, 0.30).Add(0.13, 0.28, 0.16);
+                    h.Add(0.06, 0.26, 0.46).Add(0.10, 0.22, 0.30).Add(0.13, 0.28, 0.16);
                     Tube(ref c, Plain(EngineC), h, 0.018, 6);
                 }
+                else OBar(ref c, Plain(EngineC), 0.06, 0.26, 0.40, 0.13, 0.28, 0.16, 0.035, 0.035);
                 Cone(ref c, Plain(EngineC), 0.13, 0.28, 0.18, 0.15, 0.36, -0.20, 0.05, 0.045, 10, 0.012);
                 if (c.L0)
                 {
@@ -244,11 +254,10 @@ namespace Ghumante.Core.Driving
 
             // ---- Rear: hugger, tail lamp, indicators.
             if (c.L1) FenderArc(ref c, Plain(TrimC), 0, r, 0, r + 0.03, 0.12, 0.008, 95, 70, 16);
-            double tz = niu || activa ? -0.455 : -0.49, ty = niu || activa ? 0.66 : 0.74;
             Panel(ref c, Glass(TailC), 0, ty, tz, 0, 0.25, -1, niu ? 0.20 : 0.16, 0.045, 0.02, 0.012);
             if (c.L1)
                 for (int s = -1; s <= 1; s += 2)
-                    Blinker(ref c, s * 0.12, ty - 0.06, tz + 0.03, 0.016);
+                    Blinker(ref c, s * bx, by, bz, blinkR);
 
             SetPlates(0.50f, -0.47f, 0.60f, (float)(wb + 0.10), 0.20f, 0.15f);
             s_rider = new RiderRef
@@ -301,7 +310,8 @@ namespace Ghumante.Core.Driving
             Ell(ref c, Plain(roadster ? frameC : EngineC), Pitched(0, headBotY - 0.01, headBotZ + 0.01, -0.33), 0.07, 0.015, 0.025, 0.3, 0.3, 8);
             // Handlebar and stem.
             double hbY = roadster ? 1.08 : 1.02, hbZ = roadster ? wb - 0.36 : wb - 0.28;
-            Rod(ref c, roadster ? chrome : black, 0, headTopY, headTopZ, 0, hbY, roadster ? headTopZ - 0.04 : headTopZ - 0.02, 0.013, 6);
+            // Stem up to the middle of the bar (the roadster's swept-back bar sits behind the head tube).
+            Rod(ref c, roadster ? chrome : black, 0, headTopY, headTopZ, 0, hbY + 0.02, roadster ? hbZ + 0.02 : headTopZ - 0.02, 0.013, 6);
             Path3 hb = P;
             if (roadster) hb.Add(-0.28, hbY, hbZ - 0.12).Add(-0.22, hbY + 0.02, hbZ + 0.02).Add(0.22, hbY + 0.02, hbZ + 0.02).Add(0.28, hbY, hbZ - 0.12);
             else hb.Add(-0.33, hbY, hbZ).Add(0.33, hbY, hbZ);

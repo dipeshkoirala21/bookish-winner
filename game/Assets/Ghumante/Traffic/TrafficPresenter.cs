@@ -21,8 +21,12 @@ namespace Ghumante.Traffic
     /// snapshots"): every <see cref="AgentPose"/> of <see cref="LifeHost.Vehicles"/> nearest first under the tier's
     /// LOD0 / LOD1 / LOD2 caps (0 / 1 / 6, 1 / 6 / 16, 3 / 10 / 20), with Track B's procedural bodies from
     /// <see cref="VehicleMeshCache"/> (the model type and the LOD0 plate number from the agent id, LOD1 and LOD2 shared
-    /// and instanced per model type), spinning wheels of the socket's style on LOD0 and LOD1, lean, pitch and roll from
-    /// the pose; the parked vehicles of the
+    /// and instanced per model type), spinning wheels of the socket's style (at the model type's own track) on LOD0 and
+    /// LOD1, lean, pitch and roll from the pose. Nothing is meshed on the main thread while driving: the LOD2, parked and
+    /// wheel meshes are built while loading, the LOD1 bodies and the plated LOD0 bodies on worker threads
+    /// (<see cref="VehicleMeshCache.TryBody"/>, <see cref="VehicleMeshCache.RequestUnique"/>) with at most
+    /// <see cref="UploadsPerFrame"/> uploads a frame, the agent keeping its coarser shared body until its own is ready.
+    /// The parked vehicles of the
     /// visible tiles (moving LOD2 to 20 m, block-out to 80 m, box to 150 m under the tier caps); live engine voices for
     /// the nearest agents (<see cref="ISoundService.OpenEngine"/>, seeded by the agent id so an agent sounds the same all
     /// its life), air-brake hisses when buses and trucks stop, and the sim's horns. Attached to every
@@ -54,6 +58,9 @@ namespace Ghumante.Traffic
         /// back), so the plated body is not rebuilt and destroyed in a loop.</summary>
         public const float UniqueKeepS = 3f;
 
+        /// <summary>Bodies built on worker threads that are uploaded per frame (each ≈ 0.1-0.3 ms on a phone).</summary>
+        public const int UploadsPerFrame = 1;
+
         private sealed class AgentState
         {
             /// <summary>Metres rolled since the agent appeared: each wheel turns by it over its own radius.</summary>
@@ -61,6 +68,9 @@ namespace Ghumante.Traffic
             public float Speed, UniqueIdleS;
             public IEngineSound Engine;
             public Mesh Unique;
+
+            /// <summary>The plated LOD0 body being built on a worker (null when none is).</summary>
+            public MeshJob Pending;
             public bool AtStop, Seen;
         }
 
@@ -72,7 +82,8 @@ namespace Ghumante.Traffic
         private readonly Dictionary<ulong, InstanceBatch> _batches = new Dictionary<ulong, InstanceBatch>();
         private readonly Dictionary<int, AgentState> _agents = new Dictionary<int, AgentState>();
         private readonly List<int> _drop = new List<int>();
-        private WheelSocket[][] _wheels;
+        private WheelSocket[][][] _wheels; // [variant][model type]
+        private bool _lod1Warm;
         private float[] _dist = new float[64], _keys = new float[64];
         private float[] _audioDist = new float[64];
         private bool[] _wantVoice = new bool[64];
@@ -126,17 +137,24 @@ namespace Ghumante.Traffic
             if (_cache == null)
             {
                 _cache = new VehicleMeshCache();
-                // Moving far LOD, parked near LOD, block-out and box: built while loading, never per frame (LOD0 and LOD1
-                // bodies of the few nearest agents are built on first use).
+                // Moving far LOD, parked near LOD, block-out, box and every LOD0/LOD1 wheel: built while loading. The LOD1
+                // bodies (≈ 155 variant × model × livery combinations) are warmed on worker threads over the first seconds
+                // (WarmStep) or built there on first need, the plated LOD0 bodies too (DrawMoving).
                 _cache.Prewarm(VehicleLod.Lod2);
                 _cache.Prewarm(VehicleLod.Block);
                 _cache.Prewarm(VehicleLod.Box);
+                _cache.PrewarmWheels(VehicleLod.Lod0);
+                _cache.PrewarmWheels(VehicleLod.Lod1);
             }
             ReleaseAll();
             _batches.Clear(); // materials change with each open
             _tagBatch = null;
-            _wheels = new WheelSocket[VehicleCatalog.Count][];
-            for (int v = 0; v < VehicleCatalog.Count; v++) _wheels[v] = VehicleMesher.Wheels(VehicleCatalog.At(v));
+            _wheels = new WheelSocket[VehicleCatalog.Count][][];
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                _wheels[v] = new WheelSocket[VehicleMesher.ModelCount(v)][];
+                for (int k = 0; k < _wheels[v].Length; k++) _wheels[v][k] = VehicleMesher.Wheels(VehicleCatalog.At(v), k);
+            }
             _world.Closed -= OnClosed;
             _world.Closed += OnClosed;
         }
@@ -160,6 +178,11 @@ namespace Ghumante.Traffic
                 b.WorldBounds = bounds;
             }
             _tris = _drawn = _parkedTris = _parkedDrawn = _draws = 0;
+            if (_cache != null)
+            {
+                if (!_lod1Warm) _lod1Warm = _cache.WarmStep(VehicleLod.Lod1);
+                _cache.Pump(UploadsPerFrame);
+            }
             ISoundService sound = _world.Sound;
             DrawMoving(_world.Life, origin, camPos, cam.transform.forward, sound);
             DrawParked(_world.Streamer, origin, camPos);
@@ -228,11 +251,11 @@ namespace Ghumante.Traffic
                 st.Speed = a.SpeedMps;
                 int variant = Mathf.Clamp(a.Variant, 0, VehicleCatalog.Count - 1);
                 VehicleCatalogEntry e = VehicleCatalog.At(variant);
-                WheelSocket[] wheels = _wheels[variant];
                 st.Odometer += a.SpeedMps * dt;
-                // The model type follows the agent id, the same seed that numbers its LOD0 plate, so the shape holds
-                // across levels.
+                // The model type follows the agent id, the same seed that numbers its LOD0 plate, so the shape (and the
+                // wheel track) holds across levels.
                 byte model = VehicleMesher.ModelFor(variant, (uint)a.AgentId);
+                WheelSocket[] wheels = _wheels[variant][model % _wheels[variant].Length];
                 Vector3 p = Scene(a, origin, age);
                 Matrix4x4 m = Matrix4x4.TRS(p, Quaternion.Euler(-a.Pitch * Mathf.Rad2Deg, a.HeadingRad * Mathf.Rad2Deg, -(a.Roll + a.Lean) * Mathf.Rad2Deg), Vector3.one);
                 bool rider = VehicleClasses.IsTwoWheel(a.Class) || a.Class == VehicleClass.Rickshaw;
@@ -240,9 +263,8 @@ namespace Ghumante.Traffic
                 if (level >= 0)
                 {
                     _drawn++;
-                    if (level == 0)
+                    if (level == 0 && TakeUnique(st, variant, a.Livery, model, (uint)a.AgentId, rider))
                     {
-                        if (st.Unique == null) st.Unique = _cache.CreateUnique(variant, a.Livery, model, VehicleLod.Lod0, (uint)a.AgentId, rider);
                         st.UniqueIdleS = 0f;
                         var rp = new RenderParams(_material) { shadowCastingMode = ShadowCastingMode.On, receiveShadows = true, worldBounds = new Bounds(p, new Vector3(30f, 10f, 30f)) };
                         Graphics.RenderMesh(rp, st.Unique, 0, m);
@@ -251,10 +273,16 @@ namespace Ghumante.Traffic
                     }
                     else
                     {
-                        IdleUnique(st, dt);
-                        VehicleLod lod = level == 1 ? VehicleLod.Lod1 : VehicleLod.Lod2;
-                        Batch(variant, a.Livery, model, lod, rider, false).Add(m);
-                        if (level == 1) Wheels(wheels, m, st.Odometer, VehicleLod.Lod1);
+                        // LOD1 (or a LOD0 agent whose plated body is still being built): the shared LOD1 body once a worker
+                        // has built it, the prewarmed LOD2 body until then.
+                        if (level != 0) IdleUnique(st, dt);
+                        InstanceBatch near = level <= 1 ? TryBatch(variant, a.Livery, model, VehicleLod.Lod1, rider) : null;
+                        if (near != null)
+                        {
+                            near.Add(m);
+                            Wheels(wheels, m, st.Odometer, VehicleLod.Lod1);
+                        }
+                        else Batch(variant, a.Livery, model, VehicleLod.Lod2, rider, false).Add(m);
                     }
                 }
                 else IdleUnique(st, dt);
@@ -307,9 +335,40 @@ namespace Ghumante.Traffic
             }
         }
 
-        /// <summary>The agent is not at LOD0 this frame: keep its body a while in case it comes back.</summary>
+        /// <summary>The agent is at LOD0: true when its plated body is ready; otherwise starts (or keeps) building it on
+        /// a worker and returns false (the caller draws the shared body meanwhile).</summary>
+        private bool TakeUnique(AgentState st, int variant, byte livery, byte model, uint seed, bool rider)
+        {
+            if (st.Unique != null) return true;
+            if (st.Pending == null)
+            {
+                st.Pending = _cache.RequestUnique(variant, livery, model, VehicleLod.Lod0, seed, rider);
+                return false;
+            }
+            if (st.Pending.Mesh != null)
+            {
+                st.Unique = st.Pending.Mesh;
+                _cache.Recycle(st.Pending);
+                st.Pending = null;
+                return true;
+            }
+            if (st.Pending.HasFailed)
+            {
+                _cache.Recycle(st.Pending);
+                st.Pending = null;
+            }
+            return false;
+        }
+
+        /// <summary>The agent is not at LOD0 this frame: keep its body a while in case it comes back (a build still
+        /// running is dropped).</summary>
         private void IdleUnique(AgentState st, float dt)
         {
+            if (st.Pending != null)
+            {
+                _cache.Cancel(st.Pending);
+                st.Pending = null;
+            }
             if (st.Unique == null) return;
             st.UniqueIdleS += Mathf.Max(dt, 1e-3f);
             if (st.UniqueIdleS > UniqueKeepS) DropUnique(st);
@@ -317,6 +376,11 @@ namespace Ghumante.Traffic
 
         private void DropUnique(AgentState st)
         {
+            if (st.Pending != null)
+            {
+                if (_cache != null) _cache.Cancel(st.Pending);
+                st.Pending = null;
+            }
             if (st.Unique == null) return;
             Destroy(st.Unique);
             st.Unique = null;
@@ -338,6 +402,23 @@ namespace Ghumante.Traffic
             InstanceBatch b;
             if (_batches.TryGetValue(key, out b)) return b;
             Mesh mesh = _cache.Body(variant, livery, model, lod, rider);
+            b = new InstanceBatch(mesh, _material, (int)(mesh.GetIndexCount(0) / 3), false)
+            {
+                Shadows = lod <= VehicleLod.Lod1 ? ShadowCastingMode.On : ShadowCastingMode.Off,
+            };
+            _batches.Add(key, b);
+            return b;
+        }
+
+        /// <summary>The batch of a shared moving body that may still be building (null until a worker has built it; see
+        /// <see cref="VehicleMeshCache.TryBody"/>).</summary>
+        private InstanceBatch TryBatch(int variant, byte livery, byte model, VehicleLod lod, bool rider)
+        {
+            ulong key = ((ulong)(uint)variant << 40) | ((ulong)livery << 32) | ((ulong)model << 16) | ((ulong)lod << 8) | (rider ? 1UL : 0UL);
+            InstanceBatch b;
+            if (_batches.TryGetValue(key, out b)) return b;
+            Mesh mesh;
+            if (!_cache.TryBody(variant, livery, model, lod, rider, out mesh)) return null;
             b = new InstanceBatch(mesh, _material, (int)(mesh.GetIndexCount(0) / 3), false)
             {
                 Shadows = lod <= VehicleLod.Lod1 ? ShadowCastingMode.On : ShadowCastingMode.Off,

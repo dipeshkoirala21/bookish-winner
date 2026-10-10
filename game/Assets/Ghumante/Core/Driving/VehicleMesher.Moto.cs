@@ -86,19 +86,42 @@ namespace Ghumante.Core.Driving
                 }
                 Rod(ref c, black, -0.09, 0.30, 0.52, -0.12, 0.27, 0.25, 0.012, 4);
             }
+            if (c.Lod == VehicleLod.Lod2) MotoFarFrame(ref c, model, r, topY, topZ, body);
             MotoEngine(ref c, model);
             MotoBody(ref c, model, body, gfx, seatY);
             MotoFront(ref c, model, wb, r, rake, fl, body, gfx);
             MotoRear(ref c, model, r, body);
             MotoExhaust(ref c, model);
 
-            SetPlates(0.62f, -0.43f, (float)(r + 0.27), (float)(wb + 0.05), 0.30f, 0.45f);
+            SetPlates(classic ? 0.60f : 0.62f, classic ? -0.38f : -0.43f, (float)(r + 0.27), (float)(wb + 0.05), classic ? 0.6f : 0.30f, 0.45f);
             s_rider = new RiderRef
             {
                 HipY = seatY + 0.06, HipZ = seatZ, GripX = classic ? 0.34 : 0.31, GripY = topY + (classic ? 0.08 : 0.06), GripZ = topZ - (classic ? 0.16 : 0.10),
                 PegX = 0.20, PegY = 0.36, PegZ = 0.46,
             };
             _ = d;
+        }
+
+        /// <summary>
+        /// LOD2 skeleton that ties the far bike together (the LOD0 tube frame and the LOD1 side covers are too fine to
+        /// draw this far): one black side-profile plate from the headstock along the backbone to the seat rails and down
+        /// round the engine to the swingarm pivot, a box swingarm to the rear axle, footpegs for the rider's feet and a
+        /// riser under the handlebar. Everything the far bike shows is attached to it (no daylight between the parts).
+        /// </summary>
+        private static void MotoFarFrame(ref Ctx c, int model, double r, double topY, double topZ, uint body)
+        {
+            ShapeBrush black = Plain(EngineC);
+            bool classic = model == Classic;
+            Profile2 fp = Prof.Clear(true);
+            fp.Add(topZ + 0.03, topY - 0.03, true).Add(topZ - 0.05, topY + 0.02, true).Add(classic ? 0.62 : 0.56, classic ? 0.90 : 0.86, true)
+              .Add(classic ? 0.30 : 0.20, 0.81, true).Add(-0.14, 0.80, true).Add(-0.14, 0.73, true).Add(0.30, 0.60, true).Add(0.46, 0.28, true)
+              .Add(0.88, 0.26, true).Add(topZ - 0.05, topY - 0.32, true);
+            SideExtrude(ref c, black, fp, -0.055, 0.055, 0.02, 1);
+            for (int s = -1; s <= 1; s += 2) OBar(ref c, Plain(classic ? EngineC : AlloyDarkC), s * 0.10, 0.46, 0.52, s * 0.10, r, 0.0, 0.035, 0.05);
+            OBox(ref c, black, T(0, 0.34, 0.46), 0.44, 0.03, 0.05); // footpegs (one bar through the frame)
+            double hbY = topY + (classic ? 0.08 : 0.06), hbZ = topZ - (classic ? 0.05 : 0.03);
+            OBar(ref c, black, 0, topY - 0.04, topZ + 0.02, 0, hbY, hbZ, 0.05, 0.05);
+            _ = body;
         }
 
         private static void MotoEngine(ref Ctx c, int model)
@@ -160,9 +183,8 @@ namespace Ghumante.Core.Driving
                     if (c.L0)
                         for (int s = -1; s <= 1; s += 2)
                             Spring(ref c, Chrome(), s * 0.07, 0.75, 0.46, s * 0.07, 0.83, 0.47, 0.022, 0.004, 3);
-                    if (c.L1)
-                        for (int s = -1; s <= 1; s += 2)
-                            Lump(ref c, paint, T(s * 0.115, 0.62, 0.40), 0.03, 0.085, 0.10, 0.3);
+                    for (int s = -1; s <= 1; s += 2)
+                        Lump(ref c, paint, T(s * 0.115, 0.62, 0.40), 0.03, 0.085, 0.10, 0.3);
                     break;
                 }
                 case Shine:
@@ -196,23 +218,38 @@ namespace Ghumante.Core.Driving
                     if (c.L0 && !street)
                         for (int s = -1; s <= 1; s += 2)
                             Decal(ref c, gpaint, s * 0.150, 1.0, 0.80, s, 0.45, 0, 0.26, 0.035, 0.015, 0.004);
-                    // Side covers under the seat.
+                    // Side covers under the seat (far away one painted silhouette of side covers and tail).
                     Profile2 sc = Prof.Clear(true);
-                    if (c.L1) sc.Add(0.22, 0.56, true).Add(0.62, 0.58, true).Add(0.66, 0.80, true).Add(0.28, 0.83, true).Add(0.16, 0.72, true);
-                    Fil(ref c, sc, 0.03, 2);
-                    SideExtrude(ref c, street ? paint : Plain(TrimC), sc, -0.115, 0.115, 0.03, 2);
+                    if (far)
+                    {
+                        sc.Add(0.62, 0.56, true).Add(0.66, 0.82, true).Add(0.20, 0.84, true).Add(-0.10, street ? 0.92 : 0.90, true).Add(street ? -0.35 : -0.38, street ? 0.97 : 0.95, true)
+                          .Add(street ? -0.33 : -0.36, 0.88, true).Add(-0.10, 0.80, true).Add(0.10, 0.74, true).Add(0.22, 0.56, true);
+                        v = c.M.VertexCount;
+                        SideExtrude(ref c, paint, sc, -0.105, 0.105, 0.03, 1);
+                        TaperByZ(c.M, v, 0.10, -0.38, 0.5);
+                    }
+                    else
+                    {
+                        sc.Add(0.22, 0.56, true).Add(0.62, 0.58, true).Add(0.66, 0.80, true).Add(0.28, 0.83, true).Add(0.16, 0.72, true);
+                        Fil(ref c, sc, 0.03, 2);
+                        SideExtrude(ref c, street ? paint : Plain(TrimC), sc, -0.115, 0.115, 0.03, 2);
+                    }
                     Ell(ref c, seat, 0, seatY + 0.005, 0.47, street ? 0.13 : 0.135, 0.05, street ? 0.15 : 0.17, 0.35, 0.5, far ? 8 : 12);
                     if (c.L1) Ell(ref c, seat, 0, seatY + (street ? 0.09 : 0.07), street ? 0.19 : 0.17, street ? 0.10 : 0.11, 0.045, street ? 0.12 : 0.14, 0.35, 0.5, 8);
-                    Profile2 tp = Prof.Clear(true);
-                    if (street)
-                        tp.Add(0.30, 0.74, true).Add(0.08, 0.80, true).Add(-0.34, 0.93, true).Add(-0.36, 0.97, true).Add(-0.10, 0.92, true).Add(0.32, 0.84, true);
-                    else
-                        tp.Add(0.36, 0.70, true).Add(0.06, 0.78, true).Add(-0.36, 0.90, true).Add(-0.38, 0.95, true).Add(-0.10, 0.90, true).Add(0.20, 0.84, true)
-                          .Add(0.38, 0.82, true);
-                    Fil(ref c, tp, 0.03, 2);
-                    v = c.M.VertexCount;
-                    SideExtrude(ref c, paint, tp, street ? -0.11 : -0.12, street ? 0.11 : 0.12, 0.035, 2);
-                    TaperByZ(c.M, v, street ? 0.10 : 0.15, street ? -0.36 : -0.38, street ? 0.45 : 0.5);
+                    if (!far)
+                    {
+                        // The tail cowl (far away part of the one silhouette above).
+                        Profile2 tp = Prof.Clear(true);
+                        if (street)
+                            tp.Add(0.30, 0.74, true).Add(0.08, 0.80, true).Add(-0.34, 0.93, true).Add(-0.36, 0.97, true).Add(-0.10, 0.92, true).Add(0.32, 0.84, true);
+                        else
+                            tp.Add(0.36, 0.70, true).Add(0.06, 0.78, true).Add(-0.36, 0.90, true).Add(-0.38, 0.95, true).Add(-0.10, 0.90, true).Add(0.20, 0.84, true)
+                              .Add(0.38, 0.82, true);
+                        Fil(ref c, tp, 0.03, 2);
+                        v = c.M.VertexCount;
+                        SideExtrude(ref c, paint, tp, street ? -0.11 : -0.12, street ? 0.11 : 0.12, 0.035, 2);
+                        TaperByZ(c.M, v, street ? 0.10 : 0.15, street ? -0.36 : -0.38, street ? 0.45 : 0.5);
+                    }
                     if (c.L0)
                         for (int s = -1; s <= 1; s += 2)
                             Decal(ref c, gpaint, s * 0.108, street ? 0.86 : 0.84, -0.05, s, 0.2, 0, 0.30, 0.025, 0.012, 0.003);
@@ -310,9 +347,11 @@ namespace Ghumante.Core.Driving
                 {
                     // Round headlamp in a chrome bowl, the nacelle above it, two pilot lamps on its flanks.
                     double cy = topY - 0.02, cz = topZ + 0.17;
-                    Shapes.Dome(c.M, AlongMinusZ(0, cy, cz - 0.02), Metal(ChromeC), 0.105, 0.11, 12, false, c.S);
-                    Cyl(ref c, Metal(ChromeC), 0, cy, cz - 0.03, 0, cy, cz + 0.005, 0.112, 14);
-                    Shapes.Dome(c.M, AlongZ(0, cy, cz), Glass(LensC), 0.095, 0.03, 12, false, c.S);
+                    // The chrome bowl reaches back to the fork crown (far away one deeper rim instead of rim and bowl).
+                    if (c.L1) Shapes.Dome(c.M, AlongMinusZ(0, cy, cz - 0.02), Metal(ChromeC), 0.105, 0.11, 12, false, c.S);
+                    Cyl(ref c, Metal(ChromeC), 0, cy, cz - (c.L1 ? 0.03 : 0.14), 0, cy, cz + 0.005, 0.112, 14);
+                    if (c.L1) Shapes.Dome(c.M, AlongZ(0, cy, cz), Glass(LensC), 0.095, 0.03, 12, false, c.S);
+                    else Cyl(ref c, Glass(LensC), 0, cy, cz, 0, cy, cz + 0.012, 0.095, 12);
                     if (c.L1)
                     {
                         Ell(ref c, paint, Pitched(0, topY + 0.05, topZ + 0.04, -0.3), 0.10, 0.05, 0.11, 0.6, 0.7, 8);
@@ -458,7 +497,9 @@ namespace Ghumante.Core.Driving
             switch (model)
             {
                 case Classic:
-                    Lamp(ref c, TailC, ChromeC, 0, 0.74, -0.42, 0, 0.2, -1, 0.045, 0.03, 12);
+                    // Round tail lamp on top of the valanced rear mudguard (its 125° point), with the plate under it.
+                    Lamp(ref c, TailC, ChromeC, 0, r + (r + 0.062) * Math.Sin(125 * Math.PI / 180), (r + 0.062) * Math.Cos(125 * Math.PI / 180), 0, 0.55, -0.83,
+                         0.045, 0.03, 12);
                     if (c.L0)
                     {
                         Path3 gr = P;

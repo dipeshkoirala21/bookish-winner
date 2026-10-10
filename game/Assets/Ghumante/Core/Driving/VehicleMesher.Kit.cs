@@ -279,9 +279,9 @@ namespace Ghumante.Core.Driving
             }
             else
             {
-                // Farther away a plain rectangular section, on fewer segments.
+                // Farther away a plain rectangular section, on fewer segments (a third of them at LOD2).
                 p.Add(radius + 0.5 * crown, -hw, true).Add(radius + 0.5 * crown, hw, true).Add(radius - thick, hw, true).Add(radius - thick, -hw, true);
-                seg = Math.Max(6, (seg * 2) / 3);
+                seg = c.Lod == VehicleLod.Lod2 ? Math.Max(4, seg / 3) : Math.Max(6, (seg * 2) / 3);
             }
             Affine3 xf = AcrossX(x, y, z);
             // Compass angle a of the lathe maps to vehicle (Y = −r sin a, Z = r cos a): θ (from +Z toward +Y) = −a.
@@ -364,7 +364,7 @@ namespace Ghumante.Core.Driving
         {
             double w = x1 - x0;
             if (w <= 1e-4 || zy.Count < 3) return c.M.VertexCount;
-            double bv = Math.Min(bevel, 0.45 * w);
+            double bv = c.Lod == VehicleLod.Lod2 ? 0 : Math.Min(bevel, 0.45 * w); // far: plain prisms, the outline is what shows
             // Local (x, y, z) → vehicle (Z = x, X = x0 + y, Y = z).
             Affine3 xf = Affine3.FromBasis(0, 0, 1, 1, 0, 0, 0, 1, 0, x0, 0, 0);
             return Shapes.BevelExtrude(c.M, xf, b, zy.X, zy.Y, zy.Count, w, bv, seg, BevelStyle.Round, true, true, bv, 30, c.S);
@@ -375,7 +375,7 @@ namespace Ghumante.Core.Driving
         {
             double d = z1 - z0;
             if (d <= 1e-4 || xy.Count < 3) return c.M.VertexCount;
-            double bv = Math.Min(bevel, 0.45 * d);
+            double bv = c.Lod == VehicleLod.Lod2 ? 0 : Math.Min(bevel, 0.45 * d);
             // Local (x, y, z) → vehicle (X = x, Z = z0 + y, Y = z).
             Affine3 xf = Affine3.FromBasis(1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, z0);
             return Shapes.BevelExtrude(c.M, xf, b, xy.X, xy.Y, xy.Count, d, bv, seg, BevelStyle.Round, true, true, bv, 30, c.S);
@@ -386,7 +386,8 @@ namespace Ghumante.Core.Driving
         {
             double h = y1 - y0;
             if (h <= 1e-4 || xz.Count < 3) return c.M.VertexCount;
-            double bv = Math.Min(bevel, 0.45 * h), bb = Math.Min(bottomBevel, 0.45 * h);
+            bool far = c.Lod == VehicleLod.Lod2;
+            double bv = far ? 0 : Math.Min(bevel, 0.45 * h), bb = far ? 0 : Math.Min(bottomBevel, 0.45 * h);
             return Shapes.BevelExtrude(c.M, T(0, y0, 0), b, xz.X, xz.Y, xz.Count, h, bv, seg, BevelStyle.Round, true, true, bb, 30, c.S);
         }
 
@@ -520,13 +521,14 @@ namespace Ghumante.Core.Driving
             nx /= l;
             ny /= l;
             nz /= l;
-            if (rim != 0)
-                Cyl(ref c, Metal(rim), x - nx * depth, y - ny * depth, z - nz * depth, x, y, z, r * 1.12, seg, 0.25 * r);
             if (c.Lod == VehicleLod.Lod2)
             {
-                Cyl(ref c, Glass(lens), x - nx * 0.01, y - ny * 0.01, z - nz * 0.01, x + nx * 0.004, y + ny * 0.004, z + nz * 0.004, r, seg);
+                // Far: the lens as one short drum standing in the housing's place.
+                Cyl(ref c, Glass(lens), x - nx * depth, y - ny * depth, z - nz * depth, x + nx * 0.004, y + ny * 0.004, z + nz * 0.004, r * 1.05, seg);
                 return;
             }
+            if (rim != 0)
+                Cyl(ref c, Metal(rim), x - nx * depth, y - ny * depth, z - nz * depth, x, y, z, r * 1.12, seg, 0.25 * r);
             Shapes.Dome(c.M, Facing(x, y, z, nx, ny, nz), Glass(lens), r, 0.3 * r, seg, false, c.S);
         }
 
@@ -576,17 +578,9 @@ namespace Ghumante.Core.Driving
             if (n < 2) return first;
             int k = c.Lod == VehicleLod.Lod0 ? seg : c.Lod == VehicleLod.Lod1 ? Math.Max(1, seg / 3) : 1;
             int per = 4 * (k + 1);
-            if (c.Lod == VehicleLod.Lod2 && n > 4)
+            if (c.Lod == VehicleLod.Lod2 && n > ShortHull)
             {
-                // Far: keep every other section (and both ends).
-                int w = 0;
-                for (int i = 0; i < n; i++)
-                    if (i == 0 || i == n - 1 || (i & 1) == 0)
-                    {
-                        if (w != i) Array.Copy(s_hull, 7 * i, s_hull, 7 * w, 7);
-                        w++;
-                    }
-                n = w;
+                n = HullDecimate(n, HullTolerance);
                 s_hullN = n;
             }
             for (int i = 0; i < n; i++)
@@ -615,6 +609,97 @@ namespace Ghumante.Core.Driving
             if (capStart) HullCap(ref c, b, first, per, 0, alongY);
             if (capEnd) HullCap(ref c, b, first + (n - 1) * per, per, n - 1, alongY);
             return first;
+        }
+
+        /// <summary>The section of the hull just emitted (or being built) at station <paramref name="t"/>, linearly
+        /// between its sections (clamped to the ends): centre v, half sizes u and v.</summary>
+        internal static void HullSectionAt(double t, out double cv, out double hu, out double hv)
+        {
+            int n = s_hullN;
+            int i = 1;
+            while (i < n - 1 && s_hull[7 * i] < t) i++;
+            int a = 7 * (i - 1), b = 7 * i;
+            double span = s_hull[b] - s_hull[a], f = span > 1e-9 ? (t - s_hull[a]) / span : 0;
+            if (f < 0) f = 0;
+            if (f > 1) f = 1;
+            cv = s_hull[a + 2] + (s_hull[b + 2] - s_hull[a + 2]) * f;
+            hu = s_hull[a + 3] + (s_hull[b + 3] - s_hull[a + 3]) * f;
+            hv = s_hull[a + 4] + (s_hull[b + 4] - s_hull[a + 4]) * f;
+        }
+
+        /// <summary>Hulls with at most this many sections keep every one at LOD2; longer ones drop only the sections
+        /// the loft reproduces anyway (<see cref="HullDecimate"/>), never a crease such as a roof header.</summary>
+        internal const int ShortHull = 4;
+
+        /// <summary>The largest change (m) of a section's centre or half size that LOD2 may smooth away when it drops
+        /// a section between two kept ones.</summary>
+        internal const double HullTolerance = 0.025;
+
+        [ThreadStatic] private static bool[] s_keep;
+
+        /// <summary>
+        /// Drops the hull sections that the straight loft between their kept neighbours already reproduces within
+        /// <paramref name="tol"/> (centre and half sizes, linear in the station): flat runs of a long body thin out,
+        /// while every crease (roof headers, arch tops, bumper and nose corners) stays exactly where LOD0 has it.
+        /// Greedy and in order, deterministic; returns the new section count.
+        /// </summary>
+        internal static int HullDecimate(int n, double tol)
+        {
+            if (n <= 2) return n;
+            if (s_keep == null || s_keep.Length < n) s_keep = new bool[Math.Max(64, n)];
+            bool[] keep = s_keep;
+            keep[0] = true;
+            keep[n - 1] = true;
+            int last = 0;
+            for (int i = 1; i < n - 1; i++)
+            {
+                // Can the loft run straight from the last kept section to i + 1, skipping everything in between?
+                bool ok = true;
+                for (int j = last + 1; j <= i && ok; j++) ok = HullDeviation(last, i + 1, j) <= tol;
+                keep[i] = !ok;
+                if (!ok) last = i;
+            }
+            int w = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (!keep[i]) continue;
+                if (w != i) Array.Copy(s_hull, 7 * i, s_hull, 7 * w, 7);
+                w++;
+            }
+            return w;
+        }
+
+        /// <summary>How far section <paramref name="j"/> lies from the linear blend of sections <paramref name="a"/> and
+        /// <paramref name="b"/> at its station: the largest difference of its four edges (±u, ±v) and, at half weight, its
+        /// corner radii.</summary>
+        private static double HullDeviation(int a, int b, int j)
+        {
+            int oa = 7 * a, ob = 7 * b, oj = 7 * j;
+            double span = s_hull[ob] - s_hull[oa], t = span > 1e-9 ? (s_hull[oj] - s_hull[oa]) / span : 0;
+            double d = 0;
+            for (int k = 0; k < 6; k++)
+            {
+                // Edges: centre u ± half u, centre v ± half v; then the two corner radii.
+                double va, vb, vj, w = 1;
+                if (k < 4)
+                {
+                    int c = k < 2 ? 1 : 2, h = c + 2;
+                    double sg = (k & 1) == 0 ? 1 : -1;
+                    va = s_hull[oa + c] + sg * s_hull[oa + h];
+                    vb = s_hull[ob + c] + sg * s_hull[ob + h];
+                    vj = s_hull[oj + c] + sg * s_hull[oj + h];
+                }
+                else
+                {
+                    va = s_hull[oa + k + 1];
+                    vb = s_hull[ob + k + 1];
+                    vj = s_hull[oj + k + 1];
+                    w = 0.5;
+                }
+                double e = w * Math.Abs(va + (vb - va) * t - vj);
+                if (e > d) d = e;
+            }
+            return d;
         }
 
         private static void HullCap(ref Ctx c, in ShapeBrush b, int ring, int per, int section, bool alongY)

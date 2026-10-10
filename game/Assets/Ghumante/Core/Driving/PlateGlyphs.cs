@@ -6,7 +6,9 @@ namespace Ghumante.Core.Driving
     /// <summary>
     /// A tiny procedural stroke font for number plates (W2_DESIGN 5.2): the Devanagari digits ०–९, the zone code बा (ब +
     /// the ा sign) and the class letters क ख ग च ज झ प फ ब, drawn as straight strokes on a 4 × 6 grid (x right, y up)
-    /// with the headline (shirorekha) on the letters. Cartoon shapes, readable at plate scale; no font asset ships.
+    /// with the headline (shirorekha) on the letters; plus the Latin capitals of the painted "HORN PLEASE" on truck
+    /// tailgates (A E H L N O P R S, a road custom, not a brand). Cartoon shapes, readable at plate scale; no font asset
+    /// ships.
     /// </summary>
     public static class PlateGlyphs
     {
@@ -70,6 +72,18 @@ namespace Ghumante.Core.Driving
             d['फ'] = Concat(head, stem, Poly(0.8f, 5.6f, 0.8f, 2.6f, 3.3f, 2.6f), Seg(3.3f, 3.6f, 4, 4.4f));
             d['ग'] = Concat(head, stem, Seg(1.5f, 5.6f, 1.5f, 1.2f));
             d['झ'] = Concat(head, stem, Poly(0.8f, 4.6f, 2.4f, 4.6f, 1, 3, 2.4f, 2, 1.6f, 0.6f));
+            // Latin capitals for "HORN PLEASE" (truck tailgates).
+            float[] bowl = Poly(0.6f, 5.6f, 2.8f, 5.6f, 3.4f, 4.9f, 3.4f, 3.7f, 2.8f, 3.0f, 0.6f, 3.0f), left = Seg(0.6f, 0.4f, 0.6f, 5.6f);
+            d['H'] = Concat(left, Seg(3.4f, 0.4f, 3.4f, 5.6f), Seg(0.6f, 3.0f, 3.4f, 3.0f));
+            d['O'] = Poly(1.2f, 0.4f, 2.8f, 0.4f, 3.4f, 1.2f, 3.4f, 4.8f, 2.8f, 5.6f, 1.2f, 5.6f, 0.6f, 4.8f, 0.6f, 1.2f, 1.2f, 0.4f);
+            d['R'] = Concat(left, bowl, Seg(2.0f, 3.0f, 3.4f, 0.4f));
+            d['N'] = Poly(0.6f, 0.4f, 0.6f, 5.6f, 3.4f, 0.4f, 3.4f, 5.6f);
+            d['P'] = Concat(left, bowl);
+            d['L'] = Poly(0.6f, 5.6f, 0.6f, 0.4f, 3.4f, 0.4f);
+            d['E'] = Concat(Poly(3.4f, 5.6f, 0.6f, 5.6f, 0.6f, 0.4f, 3.4f, 0.4f), Seg(0.6f, 3.0f, 2.8f, 3.0f));
+            d['A'] = Concat(Poly(0.5f, 0.4f, 2.0f, 5.6f, 3.5f, 0.4f), Seg(1.1f, 2.2f, 2.9f, 2.2f));
+            d['S'] = Poly(3.4f, 5.0f, 2.8f, 5.6f, 1.2f, 5.6f, 0.6f, 4.9f, 0.6f, 3.8f, 1.2f, 3.1f, 2.8f, 2.9f, 3.4f, 2.2f, 3.4f, 1.0f, 2.8f, 0.4f, 1.2f, 0.4f,
+                          0.6f, 1.0f);
             return d;
         }
 

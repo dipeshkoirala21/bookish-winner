@@ -146,9 +146,18 @@ namespace Ghumante.Core.Driving
             };
         }
 
-        /// <summary>The wheels of an entry (rear axle at z = 0, front at the wheelbase; tandem rear on the tipper; three
-        /// wheels on the tempo and rickshaw; big rear wheels on the tractor; wide dual rear wheels on buses and trucks).</summary>
+        /// <summary>The wheels of an entry as its first model type draws them (<see cref="Wheels(in VehicleCatalogEntry, int)"/>).
+        /// Prefer the overload with the vehicle's own model type: car model types differ in track and wheel look.</summary>
         public static WheelSocket[] Wheels(in VehicleCatalogEntry e)
+        {
+            return Wheels(e, 0);
+        }
+
+        /// <summary>The wheels of an entry drawn as model type <paramref name="model"/> (rear axle at z = 0, front at the
+        /// wheelbase; tandem rear on the tipper; three wheels on the tempo and rickshaw; big rear wheels on the tractor;
+        /// wide dual rear wheels on buses and trucks; cars at their model type's track with alloys or steel wheels).
+        /// Deterministic; allocates the returned array.</summary>
+        public static WheelSocket[] Wheels(in VehicleCatalogEntry e, int model)
         {
             Dims d = DimsOf(e);
             float r = d.WheelR;
@@ -219,9 +228,12 @@ namespace Ghumante.Core.Driving
                 }
                 default:
                 {
-                    // Cars and vans: tyre face flush with the body side.
-                    float w = Math.Max(0.16f, Math.Min(0.30f, 0.11f * d.Width + 0.04f)), x = d.Half - 0.5f * w - 0.015f;
-                    WheelStyle st = CarWheelStyle(e);
+                    // Cars and vans: tyre face flush with the body side of the model type, width on a 2 cm grid with the
+                    // alloys on the odd centimetre (so StyleFor reads the style back from the size).
+                    double bw, fe, re;
+                    WheelStyle st;
+                    CarProportions(e, model, out bw, out fe, out re, out st);
+                    float w = CarWheelWidth(bw, st == WheelStyle.CarAlloy), x = (float)(0.5 * bw) - 0.5f * w - 0.015f;
                     return new[]
                     {
                         new WheelSocket { X = -x, Y = r, Z = 0f, Radius = r, Width = w, Style = st },
@@ -240,19 +252,6 @@ namespace Ghumante.Core.Driving
                 new WheelSocket { X = 0f, Y = r, Z = 0f, Radius = r, Width = rearW, Style = rear },
                 new WheelSocket { X = 0f, Y = r, Z = wb, Radius = r, Width = frontW, Steers = true, Style = front },
             };
-        }
-
-        private static WheelStyle CarWheelStyle(in VehicleCatalogEntry e)
-        {
-            switch (e.TrafficClass)
-            {
-                case Traffic.VehicleClass.Taxi:
-                case Traffic.VehicleClass.Microbus:
-                case Traffic.VehicleClass.Service:
-                    return WheelStyle.Car;
-            }
-            if (e.Shape == BodyShape.Van || e.Shape == BodyShape.Hatchback) return WheelStyle.Car;
-            return WheelStyle.CarAlloy;
         }
 
         internal static bool IsTwo(BodyShape s)
@@ -376,6 +375,13 @@ namespace Ghumante.Core.Driving
         /// </summary>
         public static int Build(int variant, byte livery, byte model, VehicleLod lod, MeshData m, uint plateSeed = 0, bool rider = false)
         {
+            return Build(variant, livery, model, lod, m, plateSeed, rider, true);
+        }
+
+        /// <summary>As <see cref="Build(int, byte, byte, VehicleLod, MeshData, uint, bool)"/>; without
+        /// <paramref name="bakeWheels"/> LOD2 leaves its wheels out too (tests check the body on its own).</summary>
+        internal static int Build(int variant, byte livery, byte model, VehicleLod lod, MeshData m, uint plateSeed, bool rider, bool bakeWheels)
+        {
             if (m == null) throw new ArgumentNullException(nameof(m));
             VehicleCatalogEntry e = VehicleCatalog.At(variant);
             VehicleLivery lv = e.LiveryAt(livery);
@@ -443,8 +449,8 @@ namespace Ghumante.Core.Driving
                     Car(ref c, e, d, pal);
                     break;
             }
-            if (lod == VehicleLod.Lod2)
-                foreach (WheelSocket w in Wheels(e))
+            if (lod == VehicleLod.Lod2 && bakeWheels)
+                foreach (WheelSocket w in Wheels(e, c.Model))
                     WheelAt(ref c, w);
             if (lod <= VehicleLod.Lod1) Plates(ref c, e, d, plateSeed);
             BakeAo(m, v0, i0, true);
@@ -484,27 +490,33 @@ namespace Ghumante.Core.Driving
             return m.IndexCount / 3 - before;
         }
 
-        /// <summary>The style of the catalogue wheel with this radius and width (to the centimetre), or
-        /// <see cref="WheelStyle.Car"/>; the first catalogue socket of that size wins.</summary>
+        /// <summary>The style of the catalogue wheel with this radius and width (to the centimetre) over every entry and
+        /// model type, or <see cref="WheelStyle.Car"/> for a size the catalogue does not use. Unambiguous: no two sockets
+        /// of one size have different styles (car wheels sit on a 2 cm width grid with the alloys on the odd centimetre;
+        /// VehicleMeshTests checks every socket). Prefer <see cref="BuildWheel(in WheelSocket, VehicleLod, MeshData)"/>
+        /// with the socket itself.</summary>
         public static WheelStyle StyleFor(float radius, float width)
         {
             int r = (int)Math.Round(radius * 100f), w = (int)Math.Round(width * 100f);
-            WheelSocket[][] all = AllSockets();
-            for (int v = 0; v < all.Length; v++)
-                foreach (WheelSocket s in all[v])
-                    if ((int)Math.Round(s.Radius * 100f) == r && (int)Math.Round(s.Width * 100f) == w)
-                        return s.Style;
+            WheelSocket[] all = AllSockets();
+            for (int i = 0; i < all.Length; i++)
+                if ((int)Math.Round(all[i].Radius * 100f) == r && (int)Math.Round(all[i].Width * 100f) == w)
+                    return all[i].Style;
             return WheelStyle.Car;
         }
 
-        private static WheelSocket[][] _allSockets;
+        private static WheelSocket[] _allSockets;
 
-        private static WheelSocket[][] AllSockets()
+        /// <summary>Every wheel socket of every catalogue entry and model type (built once).</summary>
+        internal static WheelSocket[] AllSockets()
         {
-            WheelSocket[][] a = _allSockets;
+            WheelSocket[] a = _allSockets;
             if (a != null) return a;
-            a = new WheelSocket[VehicleCatalog.Count][];
-            for (int v = 0; v < a.Length; v++) a[v] = Wheels(VehicleCatalog.At(v));
+            var list = new System.Collections.Generic.List<WheelSocket>();
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+                for (int k = 0; k < ModelCount(v); k++)
+                    list.AddRange(Wheels(VehicleCatalog.At(v), k));
+            a = list.ToArray();
             _allSockets = a;
             return a;
         }

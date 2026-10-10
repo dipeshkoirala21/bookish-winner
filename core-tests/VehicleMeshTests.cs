@@ -21,7 +21,7 @@ namespace Ghumante.Core.Tests
         {
             int tris = VehicleMesher.Build(v, livery, model, lod, m, seed, rider);
             if (lod <= VehicleLod.Lod1)
-                foreach (WheelSocket w in VehicleMesher.Wheels(VehicleCatalog.At(v)))
+                foreach (WheelSocket w in VehicleMesher.Wheels(VehicleCatalog.At(v), model))
                     tris += VehicleMesher.BuildWheel(w, lod, new MeshData());
             return tris;
         }
@@ -184,6 +184,241 @@ namespace Ghumante.Core.Tests
             Assert.That(lod0, Is.GreaterThan(blank + 20));
         }
 
+        /// <summary>
+        /// A wheel's style reads back from its size alone (<see cref="VehicleMesher.StyleFor"/>, used by callers that only
+        /// know the radius and width): over every entry and model type no two sockets of one size disagree, so a borrowed
+        /// EV keeps its alloys and the police jeep its steel wheels.
+        /// </summary>
+        [Test]
+        public void WheelStyleReadsBackFromEverySocketSize()
+        {
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                    foreach (WheelSocket s in VehicleMesher.Wheels(e, k))
+                        Assert.That(VehicleMesher.StyleFor(s.Radius, s.Width), Is.EqualTo(s.Style),
+                                    e.AssetId + "/" + VehicleMesher.ModelName(v, k) + " r " + s.Radius + " w " + s.Width);
+            }
+            // The overload without a model type is the first model type's.
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                WheelSocket[] a = VehicleMesher.Wheels(VehicleCatalog.At(v)), b = VehicleMesher.Wheels(VehicleCatalog.At(v), 0);
+                Assert.That(a.Length, Is.EqualTo(b.Length));
+                for (int i = 0; i < a.Length; i++) Assert.That(a[i].X, Is.EqualTo(b[i].X));
+            }
+        }
+
+        /// <summary>
+        /// Car wheels sit under their own model type's body: the tyre's outer face is within 3 cm of the body side (no
+        /// tyre poking out of the narrow Alto type, none sunk deep inside the wide Prado type).
+        /// </summary>
+        [Test]
+        public void CarWheelsSitFlushWithTheirModelBody()
+        {
+            var m = new MeshData(8192, 24576);
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                if (e.Shape != BodyShape.Hatchback && e.Shape != BodyShape.Suv && e.Shape != BodyShape.Pickup) continue;
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                {
+                    m.Clear();
+                    VehicleMesher.Build(v, 0, (byte)k, VehicleLod.Lod1, m, 5u);
+                    // Body half width at the wheel centre height over the front axle, mirrors excluded (below the belt).
+                    WheelSocket[] ws = VehicleMesher.Wheels(e, k);
+                    WheelSocket f = ws[ws.Length - 1];
+                    float half = 0;
+                    for (int i = 0; i < m.VertexCount; i++)
+                    {
+                        float y = m.Positions[3 * i + 1], z = m.Positions[3 * i + 2];
+                        if (y > f.Radius + 0.35f || Math.Abs(z - f.Z) > 0.9f) continue;
+                        half = Math.Max(half, Math.Abs(m.Positions[3 * i]));
+                    }
+                    float outer = Math.Abs(f.X) + 0.5f * f.Width;
+                    string id = e.AssetId + "/" + VehicleMesher.ModelName(v, k);
+                    Assert.That(outer, Is.LessThanOrEqualTo(half + 0.03f), id + " tyre inside the body");
+                    Assert.That(outer, Is.GreaterThanOrEqualTo(half - 0.08f), id + " tyre near the body side");
+                }
+            }
+        }
+
+        /// <summary>Highest point of the mesh on the vertical line through (x, z), or NaN when the line misses it.</summary>
+        internal static float TopAt(MeshData m, float x, float z)
+        {
+            float best = float.NaN;
+            float[] p = m.Positions;
+            for (int t = 0; t < m.IndexCount; t += 3)
+            {
+                int a = m.Indices[t] * 3, b = m.Indices[t + 1] * 3, c = m.Indices[t + 2] * 3;
+                float ax = p[a], az = p[a + 2], bx = p[b], bz = p[b + 2], cx = p[c], cz = p[c + 2];
+                float d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+                if (Math.Abs(d) < 1e-9f) continue;
+                float u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d, v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d, w = 1 - u - v;
+                if (u < -1e-4f || v < -1e-4f || w < -1e-4f) continue;
+                float y = u * p[a + 1] + v * p[b + 1] + w * p[c + 1];
+                if (float.IsNaN(best) || y > best) best = y;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// LOD2 keeps the car's shape: the far hull may not drop the stations that make the glasshouse (the old
+        /// every-other-station rule turned every car into a wedge coupé). Along two lines over the roof (x = ±0.4 m, clear
+        /// of signs, bars and rails), the roof span (top within 8 cm of the highest point) starts and ends within 12 cm of
+        /// LOD0's headers, and over LOD0's roof span the LOD2 roof is within 5 cm.
+        /// </summary>
+        [Test]
+        public void FarCarsKeepTheirRoofline()
+        {
+            var m0 = new MeshData(8192, 24576);
+            var m2 = new MeshData(2048, 6144);
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                if (e.Shape != BodyShape.Hatchback && e.Shape != BodyShape.Suv && e.Shape != BodyShape.Pickup) continue;
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                {
+                    string id = e.AssetId + "/" + VehicleMesher.ModelName(v, k);
+                    m0.Clear();
+                    m2.Clear();
+                    VehicleMesher.Build(v, 0, (byte)k, VehicleLod.Lod0, m0, 5u);
+                    VehicleMesher.Build(v, 0, (byte)k, VehicleLod.Lod2, m2, 5u);
+                    float minX, minY, minZ, maxX, maxY, maxZ;
+                    m0.GetBounds(out minX, out minY, out minZ, out maxX, out maxY, out maxZ);
+                    int n = (int)((maxZ - minZ) / 0.04f);
+                    var h0 = new float[n];
+                    var h2 = new float[n];
+                    float top0 = 0, top2 = 0;
+                    for (int i = 0; i < n; i++)
+                    {
+                        float z = minZ + 0.02f + 0.04f * i;
+                        h0[i] = Math.Max(Nz(TopAt(m0, 0.4f, z)), Nz(TopAt(m0, -0.4f, z)));
+                        h2[i] = Math.Max(Nz(TopAt(m2, 0.4f, z)), Nz(TopAt(m2, -0.4f, z)));
+                        top0 = Math.Max(top0, h0[i]);
+                        top2 = Math.Max(top2, h2[i]);
+                    }
+                    Assert.That(top2, Is.EqualTo(top0).Within(0.05f), id + " roof height");
+                    int a0 = -1, b0 = -1, a2 = -1, b2 = -1;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (h0[i] >= top0 - 0.08f)
+                        {
+                            if (a0 < 0) a0 = i;
+                            b0 = i;
+                        }
+                        if (h2[i] >= top2 - 0.08f)
+                        {
+                            if (a2 < 0) a2 = i;
+                            b2 = i;
+                        }
+                    }
+                    Assert.That(Math.Abs(a2 - a0) * 0.04f, Is.LessThanOrEqualTo(0.12f), id + " rear roof header");
+                    Assert.That(Math.Abs(b2 - b0) * 0.04f, Is.LessThanOrEqualTo(0.12f), id + " windscreen header");
+                    for (int i = a0; i <= b0; i++) Assert.That(h2[i], Is.EqualTo(h0[i]).Within(0.05f), id + " roof at z " + (minZ + 0.02f + 0.04f * i));
+                }
+            }
+        }
+
+        /// <summary>
+        /// A far two-wheeler (LOD2, wheels and rider left out) is one piece: voxelised at 2.5 cm, every part touches the
+        /// rest (no seat, tank or tail floating with daylight round it), and the piece runs from behind the seat to the
+        /// headstock (the frame, side covers and tail are there, not just a tank and an engine).
+        /// </summary>
+        [Test]
+        public void FarTwoWheelersAreOnePiece()
+        {
+            var m = new MeshData(2048, 6144);
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                if (e.Shape != BodyShape.Scooter && e.Shape != BodyShape.Motorbike && e.Shape != BodyShape.Cruiser && e.Shape != BodyShape.Bicycle) continue;
+                VehicleMesher.Dims d = VehicleMesher.DimsOf(e);
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                {
+                    string id = e.AssetId + "/" + VehicleMesher.ModelName(v, k);
+                    m.Clear();
+                    VehicleMesher.Build(v, 0, (byte)k, VehicleLod.Lod2, m, 5u, false, false);
+                    float z0, z1;
+                    int pieces = Pieces(m, 0.025f, out z0, out z1);
+                    Assert.That(pieces, Is.EqualTo(1), id + " LOD2 body pieces");
+                    Assert.That(z0, Is.LessThanOrEqualTo(0.42f * d.Wheelbase - 0.15f), id + " reaches behind the seat");
+                    Assert.That(z1, Is.GreaterThanOrEqualTo(d.Wheelbase - 0.40f), id + " reaches the headstock");
+                }
+            }
+        }
+
+        /// <summary>Connected pieces of a mesh voxelised at <paramref name="cell"/> (26-neighbourhood over the cells its
+        /// triangles touch) and the z extent of the largest piece.</summary>
+        internal static int Pieces(MeshData m, float cell, out float zMin, out float zMax)
+        {
+            var cells = new HashSet<long>();
+            float[] p = m.Positions;
+            for (int t = 0; t < m.IndexCount; t += 3)
+            {
+                int a = m.Indices[t] * 3, b = m.Indices[t + 1] * 3, c = m.Indices[t + 2] * 3;
+                float e = Math.Max(Dist(p, a, b), Math.Max(Dist(p, b, c), Dist(p, c, a)));
+                int n = Math.Max(1, (int)Math.Ceiling(e / (0.4f * cell)));
+                for (int i = 0; i <= n; i++)
+                    for (int j = 0; j <= n - i; j++)
+                    {
+                        float u = (float)i / n, w = (float)j / n;
+                        float x = p[a] + (p[b] - p[a]) * u + (p[c] - p[a]) * w, y = p[a + 1] + (p[b + 1] - p[a + 1]) * u + (p[c + 1] - p[a + 1]) * w,
+                              z = p[a + 2] + (p[b + 2] - p[a + 2]) * u + (p[c + 2] - p[a + 2]) * w;
+                        cells.Add(Key((int)Math.Floor(x / cell), (int)Math.Floor(y / cell), (int)Math.Floor(z / cell)));
+                    }
+            }
+            var seen = new HashSet<long>();
+            var queue = new Queue<long>();
+            int pieces = 0, best = 0;
+            zMin = zMax = 0;
+            foreach (long start in cells)
+            {
+                if (!seen.Add(start)) continue;
+                pieces++;
+                queue.Enqueue(start);
+                int count = 0, lo = int.MaxValue, hi = int.MinValue;
+                while (queue.Count > 0)
+                {
+                    long k = queue.Dequeue();
+                    count++;
+                    int cx = (int)((k >> 42) & 0x1FFFFF) - (1 << 20), cy = (int)((k >> 21) & 0x1FFFFF) - (1 << 20), cz = (int)(k & 0x1FFFFF) - (1 << 20);
+                    lo = Math.Min(lo, cz);
+                    hi = Math.Max(hi, cz);
+                    for (int dx = -1; dx <= 1; dx++)
+                        for (int dy = -1; dy <= 1; dy++)
+                            for (int dz = -1; dz <= 1; dz++)
+                            {
+                                long nk = Key(cx + dx, cy + dy, cz + dz);
+                                if (cells.Contains(nk) && seen.Add(nk)) queue.Enqueue(nk);
+                            }
+                }
+                if (count > best)
+                {
+                    best = count;
+                    zMin = lo * cell;
+                    zMax = (hi + 1) * cell;
+                }
+            }
+            return pieces;
+        }
+
+        private static long Key(int x, int y, int z)
+        {
+            return ((long)(x + (1 << 20)) << 42) | ((long)(y + (1 << 20)) << 21) | (long)(z + (1 << 20));
+        }
+
+        private static float Dist(float[] p, int a, int b)
+        {
+            float dx = p[a] - p[b], dy = p[a + 1] - p[b + 1], dz = p[a + 2] - p[b + 2];
+            return (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        private static float Nz(float f)
+        {
+            return float.IsNaN(f) ? 0f : f;
+        }
+
         /// <summary>Overall dimensions of every catalogue entry (run explicitly).</summary>
         [Test, Explicit]
         public void DimsReport()
@@ -215,7 +450,7 @@ namespace Ghumante.Core.Tests
                         string wheels = "";
                         int wsum = 0;
                         if (lod <= VehicleLod.Lod1)
-                            foreach (WheelSocket w in VehicleMesher.Wheels(e))
+                            foreach (WheelSocket w in VehicleMesher.Wheels(e, k))
                             {
                                 int t = VehicleMesher.BuildWheel(w, lod, new MeshData());
                                 wsum += t;
@@ -251,7 +486,7 @@ namespace Ghumante.Core.Tests
                             var m = new MeshData();
                             int tris = VehicleMesher.Build(v, (byte)l, (byte)k, lod, m, 1234u + (uint)l, false);
                             if (lod <= VehicleLod.Lod1)
-                                foreach (WheelSocket s in VehicleMesher.Wheels(e))
+                                foreach (WheelSocket s in VehicleMesher.Wheels(e, k))
                                 {
                                     var wheel = new MeshData();
                                     tris += VehicleMesher.BuildWheel(s, lod, wheel);
@@ -263,7 +498,7 @@ namespace Ghumante.Core.Tests
                             {
                                 var rm = new MeshData();
                                 VehicleMesher.Build(v, (byte)l, (byte)k, lod, rm, 1234u, true);
-                                foreach (WheelSocket s in VehicleMesher.Wheels(e))
+                                foreach (WheelSocket s in VehicleMesher.Wheels(e, k))
                                 {
                                     var wheel = new MeshData();
                                     VehicleMesher.BuildWheel(s, lod, wheel);

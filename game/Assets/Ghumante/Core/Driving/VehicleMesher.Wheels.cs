@@ -40,14 +40,24 @@ namespace Ghumante.Core.Driving
             double rr = R * RimFrac(style), hw = 0.5 * w;
             if (c.Lod == VehicleLod.Lod2)
             {
-                // Far: a short rounded drum and a rim disc through it.
-                Profile2 lp = Prof.Clear(false);
-                lp.Add(rr, -hw, true).Add(R, -0.6 * hw, false).Add(R, 0.6 * hw, false).Add(rr, hw, true);
-                int far = IsSmall(style) ? 7 : 8;
-                Shapes.Lathe(c.M, W, Rubber(TyreC), lp, far, ShapeLod.Lod0);
-                Profile2 dp = Prof.Clear(false);
-                dp.Add(0, -0.9 * hw, true).Add(rr, -0.9 * hw, true).Add(rr, 0.9 * hw, true).Add(0, 0.9 * hw, true);
-                Shapes.Lathe(c.M, W, Metal(RimColor(style), 0.85f), dp, far, ShapeLod.Lod0);
+                // Far: a dark tyre drum with a shaded rim disc standing just proud of both faces (cars, trucks,
+                // scooters, motorbikes) or, on bicycles, a closed tyre ring round open daylight with two crossed spokes, so
+                // a far bicycle wheel reads as a wheel and not as a plate.
+                bool spoked = style == WheelStyle.Bicycle, small = IsSmall(style);
+                const int far = 9;
+                if (spoked)
+                {
+                    double ri = R - Math.Max(0.03, 1.2 * w);
+                    Profile2 lp = Prof.Clear(true);
+                    lp.Add(ri, -hw, true).Add(ri, hw, true).Add(R, 0.6 * hw, false).Add(R, -0.6 * hw, false);
+                    Shapes.Lathe(c.M, W, Rubber(TyreC), lp, far, ShapeLod.Lod0);
+                    for (int i = 0; i < 2; i++)
+                        OBox(ref c, Metal(SpokeC()), W * Affine3.RotationY(Math.PI * (i + 0.25) / 2), 0.014, 0.014, 2 * ri);
+                    return;
+                }
+                Shapes.Cylinder(c.M, W * T(0, -hw, 0), Rubber(TyreC), R, w, far, 0, 0, true, true, ShapeLod.Lod0);
+                uint rim = small ? HubDarkC : Shade(RimColor(style), 0.8f);
+                for (int s = -1; s <= 1; s += 2) Disc(ref c, Metal(rim, 0.8f), W, rr, s * (hw + 0.006), s, far);
                 return;
             }
             if (c.Lod == VehicleLod.Lod1)
@@ -84,14 +94,14 @@ namespace Ghumante.Core.Driving
                     SpokedRim(ref c, W, R, rr, w, style == WheelStyle.Bicycle);
                     break;
                 case WheelStyle.Car:
-                    RimShell(ref c, W, rr, w, SteelC);
+                    RimShell(ref c, W, rr, w, SteelC, 18);
                     Hubcap(ref c, W, rr, w);
                     break;
                 default:
                 {
                     // Alloys: car five-spoke, motorbike six-spoke (with a brake disc), scooter five-spoke.
                     uint rim = style == WheelStyle.MotoAlloy ? AlloyDarkC : style == WheelStyle.Scooter ? AlloyDarkC : RimSilverC;
-                    RimShell(ref c, W, rr, w, rim);
+                    RimShell(ref c, W, rr, w, rim, style == WheelStyle.CarAlloy ? 18 : 24);
                     int n = style == WheelStyle.MotoAlloy ? 6 : 5;
                     AlloySpokes(ref c, W, rr, w, n, rim, style != WheelStyle.CarAlloy);
                     if (style != WheelStyle.CarAlloy && l0)
@@ -104,6 +114,24 @@ namespace Ghumante.Core.Driving
                     break;
                 }
             }
+        }
+
+        /// <summary>A flat disc of radius <paramref name="r"/> in wheel space at axial offset <paramref name="y"/>, facing
+        /// ±Y (<paramref name="facing"/>): a triangle fan of <paramref name="n"/> triangles (far rims).</summary>
+        private static void Disc(ref Ctx c, in ShapeBrush b, in Affine3 W, double r, double y, int facing, int n)
+        {
+            double cx, cy, cz, nx, ny, nz;
+            W.Point(0, y, 0, out cx, out cy, out cz);
+            W.Normal(0, facing, 0, out nx, out ny, out nz);
+            ShapeEmit.Normalize(ref nx, ref ny, ref nz);
+            int centre = c.M.AddVertex((float)cx, (float)cy, (float)cz, (float)nx, (float)ny, (float)nz, b.Color, (float)b.Channel, b.Ao);
+            for (int i = 0; i < n; i++)
+            {
+                double a = 2 * Math.PI * i / n, px, py, pz;
+                W.Point(r * Math.Sin(a), y, r * Math.Cos(a), out px, out py, out pz);
+                c.M.AddVertex((float)px, (float)py, (float)pz, (float)nx, (float)ny, (float)nz, b.Color, (float)b.Channel, b.Ao);
+            }
+            for (int i = 0; i < n; i++) ShapeEmit.TriOriented(c.M, centre, centre + 1 + i, centre + 1 + (i + 1) % n);
         }
 
         /// <summary>
@@ -233,17 +261,12 @@ namespace Ghumante.Core.Driving
 
         /// <summary>The rim: a lip face on each side and the barrel seen through the spokes (facing the axle), one
         /// lathe with creased corners.</summary>
-        private static void RimShell(ref Ctx c, in Affine3 W, double rr, double w, uint color)
+        private static void RimShell(ref Ctx c, in Affine3 W, double rr, double w, uint color, int segments)
         {
             Profile2 p = Prof.Clear(false);
             double lip = Math.Min(0.035, 0.12 * rr);
             p.Add(rr + 0.006, 0.42 * w, true).Add(rr - lip, 0.42 * w, true).Add(rr - lip, -0.42 * w, true).Add(rr + 0.006, -0.42 * w, true);
-            Shapes.Lathe(c.M, W, Metal(color, 0.85f), p, IsSmallRim(rr) ? 24 : 22, c.S);
-        }
-
-        private static bool IsSmallRim(double rr)
-        {
-            return rr < 0.25;
+            Shapes.Lathe(c.M, W, Metal(color, 0.85f), p, segments, c.S);
         }
 
         /// <summary>A plastic hubcap on both faces of a steel wheel: a shallow dome with a chrome centre.</summary>
@@ -256,7 +279,7 @@ namespace Ghumante.Core.Driving
                 double y = s * 0.36 * w;
                 if (s > 0) p.Add(rr - 0.02, y, true).Add(0.72 * rr, y + 0.02, false).Add(0.3 * rr, y + 0.035, false).Add(0, y + 0.04, false);
                 else p.Add(0, y - 0.04, false).Add(0.3 * rr, y - 0.035, false).Add(0.72 * rr, y - 0.02, false).Add(rr - 0.02, y, true);
-                Shapes.Lathe(c.M, W, Metal(CapC), p, 18, c.S);
+                Shapes.Lathe(c.M, W, Metal(CapC), p, 14, c.S);
                 if (c.L0)
                 {
                     Affine3 f = W * T(0, y + s * 0.03, 0) * (s > 0 ? Affine3.Identity : Affine3.RotationX(Math.PI));

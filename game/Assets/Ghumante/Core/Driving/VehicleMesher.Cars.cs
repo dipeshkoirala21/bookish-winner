@@ -22,26 +22,29 @@ namespace Ghumante.Core.Driving
 
         private enum LampKind : byte
         {
-            /// <summary>Small rectangular lamps (old 800 / Alto).</summary>
+            /// <summary>Small rectangular lamps flush on the fascia (old 800).</summary>
             Small = 0,
 
-            /// <summary>Swept wraparound lamps (Swift).</summary>
+            /// <summary>Big swept lamps wrapping from the hood line round the fender corners (Swift).</summary>
             Swept = 1,
 
-            /// <summary>Boomerang DRL over a lamp (i10).</summary>
+            /// <summary>Swept lamps at the hood corners and boomerang DRLs in the grille's lower corners (i10 Nios).</summary>
             Boomerang = 2,
 
-            /// <summary>Slim LED bar on top, main lamps lower (Nexon, Creta).</summary>
+            /// <summary>Slim LED bar along the hood edge, the main lamps low in the bumper (Nexon, Creta).</summary>
             Split = 3,
 
-            /// <summary>One wide lamp bar across the nose (Atto 3).</summary>
+            /// <summary>Slim lamps at the hood corners joined by one light bar across the nose (Atto 3).</summary>
             Bar = 4,
 
-            /// <summary>Upright lamps either side of a tall grille (Scorpio, Bolero, Prado).</summary>
+            /// <summary>Upright lamps either side of a tall grille on a vertical front (Scorpio, Bolero, Prado).</summary>
             Upright = 5,
 
-            /// <summary>Slim lamps over a closed nose (Dolphin).</summary>
+            /// <summary>Thin swept lamps over a closed nose (Dolphin).</summary>
             Slim = 6,
+
+            /// <summary>Compact swept lamps over a big lower grille (Alto K10).</summary>
+            Compact = 7,
         }
 
         private enum GrilleKind : byte
@@ -52,6 +55,8 @@ namespace Ghumante.Core.Driving
             Closed = 3,
             VerticalSlats = 4,
             Chrome = 5,
+            Hex = 6,
+            Smile = 7,
         }
 
         /// <summary>A car model type: side profile heights (m), stations along z (m from the rear axle), widths and the
@@ -60,12 +65,118 @@ namespace Ghumante.Core.Driving
         {
             public double BumperF, BumperR, Sill, ArchGap, NoseY, HoodFrontY, CowlY, Belt, BeltRear, Roof, TailTop;
             public double ScreenBase, ScreenTop, RoofBack, BackBase, NoseDepth;
-            public double Bevel, Tumble, NoseTaper, TailTaper, NoseCurve, TailCurve;
+            public double Bevel, Tumble, NoseTaper, TailTaper, NoseCurve, TailCurve, Bulge;
             public RearKind Rear;
             public LampKind Lamp;
             public GrilleKind Grille;
-            public bool FloatingRoof, BlackPillars, RoofRails, Cladding, SpareWheel, SideStep, Ev, FourDoor;
-            public double BedFront; // pickups: z where the cab starts
+            public bool FloatingRoof, BlackPillars, RoofRails, Cladding, SpareWheel, SideStep, Ev, FourDoor, Spoiler, ArchLips;
+            public double BedFront; // pickups: z where the cab ends and the bed starts
+        }
+
+        /// <summary>
+        /// The proportions of a car model type that differ from its catalogue entry (ref_vehicles.md §2): the body width
+        /// (the Alto type is 1.50 m where the hatchback entry is 1.68 m, the Prado type 1.86 m), how much longer the
+        /// front and rear overhangs are (the Dolphin and Atto 3 types are long, the Nexon and Alto types short), and the
+        /// wheel look (alloys or steel with a hubcap). Cars, taxis, EVs, SUVs, pickups and the police jeep; other shapes
+        /// keep the catalogue values.
+        /// </summary>
+        private static void CarProportions(in VehicleCatalogEntry e, int model, out double width, out double frontExt, out double rearExt, out WheelStyle style)
+        {
+            width = e.WidthM;
+            frontExt = 0;
+            rearExt = 0;
+            style = WheelStyle.Car;
+            switch (e.TrafficClass)
+            {
+                case Traffic.VehicleClass.Taxi:
+                    width = 1.48;
+                    return;
+                case Traffic.VehicleClass.Service:
+                    if (e.Shape == BodyShape.Van) return; // ambulance
+                    width = 1.75;
+                    return;
+                case Traffic.VehicleClass.Microbus:
+                    return;
+            }
+            switch (e.Shape)
+            {
+                case BodyShape.Hatchback:
+                    if (model == 0)
+                    {
+                        width = 1.70;
+                        frontExt = 0.05;
+                        rearExt = 0.03;
+                        style = WheelStyle.CarAlloy;
+                    }
+                    else if (model == 1) width = 1.68;
+                    else
+                    {
+                        width = 1.50;
+                        frontExt = -0.06;
+                        rearExt = -0.04;
+                    }
+                    return;
+                case BodyShape.Suv:
+                    style = WheelStyle.CarAlloy;
+                    if (e.Engine == EngineSound.CarEv)
+                    {
+                        if (model == 0)
+                        {
+                            width = 1.77;
+                            frontExt = 0.10;
+                            rearExt = 0.08;
+                        }
+                        else if (model == 1)
+                        {
+                            width = 1.78;
+                            frontExt = -0.04;
+                            rearExt = -0.03;
+                        }
+                        else
+                        {
+                            width = 1.79;
+                            frontExt = 0.12;
+                            rearExt = 0.10;
+                        }
+                        return;
+                    }
+                    if (model == 0) width = 1.84;
+                    else if (model == 1)
+                    {
+                        width = 1.79;
+                        frontExt = -0.03;
+                        rearExt = -0.03;
+                    }
+                    else
+                    {
+                        width = 1.86;
+                        frontExt = 0.08;
+                        rearExt = 0.06;
+                    }
+                    return;
+                case BodyShape.Pickup:
+                    if (model == 0) width = 1.70;
+                    else
+                    {
+                        width = 1.73;
+                        style = WheelStyle.CarAlloy;
+                    }
+                    return;
+            }
+        }
+
+        /// <summary>The catalogue dimensions with a car model type's own width and overhangs.</summary>
+        private static Dims CarDims(in VehicleCatalogEntry e, int model)
+        {
+            Dims d = DimsOf(e);
+            double w, fe, re;
+            WheelStyle st;
+            CarProportions(e, model, out w, out fe, out re, out st);
+            d.Width = (float)w;
+            d.Front = (float)Math.Max(0.3, d.Front + fe);
+            d.Rear = (float)Math.Max(0.25, d.Rear + re);
+            d.Length = d.Wheelbase + d.Front + d.Rear;
+            return d;
         }
 
         /// <summary>Sets the side profile: nose (bumper bottom, nose top, hood front, nose depth), cowl and belt (front,
@@ -94,27 +205,30 @@ namespace Ghumante.Core.Driving
             var s = new CarSpec
             {
                 BumperF = 0.24, BumperR = 0.28, Sill = 0.30, ArchGap = 0.05, Bevel = 0.14, Tumble = 0.82, NoseTaper = 0.90, TailTaper = 0.94,
-                NoseCurve = 0.26, TailCurve = 0.10, FourDoor = true,
+                NoseCurve = 0.26, TailCurve = 0.10, FourDoor = true, Bulge = 0.025, ArchLips = true,
             };
             switch (e.TrafficClass)
             {
                 case Traffic.VehicleClass.Taxi:
                     if (model == 0)
                     {
-                        // Old 800 / Alto taxi: tiny, tall boxy greenhouse, short hood.
-                        Profile(ref s, zf, zr, 0.58, 0.74, 0.08, 0.88, 0.90, h - 0.01, 0.80, 1.38, 0.12, 0.03);
-                        s.Bevel = 0.10;
-                        s.Tumble = 0.86;
+                        // Old 800 / Alto taxi: tiny, tall boxy greenhouse, short blunt hood, flush square lamps, slot grille.
+                        Profile(ref s, zf, zr, 0.58, 0.76, 0.10, 0.88, 0.90, h - 0.01, 0.82, 1.40, 0.12, 0.03);
+                        s.Bevel = 0.09;
+                        s.Tumble = 0.88;
+                        s.NoseCurve = 0.16;
                         s.Lamp = LampKind.Small;
                         s.Grille = GrilleKind.Slot;
+                        s.ArchLips = false;
                     }
                     else
                     {
-                        // Tall-boy (Santro / i10 class).
-                        Profile(ref s, zf, zr, 0.60, 0.78, 0.10, 0.92, 0.94, h - 0.01, 0.88, 1.50, 0.10, 0.03);
+                        // Tall-boy (Santro / old i10 class): swept lamps, oval grille, tall upright glasshouse.
+                        Profile(ref s, zf, zr, 0.60, 0.80, 0.14, 0.92, 0.94, h - 0.01, 0.92, 1.54, 0.10, 0.03);
                         s.Bevel = 0.12;
-                        s.Lamp = LampKind.Boomerang;
-                        s.Grille = GrilleKind.Cascade;
+                        s.Tumble = 0.86;
+                        s.Lamp = LampKind.Compact;
+                        s.Grille = GrilleKind.Oval;
                     }
                     return s;
                 case Traffic.VehicleClass.Service:
@@ -129,35 +243,44 @@ namespace Ghumante.Core.Driving
                 case BodyShape.Hatchback:
                     if (model == 0)
                     {
-                        // Swift type: cab-forward, raked screen, rising belt, black pillars, wraparound lamps.
-                        Profile(ref s, zf, zr, 0.58, 0.82, 0.18, 0.99, 1.07, h - 0.02, 1.05, 1.88, 0.52, 0.10);
+                        // Swift type: cab-forward, raked screen, rising belt and high rear haunches, black A/B pillars, big
+                        // swept lamps wrapping into the fenders over a wide hexagonal grille, roof spoiler, alloys.
+                        Profile(ref s, zf, zr, 0.52, 0.80, 0.34, 0.98, 1.07, h - 0.03, 1.14, 1.98, 0.32, 0.12);
                         s.Bevel = 0.17;
                         s.Tumble = 0.78;
+                        s.Bulge = 0.035;
+                        s.TailCurve = 0.14;
                         s.BlackPillars = true;
+                        s.Spoiler = true;
                         s.Lamp = LampKind.Swept;
-                        s.Grille = GrilleKind.Oval;
+                        s.Grille = GrilleKind.Hex;
                     }
                     else if (model == 1)
                     {
-                        // i10 / Tiago type: tall-boy, cascading grille, boomerang DRLs.
-                        Profile(ref s, zf, zr, 0.62, 0.82, 0.12, 0.97, 1.00, h - 0.02, 1.00, 1.74, 0.20, 0.06);
+                        // i10 Nios / Tiago type: tall-boy, upright screen, flat long roof, cascading grille with boomerang
+                        // DRLs, steel wheels with full covers.
+                        Profile(ref s, zf, zr, 0.56, 0.84, 0.28, 0.97, 1.00, h - 0.02, 1.06, 1.82, 0.20, 0.07);
+                        s.Bevel = 0.14;
+                        s.Tumble = 0.83;
                         s.Lamp = LampKind.Boomerang;
                         s.Grille = GrilleKind.Cascade;
                     }
                     else
                     {
-                        // Alto type: small, short hood, tall glasshouse.
-                        Profile(ref s, zf, zr, 0.62, 0.80, 0.10, 0.94, 0.96, h - 0.02, 0.92, 1.60, 0.16, 0.05);
-                        s.Bevel = 0.12;
-                        s.Tumble = 0.84;
-                        s.Lamp = LampKind.Small;
-                        s.Grille = GrilleKind.Slot;
+                        // Alto K10 type: narrow (1.50 m), short hood, tall narrow greenhouse with little tumblehome, upright
+                        // screen, compact lamps over a big "smiling" lower grille.
+                        Profile(ref s, zf, zr, 0.54, 0.80, 0.24, 0.93, 0.95, h - 0.01, 1.00, 1.68, 0.15, 0.05);
+                        s.Bevel = 0.11;
+                        s.Tumble = 0.88;
+                        s.NoseCurve = 0.20;
+                        s.Lamp = LampKind.Compact;
+                        s.Grille = GrilleKind.Smile;
                     }
                     return s;
                 case BodyShape.Suv:
                     if (e.Engine == EngineSound.CarEv)
                     {
-                        // Compact EVs: Dolphin (rounded hatch, closed nose), Nexon/Punch (compact SUV), Atto 3 (crossover).
+                        // Compact EVs: Dolphin (low rounded hatch, closed nose), Nexon/Punch (compact SUV), Atto 3 (crossover).
                         s.Ev = true;
                         s.Grille = GrilleKind.Closed;
                         s.FloatingRoof = model != 0;
@@ -165,32 +288,42 @@ namespace Ghumante.Core.Driving
                         s.Sill = 0.34;
                         if (model == 0)
                         {
-                            Profile(ref s, zf, zr, 0.58, 0.82, 0.20, 1.00, 1.06, h - 0.03, 1.15, 2.00, 0.45, 0.10);
+                            // Dolphin type: long, low (1.52 m), smooth closed nose with slim swept lamps, fast hatch.
+                            Profile(ref s, zf, zr, 0.50, 0.78, 0.36, 0.98, 1.05, 1.52, 1.22, 2.12, 0.40, 0.10);
                             s.Bevel = 0.18;
                             s.Tumble = 0.78;
+                            s.Bulge = 0.035;
+                            s.TailCurve = 0.14;
+                            s.Spoiler = true;
                             s.Lamp = LampKind.Slim;
                         }
                         else if (model == 1)
                         {
-                            Profile(ref s, zf, zr, 0.72, 0.90, 0.14, 1.04, 1.08, h - 0.06, 1.10, 1.82, 0.22, 0.06);
+                            // Nexon / Punch EV type: short, tall (1.61 m), upright, connected DRL bar on the hood edge.
+                            Profile(ref s, zf, zr, 0.66, 0.90, 0.22, 1.06, 1.10, h + 0.03, 1.10, 1.82, 0.20, 0.06);
+                            s.Sill = 0.38;
                             s.Lamp = LampKind.Split;
                             s.Cladding = true;
                             s.RoofRails = true;
+                            s.ArchLips = false;
                         }
                         else
                         {
-                            Profile(ref s, zf, zr, 0.66, 0.88, 0.18, 1.02, 1.08, h - 0.03, 1.15, 1.92, 0.34, 0.08);
+                            // Atto 3 type: long crossover, one light bar across the closed nose, chunky cladding.
+                            Profile(ref s, zf, zr, 0.58, 0.86, 0.30, 1.04, 1.10, h, 1.20, 2.02, 0.30, 0.08);
                             s.Bevel = 0.16;
                             s.Tumble = 0.80;
                             s.Lamp = LampKind.Bar;
                             s.Cladding = true;
+                            s.RoofRails = true;
+                            s.ArchLips = false;
                         }
                         return s;
                     }
                     if (model == 1)
                     {
-                        // Creta / Seltos crossover.
-                        Profile(ref s, zf, zr, 0.80, 0.98, 0.14, 1.10, 1.14, 1.68, 1.22, 1.92, 0.26, 0.06);
+                        // Creta / Seltos crossover: big parametric grille, split lamps, floating roof.
+                        Profile(ref s, zf, zr, 0.74, 0.96, 0.22, 1.10, 1.14, 1.68, 1.24, 1.96, 0.26, 0.06);
                         s.Lamp = LampKind.Split;
                         s.Grille = GrilleKind.Chrome;
                         s.Cladding = true;
@@ -198,6 +331,7 @@ namespace Ghumante.Core.Driving
                         s.FloatingRoof = true;
                         s.BlackPillars = true;
                         s.Sill = 0.38;
+                        s.ArchLips = false;
                         return s;
                     }
                     s = BoxSuv(s, zr, zf, h, wb);
@@ -211,17 +345,33 @@ namespace Ghumante.Core.Driving
                 case BodyShape.Pickup:
                     s = BoxSuv(s, zr, zf, h, wb);
                     s.Rear = model == 0 ? RearKind.Pickup : RearKind.DoubleCab;
-                    s.Lamp = LampKind.Upright;
+                    s.Lamp = model == 0 ? LampKind.Upright : LampKind.Swept; // the Hilux type's lamps sweep back into the fenders
                     s.Grille = model == 0 ? GrilleKind.VerticalSlats : GrilleKind.Chrome;
                     s.Cladding = model == 1;
                     s.SideStep = model == 1;
                     s.Roof = h - 0.06;
-                    s.BedFront = model == 0 ? wb - 1.45 : wb - 2.05;
-                    s.ScreenBase = zf - 1.30;
-                    s.ScreenTop = zf - 1.75;
-                    s.RoofBack = s.BedFront + 0.12;
+                    if (model == 0)
+                    {
+                        // Bolero Pik-Up type: flat-fronted single cab, long bed.
+                        s.ScreenBase = zf - 1.25;
+                        s.ScreenTop = zf - 1.70;
+                        s.BedFront = s.ScreenTop - 0.62;
+                        s.FourDoor = false;
+                    }
+                    else
+                    {
+                        // Hilux type double cab: two rows of doors under a long roof, a short bed (≈ 1.5 m) behind.
+                        s.ScreenBase = zf - 1.12;
+                        s.ScreenTop = zf - 1.62;
+                        s.BedFront = zr + 1.55;
+                        s.NoseY = 0.86;
+                        s.HoodFrontY = 1.02;
+                        s.NoseDepth = 0.14;
+                        s.Belt = s.CowlY = s.BeltRear = s.TailTop = 1.10;
+                        s.FourDoor = true;
+                    }
+                    s.RoofBack = s.BedFront + 0.10;
                     s.BackBase = s.BedFront + 0.02;
-                    s.FourDoor = model == 1;
                     return s;
             }
             return BoxSuv(s, zr, zf, h, wb);
@@ -241,79 +391,89 @@ namespace Ghumante.Core.Driving
             s.TailTaper = 0.97;
             s.NoseCurve = 0.10;
             s.TailCurve = 0.04;
+            s.Bulge = 0.012;
+            s.ArchLips = false;
             _ = wb;
             return s;
         }
 
-        private static void Car(ref Ctx c, in VehicleCatalogEntry e, Dims d, in Livery p)
+        private static void Car(ref Ctx c, in VehicleCatalogEntry e, Dims d0, in Livery p)
         {
+            Dims d = CarDims(e, c.Model);
             CarSpec s = SpecFor(e, d, c.Model);
             double zr = -d.Rear, zf = d.Wheelbase + d.Front, hw = d.Half, wb = d.Wheelbase, R = d.WheelR;
             uint body = p.Body, roofC = s.FloatingRoof ? MeshColor.FromHex(0x1F2226) : p.Roof;
             ShapeBrush paint = Paint(body), black = Plain(TrimC);
-            bool far = c.Lod == VehicleLod.Lod2, taxi = e.TrafficClass == Traffic.VehicleClass.Taxi, police = e.TrafficClass == Traffic.VehicleClass.Service;
+            bool taxi = e.TrafficClass == Traffic.VehicleClass.Taxi, police = e.TrafficClass == Traffic.VehicleClass.Service;
             double A = R + s.ArchGap;
             int v0 = c.M.VertexCount;
+            _ = d0;
 
             // ---- Lower body: a smooth hull through rounded sections whose bottoms rise over the wheels (the arches)
-            // and whose tops follow the bumper, nose, hood, belt and tail.
+            // and whose tops follow the bumper, nose, hood, belt and tail; the flanks bulge a little (shoulders and
+            // haunches) instead of standing flat.
             bool bed = s.Rear == RearKind.Pickup || s.Rear == RearKind.DoubleCab;
-            CarBodyHull(ref c, s, zr, zf, hw, R, wb, A, bed, paint);
+            int h0 = c.M.VertexCount;
+            CarBodyHull(ref c, s, zr, zf, hw - s.Bulge * hw, R, wb, A, bed, paint);
 
-            // Dark wheel-house tub between the arches (seen through them behind the tyres).
-            double wW = WheelsOfWidth(e);
-            OBox(ref c, Plain(UnderC, 0.3f), T(0, 0.5 * (s.Sill + R + A) - 0.05, 0.5 * wb), 2 * (hw - wW - 0.03), R + A - s.Sill + 0.1, wb + 2 * A);
+            // Dark wheel-house tub between the arches (seen through them behind the tyres), kept under the hood and the
+            // tail at the arches' outer ends so it never pokes through a low bonnet (the Dolphin type's).
+            double wW = CarWheelWidth(2 * hw), tubTop = Math.Min(R + A + 0.02, Math.Min(BodyTop(s, zr, zf, wb + A, bed), BodyTop(s, zr, zf, -A, bed)) - 0.05);
+            double tubBot = s.Sill - 0.15;
+            OBox(ref c, Plain(UnderC, 0.3f), T(0, 0.5 * (tubBot + tubTop), 0.5 * wb), 2 * (hw - wW - 0.03), tubTop - tubBot, wb + 2 * A);
 
             // ---- Front: grille, intake, lamps, fog lamps, bumper lip.
             CarFront(ref c, s, zf, hw, body);
             // ---- Rear: lamps, bumper, reflectors, spoiler, exhaust.
             CarRear(ref c, s, zr, hw, body);
-            // ---- Sides: door shut lines, handles, sill trim, cladding.
-            if (c.L1) CarSides(ref c, s, e, d, body);
+            // ---- Sides: door shut lines, handles, sill trim, cladding, arch lips.
+            if (c.L1) CarSides(ref c, s, d, body);
+            // The flanks bulge a little (shoulders and haunches); everything on the lower body so far (lamps lying on the
+            // nose, arch lips, door lines, cladding) bulges with them, so nothing sinks in or stands off.
+            BulgeX(c.M, h0, s.Sill - 0.02, s.Belt + 0.08, s.Bulge * 1.15);
 
             // ---- Glasshouse, roof, pillars (tumblehome applied to all of it).
             int g0 = c.M.VertexCount;
             double belt = s.Belt - 0.02, hwc = hw - 0.06, roofY = s.Roof - 0.025;
-            double backBase = bed ? s.BackBase : s.BackBase;
-            double crown = s.Rear == RearKind.Box ? 0.01 : 0.03, roofMid = 0.5 * (s.ScreenTop + s.RoofBack);
-            CabinHull(ref c, s, belt, roofY, crown, hwc, bed, backBase);
-            // The roof skin: everything on top between the screen header and the rear header takes the roof colour.
-            RoofSkin(c.M, g0, s.ScreenTop + 0.03, s.RoofBack - 0.02, belt + 0.6 * (roofY - belt), roofC);
+            double backBase = s.BackBase;
+            double crown = s.Rear == RearKind.Box || bed ? 0.01 : 0.03;
+            CabinHull(ref c, s, belt, roofY, crown, hwc, bed, backBase, s.BlackPillars ? black : paint, c.L1);
+            // The roof skin: everything on top between the headers (and the sections just inside them) takes the roof
+            // colour.
+            RoofSkin(c.M, g0, s.ScreenTop - 0.5 * HeaderInset, s.RoofBack + 0.5 * HeaderInset, belt + 0.6 * (roofY - belt), roofC);
             if (c.L1)
             {
-                // C pillars (body colour) and the black B pillar on each side, before the tumblehome so they lean with it.
+                // C pillars (body colour, black on the floating-roof types), the black B pillar on each side (two on the
+                // double cab), before the tumblehome so they lean with it. Both overlap the cabin side and stop where its
+                // rounded roof edge begins (the roof colour takes over there), so nothing stands proud of the roof line.
+                double sideTopB = CabinSideTop(roofY, belt), sideTopC = CabinSideTop(roofY - 1.5 * crown, belt);
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    double x0 = side * (hwc + 0.002), x1 = side * (hwc + 0.014);
-                    double zB = 0.5 * (s.ScreenTop + s.RoofBack) + (s.FourDoor ? 0.05 : -0.15);
-                    OBox(ref c, Plain(TrimC), T(0.5 * (x0 + x1), 0.5 * (belt + roofY), zB), Math.Abs(x1 - x0), roofY - belt, 0.07);
+                    double x0 = side * (hwc - 0.01), x1 = side * (hwc + 0.012);
+                    double zB = BPillarZ(s);
+                    OBox(ref c, Plain(TrimC), T(0.5 * (x0 + x1), 0.5 * (belt + sideTopB), zB), Math.Abs(x1 - x0), sideTopB - belt, 0.07);
                     if (!bed)
                     {
                         Profile2 cp = Prof2.Clear(true);
                         double zC = s.RoofBack + (s.Rear == RearKind.Box ? 0.30 : 0.52);
-                        cp.Add(zC, belt, true).Add(backBase + 0.02, s.BeltRear - 0.02, true).Add(s.RoofBack + 0.01, roofY, true).Add(zC + 0.12, roofY, true);
-                        SideExtrude(ref c, Paint(s.FloatingRoof ? body : body), cp, Math.Min(x0, x1), Math.Max(x0, x1), 0.004, 1);
+                        cp.Add(zC, belt, true).Add(backBase + 0.02, s.BeltRear - 0.02, true).Add(s.RoofBack + 0.01, sideTopC, true).Add(zC + 0.12, sideTopC, true);
+                        SideExtrude(ref c, s.FloatingRoof ? black : paint, cp, Math.Min(x0, x1), Math.Max(x0, x1), 0.004, 1);
                     }
                 }
             }
             TaperByY(c.M, g0, belt, roofY, s.Tumble);
-            // A pillars, roof rails.
+            // Roof rails.
             double hwr = hwc * s.Tumble;
-            if (c.L1)
+            if (c.L1 && s.RoofRails)
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    Rod(ref c, s.BlackPillars ? black : paint, side * (hwc - 0.03), belt + 0.01, s.ScreenBase - 0.02, side * (hwr - 0.02), roofY + 0.005, s.ScreenTop + 0.02,
-                        0.032, 6);
-                    if (s.RoofRails)
-                    {
-                        Rod(ref c, Plain(AlloyDarkC), side * (hwr - 0.08), roofY + 0.07, s.ScreenTop + 0.05, side * (hwr - 0.08), roofY + 0.07, s.RoofBack + 0.02, 0.018, 6);
-                        if (c.L0)
-                            for (int k = 0; k < 2; k++)
-                            {
-                                double z = k == 0 ? s.ScreenTop + 0.08 : s.RoofBack + 0.06;
-                                OBox(ref c, Plain(AlloyDarkC), T(side * (hwr - 0.08), roofY + 0.045, z), 0.03, 0.05, 0.06);
-                            }
-                    }
+                    Rod(ref c, Plain(AlloyDarkC), side * (hwr - 0.08), roofY + 0.07, s.ScreenTop + 0.05, side * (hwr - 0.08), roofY + 0.07, s.RoofBack + 0.02, 0.018, 6);
+                    if (c.L0)
+                        for (int k = 0; k < 2; k++)
+                        {
+                            double z = k == 0 ? s.ScreenTop + 0.08 : s.RoofBack + 0.06;
+                            OBox(ref c, Plain(AlloyDarkC), T(side * (hwr - 0.08), roofY + 0.045, z), 0.03, 0.05, 0.06);
+                        }
                 }
             if (c.L0)
             {
@@ -362,6 +522,21 @@ namespace Ghumante.Core.Driving
             CurveEnd(c.M, v0, zf - 0.45, zf, s.NoseCurve);
             CurveEnd(c.M, v0, zr + 0.35, zr, -s.TailCurve);
             SetPlates((float)(s.BumperR + 0.20), (float)zr - 0.012f, (float)(s.BumperF + 0.15), (float)zf + 0.012f);
+        }
+
+        /// <summary>Where the B pillar stands: between the doors (four-door cars) or behind the only door.</summary>
+        private static double BPillarZ(in CarSpec s)
+        {
+            if (s.Rear == RearKind.DoubleCab) return 0.5 * (s.ScreenTop + s.RoofBack) + 0.10;
+            return 0.5 * (s.ScreenTop + s.RoofBack) + (s.FourDoor ? 0.05 : -0.15);
+        }
+
+        /// <summary>Tyre width of a car or van wheel for a body of this width, on a 2 cm grid; alloys sit on the odd
+        /// centimetre so a wheel's style follows from its size (<see cref="StyleFor"/>).</summary>
+        internal static float CarWheelWidth(double bodyWidth, bool alloy = false)
+        {
+            double w = Math.Max(0.16, Math.Min(0.28, 0.11 * bodyWidth + 0.04));
+            return (float)(0.02 * Math.Round(w * 50) + (alloy ? 0.01 : 0));
         }
 
         [ThreadStatic] private static double[] s_st;
@@ -460,23 +635,76 @@ namespace Ghumante.Core.Driving
             HullEmit(ref c, paint, 3, true, true);
         }
 
-        /// <summary>The glasshouse as a hull: windscreen, crowned roof and back glass, rounded roof edges.</summary>
-        private static void CabinHull(ref Ctx c, in CarSpec s, double belt, double roofY, double crown, double hwc, bool bed, double backBase)
+        /// <summary>Distance inside the roof headers of the extra cabin sections that carry the roof colour (so even the
+        /// LOD2 roof is a painted panel between glass, not a glass ridge).</summary>
+        private const double HeaderInset = 0.05;
+
+        /// <summary>Corner segments of a hull emitted with <paramref name="seg"/> at the context's level (as
+        /// <see cref="HullEmit"/> uses them).</summary>
+        private static int HullCornerSegments(ref Ctx c, int seg)
+        {
+            return c.Lod == VehicleLod.Lod0 ? seg : c.Lod == VehicleLod.Lod1 ? Math.Max(1, seg / 3) : 1;
+        }
+
+        /// <summary>Top radius of a cabin section of half height <paramref name="hv"/> (the rounded roof edge).</summary>
+        private static double CabinEdgeRadius(double hv)
+        {
+            return Math.Min(0.14, 0.95 * hv);
+        }
+
+        /// <summary>
+        /// The glasshouse as a hull: windscreen, crowned roof and back glass, rounded roof edges; extra sections just
+        /// inside both roof headers carry the roof colour at every level. With <paramref name="pillar"/> (LOD0/LOD1) the A
+        /// pillars run along the hull's own rounded windscreen edge (the 45° point of each section's top corner, half sunk
+        /// into the surface), so they follow the rake, the crown and the corner radius instead of standing off them.
+        /// </summary>
+        private static void CabinHull(ref Ctx c, in CarSpec s, double belt, double roofY, double crown, double hwc, bool bed, double backBase,
+                                      in ShapeBrush pillar, bool pillars)
         {
             Profile2 tp = Prof2.Clear(false);
-            double roofMid = 0.5 * (s.ScreenTop + s.RoofBack);
-            tp.Add(backBase, bed ? belt : s.BeltRear - 0.02, true).Add(s.RoofBack, roofY - 1.5 * crown, false).Add(roofMid, roofY, false)
-              .Add(s.ScreenTop, roofY - crown, false).Add(s.ScreenBase - 0.03, belt, true);
+            double roofMid = 0.5 * (s.ScreenTop + s.RoofBack), yb = belt - 0.05;
+            // The headers are creases: the spline rounds the crowned roof between them without humping over them.
+            tp.Add(backBase, bed ? belt : s.BeltRear - 0.02, true).Add(s.RoofBack, roofY - 1.5 * crown, true).Add(roofMid, roofY, false)
+              .Add(s.ScreenTop, roofY - crown, true).Add(s.ScreenBase - 0.03, belt, true);
             tp.Smooth(c.L0 ? 4 : c.L1 ? 2 : 1);
+            int n = 0;
+            for (int i = 0; i < tp.Count; i++) AddStation(ref n, tp.X[i]);
+            AddStation(ref n, s.RoofBack + HeaderInset);
+            AddStation(ref n, s.ScreenTop - HeaderInset);
+            n = SortStations(n);
             HullBegin();
-            for (int i = 0; i < tp.Count; i++)
+            for (int i = 0; i < n; i++)
             {
-                double z = tp.X[i], yt = tp.Y[i], yb = belt - 0.05;
-                if (i > 0 && z - tp.X[i - 1] < 0.01) continue;
+                double z = s_st[i], yt = SampleTop(tp, z);
                 double hv = Math.Max(0.02, 0.5 * (yt - yb));
-                HullAdd(z, 0, 0.5 * (yt + yb), hwc, hv, Math.Min(0.14, 0.95 * hv), 0.01);
+                HullAdd(z, 0, 0.5 * (yt + yb), hwc, hv, CabinEdgeRadius(hv), 0.01);
             }
             HullEmit(ref c, Glass(GlassC), 3, true, true);
+            if (!pillars) return;
+            // A pillars: the 45° point of the top corner of each section from the cowl to the screen header. A corner of
+            // k segments has a vertex there (k even) or the middle of a chord (k odd).
+            int k = HullCornerSegments(ref c, 3), np = c.L0 ? 6 : 3;
+            double radial = (k & 1) == 0 ? 1 : Math.Cos(Math.PI / (4.0 * k)), rodR = c.L0 ? 0.026 : 0.03;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Path3 path = P;
+                for (int i = 0; i <= np; i++)
+                {
+                    double z = Lerp(s.ScreenBase - 0.03, s.ScreenTop, (double)i / np), yt = SampleTop(tp, z);
+                    double hv = Math.Max(0.02, 0.5 * (yt - yb)), r = Math.Min(CabinEdgeRadius(hv), 0.999 * hv);
+                    double d = r * radial + 0.35 * rodR;
+                    path.Add(side * (hwc - r + 0.7071 * d), yt - r + 0.7071 * d, z);
+                }
+                Tube(ref c, pillar, path, rodR, c.L0 ? 8 : 5);
+            }
+        }
+
+        /// <summary>Top of the vertical side of the cabin at a section whose top is <paramref name="yt"/> (where the
+        /// rounded roof edge begins).</summary>
+        private static double CabinSideTop(double yt, double belt)
+        {
+            double hv = Math.Max(0.02, 0.5 * (yt - (belt - 0.05)));
+            return yt - Math.Min(CabinEdgeRadius(hv), 0.999 * hv);
         }
 
         /// <summary>Points of a wheel arch over the wheel at z = <paramref name="zw"/>: from the rear foot over the top to
@@ -488,12 +716,6 @@ namespace Ghumante.Core.Driving
                 double a = Math.PI - th0 - (Math.PI - 2 * th0) * i / n;
                 p.Add(zw + A * Math.Cos(a), R + A * Math.Sin(a), i == 0 || i == n);
             }
-        }
-
-        private static double WheelsOfWidth(in VehicleCatalogEntry e)
-        {
-            WheelSocket[] w = Wheels(e);
-            return w.Length > 0 ? w[0].Width : 0.2;
         }
 
         /// <summary>A point on the nose at height y: the vertical fascia below the nose top, the sloped nose above it.</summary>
@@ -521,7 +743,7 @@ namespace Ghumante.Core.Driving
             for (int v = from; v < m.VertexCount; v++)
             {
                 double y = m.Positions[3 * v + 1], z = m.Positions[3 * v + 2], ny = m.Normals[3 * v + 1];
-                if (z > zFront || z < zBack || y < yMin || ny < 0.45) continue;
+                if (z > zFront || z < zBack || y < yMin || ny < 0.4) continue;
                 m.Colors[4 * v] = (byte)(color >> 24);
                 m.Colors[4 * v + 1] = (byte)(color >> 16);
                 m.Colors[4 * v + 2] = (byte)(color >> 8);
@@ -529,139 +751,478 @@ namespace Ghumante.Core.Driving
             }
         }
 
+        /// <summary>Signed distance (m) from cross-plane point (x, y) to section <paramref name="i"/> of the current hull
+        /// (a rounded rectangle; negative inside).</summary>
+        private static double HullSectionSd(int i, double x, double y)
+        {
+            int o = 7 * i;
+            double cu = s_hull[o + 1], cv = s_hull[o + 2], hu = s_hull[o + 3], hv = s_hull[o + 4], lim = 0.999 * Math.Min(hu, hv);
+            double r = Math.Min(Math.Max(0, s_hull[y >= cv ? o + 5 : o + 6]), lim);
+            double qx = Math.Abs(x - cu) - (hu - r), qy = Math.Abs(y - cv) - (hv - r), ox = Math.Max(qx, 0), oy = Math.Max(qy, 0);
+            return Math.Sqrt(ox * ox + oy * oy) + Math.Min(Math.Max(qx, qy), 0) - r;
+        }
+
+        /// <summary>
+        /// Where a ray along the current hull's axis, through cross-plane point (x, y), first meets the hull coming in from
+        /// its front end (<paramref name="front"/>) or its back end: the end cap when the point lies inside the end section,
+        /// otherwise the station (interpolated) where the sections grow to take the point in. NaN when it never does.
+        /// </summary>
+        internal static double HullEndT(double x, double y, bool front)
+        {
+            int n = s_hullN;
+            if (n < 2) return double.NaN;
+            int step = front ? -1 : 1, i = front ? n - 1 : 0;
+            double prev = HullSectionSd(i, x, y);
+            if (prev <= 0) return s_hull[7 * i];
+            for (int j = i + step; j >= 0 && j < n; j += step)
+            {
+                double sd = HullSectionSd(j, x, y);
+                if (sd <= 0)
+                {
+                    double t0 = s_hull[7 * (j - step)], t1 = s_hull[7 * j];
+                    return t0 + (t1 - t0) * prev / Math.Max(1e-9, prev - sd);
+                }
+                prev = sd;
+            }
+            return double.NaN;
+        }
+
+        /// <summary>A vertex on the end surface of the current hull at (x, y), lifted <paramref name="lift"/> along the
+        /// surface normal (finite differences of <see cref="HullEndT"/>).</summary>
+        private static int HullSurfaceVertex(ref Ctx c, in ShapeBrush b, double x, double y, bool front, double lift)
+        {
+            double z = HullEndT(x, y, front);
+            if (double.IsNaN(z)) z = front ? s_hull[7 * (s_hullN - 1)] : s_hull[0];
+            const double e = 0.006;
+            double dx = (OrZ(HullEndT(x + e, y, front), z) - OrZ(HullEndT(x - e, y, front), z)) / (2 * e);
+            double dy = (OrZ(HullEndT(x, y + e, front), z) - OrZ(HullEndT(x, y - e, front), z)) / (2 * e);
+            dx = Math.Max(-25, Math.Min(25, dx));
+            dy = Math.Max(-25, Math.Min(25, dy));
+            double sg = front ? 1 : -1, nx = -sg * dx, ny = -sg * dy, nz = sg;
+            ShapeEmit.Normalize(ref nx, ref ny, ref nz);
+            return c.M.AddVertex((float)(x + nx * lift), (float)(y + ny * lift), (float)(z + nz * lift), (float)nx, (float)ny, (float)nz, b.Color,
+                                 (float)b.Channel, b.Ao);
+        }
+
+        private static double OrZ(double v, double z)
+        {
+            return double.IsNaN(v) ? z : v;
+        }
+
+        /// <summary>
+        /// A flat graphic lying on the front (or back) end of the current hull, the way a lamp lens, a light bar or a
+        /// grille insert follows a curved nose: the closed outline (x, y pairs, <paramref name="n"/> points, the vehicle's
+        /// right side), scaled by <paramref name="grow"/> about its centroid, filled with <paramref name="rings"/>
+        /// concentric rings, every vertex projected along the hull axis onto the surface and lifted
+        /// <paramref name="lift"/> off it. Mirrored to the left side unless the outline straddles the centre line
+        /// (<paramref name="mirror"/> false). Plan shaping applied afterwards bends it with the body.
+        /// </summary>
+        private static void HullPatch(ref Ctx c, in ShapeBrush b, double[] xy, int n, bool front, double lift, double grow, int rings, bool mirror = true)
+        {
+            double cx = 0, cy = 0;
+            for (int i = 0; i < n; i++)
+            {
+                cx += xy[2 * i];
+                cy += xy[2 * i + 1];
+            }
+            cx /= n;
+            cy /= n;
+            for (int side = mirror ? -1 : 1; side <= 1; side += 2)
+            {
+                int centre = HullSurfaceVertex(ref c, b, side * cx, cy, front, lift), first = c.M.VertexCount;
+                for (int r = 1; r <= rings; r++)
+                {
+                    double f = grow * r / rings;
+                    for (int i = 0; i < n; i++)
+                        HullSurfaceVertex(ref c, b, side * (cx + f * (xy[2 * i] - cx)), cy + f * (xy[2 * i + 1] - cy), front, lift);
+                }
+                for (int i = 0; i < n; i++) ShapeEmit.TriOriented(c.M, centre, first + i, first + (i + 1) % n);
+                for (int r = 1; r < rings; r++)
+                {
+                    int a = first + (r - 1) * n, o = first + r * n;
+                    for (int i = 0; i < n; i++)
+                    {
+                        int i1 = (i + 1) % n;
+                        ShapeEmit.TriOriented(c.M, a + i, a + i1, o + i1);
+                        ShapeEmit.TriOriented(c.M, a + i, o + i1, o + i);
+                    }
+                }
+            }
+        }
+
+        [ThreadStatic] private static double[] s_lamp;
+
+        /// <summary>
+        /// Maps a lamp outline given in nose units onto the car (u = fraction of the nose half width, v = 0 at the nose
+        /// top line, 1 at the hood's front edge) and smooths it (Catmull-Rom, closed) at the context's level; returns the
+        /// point count in <see cref="s_lamp"/>.
+        /// </summary>
+        private static int LampOutline(ref Ctx c, double[] uv, double halfW, double y0, double y1, double du = 0, double dv = 0)
+        {
+            Profile2 p = Prof2.Clear(true);
+            for (int i = 0; i + 1 < uv.Length; i += 2) p.Add(halfW * (uv[i] + du), y0 + (y1 - y0) * (uv[i + 1] + dv), false);
+            if (!c.L1)
+            {
+                // Far: the raw corner points.
+            }
+            else p.Smooth(c.L0 ? 2 : 1);
+            int n = p.Count;
+            if (s_lamp == null || s_lamp.Length < 2 * n) s_lamp = new double[Math.Max(128, 2 * n)];
+            for (int i = 0; i < n; i++)
+            {
+                s_lamp[2 * i] = p.X[i];
+                s_lamp[2 * i + 1] = p.Y[i];
+            }
+            return n;
+        }
+
+        /// <summary>
+        /// A headlamp (or tail lamp) pair lying on the nose (or tail) of the body hull: a dark housing border, the lens,
+        /// and at LOD0 a chrome reflector with a dark projector eye near the inner end and an LED strip along the lower
+        /// edge. Outline in nose units (<see cref="LampOutline"/>).
+        /// </summary>
+        private static void HullLamps(ref Ctx c, double[] uv, double halfW, double y0, double y1, bool front, uint lens, bool eye, bool strip)
+        {
+            int n = LampOutline(ref c, uv, halfW, y0, y1);
+            int rings = c.L1 ? 2 : 1;
+            if (c.L1) HullPatch(ref c, Plain(MeshColor.FromHex(0x1B1E22)), s_lamp, n, front, 0.004, 1.10, rings);
+            HullPatch(ref c, Glass(lens), s_lamp, n, front, 0.008, 1.0, rings);
+            if (!c.L0) return;
+            // Smoked inner housing (a smaller copy of the outline) and the projector: a chrome ring round a bright lens.
+            HullPatch(ref c, Metal(front ? MeshColor.FromHex(0x5C6670) : Shade(lens, 0.72f)), s_lamp, n, front, 0.010, 0.70, 1);
+            double ex = 0, ey = 0;
+            for (int i = 0; i < n; i++)
+            {
+                ex += s_lamp[2 * i];
+                ey += s_lamp[2 * i + 1];
+            }
+            ex /= n;
+            ey /= n;
+            if (eye)
+            {
+                // The projector sits toward the inner end.
+                double ix = s_lamp[0], iy = s_lamp[1];
+                for (int i = 0; i < n; i++)
+                    if (s_lamp[2 * i] < ix)
+                    {
+                        ix = s_lamp[2 * i];
+                        iy = s_lamp[2 * i + 1];
+                    }
+                double px = 0.55 * ix + 0.45 * ex, py = 0.55 * iy + 0.45 * ey, r = 0.036;
+                int k = 0;
+                double[] disc = s_disc ?? (s_disc = new double[24]);
+                for (int i = 0; i < 12; i++)
+                {
+                    double a = 2 * Math.PI * i / 12;
+                    disc[k++] = px + r * Math.Cos(a);
+                    disc[k++] = py + r * Math.Sin(a);
+                }
+                HullPatch(ref c, Metal(ChromeC), disc, 12, front, 0.013, 1.0, 1);
+                HullPatch(ref c, Glass(LensC), disc, 12, front, 0.016, 0.62, 1);
+            }
+            if (strip)
+            {
+                // LED strip along the lens's lower edge: the outline squashed onto its lowest quarter.
+                double ymin = double.MaxValue;
+                for (int i = 0; i < n; i++) ymin = Math.Min(ymin, s_lamp[2 * i + 1]);
+                for (int i = 0; i < n; i++) s_lamp[2 * i + 1] = ymin + 0.008 + 0.22 * (s_lamp[2 * i + 1] - ymin);
+                HullPatch(ref c, Glass(DrlC), s_lamp, n, front, 0.012, 0.92, 1);
+            }
+        }
+
+        [ThreadStatic] private static double[] s_disc;
+
+        /// <summary>A front polygon (x, y in the vehicle frame) extruded from <paramref name="z0"/> forward to
+        /// <paramref name="z1"/> with rounded edges: grilles, intakes, lamp housings standing in the fascia.</summary>
+        private static void FrontPoly(ref Ctx c, in ShapeBrush b, Profile2 xy, double z0, double z1, double bevel)
+        {
+            FrontExtrude(ref c, b, xy, z0, z1, bevel, c.L0 ? 2 : 1);
+        }
+
+        /// <summary>A symmetric polygon from its right half (x ≥ 0, listed top to bottom); the left half is mirrored.</summary>
+        private static Profile2 Mirrored(Profile2 p, double[] half, double cx, double cy, double sx = 1, double sy = 1)
+        {
+            p.Clear(true);
+            int n = half.Length / 2;
+            // Counter-clockwise: right half bottom → top, then left half top → bottom.
+            for (int i = n - 1; i >= 0; i--) p.Add(cx + sx * half[2 * i], cy + sy * half[2 * i + 1], true);
+            for (int i = 0; i < n; i++)
+                if (half[2 * i] > 1e-6)
+                    p.Add(cx - sx * half[2 * i], cy + sy * half[2 * i + 1], true);
+            return p;
+        }
+
+        /// <summary>A honeycomb of small diamonds in a grille centred at height <paramref name="gy"/> (three staggered
+        /// rows, <paramref name="half"/> wide each side), on the plane z (LOD0).</summary>
+        private static void Honeycomb(ref Ctx c, double gy, double half, double z)
+        {
+            ShapeBrush cell = Plain(MeshColor.FromHex(0x3A3F45));
+            for (int r = 0; r < 3; r++)
+                for (int k = -4; k <= 4; k++)
+                {
+                    double gx = k * 0.09 + (r & 1) * 0.045;
+                    if (Math.Abs(gx) > half - 0.05 * r) continue;
+                    Decal(ref c, cell, gx, gy + 0.07 - 0.065 * r, z, 0, 0, 1, 0.04, 0.04, 0.006, 0.002, Math.PI / 4);
+                }
+        }
+
+        // Grille outlines: the right half from the top down (x, y about the grille centre), mirrored (photos
+        // refs/vehicles/swift 03, i10 00, c_alto 00, c_dolphin 00).
+        private static readonly double[] HexGrille = { 0.40, 0.14, 0.46, 0.0, 0.34, -0.15 };
+        private static readonly double[] CascadeGrille = { 0.34, 0.17, 0.40, 0.08, 0.48, -0.08, 0.44, -0.15 };
+        private static readonly double[] SmileGrille = { 0.36, 0.14, 0.44, 0.05, 0.40, -0.06, 0.24, -0.12, 0.0, -0.13 };
+        private static readonly double[] EvIntakeLow = { 0.40, 0.07, 0.46, -0.06 };
+        private static readonly double[] NexonIntake = { 0.30, 0.08, 0.40, -0.08 };
+
+        /// <summary>A clear headlamp cover over a silver reflector: lighter and cooler than a plain lens.</summary>
+        private static readonly uint LampLensC = MeshColor.FromHex(0xE3EAF0);
+
         private static void CarFront(ref Ctx c, in CarSpec s, double zf, double hw, uint body)
         {
-            ShapeBrush black = Plain(TrimC), lens = Glass(LensC), drl = Glass(DrlC);
+            ShapeBrush black = Plain(TrimC), lens = Glass(LensC), drl = Glass(DrlC), mesh = Plain(MeshColor.FromHex(0x15171A), 0.6f);
             bool upright = s.Lamp == LampKind.Upright;
-            double ly = upright ? s.NoseY - 0.10 : 0.5 * (s.NoseY + s.HoodFrontY) - 0.01, lx = hw - (upright ? 0.26 : 0.30);
-            double lz, lny, lnz;
-            NoseAt(s, zf, ly, out lz, out lny, out lnz);
-            lz += 0.004;
-            double gy = upright ? s.NoseY - 0.12 : s.NoseY - 0.10, z = zf + 0.004;
-            // Grille.
+            double z = zf + 0.004, hy = s.HoodFrontY;
+            Profile2 pp = Prof2;
+            // ---- Grille and intakes.
             switch (s.Grille)
             {
-                case GrilleKind.Oval:
-                    Panel(ref c, black, 0, gy - 0.04, z, 0, 0, 1, 0.74, 0.22, 0.10, 0.012);
-                    if (c.L0) Decal(ref c, Chrome(), 0, gy - 0.04, z + 0.012, 0, 0, 1, 0.60, 0.022, 0.011, 0.002);
+                case GrilleKind.Hex:
+                {
+                    // Swift: a wide hexagonal mouth with a honeycomb right under the lamps, the plate on its lower part.
+                    double gy = 0.5 * (s.BumperF + s.NoseY) + 0.06;
+                    FrontPoly(ref c, black, Mirrored(pp, HexGrille, 0, gy, 1, 1.15), zf - 0.10, zf + 0.008, 0.012);
+                    if (c.L1) FrontPoly(ref c, mesh, Mirrored(pp, HexGrille, 0, gy, 0.9, 0.95), zf - 0.10, zf + 0.011, 0.004);
+                    if (c.L0) Honeycomb(ref c, gy, 0.36, zf + 0.013);
                     break;
+                }
                 case GrilleKind.Cascade:
-                    Panel(ref c, black, 0, gy - 0.04, z, 0, 0, 1, 0.62, 0.24, 0.06, 0.012);
-                    if (c.L0)
+                {
+                    // i10 Nios: the big cascading grille widening downwards in a silver surround, horizontal slats,
+                    // boomerang LED DRLs in its lower corners.
+                    double gy = 0.5 * (s.BumperF + s.NoseY) + 0.06;
+                    FrontPoly(ref c, Chrome(), Mirrored(pp, CascadeGrille, 0, gy, 1.05, 1.06), zf - 0.10, zf + 0.008, 0.012);
+                    FrontPoly(ref c, black, Mirrored(pp, CascadeGrille, 0, gy), zf - 0.10, zf + 0.011, 0.010);
+                    if (c.L1)
+                    {
+                        for (int k = 0; k < 5; k++)
+                            Decal(ref c, Plain(MeshColor.FromHex(0x3A3F45)), 0, gy + 0.12 - 0.055 * k, zf + 0.014, 0, 0, 1, 0.64 + 0.06 * k, 0.014, 0.005, 0.002);
+                        for (int side = -1; side <= 1; side += 2)
+                        {
+                            Decal(ref c, drl, side * 0.40, gy - 0.05, zf + 0.016, 0, 0, 1, 0.13, 0.022, 0.009, 0.003, side * 0.75);
+                            Decal(ref c, drl, side * 0.33, gy - 0.11, zf + 0.016, 0, 0, 1, 0.14, 0.022, 0.009, 0.003, 0);
+                        }
+                    }
+                    break;
+                }
+                case GrilleKind.Smile:
+                {
+                    // Alto K10: a big honeycomb grille between the lamps whose bottom curves up at the ends like a smile.
+                    double gy = 0.5 * (s.BumperF + s.NoseY) + 0.05;
+                    FrontPoly(ref c, black, Mirrored(pp, SmileGrille, 0, gy), zf - 0.10, zf + 0.008, 0.012);
+                    if (c.L0) Honeycomb(ref c, gy + 0.01, 0.34, zf + 0.012);
+                    else if (c.L1)
                         for (int k = 0; k < 3; k++)
-                            Decal(ref c, Plain(MeshColor.FromHex(0x3A3D42)), 0, gy - 0.11 + 0.07 * k, z + 0.012, 0, 0, 1, 0.52 - 0.04 * k, 0.012, 0.004, 0.002);
+                            Decal(ref c, Plain(MeshColor.FromHex(0x3A3F45)), 0, gy + 0.07 - 0.06 * k, zf + 0.012, 0, 0, 1, 0.56 - 0.08 * k, 0.012, 0.005, 0.002);
+                    break;
+                }
+                case GrilleKind.Oval:
+                    Panel(ref c, black, 0, s.NoseY - 0.08, z, 0, 0, 1, 0.56, 0.16, 0.07, 0.012);
+                    if (c.L0) Decal(ref c, Chrome(), 0, s.NoseY - 0.08, z + 0.012, 0, 0, 1, 0.46, 0.02, 0.01, 0.002);
+                    Panel(ref c, black, 0, s.BumperF + 0.12, z, 0, 0, 1, 0.70, 0.08, 0.04, 0.01);
                     break;
                 case GrilleKind.Closed:
-                    // EVs: a closed, body-coloured nose with a slim lower intake.
+                {
+                    // EVs: a closed, body-coloured nose; the intake low in the bumper (and the Nexon type's patterned one).
+                    bool nexon = s.Lamp == LampKind.Split;
+                    double gy = s.BumperF + (nexon ? 0.15 : 0.10);
+                    FrontPoly(ref c, black, Mirrored(pp, nexon ? NexonIntake : EvIntakeLow, 0, gy, s.Lamp == LampKind.Bar ? 1.15 : 1, 1), zf - 0.10, zf + 0.008, 0.012);
+                    if (nexon && c.L0)
+                        for (int k = -3; k <= 3; k++)
+                            Decal(ref c, Plain(MeshColor.FromHex(0x3A3F45)), k * 0.09, gy, zf + 0.012, 0, 0, 1, 0.05, 0.05, 0.006, 0.002, Math.PI / 4);
                     break;
+                }
                 case GrilleKind.VerticalSlats:
-                    Panel(ref c, black, 0, gy, z, 0, 0, 1, 0.70, 0.30, 0.05, 0.015);
+                    Panel(ref c, black, 0, s.NoseY - 0.12, z, 0, 0, 1, 0.70, 0.30, 0.05, 0.015);
                     if (c.L1)
-                        for (int k = -3; k <= 3; k++) OBox(ref c, Chrome(), T(k * 0.085, gy, z + 0.018), 0.022, 0.26, 0.012);
+                        for (int k = -3; k <= 3; k++) OBox(ref c, Chrome(), T(k * 0.085, s.NoseY - 0.12, z + 0.018), 0.022, 0.26, 0.012);
+                    Panel(ref c, black, 0, s.BumperF + 0.13, z, 0, 0, 1, 0.84, 0.10, 0.04, 0.01);
                     break;
                 case GrilleKind.Chrome:
-                    Panel(ref c, Chrome(), 0, gy, z, 0, 0, 1, 0.80, 0.30, 0.06, 0.012);
-                    Panel(ref c, black, 0, gy, z + 0.012, 0, 0, 1, 0.70, 0.22, 0.05, 0.006);
+                {
+                    double gy = upright ? s.NoseY - 0.12 : s.NoseY - 0.13, gh = upright ? 0.30 : 0.34, gw = upright ? 0.80 : 0.90;
+                    Panel(ref c, Chrome(), 0, gy, z, 0, 0, 1, gw, gh, 0.06, 0.012);
+                    Panel(ref c, black, 0, gy, z + 0.012, 0, 0, 1, gw - 0.10, gh - 0.08, 0.05, 0.006);
                     if (c.L0)
-                        for (int k = 0; k < 4; k++) Decal(ref c, Chrome(), 0, gy - 0.08 + 0.055 * k, z + 0.02, 0, 0, 1, 0.66, 0.012, 0.004, 0.002);
+                        for (int k = 0; k < 4; k++) Decal(ref c, Chrome(), 0, gy - 0.08 + 0.055 * k, z + 0.02, 0, 0, 1, gw - 0.14, 0.012, 0.004, 0.002);
+                    Panel(ref c, black, 0, s.BumperF + 0.12, z, 0, 0, 1, 0.84, 0.10, 0.04, 0.01);
                     break;
+                }
                 default:
-                    Panel(ref c, black, 0, gy, z, 0, 0, 1, 0.50, 0.07, 0.03, 0.01);
+                    // Old 800: a narrow slot between the lamps, a small intake below.
+                    Panel(ref c, black, 0, s.NoseY - 0.06, z, 0, 0, 1, 0.50, 0.07, 0.03, 0.01);
+                    Panel(ref c, black, 0, s.BumperF + 0.12, z, 0, 0, 1, 0.60, 0.07, 0.03, 0.01);
                     break;
             }
-            // Lower intake in the bumper.
-            Panel(ref c, black, 0, s.BumperF + 0.13, z, 0, 0, 1, s.Ev ? 0.70 : 0.84, s.Ev ? 0.07 : 0.10, 0.04, 0.01);
-            // Headlamps (on the sloped nose for cars, on the fascia for the upright SUVs).
-            for (int k = -1; k <= 1; k += 2)
+            // ---- Headlamps: lenses lying on the curved nose (HullLamps), outlines in nose units (u across the nose half
+            // width, v from the nose top line up to the hood's front edge).
+            double nw = hw * (1 - s.Bulge), ny0 = s.NoseY, ny1 = hy;
+            switch (s.Lamp)
             {
-                double x = k * lx, tilt = k * 0.12;
-                switch (s.Lamp)
+                case LampKind.Swept:
+                    // Swift: big swept lamps from the grille's top corners up and out along the hood line, wrapping round the
+                    // fender corner; projector and LED strip.
+                    HullLamps(ref c, SweptLamp, nw, ny0, ny1, true, LampLensC, true, false);
+                    break;
+                case LampKind.Boomerang:
+                    // i10 Nios: wide teardrop lamps at the corners, a little lower and flatter than the Swift's.
+                    HullLamps(ref c, TeardropLamp, nw, ny0, ny1, true, LampLensC, true, false);
+                    break;
+                case LampKind.Compact:
+                    // Alto K10 / tall-boy: rounded lamps on the corners over the big lower grille.
+                    HullLamps(ref c, RoundLamp, nw, ny0, ny1, true, LampLensC, false, false);
+                    break;
+                case LampKind.Slim:
                 {
-                    case LampKind.Swept:
-                        Panel(ref c, black, x, ly, lz, tilt, lny, lnz, 0.36, 0.13, 0.05, 0.01, k * 0.15);
-                        Panel(ref c, lens, x - k * 0.03, ly, lz + 0.01 * lnz, tilt, lny, lnz, 0.24, 0.085, 0.04, 0.008, k * 0.15);
-                        if (c.L1) Decal(ref c, drl, x + k * 0.08, ly + 0.02, lz + 0.015 * lnz, tilt, lny, lnz, 0.13, 0.02, 0.008, 0.002, k * 0.15);
-                        break;
-                    case LampKind.Boomerang:
-                        Panel(ref c, lens, x, ly, lz, tilt, lny, lnz, 0.24, 0.10, 0.04, 0.01, k * 0.1);
-                        if (c.L1) Decal(ref c, drl, x - k * 0.02, gy - 0.08, z + 0.004, 0, 0, 1, 0.14, 0.02, 0.008, 0.002, -k * 0.6);
-                        break;
-                    case LampKind.Split:
-                        Decal(ref c, drl, x + k * 0.02, s.HoodFrontY - 0.03, zf - s.NoseDepth + 0.01, tilt, lny, lnz, 0.30, 0.025, 0.012, 0.004);
-                        Panel(ref c, black, x + k * 0.03, gy, z, 0, 0, 1, 0.22, 0.12, 0.04, 0.01);
-                        Panel(ref c, lens, x + k * 0.03, gy, z + 0.01, 0, 0, 1, 0.15, 0.07, 0.03, 0.008);
-                        break;
-                    case LampKind.Bar:
-                        if (k < 0) Decal(ref c, drl, 0, ly + 0.02, lz + 0.004, 0, lny, lnz, 2 * lx + 0.32, 0.03, 0.012, 0.004);
-                        Panel(ref c, lens, x, ly - 0.02, lz, tilt, lny, lnz, 0.26, 0.07, 0.03, 0.01, k * 0.08);
-                        break;
-                    case LampKind.Slim:
-                        Panel(ref c, lens, x, ly + 0.02, lz, tilt, lny, lnz, 0.32, 0.06, 0.03, 0.01, k * 0.2);
-                        if (c.L1) Decal(ref c, drl, x - k * 0.08, ly - 0.02, lz + 0.006, tilt, lny, lnz, 0.16, 0.015, 0.006, 0.002, k * 0.2);
-                        break;
-                    case LampKind.Upright:
+                    // Dolphin: thin swept lamps high on the closed nose, with the vertical "wave" vents low in the bumper.
+                    HullLamps(ref c, SlimLamp, nw, ny0, ny1, true, LampLensC, false, true);
+                    if (c.L1)
+                        for (int side = -1; side <= 1; side += 2)
+                            Decal(ref c, Plain(TrimC), side * (hw - 0.30), s.BumperF + 0.24, z, side * 0.5, 0, 1, 0.07, 0.16, 0.03, 0.003, side * 0.3);
+                    break;
+                }
+                case LampKind.Split:
+                {
+                    // A connected DRL bar right across the hood edge (Nexon type) or two slim DRLs (Creta type); the main
+                    // lamps sit low in the bumper corners.
+                    bool connected = s.Ev;
+                    if (connected)
+                    {
+                        // A gloss-black band right across the nose with the DRL strip along its top edge.
+                        int n = LampOutline(ref c, NexonBand, nw, ny0, ny1);
+                        HullPatch(ref c, Plain(MeshColor.FromHex(0x1B1E22)), s_lamp, n, true, 0.005, 1.0, c.L1 ? 2 : 1, false);
+                        n = LampOutline(ref c, NexonBar, nw, ny0, ny1);
+                        HullPatch(ref c, Glass(DrlC), s_lamp, n, true, 0.009, 1.0, 1, false);
+                    }
+                    else HullLamps(ref c, SlimLamp, nw, ny0, ny1, true, DrlC, false, false);
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        double lx = side * (hw - 0.24), ly = s.NoseY - (connected ? 0.17 : 0.13);
+                        Panel(ref c, black, lx, ly, z, side * 0.25, 0, 1, 0.24, 0.15, 0.04, 0.012);
+                        Panel(ref c, lens, lx, ly, z + 0.012, side * 0.25, 0, 1, 0.17, 0.08, 0.03, 0.008);
+                    }
+                    break;
+                }
+                case LampKind.Bar:
+                {
+                    // Atto 3: slim lamps joined by one light bar across the closed nose.
+                    HullLamps(ref c, SlimLamp, nw, ny0, ny1, true, LampLensC, false, false);
+                    int n = LampOutline(ref c, AttoBar, nw, ny0, ny1);
+                    HullPatch(ref c, Glass(DrlC), s_lamp, n, true, 0.008, 1.0, 1, false);
+                    break;
+                }
+                case LampKind.Upright:
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        double x = side * (hw - 0.26), ly = s.NoseY - 0.10;
                         Panel(ref c, Chrome(), x, ly, z, 0, 0, 1, 0.26, 0.20, 0.04, 0.01);
                         Panel(ref c, lens, x, ly, z + 0.01, 0, 0, 1, 0.20, 0.15, 0.04, 0.008);
-                        break;
-                    default:
-                        Panel(ref c, lens, x, ly, lz, 0, lny, lnz, 0.22, 0.10, 0.025, 0.01);
-                        break;
+                    }
+                    break;
+                default:
+                {
+                    // Old 800: square lamps flush on the fascia top.
+                    double ly = s.NoseY - 0.04, lz, lny, lnz;
+                    NoseAt(s, zf, ly, out lz, out lny, out lnz);
+                    for (int side = -1; side <= 1; side += 2) Panel(ref c, lens, side * (hw - 0.28), ly, lz + 0.004, 0, lny, lnz, 0.24, 0.13, 0.025, 0.01);
+                    break;
                 }
-                // Indicator and fog lamp.
-                if (c.L1) Decal(ref c, Glass(AmberC), k * (hw - 0.11), upright ? ly : gy, z, k * 0.6, 0, 1, 0.06, 0.04, 0.012, 0.004);
-                if (c.L0) Lamp(ref c, LensC, TrimC, k * (hw - 0.27), s.BumperF + 0.14, z + 0.005, 0, 0, 1, 0.035, 0.02, 10);
             }
-            // Bumper lip.
-            if (c.L1) OBox(ref c, Plain(TrimC), T(0, s.BumperF + 0.03, zf - 0.05), 2 * hw - 0.30, 0.06, 0.10);
+            // ---- Indicators, fog lamps, bumper lip.
+            for (int side = -1; side <= 1; side += 2)
+            {
+                if (c.L1 && (upright || s.Lamp == LampKind.Small))
+                    Decal(ref c, Glass(AmberC), side * (hw - 0.11), upright ? s.NoseY - 0.10 : s.NoseY - 0.06, z, side * 0.6, 0, 1, 0.06, 0.04, 0.012, 0.004);
+                if (c.L0 && !s.Ev && s.Lamp != LampKind.Small)
+                {
+                    double fx = side * (hw - 0.24), fy = s.BumperF + 0.12;
+                    Panel(ref c, black, fx, fy, z, side * 0.3, 0, 1, 0.16, 0.10, 0.04, 0.012);
+                    Lamp(ref c, LensC, 0, fx, fy, z + 0.012, side * 0.3, 0, 1, 0.032, 0.01, 10);
+                }
+            }
+            OBox(ref c, Plain(TrimC), T(0, s.BumperF + 0.03, zf - 0.05), 2 * hw - 0.30, 0.06, 0.10);
             _ = body;
         }
+
+        // Lamp outlines in nose units (u = fraction of the nose half width, v = 0 at the nose top line, 1 at the hood's
+        // front edge; the right lamp, listed round the outline).
+        private static readonly double[] SweptLamp =
+        {
+            0.44, 0.08, 0.46, 0.46, 0.58, 0.72, 0.74, 0.88, 0.88, 0.90, 0.95, 0.70, 0.93, 0.42, 0.78, 0.26, 0.60, 0.12,
+        };
+
+        private static readonly double[] TeardropLamp = { 0.50, 0.30, 0.52, 0.55, 0.66, 0.80, 0.84, 0.92, 0.95, 0.78, 0.94, 0.52, 0.80, 0.36, 0.62, 0.26 };
+        private static readonly double[] RoundLamp = { 0.52, 0.30, 0.53, 0.62, 0.66, 0.86, 0.82, 0.94, 0.94, 0.80, 0.94, 0.50, 0.80, 0.30, 0.64, 0.22 };
+        private static readonly double[] SlimLamp = { 0.50, 0.60, 0.64, 0.76, 0.82, 0.82, 0.93, 0.74, 0.90, 0.62, 0.74, 0.60, 0.58, 0.54 };
+        private static readonly double[] NexonBar = { -0.90, 0.80, 0.0, 0.84, 0.90, 0.80, 0.92, 0.88, 0.0, 0.92, -0.92, 0.88 };
+        private static readonly double[] NexonBand = { -0.90, 0.56, 0.0, 0.62, 0.90, 0.56, 0.93, 0.90, 0.0, 0.94, -0.93, 0.90 };
+        private static readonly double[] AttoBar = { -0.62, 0.66, 0.0, 0.68, 0.62, 0.66, 0.62, 0.71, 0.0, 0.73, -0.62, 0.71 };
+
+        // Tail lamps in tail units (u = fraction of the tail half width, v = 0 at the rear bumper top, 1 at the hatch's
+        // belt line).
+        private static readonly double[] TailTall = { 0.70, 0.55, 0.70, 0.86, 0.80, 0.96, 0.92, 0.94, 0.95, 0.70, 0.92, 0.50, 0.82, 0.46 };
+        private static readonly double[] TailWide = { 0.58, 0.62, 0.62, 0.88, 0.80, 0.94, 0.94, 0.90, 0.95, 0.70, 0.88, 0.58, 0.72, 0.56 };
 
         private static void CarRear(ref Ctx c, in CarSpec s, double zr, double hw, uint body)
         {
             ShapeBrush black = Plain(TrimC), tail = Glass(TailC);
-            double z = zr - 0.004, ty = (s.Rear == RearKind.Pickup || s.Rear == RearKind.DoubleCab) ? s.Belt - 0.12 : s.BeltRear - 0.10;
-            for (int k = -1; k <= 1; k += 2)
+            double z = zr - 0.004;
+            bool box = s.Rear == RearKind.Box || s.Rear == RearKind.Pickup || s.Rear == RearKind.DoubleCab;
+            if (box)
             {
-                double x = k * (hw - 0.18);
-                if (s.Rear == RearKind.Box || s.Rear == RearKind.Pickup || s.Rear == RearKind.DoubleCab)
-                {
-                    // Upright lamps on the rear corners.
-                    Panel(ref c, tail, x + k * 0.04, ty - 0.10, z, 0, 0, -1, 0.10, 0.30, 0.03, 0.01);
-                }
-                else
-                {
-                    Panel(ref c, tail, x, ty, z, k * 0.2, 0.1, -1, 0.26, 0.11, 0.04, 0.01, k * 0.1);
-                    if (c.L1) Decal(ref c, Glass(MeshColor.FromHex(0xF5F5F5)), x - k * 0.05, ty - 0.01, z - 0.012, k * 0.2, 0.1, -1, 0.06, 0.04, 0.01, 0.002);
-                }
-                if (c.L0) Decal(ref c, Glass(ReflectC), k * (hw - 0.16), s.BumperR + 0.12, z, 0, 0, -1, 0.10, 0.03, 0.01, 0.003);
+                double ty = (s.Rear == RearKind.Box ? s.BeltRear : s.Belt) - 0.22;
+                for (int k = -1; k <= 1; k += 2)
+                    Panel(ref c, tail, k * (hw - 0.14), ty, z, 0, 0, -1, 0.10, 0.30, 0.03, 0.01);
             }
-            if (c.L1) OBox(ref c, Plain(TrimC), T(0, s.BumperR + 0.03, zr + 0.04), 2 * hw - 0.26, 0.07, 0.10);
+            else
+            {
+                // Hatches: tail lamps lying on the tail corners and wrapping round into the flanks (tall and upright on the
+                // Swift and Alto types, wider on the i10 and the EVs), joined by a light bar on the EVs; tail units run from
+                // the bumper top to the hatch's belt line.
+                double nw = hw * (1 - s.Bulge), v0 = s.BumperR + 0.10, v1 = s.BeltRear;
+                bool tall = s.Lamp == LampKind.Swept || s.Lamp == LampKind.Compact || s.Lamp == LampKind.Small;
+                HullLamps(ref c, tall ? TailTall : TailWide, nw, v0, v1, false, TailC, false, false);
+                if (s.Ev)
+                {
+                    int n = LampOutline(ref c, AttoBar, nw, v0, v1, 0, 0.12);
+                    HullPatch(ref c, tail, s_lamp, n, false, 0.008, 1.0, 1, false);
+                }
+            }
+            for (int k = -1; k <= 1; k += 2)
+                if (c.L0) Decal(ref c, Glass(ReflectC), k * (hw - 0.16), s.BumperR + 0.12, z, 0, 0, -1, 0.10, 0.03, 0.01, 0.003);
+            OBox(ref c, Plain(TrimC), T(0, s.BumperR + 0.03, zr + 0.04), 2 * hw - 0.26, 0.07, 0.10);
             if (!s.Ev && c.L0) Cyl(ref c, Metal(SteelC), hw - 0.40, s.BumperR - 0.02, zr + 0.10, hw - 0.40, s.BumperR - 0.02, zr - 0.03, 0.025, 8);
-            if (s.Rear == RearKind.Hatch && c.L1)
+            if (s.Rear == RearKind.Hatch && s.Spoiler)
                 RBox(ref c, Paint(body), 0, s.Roof - 0.06, s.RoofBack - 0.02, 2 * hw * s.Tumble - 0.16, 0.04, 0.12, 0.02, 1); // roof spoiler
         }
 
-        private static void CarSides(ref Ctx c, in CarSpec s, in VehicleCatalogEntry e, Dims d, uint body)
+        private static void CarSides(ref Ctx c, in CarSpec s, Dims d, uint body)
         {
             double hw = d.Half, wb = d.Wheelbase, R = d.WheelR, A = R + s.ArchGap;
+            bool bed = s.Rear == RearKind.Pickup || s.Rear == RearKind.DoubleCab;
             uint line = Shade(body, 0.55f);
             for (int side = -1; side <= 1; side += 2)
             {
                 double x = side * (hw + 0.001);
                 // Door shut lines (front door, B pillar, rear door) and handles.
-                double z1 = s.ScreenBase - 0.06, zB = 0.5 * (s.ScreenTop + s.RoofBack) + (s.FourDoor ? 0.05 : -0.15), z3 = A + 0.06;
+                double z1 = s.ScreenBase - 0.06, zB = BPillarZ(s), z3 = bed ? s.BedFront + 0.05 : A + 0.06;
                 double y0 = s.Sill + 0.06, y1 = s.Belt - 0.03;
                 Decal(ref c, Plain(line), x, 0.5 * (y0 + y1), z1, side, 0, 0, 0.008, y1 - y0, 0.002, 0.002);
-                if (s.FourDoor)
-                {
-                    Decal(ref c, Plain(line), x, 0.5 * (y0 + y1), zB, side, 0, 0, 0.008, y1 - y0, 0.002, 0.002);
-                    if (s.Rear != RearKind.Pickup) Decal(ref c, Plain(line), x, 0.5 * (y0 + y1) + 0.05, z3, side, 0, 0, 0.008, y1 - y0 - 0.1, 0.002, 0.002);
-                }
-                else Decal(ref c, Plain(line), x, 0.5 * (y0 + y1), zB, side, 0, 0, 0.008, y1 - y0, 0.002, 0.002);
+                Decal(ref c, Plain(line), x, 0.5 * (y0 + y1), zB, side, 0, 0, 0.008, y1 - y0, 0.002, 0.002);
+                if (s.FourDoor) Decal(ref c, Plain(line), x, 0.5 * (y0 + y1) + (bed ? 0 : 0.05), z3, side, 0, 0, 0.008, y1 - y0 - (bed ? 0 : 0.1), 0.002, 0.002);
                 if (c.L0)
                 {
                     OBox(ref c, Chrome(), T(x + side * 0.006, y1 - 0.06, zB + 0.22), 0.012, 0.025, 0.11);
-                    if (s.FourDoor) OBox(ref c, Chrome(), T(x + side * 0.006, y1 - 0.06, z3 + 0.25), 0.012, 0.025, 0.11);
+                    if (s.FourDoor) OBox(ref c, Chrome(), T(x + side * 0.006, y1 - 0.06, z3 + (bed ? 0.15 : 0.25)), 0.012, 0.025, 0.11);
                     // Belt moulding under the side glass.
                     OBox(ref c, Plain(TrimC), T(side * (hw - 0.035), s.Belt - 0.005, 0.5 * (s.ScreenBase + s.BackBase)), 0.02, 0.02, Math.Abs(s.ScreenBase - s.BackBase) - 0.2);
                 }
@@ -672,10 +1233,15 @@ namespace Ghumante.Core.Driving
                     FenderArc(ref c, Plain(TrimC), side * (hw - 0.02), R, wb, A + 0.055, 0.06, 0.065, -12, 204, 22);
                     OBox(ref c, Plain(TrimC), T(side * (hw - 0.01), s.Sill + 0.04, 0.5 * wb), 0.04, 0.08, wb - 2 * A - 0.05);
                 }
+                else if (s.ArchLips && c.L0)
+                {
+                    // Body-coloured arch lips: the flared wheel arches of the modern hatches.
+                    FenderArc(ref c, Paint(body), side * (hw - 0.012), R, 0, A + 0.02, 0.045, 0.035, -8, 196, 10);
+                    FenderArc(ref c, Paint(body), side * (hw - 0.012), R, wb, A + 0.02, 0.045, 0.035, -8, 196, 10);
+                }
                 if (s.SideStep)
                     OBox(ref c, Plain(TrimC), T(side * (hw - 0.02), s.Sill - 0.10, 0.5 * wb), 0.12, 0.035, wb - 2 * A - 0.05);
             }
-            _ = e;
         }
 
         /// <summary>The open bed of a pickup: floor, side walls, tailgate (and a roll bar on the double cab).</summary>

@@ -292,18 +292,27 @@ namespace Ghumante.Core.Driving
             }
             else
             {
-                // Flat-fronted city buses: a tall screen on the vertical front face.
+                // Flat-fronted city buses: a tall screen filling the flat front face (inside its rounded edges: the face
+                // ends 0.16 m in from the sides and 0.48 m under the roof line).
                 sy0 = floorY + 0.55;
-                sy1 = roof - 0.48;
+                sy1 = roof - 0.56;
                 szb = szt = zf - 0.035;
                 sl = sy1 - sy0;
                 sny = 0;
                 snz = 1;
-                sw = 2 * hw - 0.42;
+                sw = 2 * hw - 0.50;
             }
             double scy = 0.5 * (sy0 + sy1), scz = 0.5 * (szb + szt) + 0.035;
-            Panel(ref c, Glass(ScreenC), 0, scy, scz, 0, sny, snz, sw, sl, 0.10, 0.01);
-            if (!electric && c.L1) OBox(ref c, Plain(TrimC), Facing(0, scy, scz + 0.005, 0, sny, snz), 0.05, 0.01, sl);
+            if (hood) Panel(ref c, Glass(ScreenC), 0, scy, scz, 0, sny, snz, sw, sl, 0.10, 0.01);
+            else
+            {
+                // Flat-fronted city buses: the screen lies on the flat front face of the hull (the front is not curved in
+                // plan, so the glass and the face stay one plane): a black rubber frame, the glass just proud of it, the
+                // two-piece screen of the diesel split by a centre bar, the one-piece screen of the electric bus.
+                Panel(ref c, Plain(TrimC), 0, scy, zf, 0, 0, 1, sw + 0.10, sl + 0.10, 0.12, 0.008);
+                Panel(ref c, Glass(ScreenC), 0, scy, zf + 0.008, 0, 0, 1, sw, sl, 0.10, 0.01);
+            }
+            if (!electric && c.L1) OBox(ref c, Plain(TrimC), Facing(0, scy, scz + (hood ? 0.005 : 0.02), 0, sny, snz), 0.05, 0.012, sl);
             // Destination display over the screen.
             double dy = hood ? roof - 0.12 : roof - 0.32, dz = hood ? st + 0.02 : zf - 0.03, dny = hood ? 0.3 : 0;
             Panel(ref c, Plain(TrimC), 0, dy, dz, 0, dny, 1, 2 * hw - 0.50, 0.17, 0.03, 0.01);
@@ -388,7 +397,7 @@ namespace Ghumante.Core.Driving
                 foreach (WheelSocket w in ws)
                     if (w.Z < 0.5 * wb) OBox(ref c, Rubber(TyreC), T(w.X, 0.28, w.Z - w.Radius - 0.12), w.Width, 0.40, 0.02);
             TaperByZ(c.M, v0, zf - 0.6, zf, hood ? 0.93 : 0.97);
-            CurveEnd(c.M, v0, zf - 0.40, zf, hood ? 0.10 : 0.06);
+            if (hood) CurveEnd(c.M, v0, zf - 0.40, zf, 0.10);
             SetPlates(0.55f, (float)zr - 0.012f, 0.42f, (float)zf + 0.012f);
         }
 
@@ -445,7 +454,6 @@ namespace Ghumante.Core.Driving
             uint cab = tanker ? p.Accent : p.Body, accent = p.Accent;
             ShapeBrush paint = Paint(cab), black = Plain(TrimC);
             double cabLen = 1.75, cab0 = zf - cabLen, cabRoof = Math.Min(h - 0.35, 2.75), chassisY = R + 0.18;
-            int v0 = c.M.VertexCount;
             WheelSocket[] ws = Wheels(e);
 
             // ---- Chassis rails, fuel tank, battery box, rear bumper, mud flaps.
@@ -462,18 +470,30 @@ namespace Ghumante.Core.Driving
 
             // ---- Cab: the rounded Tata front (a hull with arches over the front wheels), split windscreen, round lamps
             // in a chrome grille, painted bumper.
+            // The tipper has the newer flat-fronted cab-over cab (an upright face, the screen nearly vertical); the
+            // decorated truck and the tanker the classic rounded Tata front with its raked screen.
             Profile2 top = Prof2.Clear(false);
-            double fy = 1.55;
-            top.Add(cab0, cabRoof - 0.02, true).Add(cab0 + 0.4, cabRoof, false).Add(zf - 0.35, cabRoof - 0.04, false).Add(zf - 0.10, fy + 0.30, false)
+            double fy = 1.55, rake0 = tipper ? 0.03 : 0.10, rake1 = tipper ? 0.14 : 0.35;
+            top.Add(cab0, cabRoof - 0.02, true).Add(cab0 + 0.4, cabRoof, false).Add(zf - rake1, cabRoof - 0.04, false).Add(zf - rake0, fy + 0.30, false)
                .Add(zf, fy, false);
             var front = new WheelSocket[2];
             int nf = 0;
             foreach (WheelSocket w in ws)
                 if (w.Steers && nf < 2) front[nf++] = w;
-            BoxBody(ref c, paint, top, cab0, zf, R + 0.12, hw, 0.22, 0.06, front, 0.06, 0.12, 0.04, R + 0.10, R + 0.3);
-            double sy0 = fy + 0.36, sy1 = cabRoof - 0.18, sz = zf - 0.22;
+            BoxBody(ref c, paint, top, cab0, zf, R + 0.12, hw, 0.22, 0.06, front, 0.06, 0.16, 0.04, R + 0.10, R + 0.3);
+            // Split windscreen on the raked upper front: both panes lie in the plane of the cab's front slope (from
+            // (zf - 0.10, fy + 0.30) up to (zf - 0.35, roof - 0.04)) inside its flat part (clear of the rounded corners), a
+            // few millimetres proud, each in a black rubber frame; no sideways tilt or roll.
+            double sy0 = fy + 0.36, sy1 = cabRoof - 0.18, slopeY0 = fy + 0.30, slopeY1 = cabRoof - 0.04, slopeZ0 = zf - rake0, slopeZ1 = zf - rake1;
+            double sdz = slopeZ1 - slopeZ0, sdy = slopeY1 - slopeY0, slen = Math.Sqrt(sdz * sdz + sdy * sdy);
+            double pny = -sdz / slen, pnz = sdy / slen, pcy = 0.5 * (sy0 + sy1), pcz = slopeZ0 + sdz * (pcy - slopeY0) / sdy;
+            double paneH = (sy1 - sy0) * slen / sdy, paneX0 = 0.05, paneX1 = hw - 0.22 - 0.05, paneW = paneX1 - paneX0;
             for (int k = -1; k <= 1; k += 2)
-                Panel(ref c, Glass(ScreenC), k * 0.5 * (hw - 0.05), 0.5 * (sy0 + sy1), sz, k * 0.12, 0.25, 1, hw - 0.20, sy1 - sy0, 0.06, 0.01, k * 0.02);
+            {
+                double px = k * 0.5 * (paneX0 + paneX1);
+                Panel(ref c, Plain(TrimC), px, pcy + pny * 0.002, pcz + pnz * 0.002, 0, pny, pnz, paneW + 0.05, paneH + 0.05, 0.07, 0.006);
+                Panel(ref c, Glass(ScreenC), px, pcy + pny * 0.008, pcz + pnz * 0.008, 0, pny, pnz, paneW, paneH, 0.05, 0.008);
+            }
             for (int side = -1; side <= 1; side += 2)
             {
                 double x = side * (hw + 0.003);
@@ -492,12 +512,28 @@ namespace Ghumante.Core.Driving
                     Lump(ref c, black, T(side * (hw + 0.07), cabRoof - 0.48, zf - 0.25), 0.03, 0.20, 0.035, 0.6);
                 }
             }
-            // Grille, lamps, bumper.
-            Panel(ref c, Chrome(), 0, fy - 0.42, zf + 0.004, 0, 0, 1, 1.15, 0.50, 0.06, 0.012);
-            if (c.L1)
-                for (int k = 0; k < 5; k++) OBox(ref c, Plain(TrimC), T(0, fy - 0.62 + 0.10 * k, zf + 0.02), 1.05, 0.035, 0.012);
-            for (int k = -1; k <= 1; k += 2)
-                Lamp(ref c, LensC, ChromeC, k * (hw - 0.30), fy - 0.45, zf + 0.012, 0, 0, 1, 0.11, 0.04, 14);
+            // Grille, lamps, bumper: the Tata front's chrome grille with round lamps; the tipper's black slatted grille
+            // band under the screen with rectangular lamps in the bumper corners.
+            if (tipper)
+            {
+                Panel(ref c, black, 0, fy - 0.12, zf + 0.004, 0, 0, 1, 2 * hw - 0.60, 0.36, 0.04, 0.012);
+                if (c.L1)
+                    for (int k = 0; k < 4; k++) OBox(ref c, Plain(MeshColor.FromHex(0x4A4F55)), T(0, fy - 0.24 + 0.08 * k, zf + 0.018), 2 * hw - 0.70, 0.03, 0.012);
+                for (int k = -1; k <= 1; k += 2)
+                {
+                    Panel(ref c, black, k * (hw - 0.28), R + 0.38, zf + 0.10, 0, 0, 1, 0.34, 0.16, 0.03, 0.012);
+                    Panel(ref c, Glass(LensC), k * (hw - 0.28), R + 0.38, zf + 0.112, 0, 0, 1, 0.28, 0.11, 0.03, 0.008);
+                    if (c.L1) Decal(ref c, Glass(AmberC), k * (hw - 0.07), R + 0.38, zf + 0.10, 0, 0, 1, 0.07, 0.11, 0.015, 0.012);
+                }
+            }
+            else
+            {
+                Panel(ref c, Chrome(), 0, fy - 0.42, zf + 0.004, 0, 0, 1, 1.15, 0.50, 0.06, 0.012);
+                if (c.L1)
+                    for (int k = 0; k < 5; k++) OBox(ref c, Plain(TrimC), T(0, fy - 0.62 + 0.10 * k, zf + 0.02), 1.05, 0.035, 0.012);
+                for (int k = -1; k <= 1; k += 2)
+                    Lamp(ref c, LensC, ChromeC, k * (hw - 0.30), fy - 0.45, zf + 0.012, 0, 0, 1, 0.11, 0.04, 14);
+            }
             uint bumperC = painted ? MeshColor.FromHex(TruckPanelC[(p.Index + 2) % TruckPanelC.Length]) : MeshColor.FromHex(0x37474F);
             RBox(ref c, Paint(bumperC), 0, R + 0.20, zf + 0.02, 2 * hw + 0.02, 0.26, 0.16, 0.04, 2);
             if (painted)
@@ -562,20 +598,53 @@ namespace Ghumante.Core.Driving
             }
             else if (tipper)
             {
-                // Steel tipper box with ribs and a canopy over the cab.
-                double top0 = Math.Min(h - 0.05, deck + 1.15);
-                ShapeBrush box = Paint(accent);
-                Slab(ref c, box, 0, deck + 0.06, 0.5 * (bed0 + bed1), 2 * hw, 0.12, bed1 - bed0, 0.03, 1);
+                // Steel tipper box (ref_vehicles.md §4.2, photos refs/vehicles/c_tipper): a rectangular box whose rear
+                // bottom corner is cut away, box-section ribs and a top rail along the sides, a tall front wall that carries
+                // the canopy over the cab roof, a top-hinged tailgate, the hoist ram under the front; a heap of sand inside
+                // (the valley's tippers haul sand and gravel).
+                // The box rides on a subframe over the chassis; its floor rises toward the tail (the "boat" bottom of a
+                // tipper body), so the side is a long trapezoid, not a plank wall.
+                double sub = deck + 0.16, top0 = Math.Min(h - 0.05, sub + 1.15), b0 = bed0 + 0.05, b1 = bed1, wall = 0.07, wallTop = cabRoof + 0.12;
+                uint boxC = accent;
+                ShapeBrush box = Paint(boxC), rib = Paint(Shade(boxC, 0.82f));
+                for (int k = -1; k <= 1; k += 2) OBox(ref c, Plain(MeshColor.FromHex(0x2B2E33)), T(k * 0.42, deck + 0.08, 0.5 * (b0 + b1)), 0.12, 0.16, b1 - b0 - 0.2);
+                double rise = 0.42, flat0 = b0 + 1.3;
+                deck = sub;
+                Slab(ref c, box, 0, deck + 0.05, 0.5 * (flat0 + b1), 2 * hw - 0.04, 0.10, b1 - flat0, 0.02, 1);
+                Profile2 sp = Prof2.Clear(true);
+                sp.Add(flat0, deck, true).Add(b1, deck, true).Add(b1, top0, true).Add(b0, top0, true).Add(b0, deck + rise, true);
                 for (int k = -1; k <= 1; k += 2)
-                    Slab(ref c, box, k * (hw - 0.04), 0.5 * (deck + top0), 0.5 * (bed0 + bed1), 0.08, top0 - deck, bed1 - bed0, 0.03, 1);
-                Slab(ref c, box, 0, 0.5 * (deck + top0), bed0 + 0.05, 2 * hw, top0 - deck, 0.10, 0.03, 1);
-                Slab(ref c, box, 0, 0.5 * (deck + top0) + 0.1, bed1 - 0.05, 2 * hw, top0 - deck + 0.2, 0.10, 0.03, 1);
-                Slab(ref c, box, 0, top0 + 0.12, bed1 + 0.45, 2 * hw - 0.2, 0.06, 1.0, 0.02, 1); // canopy over the cab
+                    SideExtrude(ref c, box, sp, k < 0 ? -hw : hw - wall, k < 0 ? -hw + wall : hw, 0.02, 1);
+                // Front wall up to the canopy; the canopy reaches forward over the cab roof.
+                Slab(ref c, box, 0, 0.5 * (deck + wallTop), b1 - 0.05, 2 * hw, wallTop - deck, 0.10, 0.03, 1);
+                Slab(ref c, box, 0, wallTop - 0.03, b1 + 0.42, 2 * hw - 0.06, 0.06, 0.94, 0.02, 1);
+                // The rising floor under the tail, and the tailgate a little proud of the sides' rear edge, hinged at the top.
+                Panel(ref c, box, 0, deck + 0.5 * rise, 0.5 * (b0 + flat0), 0, -(flat0 - b0), -rise, 2 * hw - 0.04, Math.Sqrt(rise * rise + (flat0 - b0) * (flat0 - b0)), 0.02, 0.06);
+                Slab(ref c, box, 0, 0.5 * (deck + rise + top0 + 0.04), b0 - 0.03, 2 * hw + 0.02, top0 + 0.04 - deck - rise, 0.08, 0.02, 1);
                 if (c.L1)
+                {
                     for (int side = -1; side <= 1; side += 2)
-                        for (int i = 0; i < 4; i++)
-                            OBox(ref c, Paint(Shade(accent, 0.8f)), T(side * (hw + 0.01), 0.5 * (deck + top0), bed0 + 0.4 + i * (bed1 - bed0 - 0.8) / 3), 0.03, top0 - deck - 0.1, 0.08);
-                if (c.L1) RBox(ref c, Metal(SteelC), 0, deck + 0.3, bed1 + 0.02, 0.18, 0.6, 0.18, 0.04, 1); // hoist ram
+                    {
+                        double x = side * (hw + 0.02);
+                        // Vertical box ribs, the top rail and a mid rail.
+                        for (int i = 0; i < 6; i++)
+                        {
+                            double z = b0 + 0.55 + i * (b1 - b0 - 0.75) / 5;
+                            OBox(ref c, rib, T(x, 0.5 * (deck + top0), z), 0.05, top0 - deck, 0.07);
+                        }
+                        OBox(ref c, rib, T(side * (hw + 0.025), top0 - 0.04, 0.5 * (b0 + b1)), 0.07, 0.09, b1 - b0 + 0.02);
+                        OBox(ref c, rib, T(side * (hw + 0.012), deck + 0.55, 0.5 * (b0 + b1) + 0.2), 0.04, 0.06, b1 - b0 - 0.5);
+                        // Hinge eyes of the tailgate.
+                        Cyl(ref c, Metal(SteelC), side * (hw - 0.10), top0 + 0.02, b0 - 0.06, side * (hw + 0.03), top0 + 0.02, b0 - 0.06, 0.04, 8);
+                    }
+                    // Canopy ribs underneath and the tailgate's latch bar.
+                    for (int i = 0; i < 3; i++) OBox(ref c, rib, T(-0.6 + 0.6 * i, wallTop - 0.09, b1 + 0.42), 0.06, 0.08, 0.90);
+                    OBox(ref c, Plain(TrimC), T(0, deck + rise + 0.12, b0 - 0.08), 2 * hw - 0.3, 0.05, 0.04);
+                    RBox(ref c, Metal(SteelC), 0, deck + 0.3, b1 + 0.02, 0.18, 0.6, 0.18, 0.04, 1); // hoist ram
+                    // The load: a heap of sand just over the rim.
+                    Ell(ref c, new ShapeBrush(MeshColor.FromHex(0xB59B74), MaterialChannel.Dirt, 0.9f), 0, top0 - 0.20, 0.5 * (b0 + b1) + 0.1, hw - wall - 0.02, 0.32,
+                        0.5 * (b1 - b0) - 0.25, 0.6, 0.5, c.L0 ? 14 : 8);
+                }
             }
             else
             {
@@ -586,14 +655,15 @@ namespace Ghumante.Core.Driving
                 for (int k = -1; k <= 1; k += 2)
                     Slab(ref c, Paint(plankC), k * (hw - 0.04), 0.5 * (deck + top0), 0.5 * (bed0 + bed1), 0.08, top0 - deck, bed1 - bed0, 0.02, 1);
                 Slab(ref c, Paint(plankC), 0, 0.5 * (deck + top0), bed0 + 0.04, 2 * hw, top0 - deck, 0.08, 0.02, 1);
-                // Headboard: rises over the cab roof as the crown with a painted name board.
-                RBox(ref c, Paint(panelC), 0, 0.5 * (deck + crown), bed1 - 0.05, 2 * hw, crown - deck, 0.10, 0.03, 2);
-                RBox(ref c, Paint(panelC), 0, crown - 0.22, bed1 + 0.45, 2 * hw - 0.04, 0.38, 0.90, 0.05, 2);
-                Decal(ref c, Paint(MeshColor.FromHex(0xFFF8E1)), 0, crown - 0.22, bed1 + 0.905, 0, 0, 1, 2 * hw - 0.40, 0.26, 0.04, 0.004);
+                // Headboard: the cargo body's front wall rises over the cab roof and carries the canopy forward to the
+                // crown, the painted board over the windscreen (ref photos refs/vehicles/truck_art 01, tata_truck 00/05).
+                double crownZ = zf - 0.40, cb0 = cabRoof - 0.06;
+                RBox(ref c, Paint(panelC), 0, 0.5 * (deck + crown - 0.25), bed1 - 0.05, 2 * hw, crown - 0.25 - deck, 0.10, 0.03, 2);
+                Slab(ref c, Paint(panelC), 0, cabRoof + 0.10, 0.5 * (bed1 + crownZ), 2 * hw - 0.06, 0.08, crownZ - bed1, 0.02, 1);
+                TruckCrown(ref c, hw, cb0, crown, crownZ, p.Index);
                 if (c.L1)
                 {
-                    Decal(ref c, Paint(MeshColor.FromHex(0xC62828)), 0, crown - 0.22, bed1 + 0.91, 0, 0, 1, 2 * hw - 0.80, 0.08, 0.02, 0.004);
-                    // Coloured bands and art panels on the plank sides; "HORN PLEASE" board at the back (bars, no text).
+                    // Coloured bands and art panels on the plank sides.
                     for (int side = -1; side <= 1; side += 2)
                     {
                         double x = side * (hw + 0.002);
@@ -602,9 +672,7 @@ namespace Ghumante.Core.Driving
                                   0.5 * (bed0 + bed1), side, 0, 0, bed1 - bed0 - 0.1, 0.10, 0.02, 0.003);
                         ArtBand(ref c, x + side * 0.002, side, deck + 0.82, 0.5 * (bed0 + bed1), bed1 - bed0 - 0.5);
                     }
-                    Decal(ref c, Paint(MeshColor.FromHex(0xFFF8E1)), 0, deck + 0.75, bed0 - 0.004, 0, 0, -1, 1.6, 0.36, 0.04, 0.002);
-                    for (int k = 0; k < 2; k++)
-                        Decal(ref c, Paint(MeshColor.FromHex(0x212121)), 0, deck + 0.82 - 0.14 * k, bed0 - 0.008, 0, 0, -1, 1.2 - 0.3 * k, 0.07, 0.02, 0.002);
+                    HornPlease(ref c, hw, deck, bed0, p.Index);
                     for (int k = -1; k <= 1; k += 2)
                         Panel(ref c, Glass(TailC), k * (hw - 0.20), R * 0.9 + 0.18, zr - 0.01, 0, 0, -1, 0.20, 0.12, 0.03, 0.01);
                 }
@@ -612,67 +680,185 @@ namespace Ghumante.Core.Driving
             if (!painted)
                 for (int k = -1; k <= 1; k += 2)
                     Panel(ref c, Glass(TailC), k * (hw - 0.20), R * 0.9 + 0.12, zr - 0.006, 0, 0, -1, 0.20, 0.12, 0.03, 0.01);
-            CurveEnd(c.M, v0, zf - 0.35, zf, 0.08);
+            // The Tata-type cab is flat in plan with big rounded corners (the hull's end rounding): no plan curve, so the
+            // windscreen, grille and lamps stay in the planes of the faces they sit on.
             SetPlates((float)(R * 0.9 + 0.18), (float)zr - 0.02f, (float)(R + 0.20), (float)zf + 0.11f);
+        }
+
+        /// <summary>
+        /// The painted crown of a decorated truck: an arched board over the windscreen as wide as the cab (shoulders
+        /// stepping up to a centre peak), facing forward at <paramref name="z"/>, painted with a multicolour border, two
+        /// cream name boards with red script (a headline and strokes, no real words) either side of a gold medallion, small
+        /// amber lamps on its corners and, at LOD0, a fringe of coloured tassels along its lower edge.
+        /// </summary>
+        private static void TruckCrown(ref Ctx c, double hw, double y0, double y1, double z, int index)
+        {
+            uint baseC = MeshColor.FromHex(TruckPanelC[(index + 3) % TruckPanelC.Length]);
+            Profile2 pp = Prof2.Clear(true);
+            double ys = y1 - 0.26;
+            pp.Add(hw, y0, true).Add(hw, ys, true).Add(hw - 0.14, ys + 0.05, true).Add(0.75, ys + 0.10, false).Add(0.36, y1 - 0.04, false).Add(0, y1, true)
+              .Add(-0.36, y1 - 0.04, false).Add(-0.75, ys + 0.10, false).Add(-(hw - 0.14), ys + 0.05, true).Add(-hw, ys, true).Add(-hw, y0, true);
+            FrontExtrude(ref c, Paint(baseC), pp, z - 0.08, z, 0.02, 1);
+            double fz = z + 0.003;
+            // Border bands along the bottom edge (over the screen) and the name boards.
+            for (int k = 0; k < 3; k++)
+                Decal(ref c, Paint(MeshColor.FromHex(ArtC[(index + k) % ArtC.Length])), 0, y0 + 0.05 + 0.05 * k, fz, 0, 0, 1, 2 * hw - 0.10, 0.04, 0.01, 0.003);
+            double ny = 0.5 * (y0 + 0.20 + ys);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                double nx = side * 0.62;
+                Decal(ref c, Paint(MeshColor.FromHex(0xFFF3D6)), nx, ny, fz, 0, 0, 1, 0.74, 0.26, 0.04, 0.004);
+                if (c.L1)
+                {
+                    // Script: a red headline with letter strokes hanging from it.
+                    Decal(ref c, Paint(MeshColor.FromHex(0xC62828)), nx, ny + 0.06, fz, 0, 0, 1, 0.58, 0.022, 0.005, 0.006);
+                    if (c.L0)
+                        for (int i = 0; i < 5; i++)
+                        {
+                            double lx = nx - 0.24 + 0.12 * i;
+                            Decal(ref c, Paint(MeshColor.FromHex(0xC62828)), lx, ny - 0.01, fz, 0, 0, 1, 0.022, 0.13, 0.005, 0.006);
+                            Decal(ref c, Paint(MeshColor.FromHex(0xC62828)), lx - 0.035, ny - 0.02, fz, 0, 0, 1, 0.05, 0.022, 0.008, 0.006, 0.6);
+                        }
+                }
+                // Amber lamps on the board's corners.
+                if (c.L1) Lamp(ref c, AmberC, ChromeC, side * (hw - 0.10), ys - 0.04, z + 0.004, 0, 0, 1, 0.045, 0.03, 10);
+            }
+            // Gold medallion with a blue centre.
+            Decal(ref c, Paint(MeshColor.FromHex(0xF9A825)), 0, ny + 0.02, fz, 0, 0, 1, 0.30, 0.30, 0.15, 0.004);
+            if (c.L1) Decal(ref c, Paint(MeshColor.FromHex(0x1565C0)), 0, ny + 0.02, fz, 0, 0, 1, 0.18, 0.18, 0.09, 0.006);
+            if (c.L0)
+                for (int i = 0; i < 15; i++)
+                {
+                    double x = -hw + 0.12 + i * (2 * hw - 0.24) / 14;
+                    Cone(ref c, Fabric(MeshColor.FromHex(TruckPanelC[(i + index) % TruckPanelC.Length])), x, y0 + 0.01, z + 0.02, x, y0 - 0.10, z + 0.03, 0.010, 0.022, 6);
+                }
+        }
+
+        /// <summary>
+        /// The "HORN PLEASE" tailgate of a decorated truck (ref photo refs/vehicles/horn_please 00): a painted board in a
+        /// strong colour, the words in cream stroke capitals between flower roundels at LOD0 (cream bars at LOD1).
+        /// </summary>
+        private static void HornPlease(ref Ctx c, double hw, double deck, double bed0, int index)
+        {
+            uint board = MeshColor.FromHex(index % 2 == 0 ? 0xE65100u : 0xC62828u), cream = MeshColor.FromHex(0xFFF3D6);
+            double y = deck + 0.72, z = bed0 - 0.004;
+            Decal(ref c, Paint(board), 0, y, z, 0, 0, -1, 2 * hw - 0.16, 0.56, 0.04, 0.002);
+            if (c.L0)
+            {
+                Text(c.M, "HORN PLEASE", (float)(z - 0.004), false, (float)y, (float)(2 * hw - 0.70), 0.30f, cream);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    double fx = side * (hw - 0.22);
+                    Decal(ref c, Paint(MeshColor.FromHex(0xF9A825)), fx, y, z - 0.004, 0, 0, -1, 0.22, 0.22, 0.11, 0.002);
+                    Decal(ref c, Paint(MeshColor.FromHex(0x2E7D32)), fx, y, z - 0.006, 0, 0, -1, 0.10, 0.10, 0.05, 0.002);
+                }
+            }
+            else
+                for (int k = 0; k < 2; k++)
+                    Decal(ref c, Paint(cream), k == 0 ? -0.45 : 0.40, y, z - 0.004, 0, 0, -1, k == 0 ? 0.60 : 0.85, 0.20, 0.02, 0.002);
         }
 
         // -----------------------------------------------------------------------------------------------------------
         // Safa tempo (electric three-wheeler)
         // -----------------------------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// The Safa tempo (ref_vehicles.md §3.2; photos refs/vehicles/c_safa, safa2): one cream box on three wheels, the
+        /// driver's cab a little narrower than the passenger box behind it. The near-vertical front is mostly a big flat
+        /// windscreen in a black rubber frame under a rounded roof edge with the route board; below it the cream front
+        /// panel with the green belt stripe, two round headlamps low in its corners, amber indicators and the plate; the
+        /// single front wheel stands under it on a short fork with a green mudguard, out in the open from the side. Open
+        /// doorways either side of the cab, three windows a side on the passenger box, green belt stripes, the open rear
+        /// entry with a step and a grab rail.
+        /// </summary>
         private static void Tempo(ref Ctx c, in VehicleCatalogEntry e, Dims d, in Livery p)
         {
             double zr = -d.Rear, zf = d.Wheelbase + d.Front, hw = d.Half, h = d.Height, wb = d.Wheelbase, R = d.WheelR;
             uint body = p.Body, green = p.Accent, skirt = p.Trim;
-            ShapeBrush paint = Paint(body), black = Plain(TrimC);
-            double cab0 = wb - 0.55, floorY = R + 0.22, roof = h - 0.04;
+            ShapeBrush paint = Paint(body), black = Plain(TrimC), dark = Plain(MeshColor.FromHex(0x232A30), 0.5f);
+            double cab0 = zf - 1.15, floorY = R + 0.22, roof = h - 0.04, sill = floorY - 0.10, cabNarrow = 0.92;
             int v0 = c.M.VertexCount;
-            // Passenger box: a hull from the rear step to the cab, rear wheels in arches.
-            Profile2 top = Prof2.Clear(false);
-            top.Add(zr, roof - 0.04, true).Add(zr + 0.12, roof, false).Add(cab0 + 0.05, roof, false);
             WheelSocket[] ws = Wheels(e);
-            var rear = new[] { ws[0], ws[1] };
-            BoxBody(ref c, paint, top, zr, cab0 + 0.05, floorY - 0.10, hw, 0.10, 0.04, rear, 0.05, 0.05, 0.06, floorY - 0.05, floorY - 0.05);
-            // Driver's cab: narrower, a big flat screen, one round lamp in the nose.
-            double cw = hw * 0.80;
-            Profile2 ct = Prof2.Clear(false);
-            ct.Add(cab0, roof - 0.06, true).Add(zf - 0.30, roof - 0.08, false).Add(zf - 0.10, floorY + 0.55, false).Add(zf, floorY + 0.30, false);
-            var front = new[] { ws[2] };
-            BoxBody(ref c, paint, ct, cab0, zf, floorY - 0.12, cw, 0.10, 0.05, front, 0.05, 0.10, 0.02, R + 0.12, floorY - 0.1);
-            double sy0 = floorY + 0.60, sy1 = roof - 0.16, sz = zf - 0.20;
-            Panel(ref c, Glass(ScreenC), 0, 0.5 * (sy0 + sy1), sz, 0, 0.2, 1, 2 * cw - 0.14, sy1 - sy0, 0.04, 0.008);
-            Lamp(ref c, LensC, ChromeC, 0, floorY + 0.30, zf + 0.005, 0, 0, 1, 0.08, 0.04, 14);
+
+            // ---- One body hull from the rear step to the flat front: arches over the rear wheels and over the front
+            // wheel (open under the cab), a flat roof rounding over at the front into the windscreen header.
+            Profile2 top = Prof2.Clear(false);
+            top.Add(zr, roof - 0.03, true).Add(zr + 0.10, roof, false).Add(zf - 0.14, roof, false).Add(zf, roof - 0.07, true);
+            // The front panel ends a little above the front tyre so the wheel and its mudguard show under it.
+            BoxBody(ref c, paint, top, zr, zf, sill, hw, 0.10, 0.04, ws, 0.06, 0.07, 0.05, 2 * R - 0.06, sill);
+            // Everything is placed at the full width; the driver's cab narrows toward the front at the end (TaperByZ), so
+            // the screen, lamps and the doorways follow the narrowing body.
+            double cw = hw, zfF = zf + 0.004;
+
+            // ---- Front: windscreen in a black rubber frame, wipers, route board on the roof edge.
+            double sy0 = floorY + 0.52, sy1 = roof - 0.13, sw = 2 * cw - 0.16;
+            Panel(ref c, black, 0, 0.5 * (sy0 + sy1), zfF, 0, 0, 1, sw + 0.07, sy1 - sy0 + 0.07, 0.07, 0.006);
+            Panel(ref c, Glass(ScreenC), 0, 0.5 * (sy0 + sy1), zfF + 0.006, 0, 0, 1, sw, sy1 - sy0, 0.05, 0.008);
+            if (c.L0)
+                for (int k = -1; k <= 1; k += 2)
+                    OBar(ref c, black, k * 0.06, sy0 + 0.03, zfF + 0.016, k * 0.06 - 0.40, sy0 + 0.08, zfF + 0.016, 0.012, 0.010);
             if (c.L1)
-                for (int k = -1; k <= 1; k += 2) Decal(ref c, Glass(AmberC), k * (cw - 0.08), floorY + 0.40, zf - 0.06, k * 0.6, 0, 0.8, 0.05, 0.05, 0.015, 0.004);
-            // Green stripes and the black skirt; open side windows with grab bars; rear step and grab rail.
+            {
+                RBox(ref c, Paint(p.Sign), 0, roof + 0.07, zf - 0.20, 0.92, 0.15, 0.05, 0.02, 1);
+                Decal(ref c, Paint(MeshColor.FromHex(0xB71C1C)), 0, roof + 0.07, zf - 0.172, 0, 0, 1, 0.72, 0.05, 0.02, 0.002);
+                for (int k = -1; k <= 1; k += 2) Rod(ref c, black, k * 0.38, roof - 0.01, zf - 0.20, k * 0.38, roof + 0.01, zf - 0.20, 0.012, 4);
+            }
+            // Front panel: green belt stripe across, two round lamps low in the corners, indicators, a centre vent.
+            Decal(ref c, Paint(green), 0, floorY + 0.38, zfF, 0, 0, 1, 2 * cw - 0.06, 0.08, 0.02, 0.003);
+            if (c.L1) Decal(ref c, Paint(green), 0, floorY + 0.47, zfF, 0, 0, 1, 2 * cw - 0.06, 0.025, 0.01, 0.003);
+            for (int k = -1; k <= 1; k += 2)
+            {
+                Lamp(ref c, LensC, ChromeC, k * (cw - 0.20), floorY + 0.15, zfF, 0, 0, 1, 0.075, 0.04, 14);
+                if (c.L1) Decal(ref c, Glass(AmberC), k * (cw - 0.08), floorY + 0.15, zfF, 0, 0, 1, 0.05, 0.07, 0.015, 0.004);
+            }
+            // ---- Front wheel: a short fork from under the cab, a green mudguard over the tyre.
+            WheelSocket fw = ws[2];
+            FenderArc(ref c, Paint(green), 0, R, fw.Z, R + 0.05, fw.Width + 0.10, 0.02, 10, 150, 18);
+            for (int k = -1; k <= 1; k += 2)
+                Rod(ref c, black, k * (0.5 * fw.Width + 0.03), 2 * R + 0.12, fw.Z - 0.06, k * (0.5 * fw.Width + 0.03), R, fw.Z, 0.022, 6);
+            if (c.L1) OBox(ref c, black, T(0, 2 * R + 0.12, fw.Z - 0.06), fw.Width + 0.12, 0.05, 0.10); // fork crown
+
+            // ---- Sides: belt stripes and the dark skirt; the open doorway of the cab; three windows on the passenger box.
             for (int side = -1; side <= 1; side += 2)
             {
-                double x = side * (hw + 0.003);
-                Decal(ref c, Paint(skirt), x, floorY + 0.06, 0.5 * (zr + cab0), side, 0, 0, cab0 - zr - 0.1, 0.16, 0.02, 0.003);
-                Decal(ref c, Paint(green), x, floorY + 0.30, 0.5 * (zr + cab0), side, 0, 0, cab0 - zr - 0.1, 0.10, 0.02, 0.003);
-                Decal(ref c, Paint(green), x, roof - 0.10, 0.5 * (zr + cab0), side, 0, 0, cab0 - zr - 0.1, 0.06, 0.02, 0.003);
-                WindowRow(ref c, hw + 0.002, zr + 0.25, cab0 - 0.15, floorY + 0.58, roof - 0.22, 3, 0.08, MeshColor.FromHex(0x232A30), false);
-                Panel(ref c, Glass(GlassC), side * (cw + 0.003), 0.5 * (sy0 + sy1), zf - 0.48, side, 0, 0, 0.36, sy1 - sy0, 0.04, 0.006);
+                double x = side * (hw + 0.003), xc = side * (cw + 0.004);
+                Decal(ref c, Paint(skirt), x, sill + 0.05, 0.5 * (zr + cab0), side, 0, 0, cab0 - zr - 0.25, 0.08, 0.02, 0.003);
+                Decal(ref c, Paint(green), x, floorY + 0.38, 0.5 * (zr + cab0), side, 0, 0, cab0 - zr - 0.12, 0.08, 0.02, 0.003);
+                if (c.L1) Decal(ref c, Paint(green), x, floorY + 0.29, 0.5 * (zr + cab0), side, 0, 0, cab0 - zr - 0.12, 0.025, 0.01, 0.003);
+                Decal(ref c, Paint(green), xc, floorY + 0.38, zf - 0.25, side, 0, 0, 0.36, 0.08, 0.02, 0.003);
+                // Doorway: a dark opening with a chrome grab handle at its back edge.
+                double dz0 = cab0 + 0.12, dz1 = zf - 0.45;
+                Decal(ref c, dark, xc, 0.5 * (floorY + roof - 0.12), 0.5 * (dz0 + dz1), side, 0, 0, dz1 - dz0, roof - 0.12 - floorY, 0.06, 0.004);
+                if (c.L1) Rod(ref c, Chrome(), side * (cw + 0.02), floorY + 0.25, dz0 + 0.04, side * (cw + 0.02), roof - 0.30, dz0 + 0.04, 0.013, 5);
+                // A small fixed window ahead of the doorway, beside the windscreen.
+                Panel(ref c, Glass(GlassC), xc, 0.5 * (sy0 + sy1), zf - 0.24, side, 0, 0, 0.30, sy1 - sy0, 0.04, 0.006);
             }
-            // Open rear entry with a step and a vertical grab rail; route board.
-            Decal(ref c, Plain(MeshColor.FromHex(0x232A30), 0.5f), 0, 0.5 * (floorY + roof), zr - 0.004, 0, 0, -1, 2 * hw - 0.34, roof - floorY - 0.16, 0.04, 0.003);
-            OBox(ref c, Plain(SteelC), T(0, floorY - 0.12, zr - 0.10), 2 * hw - 0.3, 0.04, 0.22);
+            WindowRow(ref c, hw + 0.002, zr + 0.20, cab0 - 0.08, floorY + 0.55, roof - 0.18, 3, 0.10, MeshColor.FromHex(0x2A3640));
+            if (c.L0)
+            {
+                // Roof luggage lip along both edges.
+                for (int k = -1; k <= 1; k += 2) OBox(ref c, Plain(SteelC), T(k * (hw - 0.06), roof + 0.025, 0.5 * (zr + cab0)), 0.025, 0.05, cab0 - zr - 0.2);
+            }
+
+            // ---- Rear: the open entry with a step and a vertical grab rail; tail lamps; plate under the step.
+            Decal(ref c, dark, 0, 0.5 * (floorY + roof - 0.10), zr - 0.004, 0, 0, -1, 2 * hw - 0.30, roof - 0.10 - floorY, 0.05, 0.003);
+            OBox(ref c, Plain(SteelC), T(0, sill - 0.04, zr - 0.10), 2 * hw - 0.3, 0.04, 0.22);
             if (c.L1)
             {
-                Rod(ref c, Chrome(), -0.1, floorY, zr - 0.02, -0.1, roof - 0.15, zr - 0.02, 0.016, 5);
-                RBox(ref c, Paint(p.Sign), 0, roof + 0.08, cab0 + 0.05, 0.9, 0.16, 0.05, 0.02, 1);
-                Decal(ref c, Paint(MeshColor.FromHex(0xB71C1C)), 0, roof + 0.08, cab0 + 0.077, 0, 0, 1, 0.7, 0.05, 0.02, 0.002);
-                for (int k = -1; k <= 1; k += 2) Panel(ref c, Glass(TailC), k * (hw - 0.10), floorY + 0.20, zr - 0.006, 0, 0, -1, 0.08, 0.16, 0.02, 0.008);
-                // Mirrors.
+                Rod(ref c, Chrome(), -0.12, floorY, zr - 0.02, -0.12, roof - 0.15, zr - 0.02, 0.016, 5);
+                for (int k = -1; k <= 1; k += 2) Panel(ref c, Glass(TailC), k * (hw - 0.08), floorY + 0.15, zr - 0.006, 0, 0, -1, 0.07, 0.16, 0.02, 0.008);
+                // Mirrors on arms from the cab corners.
                 for (int k = -1; k <= 1; k += 2)
                 {
-                    Rod(ref c, black, k * (cw - 0.02), sy0, zf - 0.30, k * (cw + 0.12), sy0 + 0.10, zf - 0.28, 0.01, 4);
-                    Lump(ref c, black, T(k * (cw + 0.14), sy0 + 0.13, zf - 0.28), 0.05, 0.07, 0.02, 0.6);
+                    Rod(ref c, black, k * (cw - 0.02), sy0 + 0.05, zf - 0.12, k * (cw + 0.09), sy0 + 0.15, zf - 0.10, 0.01, 4);
+                    Lump(ref c, black, T(k * (cw + 0.10), sy0 + 0.18, zf - 0.10), 0.05, 0.07, 0.02, 0.6);
                 }
             }
-            CurveEnd(c.M, v0, zf - 0.25, zf, 0.25);
-            SetPlates((float)(floorY + 0.05), (float)zr - 0.02f, 0f, 0f, 0f, 0f, true);
-            _ = e;
+            // The driver's cab narrows toward the front (the passenger box is the wider part), and its corners curve back a
+            // little in plan (the face stays flat where the screen sits).
+            TaperByZ(c.M, v0, cab0, zf, cabNarrow);
+            CurveEnd(c.M, v0, zf - 0.20, zf, 0.04);
+            SetPlates((float)(sill - 0.17), (float)zr - 0.215f, (float)(floorY + 0.26), (float)zf + 0.012f);
         }
 
         // -----------------------------------------------------------------------------------------------------------
