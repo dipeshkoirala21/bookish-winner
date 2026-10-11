@@ -501,11 +501,12 @@ namespace Ghumante.Core.Driving
                 return true;
             }
 
-            // 2. The roads that are not bridges or flyovers (draped, lowered underpasses, fords) and their footpaths.
+            // 2. The roads that are not bridges or flyovers (draped, lowered underpasses, fords) and their footpaths; where
+            //    such roads cover the point at different levels (a street at grade over a lowered underpass), the level of
+            //    the asker's feet.
             float road = h, deckGrade = 0f;
             bool spans = false;
-            bool found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit)
-                         && (hit.OnRoad || hit.OnFootpath);
+            bool found = TryNearestGroundRoad(x, z, RoadSpatialIndex.MaxFootpathM, nearY, h, out hit) && (hit.OnRoad || hit.OnFootpath);
             if (found && hit.OnFootpath)
             {
                 // A raised footpath: the paver top at kerb height above the ribbon (or the structure surface), never a ramp.
@@ -944,6 +945,81 @@ namespace Ghumante.Core.Driving
                 if (!_areas.TryGetValue(id, out e) || e.Roads == null) continue;
                 RoadHit h;
                 if (!e.Roads.TryNearest(x, z, maxDistM, mustHave, mustNotHave, layer, out h)) continue;
+                if (!found || h.EdgeDistanceM < hit.EdgeDistanceM || h.EdgeDistanceM == hit.EdgeDistanceM && id.Key < bestKey)
+                {
+                    hit = h;
+                    bestKey = id.Key;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// The ground road (not a bridge or flyover) nearest to (x, z) within <paramref name="maxDistM"/> of its edge, for
+        /// feet at <paramref name="nearY"/>. Ground roads may cover one point at different levels (the Kalanki junction at
+        /// grade over the Ring Road underpass 7 m below, a lowered cutting beside a service road): when the surfaces of the
+        /// roads covering the point (structure heights, else <paramref name="terrainY"/> plus the lift) spread over more than
+        /// <see cref="RoadStructureRecord.GradeSeparationM"/>, only the level the feet stand on counts, the highest whose
+        /// surface is at most <see cref="DeckStepUpM"/> above them (any when nearY is +∞), else the lowest. Otherwise (the
+        /// common case, and always where no road nearby has structure heights) the plain nearest surface, exactly as
+        /// <see cref="TryNearestRoad(double, double, double, RoadFlags, RoadFlags, RoadLayer, out RoadHit)"/> on
+        /// <see cref="RoadLayer.Ground"/>. Exact ties go to the lower tile key.
+        /// </summary>
+        private bool TryNearestGroundRoad(double x, double z, double maxDistM, float nearY, float terrainY, out RoadHit hit)
+        {
+            hit = default(RoadHit);
+            if (!InWorld(x, z) || double.IsNaN(maxDistM)) return false;
+            int level = FinestRoadLevel();
+            if (level < 0) return false;
+            double size = TileId.SizeAt(level);
+            double r = Math.Max(0.0, maxDistM) + MaxRoadHalfWidthM;
+            int n = 1 << level;
+            int tx0 = Math.Max(0, (int)Math.Floor((x - r) / size)), tx1 = Math.Min(n - 1, (int)Math.Floor((x + r) / size));
+            int tz0 = Math.Max(0, (int)Math.Floor((z - r) / size)), tz1 = Math.Min(n - 1, (int)Math.Floor((z + r) / size));
+            float lo = float.NegativeInfinity, hi = float.PositiveInfinity;
+            bool layered = false;
+            for (int ty = tz0; ty <= tz1 && !layered; ty++)
+            for (int tx = tx0; tx <= tx1; tx++)
+            {
+                Entry e;
+                if (_areas.TryGetValue(new TileId(level, tx, ty), out e) && e.Roads != null && e.Roads.GroundHeightsNear(x, z, maxDistM)) layered = true;
+            }
+            if (layered)
+            {
+                float minY = float.PositiveInfinity, maxY = float.NegativeInfinity, top = float.NegativeInfinity;
+                float limit = float.IsPositiveInfinity(nearY) ? float.PositiveInfinity : nearY + DeckStepUpM;
+                for (int ty = tz0; ty <= tz1; ty++)
+                for (int tx = tx0; tx <= tx1; tx++)
+                {
+                    Entry e;
+                    if (_areas.TryGetValue(new TileId(level, tx, ty), out e) && e.Roads != null)
+                        e.Roads.GroundLevels(x, z, maxDistM, terrainY, limit, ref minY, ref maxY, ref top);
+                }
+                if (maxY - minY > RoadStructureRecord.GradeSeparationM)
+                {
+                    if (top > float.NegativeInfinity)
+                    {
+                        lo = top - RoadStructureRecord.GradeSeparationM;
+                        hi = top;
+                    }
+                    else
+                    {
+                        lo = minY;
+                        hi = minY + RoadStructureRecord.GradeSeparationM;
+                    }
+                }
+            }
+            bool found = false;
+            ulong bestKey = 0;
+            for (int ty = tz0; ty <= tz1; ty++)
+            for (int tx = tx0; tx <= tx1; tx++)
+            {
+                Entry e;
+                var id = new TileId(level, tx, ty);
+                if (!_areas.TryGetValue(id, out e) || e.Roads == null) continue;
+                RoadHit h;
+                if (!e.Roads.TryNearestGround(x, z, maxDistM, terrainY, lo, hi, out h)) continue;
                 if (!found || h.EdgeDistanceM < hit.EdgeDistanceM || h.EdgeDistanceM == hit.EdgeDistanceM && id.Key < bestKey)
                 {
                     hit = h;

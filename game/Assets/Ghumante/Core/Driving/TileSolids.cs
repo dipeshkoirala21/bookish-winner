@@ -15,7 +15,9 @@ namespace Ghumante.Core.Driving
     /// roof slab. Sacred outlines and their parts (the temple generators emit their own walkable plinths and walls),
     /// hidden hero footprints and outlines whose parts are drawn instead are left out. As a runtime guard
     /// (<see cref="FootprintGuard"/>) an outline never reaches into a road: the part inside is trimmed back to the edge
-    /// of the road it intrudes into, on the building's side (decision 1).</item>
+    /// of the road it intrudes into, on the building's side (decision 1). A building passage (RSTR kind Passage, a dhoka
+    /// under a house that stays whole) opens the ground floor along its gateway the same way, and the whole outline stands
+    /// again from the gateway's free height up (the storeys over the passage).</item>
     /// <item><b>Point objects</b> (PROP): tree trunks, poles, lamps, masts, towers, chimneys, tanks, wells, taps, benches
     /// and statues (artwork), each a cylinder sized by kind; never one standing on a drawn carriageway.</item>
     /// <item><b>Railings and parapets</b> along both edges of every bridge and flyover, walked every
@@ -26,7 +28,9 @@ namespace Ghumante.Core.Driving
     /// down over a road passing under a ramp.</item>
     /// <item><b>Retaining walls</b> along a lowered road (an underpass trench) wherever it runs more than
     /// <see cref="TileGroundQuery.HardEdgeM"/> below the ground beside it, from under the road to a parapet
-    /// <see cref="RetainingParapetM"/> above that ground.</item>
+    /// <see cref="RetainingParapetM"/> above that ground; open where another drawn road's surface covering the wall line
+    /// lies within <see cref="AtGradeM"/> of the lowered road's (a street joining the cutting), and kept
+    /// <see cref="CrossingUndersideM"/> under one passing over it (a street at grade across an underpass).</item>
     /// </list>
     /// Deterministic: the same tile and options give the same solids in the same order.
     /// </summary>
@@ -64,6 +68,11 @@ namespace Ghumante.Core.Driving
 
         /// <summary>Height of the parapet on a retaining wall above the ground beside a lowered road.</summary>
         public const float RetainingParapetM = 1.0f;
+
+        /// <summary>Where another road passes over a lowered road's cutting (a street at grade across an underpass), the
+        /// cutting's retaining wall stops this far under that road's surface: the side wall of the box under it, never a
+        /// wall across it.</summary>
+        public const float CrossingUndersideM = 0.3f;
 
         /// <summary>Outlines of sacred archetypes are left to the temple generators (as BuildingGrammar.IsSacred).</summary>
         public static bool IsSacred(BuildingArchetype a)
@@ -110,6 +119,7 @@ namespace Ghumante.Core.Driving
             FootprintGuard guard = roads != null && roads.SegmentCount > 0 ? new FootprintGuard(roads, corridors) : null;
             double[] xs = new double[64], zs = new double[64], hx = new double[16], hz = new double[16];
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+            List<double> passages = roads != null ? Passages(t, roads) : null;
             for (int i = 0; i < t.Buildings.Count; i++)
             {
                 BuildingRecord r = t.Buildings[i];
@@ -163,6 +173,18 @@ namespace Ghumante.Core.Driving
                         continue;
                     }
                     b.AddRing(xs, zs, n, WallHalfM, bottom, top, SolidFlags.None);
+                    if (piece == 0 && passages != null && trimmed)
+                    {
+                        // A building passage (a dhoka) runs under the house: the guard opened the ground floor along its
+                        // gateway; the storeys above it stay solid from the gateway's free height up.
+                        float clear;
+                        int on = Ring(t, outer, ref hx, ref hz);
+                        if (PassageUnder(passages, hx, hz, on, out clear) && top > minG + clear + 0.2f)
+                        {
+                            b.BeginGroup();
+                            b.AddRing(hx, hz, on, WallHalfM, minG + clear, top, SolidFlags.None);
+                        }
+                    }
                     if (trimmed && pieces > 1) continue; // holes of a footprint cut in two are dropped
                     for (int ring = 1; ring < r.Rings.Length; ring++)
                     {
@@ -176,6 +198,80 @@ namespace Ghumante.Core.Driving
                     }
                 }
             }
+        }
+
+        /// <summary>The rendered segments of the tile's drawn building passages (RSTR kind Passage, docs/DATA_FORMATS.md
+        /// 1.15) as (ax, az, bx, bz, free height) quintuples in game metres, or null when there are none.</summary>
+        private static List<double> Passages(TileData t, RoadSpatialIndex roads)
+        {
+            List<double> list = null;
+            RoadLayout layout = roads.Layout;
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                RoadStructureRecord st = t.RoadStructureOf(i);
+                if (st.Kind != RoadStructureKind.Passage || !RoadMesher.IsDrawn(t, i, null)) continue;
+                if (layout != null && !layout.IsPassage(i)) continue;
+                float clear = st.ClearanceM > 0f ? Math.Max(st.ClearanceM, 2.5f) : RoadClearance.MinOverheadClearanceM;
+                RoadRecord r = t.Roads[i];
+                int first, last;
+                RoadSpatialIndex.RenderedRange(r, out first, out last);
+                for (int k = first; k < last; k++)
+                {
+                    double ax, az, bx, bz;
+                    t.LocalToGame(r.Points[2 * k], r.Points[2 * k + 1], out ax, out az);
+                    t.LocalToGame(r.Points[2 * k + 2], r.Points[2 * k + 3], out bx, out bz);
+                    if (list == null) list = new List<double>();
+                    list.Add(ax);
+                    list.Add(az);
+                    list.Add(bx);
+                    list.Add(bz);
+                    list.Add(clear);
+                }
+            }
+            return list;
+        }
+
+        /// <summary>True when a passage segment of <paramref name="passages"/> runs into or through the closed ring (x, z)
+        /// (crosses an edge or has an end inside), with the lowest free height of those that do.</summary>
+        private static bool PassageUnder(List<double> passages, double[] x, double[] z, int n, out float clear)
+        {
+            clear = float.PositiveInfinity;
+            double minX = double.PositiveInfinity, minZ = double.PositiveInfinity, maxX = double.NegativeInfinity, maxZ = double.NegativeInfinity;
+            for (int k = 0; k < n; k++)
+            {
+                minX = Math.Min(minX, x[k]);
+                maxX = Math.Max(maxX, x[k]);
+                minZ = Math.Min(minZ, z[k]);
+                maxZ = Math.Max(maxZ, z[k]);
+            }
+            for (int q = 0; q + 4 < passages.Count; q += 5)
+            {
+                double ax = passages[q], az = passages[q + 1], bx = passages[q + 2], bz = passages[q + 3];
+                if (Math.Max(ax, bx) < minX || Math.Min(ax, bx) > maxX || Math.Max(az, bz) < minZ || Math.Min(az, bz) > maxZ) continue;
+                bool under = InRing(x, z, n, ax, az) || InRing(x, z, n, bx, bz);
+                for (int k = 0; k < n && !under; k++)
+                {
+                    int j = k + 1 == n ? 0 : k + 1;
+                    under = SegmentsCross(ax, az, bx, bz, x[k], z[k], x[j], z[j]);
+                }
+                if (under) clear = Math.Min(clear, (float)passages[q + 4]);
+            }
+            return !float.IsPositiveInfinity(clear);
+        }
+
+        private static bool InRing(double[] x, double[] z, int n, double px, double pz)
+        {
+            bool inside = false;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+                if ((z[i] > pz) != (z[j] > pz) && px < (x[j] - x[i]) * (pz - z[i]) / (z[j] - z[i]) + x[i]) inside = !inside;
+            return inside;
+        }
+
+        private static bool SegmentsCross(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz)
+        {
+            double d1 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d2 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
+            double d3 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d4 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
+            return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0);
         }
 
         /// <summary>A ring of tile-local centimetre pairs in game metres, into (x, z) (grown as needed); returns its
@@ -389,7 +485,7 @@ namespace Ghumante.Core.Driving
                 float[] deck = roads.SurfaceHeights(ri);
                 if (!elevated && deck == null) continue;
                 RoadRecord r = t.Roads[ri];
-                if (!RoadMesher.IsDrawn(r, o)) continue;
+                if (!RoadMesher.IsDrawn(t, ri, o)) continue;
                 int first, last;
                 RoadSpatialIndex.RenderedRange(r, out first, out last);
                 if (last <= first) continue;
@@ -463,9 +559,18 @@ namespace Ghumante.Core.Driving
                             }
                             else
                             {
-                                // A lowered road: a retaining wall where it runs below the hard edge.
+                                // A lowered road: a retaining wall where it runs below the hard edge, open where another
+                                // road joins the cutting at its level and kept under a road that passes over it.
                                 bool cut = ground + lift - y > TileGroundQuery.HardEdgeM;
-                                run.Add(qx, qz, y - RailingBelowDeckM, Math.Max(y + rail, ground + RetainingParapetM), cut);
+                                float top = Math.Max(y + rail, ground + RetainingParapetM);
+                                RoadHit other;
+                                float otherY;
+                                if (cut && roads.TryCoveringOther(qx, qz, ri, ground, out other, out otherY))
+                                {
+                                    if (otherY - y < AtGradeM && y - otherY < AtGradeM) cut = false; // a street joining the cutting
+                                    else if (otherY > y) top = Math.Min(top, otherY - CrossingUndersideM); // a street passing over it
+                                }
+                                run.Add(qx, qz, y - RailingBelowDeckM, top, cut && top > y);
                             }
                         }
                     }

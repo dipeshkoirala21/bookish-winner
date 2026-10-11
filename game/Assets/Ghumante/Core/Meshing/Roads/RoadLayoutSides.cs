@@ -134,13 +134,14 @@ namespace Ghumante.Core.Meshing
             }
         }
 
-        /// <summary>A piece that takes part in the side-by-side rules: drawn, on the ground (no deck, bridge, tunnel or
-        /// passage) and not a roundabout ring way.</summary>
+        /// <summary>A piece that takes part in the side-by-side rules: drawn (a tunnel-tagged underpass is, like any
+        /// lowered underpass: <see cref="RoadMesher.IsDrawn(TileData, int, RoadOptions)"/>), not on a deck or bridge, no
+        /// passage and not a roundabout ring way.</summary>
         private bool SideCandidate(TileData t, int i)
         {
             RoadRecord r = t.Roads[i];
-            if (!RoadMesher.IsDrawn(r, null) || (r.Flags & (RoadFlags.Bridge | RoadFlags.Tunnel)) != 0) return false;
-            if (Structures[i].IsElevated || Structures[i].Kind == RoadStructureKind.Tunnel || IsPassage(i)) return false;
+            if (!RoadMesher.IsDrawn(t, i, null) || (r.Flags & RoadFlags.Bridge) != 0) return false;
+            if (Structures[i].IsElevated || IsPassage(i)) return false;
             return !Attrs[i].Has(RoadAttrFlags.RingMember);
         }
 
