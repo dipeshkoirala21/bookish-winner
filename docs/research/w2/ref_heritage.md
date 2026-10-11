@@ -5,12 +5,16 @@ generators may take, and how the B0 band draws the `building:part` volumes of th
 reference only (Openverse, open licences, never copied into the repository); the contact sheets are under
 `/home/user/wt/refs/heritage/` and the renders under `/home/user/wt/previews/heritage/`.
 
-## 1. What went wrong (review findings, re-measured on base 3f71f0e)
+## 1. What went wrong (review findings, re-measured on base 3f71f0e; the owner's playtest #1)
 
-* **Nag Pokhari** (Naxal, osm way 206874129, `building=temple`, one level, pipeline height 7 m): a U of narrow ranges
-  round the pond (36 points, 1,105 m² of footprint in a 3,823 m² hull, fill 0.29). The generic framing took the
-  convex hull's box: an 89 × 55 m plinth 1 m high and a 96 m pagoda over Primary osm 165226102. 65 of the 233 generic
-  sacred structures of the sample put 2,317 m² of blocking collider below 4 m into the drawn road corridors.
+* **Hiti Pokhari** (Naxal, osm way 206874129, `building=temple`, one level, pipeline height 7 m): a U of narrow ranges
+  round the court of the Narayan temple (POI "Narayansthan"; the round temple is way 909138359)
+  across Narayanhiti Path from the Hiti Pokhari pond, opposite the palace whose name it gave (36 points, 1,105 m² of
+  footprint in a 3,823 m² hull, fill 0.29). The generic framing took the convex hull's box: an 89 × 55 m plinth 1 m
+  high and a 96 m pagoda over Primary osm 165226102. This is the owner's playtest #1 ("riding on a raised brick
+  platform with brick retaining edges that spans the whole road"). It is **not** Nag Pokhari, the walled pond with the
+  golden naga 500 m east (27.7134 N, 85.3241 E), which the first draft of this brief named by mistake. 65 of the 233
+  generic sacred structures of the sample put 2,317 m² of blocking collider below 4 m into the drawn road corridors.
 * **Kathmandu Durbar Square** (osm way 1415152801, `building:part=yes`, `roof:shape=hipped`, 4 levels, 13.5 m; part of
   outline way 1029965548): drawn as a plain 13.5 m brick extrusion, the only wall of the building facing the square.
   186 `building:part` records of the sample are not drawn by a sacred host; every one was a styled extrusion at B0.
@@ -41,10 +45,14 @@ and 5 levels; Pancha Devalaya, 64 × 59 m, is a complex of five shrines). These 
 buildings** by the house grammar (brick, carved windows, doors, eaves, a jhingati roof where the plot is
 rectangular), as tall as the record says, trimmed out of the road like any house.
 
-**Nag Pokhari** ([Wikipedia](https://en.wikipedia.org/wiki/Naag_Pokhari)): a historic artificial pond east of the
-royal palace, about 38 × 20 m (125 × 65 ft), with a golden naga on a pillar in the middle, railings and walls round
-it and the city's houses beyond (photos: Biraha Prakash Dangol, Naag Panchami 2012, CC BY-NC-SA 2.0; limbun, CC BY-NC
-2.0). The mapped U of ranges is drawn as a two-storey brick range round the pond, not a temple.
+**Hiti Pokhari compound.** Narayanhiti takes its name from the Narayan temple opposite the palace and the hiti (stone
+spout) east of its main gate ([Wikipedia: Narayanhiti Palace Museum](https://en.wikipedia.org/wiki/Narayanhiti_Palace_Museum);
+an 1844 drawing, "Temple of Narayan at Narayanhitti near Kathmandu", [Global Nepali Museum](https://globalnepalimuseum.com/?p=1755)).
+OSM maps the temple court's ranges as one U-shaped `building=temple`; it is drawn as a two-storey brick range round the
+court (the compound building of the house grammar, trimmed out of the road like a house), with the small round temple
+(way 909138359) framed on its own outline in the middle. Openverse holds no open-licensed photo of the court
+(searches for Narayanhiti and Hiti Pokhari return the Durbar Square's Narayan temples), so the range keeps the generic
+Kathmandu brick and window rhythm.
 
 ## 3. Temples beside roads (decision 1)
 
@@ -82,13 +90,40 @@ Basantapur Square (hiphopmilk, CC BY-NC-ND 2.0, 29683544476; S Pakhrin, CC BY 2.
   volume (a part from a min_height) keeps the styled extrusion and gets a row of framed, glazed windows per storey on
   every wall that looks onto a road or a square.
 
-## 5. Checks
+## 5. Heroes beside their kora (playtest #1, whole-sample scan)
 
-* `SacredFramingTests.NoGenericSacredStructurePutsABlockingColliderIntoADrawnCorridor`: every generic structure of
-  the sample (temples, stupas, shrines, compound buildings), with the roads package's drawn corridors: no blocking
-  collider point below 4 m deeper than 5 cm in a corridor; no structure taller than 27 m over its ground.
-* `SacredFramingTests.NagPokhariIsACompoundBuildingNotA96MetrePagoda`: under 10 m in B0 and B1, nothing over the road.
+**Boudhanath.** "The dome is elevated on three 20-cornered terraces of decreasing sizes" (a giant three-dimensional
+mandala). The sample's OSM terraces (ways 56688295 and 235084185) give the real shape: each arm runs out to the half
+size a over the middle half of a side, then every corner steps back twice, to 0.82 a and to 0.5 a (five corners a
+quadrant: (a, 0.5a), (0.82a, 0.5a), (0.82a, 0.82a), (0.5a, 0.82a), (0.5a, a)). The replica's terraces were a square
+with small mid-side projections and square collider boxes, whose corners stood up to 3.6 m into the kora street
+(Pedestrian osm 1196490820, 215.8 m²). They are now that mandala (`StupaGenerator.MandalaLocal`): visual rings, caps and
+parapets on the 20-cornered plan, the colliders its two arms and inner square, the chortens on the stepped corners and
+the 147 prayer-wheel niches spread along its walls. The plan keeps off the drawn carriageways round it
+(`StupaParams.Clearance`, `SacredClearance.DrawnDistance`), shrinking by at most 4% (Boudha: 2.3%, 81.5 → 79.6 m).
+
+**Swayambhunath.** The drum and dome collided as one square box (half 14.2 m) whose corners reached 20 m out, over
+the kora path round the dome (245 m²). They are round solids now (drum and lower dome, upper dome, harmika and
+spire; a square inscribed in the drum keeps a box in every collider set). The kora path (osm 302394468, `SQUEEZED`
+corridor 1.1-2.5 m) is drawn 2.5 m wide and overlaps the protected dome outline; the drum gives way by the 4% cap
+and the drawn path still touches it by up to 0.12 m at one bearing (open issue for the roads package).
+
+## 6. Checks
+
+* `SacredRideTests.NarayanhitiPathPastHitiPokhariIsRideableEndToEnd`: the tile built as the streamer builds it (High
+  tier), the heroes' and the B0 near-ring cells' colliders registered in the layered ground query, a motorbike ridden
+  down five lanes of both Narayanhiti Path pieces past the compound, both ways. Base 5a7668a: 9 of 20 rides stuck on
+  osm 165226102, the bike lifted up to 2.12 m onto the plinth. Now 20 of 20 through, never above the road, no wall hit.
+* `SacredFramingTests.NoSacredPlinthPlatformStepOrWallStandsOnADrawnRoad`: every generic structure and every hero
+  replica of the sample against the carriageways as drawn (plinths, platforms, steps, walls, posts and solids with a
+  bottom under 4 m and a top over 10 cm; stairs along a steps or foot way are that way). Base 5a7668a: 60 generic
+  structures (1,069 m²) and 2 heroes (338 m²); now 0 and 0.
+* `SacredFramingTests.NoGenericSacredStructurePutsABlockingColliderIntoADrawnCorridor`: against the roads package's
+  corridors (at least 4.8 m): 65 → 0 generic structures; no structure taller than 27 m over its ground.
+* `SacredFramingTests.HitiPokhariCompoundIsABuildingNotA96MetrePagodaOverTheRoad`: under 10 m in B0 and B1, nothing
+  over the road. `BoudhanathTerracesAreTheTwentyCorneredMandalaOffItsKoraStreet`: 147 niches, arm and square boxes,
+  round drum, nothing on the kora street.
 * `MeshingBuildingPartTests.NoB0PartWallFacingACorridorOrASquareIsWindowFree`: every B0 part wall of 3 m or more that
   looks onto a drawn corridor or a square carries openings above the ground floor.
-* Previews: `/home/user/wt/previews/heritage/` (before/after street views at Basantapur and the Durbar Square part,
-  Nag Pokhari, temples beside Asan lanes; side-by-side sheets with the photos).
+* Previews: `/home/user/wt/previews/heritage/pt/` (`sbs_hiti_street.jpg`, `sbs_hiti_air.jpg`, `sbs_boudha_top.jpg`,
+  `sbs_kds_part.jpg`: before on base 5a7668a, after, and a photo).

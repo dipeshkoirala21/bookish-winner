@@ -90,7 +90,7 @@ namespace Ghumante.Core.Tests
         [Test]
         public void ACompoundOrAnOversizedOutlineIsNeverFramedAsAPagoda()
         {
-            // The Nag Pokhari case (osm 413748258): a U of narrow ranges round a pond, tagged a temple of one level. Its
+            // The Hiti Pokhari case (osm 413748258): a U of narrow ranges round a temple court, tagged a temple of one level. Its
             // convex hull's box made an 89 × 55 m plinth and a 96 m pagoda; now it is a Newar compound building.
             TileData t = Tile();
             int[] u = { 20000, 20000, 26000, 20000, 26000, 26000, 25000, 26000, 25000, 21000, 21000, 21000, 21000, 26000, 20000, 26000 };
@@ -195,7 +195,7 @@ namespace Ghumante.Core.Tests
         public void NoGenericSacredStructurePutsABlockingColliderIntoADrawnCorridor()
         {
             // The reviewer's measure (final-ride sacred_colliders_in_roads.txt): 65 of 233 generic structures had blocking
-            // colliders below 4 m in the drawn road corridors (2,317 m²), the Nag Pokhari compound 978 m² of a 96 m
+            // colliders below 4 m in the drawn road corridors (2,317 m²), the Hiti Pokhari compound 978 m² of a 96 m
             // pagoda's plinth over a primary road. Every generic structure the B0 cells build (temples, stupas, shrines and
             // the compound buildings that stand in for oversized outlines), with the roads package's drawn corridors.
             HashSet<ulong> hidden = StreamingScene.Heroes.HiddenRefs as HashSet<ulong> ?? new HashSet<ulong>(StreamingScene.Heroes.HiddenRefs);
@@ -250,8 +250,11 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void NagPokhariIsACompoundBuildingNotA96MetrePagoda()
+        public void HitiPokhariCompoundIsABuildingNotA96MetrePagodaOverTheRoad()
         {
+            // OSM way 206874129 (building=temple, 36 points): the U of ranges round the Narayan temple court across
+            // Narayanhiti Path from Hiti Pokhari, Naxal (the owner's playtest #1). Framed on its convex hull's box it was a
+            // 96 m pagoda on an 89 x 55 m plinth over Primary osm 165226102; it is a compound building of the house grammar.
             TileData t = StreamingSampleRegion.Tile(new TileId(10, 517, 162));
             int i = -1;
             for (int k = 0; k < t.Buildings.Count; k++)
@@ -277,6 +280,168 @@ namespace Ghumante.Core.Tests
             Assert.That(Top(b1) - ground, Is.LessThan(10), "B1");
             Assert.That(Top(b0) - ground, Is.LessThan(10), "B0");
             Assert.That(InRoad(t, c, q, ground, 0.05), Is.EqualTo(0), "nothing over Primary osm 165226102");
+        }
+
+        /// <summary>True when a stair ramp runs along a drawn steps, footway or path way (its axis within 30 degrees of the
+        /// nearest such segment, its middle within 3 m of it): the stair is that road (Swayambhu's 365 steps).</summary>
+        private static bool AlongFootWay(TileData t, in GenRamp r)
+        {
+            double mx = 0.5 * (r.X0 + r.X1), mz = 0.5 * (r.Z0 + r.Z1), dx = r.X1 - r.X0, dz = r.Z1 - r.Z0, len = Math.Sqrt(dx * dx + dz * dz);
+            if (len < 1e-6) return false;
+            foreach (RoadRecord road in t.Roads)
+            {
+                if (road.RoadClass != RoadClass.Steps && road.RoadClass != RoadClass.Footway && road.RoadClass != RoadClass.Path) continue;
+                for (int k = 0; k + 1 < road.PointCount; k++)
+                {
+                    double ax = road.Points[2 * k] / 100.0, az = road.Points[2 * k + 1] / 100.0, bx = road.Points[2 * k + 2] / 100.0, bz = road.Points[2 * k + 3] / 100.0;
+                    double ox, oz;
+                    if (RoadCorridor.PointSeg(mx, mz, ax, az, bx, bz, out ox, out oz) > 3.0) continue;
+                    double sx = bx - ax, sz = bz - az, sl = Math.Sqrt(sx * sx + sz * sz);
+                    if (sl > 1e-6 && Math.Abs(dx * sx + dz * sz) / (len * sl) >= Math.Cos(Math.PI / 6)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Area (m², 0.25 m samples) of the colliders standing on the drawn carriageways (<see cref="SacredDrawnRoads"/>,
+        /// tile-local): every plinth, platform, terrace, step, wall, post and solid whose bottom is below 4 m and whose top
+        /// is more than 10 cm over the terrain, more than <paramref name="tolerance"/> inside a drawn road (a walkable step
+        /// in a road is a platform the rider rides up onto). Stairs along a steps, footway or path way are that way.
+        /// </summary>
+        private static double OnDrawnRoads(TileData t, TileHeightSampler h, GenColliders c, double tolerance, List<string> where)
+        {
+            SacredDrawnRoads drawn = SacredDrawnRoads.For(t);
+            double area = 0;
+            Func<double, double, float, float, string, double, bool> hit = (x, z, y0, y1, what, w) =>
+            {
+                double sd = drawn.SignedDistance(x, z);
+                if (sd >= -tolerance) return false;
+                float g;
+                if (!h.TryHeightClamped(t.Tile.X0 + x, t.Tile.Z0 + z, out g) || y0 > g + SacredSelector.BlockingBelowM || y1 < g + 0.10f) return false;
+                area += w;
+                if (where != null && where.Count < 4) where.Add(what + " " + (y0 - g).ToString("0.00") + ".." + (y1 - g).ToString("0.00") + " m, " + (-sd).ToString("0.00") + " m in");
+                return true;
+            };
+            foreach (GenBox b in c.Boxes)
+            {
+                double c0 = Math.Cos(b.YawRad), s0 = Math.Sin(b.YawRad);
+                for (double u = -b.HalfX + 0.125; u < b.HalfX; u += 0.25)
+                for (double w = -b.HalfZ + 0.125; w < b.HalfZ; w += 0.25)
+                    hit(b.CX + u * c0 - w * s0, b.CZ + u * s0 + w * c0, b.CY - b.HalfY, b.CY + b.HalfY, "box " + b.Flags, 0.0625);
+            }
+            foreach (GenCylinder cy in c.Cylinders)
+                for (double u = -cy.Radius + 0.125; u < cy.Radius; u += 0.25)
+                for (double w = -cy.Radius + 0.125; w < cy.Radius; w += 0.25)
+                    if (u * u + w * w <= cy.Radius * cy.Radius) hit(cy.CX + u, cy.CZ + w, cy.Y0, cy.Y1, "cylinder", 0.0625);
+            foreach (GenWall wl in c.Walls)
+            {
+                double len = Math.Sqrt((wl.X1 - wl.X0) * (wl.X1 - wl.X0) + (wl.Z1 - wl.Z0) * (wl.Z1 - wl.Z0));
+                int k = Math.Max(1, (int)Math.Ceiling(len / 0.25));
+                for (int i = 0; i < k; i++)
+                    hit(wl.X0 + (wl.X1 - wl.X0) * (i + 0.5) / k, wl.Z0 + (wl.Z1 - wl.Z0) * (i + 0.5) / k, wl.Y0, wl.Y1, "wall", 0.25 * Math.Max(0.25, 2 * wl.HalfThickness));
+            }
+            foreach (GenRamp r in c.Ramps)
+            {
+                double dx = r.X1 - r.X0, dz = r.Z1 - r.Z0, len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 1e-6 || AlongFootWay(t, r)) continue;
+                double nx = -dz / len, nz = dx / len;
+                int k = Math.Max(1, (int)Math.Ceiling(len / 0.25));
+                for (int i = 0; i < k; i++)
+                for (double o = -r.HalfWidth + 0.125; o < r.HalfWidth; o += 0.25)
+                {
+                    double f = (i + 0.5) / k;
+                    hit(r.X0 + dx * f + nx * o, r.Z0 + dz * f + nz * o, Math.Min(r.Y0, r.Y1) - 0.5f, r.Y0 + (r.Y1 - r.Y0) * (float)f, "stair", 0.0625);
+                }
+            }
+            return area;
+        }
+
+        [Test]
+        public void NoSacredPlinthPlatformStepOrWallStandsOnADrawnRoad()
+        {
+            // The whole sample (playtest #1): every generic sacred structure the B0 cells build and every hero replica
+            // (LOD0 colliders, as the streamer registers them), against the carriageways as drawn. On base 5a7668a: 60 generic
+            // structures (1,069 m²) and 2 heroes (338 m²: the corners of Boudhanath's square terrace boxes in its kora street,
+            // the square box round Swayambhu's drum on its kora path).
+            ISet<ulong> hidden = StreamingScene.Heroes.HiddenRefs;
+            int generic = 0, genericOn = 0, heroes = 0, heroesOn = 0;
+            double genericM2 = 0, heroM2 = 0;
+            var report = new List<string>();
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                if (t == null || !t.HasDetail) continue;
+                var h = new TileHeightSampler(t, 1);
+                var o = new BuildingOptions { Corridors = RoadCorridorIndex.ForTile, HiddenRefs = hidden };
+                for (int i = 0; i < t.Buildings.Count; i++)
+                {
+                    BuildingRecord b = t.Buildings[i];
+                    if (!SacredSelector.DrawsGeneric(b) || hidden.Contains(b.OsmRef)) continue;
+                    var c = new GenColliders();
+                    if (!BuildingDetailMesher.One(t, i, h, o, new MeshData(), c)) continue;
+                    generic++;
+                    var where = new List<string>();
+                    double a = OnDrawnRoads(t, h, c, 0.05, where);
+                    if (a <= 0) continue;
+                    genericOn++;
+                    genericM2 += a;
+                    report.Add(id + " b" + i + " osm " + b.OsmRef + ": " + a.ToString("0.0") + " m² (" + string.Join("; ", where) + ")");
+                }
+                foreach (HeritageRecord r in StreamingScene.Heroes.InTile(t.Tile.Key))
+                {
+                    var c = new GenColliders();
+                    if (HeroBuilder.Build(r, t, 0, new MeshData(), c) <= 0) continue;
+                    heroes++;
+                    var where = new List<string>();
+                    // Heroes keep their real plan; within 15 cm of a drawn edge is the squeezed kora path at Swayambhu
+                    // (the drawn 2.5 m path overlaps the protected dome outline; open issue for the roads package).
+                    double a = OnDrawnRoads(t, h, c, 0.15, where);
+                    if (a <= 0) continue;
+                    heroesOn++;
+                    heroM2 += a;
+                    report.Add(id + " " + r.Id + ": " + a.ToString("0.0") + " m² (" + string.Join("; ", where) + ")");
+                }
+            }
+            TestContext.WriteLine("generic sacred structures {0}, on a drawn road {1} ({2:0.0} m²); heroes {3}, on a drawn road {4} ({5:0.0} m²)", generic,
+                                  genericOn, genericM2, heroes, heroesOn, heroM2);
+            foreach (string s in report) TestContext.WriteLine(s);
+            Assert.That(generic, Is.GreaterThan(150));
+            Assert.That(heroes, Is.GreaterThan(15));
+            Assert.That(genericOn + heroesOn, Is.EqualTo(0), string.Join("\n", report));
+        }
+
+        [Test]
+        public void BoudhanathTerracesAreTheTwentyCorneredMandalaOffItsKoraStreet()
+        {
+            // The real terraces (OSM ways 56688295 and 235084185) step back twice at every corner; the square terrace
+            // boxes stood 3.6 m into the kora street (Pedestrian osm 1196490820) at the corners.
+            TileData t = StreamingSampleRegion.Tile(new TileId(10, 521, 163));
+            HeritageRecord boudha = null;
+            foreach (HeritageRecord r in StreamingScene.Heroes.InTile(t.Tile.Key))
+                if (r.Id == "her.ktm.boudhanath")
+                    boudha = r;
+            Assert.That(boudha, Is.Not.Null);
+            var m = new MeshData();
+            var c = new GenColliders();
+            var stats = new SacredStats();
+            Assert.That(HeroBuilder.Build(boudha, t, 0, m, c, stats), Is.GreaterThan(0));
+            Assert.That(stats.Terraces, Is.EqualTo(3));
+            Assert.That(stats.Niches, Is.EqualTo(147), "the prayer-wheel niches follow the mandala's walls");
+            // Each terrace: two arms and the inner square (nine walkable boxes, none a full square), the drum as round solids.
+            int walkable = 0;
+            foreach (GenBox b in c.Boxes)
+                if ((b.Flags & GenColliderFlags.Walkable) != 0 && Math.Max(b.HalfX, b.HalfZ) > 20)
+                {
+                    walkable++;
+                    Assert.That(Math.Min(b.HalfX, b.HalfZ) / Math.Max(b.HalfX, b.HalfZ), Is.LessThan(0.55).Or.EqualTo(1.0).Within(1e-3));
+                }
+            Assert.That(walkable, Is.GreaterThanOrEqualTo(6));
+            Assert.That(c.Cylinders.Count, Is.GreaterThanOrEqualTo(3), "drum, dome and spire");
+            var h = new TileHeightSampler(t, 1);
+            var where = new List<string>();
+            Assert.That(OnDrawnRoads(t, h, c, 0.05, where), Is.EqualTo(0), string.Join("; ", where));
+            Assert.That(InRoad(t, c, RoadCorridorIndex.ForTile(t), 1330, 0.05), Is.EqualTo(0), "off the kora street's corridor too");
         }
     }
 }
