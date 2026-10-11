@@ -485,11 +485,59 @@ namespace Ghumante.Core.Traffic
         // Building
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>Adds (or replaces) the lanes of a tile. Heavy work (offsets, heights) happens outside the lock.</summary>
+        /// <summary>
+        /// The lanes of one tile built by <see cref="Prepare"/> without touching the graph, waiting for
+        /// <see cref="Commit"/>, which takes its lanes into the graph: commit it once.
+        /// </summary>
+        public sealed class PreparedTile
+        {
+            internal readonly TileBuilder.Result Built;
+
+            internal PreparedTile(TileId id, TileBuilder.Result built)
+            {
+                Id = id;
+                Built = built;
+            }
+
+            /// <summary>The tile the lanes belong to.</summary>
+            public TileId Id { get; }
+
+            /// <summary>Road lanes built (connectors and rings are made by <see cref="Commit"/>).</summary>
+            public int LaneCount
+            {
+                get { return Built.Lanes.Count; }
+            }
+        }
+
+        /// <summary>Adds (or replaces) the lanes of a tile: <see cref="Prepare"/> then <see cref="Commit"/>.</summary>
         public void AddTile(TileId id, TileData t)
         {
+            Commit(Prepare(id, t));
+        }
+
+        /// <summary>
+        /// The heavy part of <see cref="AddTile"/> (piece offsets, heights, sacred masks, cut ends): builds the lanes of a
+        /// tile without touching the graph, so it can run on a background thread while simulations step the resident
+        /// tiles. It reads only <paramref name="t"/>, its cached <see cref="RoadLayout"/> and <see cref="Sacred"/> (locked
+        /// internally; add the tile's zones before preparing it, so its sacred lanes are dropped).
+        /// </summary>
+        public PreparedTile Prepare(TileId id, TileData t)
+        {
             if (t == null) throw new ArgumentNullException(nameof(t));
-            var built = new TileBuilder(this, id, t).Build();
+            return new PreparedTile(id, new TileBuilder(this, id, t).Build());
+        }
+
+        /// <summary>
+        /// Splices a prepared tile into the graph under <see cref="SyncRoot"/> (replacing any lanes the tile had): lane ids,
+        /// the spatial grid, seam nodes and the connectors, rings and controllers of every node the tile touches (10-15 ms
+        /// for a dense core tile on a desktop, a fraction of <see cref="Prepare"/>); call it between simulation steps (or
+        /// on the step's thread before it steps).
+        /// </summary>
+        public void Commit(PreparedTile prepared)
+        {
+            if (prepared == null) throw new ArgumentNullException(nameof(prepared));
+            TileId id = prepared.Id;
+            TileBuilder.Result built = prepared.Built;
             lock (SyncRoot)
             {
                 RemoveLocked(id.Key);
@@ -1212,7 +1260,7 @@ namespace Ghumante.Core.Traffic
         // Tile builder (outside the lock)
         // ---------------------------------------------------------------------------------------------------------
 
-        private sealed class TileBuilder
+        internal sealed class TileBuilder
         {
             public struct EndRef
             {

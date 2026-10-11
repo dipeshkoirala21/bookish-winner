@@ -38,11 +38,15 @@
     <Compile Include="../game/Assets/Ghumante/World/Instancing/TileInstances.cs" LinkBase="World/Instancing" />
     <Compile Include="../game/Assets/Ghumante/World/Instancing/ParkedPlacement.cs" LinkBase="World/Instancing" />
     <Compile Include="../game/Assets/Ghumante/World/Instancing/WorldHash.cs" LinkBase="World/Instancing" />
+    <Compile Include="../game/Assets/Ghumante/World/Instancing/DressingConfig.cs" LinkBase="World/Instancing" />
     <Compile Include="../game/Assets/Ghumante/World/Buildings/BandConfig.cs" LinkBase="World/Buildings" />
     <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroSet.cs" LinkBase="World/Sacred" />
     <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroLodBudget.cs" LinkBase="World/Sacred" />
     <Compile Include="../game/Assets/Ghumante/World/Rendering/EarthCurvature.cs" LinkBase="World/Rendering" />
     <Compile Include="../game/Assets/Ghumante/World/Life/LifeLod.cs" LinkBase="World/Life" />
+    <Compile Include="../game/Assets/Ghumante/World/Life/LifeHost.cs" LinkBase="World/Life" />
+    <Compile Include="../game/Assets/Ghumante/World/Life/LifeDraws.cs" LinkBase="World/Life" />
+    <Compile Include="../game/Assets/Ghumante/World/Life/OfficerPosts.cs" LinkBase="World/Life" />
   </ItemGroup>
 
   <ItemGroup>

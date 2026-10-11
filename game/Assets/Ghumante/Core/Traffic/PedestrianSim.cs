@@ -44,7 +44,7 @@ namespace Ghumante.Core.Traffic
         public const int ObstacleIdBase = 0x30000000;
         public const float CrossingRadiusM = 0.4f;
 
-        private enum EdgeKind : byte
+        internal enum EdgeKind : byte
         {
             Sidewalk = 0,
             StreetEdge = 1,
@@ -53,7 +53,7 @@ namespace Ghumante.Core.Traffic
             Crossing = 4,
         }
 
-        private sealed class WalkEdge
+        internal sealed class WalkEdge
         {
             public int Id;
             public ulong Tile;
@@ -153,8 +153,45 @@ namespace Ghumante.Core.Traffic
         // Walk graph
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>Builds the walk graph of a tile: footpaths, street edges, paths, corner and crossing links.</summary>
+        /// <summary>
+        /// The walk graph of one tile built by <see cref="PrepareTile"/> without touching the simulation, waiting for
+        /// <see cref="CommitTile"/>. Commit it at most once.
+        /// </summary>
+        public sealed class PreparedWalk
+        {
+            internal readonly List<WalkEdge> Edges;
+            internal readonly TileHeightSampler Heights;
+
+            internal PreparedWalk(TileId id, List<WalkEdge> edges, TileHeightSampler heights)
+            {
+                Id = id;
+                Edges = edges;
+                Heights = heights;
+            }
+
+            /// <summary>The tile the walk graph belongs to.</summary>
+            public TileId Id { get; }
+
+            /// <summary>Edges built (before the short ones are dropped at commit).</summary>
+            public int EdgeCount
+            {
+                get { return Edges.Count; }
+            }
+        }
+
+        /// <summary>Builds the walk graph of a tile: footpaths, street edges, paths, corner and crossing links
+        /// (<see cref="PrepareTile"/> then <see cref="CommitTile"/>).</summary>
         public void AddTile(TileId id, TileData t)
+        {
+            CommitTile(PrepareTile(id, t));
+        }
+
+        /// <summary>
+        /// The heavy part of <see cref="AddTile"/>: builds the walk edges and the height sampler of a tile from the tile
+        /// alone (its records and cached <see cref="RoadLayout"/>), touching no simulation state, so it can run on a
+        /// background thread while the simulation steps the resident tiles.
+        /// </summary>
+        public static PreparedWalk PrepareTile(TileId id, TileData t)
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
             var built = new List<WalkEdge>();
@@ -268,6 +305,16 @@ namespace Ghumante.Core.Traffic
                     if (link.Length > 0.5f && link.Length < 40f) built.Add(link);
                 }
             }
+            return new PreparedWalk(id, built, t.HeightsQ != null ? new TileHeightSampler(t, 1) : null);
+        }
+
+        /// <summary>Splices a prepared walk graph into the simulation under its input lock (replacing the tile's edges).
+        /// Cheap next to <see cref="PrepareTile"/>.</summary>
+        public void CommitTile(PreparedWalk prepared)
+        {
+            if (prepared == null) throw new ArgumentNullException(nameof(prepared));
+            TileId id = prepared.Id;
+            List<WalkEdge> built = prepared.Edges;
             lock (_inputLock)
             {
                 RemoveTileLocked(id.Key);
@@ -296,9 +343,9 @@ namespace Ghumante.Core.Traffic
                     AddGrid(e);
                 }
                 _tileEdges[id.Key] = list;
-                if (t.HeightsQ != null)
+                if (prepared.Heights != null)
                 {
-                    _heights[id.Key] = new TileHeightSampler(t, 1);
+                    _heights[id.Key] = prepared.Heights;
                     _heightLevel = id.Level;
                 }
             }
