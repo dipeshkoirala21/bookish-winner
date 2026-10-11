@@ -160,7 +160,7 @@ namespace Ghumante.Core.Tests
         {
             public int Moving, Parked, Crowd, MovingBefore, ParkedBefore, CrowdBefore;
             public int MovingFree, ParkedFree, CrowdFree;
-            public int ParkedDrawn, ParkedAssigned, VehiclesDrawn, VehiclesAssigned, People, Skipped, Snapped, Demoted, Fallbacks;
+            public int ParkedDrawn, ParkedAssigned, VehiclesDrawn, VehiclesAssigned, People, Overflow, Snapped, Demoted, Fallbacks, TrafficOverflow;
         }
 
         [TestCase("Asan", 85.3122, 27.7074)]
@@ -179,10 +179,10 @@ namespace Ghumante.Core.Tests
                 int life = m.Moving + m.Parked + m.Crowd, lifeBefore = m.MovingBefore + m.ParkedBefore + m.CrowdBefore;
                 int rest = b.Total - b.MovingDraws - b.ParkedDraws - b.CrowdDraws;
                 report.AppendFormat("{0,-4}: moving {1} (cap {2}, uncapped {24}, before {3}), parked {4} (slice {5} + what traffic left, uncapped {25}, before {6}; {7}/{8} drawn), " +
-                                    "crowd {9} (cap {10}, uncapped {26}, before {11}; {12} people, demoted {13}, snapped {14}, skipped {15}); " +
+                                    "crowd {9} (cap {10}, uncapped {26}, before {11}; {12} people, demoted {13}, snapped {14}, past the cap {15}); " +
                                     "life {16} (before {17}) + rest of frame {18} = {19} of {20}; vehicles {21}/{22} drawn, {23} fell back to a coarser batch",
                                     TierName[tier], m.Moving, b.MovingDraws, m.MovingBefore, m.Parked, b.ParkedDraws, m.ParkedBefore, m.ParkedDrawn, m.ParkedAssigned,
-                                    m.Crowd, b.CrowdDraws, m.CrowdBefore, m.People, m.Demoted, m.Snapped, m.Skipped, life, lifeBefore, rest, life + rest, b.Total,
+                                    m.Crowd, b.CrowdDraws, m.CrowdBefore, m.People, m.Demoted, m.Snapped, m.Overflow, life, lifeBefore, rest, life + rest, b.Total,
                                     m.VehiclesDrawn, m.VehiclesAssigned, m.Fallbacks, m.MovingFree, m.ParkedFree, m.CrowdFree);
                 report.AppendLine();
             }
@@ -200,7 +200,8 @@ namespace Ghumante.Core.Tests
                 // The caps cut waste, not life: every assigned vehicle and person is drawn.
                 Assert.That(m.ParkedDrawn, Is.EqualTo(m.ParkedAssigned), TierName[tier] + ": every parked vehicle within the tier caps is drawn");
                 Assert.That(m.VehiclesDrawn, Is.EqualTo(m.VehiclesAssigned), TierName[tier] + ": every moving vehicle within the tier caps is drawn");
-                Assert.That(m.Skipped, Is.EqualTo(0), TierName[tier] + ": every person within the tier caps is drawn");
+                Assert.That(m.Overflow, Is.EqualTo(0), TierName[tier] + ": every person within the tier caps is drawn under the cap");
+                Assert.That(m.TrafficOverflow, Is.EqualTo(0), TierName[tier] + ": every vehicle within the tier caps is drawn under the cap");
                 Assert.That(m.People, Is.GreaterThan(0));
                 Assert.That(m.ParkedAssigned, Is.GreaterThan(0));
                 // Parked batches: one per variant and level for the tinted levels (was one per livery too).
@@ -251,12 +252,102 @@ namespace Ghumante.Core.Tests
                         else if (drawn == 2) far++;
                     }
                 TestContext.WriteLine(TierName[tier] + ": " + people + " people at full bands: " + plan.Draws + " draws (cap " + b.CrowdDraws + "), " + skinned +
-                                      " skinned, " + far + " far, " + plan.Snapped + " far walkers share a drawn frame, " + plan.StoodIn + " drawn as a sibling shape, " + plan.Skipped + " wait");
+                                      " skinned, " + far + " far, " + plan.Snapped + " far walkers share a drawn frame, " + plan.StoodIn + " drawn as a sibling shape, " + plan.Overflow + " past the cap");
                 Assert.That(plan.Draws, Is.LessThanOrEqualTo(b.CrowdDraws));
                 Assert.That(skinned, Is.EqualTo(caps[0] + caps[1]));
-                Assert.That(plan.Skipped, Is.EqualTo(0), TierName[tier] + ": everybody is drawn, the far overflow as a drawn frame or a sibling shape");
-                if (tier == 0) Assert.That(plan.Snapped + plan.StoodIn, Is.EqualTo(0), "Low draws its whole plan as it is");
+                Assert.That(plan.Overflow, Is.EqualTo(0), TierName[tier] + ": everybody is drawn under the cap, the far overflow as a drawn frame or a sibling shape");
             }
+        }
+
+        /// <summary>
+        /// Owner playtest #6 ("absolutely no traffic") and #4 (flicker): the draw caps may only coarsen what a vehicle or
+        /// a person is drawn as, never hide one. A street fuller and more varied than any sample anchor (every LOD band at
+        /// the tier's cap, a different catalogue entry, livery and model type for each vehicle, people of every archetype
+        /// and carry prop in equal shares) breaks the caps on Mid and High: every moving vehicle, every parked vehicle,
+        /// every fleet tag and every person is still drawn, two-wheelers and rickshaws keep their rider (never the
+        /// riderless parked block-out), and what goes past the cap is bounded (one batch per catalogue entry at most).
+        /// </summary>
+        [Test]
+        public void AnOverfullStreetNeverHidesAVehicleOrAPerson()
+        {
+            var failures = new List<string>();
+            for (int tier = 0; tier <= 2; tier++)
+            {
+                LifeDrawBudget b = LifeDrawBudget.ForTier(tier);
+                LifeLod lod = LifeLod.ForTier(tier);
+                DressingConfig dressing = DressingConfig.ForTier(tier);
+                var plan = new TrafficDrawPlan();
+                plan.Begin(b);
+                uint h = 7u + (uint)tier;
+                int moving = 0, movingDrawn = 0, riderless = 0, id = 1;
+                // Moving traffic: every band at its cap, nearest first, a different look each.
+                for (int level = 0; level <= 2; level++)
+                    for (int i = 0; i < lod.VehicleCaps[level]; i++, id++)
+                    {
+                        h = CharMath.Hash(h, (uint)id);
+                        int variant = (int)(h % (uint)VehicleCatalog.Count);
+                        VehicleCatalogEntry e = VehicleCatalog.At(variant);
+                        byte livery = (byte)(CharMath.Hash(h, 3u) % Math.Max(1u, e.LiveryCount));
+                        byte model = VehicleMesher.ModelFor(variant, (uint)id);
+                        bool rider = TrafficDrawKeys.CarriesRider(e.TrafficClass);
+                        WheelSocket[] ws = VehicleMesher.Wheels(e, model % VehicleMesher.ModelCount(variant));
+                        TrafficDraw d = plan.PlaceMoving(level, id, variant, livery, model, rider, ws, true, true);
+                        moving++;
+                        if (d != TrafficDraw.None) movingDrawn++;
+                        if (rider && d == TrafficDraw.Block) riderless++;
+                    }
+                int movingDraws = plan.Draws;
+                // Parked: the tier's parked caps, every catalogue entry in turn, a fleet vehicle among every five.
+                int parked = 0, parkedDrawn = 0, tags = 0, tagsDrawn = 0;
+                int[] caps = { dressing.ParkedNearCap, dressing.ParkedBlockCap, Math.Max(0, dressing.ParkedCap - dressing.ParkedNearCap - dressing.ParkedBlockCap) };
+                for (int level = 0; level <= 2; level++)
+                    for (int i = 0; i < caps[level]; i++, id++)
+                    {
+                        h = CharMath.Hash(h, (uint)id);
+                        int variant = (int)(h % (uint)VehicleCatalog.Count);
+                        VehicleCatalogEntry e = VehicleCatalog.At(variant);
+                        byte livery = (byte)(CharMath.Hash(h, 5u) % Math.Max(1u, e.LiveryCount));
+                        TrafficDraw d = plan.PlaceParked(level, variant, livery, VehicleSeeds.FleetModel(variant, (uint)id));
+                        parked++;
+                        if (d == TrafficDraw.None) continue;
+                        parkedDrawn++;
+                        if (i % 5 != 0 || d == TrafficDraw.Box) continue;
+                        tags++;
+                        if (plan.TryFleetTag()) tagsDrawn++;
+                    }
+                // People: every band at its cap, archetypes and carry props in equal shares (no street mix to lean on).
+                var crowd = new CrowdDrawPlan();
+                crowd.Begin(b);
+                int[] pcaps = CrowdLodPlan.Caps[tier];
+                int people = 0, peopleDrawn = 0;
+                int archetypes = Enum.GetValues(typeof(PedArchetype)).Length;
+                for (int band = 0; band <= 2; band++)
+                    for (int i = 0; i < pcaps[band]; i++, people++)
+                    {
+                        h = CharMath.Hash(h, (uint)people + 1000u);
+                        var a = (PedArchetype)(people % archetypes);
+                        int key = CrowdVariants.KeyOf(a, (StreetStyle)(people / archetypes % 3), people % 5, people, (int)(h % 16u));
+                        double phase = CharMath.Unit(CharMath.Hash(h, 13u)) * 2.0 * Math.PI;
+                        int shape = CrowdVariants.ShapeKey(key);
+                        PedClip clip = people % 3 == 0 ? PedClip.Idle : PedClip.Walk;
+                        if (crowd.Place(ref shape, band, clip, ref phase) >= 0) peopleDrawn++;
+                    }
+                TestContext.WriteLine(TierName[tier] + ": moving " + movingDrawn + "/" + moving + " drawn in " + movingDraws + " draws (cap " + b.MovingDraws +
+                                      "), riderless " + riderless + "; parked " + parkedDrawn + "/" + parked + ", tags " + tagsDrawn + "/" + tags + ", traffic " +
+                                      plan.Draws + " draws (cap " + b.TrafficDraws + ", " + plan.Overflow + " batches past it); people " + peopleDrawn + "/" + people +
+                                      " in " + crowd.Draws + " draws (cap " + b.CrowdDraws + ", " + crowd.Overflow + " past it)");
+                if (movingDrawn != moving) failures.Add(TierName[tier] + ": " + (moving - movingDrawn) + " moving vehicles hidden");
+                if (riderless != 0) failures.Add(TierName[tier] + ": " + riderless + " two-wheelers drawn without their rider");
+                if (parkedDrawn != parked) failures.Add(TierName[tier] + ": " + (parked - parkedDrawn) + " parked vehicles hidden");
+                if (tagsDrawn != tags) failures.Add(TierName[tier] + ": " + (tags - tagsDrawn) + " fleet tags hidden");
+                if (peopleDrawn != people) failures.Add(TierName[tier] + ": " + (people - peopleDrawn) + " people hidden");
+                // What goes past the cap is bounded: the shared last fallbacks (a moving LOD2 look per rider vehicle, a
+                // block-out and a box per catalogue entry, the fleet tags), never one batch per vehicle beyond those.
+                if (plan.Overflow > lod.VehicleCaps[0] + lod.VehicleCaps[1] + lod.VehicleCaps[2] + 2 * VehicleCatalog.Count + 1)
+                    failures.Add(TierName[tier] + ": " + plan.Overflow + " traffic batches past the cap");
+                if (crowd.Overflow > people) failures.Add(TierName[tier] + ": " + crowd.Overflow + " crowd batches past the cap");
+            }
+            Assert.That(failures, Is.Empty, "the caps coarsen, they never hide");
         }
 
         /// <summary>The budget with the life caps lifted (what the presenters would draw without them).</summary>
@@ -456,6 +547,7 @@ namespace Ghumante.Core.Tests
             }
             else if (assigned == m.VehiclesAssigned) m.VehiclesDrawn = Math.Min(m.VehiclesDrawn, drawn);
             m.Fallbacks = Math.Max(m.Fallbacks, fallbacks);
+            m.TrafficOverflow = Math.Max(m.TrafficOverflow, plan.Overflow);
         }
 
         private static void MeasureCrowd(LifeHost host, CrowdDrawPlan plan, LifeDrawBudget budget, LifeLod lod, List<KeyValuePair<double, double>> officers,
@@ -513,7 +605,7 @@ namespace Ghumante.Core.Tests
                 m.CrowdBefore = Math.Max(m.CrowdBefore, before);
             }
             m.People = Math.Max(m.People, people);
-            m.Skipped = Math.Max(m.Skipped, plan.Skipped);
+            m.Overflow = Math.Max(m.Overflow, plan.Overflow);
             m.Snapped = Math.Max(m.Snapped, plan.Snapped);
             m.Demoted = Math.Max(m.Demoted, plan.Demoted);
         }

@@ -47,6 +47,7 @@
     <Compile Include="../game/Assets/Ghumante/World/Life/LifeHost.cs" LinkBase="World/Life" />
     <Compile Include="../game/Assets/Ghumante/World/Life/LifeDraws.cs" LinkBase="World/Life" />
     <Compile Include="../game/Assets/Ghumante/World/Life/OfficerPosts.cs" LinkBase="World/Life" />
+    <Compile Include="../game/Assets/Ghumante/World/Life/FaunaBindCache.cs" LinkBase="World/Life" />
   </ItemGroup>
 
   <ItemGroup>

@@ -510,9 +510,6 @@ namespace Ghumante.Core.Traffic
         {
             agentId = 0;
             if (AliveNow() >= _s.MaxVehicles) return false;
-            // Lanes may have joined since the last step (a tile spliced in at the start of this one, LifeHost): size the
-            // per-lane arrays before the occupancy rebuild indexes them.
-            EnsureLaneArrays();
             if (!SpawnOnLane(lane, s, variant, livery, out agentId, false)) return false;
             int i = IndexOf(agentId);
             _agents[i].Route = route;

@@ -32,7 +32,8 @@ namespace Ghumante.Traffic
     /// riding on the instance tint, so one batch per variant and level serves every livery. Draw calls are capped per tier
     /// (<see cref="LifeDrawBudget"/>, spent by <see cref="TrafficDrawPlan"/>: moving, then parked, nearest first): an
     /// instance whose new batch would break the cap falls back to a coarser shared batch (LOD1 to LOD2 to the tinted
-    /// block-out, block-out to box) or is skipped. Only near moving traffic (plated LOD0 and shared LOD1 bodies, LOD0
+    /// block-out or, for a two-wheeler, a sibling's LOD2 look with its rider; block-out to box), and the last fallback is
+    /// drawn even past the cap: the cap never hides a vehicle (owner playtest #6) nor makes a parked one blink (#4). Only near moving traffic (plated LOD0 and shared LOD1 bodies, LOD0
     /// wheels) draws the outline pass; far traffic (LOD2), LOD1 wheels, parked vehicles and the tinted levels use
     /// outline-free copies of the materials (<see cref="WorldMaterialDefaults.CreateOutlineFree"/>). Live engine voices for
     /// the nearest agents (<see cref="ISoundService.OpenEngine"/>, seeded by the agent id so an agent sounds the same all
@@ -283,7 +284,8 @@ namespace Ghumante.Traffic
                 if (level >= 0)
                 {
                     // Nearest first under the moving cap (TrafficDrawPlan): the plated LOD0 body once a worker has built
-                    // it, else the shared LOD1 body once built, else the prewarmed LOD2 body, else the tinted block-out.
+                    // it, else the shared LOD1 body once built, else the prewarmed LOD2 body, else the tinted block-out
+                    // (cars, buses, trucks) or a sibling's LOD2 look (two-wheelers keep their rider); never nothing.
                     bool drawn = false;
                     if (level == 0 && TakeUnique(st, variant, a.Livery, model, (uint)a.AgentId, rider) && _plan.TryUnique(a.AgentId, wheels))
                     {
@@ -307,10 +309,13 @@ namespace Ghumante.Traffic
                         }
                         else
                         {
-                            TrafficDraw far = _plan.TryFar(variant, a.Livery, model, rider);
+                            // Never None: past the cap the plan still names a shared batch (a far two-wheeler may take a
+                            // sibling's look of its own catalogue entry, rider kept).
+                            byte farLivery = a.Livery, farModel = model;
+                            TrafficDraw far = _plan.TryFar(variant, ref farLivery, ref farModel, rider);
                             if (far == TrafficDraw.Lod2)
                             {
-                                InstanceBatch b = Shared(variant, a.Livery, model, VehicleLod.Lod2, rider);
+                                InstanceBatch b = Shared(variant, farLivery, farModel, VehicleLod.Lod2, rider);
                                 b.Add(m);
                                 _movingTris += b.TrisPerInstance;
                                 drawn = true;
@@ -562,7 +567,8 @@ namespace Ghumante.Traffic
             }
             LifeLod.Assign(_pdist, n, _parkedCaps, _parkedRadii, _plevel, _porder, _pkeys);
             // Nearest first (the order Assign sorted), so the cap keeps the near ones' batches; the parked share of the
-            // cap is what moving traffic left plus the parked slice (TrafficDrawPlan).
+            // cap is what moving traffic left plus the parked slice (TrafficDrawPlan), and past it a parked vehicle drops
+            // to its variant's shared box instead of blinking out.
             for (int k = 0; k < n; k++)
             {
                 int i = _porder[k];
@@ -572,7 +578,7 @@ namespace Ghumante.Traffic
                 int variant = Mathf.Clamp(pv.Variant, 0, VehicleCatalog.Count - 1);
                 byte model = ParkedModel(pv);
                 TrafficDraw d = _plan.PlaceParked(level, variant, pv.Livery, model);
-                if (d == TrafficDraw.None) continue; // over the cap: the farthest parked vehicles go first
+                if (d == TrafficDraw.None) continue; // only for a level below 0: past the cap the box is still drawn
                 Matrix4x4 body = Matrix4x4.TRS(_parkedAt[i], Quaternion.Euler(0f, pv.YawDeg, 0f), Vector3.one);
                 InstanceBatch b;
                 if (d == TrafficDraw.Lod2)

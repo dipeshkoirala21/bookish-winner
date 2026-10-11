@@ -57,6 +57,10 @@ namespace Ghumante.World.Life
             return outlined && Outlines ? 2 : 1;
         }
 
+        /// <summary>The slices of a tier. The life slices are sized to what the sample's busiest anchors draw with every
+        /// fallback taken (Low: moving 6-9, parked 5-11 with Asan's 80 parked motorbikes and scooters within 150 m, crowd
+        /// 7-15 with one far person at Boudha standing in for a sibling; TrafficDrawBudgetTests), so nothing goes past
+        /// them there; elsewhere the plans draw past a slice rather than hide a vehicle or a person.</summary>
         public static LifeDrawBudget ForTier(int tier)
         {
             switch (tier <= 0 ? 0 : tier >= 2 ? 2 : 1)
@@ -65,13 +69,13 @@ namespace Ghumante.World.Life
                     return new LifeDrawBudget
                     {
                         Total = 120, Outlines = false, StaticWorld = 54, NearBuildings = 12, Dressing = 8, Wildlife = 6, Aircraft = 2, Player = 4,
-                        MovingDraws = 10, ParkedDraws = 6, CrowdDraws = 18,
+                        MovingDraws = 10, ParkedDraws = 10, CrowdDraws = 14,
                     };
                 case 1:
                     return new LifeDrawBudget
                     {
                         Total = 200, Outlines = true, StaticWorld = 70, NearBuildings = 16, Dressing = 14, Wildlife = 10, Aircraft = 4, Player = 6,
-                        MovingDraws = 24, ParkedDraws = 10, CrowdDraws = 46,
+                        MovingDraws = 24, ParkedDraws = 14, CrowdDraws = 42,
                     };
                 default:
                     return new LifeDrawBudget
@@ -85,9 +89,11 @@ namespace Ghumante.World.Life
 
     /// <summary>
     /// The distinct batch keys submitted this frame and the draws they cost, with a cap: a presenter asks
-    /// <see cref="TryUse"/> before it adds an instance to a batch, and falls back to a shared batch (or skips the
-    /// instance) when a new batch would break its cap. Fixed capacity (open addressing), cleared per frame; allocation
-    /// free. Engine-free.
+    /// <see cref="TryUse"/> before it adds an instance to a batch and falls back to a coarser shared batch when a new
+    /// batch would break its cap; its last fallback goes through <see cref="Force"/>, which draws past the cap (counted in
+    /// <see cref="Overflow"/>), because a cap may coarsen what the street shows but never hide a vehicle or a person
+    /// (owner playtest #6, "absolutely no traffic", and #4, flicker). Fixed capacity (open addressing), cleared per frame;
+    /// allocation free. Engine-free.
     /// </summary>
     public sealed class DrawKeySet
     {
@@ -121,12 +127,16 @@ namespace Ghumante.World.Life
         /// <summary>Keys refused since <see cref="Clear"/> (a new batch would have broken the cap).</summary>
         public int Refused { get; private set; }
 
+        /// <summary>New batches drawn past the cap by <see cref="Force"/> since <see cref="Clear"/>.</summary>
+        public int Overflow { get; private set; }
+
         public void Clear()
         {
             for (int i = 0; i < _count; i++) _full[_slots[i]] = false;
             _count = 0;
             Draws = 0;
             Refused = 0;
+            Overflow = 0;
         }
 
         /// <summary>True when <paramref name="key"/> is already in use this frame (adding to it costs no draw).</summary>
@@ -160,6 +170,23 @@ namespace Ghumante.World.Life
             _slots[_count++] = slot;
             Draws += cost;
             return true;
+        }
+
+        /// <summary>
+        /// The last fallback: <paramref name="key"/> is drawn whatever the cap. In use already, it costs nothing; new, it is
+        /// counted (draws and <see cref="Overflow"/>); with the table full it is still drawn, counted in
+        /// <see cref="Overflow"/> only.
+        /// </summary>
+        public void Force(ulong key, int cost)
+        {
+            int slot = Find(key);
+            if (_full[slot]) return;
+            Overflow++;
+            if (_count >= _slots.Length / 2) return;
+            _full[slot] = true;
+            _keys[slot] = key;
+            _slots[_count++] = slot;
+            Draws += cost;
         }
 
         private int Find(ulong key)
@@ -250,13 +277,24 @@ namespace Ghumante.World.Life
     /// whole cap (the parked slice plus what traffic left). A vehicle whose batch is in use already costs nothing; a new
     /// batch costs its draws (two for the outlined near bodies and wheels where the tier outlines). Over the cap a vehicle
     /// falls back to a coarser shared batch: plated LOD0 → shared LOD1 → shared LOD2 → the tinted block-out of its
-    /// variant for moving traffic; LOD2 → block-out → box for parked; past the last it is not drawn this frame (the
-    /// farthest go first). Allocation free per frame; engine-free (the presenter and the budget test run the same plan).
+    /// variant for moving traffic (two-wheelers and rickshaws skip the block-out, which has no rider, and take the LOD2
+    /// look of a sibling of their catalogue entry already drawn, <see cref="StoodIn"/>); LOD2 → block-out → box for
+    /// parked. The last fallback is drawn even past the cap (<see cref="Overflow"/>): the cap coarsens the far end of
+    /// the street, it never hides a vehicle (owner playtest #6, "absolutely no traffic") nor lets a parked one blink as
+    /// moving traffic takes its draws (#4). What goes past it is bounded: one batch per catalogue entry and kind (moving
+    /// LOD2 of a rider class, block-out, box) and the fleet tags. Allocation free per frame; engine-free (the presenter
+    /// and the budget test run the same plan).
     /// </summary>
     public sealed class TrafficDrawPlan
     {
         private readonly DrawKeySet _keys = new DrawKeySet(512);
         private LifeDrawBudget _budget = LifeDrawBudget.ForTier(1);
+
+        /// <summary>Per catalogue entry: the frame (<see cref="_frame"/>) and the look (livery, model type) of the last
+        /// rider LOD2 batch drawn, the zero-cost stand-in of a far two-wheeler over the cap.</summary>
+        private int[] _riderFrame = new int[VehicleCatalog.Count];
+        private byte[] _riderLivery = new byte[VehicleCatalog.Count], _riderModel = new byte[VehicleCatalog.Count];
+        private int _frame;
 
         /// <summary>Draws planned since <see cref="Begin"/> (outline passes included).</summary>
         public int Draws
@@ -270,10 +308,16 @@ namespace Ghumante.World.Life
             get { return _keys.Count; }
         }
 
-        /// <summary>New batches refused by the cap since <see cref="Begin"/> (each refusal fell back or skipped).</summary>
+        /// <summary>New batches refused by the cap since <see cref="Begin"/> (each refusal fell back to a coarser one).</summary>
         public int Refused
         {
             get { return _keys.Refused; }
+        }
+
+        /// <summary>Last-fallback batches drawn past the cap since <see cref="Begin"/> (zero on the sample's anchors).</summary>
+        public int Overflow
+        {
+            get { return _keys.Overflow; }
         }
 
         public LifeDrawBudget Budget
@@ -286,7 +330,13 @@ namespace Ghumante.World.Life
         {
             _budget = budget ?? _budget;
             _keys.Clear();
+            _frame++;
+            StoodIn = 0;
         }
+
+        /// <summary>Far two-wheelers and rickshaws over the cap drawn with the LOD2 look of a sibling of their catalogue
+        /// entry already drawn this frame (another livery or model type, its rider kept) since <see cref="Begin"/>.</summary>
+        public int StoodIn { get; private set; }
 
         /// <summary>A moving vehicle's own plated LOD0 body and its LOD0 wheels: true when they fit (and are counted).</summary>
         public bool TryUnique(int agentId, WheelSocket[] wheels)
@@ -300,14 +350,61 @@ namespace Ghumante.World.Life
             return Reserve(TrafficDrawKeys.Body(variant, livery, model, VehicleLod.Lod1, rider), wheels, VehicleLod.Lod1, _budget.MovingDraws);
         }
 
-        /// <summary>A far moving vehicle: its shared LOD2 body, else the tinted block-out of its variant, else
-        /// <see cref="TrafficDraw.None"/>.</summary>
+        /// <summary>A far moving vehicle (or a near one over the cap): its shared LOD2 body, else the tinted block-out of
+        /// its variant (not for a class drawn with its rider: the block-out has none), and past the cap still one of the two
+        /// (<see cref="DrawKeySet.Force"/>). Never <see cref="TrafficDraw.None"/>.</summary>
         public TrafficDraw TryFar(int variant, byte livery, byte model, bool rider)
         {
+            return TryFar(variant, ref livery, ref model, rider);
+        }
+
+        /// <summary>
+        /// <see cref="TryFar(int, byte, byte, bool)"/> for a presenter that can draw a stand-in look: a two-wheeler or
+        /// rickshaw over the cap takes the LOD2 look (<paramref name="livery"/>, <paramref name="model"/>) of a sibling of
+        /// its catalogue entry already drawn this frame, rider included (a far bike in another colour, at no cost), before
+        /// its own look goes past the cap. Draw the returned level with the returned look.
+        /// </summary>
+        public TrafficDraw TryFar(int variant, ref byte livery, ref byte model, bool rider)
+        {
             int cap = _budget.MovingDraws, plain = _budget.Cost(false);
-            if (_keys.TryUse(TrafficDrawKeys.Body(variant, livery, model, VehicleLod.Lod2, rider), plain, cap)) return TrafficDraw.Lod2;
-            if (_keys.TryUse(TrafficDrawKeys.Tinted(variant, VehicleLod.Block), plain, cap)) return TrafficDraw.Block;
-            return TrafficDraw.None;
+            ulong body = TrafficDrawKeys.Body(variant, livery, model, VehicleLod.Lod2, rider);
+            if (_keys.TryUse(body, plain, cap))
+            {
+                if (rider) NoteRider(variant, livery, model);
+                return TrafficDraw.Lod2;
+            }
+            if (rider)
+            {
+                // The block-out has no rider: a sibling's look drawn already, else its own past the cap.
+                if (variant >= 0 && variant < _riderFrame.Length && _riderFrame[variant] == _frame)
+                {
+                    livery = _riderLivery[variant];
+                    model = _riderModel[variant];
+                    StoodIn++;
+                    return TrafficDraw.Lod2;
+                }
+                _keys.Force(body, plain);
+                NoteRider(variant, livery, model);
+                return TrafficDraw.Lod2;
+            }
+            ulong block = TrafficDrawKeys.Tinted(variant, VehicleLod.Block);
+            if (!_keys.TryUse(block, plain, cap)) _keys.Force(block, plain); // never hide traffic
+            return TrafficDraw.Block;
+        }
+
+        private void NoteRider(int variant, byte livery, byte model)
+        {
+            if (variant < 0) return;
+            if (variant >= _riderFrame.Length)
+            {
+                int n = Math.Max(variant + 1, VehicleCatalog.Count);
+                Array.Resize(ref _riderFrame, n);
+                Array.Resize(ref _riderLivery, n);
+                Array.Resize(ref _riderModel, n);
+            }
+            _riderFrame[variant] = _frame;
+            _riderLivery[variant] = livery;
+            _riderModel[variant] = model;
         }
 
         /// <summary>
@@ -320,11 +417,14 @@ namespace Ghumante.World.Life
             if (level < 0) return TrafficDraw.None;
             if (level == 0 && uniqueReady && TryUnique(agentId, wheels)) return TrafficDraw.Unique;
             if (level <= 1 && lod1Ready && TryNear(variant, livery, model, rider, wheels)) return TrafficDraw.Lod1;
-            return TryFar(variant, livery, model, rider);
+            return TryFar(variant, ref livery, ref model, rider);
         }
 
         /// <summary>A parked vehicle at parked level <paramref name="level"/> (0 near LOD2, 1 block-out, 2 box): the level
-        /// it is drawn at after the cap's fallbacks, or <see cref="TrafficDraw.None"/>.</summary>
+        /// it is drawn at after the cap's fallbacks, or <see cref="TrafficDraw.None"/> for a level below 0 only. Over the
+        /// cap a block-out or a box takes whichever of its variant's two tinted batches is drawn already (a block-out may
+        /// come back a box, a box a block-out), and only when neither is does its own go past the cap
+        /// (<see cref="DrawKeySet.Force"/>): at most one batch per catalogue entry.</summary>
         public TrafficDraw PlaceParked(int level, int variant, byte livery, byte model)
         {
             int cap = _budget.TrafficDraws, plain = _budget.Cost(false);
@@ -334,19 +434,28 @@ namespace Ghumante.World.Life
                 if (_keys.TryUse(TrafficDrawKeys.Body(variant, livery, model, VehicleLod.Lod2, false), plain, cap)) return TrafficDraw.Lod2;
                 level = 1;
             }
+            ulong block = TrafficDrawKeys.Tinted(variant, VehicleLod.Block), box = TrafficDrawKeys.Tinted(variant, VehicleLod.Box);
             if (level == 1)
             {
-                if (_keys.TryUse(TrafficDrawKeys.Tinted(variant, VehicleLod.Block), plain, cap)) return TrafficDraw.Block;
-                level = 2;
+                if (_keys.TryUse(block, plain, cap)) return TrafficDraw.Block;
+                if (_keys.Has(box)) return TrafficDraw.Box; // its variant's box is drawn already: no new batch
+                if (_keys.TryUse(box, plain, cap)) return TrafficDraw.Box;
+                _keys.Force(block, plain); // never hidden: no parked vehicle blinks as traffic takes the draws
+                return TrafficDraw.Block;
             }
-            if (_keys.TryUse(TrafficDrawKeys.Tinted(variant, VehicleLod.Box), plain, cap)) return TrafficDraw.Box;
-            return TrafficDraw.None;
+            if (_keys.TryUse(box, plain, cap)) return TrafficDraw.Box;
+            if (_keys.Has(block)) return TrafficDraw.Block; // its variant's block-out is drawn already: no new batch
+            _keys.Force(box, plain);
+            return TrafficDraw.Box;
         }
 
-        /// <summary>The fleet tags' batch (one for every community-fleet vehicle): true when it fits.</summary>
+        /// <summary>The fleet tags' batch (one for every community-fleet vehicle): always drawn (past the cap if need be:
+        /// the tag tells the player the vehicle can be borrowed), so always true.</summary>
         public bool TryFleetTag()
         {
-            return _keys.TryUse(TrafficDrawKeys.FleetTag, _budget.Cost(false), _budget.TrafficDraws);
+            int plain = _budget.Cost(false);
+            if (!_keys.TryUse(TrafficDrawKeys.FleetTag, plain, _budget.TrafficDraws)) _keys.Force(TrafficDrawKeys.FleetTag, plain);
+            return true;
         }
 
         /// <summary>Reserves an outlined near body and its wheels together: all or nothing.</summary>
@@ -465,10 +574,10 @@ namespace Ghumante.World.Life
     /// ride on the instance tint). When a new draw would break the cap, a near or mid person is drawn far instead, a
     /// far walker takes the nearest walk frame of their shape already drawn this frame (the stride phase moves by a
     /// sixth of a step at most, at 40-90 m), then a drawn frame of a sibling shape (same archetype, place and carry prop:
-    /// the colour stays theirs), then any drawn shape of their archetype doing the same thing, and only a person with
-    /// none of those drawn waits a frame. The caps leave every person
-    /// drawn at the sample's busiest places (Asan, Boudha, Basantapur: 7-40 people within 90 m); the fallbacks only bite
-    /// on a street fuller than the simulations make. Allocation free per frame; engine-free (the budget test runs it on
+    /// the colour stays theirs), then any drawn shape of their archetype doing the same thing, and a person with none
+    /// of those drawn gets their own far batch past the cap (<see cref="Overflow"/>): nobody blinks out (owner playtest
+    /// #4). The caps leave every person drawn at the sample's busiest places (Asan, Boudha, Basantapur: 7-40 people
+    /// within 90 m) with nothing past them; the fallbacks only bite on a street fuller than the simulations make. Allocation free per frame; engine-free (the budget test runs it on
     /// the simulated crowd).
     /// </summary>
     public sealed class CrowdDrawPlan
@@ -489,14 +598,15 @@ namespace Ghumante.World.Life
         }
 
         /// <summary>People drawn far although their band is skinned, far walkers moved to a drawn frame of their shape, far
-        /// people drawn as a sibling shape, and people not drawn, since <see cref="Begin"/>.</summary>
+        /// people drawn as a sibling shape, and far batches drawn past the cap (people with nothing of their look drawn),
+        /// since <see cref="Begin"/>.</summary>
         public int Demoted { get; private set; }
 
         public int Snapped { get; private set; }
 
         public int StoodIn { get; private set; }
 
-        public int Skipped { get; private set; }
+        public int Overflow { get; private set; }
 
         /// <summary>Starts a frame under <paramref name="budget"/>.</summary>
         public void Begin(LifeDrawBudget budget)
@@ -505,15 +615,15 @@ namespace Ghumante.World.Life
             _keys.Clear();
             _skinned = 0;
             _farCount = 0;
-            Demoted = Snapped = StoodIn = Skipped = 0;
+            Demoted = Snapped = StoodIn = Overflow = 0;
         }
 
         /// <summary>
         /// Plans one person of body shape <paramref name="shapeKey"/> (<see cref="CrowdVariants.ShapeKey"/>) in
         /// <paramref name="band"/> (0 near, 1 mid, 2 far) playing <paramref name="clip"/> at
-        /// <paramref name="walkPhase"/>: returns the band to draw them in (a near or mid one may come back far), or −1
-        /// when they are not drawn this frame; a far walker's phase may move to a frame already drawn, and a far person's
-        /// shape may become a drawn sibling shape (draw the look with the returned shape and the person's colour).
+        /// <paramref name="walkPhase"/>: returns the band to draw them in (a near or mid one may come back far; never −1,
+        /// everybody is drawn); a far walker's phase may move to a frame already drawn, and a far person's shape may become
+        /// a drawn sibling shape (draw the look with the returned shape and the person's colour).
         /// </summary>
         public int Place(ref int shapeKey, int band, PedClip clip, ref double walkPhase)
         {
@@ -582,8 +692,15 @@ namespace Ghumante.World.Life
                 StoodIn++;
                 return 2;
             }
-            Skipped++;
-            return -1;
+            // Nothing of their look is drawn: their own far batch, past the cap (never hide a person).
+            _keys.Force(FarKey(shape, f), 1);
+            if (_farCount < _farShape.Length)
+            {
+                _farShape[_farCount] = shape;
+                _farFrame[_farCount++] = (byte)f;
+            }
+            Overflow++;
+            return 2;
         }
 
         /// <summary>The walk frame of <paramref name="shape"/> nearest <paramref name="w"/> drawn this frame, or −1.</summary>

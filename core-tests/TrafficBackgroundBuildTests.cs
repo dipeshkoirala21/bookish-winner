@@ -175,6 +175,68 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>
+        /// Owner playtest #4 ("constantly flickers and stutters"): crossing a tile edge on Mid or High shows 3-8 detail
+        /// tiles at once, and every one of them used to index its sacred zones and its area-type cells inside the same
+        /// <see cref="LifeHost.Tick"/> on the main thread (0.5-2.6 ms a tile on a desktop, several times that on a phone).
+        /// Joining the 3 × 3 tiles round Asan, no frame's Tick may cost the main thread more than a sliver: the zones join
+        /// one tile per Tick (nearest first) and the area types are indexed by the background build job.
+        /// </summary>
+        [Test]
+        public void JoiningDenseTilesNeverStallsTheFrame()
+        {
+            Asan(out double ax, out double az);
+            TileId asan = TileId.At(10, ax, az);
+            Dictionary<TileId, TileData> tiles = DrivingData.SampleTiles();
+            var ids = new List<TileId>();
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    var id = new TileId(10, asan.Tx + dx, asan.Ty + dz);
+                    if (tiles.ContainsKey(id)) ids.Add(id);
+                }
+            Assert.That(ids.Count, Is.GreaterThanOrEqualTo(6));
+            double best = double.MaxValue, bestSum = 0;
+            int ticksToJoin = 0;
+            // Three runs (the first also warms the JIT); the busy build machine may spike a frame, so the best run counts.
+            for (int run = 0; run < 3; run++)
+            {
+                using (LifeHost host = NewHost(11))
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        Tick(host);
+                        host.Wait();
+                    }
+                    foreach (TileId id in ids) host.AddTile(id, tiles[id]);
+                    double worst = 0, sum = 0;
+                    int ticks = 0;
+                    for (; ticks < 60 && (ticks == 0 || host.BuildingTiles > 0); ticks++)
+                    {
+                        var sw = Stopwatch.StartNew();
+                        Tick(host);
+                        double ms = sw.Elapsed.TotalMilliseconds;
+                        worst = Math.Max(worst, ms);
+                        sum += ms;
+                        host.Wait(); // the jobs run off the clock (they are not the main thread's)
+                        Assert.IsNull(host.Error);
+                    }
+                    Assert.That(host.BuildingTiles, Is.EqualTo(0), "every tile joined");
+                    Assert.That(host.AreaTypes.At(ax, az), Is.Not.EqualTo(AreaType.Unknown), "Asan's area types are in");
+                    TestContext.WriteLine("run " + run + ": " + ids.Count + " tiles joined in " + ticks + " ticks, worst Tick " + worst.ToString("0.00") +
+                                          " ms, all Ticks " + sum.ToString("0.0") + " ms");
+                    if (run > 0 && worst < best)
+                    {
+                        best = worst;
+                        bestSum = sum;
+                        ticksToJoin = ticks;
+                    }
+                }
+            }
+            TestContext.WriteLine("best run: worst main-thread Tick " + best.ToString("0.00") + " ms (all " + bestSum.ToString("0.0") + " ms over " + ticksToJoin + " ticks)");
+            Assert.That(best, Is.LessThan(2.0), "no Tick stalls the frame while " + ids.Count + " dense tiles join");
+        }
+
         [Test]
         public void ATileThatLeavesWhileItBuildsNeverJoins()
         {
@@ -190,6 +252,7 @@ namespace Ghumante.Core.Tests
                     host.Wait();
                 }
                 int lanes = host.Graph.LaneCount;
+                int cells = host.AreaTypes.CellCount;
                 Assert.That(lanes, Is.GreaterThan(0));
                 using (var gate = new ManualResetEventSlim(false))
                 {
@@ -200,6 +263,7 @@ namespace Ghumante.Core.Tests
                     host.AddTile(asan, tiles[asan]);
                     Tick(host);
                     host.WaitStep();
+                    // Released only after the removal: the build then indexes Asan's area cells for a tile that left.
                     host.RemoveTile(asan);
                     Tick(host);
                     host.WaitStep();
@@ -214,6 +278,7 @@ namespace Ghumante.Core.Tests
                 Assert.IsNull(host.Error);
                 Assert.That(host.BuildingTiles, Is.EqualTo(0));
                 Assert.That(host.Graph.LaneCount, Is.EqualTo(lanes), "the stale build was dropped");
+                Assert.That(host.AreaTypes.CellCount, Is.EqualTo(cells), "and the area cells it indexed taken out again");
 
                 // Back again: it builds and joins as usual.
                 host.BeforeTileBuild = null;
@@ -225,6 +290,51 @@ namespace Ghumante.Core.Tests
                 }
                 Assert.That(host.BuildingTiles, Is.EqualTo(0));
                 Assert.That(host.Graph.LaneCount, Is.GreaterThan(lanes));
+                Assert.That(host.AreaTypes.CellCount, Is.GreaterThan(cells));
+            }
+        }
+
+        /// <summary>
+        /// Owner playtest #6 ("absolutely no traffic"): a tile whose lanes fail to build used to stop every simulation
+        /// for the rest of the session (the failure went to the step's error). Now that tile stays without lanes
+        /// (<see cref="LifeHost.BuildError"/>) and the traffic and people of its neighbours keep moving.
+        /// </summary>
+        [Test]
+        public void ATileThatFailsToBuildNeverStopsTheStreet()
+        {
+            List<TileId> ids = AsanTiles(out TileId asan);
+            Dictionary<TileId, TileData> tiles = DrivingData.SampleTiles();
+            using (LifeHost host = NewHost(9))
+            {
+                host.BeforeTileBuild = id =>
+                {
+                    if (id == asan) throw new InvalidOperationException("broken tile (test)");
+                };
+                foreach (TileId id in ids) host.AddTile(id, tiles[id]);
+                for (int i = 0; i < 150; i++)
+                {
+                    Tick(host);
+                    host.Wait();
+                }
+                Assert.IsNotNull(host.BuildError, "the failure is reported");
+                Assert.IsNull(host.Error, "the simulations still step");
+                Assert.That(host.BuildingTiles, Is.EqualTo(0), "the broken tile is not left building forever");
+                Assert.That(host.VehicleCount, Is.GreaterThan(3), "traffic on the neighbours");
+                var first = new Dictionary<int, AgentPose>();
+                for (int i = 0; i < host.VehicleCount; i++) first[host.Vehicles[i].AgentId] = host.Vehicles[i];
+                for (int i = 0; i < 20; i++)
+                {
+                    Tick(host);
+                    host.Wait();
+                }
+                int moved = 0;
+                for (int i = 0; i < host.VehicleCount; i++)
+                {
+                    if (!first.TryGetValue(host.Vehicles[i].AgentId, out AgentPose b)) continue;
+                    double dx = host.Vehicles[i].X - b.X, dz = host.Vehicles[i].Z - b.Z;
+                    if (dx * dx + dz * dz > 1.0) moved++;
+                }
+                Assert.That(moved, Is.GreaterThan(0), "and it keeps driving");
             }
         }
 

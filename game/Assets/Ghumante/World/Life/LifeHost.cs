@@ -26,6 +26,11 @@ namespace Ghumante.World.Life
         /// the step's thread: 10-15 ms for a dense core tile on a desktop), so a step never carries several.</summary>
         public int MaxTileCommitsPerStep = 1;
 
+        /// <summary>New tiles whose sacred zones join per <see cref="LifeHost.Tick"/> on the main thread (0.1-0.6 ms a
+        /// tile on a desktop), nearest the focus first: crossing a tile edge shows 3-8 tiles at once, and indexing all of
+        /// them in one frame stalled it (owner playtest #4).</summary>
+        public int MaxZoneJoinsPerTick = 1;
+
         public static LifeSettings ForTier(int tier)
         {
             switch (tier <= 0 ? 0 : tier >= 2 ? 2 : 1)
@@ -51,7 +56,11 @@ namespace Ghumante.World.Life
     /// (<see cref="LaneGraph.Prepare"/>, <see cref="PedestrianSim.PrepareTile"/>, nearest tile first) while the steps
     /// keep running on the resident tiles, and each finished tile is spliced in at the start of the next step
     /// (<see cref="LaneGraph.Commit"/>, <see cref="PedestrianSim.CommitTile"/>), so traffic, people and animals never
-    /// freeze while a tile edge is crossed. Presenters read <see cref="Vehicles"/>, <see cref="People"/>,
+    /// freeze while a tile edge is crossed. Nor does the frame: a new tile's sacred zones join between steps one tile per
+    /// Tick (<see cref="LifeSettings.MaxZoneJoinsPerTick"/>, nearest first, before its lanes are prepared so sacred lanes
+    /// are dropped) and its area-type cells are indexed by the build job (the grid is locked and no simulation reads it),
+    /// never all of a tile edge's tiles in one frame (owner playtest #4). A tile whose build fails is left without lanes
+    /// (<see cref="BuildError"/>); the rest of the street lives on. Presenters read <see cref="Vehicles"/>, <see cref="People"/>,
     /// <see cref="Animals"/> and <see cref="Aircraft"/> on the main thread, consume each step's horns once through
     /// <see cref="TakeHorns"/>, and never touch the sims; gameplay calls into the sims through <see cref="Post"/>, which
     /// runs at the start of the next step on the worker. After a step fails the host goes quiet: no new steps, no horns,
@@ -86,6 +95,9 @@ namespace Ghumante.World.Life
             public PedestrianSim.PreparedWalk Walk;
             public bool Aprons;
 
+            /// <summary>Set by the build job once the tile's area-type cells are in the grid.</summary>
+            public volatile bool Areas;
+
             /// <summary>Set by the build job when this tile is prepared (read on the main thread).</summary>
             public volatile bool Done;
 
@@ -93,6 +105,7 @@ namespace Ghumante.World.Life
             public bool Taken;
         }
 
+        private readonly List<TileWork> _zoneQueue = new List<TileWork>();   // waiting for their zones to join
         private readonly List<TileWork> _buildQueue = new List<TileWork>();  // waiting for the build job
         private readonly List<TileWork> _buildIn = new List<TileWork>();     // the running build job's tiles
         private readonly List<TileWork> _readyCommit = new List<TileWork>(); // prepared, waiting for the next step
@@ -108,7 +121,7 @@ namespace Ghumante.World.Life
         private readonly TileData[] _one = new TileData[1];
 
         private Task _job;
-        private volatile Exception _jobError;
+        private volatile Exception _jobError, _buildError;
         private float _carryS, _ageS;
         private bool _disposed;
 
@@ -160,7 +173,9 @@ namespace Ghumante.World.Life
             get { return _zones; }
         }
 
-        /// <summary>The 250 m area-type grid of the visible tiles (ambience, spawns).</summary>
+        /// <summary>The 250 m area-type grid of the visible tiles (ambience, crowd styles, wildlife habitats): a new
+        /// tile's cells are indexed by the background build job (the grid is locked; no simulation reads it), so they may
+        /// arrive a few frames after the tile.</summary>
         public AreaTypeGrid AreaTypes
         {
             get { return _areaTypes; }
@@ -181,6 +196,13 @@ namespace Ghumante.World.Life
         public Exception Error
         {
             get { return _jobError; }
+        }
+
+        /// <summary>The last failure preparing a tile's lanes or walk graph, or null: that tile stays without lanes, the
+        /// sims run on (a bad tile never stops the whole street's traffic).</summary>
+        public Exception BuildError
+        {
+            get { return _buildError; }
         }
 
         public int VehicleCount
@@ -292,8 +314,9 @@ namespace Ghumante.World.Life
         /// <summary>The ticket of each resident tile whose prepared lanes were handed to a step.</summary>
         private readonly Dictionary<TileId, int> _handed = new Dictionary<TileId, int>();
 
-        /// <summary>A detail tile became visible: its zones join between steps (once no tile build is running), its lanes
-        /// and walk graph are prepared by the background build job and spliced in at the step after that.</summary>
+        /// <summary>A detail tile became visible: its zones join between steps (one tile per Tick, nearest the focus
+        /// first), its area-type cells, lanes and walk graph are prepared by the background build job and the lanes and
+        /// walk graph spliced in at the step after that.</summary>
         public void AddTile(TileId id, TileData t)
         {
             if (_disposed || t == null) return;
@@ -353,6 +376,7 @@ namespace Ghumante.World.Life
                 _pendingRemove.Clear();
                 _readyCommit.Clear();
                 _buildQueue.Clear();
+                _zoneQueue.Clear();
                 return;
             }
 
@@ -363,7 +387,7 @@ namespace Ghumante.World.Life
                 TileId id = _pendingRemove[i];
                 if (!_resident.Remove(id)) continue;
                 _zones.RemoveTile(id);
-                _areaTypes.RemoveTile(id);
+                _areaTypes.RemoveTile(id); // a build still running for it puts its cells back: TakeBuilt takes them out
                 _tickets.Remove(id);
                 _handed.Remove(id);
                 _jobRemove.Add(id);
@@ -373,14 +397,12 @@ namespace Ghumante.World.Life
             {
                 KeyValuePair<TileId, TileData> kv = _pendingAdd[i];
                 if (!_resident.Add(kv.Key)) continue;
-                // The tile's zones are in before its lanes are built (sacred lanes are dropped by the build).
-                _zones.AddTile(kv.Key, kv.Value, _db);
-                _areaTypes.AddTile(kv.Key, kv.Value);
                 int ticket = ++_nextTicket;
                 _tickets[kv.Key] = ticket;
-                _buildQueue.Add(new TileWork { Id = kv.Key, Data = kv.Value, Ticket = ticket });
+                _zoneQueue.Add(new TileWork { Id = kv.Key, Data = kv.Value, Ticket = ticket });
             }
             _pendingAdd.Clear();
+            JoinZones(focusX, focusZ);
             if (_build == null && _buildQueue.Count > 0) StartBuild(focusX, focusZ);
             // Prepared tiles still wanted go to the steps, nearest first and a few per step (a dense tile's splice costs
             // 10-15 ms on a desktop); stale ones (removed, or re-added meanwhile) are dropped.
@@ -417,6 +439,42 @@ namespace Ghumante.World.Life
 
         private static readonly Comparison<TileWork> NearestFirst = (a, b) => a.Distance.CompareTo(b.Distance);
 
+        /// <summary>Main thread, between steps: the sacred zones of at most <see cref="LifeSettings.MaxZoneJoinsPerTick"/>
+        /// queued tiles join (nearest the focus first; stale ones are dropped), and those tiles go on to the build job (a
+        /// tile's zones are in before its lanes are prepared, so its sacred lanes are dropped).</summary>
+        private void JoinZones(double focusX, double focusZ)
+        {
+            int joins = Math.Max(1, _settings.MaxZoneJoinsPerTick);
+            while (joins > 0 && _zoneQueue.Count > 0)
+            {
+                int best = -1;
+                double bestD = double.MaxValue;
+                for (int i = _zoneQueue.Count - 1; i >= 0; i--)
+                {
+                    TileWork w = _zoneQueue[i];
+                    int ticket;
+                    if (!_tickets.TryGetValue(w.Id, out ticket) || ticket != w.Ticket)
+                    {
+                        _zoneQueue.RemoveAt(i); // gone again (or re-added) meanwhile
+                        if (best > i) best--;
+                        continue;
+                    }
+                    double cx = w.Id.X0 + 0.5 * w.Id.Size - focusX, cz = w.Id.Z0 + 0.5 * w.Id.Size - focusZ, d = cx * cx + cz * cz;
+                    if (d < bestD || (d == bestD && best >= 0 && w.Id.Key < _zoneQueue[best].Id.Key))
+                    {
+                        bestD = d;
+                        best = i;
+                    }
+                }
+                if (best < 0) return;
+                TileWork next = _zoneQueue[best];
+                _zoneQueue.RemoveAt(best);
+                _zones.AddTile(next.Id, next.Data, _db);
+                _buildQueue.Add(next);
+                joins--;
+            }
+        }
+
         /// <summary>Starts the build job on the queued tiles still wanted, nearest the focus first: the street the player
         /// stands in comes alive first.</summary>
         private void StartBuild(double focusX, double focusZ)
@@ -447,7 +505,13 @@ namespace Ghumante.World.Life
                 TileWork w = _buildIn[i];
                 if (w.Taken || !w.Done) continue;
                 w.Taken = true;
+                int ticket;
+                bool current = _tickets.TryGetValue(w.Id, out ticket) && ticket == w.Ticket;
+                // A tile removed while it built put its area cells back after the removal took them out; a newer add of
+                // the same tile replaces them in its own build.
+                if (!current && w.Areas && !_tickets.ContainsKey(w.Id)) _areaTypes.RemoveTile(w.Id);
                 if (w.Lanes != null) _readyCommit.Add(w);
+                else if (current) _handed[w.Id] = ticket; // its build failed (BuildError): no lanes, not building any more
             }
             if (!finished) return;
             _buildIn.Clear();
@@ -530,17 +594,23 @@ namespace Ghumante.World.Life
                 TileWork w = _buildIn[i];
                 try
                 {
-                    if (_disposed || _jobError != null) return;
+                    if (_disposed || _jobError != null) continue; // marked done below, nothing built
                     Action<TileId> hook = BeforeTileBuild;
                     if (hook != null) hook(w.Id);
+                    // The area-type grid is locked and read only on the main thread (audio, crowd styles, wildlife):
+                    // indexing it here keeps 0.5-2 ms a tile off the frame.
+                    _areaTypes.AddTile(w.Id, w.Data);
+                    w.Areas = true;
                     w.Lanes = _graph.Prepare(w.Id, w.Data);
                     w.Walk = PedestrianSim.PrepareTile(w.Id, w.Data);
                     w.Aprons = _aviation != null && HasAprons(w.Data);
                 }
                 catch (Exception e)
                 {
-                    _jobError = e;
-                    return;
+                    // This tile stays without lanes; the street lives on (a failed step still stops the sims).
+                    w.Lanes = null;
+                    w.Walk = null;
+                    _buildError = e;
                 }
                 finally
                 {
