@@ -142,9 +142,12 @@ namespace Ghumante.Core.Tests
                 Assert.That(st.OverCap, Is.LessThanOrEqualTo(Math.Max(1, st.Plots / 100)), "tier " + k);
                 Assert.That(tier.Bare, Is.EqualTo(0), "tier " + k);
             }
-            // Generic sacred buildings stay inside their own LOD0 budgets (§3.2: 6,000 for a 3-tier pagoda).
+            // Generic sacred buildings stay inside their own LOD0 budgets (§3.2: 6,000 for a 3-tier pagoda); an outline the
+            // selector does not frame as a temple (a compound, a block of temple buildings) is a house of the grammar,
+            // held to the cap per plot like any other.
             for (int i = 0; i < t.Buildings.Count; i++)
-                if (BuildingGrammar.Plan(t, i).Sacred && per.ContainsKey(i)) Assert.That(per[i], Is.LessThanOrEqualTo(6000), "sacred " + i);
+                if (BuildingGrammar.Plan(t, i).Sacred && per.ContainsKey(i) && SacredSelector.Classify(t, i) == SacredOutcome.Generic)
+                    Assert.That(per[i], Is.LessThanOrEqualTo(6000), "sacred " + i);
             // Buildings with parts draw their parts instead, except generic sacred outlines, whose generator takes the
             // heights from the parts and draws them (§3.2); landmarks drop when the heroes take over.
             int sacredWithParts = 0;

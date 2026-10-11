@@ -113,24 +113,116 @@ namespace Ghumante.Core.Generators.Flora
                              MaterialChannel.Dirt, 0.6f);
             }
             else k.B.BevelBox(0f, 0f, 0.5f * w, 0.5f * d, -0.05f, eh, 0.05f, 0f, brick, FloraBuilder.Fixed(0x6A4A34u), MaterialChannel.Brick, 0.5f, MaterialChannel.Dirt);
-            // Foliage mounds in two rows.
+            // Foliage mounds: near, two rows of two lumpy mounds; far, one broad lumpy mound. In bloom their tops are
+            // already flecked orange between the heads.
             var st = Bush(leaf, new Vec3(0f, 0.25f, 0f), 0.5f * w);
-            int cols = k.D.Near ? 4 : 2;
-            for (int r = 0; r < 2; r++)
+            st.TopRgb = FloraBuilder.Mix(st.TopRgb, 0xE9821Eu, (k.D.Near ? 0.3f : 0.7f) * bloom);
+            int cols = k.D.Near ? 2 : 1, rows = k.D.Near ? 2 : 1;
+            float mrx = k.D.Near ? 0.5f * (w - 0.3f) / cols + 0.08f : 0.5f * w - 0.16f, mry = 0.17f, mrz = k.D.Near ? 0.26f * d : 0.5f * d - 0.12f, my = 0.24f;
+            for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
                 {
-                    float x = (-0.5f + (c + 0.5f) / cols) * (w - 0.35f), z = (r == 0 ? -0.22f : 0.22f) * d;
-                    k.Clump(new Vec3(x, 0.24f, z), new Vec3(0.5f * (w - 0.3f) / cols + 0.06f, 0.16f, 0.24f * d), 0.2f, st);
+                    float x, z;
+                    MoundCentre(r, c, rows, cols, w, d, out x, out z);
+                    // Unturned (the heads below are seated on these ellipsoids).
+                    k.B.Puff(new Vec3(x, my, z), new Vec3(mrx, mry, mrz), 1, k.D.Near ? 0.16f : 0.1f, k.Seed ^ (uint)(r * 31 + c * 7 + 5), st);
                 }
-            // Flower heads: pom-poms on top, orange with yellow among them.
-            int heads = (int)((k.D.Near ? 46 : 6) * Math.Max(0.15f, bloom));
-            for (int i = 0; i < heads; i++)
+            // Sayapatri (African marigold) heads: a carpet of round orange and yellow pom-poms over most of the green
+            // at Tihar (October-November; ref_assets-b.md §2). A jittered grid keeps them evenly spread; each head
+            // is held at the crest of the mound under it (far: over the whole bed top). Bloom thins the carpet in the
+            // other months.
+            float cell = k.D.Near ? 0.2f : 0.34f;
+            float hr = k.D.Near ? 0.12f : 0.235f;
+            // Far, the heads spread over the whole bed top (its brick edge is only a side colour there).
+            float spanX = w - (k.D.Near ? 0.36f : 0.24f), spanZ = d - (k.D.Near ? 0.3f : 0.2f);
+            int nx = Math.Max(1, (int)Math.Round(spanX / cell)), nz = Math.Max(1, (int)Math.Round(spanZ / cell));
+            float cx = spanX / nx, cz = spanZ / nz;
+            for (int j = 0; j < nz; j++)
+                for (int i = 0; i < nx; i++)
+                {
+                    float roll = k.Rng.Next();
+                    float x = -0.5f * spanX + (i + 0.5f + k.Rng.Jitter(0.3f)) * cx, z = -0.5f * spanZ + (j + 0.5f + k.Rng.Jitter(0.3f)) * cz;
+                    float r = hr * k.Rng.Range(0.85f, 1.12f), rot = k.Rng.Range(0f, 1f), shade = k.Rng.Range(0.94f, 1.06f);
+                    if (roll > 0.15f + 0.85f * bloom) continue;
+                    float top = MoundTop(x, z, rows, cols, w, d, mrx, mry, mrz, my);
+                    if (top <= 0f) continue;
+                    // Held just above the leaves on its short stem (refs marigold_np 05, marigold_field 07): the lumpy
+                    // mound surface wanders ±18 % about the ellipsoid, so the head's rim sits at its crest.
+                    // (Capped by the model height: the near pom-pom rises 0.95 r above its rim, the far dome 0.55 r.)
+                    float y = Math.Min(top + (k.D.Near ? 0.02f : 0.05f) * r, h - (k.D.Near ? 0.95f : 0.55f) * r);
+                    uint rgb = roll < 0.62f ? 0xF5821Fu : roll < 0.8f ? 0xF6B21Bu : 0xE8641Au;
+                    Pompom(k.B, new Vec3(x, y, z), r, FloraBuilder.Fixed(rgb, shade), k.D.Near, rot);
+                }
+        }
+
+        private static void MoundCentre(int r, int c, int rows, int cols, float w, float d, out float x, out float z)
+        {
+            x = cols == 1 ? 0f : (-0.5f + (c + 0.5f) / cols) * (w - 0.4f);
+            z = rows == 1 ? 0f : (r == 0 ? -0.22f : 0.22f) * d;
+        }
+
+        /// <summary>Height of the marigold bed's foliage mounds (as laid out in <see cref="MarigoldBed"/>) above (x, z):
+        /// the highest ellipsoid top there, or 0 off the mounds.</summary>
+        private static float MoundTop(float x, float z, int rows, int cols, float w, float d, float rx, float ry, float rz, float cy)
+        {
+            float best = 0f;
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                {
+                    float mx, mz;
+                    MoundCentre(r, c, rows, cols, w, d, out mx, out mz);
+                    float u = (x - mx) / rx, v = (z - mz) / rz, q = 1f - u * u - v * v;
+                    if (q > 0.04f) best = Math.Max(best, cy + ry * (float)Math.Sqrt(q));
+                }
+            return best;
+        }
+
+        /// <summary>
+        /// A marigold head: a ruffled pom-pom ball. Near: a crown point, an upper ring of five and a ruffled rim of ten
+        /// (alternately out and in), 15 triangles, normals of a ball, the crown lighter and the rim darker, so it shades
+        /// round; it sits on the foliage, so it has no underside. Far (<paramref name="near"/> false): a dome of six
+        /// (6 triangles) resting on the mound.
+        /// </summary>
+        private static void Pompom(FloraBuilder b, Vec3 c, float r, uint rgba, bool near, float rot)
+        {
+            uint lit = MeshColor.Scale(rgba | 0xFFu, 1.1f) & 0xFFFFFF00u, dark = MeshColor.Scale(rgba | 0xFFu, 0.78f) & 0xFFFFFF00u;
+            int top = b.Vertex(c + new Vec3(0f, (near ? 0.95f : 0.55f) * r, 0f), Vec3.Up, lit, MaterialChannel.Foliage, 1f);
+            double a0 = rot * 2 * Math.PI;
+            if (!near)
             {
-                float x = k.Rng.Range(-0.5f, 0.5f) * (w - 0.35f), z = k.Rng.Range(-0.5f, 0.5f) * (d - 0.3f);
-                float y = 0.3f + 0.14f * (float)Math.Cos(z / d * 3.0) + k.Rng.Jitter(0.04f);
-                float r = k.Rng.Range(0.075f, 0.1f);
-                uint col = FloraBuilder.Fixed(k.Rng.Chance(0.7f) ? 0xF5821Fu : 0xF6B21Bu, k.Rng.Range(0.92f, 1.08f));
-                k.B.Blob(new Vec3(x, Math.Min(y, h - r), z), r, r * 0.8f, r, col, MaterialChannel.Foliage, 0.6f);
+                int f0 = b.M.VertexCount;
+                for (int i = 0; i < 6; i++)
+                {
+                    double a = a0 + i * Math.PI / 3;
+                    var d = new Vec3((float)Math.Cos(a) * r, 0f, (float)Math.Sin(a) * r);
+                    b.Vertex(c + d, (d + Vec3.Up * (0.9f * r)).Normalized, rgba, MaterialChannel.Foliage, 0.8f);
+                }
+                for (int i = 0; i < 6; i++) b.Tri(top, f0 + i, f0 + (i + 1) % 6);
+                return;
+            }
+            int up = b.M.VertexCount;
+            for (int i = 0; i < 5; i++)
+            {
+                double a = a0 + i * 2 * Math.PI / 5;
+                var d = new Vec3((float)Math.Cos(a) * 0.74f * r, 0.62f * r, (float)Math.Sin(a) * 0.74f * r);
+                b.Vertex(c + d, d.Normalized, rgba, MaterialChannel.Foliage, 0.95f);
+            }
+            int rim = b.M.VertexCount;
+            for (int i = 0; i < 10; i++)
+            {
+                double a = a0 + i * Math.PI / 5;
+                float rr = r * ((i & 1) == 0 ? 1f : 0.88f), yy = r * ((i & 1) == 0 ? 0.04f : 0.16f);
+                var d = new Vec3((float)Math.Cos(a) * rr, yy, (float)Math.Sin(a) * rr);
+                b.Vertex(c + d, (d + Vec3.Up * (0.15f * r)).Normalized, (i & 1) == 0 ? dark : rgba, MaterialChannel.Foliage, 0.75f);
+            }
+            for (int i = 0; i < 5; i++)
+            {
+                int u0 = up + i, u1 = up + (i + 1) % 5;
+                int r0 = rim + 2 * i, r1 = rim + 2 * i + 1, r2 = rim + (2 * i + 2) % 10;
+                b.Tri(top, u0, u1);
+                b.Tri(u0, r0, r1);
+                b.Tri(u0, r1, u1);
+                b.Tri(u1, r1, r2);
             }
         }
 

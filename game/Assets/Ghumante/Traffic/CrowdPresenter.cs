@@ -9,6 +9,7 @@ using Ghumante.Core.Traffic;
 using Ghumante.World;
 using Ghumante.World.Instancing;
 using Ghumante.World.Life;
+using Ghumante.World.Rendering;
 using Ghumante.World.Streaming;
 using UnityEngine;
 
@@ -24,7 +25,10 @@ namespace Ghumante.Traffic
     /// colour far (<see cref="PeopleRenderer"/>), animated by its clip (<see cref="PersonAnimation"/>: walk, run, carry,
     /// sit, pray, namaste, chat, umbrella...); NPC footsteps near the camera on the surface under the foot
     /// (<see cref="GroundSample.Foot"/>); and the traffic police officers of the visible chowks (<see cref="OfficerPosts"/>)
-    /// on their podiums, cycling the five hand signals with the police phases. Attached to every <see cref="WorldRoot"/> by
+    /// on their podiums, cycling the five hand signals with the police phases. People are placed nearest first under the
+    /// tier's draw cap (<see cref="CrowdDrawPlan"/>, <see cref="LifeDrawBudget.CrowdDraws"/>); the far crowd draws with an
+    /// outline-free copy of the tinted material (<see cref="WorldMaterialDefaults.CreateOutlineFree"/>), the skinned
+    /// near and mid people keep the outline. Attached to every <see cref="WorldRoot"/> by
     /// <see cref="WorldRoot.AnyReady"/>. Main thread only.
     /// </summary>
     [DisallowMultipleComponent]
@@ -37,6 +41,12 @@ namespace Ghumante.Traffic
         private WorldRoot _world;
         private PeopleRenderer _people;
         private LifeLod _lod;
+        private LifeDrawBudget _budget;
+        private readonly CrowdDrawPlan _plan = new CrowdDrawPlan();
+
+        /// <summary>What the people renderer draws with: the world's skinned material and an outline-free copy of the
+        /// tinted one for the far crowd.</summary>
+        private WorldMaterialSet _crowdMaterials;
         private readonly Dictionary<int, float> _prevClip = new Dictionary<int, float>();
         private readonly Dictionary<int, float> _seen = new Dictionary<int, float>();
         private readonly Dictionary<int, int> _bodyKey = new Dictionary<int, int>();
@@ -70,8 +80,20 @@ namespace Ghumante.Traffic
             }
             _world = world;
             _lod = LifeLod.ForTier((int)world.Tier);
+            _budget = LifeDrawBudget.ForTier((int)world.Tier);
             if (_people != null) _people.Dispose();
-            _people = world.Materials != null ? new PeopleRenderer(world.Materials, world.transform, (int)world.Tier) : null;
+            ReleaseMaterials();
+            WorldMaterialSet set = world.Materials;
+            if (set != null)
+            {
+                _crowdMaterials = ScriptableObject.CreateInstance<WorldMaterialSet>();
+                _crowdMaterials.name = "Crowd materials (runtime)";
+                _crowdMaterials.hideFlags = HideFlags.DontSave;
+                _crowdMaterials.instanced = set.instanced;
+                _crowdMaterials.instancedTint = WorldMaterialDefaults.CreateOutlineFree(set.instancedTint != null ? set.instancedTint : set.instanced,
+                                                                                       "Ghumante Instanced Tint (far crowd, no outline)");
+            }
+            _people = _crowdMaterials != null ? new PeopleRenderer(_crowdMaterials, world.transform, (int)world.Tier) : null;
             _posts.Clear();
             _prevClip.Clear();
             _bodyKey.Clear();
@@ -139,8 +161,11 @@ namespace Ghumante.Traffic
             }
             AreaTypeGrid areas = _world.AreaTypes;
             float now = Time.time;
-            for (int i = 0; i < n; i++)
+            _plan.Begin(_budget);
+            // Nearest first (Assign sorted the order), so the draw cap keeps the people nearest the camera.
+            for (int k = 0; k < n; k++)
             {
+                int i = _order[k];
                 PedPose pp = poses[i];
                 int level = _level[i];
                 // A held snapshot (slow step) keeps moving: clip time and position run on by the snapshot's age.
@@ -158,8 +183,13 @@ namespace Ghumante.Traffic
                 PersonPose pose = PersonAnimation.Pose(clip, clipTime, prev, pp.SpeedMps, pp.AgentId, hold);
                 Vector3 at = At(pp, origin, age);
                 double phase = CrowdAnimation.WalkPhase(clipTime, pp.SpeedMps, clip == PedClip.Run);
-                _people.Add(at, pp.HeadingRad * Mathf.Rad2Deg, pose, key, level, _rank[i], clip, phase);
                 if (pose.Strike != 0 && _dist[i] <= _lod.FootstepRadiusM && sound != null) Footstep(pp, at, pose, ground, sound);
+                int shape = CrowdVariants.ShapeKey(key);
+                int band = _plan.Place(ref shape, level, clip, ref phase);
+                if (band < 0) continue; // over the cap with no batch of their look left: not drawn this frame
+                // A far stand-in (a sibling shape already drawn) keeps the person's garment colour.
+                int look = shape == CrowdVariants.ShapeKey(key) ? key : shape | (CrowdVariants.ColourOf(key) << 24);
+                _people.Add(at, pp.HeadingRad * Mathf.Rad2Deg, pose, look, band, _rank[i], clip, phase);
             }
 
             Officers(origin, camPos, now);
@@ -241,8 +271,13 @@ namespace Ghumante.Traffic
                     var at = new Vector3((float)(gx - origin.X), y - origin.Y, (float)(gz - origin.Z));
                     int band = d <= 15f ? 0 : d <= 40f ? 1 : 2;
                     int key = CrowdVariants.Key(PedArchetype.TrafficPolice, StreetStyle.Urban, 0, (int)(o.Seed % CrowdVariants.Variants));
+                    PedClip clip = signal == 0 ? PedClip.Cheer : PedClip.Idle;
+                    double phase = 0.0;
+                    int shape = CrowdVariants.ShapeKey(key);
+                    band = _plan.Place(ref shape, band, clip, ref phase);
+                    if (band < 0) continue;
                     // Officers rank after the crowd in their band (the plan's finest meshes go to the nearest people).
-                    _people.Add(at, heading, pose, key, band, 99, signal == 0 ? PedClip.Cheer : PedClip.Idle, 0.0);
+                    _people.Add(at, heading, pose, shape | (CrowdVariants.ColourOf(key) << 24), band, 99, clip, phase);
                 }
             }
         }
@@ -256,6 +291,17 @@ namespace Ghumante.Traffic
             }
             if (_people != null) _people.Dispose();
             _people = null;
+            ReleaseMaterials();
+        }
+
+        /// <summary>Destroys the far crowd's outline-free material copy and its holder.</summary>
+        private void ReleaseMaterials()
+        {
+            if (_crowdMaterials == null) return;
+            WorldMaterialDefaults.DestroyRuntime(_crowdMaterials.instancedTint);
+            if (Application.isPlaying) Destroy(_crowdMaterials);
+            else DestroyImmediate(_crowdMaterials);
+            _crowdMaterials = null;
         }
     }
 }
