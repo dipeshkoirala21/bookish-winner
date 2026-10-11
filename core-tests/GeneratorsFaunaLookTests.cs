@@ -402,5 +402,57 @@ namespace Ghumante.Core.Tests
                     Assert.Greater(headZ0, 0.02f, what + ": head forward");
                 }
         }
+
+        /// <summary>
+        /// The duck has the flat, spatulate bill of Pekin and village ducks (ref_animals.md §6), not a gull's pointed
+        /// wedge: as wide near the rounded tip as where it leaves the face, and much wider than deep; and its folded
+        /// wings lie flush along the flanks of every fowl instead of standing out as slabs.
+        /// </summary>
+        [Test]
+        public void TheDuckBillIsASpatulaAndFowlWingsLieFlush()
+        {
+            FaunaMesh duck = FaunaMesher.Create(FaunaSpecies.Duck, 0);
+            MeshData m = duck.Mesh;
+            float z0 = float.MaxValue, z1 = float.MinValue;
+            for (int v = 0; v < m.VertexCount; v++)
+                if (duck.Part[v] == (byte)FaunaPart.Beak)
+                {
+                    z0 = Math.Min(z0, m.Positions[3 * v + 2]);
+                    z1 = Math.Max(z1, m.Positions[3 * v + 2]);
+                }
+            float len = z1 - z0;
+            Assert.That(len, Is.InRange(0.04f, 0.06f), "a bill about as long as the head");
+            float wBase = 0f, wTip = 0f, hTip = 0f, yTip0 = float.MaxValue, yTip1 = float.MinValue;
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                if (duck.Part[v] != (byte)FaunaPart.Beak) continue;
+                float x = Math.Abs(m.Positions[3 * v]), y = m.Positions[3 * v + 1], u = (m.Positions[3 * v + 2] - z0) / len;
+                if (u > 0.3f && u < 0.45f) wBase = Math.Max(wBase, x);
+                if (u > 0.7f && u < 0.9f)
+                {
+                    wTip = Math.Max(wTip, x);
+                    yTip0 = Math.Min(yTip0, y);
+                    yTip1 = Math.Max(yTip1, y);
+                }
+            }
+            hTip = yTip1 - yTip0;
+            Assert.Greater(wTip, 0.85f * wBase, "the bill does not taper to a point");
+            Assert.Greater(2f * wTip, 2.2f * hTip, "the end of the bill is flat");
+            foreach (FaunaSpecies sp in new[] { FaunaSpecies.Duck, FaunaSpecies.Hen, FaunaSpecies.Rooster })
+            {
+                FaunaMesh f = FaunaMesher.Create(sp, 0);
+                FaunaAnimator.Evaluate(f, FaunaClip.Stand, 0f, 0f, 1u, Pose);
+                float body = 0f, wing = 0f;
+                for (int v = 0; v < f.VertexCount; v++)
+                {
+                    float x = Math.Abs(f.Mesh.Positions[3 * v]);
+                    FaunaBone bone = (FaunaBone)f.Bone0[v];
+                    if (f.Part[v] == (byte)FaunaPart.Body) body = Math.Max(body, x);
+                    if (bone == FaunaBone.FoldL || bone == FaunaBone.FoldR) wing = Math.Max(wing, x);
+                }
+                Assert.Greater(wing, 0f, sp + " has folded wings");
+                Assert.Less(wing, body + 0.012f, sp + ": the folded wing lies on the flank");
+            }
+        }
     }
 }
