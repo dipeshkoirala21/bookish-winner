@@ -224,5 +224,13 @@
   "hud.route.car_roads": "Car route: only streets a car fits through.",
   "hud.route.cancel": "Stop the route",
   "hud.go": "Go",
-  "hud.brake_reverse": "Brake / reverse"
+  "hud.brake_reverse": "Brake / reverse",
+  "hud.prompt.ride_offer": "Ride along: {0}",
+  "hud.prompt.wave": "Wait by the road for a bus, or hold to wave down a taxi",
+  "hud.taxi_waiting": "Your taxi is waiting: walk to its door.",
+  "vehicle.taxi": "Taxi",
+  "vehicle.minibus": "Minibus",
+  "vehicle.micro": "Micro",
+  "vehicle.tempo": "Tempo",
+  "vehicle.rickshaw": "Rickshaw"
 }

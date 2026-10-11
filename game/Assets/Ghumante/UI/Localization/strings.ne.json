@@ -224,5 +224,13 @@
   "hud.route.car_roads": "कारको बाटो: कार छिर्ने सडक मात्र।",
   "hud.route.cancel": "बाटो देखाउन रोक्नुहोस्",
   "hud.go": "अगाडि बढ्नुहोस्",
-  "hud.brake_reverse": "ब्रेक / पछाडि"
+  "hud.brake_reverse": "ब्रेक / पछाडि",
+  "hud.prompt.ride_offer": "यात्रु बन्नुहोस्: {0}",
+  "hud.prompt.wave": "बसका लागि सडक छेउमा पर्खनुहोस्, वा ट्याक्सी रोक्न थिचिराख्नुहोस्",
+  "hud.taxi_waiting": "तपाईंको ट्याक्सी पर्खिरहेको छ: ढोकासम्म हिँड्नुहोस्।",
+  "vehicle.taxi": "ट्याक्सी",
+  "vehicle.minibus": "मिनीबस",
+  "vehicle.micro": "माइक्रो",
+  "vehicle.tempo": "टेम्पो",
+  "vehicle.rickshaw": "रिक्सा"
 }

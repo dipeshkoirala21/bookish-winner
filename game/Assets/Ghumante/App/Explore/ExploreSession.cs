@@ -94,8 +94,8 @@ namespace Ghumante.App.Explore
             Closed,
         }
 
-        /// <summary>Traffic obstacle ids the session owns (the player, a taxi's pull-over point).</summary>
-        public const int PlayerObstacleId = 0x50_4C_41_59, PullOverObstacleId = 0x50_55_4C_4C;
+        /// <summary>The traffic obstacle id of the player (standing, or the vehicle they drive).</summary>
+        public const int PlayerObstacleId = 0x50_4C_41_59;
 
         /// <summary>Community-fleet vehicles are offered within this distance.</summary>
         public const float FleetSearchM = 30f;
@@ -119,12 +119,18 @@ namespace Ghumante.App.Explore
         private bool _vehicleBody;
         private volatile bool _postPassenger;
         private float _postTimer;
-        private int _postedPull = -1;
 
         /// <summary>The player is posted to the sims at 10 Hz (LifeHost.Post wraps each call in a closure).</summary>
         public const float PostIntervalS = 0.1f;
-        private int _pullAgent = -1;
+
+        // The ride's traffic command (ExplorerController.TryGetPullOver), written here and read by PostPlayer on the life
+        // worker: a pull-over for one agent, or a wave for any taxi; and the player waiting for a bus at the kerb.
+        private int _pullAgent = -1, _postedPullAgent = -1, _lastPullAgent = -2;
+        private PullOverKind _pullKind, _lastPullKind;
         private double _pullX, _pullZ;
+        private bool _taxiRequest, _waiting;
+        private double _waitX, _waitZ;
+        private volatile int _requestedTaxi;
         private bool _listenerAttached;
         private Vector3 _lastListener;
         private bool _garagePressed;
@@ -741,6 +747,13 @@ namespace Ghumante.App.Explore
         {
             if (_screen == null || string.IsNullOrEmpty(key)) return;
             string icon = key.StartsWith("hud.garage", StringComparison.Ordinal) ? "gh-toast__icon--scooter" : "gh-toast__icon--star";
+            if (key == "hud.garage_selected" && _explorer != null)
+            {
+                // The whistle picked the next garage vehicle: name it ("Garage: Bicycle").
+                RigClass rig = VehicleRoles.RigOf(VehicleCatalog.At(_explorer.Garage.Current.Variant));
+                _screen.ShowToast(_localizer.Format("hud.garage_selected", _localizer.Get(VehicleNameKey(rig))), icon, 2.4f);
+                return;
+            }
             _screen.ShowToast(_localizer.Get(key), icon, 2.4f);
         }
 
@@ -808,6 +821,7 @@ namespace Ghumante.App.Explore
                 CameraPosition = cam != null ? cam.transform.position : Vector3.zero,
                 CameraForward = cam != null ? cam.transform.forward : Vector3.forward,
                 Portrait = cam != null && cam.aspect < 1f,
+                RequestedTaxi = _requestedTaxi,
             };
         }
 
@@ -838,20 +852,29 @@ namespace Ghumante.App.Explore
 
         /// <summary>
         /// The player in the sims (only through LifeHost.Post): a traffic obstacle where the player stands or drives, the
-        /// pedestrians' hop-aside capsule ahead of the player's vehicle, a hailed taxi's pull-over point, and the
-        /// nearest-cow query for the cushion (read back next frame).
+        /// pedestrians' hop-aside capsule ahead of the player's vehicle, the ride's traffic command (a wave for a taxi, a
+        /// pickup, a hold while climbing in or out, the bell), the player waiting for a bus at the kerb, and the
+        /// nearest-cow query for the cushion (read back next frame). Posted at 10 Hz, and at once when the ride's command
+        /// changes.
         /// </summary>
         private void PostToLife()
         {
             LifeHost life = _world.Life;
             if (life == null) return;
             _postTimer -= Time.deltaTime;
-            int wantPull;
-            double unusedX, unusedZ;
-            _explorer.TryGetPullOver(out wantPull, out unusedX, out unusedZ);
-            if (_postTimer > 0f && wantPull == _postedPull) return;
+            int agent;
+            PullOverKind kind;
+            double px, pz;
+            bool pull = _explorer.TryGetPullOver(out agent, out kind, out px, out pz);
+            if (!pull)
+            {
+                agent = -1;
+                kind = PullOverKind.None;
+            }
+            if (_postTimer > 0f && agent == _lastPullAgent && kind == _lastPullKind) return;
             _postTimer = PostIntervalS;
-            _postedPull = wantPull;
+            _lastPullAgent = agent;
+            _lastPullKind = kind;
             WorldPos at = _explorer.Position;
             _vehicleBody = _explorer.TryGetVehicleBody(out _obstacleX, out _obstacleZ, out _obstacleHeading, out _obstacleSpeed, out _obstacleWidth,
                                                        out _obstacleFront);
@@ -861,18 +884,12 @@ namespace Ghumante.App.Explore
                 _obstacleZ = at.Z;
             }
             _obstacleRadius = _vehicleBody ? Mathf.Max(1f, 0.5f * _obstacleFront) : 0.6f;
-            int agent;
-            double px, pz;
-            if (_explorer.TryGetPullOver(out agent, out px, out pz))
-            {
-                _pullAgent = agent;
-                _pullX = px;
-                _pullZ = pz;
-            }
-            else
-            {
-                _pullAgent = -1;
-            }
+            _taxiRequest = pull && agent < 0 && kind == PullOverKind.Pickup;
+            _pullAgent = pull && agent > 0 ? agent : -1;
+            _pullKind = kind;
+            _pullX = px;
+            _pullZ = pz;
+            _waiting = _explorer.TryGetWaitingPoint(out _waitX, out _waitZ);
             _cowX = at.X;
             _cowZ = at.Z;
             _postPassenger = _explorer.Mode == ExplorerMode.Passenger;
@@ -886,8 +903,14 @@ namespace Ghumante.App.Explore
             if (!_postPassenger) traffic.AddObstacle(PlayerObstacleId, _obstacleX, _obstacleZ, _obstacleRadius, ObstacleKind.Player);
             else traffic.RemoveObstacle(PlayerObstacleId);
             peds.SetPlayerVehicle(_vehicleBody, _obstacleX, _obstacleZ, _obstacleHeading, _obstacleSpeed, _obstacleWidth, _obstacleFront);
-            if (_pullAgent >= 0) traffic.AddObstacle(PullOverObstacleId, _pullX, _pullZ, 1.2f, ObstacleKind.Player);
-            else traffic.RemoveObstacle(PullOverObstacleId);
+            // The ride: a new agent (or none) lets the previous one go; the same command again changes nothing.
+            if (_postedPullAgent > 0 && _postedPullAgent != _pullAgent) traffic.CancelPullOver(_postedPullAgent);
+            if (_pullAgent > 0) traffic.PullOver(_pullAgent, _pullKind, _pullX, _pullZ);
+            _postedPullAgent = _pullAgent;
+            if (_taxiRequest) traffic.RequestTaxi(_pullX, _pullZ);
+            else traffic.CancelTaxiRequest();
+            _requestedTaxi = _taxiRequest ? traffic.RequestedTaxi : 0;
+            traffic.SetWaitingPassenger(_waiting, _waitX, _waitZ);
             float d;
             _cowDistance = animals.TryNearestCow(_cowX, _cowZ, out d) ? d : float.PositiveInfinity;
         }
@@ -915,16 +938,27 @@ namespace Ghumante.App.Explore
                     else _screen.SetAction("hud.action.jump", null, false);
                     _screen.SetPrompt("hud.prompt.rest_outside");
                     break;
+                case ExplorerPrompt.RideOffered:
+                    // Only a passenger seat: the Action button boards it (tap, or hold), so it is a green Hop on.
+                    _screen.SetAction("hud.action.hop_on", "hop", false);
+                    _screen.SetPrompt("hud.prompt.ride_offer", TrafficNameKey(_explorer.PromptVariant));
+                    break;
+                case ExplorerPrompt.Waiting:
+                    // Standing by the road: buses stop for the player; holding the button waves down a taxi.
+                    _screen.SetAction("hud.action.jump", null, false);
+                    _screen.SetPrompt("hud.prompt.wave");
+                    break;
                 case ExplorerPrompt.TaxiComing:
                     _screen.SetAction("hud.action.jump", null, false);
                     _screen.SetPrompt("hud.prompt.taxi_coming");
                     break;
                 case ExplorerPrompt.StopRequested:
-                    _screen.SetAction("hud.action.stop", "off", false);
+                    // Riding along, the Action button is Hop off (it asks the driver to stop, like the bell beside it).
+                    _screen.SetAction("hud.action.hop_off", "off", false);
                     _screen.SetPrompt("hud.prompt.stop_requested");
                     break;
                 case ExplorerPrompt.RideAlong:
-                    _screen.SetAction("hud.action.stop", "off", false);
+                    _screen.SetAction("hud.action.hop_off", "off", false);
                     _screen.SetPrompt("hud.prompt.ride_along");
                     break;
                 default:
@@ -940,6 +974,22 @@ namespace Ghumante.App.Explore
             Characters.Rides.PlayerVehicle v = _explorer.CurrentVehicle;
             bool bell = v != null && VehicleRoles.HornOf(v.Entry) == Core.Synth.HornKind.BicycleBell;
             _screen.SetHornLabel(bell ? "hud.bell" : "hud.horn");
+        }
+
+        /// <summary>The name of a traffic vehicle the player can ride along in (taxi, bus, minibus, micro, tempo, rickshaw).</summary>
+        private static string TrafficNameKey(int variant)
+        {
+            if (variant < 0 || variant >= VehicleCatalog.Count) return "vehicle.passenger";
+            switch (VehicleCatalog.At(variant).TrafficClass)
+            {
+                case VehicleClass.Taxi: return "vehicle.taxi";
+                case VehicleClass.Bus: return "vehicle.bus";
+                case VehicleClass.Minibus: return "vehicle.minibus";
+                case VehicleClass.Microbus: return "vehicle.micro";
+                case VehicleClass.Tempo: return "vehicle.tempo";
+                case VehicleClass.Rickshaw: return "vehicle.rickshaw";
+                default: return "vehicle.passenger";
+            }
         }
 
         private static string VehicleNameKey(RigClass rig)

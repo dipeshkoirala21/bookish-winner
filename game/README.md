@@ -71,12 +71,12 @@ sample (Swayambhunath to Boudhanath); once the full valley is imported (`python 
 | Run, sprint | push further; **Shift** sprints (not inside temple compounds) | X |
 | Jump | **Space** on foot (apex 1 m) | A with nothing to hop on |
 | Hop on / Hop off | **E** (tap) | A |
-| Ride as passenger / hail a taxi | hold **E** (0.35 s next to a stopped bus, taxi or micro; 0.4 s with nothing near hails the nearest taxi) | hold A |
+| Ride as passenger / hail a taxi | **E** next to a stopped taxi or a bus, micro or tempo with its doors open (or hold it 0.35 s); with nothing to board, hold **E** 0.4 s to wave down a taxi | hold A |
 | Throttle, brake / reverse, brake | **W**, **S**, **Space** | right trigger, left trigger, B |
 | Horn (bicycle: bell) | **H** (hold for a long horn) | left stick press |
 | Namaste | **N** | D-pad up |
 | Call your vehicle (garage whistle) | **G** | D-pad down |
-| Ring the stop bell (passenger) / a shrine bell (in a compound) | **B** | D-pad right |
+| Ring the stop bell (passenger; **E** does the same) / a shrine bell (in a compound) | **B** | D-pad right |
 | Search, pause | **/**, **Esc** | Y, Start |
 | Next camera angle (per vehicle class, remembered) | **C** | right stick press |
 | Camera | wheel zooms, right-drag looks | shoulders zoom, right stick looks |
@@ -89,7 +89,7 @@ saved as `player.appearance` and `player.garage` and come back next time.
 
 1. Press **Play**, click **Explore**. You start on foot in Thamel ("Namaste from Thamel!") with your red scooter
    parked beside you. The walking camera sits closer in portrait (6.8 m) than before.
-2. Press **/**, type **Basantapur** (or *Kathmandu Durbar Square*), click **Teleport** (editor and development builds;
+2. Press **/**, type **Basantapur** (or **Hanuman Dhoka**), click **Teleport** (editor and development builds;
    in a release build use **Ride there** and follow the ribbon on foot or on the scooter).
 3. Walk around the square: the gait plants each foot, the topi wobbles, footsteps follow the ground (brick, stone,
    asphalt). Stand still for 6 s and the explorer fidgets (looks around, stretches, tugs the topi). Press **N** for a
@@ -109,27 +109,42 @@ saved as `player.appearance` and `player.garage` and come back next time.
 
 **3. Take a bus**
 
-1. Teleport to **Ratna Park** (or any bus stop on a route). Green city buses, cream minibuses, white micros and Safa
-   tempos run on the real routes; one stops every few minutes with its doors open.
-2. Walk up to the open front-left door: the small **Ride as passenger** button appears (or hold **E**). You climb in
-   and sit; the camera orbits a little wider than the bus's own driving camera and the chip says "Ring the bell to get
-   off".
-3. Press **B** (or the **Stop** button): "Ding! Stopping at the next stop." The bus stops at its next stop and you hop
-   down beside it (never inside a wall or the bus).
-4. Taxis: with nothing near, hold **E** for 0.4 s: the explorer waves and the nearest taxi within 150 m pulls over
-   within 30 m. Hop in at the left rear door, ride, press **B** or **E** and it pulls over to let you out.
+1. Teleport to **Ratna Park bus station**. Green city buses, cream minibuses, white micros and Safa tempos run on the
+   real routes and stop at the real stops with their doors open; micros, minibuses and tempos also stop now and then
+   between them. Stand still by the road for a moment: the chip says *Wait by the road for a bus, or hold to wave down a
+   taxi*, and the next bus, micro or tempo coming along your side of the street pulls over with its door beside you and
+   waits 10 to 16 s with its doors open (on a Mid phone one comes within a few minutes, usually sooner).
+2. Walk to the open door: the Action button turns green **Hop on** (the chip names the vehicle, *Ride along: Bus*) and the
+   small **Ride as passenger** button appears. Tap either (or **E**). The vehicle waits while you climb in; you sit, the
+   camera orbits a little wider than the bus's own driving camera and the chip says "Ring the bell to get off".
+3. Press **B** (or the **Stop** bell; the Action button now reads **Hop off** and does the same): "Ding! Stopping at the
+   next stop." The bus stops at its next real stop (with none within 600 m, or for a micro or tempo, it pulls over ahead
+   with its doors open; held up in a jam, it opens them where it stands) and you hop down beside it, never inside a wall
+   or the bus. It waits until you are down.
+4. Taxis: with nothing to board near you, hold **E** for 0.4 s (or hold the Action button): the explorer waves where they
+   stand. The nearby taxi that can reach your kerb soonest comes round to you (or, with none close, one is sent from up
+   your street, out of view) and pulls over with its back door beside you, within a minute on the sample streets:
+   "Your taxi is waiting: walk to its door." Hop in at the left rear door, ride, press **B** or **E**: it pulls over
+   within seconds and lets you out.
 
 **4. Drive a car round a roundabout**
 
-1. Press **G** (or the garage button in the top bar): your scooter drives up from out of view. Press **G** again
-   while it stands beside you to call the next garage vehicle instead (bicycle, then the small hatchback). Or look for
-   a parked car, van, truck or bus with a **green key tag** (a diamond on the roof or above the handlebar): that is
-   the community fleet, free to borrow; it
-   goes home by itself 10 minutes after you leave it or once you are 150 m away.
+1. Your scooter stands beside you at the start: **E** hops on. Press **G** (or the garage button in the top bar) on
+   foot to whistle: the garage's selected vehicle drives up from out of view. Press **G** again while it stands beside
+   you (within 18 m) to pick and call the next garage vehicle instead: a toast names it (*Garage: Bicycle*, then
+   *Garage: Car*, the small hatchback); the one beside you stays parked where it is and goes home once you are out of
+   sight. Or look for a parked vehicle with a **green key tag** (a diamond on the roof or above the handlebar): that is
+   the community fleet, free to borrow. Cars, scooters and bikes line the streets; green city buses, micros, minibuses
+   and tempos wait at the bus parks (**Ratna Park bus station**, **Naya Bus Park, Gongabu**, **Chabahil bus station**),
+   lorries, tippers and pickups by the depots and works yards, vans, tempos and lorries now and then on wide side
+   streets, and tractors on the farm lanes (on the sample: the fields of **Nagdesh** and Thimi, east of the airport; or
+   Tinchuli, north of Boudha). A borrowed vehicle goes home by itself 10 minutes after you leave it or once you are
+   150 m away.
 2. Walk to the driver's door: the right side (Nepal drives on the left, cars are right-hand drive; a wall there sends
    you round). **E** hops in (0.9 s for a car, 1.4 s for a truck; any move key in the first 60% steps back out).
 3. Teleport (or drive) to **Maitighar Mandala** and go round it clockwise, keeping left. Each class has its own
-   handling and camera: a bus sits 16.5 m back and swings wide, a scooter leans, a bicycle sways and stops pedalling
+   handling and camera: a bus (borrow the green one at Ratna Park bus station) sits 16.5 m back and swings wide, a
+   scooter leans, a bicycle sways and stops pedalling
    uphill. **H** honks (the bicycle rings a bell). Cows on the road slow you to 5 km/h within 4 m and stop you
    gently at 1.6 m; they keep chewing.
 4. **E** hops off: at speed it brakes first ("Slowing down to hop off…"); buses and trucks stop fully.
@@ -147,13 +162,15 @@ saved as `player.appearance` and `player.garage` and come back next time.
 Pixel and press Play. Mouse clicks act as touches:
 
 * On foot: a floating stick wherever the thumb lands (portrait: the lower area left of the button column; landscape:
-  the left side), the big yellow **Action** button (Jump, turning green **Hop on** when a seat is offered; hold it to
-  ride as a passenger or hail a taxi), **Namaste** beside it, **Ride as passenger** when a bus, taxi or micro offers a
-  seat, the garage button in the top bar.
+  the left side), the big yellow **Action** button (Jump, turning green **Hop on** when a seat is offered: a vehicle
+  to drive, or a stopped taxi or a bus, micro or tempo with its doors open to ride along in; with nothing to board, hold
+  it to wave down a taxi), **Namaste** beside it, **Ride as passenger** when a bus, taxi or micro offers a seat, the
+  garage button in the top bar.
 * In a vehicle: portrait holds anywhere in the lower-left area to go and slides to steer, **Brake** bottom left,
   **Horn** and **Hop off** in the right column; landscape steers with the left stick and has **Go**, **Brake**,
   **Horn** and **Hop off** on the right.
-* Riding along: **Stop** (the bell) and **Hop off**; no steering.
+* Riding along: **Stop** (the bell) and **Hop off** (the Action button: it asks the driver to stop too, and you hop off
+  when the vehicle stands); no steering.
 * Drag on the open world to look around; rotate mid-ride and the camera blends in 0.3 s. The camera button in the top
   bar (a little camera, left of Search) cycles the camera angles.
 
@@ -179,9 +196,10 @@ roundabouts and buses come from their own packages and are checked here from the
 
 1. On foot press **C** three times: *Far chase* (farther and higher), *Over the shoulder* (close behind the right
    shoulder, looking where you look), back to *Near chase*. Each press shows a short toast with the angle's name.
-2. **G** for the scooter, **E** to hop on, then **C**: *Near chase*, *Far chase*, *Low cinematic* (low behind the
-   rear wheel), *Handlebar* (first person over the handlebar; it leans half as much as the bike). Do the same on the
-   bicycle (**G** again while it stands beside you calls the next garage vehicle).
+2. **E** to hop on the scooter beside you (if you left it somewhere, **G** calls it), then **C**: *Near chase*, *Far
+   chase*, *Low cinematic* (low behind the rear wheel), *Handlebar* (first person over the handlebar; it leans half as
+   much as the bike). Do the same on the bicycle: hop off, then **G** while the scooter stands beside you calls the
+   bicycle (*Garage: Bicycle*).
 3. In the small hatchback (or a community-fleet car or taxi): *Near*, *Far*, *Bonnet* (on the bonnet), *Driver's
    view* (the driver's eyes). The vehicle meshes have no interior yet, so inside a closed body the camera package shows
    a stand-in cockpit (`Characters/Rides/CockpitMesher.cs`): the dashboard with two gauges in a binnacle, vents, a
@@ -189,7 +207,9 @@ roundabouts and buses come from their own packages and are checked here from the
    rear-view mirror and a little mala, side mirrors, door cards, a sunroof over you, a string of marigolds along the
    screen. The shell's outline is switched off while you sit inside it. Look down (right-drag, right stick) to see the
    wheel. The vehicles package's interior LOD will replace the stand-in.
-4. In a bus, truck or tractor (community fleet: the green key tag; or step 5): *High chase*, *Far*, *Driver's seat*.
+4. In a bus, truck or tractor (community fleet, the green key tag: the green city bus at **Ratna Park bus station**,
+   lorries by the depots, the tractors by the fields of **Nagdesh**; see "Drive a car round a roundabout" above):
+   *High chase*, *Far*, *Driver's seat*.
    The bus and truck driver's seat shows the same stand-in cab: a flat dash with four gauges, the split windscreen
    (bus), wipers, a tinsel garland, prayer flags and a framed picture along the header (tilt the view up, or rotate to
    portrait, to see them), the bus's seat rows with white covers and its grab rails behind you. The tractor is open:
@@ -238,9 +258,11 @@ roundabouts and buses come from their own packages and are checked here from the
 
 **5. Buses**
 
-1. Teleport to **Ratna Park bus station**. Buses run on the real routes; hold **E** at the open front-left door to ride
-   along. **C** cycles *Near*, *Far*, *Window seat*; **B** rings the bell, you get off at the next stop.
-2. Borrow a community-fleet bus (green key tag) and drive it: *High chase*, *Far*, *Driver's seat*.
+1. Teleport to **Ratna Park bus station** and stand by the road: the next bus, micro or tempo pulls over beside you
+   with its doors open (see "Take a bus" above). **E** (or Hop on) at the open door rides along. **C** cycles *Near*,
+   *Far*, *Window seat*; **B** rings the bell, you get off at the next stop.
+2. Borrow the community-fleet bus parked by the bus park (green key tag, a few dozen metres from where you land) and
+   drive it: *High chase*, *Far*, *Driver's seat*.
 
 **6. Roundabouts and routes for each vehicle**
 
@@ -285,8 +307,8 @@ The world layers these steps use (bridge decks, roundabout statues and gates, st
 into the streamer by the world integration package (`ExplorePlayIntegrationTests.ReadmeMarksTheWorldLayersThatAreNotWiredYet`
 checks that no step still carries a "not wired" mark).
 
-1. **Camera angles (C).** On foot press **C**: *Near chase*, *Far chase*, *Over the shoulder*. **G** for the scooter,
-   **E** to hop on, **C**: *Near*, *Far*, *Low cinematic*, *Handlebar*. A car adds *Bonnet* and *Driver's view*; a bus
+1. **Camera angles (C).** On foot press **C**: *Near chase*, *Far chase*, *Over the shoulder*. **E** to hop on the
+   scooter beside you, **C**: *Near*, *Far*, *Low cinematic*, *Handlebar*. A car adds *Bonnet* and *Driver's view*; a bus
    or truck *High chase* and *Driver's seat*; riding along *Window seat*. Each press names the angle in a toast (English
    or Nepali, **Settings → Language**), and every class remembers its own angle across hops and restarts. The camera
    button in the top bar does the same on touch.
@@ -319,16 +341,23 @@ checks that no step still carries a "not wired" mark).
 7. **Maitighar Mandala and Shahid Gate.** Teleport to **Maitighar Mandala** and drive round the roundabout clockwise,
    keeping left, then ride to **Shahid Gate** and round its island. The mandala garden on the island, and the arch with
    its lantern and the busts in the pavilions, are drawn by the roundabout decorator.
-8. **Buses at Ratna Park.** Teleport to **Ratna Park bus station**: green city buses, minibuses and micros (generic
-   liveries, no operator names) run the real routes, sharing the moving-vehicle cap with the rest of the traffic. Hold **E** at an open front door to ride along, **B** to stop. A parked
+8. **Buses at Ratna Park.** Teleport to **Ratna Park bus station**: green city buses, minibuses, micros and tempos
+   (generic liveries, no operator names) run the real routes, sharing the moving-vehicle cap with the rest of the
+   traffic, and dwell at the real stops with their doors open. Stand still by the road and the next one along your side
+   of the street pulls over beside you (`TrafficPullOverTests.ABoardableBusOrMicroStandsAtRatnaParkWithinFiveMinutesOnMid`);
+   **E** at its open door rides along, **B** stops it at the next stop and lets you off
+   (`TrafficPullOverTests.TheBellOnARouteVehicleLetsThePassengerOut`). A green city bus, a micro and a tempo with the
+   key tag stand at the kerb by the bus park: borrow the bus for the bus camera angles
+   (`ExplorePlayFleetTests.ABorrowableBusWaitsAtTheBusPark`). A parked
    community-fleet vehicle (green key tag) keeps its model type (the same body shape and wheels) when you borrow it;
    parked vehicles are drawn as shared instanced bodies without plates, so the borrowed one gets its plate when you
    take it.
 9. **Car route against scooter route to Boudha.** From **Thamel Chowk** on the scooter: **/**, **Boudha**, **Ride there**;
    the chip shows the next turn and "km · min" and the route may cut through the gallis. Now hop off (**E**; the garage
-   whistle only works on foot) and press **G**: the bicycle rides up (the garage runs scooter, bicycle, hatchback). Once
-   it stands beside you (within 18 m) press **G** again: the hatchback comes instead. Hop in (**E**): "Car route: only
-   streets a car fits through." and the route goes round by streets a car can use.
+   whistle only works on foot) and press **G** while the scooter stands beside you: *Garage: Bicycle*, and the bicycle
+   rides up (the garage runs scooter, bicycle, hatchback; the scooter stays parked). Once the bicycle stands beside you
+   (within 18 m) press **G** again: *Garage: Car*, the hatchback comes instead. Hop in (**E**): "Car route: only streets
+   a car fits through." and the route goes round by streets a car can use.
    On the sample the car goes about 7.8 km in about 8 min and never enters one of the 92 two-wheeler-only galli edges
    round Thamel; the scooter's route is about 7.0 km and may take a galli
    (`ExplorePlayIntegrationTests.CarRouteFromThamelToBoudhaKeepsOutOfTheGallis`). Arriving celebrates, and the

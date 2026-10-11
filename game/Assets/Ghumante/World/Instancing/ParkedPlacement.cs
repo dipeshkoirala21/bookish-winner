@@ -16,6 +16,12 @@ namespace Ghumante.World.Instancing
     /// carry the community-fleet tag (W2-O5). Positions sit on the carriageway edge of the W2 game width
     /// (<see cref="RoadLayout"/>), so the parked row follows the drawn road. Deterministic from the way id and slot.
     /// Engine-free; runs on the tile build worker.
+    /// <para><b>Heavy vehicles where they really stand</b> (<see cref="PlaceHeavy"/>): green city buses, minibuses,
+    /// micros and Safa tempos line the kerb at the bus parks (every mapped bus station: Ratna Park, the Old Bus Park,
+    /// Gongabu, Chabahil...), lorries, tippers and pickups at the depots and works yards (industrial land), the odd van,
+    /// micro, tempo or lorry on wide service and side streets, and tractors on the lanes of the villages and farms
+    /// (rural and hill land). Most carry the community-fleet tag (<see cref="HeavyFleetShare"/>; the first at every bus
+    /// park always does), so the player can borrow a bus, a lorry or a tractor and try its camera angles.</para>
     /// </summary>
     public static class ParkedPlacement
     {
@@ -76,6 +82,8 @@ namespace Ghumante.World.Instancing
             // Exact footprint tests: lanes in the old cores are 3-5 m wide, so a raster mask would have to be ~1 m fine
             // (a megabyte and ~100 ms per tile) to tell the kerb from the wall.
             var mask = new FootprintGrid(t);
+            // Heavy vehicles first: where a bike's slot overlaps a bus at the bus park, the bus stays.
+            PlaceHeavy(t, h, surface, layout, mask, output);
             for (int i = 0; i < t.Roads.Count; i++)
             {
                 RoadRecord r = t.Roads[i];
@@ -305,6 +313,351 @@ namespace Ghumante.World.Instancing
                     Id = WorldHash.Fnv1a(key, 0),
                 });
             }
+        }
+
+        // ---- Heavy vehicles where they really stand ------------------------------------------------------------------
+
+        private const uint PurposeHeavy = 0x48455659, PurposeHeavySlot = 0x48565359, PurposeHeavyKind = 0x4856594B;
+
+        /// <summary>Share of the heavy parked vehicles with the community-fleet key tag (the first at every bus park
+        /// always has it): most, so the player finds a bus, a lorry or a tractor to borrow.</summary>
+        public const float HeavyFleetShare = 0.75f;
+
+        /// <summary>Vehicles lining the kerb at a bus park (a green city bus, then a micro, a minibus or a tempo).</summary>
+        public const int BusParkVehicles = 3;
+
+        /// <summary>Bus stations closer than this to one already served are the same bus park (OSM maps every ticket
+        /// counter of Gongabu or the Old Bus Park as its own station).</summary>
+        public const double BusParkSpacingM = 120.0;
+
+        /// <summary>A bus park's vehicles stand on the street pieces within this distance of it.</summary>
+        public const double BusParkReachM = 70.0;
+
+        /// <summary>Vans, micros, tempos, pickups and lorries per 100 m of wide urban street; tractors per 100 m of rural
+        /// and hill lane, and of peri-urban lane.</summary>
+        public const float WideStreetHeavyPer100M = 0.3f, RuralTractorPer100M = 0.5f, PeriUrbanTractorPer100M = 0.25f;
+
+        /// <summary>Half the drawn carriageway a van, micro, tempo or lorry parked on a street needs (the street stays
+        /// passable beside it); the lanes of a bus park or a works yard and a village lane (a tractor at its verge) need
+        /// less: they are where these vehicles stand.</summary>
+        public const double HeavyMinHalfM = 3.0, YardMinHalfM = 2.2;
+
+        /// <summary>Parks the tile's heavy vehicles (see the class remarks); deterministic from the site and the way.</summary>
+        public static void PlaceHeavy(TileData t, IHeightSampler h, RoadSurfaceQuery surface, RoadLayout layout, FootprintGrid mask,
+                                      List<ParkedVehicle> output)
+        {
+            if (h == null) return;
+            int first = output.Count;
+            // 1. Bus parks: every mapped bus station (and bus-park area), one group per BusParkSpacingM.
+            var siteX = new List<double>();
+            var siteZ = new List<double>();
+            var siteKey = new List<ulong>();
+            for (int i = 0; i < t.Pois.Count; i++)
+            {
+                PoiRecord p = t.Pois[i];
+                if (p.Kind != PoiKind.BusStation) continue;
+                AddSite(siteX, siteZ, siteKey, p.XCm / 100.0, p.ZCm / 100.0, p.OsmRef);
+            }
+            for (int i = 0; i < t.Areas.Count; i++)
+            {
+                AreaRecord a = t.Areas[i];
+                if (a.Kind != AreaKind.BusPark || a.Vertices == null || a.Vertices.Length < 6) continue;
+                double cx, cz;
+                Centroid(a.Vertices, out cx, out cz);
+                AddSite(siteX, siteZ, siteKey, cx, cz, a.OsmRef);
+            }
+            for (int k = 0; k < siteX.Count; k++)
+                ParkAtSite(t, h, surface, layout, mask, siteX[k], siteZ[k], siteKey[k], SiteKind.BusPark, output, first);
+            // 2. Depots and works yards: a lorry, a tipper, a tanker or a pickup by every industrial area.
+            for (int i = 0; i < t.Areas.Count; i++)
+            {
+                AreaRecord a = t.Areas[i];
+                if (a.Kind != AreaKind.Industrial || a.Vertices == null || a.Vertices.Length < 6) continue;
+                double cx, cz;
+                Centroid(a.Vertices, out cx, out cz);
+                ParkAtSite(t, h, surface, layout, mask, cx, cz, a.OsmRef * 7UL + 3UL, SiteKind.Depot, output, first);
+            }
+            // 3. Wide streets (a van, a micro, a tempo, a pickup or a lorry now and then) and farm lanes (tractors: rural,
+            // hill and peri-urban lanes beside fields and orchards, not the city's parks and lawns).
+            List<double> farms = FarmBoxes(t);
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                RoadRecord r = t.Roads[i];
+                if (r.Points == null || r.PointCount < 2 || !Grounded(t, i)) continue;
+                RoadAttrRecord a = t.RoadAttrOf(i);
+                if (a.Has(RoadAttrFlags.NoMotor) || a.Has(RoadAttrFlags.HeritagePedestrian) || (r.Access & Travel.Car) == 0) continue;
+                bool rural = a.Area == AreaType.Rural || a.Area == AreaType.Hill;
+                float per100;
+                SiteKind kind;
+                if ((rural || a.Area == AreaType.PeriUrban) && (ParksOn(r.RoadClass) || r.RoadClass == RoadClass.Track) && NearFarm(farms, r))
+                {
+                    per100 = rural ? RuralTractorPer100M : PeriUrbanTractorPer100M;
+                    kind = SiteKind.Farm;
+                }
+                else if ((a.Area == AreaType.Urban || a.Area == AreaType.PeriUrban) && ParksOn(r.RoadClass) && !a.Has(RoadAttrFlags.Dual))
+                {
+                    per100 = WideStreetHeavyPer100M;
+                    kind = SiteKind.Street;
+                }
+                else continue;
+                double length = layout.AlongAt(i, r.PointCount - 1);
+                if (length < 40) continue;
+                ulong way = r.OsmWayId * 31UL + (ulong)i ^ 0x5A5A5A5AUL;
+                double expect = length * per100 / 100.0;
+                int count = (int)Math.Floor(expect + WorldHash.Unit(way, PurposeHeavy));
+                for (int c = 0; c < count; c++)
+                {
+                    ulong key = way * 2654435761UL + (ulong)c;
+                    double along = 15 + WorldHash.Unit(key, PurposeHeavySlot) * Math.Max(0.0, length - 30);
+                    double side = (WorldHash.Fnv1a(key, PurposeHeavySlot + 1) & 1) == 0 ? 1.0 : -1.0;
+                    int variant = PickHeavy(kind, key, 0);
+                    TryParkHeavy(t, h, surface, layout, mask, i, along, side, variant, key, WorldHash.Unit(key, PurposeFleet) < HeavyFleetShare,
+                                 kind == SiteKind.Farm ? YardMinHalfM : HeavyMinHalfM, output, first);
+                }
+            }
+        }
+
+        /// <summary>Bounding boxes (minX, minZ, maxX, maxZ, tile metres) of the tile's fields and orchards.</summary>
+        private static List<double> FarmBoxes(TileData t)
+        {
+            var boxes = new List<double>();
+            for (int i = 0; i < t.Areas.Count; i++)
+            {
+                AreaRecord a = t.Areas[i];
+                // Fields and orchards only: meadows and grassland include the city's lawns and parade grounds (Tundikhel).
+                if (a.Kind != AreaKind.Farmland && a.Kind != AreaKind.Orchard) continue;
+                if (a.Vertices == null || a.Vertices.Length < 6) continue;
+                double x0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, z1 = double.MinValue;
+                for (int k = 0; k + 1 < a.Vertices.Length; k += 2)
+                {
+                    double x = a.Vertices[k] / 100.0, z = a.Vertices[k + 1] / 100.0;
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (z < z0) z0 = z;
+                    if (z > z1) z1 = z;
+                }
+                boxes.Add(x0);
+                boxes.Add(z0);
+                boxes.Add(x1);
+                boxes.Add(z1);
+            }
+            return boxes;
+        }
+
+        /// <summary>A farm lane: some point of the road within 40 m of a field's or orchard's box.</summary>
+        private static bool NearFarm(List<double> boxes, RoadRecord r)
+        {
+            const double reach = 40.0;
+            for (int k = 0; k < r.PointCount; k++)
+            {
+                double x = r.Points[2 * k] / 100.0, z = r.Points[2 * k + 1] / 100.0;
+                for (int b = 0; b + 3 < boxes.Count; b += 4)
+                    if (x >= boxes[b] - reach && x <= boxes[b + 2] + reach && z >= boxes[b + 1] - reach && z <= boxes[b + 3] + reach)
+                        return true;
+            }
+            return false;
+        }
+
+        private enum SiteKind : byte
+        {
+            BusPark,
+            Depot,
+            Street,
+            Farm,
+        }
+
+        private static void AddSite(List<double> xs, List<double> zs, List<ulong> keys, double x, double z, ulong osm)
+        {
+            for (int k = 0; k < xs.Count; k++)
+            {
+                double dx = xs[k] - x, dz = zs[k] - z;
+                if (dx * dx + dz * dz < BusParkSpacingM * BusParkSpacingM) return;
+            }
+            xs.Add(x);
+            zs.Add(z);
+            keys.Add(osm * 2654435761UL + 0x42555350UL);
+        }
+
+        private static void Centroid(int[] v, out double x, out double z)
+        {
+            x = z = 0;
+            int n = v.Length / 2;
+            for (int k = 0; k < n; k++)
+            {
+                x += v[2 * k] / 100.0;
+                z += v[2 * k + 1] / 100.0;
+            }
+            x /= n;
+            z /= n;
+        }
+
+        /// <summary>The variant for slot <paramref name="slot"/> of a site: at a bus park the green city bus first, then
+        /// micros, minibuses and Safa tempos; lorries, tippers, tankers and pickups at a depot; vans (micros), tempos,
+        /// pickups and lorries on a street; tractors on a farm lane.</summary>
+        private static int PickHeavy(SiteKind kind, ulong key, int slot)
+        {
+            float u = WorldHash.Unit(key, PurposeHeavyKind);
+            switch (kind)
+            {
+                case SiteKind.BusPark:
+                    if (slot == 0) return VehicleCatalog.BusCityGreen;
+                    return u < 0.4f ? VehicleCatalog.Microbus : u < 0.7f ? VehicleCatalog.Minibus : VehicleCatalog.Tempo;
+                case SiteKind.Depot:
+                    return u < 0.4f ? VehicleCatalog.TruckPainted : u < 0.65f ? VehicleCatalog.Tipper : u < 0.8f ? VehicleCatalog.Tanker : VehicleCatalog.Pickup;
+                case SiteKind.Street:
+                    return u < 0.35f ? VehicleCatalog.Microbus : u < 0.55f ? VehicleCatalog.Tempo : u < 0.75f ? VehicleCatalog.Pickup :
+                        u < 0.92f ? VehicleCatalog.TruckPainted : VehicleCatalog.Tipper;
+                default:
+                    return VehicleCatalog.Tractor;
+            }
+        }
+
+        /// <summary>Parks a site's vehicles at the kerb of the street pieces nearest it (on its side of the street),
+        /// stepping along the kerb from the point nearest the site until they all stand or no place is left.</summary>
+        private static void ParkAtSite(TileData t, IHeightSampler h, RoadSurfaceQuery surface, RoadLayout layout, FootprintGrid mask, double x, double z,
+                                       ulong key, SiteKind kind, List<ParkedVehicle> output, int first)
+        {
+            int want = kind == SiteKind.BusPark ? BusParkVehicles : 1;
+            // Street pieces near the site, nearest first (a bus park stands on the trunk road it opens onto too).
+            var near = new List<KeyValuePair<double, int>>();
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                RoadRecord r = t.Roads[i];
+                if (r.Points == null || r.PointCount < 2 || !Grounded(t, i) || (r.Access & Travel.Car) == 0) continue;
+                if (!HeavyRoad(r.RoadClass)) continue;
+                RoadAttrRecord a = t.RoadAttrOf(i);
+                if (a.Has(RoadAttrFlags.NoMotor) || a.Has(RoadAttrFlags.HeritagePedestrian)) continue;
+                double s, d = Nearest(r, x, z, out s);
+                if (d <= BusParkReachM) near.Add(new KeyValuePair<double, int>(d + i * 1e-6, i));
+            }
+            near.Sort((p, q) => p.Key.CompareTo(q.Key));
+            int placed = 0, slot = 0;
+            for (int n = 0; n < near.Count && n < 3 && placed < want; n++)
+            {
+                int road = near[n].Value;
+                RoadRecord r = t.Roads[road];
+                double s0;
+                Nearest(r, x, z, out s0);
+                // From the point nearest the site outwards, on and back in 3 m steps, between the side streets (a bus park's
+                // street is all junctions); the overlap test keeps them a body apart.
+                for (int step = 0; step < 41 && placed < want; step++)
+                {
+                    double off = (step + 1) / 2 * 3.0 * ((step & 1) == 0 ? 1 : -1);
+                    double along = s0 + off;
+                    RoadCut cut = layout.CutAt(t, road, along);
+                    double side = (x - cut.CX) * cut.UX + (z - cut.CZ) * cut.UZ >= 0 ? 1.0 : -1.0; // the site's side of the street
+                    ulong slotKey = key * 31UL + (ulong)slot;
+                    int variant = PickHeavy(kind, slotKey, placed);
+                    bool fleet = placed == 0 || WorldHash.Unit(slotKey, PurposeFleet) < HeavyFleetShare;
+                    if (TryParkHeavy(t, h, surface, layout, mask, road, along, side, variant, slotKey, fleet, YardMinHalfM, output, first)) placed++;
+                    slot++;
+                }
+            }
+        }
+
+        /// <summary>Road classes a bus, lorry or tractor may stand on (beside the carriageway of a trunk road at a bus park
+        /// too); not footways, paths, steps or pedestrian streets.</summary>
+        private static bool HeavyRoad(RoadClass c)
+        {
+            switch (c)
+            {
+                case RoadClass.Trunk:
+                case RoadClass.Primary:
+                case RoadClass.Secondary:
+                case RoadClass.Tertiary:
+                case RoadClass.Unclassified:
+                case RoadClass.Residential:
+                case RoadClass.LivingStreet:
+                case RoadClass.Service:
+                case RoadClass.Road:
+                case RoadClass.Track:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Distance from (x, z) to a road's polyline (tile-local metres) and the arc length of the nearest point
+        /// along it (the polyline's own, close to the layout's along the road).</summary>
+        private static double Nearest(RoadRecord r, double x, double z, out double along)
+        {
+            double best = double.MaxValue, acc = 0;
+            along = 0;
+            for (int k = 0; k + 1 < r.PointCount; k++)
+            {
+                double ax = r.Points[2 * k] / 100.0, az = r.Points[2 * k + 1] / 100.0;
+                double bx = r.Points[2 * k + 2] / 100.0, bz = r.Points[2 * k + 3] / 100.0;
+                double dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz, len = Math.Sqrt(len2);
+                double u = len2 > 1e-9 ? Math.Max(0.0, Math.Min(1.0, ((x - ax) * dx + (z - az) * dz) / len2)) : 0.0;
+                double qx = ax + dx * u - x, qz = az + dz * u - z, d = Math.Sqrt(qx * qx + qz * qz);
+                if (d < best)
+                {
+                    best = d;
+                    along = acc + u * len;
+                }
+                acc += len;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// One heavy vehicle parallel to the kerb of road <paramref name="road"/> at <paramref name="along"/> on side
+        /// <paramref name="side"/> (+1 left of the piece's direction, −1 right), facing the way that kerb's traffic flows
+        /// (left-hand traffic), 0.3 m off the kerb: refused in a junction gap or within its body of a piece end, on a
+        /// carriageway too narrow to leave room beside it, off the tile, on a building, off the drawn road surface (a deck,
+        /// an embankment) or over another parked vehicle.
+        /// </summary>
+        private static bool TryParkHeavy(TileData t, IHeightSampler h, RoadSurfaceQuery surface, RoadLayout layout, FootprintGrid mask, int road,
+                                         double along, double side, int variant, ulong key, bool fleet, double minHalf, List<ParkedVehicle> output,
+                                         int first)
+        {
+            VehicleCatalogEntry e = VehicleCatalog.At(variant);
+            double halfLen = 0.5 * e.LengthM;
+            double length = layout.AlongAt(road, t.Roads[road].PointCount - 1);
+            if (along < halfLen + 8 || along > length - halfLen - 8) return false;
+            if (layout.InGap(road, along) || layout.InGap(road, along - halfLen) || layout.InGap(road, along + halfLen)) return false;
+            RoadCut cut = layout.CutAt(t, road, along);
+            double half = cut.Half;
+            if (half < minHalf) return false;
+            double lx = cut.UX, lz = cut.UZ, tx = lz, tz = -lx;
+            double ex = cut.CX + lx * (cut.Shift + side * half), ez = cut.CZ + lz * (cut.Shift + side * half);
+            double wx = lx * side, wz = lz * side; // towards the kerb
+            double fx = tx * side, fz = tz * side; // facing the kerb's traffic
+            double inset = 0.5 * e.WidthM + 0.3;
+            double cx = ex - wx * inset, cz = ez - wz * inset; // body centre
+            double back = halfLen - e.RearOverhangM; // body centre to the rear axle
+            double ox = cx - fx * back, oz = cz - fz * back; // the vehicle frame's origin: under the rear axle
+            // The whole body on the tile and off every building: a 5 x 3 grid over its plan (ends, quarters and middle;
+            // both sides and the centre line).
+            for (int a = -2; a <= 2; a++)
+                for (int w = -1; w <= 1; w++)
+                {
+                    double la = halfLen * a / 2.0, lw = 0.5 * e.WidthM * w;
+                    double px = cx + fx * la + wx * lw, pz = cz + fz * la + wz * lw;
+                    if (px < 0 || pz < 0 || px >= t.Tile.Size || pz >= t.Tile.Size || mask.Inside(px, pz)) return false;
+                }
+            float y;
+            if (!h.TryHeight(t.Tile.X0 + ox, t.Tile.Z0 + oz, out y)) return false;
+            y += RoadLiftM;
+            RoadSurfaceHit hit;
+            if (surface != null && surface.TrySample(t.Tile.X0 + ox, t.Tile.Z0 + oz, y, out hit))
+            {
+                if (hit.OnDeck || Math.Abs(hit.Y - y) >= 1.5f) return false;
+                y = hit.Y;
+            }
+            var v = new ParkedVehicle
+            {
+                X = (float)ox, Y = y, Z = (float)oz,
+                YawDeg = (float)(Math.Atan2(fx, fz) * 180.0 / Math.PI),
+                Variant = (ushort)variant,
+                Livery = e.PickLivery(WorldHash.Fnv1a(key, PurposeLivery)),
+                CommunityFleet = fleet && e.PlayerDrivable,
+                Id = WorldHash.Fnv1a(key, PurposeHeavy),
+            };
+            for (int k = first; k < output.Count; k++)
+                if (Overlap(output[k], v)) return false;
+            output.Add(v);
+            return true;
         }
     }
 

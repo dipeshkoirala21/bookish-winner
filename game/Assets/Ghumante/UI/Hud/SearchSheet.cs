@@ -23,6 +23,13 @@ namespace Ghumante.UI.Hud
         public Button Clear;
         public Label Hint;
         public ScrollView Results;
+
+        /// <summary>The sheet's content (kept inside the safe area while the layer bleeds under the notch), optional.</summary>
+        public VisualElement Content;
+
+        /// <summary>The element <see cref="SafeArea"/> pads (the document root): the layer is extended past it to the
+        /// screen's edges (<see cref="SafeBleed"/>). Null: no bleed.</summary>
+        public VisualElement BleedRoot;
     }
 
     /// <summary>
@@ -38,6 +45,8 @@ namespace Ghumante.UI.Hud
     /// the field and the results stay visible and tappable as the player types.</para>
     /// <para>The result pills take focus, so a gamepad (D-pad, A) can pick a place; opened from a gamepad the first
     /// "Ride there" gets focus instead of the text field.</para>
+    /// <para>Like Settings, the layer and its scrim cover the whole screen on a notched phone, under the notch and the
+    /// home indicator, while the sheet's content stays inside the safe area (<see cref="SafeBleed"/>).</para>
     /// </summary>
     public sealed class SearchSheet : IDisposable
     {
@@ -92,6 +101,7 @@ namespace Ghumante.UI.Hud
         private bool _liftPortrait;
         private string _focusValue;
         private float _lastPointerDown = -10f;
+        private Rect _bledFor;
 
         public SearchSheet(SearchSheetView view, UiAnimator animator, Localizer localizer, IHaptics haptics,
                            Func<Button, HapticKind, Action, PressFeel> feel, VisualElement orientationRoot)
@@ -124,8 +134,25 @@ namespace Ghumante.UI.Hud
                 _rows[i] = BuildRow(i, feel);
                 view.Results.Add(_rows[i].Root);
             }
+            if (view.BleedRoot != null) view.BleedRoot.RegisterCallback<GeometryChangedEvent>(OnRootGeometry);
+            Bleed();
             animator.OnUpdate(UpdateSlide);
             Refresh();
+        }
+
+        private void OnRootGeometry(GeometryChangedEvent evt)
+        {
+            Bleed();
+        }
+
+        /// <summary>The layer under the notch and home indicator too; the content inside the safe area on the edges the
+        /// sheet touches (the portrait bottom sheet spans the width, the landscape side panel the height).</summary>
+        private void Bleed()
+        {
+            if (_view.BleedRoot == null) return;
+            _bledFor = Screen.safeArea;
+            bool portrait = OrientationWatcher.Detect() == LayoutOrientation.Portrait;
+            SafeBleed.Apply(_view.BleedRoot, _view.Layer, _view.Content ?? _view.Sheet, SafeBleed.SheetEdges(portrait));
         }
 
         /// <summary>The player chose "Ride there".</summary>
@@ -259,6 +286,7 @@ namespace Ghumante.UI.Hud
             _field.UnregisterCallback<FocusInEvent>(OnFieldFocusIn);
             _field.UnregisterCallback<FocusOutEvent>(OnFieldFocusOut);
             _view.Layer.UnregisterCallback<PointerDownEvent>(OnLayerPointerDown, TrickleDown.TrickleDown);
+            if (_view.BleedRoot != null) _view.BleedRoot.UnregisterCallback<GeometryChangedEvent>(OnRootGeometry);
         }
 
         // ----- Searching ------------------------------------------------------------------------------------------
@@ -484,6 +512,8 @@ namespace Ghumante.UI.Hud
 
         private void UpdateSlide(float time, float dt)
         {
+            // A 180-degree turn moves the insets without resizing the root (no geometry event).
+            if (_view.BleedRoot != null && _view.BleedRoot.panel != null && Screen.safeArea != _bledFor) Bleed();
             UpdateKeyboardLift();
             if (!_sliding) return;
             float t = _duration > 0f ? (time - _start) / _duration : 1f;

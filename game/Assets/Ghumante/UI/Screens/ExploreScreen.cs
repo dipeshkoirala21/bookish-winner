@@ -274,10 +274,11 @@ namespace Ghumante.UI.Screens
                 Clear = Required<Button>("search-clear"),
                 Hint = Required<Label>("search-hint"),
                 Results = Required<ScrollView>("search-results"),
+                Content = Required<VisualElement>("search-content"),
+                BleedRoot = Root,
             }, Animator, Localizer, Haptics, Feel, StyledRoot);
             _search.RideRequested += entry => Raise(RideToRequested, entry);
             _search.TeleportRequested += entry => Raise(TeleportRequested, entry);
-            Required<VisualElement>("search-content");
             Required<VisualElement>("search-handle");
 
             _searchLayer = Required<VisualElement>("search-layer");
@@ -334,6 +335,12 @@ namespace Ghumante.UI.Screens
             _loadingFillNode = Animator.Node(Required<VisualElement>("loading-bar-fill"));
             _loadingFillNode.Set(MotionChannel.ScaleX, 0.001f); // the fill is full width, scaled from its left edge
             Feel(Required<Button>("loading-back"), HapticKind.LightImpact, () => Raise(MenuRequested));
+
+            // The pause scrim and the loading overlay cover the whole screen on a notched phone (under the notch and the
+            // home indicator), their panels inside the safe area; the search and Settings sheets do the same themselves.
+            Root.RegisterCallback<GeometryChangedEvent>(OnRootGeometry);
+            Animator.OnUpdate(WatchSafeArea);
+            BleedLayers();
 
             // HUD buttons never take keyboard focus: gamepad A and Space drive the scooter, they must not also "submit"
             // a button clicked earlier with the mouse. The pause panel and the Settings sheet keep theirs, so a gamepad
@@ -980,6 +987,7 @@ namespace Ghumante.UI.Screens
             StopListeningForBack();
             Root.UnregisterCallback<AttachToPanelEvent>(OnAttach);
             StyledRoot.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            Root.UnregisterCallback<GeometryChangedEvent>(OnRootGeometry);
             _route.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _speedo.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _top.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
@@ -1087,6 +1095,28 @@ namespace Ghumante.UI.Screens
         private void OnHudGeometry(GeometryChangedEvent evt)
         {
             PlaceRouteChip();
+        }
+
+        private Rect _bledFor;
+
+        private void OnRootGeometry(GeometryChangedEvent evt)
+        {
+            BleedLayers();
+        }
+
+        /// <summary>A 180-degree turn moves the insets without resizing the root (no geometry event).</summary>
+        private void WatchSafeArea(float time, float dt)
+        {
+            if (Root.panel != null && Screen.safeArea != _bledFor) BleedLayers();
+        }
+
+        /// <summary>The pause layer (its scrim) and the loading overlay reach the screen's edges; their centred panels
+        /// stay inside the safe area (<see cref="SafeBleed"/>).</summary>
+        private void BleedLayers()
+        {
+            _bledFor = Screen.safeArea;
+            SafeBleed.Apply(Root, _pauseLayer, null, BleedEdges.All);
+            SafeBleed.Apply(Root, _loading, null, BleedEdges.All);
         }
 
         /// <summary>Places the chip on the next panel update, after a change of classes or visibility has been laid out

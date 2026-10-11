@@ -1147,6 +1147,17 @@
     padding: 0 8px;
 }
 
+/* Nepali labels are wider than English and the longest ones are single words (ओर्लनुहोस्, "Hop off", is about 120 px
+ * at 30 px in Baloo 2 ExtraBold and cannot wrap): a smaller size keeps them inside the circle, smaller still in the
+ * in-vehicle circles (107 px of content in landscape, about 98 in portrait). */
+.gh-lang-ne .gh-action-btn__label {
+    font-size: 25px;
+}
+
+.gh-lang-ne.gh-hud--ride .gh-action-btn__label {
+    font-size: 22px;
+}
+
 .gh-action-btn__icon {
     width: 64px;
     height: 64px;
@@ -1350,6 +1361,12 @@
     white-space: normal;
     margin: 0;
     padding: 0;
+}
+
+/* Landscape in a vehicle the Action (Hop off) circle stands at 46% and is 129 units tall (to about 61% of an 883-896
+ * unit safe height): the chip goes above it with a gap, never over its top. */
+.gh-hud--ride .gh-hud__prompt {
+    bottom: 64%;
 }
 
 /* Portrait: above the speedometer (which stands at 42% plus about 190 units of digits and surface chip), so the
