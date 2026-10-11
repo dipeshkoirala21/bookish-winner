@@ -40,7 +40,9 @@ namespace Ghumante.Core.Tests
                 VehicleCatalogEntry e = VehicleCatalog.At(v);
                 RigClass rig = VehicleRoles.RigOf(e);
                 RigParams land = CameraRigTable.For(rig, false), port = CameraRigTable.For(rig, true);
-                Assert.That(port.DistanceM, Is.GreaterThanOrEqualTo(land.DistanceM), e.AssetId);
+                // Portrait sits higher and steeper (ref_camera.md §5: its ~100° vertical FOV needs a shorter boom).
+                Assert.That(port.PivotM + port.DistanceM * Math.Sin(port.PitchDeg * Math.PI / 180),
+                            Is.GreaterThan(land.PivotM + land.DistanceM * Math.Sin(land.PitchDeg * Math.PI / 180)), e.AssetId);
                 Assert.That(port.PitchDeg, Is.GreaterThan(land.PitchDeg), e.AssetId);
                 SeatSocket[] seats = VehicleSeats.For(e);
                 Assert.That(seats.Length, Is.GreaterThan(0));
@@ -56,15 +58,16 @@ namespace Ghumante.Core.Tests
         [Test]
         public void CamerasFollowTheDesignTable()
         {
+            // docs/research/w2/ref_camera.md §5 (playtest #5) supersedes the W2_DESIGN 6.4 numbers.
             RigParams walkP = CameraRigTable.For(RigClass.Walk, true);
-            Assert.That(walkP.DistanceM, Is.EqualTo(6.8f));
-            Assert.That(walkP.PitchDeg, Is.EqualTo(20f));
-            Assert.That(walkP.PivotM, Is.EqualTo(0.9f));
+            Assert.That(walkP.DistanceM, Is.EqualTo(5.6f));
+            Assert.That(walkP.PitchDeg, Is.EqualTo(27.5f));
+            Assert.That(walkP.PivotM, Is.EqualTo(1.0f));
             RigParams walkL = CameraRigTable.For(RigClass.Walk, false);
-            Assert.That(walkL.DistanceM, Is.EqualTo(8.4f));
-            Assert.That(CameraRigTable.For(RigClass.Bus, false).DistanceM, Is.EqualTo(16.5f));
+            Assert.That(walkL.DistanceM, Is.EqualTo(6.0f));
+            Assert.That(CameraRigTable.For(RigClass.Bus, false).DistanceM, Is.EqualTo(16.9f));
             Assert.That(CameraRigTable.For(RigClass.Bus, false).MinHFovDeg, Is.EqualTo(64f));
-            Assert.That(CameraRigTable.For(RigClass.Car, true).DistanceM, Is.EqualTo(10.8f));
+            Assert.That(CameraRigTable.For(RigClass.Car, true).DistanceM, Is.EqualTo(8.1f));
             // Landscape distance ≈ 6 + 1 × vehicle length.
             foreach (int v in new[] { VehicleCatalog.Taxi, VehicleCatalog.Suv, VehicleCatalog.BusCityGreen, VehicleCatalog.TruckPainted })
             {

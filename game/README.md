@@ -88,7 +88,8 @@ saved as `player.appearance` and `player.garage` and come back next time.
 **1. Walk around Basantapur**
 
 1. Press **Play**, click **Explore**. You start on foot in Thamel ("Namaste from Thamel!") with your red scooter
-   parked beside you. The walking camera sits closer in portrait (6.8 m) than before.
+   parked beside you. The walking camera sits 6 m behind you in landscape and 5.6 m (higher) in portrait, and it holds
+   still while you walk straight (playtest fix #5 below).
 2. Press **/**, type **Basantapur** (or *Kathmandu Durbar Square*), click **Teleport** (editor and development builds;
    in a release build use **Ride there** and follow the ribbon on foot or on the scooter).
 3. Walk around the square: the gait plants each foot, the topi wobbles, footsteps follow the ground (brick, stone,
@@ -129,7 +130,7 @@ saved as `player.appearance` and `player.garage` and come back next time.
 2. Walk to the driver's door: the right side (Nepal drives on the left, cars are right-hand drive; a wall there sends
    you round). **E** hops in (0.9 s for a car, 1.4 s for a truck; any move key in the first 60% steps back out).
 3. Teleport (or drive) to **Maitighar Mandala** and go round it clockwise, keeping left. Each class has its own
-   handling and camera: a bus sits 16.5 m back and swings wide, a scooter leans, a bicycle sways and stops pedalling
+   handling and camera: a bus's camera sits about 17 m back and swings wide, a scooter leans, a bicycle sways and stops pedalling
    uphill. **H** honks (the bicycle rings a bell). Cows on the road slow you to 5 km/h within 4 m and stop you
    gently at 1.6 m; they keep chewing.
 4. **E** hops off: at speed it brakes first ("Slowing down to hop off…"); buses and trucks stop fully.
@@ -200,18 +201,23 @@ roundabouts and buses come from their own packages and are checked here from the
 6. Every class remembers its own angle: pick *Handlebar* on the scooter, hop off (walking keeps its own angle), hop
    back on: *Handlebar* again. Stop Play and press Play again: still *Handlebar* (saved as
    `settings.camera_views` in the save).
-7. Rotate the Device Simulator (below) mid-ride: every angle keeps the minimum horizontal field of view in portrait and
-   landscape (driving 62°, walking 55°, bus and truck 64°, first-person views 68-72°; the vertical FOV stops at 100°).
+7. Rotate the Device Simulator (below) mid-ride: portrait keeps a minimum horizontal field of view (driving 62°,
+   walking 55°, bus and truck 64°, first-person views 68-72°; the vertical FOV stops at 100°) and the chase views in
+   landscape keep a minimum vertical one (46° on two wheels, in cars and vans, 48° walking, in a bus, truck or tractor),
+   so the wide screen shows more to the sides instead of cutting off the sky and the road ahead.
 
 **2. Reversing in Thamel (the blocked camera)**
 
 1. Teleport to **Thamel Chowk**, take the scooter (**G**, **E**) and ride into one of the narrow side lanes (4.8 m
    between the houses at the narrowest after the detail pass).
-2. In the lane the chase camera goes about 15° steeper and 15% closer ("lane mode") and looks over the eaves instead of
-   into the walls.
+2. In the lane the chase camera goes about 4° steeper and 10% closer ("lane mode") and looks over the eaves instead of
+   into the walls. It takes half a second in the lane to switch and keeps it for 2.5 s after the lane opens up, blending
+   over 1.6 s, so it never flickers at gaps between houses.
 3. Stop, then hold **S** to back up. After 0.3 s the camera rises and shortens so the lane behind you shows under the
    bike; keep reversing for 1 s and it swings round to look along the way you are going. Never inside a house,
-   never behind one: where a house is in the way the camera pulls in at once and eases back out over about 0.6 s.
+   never behind one: the boom looks 0.35 s ahead, so where a house is coming into the way it rises first (up to four
+   11.25° steps) and pulls in smoothly; only a house already in the way stops it at once. It eases back out over about
+   a second after a short hold.
 4. Back up towards a corner or a dead end: the camera lifts over low walls and stays above the bike. Ride forwards
    again: the swing undoes at once and the camera settles back behind you.
 5. Back right up to the house at the end of a dead-end lane (or stand with your back to a house front) and wait 3 s:
@@ -224,7 +230,7 @@ roundabouts and buses come from their own packages and are checked here from the
 **3. Houses in the way**
 
 1. Teleport to **Indra Chowk** and ride the lanes towards Asan. Turn sharp corners: the camera never shows the inside
-   of a house or the back of a wall; it pulls in and eases out. What still sits between the camera and you (an eave,
+   of a house or the back of a wall; it rises or pulls in smoothly and eases back out. What still sits between the camera and you (an eave,
    a strut, a wire) fades out with a dither (look package).
 
 **4. Bridges and flyovers**
@@ -338,3 +344,49 @@ checks that no step still carries a "not wired" mark).
 
 What to report: any place above that looks wrong compared with the real one, a camera frame inside or behind a
 house, a car route that enters a lane a car cannot fit, or an untranslated string in Nepali.
+
+## Playtest fix #5 on a Mac: a steady chase camera
+
+The owner's first Unity playtest (`docs/W2_PLAYTEST_1.md`, complaint 5): "Camera angle is shitty.. It constantly keeps
+moving which make the driving experience really bad." The chase camera is rebuilt from what open-world games do
+(`docs/research/w2/ref_camera.md`): an engine-free `Core/Characters/ChaseCamera.cs` with exact critically damped
+springs (the same curve at any frame rate), the frame clock evened out (`CameraClock`), the view pinned on the body's
+centre (not the rear axle), no lean roll, a predictive boom that rises before it pulls in, and per-class framing in
+`CameraRigTable.cs` (scooter 7.8 m, car 8.5 m, bus 16.9 m back in landscape; portrait higher and a little closer).
+`Characters/Cameras/ChaseCameraRig.cs` only drives the Unity camera with it.
+
+Set up as above (pull, open `game/` in Unity 6000.3.25f1, **Ghumante → Project Setup**, open
+`Assets/Ghumante/Scenes/Bootstrap.unity`, **Play**, **Explore**). In the Game view, pick a phone resolution and turn
+on **Stats** to see the frame rate.
+
+1. **Straight road, any vehicle.** Teleport to **Thamel Chowk**, call the hatchback (**G** until it comes, **E**) and
+   drive south towards Ratna Park at a steady 30 km/h. On a straight the view holds still: the car stays put in the
+   lower part of the frame, the road ahead and the skyline in view. Road seams, kerbs, the suspension and a scooter's
+   lean do not move the camera; only climbs and dips are followed, without lag.
+2. **Turns.** At a junction the camera follows the turn a moment later (about 0.3 s on two wheels, 0.4 s in a car,
+   0.6 s in a bus) and settles behind you without swinging past. At speed it pulls back a little and the field of
+   view widens a few degrees; both come back as you slow down.
+3. **Stopping and parking.** Stop and turn the wheel: the camera does not swing round while you crawl (it follows the
+   heading only above about 1 m/s and fully from 3 m/s). Back up (**S**): the reversing frame of the detail pass.
+4. **Looking around.** Right-drag (right stick) to look to the side, let go: after 1.4 s the view springs back
+   behind you in about half a second.
+5. **Old lanes.** Teleport to **Indra Chowk**, take the scooter and ride the lanes to Asan. Where houses close in, the
+   camera rises over the eaves first and then shortens smoothly; it never jumps, never goes into a house, and the lane
+   mode (4° steeper, 10% closer) does not flicker at gaps between houses.
+6. **Bus.** Teleport to **Maitighar Mandala**, take a community-fleet bus (green key tag) and drive east towards
+   Baneshwor: high and far behind, the whole bus and the road in view, as steady as the car.
+7. **Frame rate.** **Settings → Frame rate** 30 and 60 (or a busy street at 30 fps): the camera keeps the same
+   framing and the same smoothness; a hitch does not jolt it.
+8. **Portrait and landscape.** Rotate the Device Simulator mid-ride: the view blends in 0.3 s; landscape shows more
+   to the sides (minimum vertical field of view), portrait sits higher and keeps the minimum horizontal one.
+9. The other angles (**C**: *Far*, *Low cinematic*, *Handlebar*, *Bonnet*, *Driver's view*, *Driver's seat*, *Window
+   seat*, *Over the shoulder*) work as before.
+
+Headless: `dotnet test core-tests --filter CharactersCamera` drives a hatchback, a scooter and a bus over real streets of
+the sample (Thamel to Ratna Park, Indra Chowk to Asan, Maitighar to Baneshwor) on a phone-like uneven frame clock and
+checks the camera's jerk, how fast it turns on straight roads and in turns, its boom steps in the lanes and that the old
+camera failed the same rides (`CharactersCameraRideTests`; the numbers are in `ref_camera.md` §7).
+
+What to report: any moment the view moves while you drive straight at a steady speed, a turn where the camera lags
+too much or too little for that vehicle, a frame inside or behind a house, or a class whose framing hides the road
+ahead.
