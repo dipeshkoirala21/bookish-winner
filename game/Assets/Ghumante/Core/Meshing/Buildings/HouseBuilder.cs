@@ -975,19 +975,34 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>An element fixed to the facade plane w = 0 of frame f: dark where it meets the wall.</summary>
-        private static void Fixed(ref House h, in KitFrame f, MeshData m, int v0, MaterialChannel ch, float ao = 1f)
+        internal static System.Collections.Generic.List<string> DebugLabels;
+        internal static System.Collections.Generic.List<int> DebugStarts;
+        private static void Dbg(MeshData m, int v0, string file, int line)
         {
+            if (DebugLabels == null) return;
+            DebugStarts.Add(v0);
+            DebugLabels.Add(System.IO.Path.GetFileName(file) + ":" + line);
+        }
+
+        private static void Fixed(ref House h, in KitFrame f, MeshData m, int v0, MaterialChannel ch, float ao = 1f,
+                                  [System.Runtime.CompilerServices.CallerLineNumber] int line = 0, [System.Runtime.CompilerServices.CallerFilePath] string file = "")
+        {
+            Dbg(m, v0, file, line);
             KitPaint.Of(ch, ao).WithGround(h.Ground, 0.6f, 1.2f).WithWall(f, 0, 0.62f, 0.22f).Apply(m, v0);
         }
 
         /// <summary>The inside of an opening of the given depth: open at the wall face, dark at the back.</summary>
-        private static void Recess(ref House h, in KitFrame f, MeshData m, int v0, MaterialChannel ch, double depth, float ao = 1f)
+        private static void Recess(ref House h, in KitFrame f, MeshData m, int v0, MaterialChannel ch, double depth, float ao = 1f,
+                                   [System.Runtime.CompilerServices.CallerLineNumber] int line = 0, [System.Runtime.CompilerServices.CallerFilePath] string file = "")
         {
+            Dbg(m, v0, file, line);
             KitPaint.Of(ch, ao).WithWall(f, -depth, 0.45f, (float)Math.Max(0.05, depth)).Apply(m, v0);
         }
 
-        private static void Free(ref House h, MeshData m, int v0, MaterialChannel ch, float ao = 1f)
+        private static void Free(ref House h, MeshData m, int v0, MaterialChannel ch, float ao = 1f,
+                                 [System.Runtime.CompilerServices.CallerLineNumber] int line = 0, [System.Runtime.CompilerServices.CallerFilePath] string file = "")
         {
+            Dbg(m, v0, file, line);
             KitPaint.Of(ch, ao).WithGround(h.Ground, 0.6f, 1.0f).Apply(m, v0);
         }
 

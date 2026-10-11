@@ -1,3 +1,4 @@
+using Ghumante.Core.Geo;
 using Ghumante.Core.Synth.Look;
 using Ghumante.Core.Synth.Textures;
 using Ghumante.Platform;
@@ -17,11 +18,15 @@ namespace Ghumante.World.Rendering
     /// (the shader's maximum LOD selects the SubShader with or without the outline pass; the tier's look roles decide
     /// which world materials draw it, <see cref="WorldMaterialDefaults.RoleOf"/>, applied to the active world's materials
     /// whenever the tier or the world's material set changes);</item>
-    /// <item>sets the occluder-fade capsule (<see cref="OccluderCapsule"/>) from the world camera to the player before the
-    /// world camera renders: the player end is <see cref="SetOccluderTarget"/> when a controller set it this frame, else the
-    /// world's focus (<see cref="WorldRoot.Focus"/>, the explorer's position) raised by the target height; the camera-end
-    /// radius covers the camera's view frustum just in front of the lens. Off while the debug free-fly camera drives the
-    /// world and for every other camera.</item>
+    /// <item>sets the occluder-fade cone (<see cref="OccluderCapsule"/>) from the world camera to the player before the
+    /// world camera renders, with the strength of the sight gate (<see cref="OccluderFadeGate"/>, owner playtest #4 "buildings
+    /// constantly flicker"): nothing dissolves while the player is in sight; only when the world's solids
+    /// (<see cref="WorldRoot.GroundQuery"/>, the geometry the chase camera's boom avoids) hide the player for a sustained
+    /// moment does the cone fade in smoothly, and it fades out again after a sustained moment in sight. The player end is
+    /// <see cref="SetOccluderTarget"/> when a controller set it this frame, else the world's focus
+    /// (<see cref="WorldRoot.Focus"/>, the explorer's position) raised by the target height. The gate runs once per frame
+    /// (main thread, two short sphere casts). Off while the debug free-fly camera drives the world and for every other
+    /// camera.</item>
     /// <item>applies the adaptive governor's dynamic resolution (<see cref="DynamicRenderScale"/>, App's quality director)
     /// to the active URP asset, which changes with the quality level: the asset renders at the lower of its authored render
     /// scale and the dynamic one, and gets its authored value back when another level takes over, on
@@ -50,6 +55,9 @@ namespace Ghumante.World.Rendering
         private static int _tierOverride = -1;
         private static ToonLookTier _tier = ToonLookTier.For(DeviceTier.Mid);
         private static OccluderFadeSettings _occluder = OccluderFadeSettings.Default;
+        private static readonly OccluderFadeGate Gate = new OccluderFadeGate();
+        private static OccluderCapsule _capsule;
+        private static int _gateFrame = -1;
         private static bool _occluderEnabled = true;
         private static bool _outlinesEnabled = true;
         private static Vector3 _target;
@@ -86,7 +94,25 @@ namespace Ghumante.World.Rendering
         public static bool OccluderFadeEnabled
         {
             get { return _occluderEnabled; }
-            set { _occluderEnabled = value; }
+            set
+            {
+                if (_occluderEnabled != value) Gate.Reset();
+                _occluderEnabled = value;
+            }
+        }
+
+        /// <summary>The sight gate of the occluder fade (read-only use: <see cref="OccluderFadeGate.Strength"/>,
+        /// <see cref="OccluderFadeGate.Hidden"/>; debug HUDs and tests).</summary>
+        public static OccluderFadeGate OccluderGate
+        {
+            get { return Gate; }
+        }
+
+        /// <summary>The capsule handed to the shader by the last world-camera render (strength 0 while the player is in
+        /// sight).</summary>
+        public static OccluderCapsule LastOccluder
+        {
+            get { return _capsule; }
         }
 
         /// <summary>Outlines on (default, where the tier draws them) or off (a settings toggle).</summary>
@@ -101,11 +127,15 @@ namespace Ghumante.World.Rendering
             }
         }
 
-        /// <summary>The capsule settings (tune at runtime; applied from the next camera).</summary>
+        /// <summary>The capsule and gate settings (tune at runtime; applied from the next camera).</summary>
         public static OccluderFadeSettings Occluder
         {
             get { return _occluder; }
-            set { _occluder = value; }
+            set
+            {
+                _occluder = value;
+                Gate.Settings = value;
+            }
         }
 
         /// <summary>
@@ -202,6 +232,9 @@ namespace Ghumante.World.Rendering
             _appliedTier = -1;
             _rolesSet = null;
             _rolesVersion = -1;
+            Gate.Reset();
+            _gateFrame = -1;
+            _capsule = default(OccluderCapsule);
         }
 
         /// <summary>The tier the look follows: the override, else the active quality level (Low, Mid, High).</summary>
@@ -327,17 +360,29 @@ namespace Ghumante.World.Rendering
                       world.FocusOverride == null && camera == world.ViewCamera;
             if (!on)
             {
+                // Another camera (the scene view, a UI camera) leaves the world camera's gate alone; a closed world, the
+                // free-fly camera or the toggle start it over solid.
+                if (world == null || !world.IsOpen || world.FocusOverride != null || !_occluderEnabled) Gate.Reset();
                 Shader.SetGlobalVector(OccluderBId, Vector4.zero);
                 return;
             }
-            Vector3 target = _targetFrame == Time.frameCount
-                ? _target
-                : world.ToScene(world.Focus) + new Vector3(0f, _occluder.TargetHeightM, 0f);
-            Vector3 eye = camera.transform.position;
-            float tanHalfFov = Mathf.Tan(0.5f * camera.fieldOfView * Mathf.Deg2Rad);
-            OccluderCapsule c = OccluderCapsule.From(_occluder, eye.x, eye.y, eye.z, target.x, target.y, target.z, tanHalfFov, camera.aspect);
+            if (_gateFrame != Time.frameCount)
+            {
+                // Once per frame, however often the camera renders (stacked cameras, XR): the hysteresis counts frames' time.
+                _gateFrame = Time.frameCount;
+                Vector3 target = _targetFrame == Time.frameCount
+                    ? _target
+                    : world.ToScene(world.Focus) + new Vector3(0f, _occluder.TargetHeightM, 0f);
+                Vector3 eye = camera.transform.position;
+                float tanHalfFov = Mathf.Tan(0.5f * camera.fieldOfView * Mathf.Deg2Rad);
+                WorldPos origin = world.Origin;
+                Gate.Settings = _occluder;
+                _capsule = Gate.Update(world.GroundQuery, origin.X, origin.Y, origin.Z, eye.x, eye.y, eye.z, target.x, target.y, target.z,
+                                       Time.deltaTime, tanHalfFov, camera.aspect);
+            }
+            OccluderCapsule c = _capsule;
             Shader.SetGlobalVector(OccluderAId, new Vector4(c.Ax, c.Ay, c.Az, c.CameraRadius));
-            Shader.SetGlobalVector(OccluderBId, new Vector4(c.Bx, c.By, c.Bz, 1f));
+            Shader.SetGlobalVector(OccluderBId, new Vector4(c.Bx, c.By, c.Bz, c.Strength));
             Shader.SetGlobalVector(OccluderCId, new Vector4(c.Soft, c.SolidRadius, c.MinOpacity, c.PlayerRadius));
             Shader.SetGlobalVector(OccluderDId, new Vector4(c.KeepY, c.OverheadY, 0f, 0f));
         }

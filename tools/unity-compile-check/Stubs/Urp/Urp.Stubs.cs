@@ -45,6 +45,11 @@ namespace UnityEngine.Rendering.Universal
         public float shadowDistance { get { throw null; } set { } }
         public int shadowCascadeCount { get { throw null; } set { } }
         public int mainLightShadowmapResolution { get { throw null; } set { } }
+        public float cascade2Split { get { throw null; } set { } }
+        public float cascadeBorder { get { throw null; } set { } }
+        public float shadowDepthBias { get { throw null; } set { } }
+        public float shadowNormalBias { get { throw null; } set { } }
+        public bool conservativeEnclosingSphere { get { throw null; } set { } }
         public int maxAdditionalLightsCount { get { throw null; } set { } }
         public bool supportsCameraDepthTexture { get { throw null; } set { } }
         public bool supportsCameraOpaqueTexture { get { throw null; } set { } }

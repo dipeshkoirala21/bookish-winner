@@ -41,6 +41,14 @@ namespace Ghumante.World.Rendering
         /// <summary>Size of the channel arrays (<c>GH_CHANNEL_ARRAY_SIZE</c> = MaterialLooks.ArraySize).</summary>
         public const int ChannelArraySize = 32;
 
+        /// <summary>Share of the 4 m band fade the incoming building band draws beyond the complement of the outgoing one
+        /// (<c>GH_BAND_OVERLAP</c>), so the cross-fade between two different meshes of a house never leaves a hole.</summary>
+        public const float BandOverlap = 0.12f;
+
+        /// <summary>Inside its fade-in the incoming band sits this fraction of the camera distance behind
+        /// (<c>GH_BAND_PUSH</c>), so where both bands draw the outgoing one wins the depth test.</summary>
+        public const float BandPush = 0.0001f;
+
         /// <summary>Channels with a texture slice and a look (<c>GH_SLICE_COUNT</c> = MaterialTextures.SliceCount); the
         /// shader renders any other channel value as Plain.</summary>
         public const int SliceCount = 26;

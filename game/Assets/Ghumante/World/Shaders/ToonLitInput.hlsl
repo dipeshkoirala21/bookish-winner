@@ -69,11 +69,12 @@ float4 _GhLookParams;
 // w darkness (outline colour = albedo × w × light level).
 float4 _GhOutlineParams;
 
-// Occluder fade (C# twin: Ghumante.Core.Synth.Look.OccluderCapsule, set per camera by ToonLook): a capsule from the
-// camera (A.xyz) to the player (B.xyz). A.w fully faded radius at the camera end, C.w at the player end, B.w 1 = on,
-// C.x soft edge outside the radius (m), C.y radius of the solid sphere around the player end (m), C.z opacity left
-// inside (screen-door); ground layers fade only above world y D.x (the player's knees), their upward-facing surfaces only
-// above D.y (a deck overhead).
+// Occluder fade (C# twin: Ghumante.Core.Synth.Look.OccluderCapsule, set per camera by ToonLook): a cone from the
+// camera (A.xyz) to the player (B.xyz). A.w fully faded radius at the camera end, C.w at the player end, B.w the strength
+// of the sight gate (Core.Synth.Look.OccluderFadeGate: 0 while the player is in sight, rising smoothly to 1 only after
+// the player has been hidden by solid geometry for a sustained moment), C.x soft edge outside the radius (m), C.y radius
+// of the solid sphere around the player end (m), C.z opacity left inside at full strength (screen-door); ground layers
+// fade only above world y D.x (the player's knees), their upward-facing surfaces only above D.y (a deck overhead).
 float4 _GhOccluderA;
 float4 _GhOccluderB;
 float4 _GhOccluderC;
@@ -101,13 +102,34 @@ float3 GhWind(float3 positionOS)
     return positionOS;
 }
 
-// The world position every pass draws at: wind, object to world, earth curvature, depth pull. One function, so the
-// depth prepass and the colour pass produce the same depth.
+// Building band cross-fade (W2_DESIGN 2.4; playtest #4): the incoming band of an edge draws GH_BAND_OVERLAP of the 4 m
+// fade beyond the complement of the outgoing band (GhBandClip), and inside its fade-in it sits GH_BAND_PUSH of the camera
+// distance behind (3 mm at 30 m, 8 mm at 80 m). The two bands draw different meshes of a house (the near ring recesses
+// its windows and shop fronts, the lite ring and B1 lay them on the wall), so at one pixel their fragments lie at
+// different distances: with exact complements both could be discarded (a hole into the house, sparkling in a ring that
+// moves with the camera); with the overlap one of them always draws, and where both draw on the same wall the outgoing
+// band wins the depth test instead of z-fighting. C# twin: ToonLitLayout.BandOverlap / BandPush.
+#define GH_BAND_OVERLAP 0.12
+#define GH_BAND_PUSH 0.0001
+
+// The world position every pass draws at: wind, object to world, earth curvature, depth pull, and the incoming band's
+// push. One function, so the depth prepass and the colour pass produce the same depth.
 float3 GhToonWorldPosition(float3 positionOS)
 {
     float3 positionWS = TransformObjectToWorld(GhWind(positionOS));
     positionWS = GhEarthCurvature(positionWS, _Curvature);
-    return GhViewPull(positionWS, _ViewPull);
+    positionWS = GhViewPull(positionWS, _ViewPull);
+#if defined(_BAND_FADE)
+    UNITY_BRANCH
+    if (_BandRange.x > 0.0)
+    {
+        // Full push up to the end of this band's fade-in, gone 1 m later (per vertex: continuous across triangles).
+        float d = distance(positionWS.xz, _GhBandCentre.xz);
+        float push = saturate((_BandRange.x + 0.5 * _BandRange.z + 1.0 - d));
+        positionWS = GhViewPull(positionWS, -GH_BAND_PUSH * push);
+    }
+#endif
+    return positionWS;
 }
 
 // The vertex albedo (linear): sRGB vertex colour, the per-instance tint on alpha-masked parts, the material tint.
@@ -122,8 +144,9 @@ half3 GhVertexAlbedo(half4 color)
 }
 
 // Building bands (W2_DESIGN 2.4): opaque dithered cross-fade over _BandRange.z at each edge. The fade-in uses the
-// complementary threshold of the fade-out, so two adjacent bands cover every pixel exactly once. C# twin:
-// Ghumante.World.Buildings.BandConfig.Opacity.
+// complementary threshold of the fade-out plus GH_BAND_OVERLAP (see GhToonWorldPosition), so two adjacent bands cover
+// every pixel at least once even where their meshes differ in depth. C# twin: Ghumante.World.Buildings.BandConfig.Opacity
+// (without the overlap).
 // 4x4 Bayer matrix.
 static const float GhBayerTable[16] = { 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 };
 
@@ -138,7 +161,7 @@ void GhBandClip(float3 positionWS, float2 pixel)
 #if defined(_BAND_FADE)
     float d = distance(positionWS.xz, _GhBandCentre.xz);
     float h = 0.5 * _BandRange.z;
-    float fadeIn = _BandRange.x <= 0.0 ? 1.0 : saturate((d - (_BandRange.x - h)) / max(_BandRange.z, 1e-3));
+    float fadeIn = _BandRange.x <= 0.0 ? 1.0 : saturate((d - (_BandRange.x - h)) / max(_BandRange.z, 1e-3) + GH_BAND_OVERLAP);
     float fadeOut = saturate(((_BandRange.y + h) - d) / max(_BandRange.z, 1e-3));
     float b = GhBayer4(pixel);
     clip(min(fadeIn - (1.0 - b), fadeOut - b));
@@ -155,11 +178,11 @@ void GhBandClipHard(float3 positionWS)
 #endif
 }
 
-// Occluder fade (W2 detail pass decision: houses never block the view): the opacity of a world position against the
-// camera-to-player capsule (C# twin: OccluderCapsule.Opacity). Fully faded (_GhOccluderC.z left) within a radius growing
-// from A.w at the camera to C.w at the player, soft over C.x outside it, with no fade-in at the camera end (a wall right in
-// front of the lens is gone); nothing at or beyond the plane through the player fades (the background stays), and a
-// sphere of C.y around the player end stays solid. Ground layers (_OccluderGround: the road material, which also draws
+// Occluder fade (W2 detail pass decision: houses never block the view; playtest #4: and never flicker): the opacity of a
+// world position against the camera-to-player cone (C# twin: OccluderCapsule.Opacity), scaled by the gate's strength
+// B.w. Fully faded (_GhOccluderC.z left) within a radius growing from A.w at the camera to C.w at the player, soft over
+// C.x outside it, with no fade-in at the camera end; nothing at or beyond the plane through the player fades (the
+// background stays), and a sphere of C.y around the player end stays solid. Ground layers (_OccluderGround: the road material, which also draws
 // bridge railings, piers, decks and flyovers) fade only above D.x, and their upward-facing surfaces only above D.y, so
 // roads, kerbs and footpaths never dissolve.
 float GhOccluderOpacity(float3 positionWS, float3 normalWS)
@@ -188,13 +211,15 @@ float GhOccluderOpacity(float3 positionWS, float3 normalWS)
     return 1.0 - fade * (1.0 - _GhOccluderC.z);
 }
 
-// Screen-door clip of the occluder fade (opaque, no sorting); only materials with _OCCLUDER_FADE pay for it. Call it after
-// every texture sample that uses screen-space derivatives (derivatives after a discard are undefined on Vulkan and GLES).
+// Screen-door clip of the occluder fade (opaque, no sorting); only materials with _OCCLUDER_FADE pay for it, and only while
+// the gate's strength is above zero (a uniform branch: in plain view nothing is evaluated and nothing dithers). Call it
+// after every texture sample that uses screen-space derivatives (derivatives after a discard are undefined on Vulkan and
+// GLES).
 void GhOccluderClip(float3 positionWS, float3 normalWS, float2 pixel)
 {
 #if defined(_OCCLUDER_FADE)
     UNITY_BRANCH
-    if (_GhOccluderB.w > 0.5)
+    if (_GhOccluderB.w > 0.001)
     {
         clip(GhOccluderOpacity(positionWS, normalWS) - GhBayer4(pixel));
     }

@@ -199,21 +199,38 @@ props, + B0 on High). Estimate against ARCHITECTURE 10 (only non-empty batches d
 batches, with a 60 k hero budget. Before this fix every B0 and B1 chunk to 200–250 m, every tree batch and every prop batch
 drew it on Mid too. To validate on device (Wave 3).
 
-**Occluder fade** (`_OCCLUDER_FADE`; the engine-free twin is `Core/Synth/Look/OccluderCapsule`, tested in
-`core-tests/SynthOccluderFadeTests`): surfaces between the camera and the player dissolve into a 4 × 4 Bayer screen door
-(18% left), so houses, walls, balconies, temples and bridge parts never block the view, also when the collision-aware
-camera is squeezed 1.5 m behind a motorbike backing down a galli. The capsule is four global vectors set once per camera;
-there is no per-object CPU work. It is fully faded within a radius growing from the camera end (at least 1 m, more when
-the view frustum 0.8 m in front of the lens is wider: landscape, wide FOV) to 1.3 m at the player, with no fade-in at the
-camera (a wall 0.1 m in front of the lens is gone), soft edges of 12% of the capsule (0.15–0.6 m) outside that radius,
-nothing at or beyond the plane through the player (the background stays), and a solid sphere of 0.5 m (at most a quarter
-of the capsule) around the player end. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a
-camera rig sets a better point that frame. Bridge, flyover and underpass structures (decks, railings, piers, parapets,
-ramps and trench walls) are their own tile layer with their own material, `bridges`, which fades whole; the road
-material (driving surface, kerbs, footpaths, also the carriageway on a deck) no longer fades, so road fragments carry no
-`clip()`. The ground mode (`_OccluderGround`: only above the player's knees, upward-facing surfaces only from 0.8 m above
-the player end) stays in the shader for any later ground layer. The plain building
-material (the explorer's own material is copied from it) and traffic never fade; shadows of faded houses stay.
+**Occluder fade** (`_OCCLUDER_FADE`; the engine-free twins are `Core/Synth/Look/OccluderCapsule` and
+`OccluderFadeGate`, tested in `core-tests/SynthOccluderFadeTests`, `WorldRenderingOccluderGateTests` and, on the real
+sample at the owner's spots, `WorldRenderingOccluderSpotsTests`): surfaces that really hide the player dissolve into a
+4 × 4 Bayer screen door (18% left at full strength). Playtest #4 ("buildings constantly flicker and stutter") found the
+first version dissolving every house surface near the camera-to-player line on every frame: walls beside the camera in a
+galli or between two houses at Hiti Pokhari dithered on and off as the camera moved while the player was in plain view
+(up to 21 m² of wall at once, over 1 800 wall patches flipping three times or more on one walk). Now:
+
+* **Sight gate** (`OccluderFadeGate`, run by `ToonLook` once per frame for the world camera): two 0.12 m sphere casts
+  from the camera to the player's chest and 0.6 m above it against the world's solids (`WorldRoot.GroundQuery`, the same
+  `IViewObstacleQuery` the chase camera's boom avoids: house solids, structures, statues, decks, terrain). The player is
+  hidden only when both are blocked; anything within 0.45 m of the body (the wall they lean on) does not count.
+* **Hysteresis**: the fade engages after 0.35 s of continuous hiding and releases after 0.6 s of continuous sight; a lamp
+  post, a corner or a balcony crossing the line never flickers anything. A camera or player jump of more than 12 m (a
+  teleport, a cut) starts over solid.
+* **Smooth strength** (`_GhOccluderB.w`): in over 0.3 s, out over 0.45 s (smoothstep), so the screen door thins and
+  thickens through the 16 Bayer levels instead of popping. While the strength is 0 the shader skips the clip entirely (a
+  uniform branch).
+* **A narrow cone**, not a wide capsule: fully faded within 0.35 m of the line at the camera, growing to 0.8 m at the
+  player, soft over 12% of its length (0.15–0.45 m); no frustum cover any more (`NearCoverM` = 0), so walls beside the
+  lens, the walls the player rides past and the wall they stand beside stay solid even while the fade is on. Nothing at
+  or beyond the plane through the player fades, and a 0.5 m sphere around the player end stays solid.
+
+When in doubt the camera moves (the boom keeps the line of sight clear; on the sample's rides the player was never
+hidden), never the houses. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a camera rig
+sets a better point that frame; `ToonLook.OccluderGate` and `ToonLook.LastOccluder` expose the state for debug HUDs.
+Bridge, flyover and underpass structures (decks, railings, piers, parapets, ramps and trench walls) are their own tile
+layer with their own material, `bridges`, which fades whole; the road material (driving surface, kerbs, footpaths, also
+the carriageway on a deck) never fades, so road fragments carry no `clip()`. The ground mode (`_OccluderGround`: only
+above the player's knees, upward-facing surfaces only from 0.8 m above the player end) stays in the shader for any later
+ground layer. The plain building material (the explorer's own material is copied from it) and traffic never fade; shadows
+of faded houses stay.
 
 | Material | Outline (tier) | Occluder fade |
 |---|---|---|
