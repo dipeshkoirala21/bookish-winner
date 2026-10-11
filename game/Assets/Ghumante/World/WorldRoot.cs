@@ -7,7 +7,10 @@ using Ghumante.Audio;
 using Ghumante.Core.Aviation;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
+using Ghumante.Core.Generators.Sacred;
 using Ghumante.Core.Geo;
+using Ghumante.Core.Meshing.Bridges;
+using Ghumante.Core.Meshing.Roads;
 using Ghumante.Core.Search;
 using Ghumante.Core.Services;
 using Ghumante.Core.Streaming;
@@ -159,7 +162,11 @@ namespace Ghumante.World
                 int level = QualitySettings.GetQualityLevel();
                 return (DeviceTier)Mathf.Clamp(level, (int)DeviceTier.Low, (int)DeviceTier.High);
             }
-            set { _tier = value; }
+            set
+            {
+                _tier = value;
+                ToonLook.OverrideTier(value); // the look's outline and fade roles follow the same tier as streaming
+            }
         }
 
         /// <summary>True between <see cref="OpenRegionAsync(string)"/> and Ready.</summary>
@@ -346,7 +353,24 @@ namespace Ghumante.World
             {
                 _month = Mathf.Clamp(value, 1, 12);
                 if (_dressing != null) _dressing.Month = _month;
+                // A new season: the terrain and area palettes are rebuilt in place, nearest tiles first.
+                if (_meshing != null && _meshing.SetMonth(_month) && _streamer != null)
+                    _streamer.Scheduler.RefreshLayers(MeshingSettings.SeasonalLayers);
             }
+        }
+
+        /// <summary>The road corridors of a tile in game metres (the roads package's index, the same the buildings, ground
+        /// query, ornaments and dressing keep clear); null when no world is open. Presenters in other assemblies (fauna)
+        /// read it.</summary>
+        public Func<TileData, IRoadCorridorQuery> RoadCorridors
+        {
+            get { return _meshing != null ? _meshing.Corridors : null; }
+        }
+
+        /// <summary>The meshing options of the open world (null when closed). Read-only for callers.</summary>
+        public MeshingSettings Meshing
+        {
+            get { return _meshing; }
         }
 
         /// <summary>The materials the world draws with (null when closed); presenters use its instanced materials.</summary>
@@ -518,6 +542,7 @@ namespace Ghumante.World
             _aviationConfig = null;
             if (_ground != null) _ground.Clear();
             _ground = null;
+            if (_meshing != null && SacredClearance.Corridors == _meshing.Corridors) SacredClearance.Corridors = null;
             _meshing = null;
             _manifest = null;
             _config = null;
@@ -557,22 +582,38 @@ namespace Ghumante.World
             _transit = data.Transit;
             _aviationConfig = data.Aviation;
             _heroes = data.Heroes;
-            _meshing = new MeshingSettings();
-            _meshing.Heroes = _heroes;
-            if (_heroes != null) _meshing.SetHiddenRefs(_heroes.HiddenRefs);
-            _ground = new TileGroundQuery(_meshing.Roads);
-            _materials = materials != null && materials.IsComplete ? materials : WorldMaterialSet.Load();
+            int tier = (int)Tier;
+            // Every per-tier option of the detail-pass packages, the month's season and the roads package's corridors.
+            _meshing = MeshingSettings.ForTier(tier, _month, _heroes);
+            // Layered ground: bridge and flyover decks over and under (the bridges package's index on the RSTR records or
+            // the derived ones), solids trimmed to the drawn corridors, hero footprints left to the heroes' colliders.
+            // The factories run on the streaming workers (both indexes are cached per tile and thread-safe).
+            _ground = new TileGroundQuery(_meshing.Roads)
+            {
+                DeckFactory = BridgeDeckIndex.ForTile,
+                CorridorFactory = _meshing.Corridors,
+                HiddenBuildingRefs = _heroes != null ? _heroes.HiddenRefs : null,
+            };
+            SacredClearance.Corridors = _meshing.Corridors;
+            if (materials != null && materials.IsComplete)
+            {
+                _materials = materials;
+                WorldMaterialDefaults.ApplyLook(_materials, false); // the tier's outline roles, like a loaded set
+            }
+            else
+            {
+                _materials = WorldMaterialSet.Load();
+            }
             _materials.EnsureExtras();
             if (!_hasFocus) _focus = new WorldPos(manifest.CentreX, 0f, manifest.CentreZ);
             WorldPos unused;
             _origin = FloatingOrigin.Rebase(StreamingFocus, WorldPos.Zero, out unused);
-            int tier = (int)Tier;
             _streamer = new WorldStreamer(transform, _materials, data.Pack, config, data.Selector, _ground, _meshing, tier);
             _streamer.Rebase(_origin);
             _life = new LifeHost(LifeSettings.ForTier(tier), RegionSeed(manifest.RegionId), _transit, _aviationConfig, _curated);
             _streamer.DetailShown += OnDetailShown;
             _streamer.DetailHidden += OnDetailHidden;
-            _dressing = new DressingRenderer(DressingConfig.ForTier(tier), _materials) { Month = _month };
+            _dressing = new DressingRenderer(DressingConfig.ForTier(tier), _materials) { Month = _month, ViewCamera = ViewCamera };
             if (_aviationConfig != null) _aviation = new AviationPresenter(tier, _materials);
             _audioPlace = new WorldAudioPlace(this);
             if (AudioDirector.Exists)
@@ -629,6 +670,7 @@ namespace Ghumante.World
             _streamer.UpdateView(camPos, fov, now);
             _renderStats = _streamer.RenderStats;
             int treeTris, trees, propTris, props, draws;
+            if (cam != null) _dressing.ViewCamera = cam;
             _dressing.Draw(_streamer.DetailViews, _origin, camPos, out treeTris, out trees, out propTris, out props, out draws);
             _renderStats.TreeTris = treeTris;
             _renderStats.Trees = trees;
@@ -812,6 +854,8 @@ namespace Ghumante.World
             sb.Append("\nfocus ").Append(f.X.ToString("0")).Append(", ").Append(f.Z.ToString("0"))
               .Append("  origin ").Append(_origin.X.ToString("0")).Append(", ").Append(_origin.Z.ToString("0"));
             sb.Append('\n').Append(_renderStats.Format());
+            // The device pass checks the outline cost of the tier in use (World/README "Look").
+            sb.Append("  outlined ").Append(_renderStats.OutlinedTris(ToonLookTier.For(ToonLook.CurrentTier())));
             if (_life != null)
                 sb.Append("\nlife: veh ").Append(_life.VehicleCount).Append(" ppl ").Append(_life.PeopleCount).Append(" anim ")
                   .Append(_life.AnimalCount).Append(" air ").Append(_life.AircraftCount).Append(" tiles ").Append(_life.TileCount)

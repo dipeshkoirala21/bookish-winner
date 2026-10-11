@@ -5,6 +5,7 @@ using Ghumante.Core.Synth.Look;
 using Ghumante.Core.Synth.Textures;
 using Ghumante.Platform;
 using Ghumante.World.Rendering;
+using Ghumante.World.Streaming;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -60,6 +61,8 @@ namespace Ghumante.Tests.EditMode
             try
             {
                 Assert.IsNotNull(set.props, "the props material exists");
+                Assert.IsNotNull(set.bridges, "the bridges material exists");
+                Assert.AreSame(set.bridges, set.ForLayer(TileLayers.Bridges), "the bridge layer draws with it");
                 // Mid (ARCHITECTURE 10): characters, vehicles, landmarks.
                 WorldMaterialDefaults.ApplyLook(set, false, DeviceTier.Mid);
                 foreach (Material m in new[] { set.buildings, set.instanced, set.instancedTint, set.heroes })
@@ -69,7 +72,7 @@ namespace Ghumante.Tests.EditMode
                 // High adds props and the near building band.
                 WorldMaterialDefaults.ApplyLook(set, false, DeviceTier.High);
                 Assert.IsTrue(Outlined(set.props) && Outlined(set.bandB0) && Outlined(set.heroes));
-                foreach (Material m in new[] { set.bandB1, set.bandB1Full, set.bandB2, set.bandB3, set.trees, set.roads, set.terrain })
+                foreach (Material m in new[] { set.bandB1, set.bandB1Full, set.bandB2, set.bandB3, set.trees, set.roads, set.terrain, set.bridges })
                     Assert.IsFalse(Outlined(m), m.name + " has no outline on High");
                 // Low: none at all.
                 WorldMaterialDefaults.ApplyLook(set, false, DeviceTier.Low);
@@ -87,9 +90,12 @@ namespace Ghumante.Tests.EditMode
                         Assert.IsTrue(Fades(m), m.name + " fades between camera and player");
                         Assert.AreEqual(0f, m.GetFloat(WorldShaders.OccluderGround), m.name + " fades whole");
                     }
-                    // The road layer (bridge railings, piers, decks) fades as a ground layer: structures only.
-                    Assert.IsTrue(Fades(set.roads));
-                    Assert.AreEqual(1f, set.roads.GetFloat(WorldShaders.OccluderGround));
+                    // The bridge layer (decks, railings, piers, trench walls) fades whole; the road layer (driving surface,
+                    // kerbs, footpaths) never does, so it is spared the fade's clip().
+                    Assert.IsTrue(Fades(set.bridges), "bridges fade between camera and player");
+                    Assert.AreEqual(0f, set.bridges.GetFloat(WorldShaders.OccluderGround), "bridges fade whole");
+                    Assert.IsFalse(Fades(set.roads), "roads never dissolve");
+                    Assert.AreEqual(0f, set.roads.GetFloat(WorldShaders.OccluderGround));
                 }
                 Assert.AreEqual(1f, set.terrain.GetFloat(WorldShaders.DetailStrength));
                 // Idempotent: applying again changes nothing.

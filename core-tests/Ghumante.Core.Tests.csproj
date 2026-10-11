@@ -24,6 +24,27 @@
     <Compile Include="Support/*.cs" />
   </ItemGroup>
 
+  <!--
+    The engine-free tile build of the World assembly (integration package): the streaming tests (Streaming*) build
+    tiles exactly as the game's streamer does (TileBuild.Execute with MeshingSettings.ForTier) and drive the scheduler.
+    These files must stay free of UnityEngine.
+  -->
+  <ItemGroup>
+    <Compile Include="../game/Assets/Ghumante/World/Streaming/TileBuild.cs" LinkBase="World/Streaming" />
+    <Compile Include="../game/Assets/Ghumante/World/Streaming/MeshParts.cs" LinkBase="World/Streaming" />
+    <Compile Include="../game/Assets/Ghumante/World/Streaming/StreamingScheduler.cs" LinkBase="World/Streaming" />
+    <Compile Include="../game/Assets/Ghumante/World/Streaming/StreamingWiring.cs" LinkBase="World/Streaming" />
+    <Compile Include="../game/Assets/Ghumante/World/Streaming/TileResidency.cs" LinkBase="World/Streaming" />
+    <Compile Include="../game/Assets/Ghumante/World/Instancing/TileInstances.cs" LinkBase="World/Instancing" />
+    <Compile Include="../game/Assets/Ghumante/World/Instancing/ParkedPlacement.cs" LinkBase="World/Instancing" />
+    <Compile Include="../game/Assets/Ghumante/World/Instancing/WorldHash.cs" LinkBase="World/Instancing" />
+    <Compile Include="../game/Assets/Ghumante/World/Buildings/BandConfig.cs" LinkBase="World/Buildings" />
+    <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroSet.cs" LinkBase="World/Sacred" />
+    <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroLodBudget.cs" LinkBase="World/Sacred" />
+    <Compile Include="../game/Assets/Ghumante/World/Rendering/EarthCurvature.cs" LinkBase="World/Rendering" />
+    <Compile Include="../game/Assets/Ghumante/World/Life/LifeLod.cs" LinkBase="World/Life" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="NUnit" Version="3.14.0" />
