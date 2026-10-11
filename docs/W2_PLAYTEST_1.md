@@ -51,3 +51,13 @@ world material set with a broken script link.
 | 10 | Sprint lock (cruise) | controls |
 | 11 | Drive cars, buses and trucks from parked ones; fly planes from the airport apron | play (ground vehicles), controls (aircraft) |
 | 12 | Himalayan peaks on the horizon, more life and detail, solid physics | sky, stable |
+
+## Follow-up (same day): roads on slopes
+
+16. Fix the roads in slope. Make it flat like how they make cutting the hills.. See everything is distorted here.. Dog looks like its sleeping in Air, Half of the motorcycle is in Air. Fix this everywhere where the roads are in the hills.
+
+Screenshot at Gaurighat Hanuman Mandir (Bagmati riverbank near Pashupati): the carriageway tilts sideways with the
+hillside, so a parked scooter and a dog float above it. The cause is deliberate: RoadGrade banks hill roads with the
+slope (MaxBank 0.25, MaxSteepBank 1.0). Owner decision: roads stay level across (normal camber and superelevation),
+and the terrain is cut and filled to meet them, with cut slopes, embankments, gabion or stone retaining walls and
+guard rails. Package: cutfill. Every placer and the ground query read the one carved surface.
