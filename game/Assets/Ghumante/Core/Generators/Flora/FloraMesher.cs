@@ -7,8 +7,9 @@ namespace Ghumante.Core.Generators.Flora
     /// <summary>
     /// Meshes of the nature kit (W2_DESIGN 5.8; docs/W2_DETAIL_CONTRACT.md §1.6 and §5): every
     /// <see cref="TreeSpecies"/> at LOD0 (detailed: trunk, limbs, twigs, layered clumps with leafy fringes, bloom; ≤ 1,600 triangles)
-    /// and LOD1 (simple: ≤ 240), the shared far LODs per <see cref="TreeShape"/> family (LOD2 volume ≤ 112 triangles,
-    /// LOD3 impostor ≤ 24, both grey and tinted per instance with <see cref="FloraCatalog.FoliageColour"/>), and the
+    /// and LOD1 (simple: ≤ 240), the shared far LODs per far form (<see cref="FarForms"/>: the crowns of leaves of the
+    /// <see cref="TreeShape"/> families, the banana clump, the palm and the bamboo clump; LOD2 volume ≤ 112 triangles, LOD3
+    /// impostor ≤ 24, both grey and tinted per instance with <see cref="FloraCatalog.FoliageColour"/>), and the
     /// chautari platform.
     /// <para>
     /// Kit meshes are <b>unit</b> models: the foot at the origin, height 1 and the largest horizontal extent 1, so an
@@ -31,6 +32,33 @@ namespace Ghumante.Core.Generators.Flora
         /// <summary>Number of <see cref="TreeShape"/> families with far LODs (Round, Cone, Umbrella, Column, Fountain).</summary>
         public const int Families = 5;
 
+        /// <summary>
+        /// Number of far forms (the shared LOD2 volume and LOD3 impostor shapes): the five <see cref="TreeShape"/>
+        /// families, then <see cref="PalmForm"/> and <see cref="BambooForm"/>. The Fountain family is the clump of banana
+        /// mats (stems from the ground, big arching paddle blades); palms, whose fronds spring from the top of a bare
+        /// trunk, and bamboo, a tall vase of culms arching over under feathery plumes, have their own forms. A renderer
+        /// that keeps one far mesh per form (<see cref="Far"/>, indexed by <see cref="FarFormOf"/>) draws every far tree
+        /// with its own silhouette; one keyed by <see cref="TreeShape"/> (<see cref="Family"/>) draws palms and bamboo
+        /// as banana clumps.
+        /// </summary>
+        public const int FarForms = 7;
+
+        /// <summary>The far form of palms: a crown of arching fronds on a bare ringed trunk.</summary>
+        public const int PalmForm = 5;
+
+        /// <summary>The far form of bamboo: a vase of arching culms under feathery leaf plumes.</summary>
+        public const int BambooForm = 6;
+
+        /// <summary>The far form a species draws with (<see cref="Far"/>), or −1 for plants without far LODs
+        /// (<see cref="TreeShape.Low"/>).</summary>
+        public static int FarFormOf(TreeSpecies s)
+        {
+            if (s == TreeSpecies.Palm) return PalmForm;
+            if (s == TreeSpecies.Bamboo) return BambooForm;
+            TreeShape f = FloraCatalog.Info(s).Family;
+            return f == TreeShape.Low ? -1 : (int)f;
+        }
+
         /// <summary>The stable build seed of a species (the same tree everywhere; instances vary by yaw, scale and tint).</summary>
         public static uint SeedOf(TreeSpecies s)
         {
@@ -38,14 +66,15 @@ namespace Ghumante.Core.Generators.Flora
         }
 
         /// <summary>
-        /// Build species <paramref name="s"/> at <paramref name="lod"/> (0 or 1; 2 and 3 build its family's far LOD)
+        /// Build species <paramref name="s"/> at <paramref name="lod"/> (0 or 1; 2 and 3 build its far form,
+        /// <see cref="FarFormOf"/>)
         /// for <paramref name="month"/> (1-12) into <paramref name="m"/>. Returns the triangles added.
         /// </summary>
         public static int Build(TreeSpecies s, int lod, int month, MeshData m, bool unit = true)
         {
             if (m == null) throw new ArgumentNullException(nameof(m));
             FloraInfo info = FloraCatalog.Info(s);
-            if (lod >= 2) return info.Family == TreeShape.Low ? Build(s, 1, month, m, unit) : Family(info.Family, lod, m, unit ? 1f : info.ModelWidthM, unit ? 1f : info.ModelHeightM);
+            if (lod >= 2) return info.Family == TreeShape.Low ? Build(s, 1, month, m, unit) : Far(FarFormOf(s), lod, m, unit ? 1f : info.ModelWidthM, unit ? 1f : info.ModelHeightM);
             if (month < 1 || month > 12) month = 10;
             int v0 = m.VertexCount, t0 = m.TriangleCount;
             var b = new FloraBuilder(m);
@@ -57,31 +86,75 @@ namespace Ghumante.Core.Generators.Flora
         }
 
         /// <summary>
-        /// The far LOD of a family: <paramref name="lod"/> 2 is a smooth lumpy volume with a short trunk (≤ 112 triangles),
-        /// 3 an impostor (a lumpy rounded crown on a three-sided trunk, ≤ 24 triangles) that keeps the silhouette, crown
-        /// base and stem of the family at a few dozen pixels. Unit model
-        /// scaled by (<paramref name="width"/>, <paramref name="height"/>). Foliage is grey (alpha 255) for the
-        /// instance's crown colour; the trunk is fixed bark. Returns the triangles added.
+        /// The far LOD of a <see cref="TreeShape"/> family (<see cref="Far"/> of the same index): the Fountain family
+        /// is the clump of banana and bamboo. Unit model scaled by (<paramref name="width"/>, <paramref name="height"/>).
+        /// Returns the triangles added.
         /// </summary>
         public static int Family(TreeShape f, int lod, MeshData m, float width = 1f, float height = 1f)
         {
+            if (f != TreeShape.Low) return Far((int)f, lod, m, width, height);
+            // Low plants have no far LOD of their own; a small rounded mass stands in (as before the far forms).
             if (m == null) throw new ArgumentNullException(nameof(m));
             int v0 = m.VertexCount, t0 = m.TriangleCount;
+            Crown(new FloraBuilder(m), f, lod);
+            Scale(m, v0, width, height);
+            return m.TriangleCount - t0;
+        }
+
+        /// <summary>
+        /// A far form (<see cref="FarForms"/>; <see cref="FarFormOf"/> gives a species' form) at <paramref name="lod"/>
+        /// 2 (≤ 112 triangles) or 3 (≤ 24). Crowns of leaves (Round, Cone, Umbrella, Column): LOD2 a smooth lumpy volume
+        /// on a short trunk, LOD3 a lumpy rounded crown on a three-sided trunk that keeps the silhouette, crown base and
+        /// stem at a few dozen pixels. The clump (Fountain: banana): stems from the ground and nine paddle blades arching
+        /// up, out and over from low on the clump. The palm: a leaning trunk under a star of arching fronds. The bamboo:
+        /// a vase of culms arching over under leaf plumes. At LOD3 each blade or plume is one two-sided triangle over its
+        /// arch. Unit model scaled by (<paramref name="width"/>,
+        /// <paramref name="height"/>). Foliage is grey (alpha 255) for the instance's crown colour; trunks are fixed bark
+        /// (clump stems are tinted a shade darker than the leaves). Returns the triangles added.
+        /// </summary>
+        public static int Far(int form, int lod, MeshData m, float width = 1f, float height = 1f)
+        {
+            if (m == null) throw new ArgumentNullException(nameof(m));
+            if (form < 0 || form >= FarForms) throw new ArgumentOutOfRangeException(nameof(form));
+            int v0 = m.VertexCount, t0 = m.TriangleCount;
             var b = new FloraBuilder(m);
+            if (form == (int)TreeShape.Fountain) FountainFar.Clump(b, lod);
+            else if (form == PalmForm) FountainFar.Palm(b, lod);
+            else if (form == BambooForm) FountainFar.Bamboo(b, lod);
+            else Crown(b, (TreeShape)form, lod);
+            Scale(m, v0, width, height);
+            return m.TriangleCount - t0;
+        }
+
+        /// <summary>Scale the unit model built from <paramref name="v0"/> by (width, height, width).</summary>
+        private static void Scale(MeshData m, int v0, float width, float height)
+        {
+            if (width == 1f && height == 1f) return;
+            float[] pp = m.Positions;
+            for (int v = v0; v < m.VertexCount; v++)
+            {
+                pp[3 * v] *= width;
+                pp[3 * v + 1] *= height;
+                pp[3 * v + 2] *= width;
+            }
+        }
+
+        /// <summary>The far LOD of a crown of leaves (Round, Cone, Umbrella, Column).</summary>
+        private static void Crown(FloraBuilder b, TreeShape f, int lod)
+        {
+            MeshData m = b.M;
             float crownY, ry, bottom, top;
             Shape(f, out crownY, out ry, out bottom, out top);
-            uint bark = FloraBuilder.Fixed(0x5E4A3Au);
             if (lod <= 2)
             {
                 if (f != TreeShape.Low)
                 {
-                    float trunkTop = f == TreeShape.Fountain ? crownY : bottom + 0.1f;
                     var st = new FloraBuilder.TubeStyle { Rgb = 0x5E4A3Au, Channel = MaterialChannel.Bark };
                     Vec3[] p = FloraBuilder.Pts(2);
                     float[] r = FloraBuilder.Radii(2);
                     p[0] = new Vec3(0f, -0.02f, 0f);
-                    p[1] = new Vec3(0f, trunkTop, 0f);
-                    r[0] = f == TreeShape.Fountain ? 0.06f : 0.045f;
+                    p[1] = new Vec3(0f, bottom + 0.1f, 0f);
+                    r[0] = 0.045f;
                     r[1] = 0.03f;
                     b.Tube(p, r, 2, 4, st, 0.5f, 0.8f, false);
                 }
@@ -96,17 +169,6 @@ namespace Ghumante.Core.Generators.Flora
                 else if (f == TreeShape.Column) b.Taper(puff, 0f, 0f, crownY - 0.5f * ry, top, 0.35f);
             }
             else Impostor(b, f, crownY, ry, bottom, top);
-            if (width != 1f || height != 1f)
-            {
-                float[] pp = m.Positions;
-                for (int v = v0; v < m.VertexCount; v++)
-                {
-                    pp[3 * v] *= width;
-                    pp[3 * v + 1] *= height;
-                    pp[3 * v + 2] *= width;
-                }
-            }
-            return m.TriangleCount - t0;
         }
 
         /// <summary>Points per impostor ring (two rings: 4 × 5 crown triangles plus 3 for the trunk).</summary>
@@ -143,8 +205,7 @@ namespace Ghumante.Core.Generators.Flora
             }
             float eqY = crownY + eqOff * ry;
             // Trunk: three faces from the ground up into the crown (apex hidden inside it).
-            bool fountain = f == TreeShape.Fountain;
-            float apex = fountain ? crownY : 0.5f * (bottom + eqY), tr = fountain ? 0.04f : 0.03f;
+            float apex = 0.5f * (bottom + eqY), tr = 0.03f;
             int ap = b.Vertex(new Vec3(0f, apex, 0f), Vec3.Up, FloraBuilder.Fixed(0x5E4A3Au, 0.9f), MaterialChannel.Bark, 0.6f);
             int[] tb = new int[3];
             for (int i = 0; i < 3; i++)
@@ -196,7 +257,6 @@ namespace Ghumante.Core.Generators.Flora
                 case TreeShape.Umbrella: crownY = 0.68f; ry = 0.3f; bottom = 0.4f; top = 0.98f; break;
                 case TreeShape.Cone: crownY = 0.69f; ry = 0.31f; bottom = 0.38f; top = 1f; break; // a mature chir pine: rounded, high
                 case TreeShape.Column: crownY = 0.69f; ry = 0.31f; bottom = 0.38f; top = 1f; break;
-                case TreeShape.Fountain: crownY = 0.68f; ry = 0.3f; bottom = 0.38f; top = 0.98f; break;
                 case TreeShape.Low: crownY = 0.5f; ry = 0.5f; bottom = 0f; top = 1f; break;
                 default: crownY = 0.7f; ry = 0.29f; bottom = 0.41f; top = 0.98f; break;
             }
