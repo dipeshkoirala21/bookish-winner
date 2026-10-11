@@ -569,6 +569,14 @@ namespace Ghumante.EditorTools
             {
                 return true;
             }
+            // The UIDocument must point at the panel settings asset as it is now: an older scene can keep a GUID from a
+            // panel settings asset that was deleted and recreated, which Unity shows as "None" and draws no UI at all.
+            string panelGuid = AssetDatabase.AssetPathToGUID(PanelSettingsPath);
+            if (!string.IsNullOrEmpty(panelGuid) && text.IndexOf("m_PanelSettings: {fileID: 11400000, guid: " + panelGuid,
+                                                                StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
             foreach (string field in BootstrapFields)
             {
                 string needle = "  " + field + ": {fileID: ";

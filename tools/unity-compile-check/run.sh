@@ -48,10 +48,15 @@ if [[ $AUDIT -eq 1 ]]; then
 fi
 
 status=0
-for platform in UNITY_ANDROID UNITY_IOS; do
-  echo "== compile check: $platform"
-  # --no-incremental: the two passes differ only in defines, so never reuse the previous pass's output.
-  if ! "$DOTNET" build "$SLN" -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform ${EXTRA[@]+"${EXTRA[@]}"}; then
+# Three passes: the Android and iOS players, and the Unity Editor on a Mac (runtime assemblies compiled with
+# UNITY_EDITOR and the macOS standalone target, as when the project is opened). %3B is an escaped ';'.
+for platform in DEVELOPMENT_BUILD%3BUNITY_ANDROID DEVELOPMENT_BUILD%3BUNITY_IOS \
+                UNITY_EDITOR%3BUNITY_EDITOR_OSX%3BUNITY_STANDALONE_OSX%3BUNITY_STANDALONE%3BUNITY_INCLUDE_TESTS; do
+  editor=false; [[ $platform == UNITY_EDITOR* ]] && editor=true
+  echo "== compile check: ${platform//%3B/;}"
+  # --no-incremental: the passes differ only in defines, so never reuse the previous pass's output.
+  if ! "$DOTNET" build "$SLN" -nologo -v q --no-incremental -p:UnityPlatformDefine=$platform -p:UnityEditorPass=$editor \
+       ${EXTRA[@]+"${EXTRA[@]}"}; then
     status=1
   fi
 done
