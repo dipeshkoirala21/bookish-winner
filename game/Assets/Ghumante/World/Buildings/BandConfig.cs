@@ -6,8 +6,8 @@ namespace Ghumante.World.Buildings
     /// <summary>The building LOD bands of W2_DESIGN 2.4, in draw order from the camera outwards.</summary>
     public enum BuildingBandLayer : byte
     {
-        /// <summary>The house grammar per detail cell (BuildingDetailMesher.BuildCell): full detail in 32 m cells out to
-        /// the near radius, the lite level in 64 m cells beyond (<see cref="BandConfig.B0NearOuterM"/>).</summary>
+        /// <summary>The house grammar per detail cell (B0CellSet): each house once, at the near, lite or flat level by
+        /// its distance (<see cref="BandConfig.B0Level"/>).</summary>
         B0 = 0,
 
         /// <summary>Styled extrusion, per 128 m block of a tile.</summary>
@@ -46,11 +46,36 @@ namespace Ghumante.World.Buildings
         /// <summary>Outer radius of B0, B1, B2 and B3.</summary>
         public float B0OuterM, B1OuterM, B2OuterM, B3OuterM;
 
-        /// <summary>Outer radius of B0's near ring (full grammar); B0's lite ring runs from it to <see cref="B0OuterM"/>.</summary>
+        /// <summary>A B0 house whose centroid lies within this radius is drawn at the near level (the full grammar at
+        /// <see cref="B0CapTris"/> from <see cref="B0BaseDrop"/>; Core BuildingBandTable.NearOuterM). 0 on Low: no house is.</summary>
         public float B0NearOuterM;
 
-        /// <summary>B0 cells kept in the LRU (24 / 48 / 96).</summary>
-        public int CellCacheSize;
+        /// <summary>A B0 house fronting a street (<see cref="B0HouseIndex.Street"/>) whose centroid lies within this radius,
+        /// beyond <see cref="B0NearOuterM"/>, is drawn at the lite level (<see cref="B0LiteDrop"/>); every other B0 house
+        /// at the flat level (<see cref="B0FlatDrop"/>). 0 on Low (flat throughout).</summary>
+        public float B0LiteOuterM;
+
+        /// <summary>
+        /// A house keeps a richer level until its centroid is this far past the level's radius (m), so a camera moving to
+        /// and fro along a radius never makes it switch back and forth. Each house is drawn at exactly one level, in
+        /// exactly one cell: the level switches when its cell is rebuilt (B0CellSet).
+        /// </summary>
+        public const float B0LevelHysteresisM = 6f;
+
+        /// <summary>A B0 cell is built with the houses that meet B0 this much beyond its fade (m): the camera travels about
+        /// this far towards new houses before the cell is rebuilt. Smaller on Low, whose flat houses are cheap to add
+        /// (a rebuild copies the houses it already has) and whose budget is tightest.</summary>
+        public float B0BuildPadM;
+
+        /// <summary>True when B0 builds 32 m cells (Mid and High: finer frustum culling and cheaper rebuilds around the
+        /// camera), false for 64 m cells (Low: fewer draw calls).</summary>
+        public bool B0FineCells;
+
+        /// <summary>GPU bytes of B0 cell meshes kept resident, shown and cached (25 / 50 / 80 MB; the cells shown at
+        /// Asan take 3 / 8 / 15 MB): the least recently needed cells are evicted beyond it. With the tiles and the vehicle
+        /// caches it holds the mesh memory of W2_DESIGN 10.4 (100 / 180 / 250 MB; core-tests MeshingBuildingB0CellTests:
+        /// High at Basantapur, the heaviest tile set, has 141.9 MB of tile meshes).</summary>
+        public long CellCacheBytes;
 
         /// <summary>Hero slice in triangles (W2_DESIGN 10.4: 20 k / 40 k / 60 k).</summary>
         public int HeroBudgetTris;
@@ -58,38 +83,103 @@ namespace Ghumante.World.Buildings
         /// <summary>Low never uses hero LOD0 (W2_DESIGN 3.2).</summary>
         public bool HeroLod0Allowed;
 
-        /// <summary>B0 triangle cap per house (per plot of a row) in the near ring on this tier (Core
-        /// BuildingBandTable.B0CapFor); the near cells build with it.</summary>
+        /// <summary>B0 triangle cap per house (per plot of a row) at the near level on this tier (Core
+        /// BuildingBandTable.B0CapFor).</summary>
         public int B0CapTris;
 
-        /// <summary>The richest near-ring B0 drop level on this tier (Core BuildingBandTable.B0BaseDropFor).</summary>
+        /// <summary>The richest B0 drop level on this tier (Core BuildingBandTable.B0BaseDropFor).</summary>
         public int B0BaseDrop;
 
-        /// <summary>The drop level of B0's lite ring on this tier (Core BuildingBandTable.LiteDropFor: the flat level on
-        /// Low, the lite level on Mid and High).</summary>
+        /// <summary>The lite level (Core BuildingBandTable.LiteDrop: openings cut with their reveals and plain frames,
+        /// coarse lattice, the sanjhya as a bay, eaves, shutters and boards).</summary>
         public int B0LiteDrop;
 
-        /// <summary>The tier's bands: 0 Low, 1 Mid, 2 High (StreamingConfig tier numbering). Radii and caps come from
-        /// the Core band table of the detail pass (BuildingBandTable): the W2 radii, B0 split into a rich near ring and a
-        /// lite outer ring.</summary>
+        /// <summary>The flat level (Core BuildingBandTable.FlatDrop: the same house with its openings laid on the wall).</summary>
+        public int B0FlatDrop;
+
+        /// <summary>
+        /// The tier's bands: 0 Low, 1 Mid, 2 High (StreamingConfig tier numbering). Radii and caps come from the Core band
+        /// table of the detail pass (BuildingBandTable): the W2 radii, and in B0 the near level within its near radius.
+        /// Beyond it B0 draws the street fronts at the lite level out to <see cref="B0LiteOuterM"/> and every other house
+        /// at the flat level (core-tests MeshingBuildingB0CellTests counts every shown cell at Asan and Thamel). Low has no
+        /// near level and draws its 35 m flat: the W2 radius at the cheapest level that is still a house.
+        /// </summary>
         public static BandConfig ForTier(int tier)
         {
             int k = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
             return new BandConfig
             {
                 B0OuterM = BuildingBandTable.OuterM(k, 0), B1OuterM = BuildingBandTable.OuterM(k, 1), B2OuterM = BuildingBandTable.OuterM(k, 2),
-                B0NearOuterM = BuildingBandTable.NearOuterM(k),
-                B3OuterM = BuildingBandTable.OuterM(k, 3), CellCacheSize = k == 0 ? 24 : k == 1 ? 48 : 96, HeroBudgetTris = k == 0 ? 20000 : k == 1 ? 40000 : 60000,
-                HeroLod0Allowed = k > 0, B0CapTris = BuildingBandTable.B0CapFor(k),
-                B0BaseDrop = BuildingBandTable.B0BaseDropFor(k), B0LiteDrop = BuildingBandTable.LiteDropFor(k),
+                B3OuterM = BuildingBandTable.OuterM(k, 3), B0NearOuterM = k == 0 ? 0f : BuildingBandTable.NearOuterM(k), B0LiteOuterM = LiteRadii[k],
+                B0FineCells = true, CellCacheBytes = CacheMegabytes[k] << 20, HeroBudgetTris = k == 0 ? 20000 : k == 1 ? 40000 : 60000,
+                HeroLod0Allowed = HeroLod0AllowedFor(k), B0CapTris = BuildingBandTable.B0CapFor(k), B0BaseDrop = BuildingBandTable.B0BaseDropFor(k),
+                B0LiteDrop = BuildingBandTable.LiteDrop, B0FlatDrop = BuildingBandTable.FlatDrop, B0BuildPadM = BuildPads[k],
             };
         }
 
-        /// <summary>Inner and outer radius of B0's near ring (full grammar) and lite ring.</summary>
-        public void B0Range(bool near, out float inner, out float outer)
+        private static readonly long[] CacheMegabytes = { 25, 50, 80 };
+        private static readonly float[] LiteRadii = { 0f, 30f, 55f };
+        private static readonly float[] BuildPads = { 2f, 4f, 6f };
+
+        /// <summary>False on Low, whose hero budget never shows LOD0 (W2_DESIGN 3.2): tile builds then skip it.</summary>
+        public static bool HeroLod0AllowedFor(int tier)
         {
-            inner = near ? 0f : B0NearOuterM;
-            outer = near ? B0NearOuterM : B0OuterM;
+            return tier > 0;
+        }
+
+        /// <summary>The share of B0's triangles assumed inside the view frustum when its budget is set (W2_DESIGN 2.4: 40%).</summary>
+        public const double InViewShare = 0.4;
+
+        /// <summary>
+        /// The triangles of all the B0 cells shown at once at Asan, the densest chowk, that a tier allows, every shown cell
+        /// counted whole (core-tests MeshingBuildingB0CellTests): the B0 share of the building slice (Core
+        /// BuildingBandTable.B0ShareTris, 40% in view) over <see cref="InViewShare"/> on Mid and High. Low keeps the W2
+        /// radius (35 m) at the flat level, which at Asan's real density (about a hundred houses meet the band and its
+        /// fade, where W2_DESIGN 2.4 assumed 9 in view) costs more than the table's 5.5 k in view: <see cref="LowB0ShownTris"/>
+        /// (an open issue for the band table's owner, who should re-derive the Low share and slice).
+        /// </summary>
+        public static int B0ShownBudgetTris(int tier)
+        {
+            int k = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
+            return k == 0 ? LowB0ShownTris : (int)(BuildingBandTable.B0ShareTris(k) / InViewShare);
+        }
+
+        /// <summary>Low's B0 budget, whole shown cells at Asan (see <see cref="B0ShownBudgetTris"/>).</summary>
+        public const int LowB0ShownTris = 30000;
+
+        /// <summary>B0 levels: 0 near (full grammar), 1 lite, 2 flat.</summary>
+        public const int LevelNear = 0, LevelLite = 1, LevelFlat = 2;
+
+        /// <summary>
+        /// The level a B0 house is drawn at, from its centroid's distance <paramref name="d"/> to the camera, whether it
+        /// fronts a street and the level it is drawn at now (-1 when not built): near within <see cref="B0NearOuterM"/>,
+        /// lite for a street front within <see cref="B0LiteOuterM"/>, flat otherwise; a richer level is kept until the
+        /// house is <see cref="B0LevelHysteresisM"/> past its radius.
+        /// </summary>
+        public int B0Level(double d, bool street, int current)
+        {
+            int want = d < B0NearOuterM ? LevelNear : street && d < B0LiteOuterM ? LevelLite : LevelFlat;
+            if (current >= 0 && current < want)
+            {
+                bool keep = current == LevelNear ? d < B0NearOuterM + B0LevelHysteresisM : street && d < B0LiteOuterM + B0LevelHysteresisM;
+                if (keep) return current;
+            }
+            return want;
+        }
+
+        /// <summary>The options a B0 level builds with (<paramref name="shared"/> copied: corridors, hide set, sink).</summary>
+        public BuildingOptions B0Options(int level, BuildingOptions shared)
+        {
+            if (level == LevelNear)
+            {
+                BuildingOptions o = BuildingBandTable.Copy(shared, BuildingBand.B0KitLite);
+                if (B0CapTris > 0) o.B0CapTris = B0CapTris;
+                o.B0BaseDrop = Math.Max(B0BaseDrop, shared != null ? shared.B0BaseDrop : 0);
+                return o;
+            }
+            BuildingOptions lite = BuildingBandTable.LiteOptions(shared);
+            lite.B0BaseDrop = level == LevelLite ? B0LiteDrop : B0FlatDrop;
+            return lite;
         }
 
         /// <summary>Inner and outer radius a band draws (B1 with <paramref name="b1Full"/> starts at 0: its B0 cells

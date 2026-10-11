@@ -660,7 +660,7 @@ namespace Ghumante.World.Streaming
                     if (settings.DrawRoads && settings.DrawBridges) BuildBridges(b, src, settings);
                     if (settings.DrawBuildings) BuildBuildings(b, src, settings);
                     if (settings.DrawAreas) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
-                    if (settings.Heroes != null) BuildHeroes(b, src, settings.Heroes);
+                    if (settings.Heroes != null) BuildHeroes(b, src, settings.Heroes, BandConfig.HeroLod0AllowedFor(settings.Tier));
                     if (settings.DrawRoads && settings.DrawOrnaments) BuildOrnaments(b, src, settings);
                     if (settings.DrawInstances) BuildInstances(b, src, settings);
                     b.Roads = ground != null ? ground.BuildRoadIndex(src) : null;
@@ -954,8 +954,11 @@ namespace Ghumante.World.Streaming
             MeshParts.ByBlocks(b._scratch, size, BandConfig.B3BlockM, b.Layers[TileLayers.BuildingsBlock], b.Parts[TileLayers.BuildingsBlock], b._partScratch);
         }
 
-        /// <summary>Every hero anchored in this tile at LOD 0 to 3 (parts hero × 4 + lod) and its LOD0 colliders.</summary>
-        private static void BuildHeroes(TileBuild b, TileData src, HeroSet heroes)
+        /// <summary>Every hero anchored in this tile at LOD 0 to 3 (parts hero × 4 + lod) and its colliders. Without
+        /// <paramref name="lod0"/> (Low, whose hero budget never shows LOD0: <see cref="BandConfig.HeroLod0Allowed"/>) LOD0 is
+        /// neither built nor uploaded (about 167 k triangles, 8 MB and three quarters of the hero build time on the Asan
+        /// tile) and the colliders come from LOD1, whose generators emit the same set (core-tests MeshingBuildingB0CellTests).</summary>
+        private static void BuildHeroes(TileBuild b, TileData src, HeroSet heroes, bool lod0)
         {
             IReadOnlyList<HeritageRecord> list = heroes.InTile(src.Tile.Key);
             if (list.Count == 0) return;
@@ -974,10 +977,11 @@ namespace Ghumante.World.Streaming
                     bool any = false;
                     float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
                     float minY = float.MaxValue, maxY = float.MinValue;
-                    for (int lod = 0; lod < HeroLodBudget.LodCount; lod++)
+                    int first = lod0 ? 0 : 1;
+                    for (int lod = first; lod < HeroLodBudget.LodCount; lod++)
                     {
                         b._scratch.Clear();
-                        int tris = HeroBuilder.Build(r, src, lod, b._scratch, lod == 0 ? b._gen : null, lod == 0 ? stats : null);
+                        int tris = HeroBuilder.Build(r, src, lod, b._scratch, lod == first ? b._gen : null, lod == first ? stats : null);
                         if (tris <= 0) continue;
                         any = true;
                         float x0, y0, z0, x1, y1, z1;

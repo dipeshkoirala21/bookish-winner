@@ -88,7 +88,8 @@ namespace Ghumante.World.Streaming
             {
                 Warning = Debug.LogWarning,
             };
-            _cells = new DetailCells(_bands, meshing != null ? meshing.DetailBuildings : new BuildingOptions { Band = BuildingBand.B0KitLite }, _b0);
+            _cells = new DetailCells(_bands, meshing != null ? meshing.DetailBuildings : new BuildingOptions { Band = BuildingBand.B0KitLite }, _b0, ground, _root);
+            _uploadCapBytes = _scheduler.UploadBudgetBytes;
         }
 
         public StreamingScheduler Scheduler
@@ -126,18 +127,39 @@ namespace Ghumante.World.Streaming
             get { return _stats; }
         }
 
-        /// <summary>One frame: stream around <paramref name="focus"/>. The upload budget follows the frame rate target
-        /// (1.5 ms at 60 fps, 2 ms at 30 fps); B0 cells use what the tile uploads left.</summary>
+        /// <summary>
+        /// One frame: stream around <paramref name="focus"/>. The upload budget follows the frame rate target (1.5 ms at
+        /// 60 fps, 2 ms at 30 fps). Tiles and B0 cells share the scheduler's per-frame byte cap: B0 chunks (about half a
+        /// megabyte) take what the tile uploads left, and when they found no room for <see cref="B0StarvedTicks"/> frames
+        /// in a row they go first (up to half the cap) and the tiles get the rest, so neither starves.
+        /// </summary>
         public void Tick(WorldPos focus)
         {
             if (_disposed) return;
             double budget = Application.targetFrameRate >= 50 ? 1.5 : 2.0;
             _scheduler.UploadBudgetMs = budget;
+            long cap = _uploadCapBytes, b0 = 0;
+            bool b0Waiting = _cells.NextUploadBytes > 0;
+            double start = NowMs();
+            if (b0Waiting && _b0Starved >= B0StarvedTicks) b0 = _cells.Upload(cap / 2, true);
+            double b0Ms = NowMs() - start;
+            _scheduler.UploadBudgetBytes = Math.Max(1, cap - b0);
+            _scheduler.UploadBudgetMs = Math.Max(0.1, budget - b0Ms);
+            _tickUploadBytes = 0;
             _scheduler.Tick(focus.X, focus.Z);
             StreamingStats st = _scheduler.Stats;
-            double left = budget - st.UploadMs;
-            _cells.UploadReady(left > 0.5 || st.PendingUploads == 0, NowMs());
+            long used = b0 + _tickUploadBytes;
+            if (b0 == 0 && b0Waiting && budget - b0Ms - st.UploadMs > 0.25) b0 = _cells.Upload(cap - used, false);
+            _b0Starved = b0Waiting && b0 == 0 ? _b0Starved + 1 : 0;
+            _scheduler.UploadBudgetBytes = cap;
         }
+
+        /// <summary>Frames B0 cells wait behind tile uploads before they upload first.</summary>
+        private const int B0StarvedTicks = 3;
+
+        private readonly long _uploadCapBytes;
+        private long _tickUploadBytes;
+        private int _b0Starved;
 
         /// <summary>Re-place every view for a new floating origin (exact: computed from the doubles each time).</summary>
         public void Rebase(WorldPos origin)
@@ -318,12 +340,11 @@ namespace Ghumante.World.Streaming
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Structure colliders, registered while the tile is visible: two sets per tile in the ground query. The heroes and
-        // the shown B0 cells (small, rebuilt whenever a B0 cell shows or hides) under the tile key, and the static
+        // Structure colliders, registered while the tile is visible: the heroes under the tile key and the static
         // dressing (ornaments, generated trunks, poles, parked vehicles: hundreds to a few thousand colliders) under
-        // tileKey | TileGroundQuery.StaticSetKeyBit, built once when the tile becomes visible and dropped when it hides.
-
-        private readonly StructureColliders _merged = new StructureColliders();
+        // tileKey | TileGroundQuery.StaticSetKeyBit, each built once when the tile becomes visible and dropped when it
+        // hides. The B0 cells register their own small sets, one per shown cell (B0CellSet), so a cell showing or hiding
+        // never rebuilds these.
 
         private void RegisterColliders(TileView view)
         {
@@ -338,18 +359,15 @@ namespace Ghumante.World.Streaming
                 return;
             }
             RegisterStatic(view);
-            _merged.Clear();
-            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers and parapets).
+            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers and parapets); the ground copies them.
             StructureColliders heroes = view.Extras != null ? view.Extras.HeroColliders : null;
-            if (heroes != null) _merged.AddAll(heroes);
-            _cells.AppendColliders(view, _merged);
-            if (_merged.Count == 0)
+            if (heroes == null || heroes.Count == 0)
             {
                 if (view.CollidersRegistered) _ground.Unregister(key);
                 view.CollidersRegistered = false;
                 return;
             }
-            _ground.Register(key, _merged);
+            _ground.Register(key, heroes);
             view.CollidersRegistered = true;
         }
 
@@ -383,6 +401,7 @@ namespace Ghumante.World.Streaming
             }
             UploadChunk c = build.Chunks[chunk];
             view.AddChunk(c, MeshUpload.Create(build, chunk), MaterialFor(c.Layer));
+            _tickUploadBytes += build.ChunkBytes(chunk); // the B0 cells take what is left of the frame's cap
         }
 
         private Material MaterialFor(int layer)
@@ -408,6 +427,7 @@ namespace Ghumante.World.Streaming
             TileView view;
             if (!_views.TryGetValue(build.Node, out view)) return;
             view.Stage(build.Chunks[chunk], MeshUpload.Create(build, chunk));
+            _tickUploadBytes += build.ChunkBytes(chunk);
         }
 
         public void CommitRefresh(SelectedNode node, int layerMask)

@@ -39,6 +39,7 @@
     <Compile Include="../game/Assets/Ghumante/World/Instancing/ParkedPlacement.cs" LinkBase="World/Instancing" />
     <Compile Include="../game/Assets/Ghumante/World/Instancing/WorldHash.cs" LinkBase="World/Instancing" />
     <Compile Include="../game/Assets/Ghumante/World/Buildings/BandConfig.cs" LinkBase="World/Buildings" />
+    <Compile Include="../game/Assets/Ghumante/World/Buildings/B0*.cs" LinkBase="World/Buildings" />
     <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroSet.cs" LinkBase="World/Sacred" />
     <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroLodBudget.cs" LinkBase="World/Sacred" />
     <Compile Include="../game/Assets/Ghumante/World/Rendering/EarthCurvature.cs" LinkBase="World/Rendering" />
