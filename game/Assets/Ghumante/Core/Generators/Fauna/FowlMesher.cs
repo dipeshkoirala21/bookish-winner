@@ -39,8 +39,13 @@ namespace Ghumante.Core.Generators.Fauna
                     break;
                 }
                 case FaunaSpecies.Duck:
-                    s = BirdMesher.Shape(0.3f, 0.1f, 0.085f, 12f, 0.085f, 0.03f, 12f, 0f, 0.03f, 0.04f, 0.055f, 0.012f, 0f, 0.9f, 0.004f, 0.06f, 0.05f, 0f,
+                    // Bill: a 4.6 cm spatula, 2.6 cm wide (Pekin and village ducks, ref_animals.md §6).
+                    s = BirdMesher.Shape(0.3f, 0.1f, 0.085f, 12f, 0.085f, 0.03f, 12f, 0f, 0.03f, 0.04f, 0.046f, 0.013f, 0f, 0.9f, 0.004f, 0.06f, 0.05f, 0f,
                                          -20f, 0f, 0.055f, 0.008f, 0.035f, 0.04f, 0.85f, 0.16f, 0.2f, 0.006f);
+                    s.Spatula = true;
+                    // The folded wings lie flush along the broad flanks.
+                    s.FoldInset = 0.2f;
+                    s.FoldThin = 0.7f;
                     s.Body = coat;
                     s.Belly = FaunaPalette.CoatBelly;
                     s.Back = pattern == CoatPattern.Saddle ? 0xA8A4A0FFu : coat;
@@ -84,7 +89,7 @@ namespace Ghumante.Core.Generators.Fauna
                     SideMark m = c.StartSide();
                     b.Ellipsoid(L.HeadC + new Fv3(-0.86f * s.HeadR, 0.1f * s.HeadR, 0.1f * s.HeadLen), new Fv3(-1f, 0f, 0.2f).Normalized, Fv3.Up,
                                 0.022f, 0.004f, 0.003f, 3, 5, FaunaBone.Head, 0x3A302800u, FaunaPalette.FeatherChannel, FaunaPart.Face);
-                    b.Ellipsoid(L.Shoulder + new Fv3(-0.86f * s.BodyW, -0.2f * s.BodyH, -0.45f * s.FoldLen), Fv3.Forward, Fv3.Up, 0.006f, 0.012f, 0.03f, 3,
+                    b.Ellipsoid(L.FoldSide + new Fv3(0.003f, -0.006f, -0.025f), Fv3.Forward, Fv3.Up, 0.004f, 0.011f, 0.028f, 3,
                                 5, FaunaBone.FoldL, 0x2E4A9A00u, FaunaPalette.FeatherChannel, FaunaPart.Wing);
                     c.EndSide(m);
                 }

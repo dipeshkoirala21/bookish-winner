@@ -245,6 +245,45 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>
+        /// Every species at every level stands on its legs: in the Stand pose (the pose the far level's instanced frame
+        /// bakes) the lowest point touches the ground (no legless fowl or hoofless cattle hovering in a yard), and
+        /// nothing sinks into it. Flying birds are checked on the levels they are drawn with (the far one is the paper
+        /// bird).
+        /// </summary>
+        [Test]
+        public void EveryLevelStandsOnItsFeet()
+        {
+            var pose = new FaunaPose();
+            var sk = new FaunaSkinner();
+            var md = new MeshData();
+            var report = new System.Text.StringBuilder();
+            foreach (FaunaSpecies sp in AllSpecies())
+            {
+                FaunaSpeciesInfo info = FaunaCatalog.Info(sp);
+                // Kites and swallows never land (their flocks have no ground disc).
+                if (info.Flies && FlockParams.Of(FlockKindOf(sp)).DiscRadiusM <= 0f) continue;
+                int lods = info.Flies ? 2 : FaunaMesher.LodCount;
+                for (int lod = 0; lod < lods; lod++)
+                    foreach (CoatPattern pat in FaunaPalette.Patterns(sp))
+                    {
+                        FaunaMesh f = FaunaMesher.Create(sp, lod, pat);
+                        FaunaAnimator.Evaluate(f, FaunaClip.Stand, 0f, 0f, 3u, pose);
+                        sk.Bake(f, pose, md);
+                        md.GetBounds(out _, out float y0, out _, out _, out _, out _);
+                        if (y0 > 0.01f || y0 < -0.02f) report.Append(sp + " lod" + lod + " " + pat + ": lowest point " + y0.ToString("0.000") + " m\n");
+                    }
+            }
+            Assert.IsEmpty(report.ToString());
+        }
+
+        private static FlockKind FlockKindOf(FaunaSpecies sp)
+        {
+            for (int k = 0; k <= (int)FlockKind.Egrets; k++)
+                if (FlockParams.Of((FlockKind)k).Species == sp) return (FlockKind)k;
+            throw new ArgumentException(sp + " has no flock kind");
+        }
+
         [Test]
         public void FlightClipsCentreTheBirdAndHideTheFoldedWings()
         {
