@@ -368,6 +368,10 @@ namespace Ghumante.Core.Meshing
                     if (guard != null && guard.Dropped(i)) continue;
                     BuildingRecord b = guard != null ? guard.Record(i) : t.Buildings[i];
                     if (b.Rings == null || b.Rings.Length == 0) continue;
+                    // An outline mapped with building:parts is never drawn (its parts are, DATA_FORMATS 1.6), so it is no
+                    // neighbour: a part's walls on its outline face the street or the square, not a party wall. Sacred
+                    // outlines are drawn by their generators and stay.
+                    if ((b.Flags & BuildingFlags.HasParts) != 0 && !BuildingGrammar.IsSacred(b.Archetype)) continue;
                     _records[i] = b;
                     int[] r = b.Rings[0];
                     double x0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, z1 = double.MinValue;
