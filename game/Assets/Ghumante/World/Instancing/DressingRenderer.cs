@@ -15,8 +15,8 @@ namespace Ghumante.World.Instancing
     /// <summary>
     /// Draws the instanced dressing of the visible detail tiles every frame (W2_DESIGN 5.8 trees and the nature kit's
     /// plants, 4.5 / 4.7 / 2.6 street props). Trees draw at four levels: each species' own detailed model (LOD0) and
-    /// simplified model (LOD1) near the camera, then the far range as the shape family's volume (LOD2) out to
-    /// <see cref="DressingConfig.TreeVolumeM"/> and its impostor (LOD3, a rounded crown on a trunk) out to the
+    /// simplified model (LOD1) near the camera, then the far range as the far form's volume (LOD2) out to
+    /// <see cref="DressingConfig.TreeVolumeM"/> and its impostor (LOD3, the same silhouette in a few dozen triangles) out to the
     /// vegetation radius. Selection follows the nature kit's shared rules (<see cref="FloraLodPlan"/> under the tier's
     /// <see cref="FloraBudget"/>, the same code the preview scenes run): only what the camera's view cone can see
     /// (<see cref="FloraView"/>: the horizontal field of view plus a margin, everything within a few metres; street
@@ -51,8 +51,9 @@ namespace Ghumante.World.Instancing
         /// <summary>Species whose near models are rebuilt per frame after a month change.</summary>
         public const int MeshRebuildsPerFrame = 2;
 
-        /// <summary>Far shape families (every <see cref="TreeShape"/> but <see cref="TreeShape.Low"/>).</summary>
-        private const int FarFamilies = (int)TreeShape.Low;
+        /// <summary>Far forms (<see cref="FloraMesher.FarForms"/>: the crowns of leaves of every <see cref="TreeShape"/>
+        /// but <see cref="TreeShape.Low"/>, the banana clump, the palm and the bamboo clump), one far batch pair each.</summary>
+        private const int FarFamilies = FloraMesher.FarForms;
 
         private const int FineCell = 0x40000000;
 
@@ -80,6 +81,7 @@ namespace Ghumante.World.Instancing
         private readonly int[,] _speciesTris = new int[FloraCatalog.Count, 2];
         private readonly int[] _meshMonth = new int[FloraCatalog.Count];
         private readonly bool[] _isTree = new bool[FloraCatalog.Count], _inSeason = new bool[FloraCatalog.Count], _drawsFar = new bool[FloraCatalog.Count];
+        private readonly int[] _farForm = new int[FloraCatalog.Count];
         private readonly InstanceBatch[,] _family = new InstanceBatch[FarFamilies, 2];
         private readonly int[,] _familyTris = new int[FarFamilies, 2];
         private readonly InstanceBatch[] _chautari = new InstanceBatch[2];
@@ -123,15 +125,16 @@ namespace Ghumante.World.Instancing
             {
                 _isTree[s] = FloraCatalog.IsTree((TreeSpecies)s);
                 _drawsFar[s] = FloraCatalog.DrawsFar((TreeSpecies)s);
+                _farForm[s] = Math.Max(0, FloraMesher.FarFormOf((TreeSpecies)s));
                 BuildSpecies(s, Month);
             }
             for (int f = 0; f < FarFamilies; f++)
                 for (int k = 0; k < 2; k++)
                 {
                     m.Clear();
-                    int tris = FloraMesher.Family((TreeShape)f, 2 + k, m);
+                    int tris = FloraMesher.Far(f, 2 + k, m);
                     _familyTris[f, k] = tris;
-                    _family[f, k] = new InstanceBatch(MeshUpload.CreateWhole(m, "tree_" + (TreeShape)f + (k == 0 ? "_volume" : "_impostor")), materials.trees, tris, true)
+                    _family[f, k] = new InstanceBatch(MeshUpload.CreateWhole(m, "tree_far" + f + (k == 0 ? "_volume" : "_impostor")), materials.trees, tris, true)
                     {
                         Shadows = ShadowCastingMode.Off,
                     };
@@ -418,12 +421,11 @@ namespace Ghumante.World.Instancing
         }
 
         /// <summary>One tree at distance <paramref name="d"/>: the level <see cref="FloraLodPlan.PickTree"/> gives it
-        /// (its species' LOD0 or LOD1, its family's volume or impostor, or nothing).</summary>
+        /// (its species' LOD0 or LOD1, its far form's volume or impostor, or nothing).</summary>
         private void AddTree(TileCache c, int idx, float d)
         {
             TreeInstance t = c.Inst.Trees[idx];
-            int s = (int)t.Species, f = (int)t.Shape;
-            if (f >= FarFamilies) f = 0;
+            int s = (int)t.Species, f = _farForm[s];
             int lvl = FloraLodPlan.PickTree(_config.Flora, ref _count, d, _speciesTris[s, 0], _speciesTris[s, 1], _familyTris[f, 0], _familyTris[f, 1]);
             if (lvl == 0 || lvl == 1) _species[s, lvl].Add(c.Trees[idx], c.NearTint[idx]);
             else if (lvl >= 2) _family[f, lvl - 2].Add(c.Trees[idx], c.TreeTint[idx]);
