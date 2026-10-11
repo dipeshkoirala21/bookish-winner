@@ -138,6 +138,50 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>
+        /// Under a dhaka or bhadgaunle topi the short hair of a receding or cropped elder meets the cap all round the
+        /// sides and back (ref_characters.md §2, the daura suruwal elders of the old bazaar): no ring of bare scalp
+        /// shows between the hair and the rim, at every level.
+        /// </summary>
+        [Test]
+        public void HairMeetsTheTopiRimWithNoBareScalp()
+        {
+            foreach (OutfitItem cap in new[] { OutfitItem.DhakaTopi, OutfitItem.BhadgaunleTopi })
+                foreach (byte hair in new[] { CharacterRecipe.HairReceding, (byte)2, (byte)1 })
+                    for (int lod = 0; lod < 3; lod++)
+                    {
+                        var r = new CharacterRecipe { Age = AgeGroup.Elder, Hair = hair, HairColour = 3, Seed = 5u + hair };
+                        r[OutfitSlotKind.Head] = new OutfitSlot(cap, 0, 0);
+                        MeshData m = Build(r, lod, out SkinWeights w);
+                        HumanoidMesher.HeadShape(BodyMetrics.For(r), out V3 hc, out V3 hr);
+                        List<int> topi = Topi(m, w, hc.Y);
+                        string what = cap + " hair " + hair + " lod" + lod;
+                        // Round the sides and back (90°..270° from the face), in bins as wide as the level's hair
+                        // columns (15°, 30°, 45°): the hair's top against the rim.
+                        int bins = lod == 0 ? 12 : lod == 1 ? 6 : 4;
+                        for (int bin = 0; bin < bins; bin++)
+                        {
+                            float a0 = MathF.PI * 0.5f + bin * MathF.PI / bins, a1 = a0 + MathF.PI / bins;
+                            float rim = float.MaxValue, top = float.MinValue;
+                            foreach (int v in topi)
+                                if (InBin(P(m, v), hc, a0, a1)) rim = Math.Min(rim, m.Positions[v * 3 + 1]);
+                            // The hair's columns may straddle a bin edge: look a quarter bin beyond each side.
+                            float pad = 0.25f * (a1 - a0);
+                            for (int v = 0; v < m.VertexCount; v++)
+                                if (Channel(m, v) == MaterialChannel.Hair && InBin(P(m, v), hc, a0 - pad, a1 + pad)) top = Math.Max(top, m.Positions[v * 3 + 1]);
+                            if (rim == float.MaxValue) continue;
+                            Assert.That(top, Is.GreaterThanOrEqualTo(rim - 0.002f), what + ": bare scalp under the rim at " + (a0 * 180f / MathF.PI) + "° (hair top " + (top - hc.Y) + ", rim " + (rim - hc.Y) + ")");
+                        }
+                    }
+        }
+
+        private static bool InBin(V3 p, V3 hc, float a0, float a1)
+        {
+            float a = MathF.Atan2(p.X - hc.X, p.Z - hc.Z);
+            if (a < 0f) a += 2f * MathF.PI;
+            return a >= a0 && a < a1;
+        }
+
         private static float Radius(V3 p, V3 c)
         {
             float dx = p.X - c.X, dz = p.Z - c.Z;
