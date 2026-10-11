@@ -28,6 +28,8 @@ namespace Ghumante.Core.Generators.Sacred
             if (anchorTile == null) throw new ArgumentNullException(nameof(anchorTile));
             if (m == null) throw new ArgumentNullException(nameof(m));
             HeroRecipe recipe = Merge(r);
+            // Bespoke heritage sites (Heroes/<Site>/): structure-by-structure models instead of the parametric forms.
+            if (Heroes.Boudha.BoudhaSite.Handles(recipe)) return Heroes.Boudha.BoudhaSite.Build(r, recipe, anchorTile, lod, m, c, stats);
             double x, z;
             int building;
             if (!TryLocate(r, recipe, anchorTile, out x, out z, out building)) return 0;
@@ -228,6 +230,14 @@ namespace Ghumante.Core.Generators.Sacred
                 case HeritageFinish.GiltAll: x.Finish = RoofFinish.GiltAll; break;
                 case HeritageFinish.GiltTop: x.Finish = RoofFinish.GiltTop; break;
                 case HeritageFinish.Tile: x.Finish = RoofFinish.Tile; break;
+            }
+            // A bespoke site's measured geometry (HeroRecipe.Measured) wins over the curated DB's estimates.
+            if (baseRecipe != null && baseRecipe.Measured)
+            {
+                x.HeightM = baseRecipe.HeightM;
+                x.YawDeg = baseRecipe.YawDeg;
+                x.PlanW = baseRecipe.PlanW;
+                x.PlanD = baseRecipe.PlanD;
             }
             return x;
         }
