@@ -25,6 +25,7 @@ namespace Ghumante.World.Sky
 
         private static readonly int SkyZenithId = Shader.PropertyToID("_GhSkyZenith");
         private static readonly int SkyHorizonId = Shader.PropertyToID("_GhSkyHorizon");
+        private static readonly int SkyAirId = Shader.PropertyToID("_GhSkyAir");
         private static readonly int SkyGroundId = Shader.PropertyToID("_GhSkyGround");
         private static readonly int SunDirectionId = Shader.PropertyToID("_GhSunDirection");
         private static readonly int SunColorId = Shader.PropertyToID("_GhSunColor");
@@ -269,6 +270,9 @@ namespace Ghumante.World.Sky
 
             RenderSettings.fogColor = ToColor(s.Fog);
             RenderSettings.fogDensity = Mathf.Max(s.FogDensity, FogDensityFloor(_viewRadiusM)) * fogDensityScale;
+            // The air's own haze, without the floor: the skyline (Ghumante/Skyline) hazes sight lines that rise above
+            // the valley haze with it, so the snow peaks stay clear on the tiers whose short world needs a dense floor.
+            Shader.SetGlobalVector(SkyAirId, new Vector4(s.FogDensity * fogDensityScale, 0f, 0f, 0f));
             RenderSettings.ambientSkyColor = ToColor(s.AmbientSky);
             RenderSettings.ambientEquatorColor = ToColor(s.AmbientEquator);
             RenderSettings.ambientGroundColor = ToColor(s.AmbientGround);

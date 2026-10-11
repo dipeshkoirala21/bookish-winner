@@ -123,6 +123,7 @@ posts). The presenters only read them:
 | `Ghumante/ToonLit` | Terrain, buildings, roads, areas: vertex-colour albedo (sRGB palette, linearised) × procedural material texture (see "Look"), 3-band toon ramp, cool shadow tint, soft rim in the light colour, SH ambient, main-light shadows, URP fog, earth curvature `y -= d²/(2·R_eff)`, `_ViewPull` + polygon offset for overlays. ForwardLit, Outline (LOD 300 only), ShadowCaster, DepthOnly, DepthNormals. W2: shader model 3.5, GPU instancing, `_BAND_FADE` (dithered band cross-fade, `_BandRange`), `_WIND` (vertex sway, `_Wind`), `_INSTANCE_TINT` (per-instance colour masked by vertex alpha). |
 | `Ghumante/InstancedLights` | Airport and aircraft lights: unlit instanced studs, per-instance colour, brighter after dusk (`_GhNightLights`). |
 | `Ghumante/SkyGradient` | Skybox from `WorldSky` globals: zenith/horizon/ground, sun and moon discs, sunrise glow, haze blend at the horizon. |
+| `Ghumante/Skyline` | The distant mountains (`Sky/Resources/GhumanteSkyline.shader`, always in builds; drawn by `SkylineRing`): rim hills and Himalaya curtains from `Core/Horizon`, moved along each view ray to the tier's handover distance and drawn after the opaque world (queue 2450), so nearer streamed terrain stays in front and the flattened horizon tiles beyond are replaced by the true silhouettes. Altitude colours, snow ribs, two-tone light, valley haze below 3 km and clear-air blue (twin: `Core/Horizon/HorizonLook`). |
 | `Ghumante/RouteRibbon` | Transparent animated chevron ribbon with the same curvature. |
 
 All are SRP Batcher compatible (per-material properties in `UnityPerMaterial`). The W2 materials (decals, five band
@@ -261,7 +262,7 @@ overlay over gameplay (in a game scene; it closes with the world). The hotkeys i
 |---|---|
 | `WorldRoot.cs` | The component above. |
 | `Streaming/` | `StreamingScheduler` (engine-free orchestration), `TileResidency` (swap rule), `TileBuild` (worker job), `WorldStreamer` + `TileView` + `MeshUpload` (Unity side). |
-| `Sky/` | `SkyPalette` (engine-free sun path and time-of-day palette), `WorldSky` (light, sky, fog, ambient). |
+| `Sky/` | `SkyPalette` (engine-free sun path and time-of-day palette), `WorldSky` (light, sky, fog, ambient), `SkylineRing` (the distant-mountains ring: height field and rebuilds on workers, one draw call; Core side in `Core/Horizon`, docs/research/w2/ref_sky.md). |
 | `Navigation/` | `RibbonBuilder` (engine-free strip geometry), `RouteRibbon`. |
 | `Rendering/` | `WorldMaterialSet`, `WorldShaders`, `EarthCurvature`, `RenderStats`; the look: `ToonLook`, `ToonLookTier`, `ToonTextureBank`, `ToonLitLayout` (C# twin of the SRP Batcher layout); the occluder capsule's twin is `Core/Synth/Look/OccluderCapsule`. |
 | `Shaders/` | The shaders and their includes (`ToonLitInput`, `ToonLitForwardPass`, `ToonLitOutlinePass`, `ToonLitDepthPasses`, `GhumanteCommon`). |

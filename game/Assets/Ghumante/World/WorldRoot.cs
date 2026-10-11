@@ -96,6 +96,7 @@ namespace Ghumante.World
         private LifeHost _life;
         private DressingRenderer _dressing;
         private AviationPresenter _aviation;
+        private SkylineRing _skyline;
         private HeroSet _heroes;
         private CuratedDb _curated;
         private RouteSet _transit;
@@ -542,6 +543,11 @@ namespace Ghumante.World
             _audioWired = false;
             if (_audioPlace != null) _audioPlace.Clear();
             _audioPlace = null;
+            if (_skyline != null)
+            {
+                _skyline.Dispose();
+                _skyline = null;
+            }
             if (_streamer != null)
             {
                 _streamer.Dispose();
@@ -623,6 +629,8 @@ namespace Ghumante.World
             _origin = FloatingOrigin.Rebase(StreamingFocus, WorldPos.Zero, out unused);
             _streamer = new WorldStreamer(transform, _materials, data.Pack, config, data.Selector, _ground, _meshing, tier);
             _streamer.Rebase(_origin);
+            // The distant mountains (rim hills and Himalaya) from the pack's horizon tiles and the curated summits.
+            _skyline = new SkylineRing(transform, data.Pack, tier);
             _life = new LifeHost(LifeSettings.ForTier(tier), RegionSeed(manifest.RegionId), _transit, _aviationConfig, _curated);
             _streamer.DetailShown += OnDetailShown;
             _streamer.DetailHidden += OnDetailHidden;
@@ -751,6 +759,8 @@ namespace Ghumante.World
             WorldMaterialDefaults.ApplyLook(_materials, false); // the tier's outline roles, as when the world opened
             _streamer = new WorldStreamer(transform, _materials, pack, config, selector, _ground, _meshing, tier);
             _streamer.Rebase(_origin);
+            if (_skyline != null) _skyline.Dispose();
+            _skyline = new SkylineRing(transform, pack, tier);
             _streamer.DetailShown += OnDetailShown;
             _streamer.DetailHidden += OnDetailHidden;
             _life = new LifeHost(LifeSettings.ForTier(tier), RegionSeed(RegionId), _transit, _aviationConfig, _curated);
@@ -842,6 +852,7 @@ namespace Ghumante.World
             float fov = cam != null ? cam.fieldOfView : 60f;
             float now = Time.time;
             _streamer.UpdateView(camPos, fov, now);
+            if (_skyline != null) _skyline.Tick(ToWorld(camPos), _origin, RenderSettings.fogDensity);
             _renderStats = _streamer.RenderStats;
             int treeTris, trees, propTris, props, draws;
             if (cam != null) _dressing.ViewCamera = cam;
