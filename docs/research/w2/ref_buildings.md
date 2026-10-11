@@ -254,14 +254,14 @@ All from Flickr unless noted; licence as published.
 |---|---|---|---|
 | Window grid (Newar) | A window every 1.2-1.5 m on **every** storey of the front (patan_lane ref_02: 5-6 per floor on a 7 m front; bhaktapur_street ref_03; taumadhi ref_08) | tikijhya 0.6-0.8 × 0.8-1.0 m | `NewarBays`: round(width / 1.3), up to 9, odd from 4.5 m (was width / 1.6, up to 7) |
 | Top floor | Small windows either side of the central ga jhya under the eaves (bhaktapur_street ref_03) | as tikijhya | Flanking tikijhya on the attic floor (was the ga jhya alone) |
-| Torana | A carved semicircular tympanum over the house door and over the best windows, often with a deity or a gilt centre (bhaktapur_street ref_03, ref_04; dattatreya ref_02) | door: span = door + 0.5 m, rise 0.3-0.55 m; window crest rise 0.3-0.4 m | `Torana`: half-disc board with a rim, raised inner carving (gilt on 20% of doors), finial; over every Newar door and the central first-floor window of 45% of fronts in Bhaktapur, Patan, Kirtipur and the core |
+| Door panel, torana | Ordinary house doors: a carved frame with lintel ears and, over it, a small painted deity panel with vermilion. Carved and gilt toranas belong to temples, maths, dyochhen and palaces (the photos that show them, bhaktapur_street ref_03/ref_04 and dattatreya ref_02, are Bhairabnath, Pujari Math and Dattatreya: sacred and monastic buildings, not street houses) | panel 0.64 × 0.36 m, ochre `#E0A845`, vermilion `#E23B2A` centre; torana: span = door + 0.5 m, rise 0.3-0.55 m | `NewarDoor`: the ochre panel with its vermilion heart on every house door; a plain carved `Torana` (never gilt) over the door (15%) or the central first-floor window (12%) only on the big fronts of well-off families (Newar, heritage profile, front ≥ 5.5 m, 4+ storeys): about 4% of Newar houses |
 | Dachi apa | Glazed dark-brick courses under every floor band, a lintel course over the window heads (bhaktapur_street ref_03, taumadhi ref_02) | 3 courses (0.22 m), `#5A2A1E`-tinted glazed brick | `DachiApa`: a 1 cm strip on the BrickGlazed channel (texture, not geometry: 2 triangles) and a 7.5 cm lintel ledge |
-| Bhaygah | Long timber balconies with a lattice screen on carved struts on an upper floor, often right under the eaves (patan_lane ref_02: three in one row) | 0.6-0.85 m deep, rail 0.95 m | `Bhaygah`: plank deck, posts every metre, top and cheek rails, square jali, struts; Patan 40%, core 30%, Bhaktapur and Kirtipur 20%, elsewhere 10% of Newar fronts; clipped below 4.5 m like every projection |
+| Bhaygah | Long timber balconies with a lattice screen on carved struts across the second floor of the Patan rows (patan_lane ref_02: three in one row), the attic floor with its gajhya above them | 0.6-0.85 m deep, rail 0.95 m | `Bhaygah`: plank deck, posts every metre, top and cheek rails, square jali, struts; across floor 2 in place of its sanjhya on houses of 4+ storeys (never on the attic floor, never over a sanjhya); Patan 40%, core 30%, Bhaktapur and Kirtipur 20%, elsewhere 10% of Newar fronts; clipped below 4.5 m like every projection |
 | Painted shutters | Teal and green louvred shutters on Patan's brick rows (patan_lane ref_02) | teal `#3FA39A`, green `#2F6E4E` | Patan 38% (core 22%) of plots paint their window timber; those windows carry louvres (`Corrugated` slats) instead of lattice |
 | Ground floor | Lime-washed or red-painted dado on brick houses (patan_lane ref_05, ref_08) | to 0.95 m, lime `#F4EFE0`, red `#A8352A` | `LimeWash`: Patan 30%, core 22%, Bhaktapur 18% of Newar fronts without a shop |
 | Shutter leaves (RCC) | Timber or green louvred leaves folded back beside the windows of the old-core RCC houses (asan ref_06) | half a window wide | Leaves on half the core RCC houses with timber frames |
-| Wiring | 1-3 black cables clipped along every facade at the first floor, a drop to a meter box (patan_lane ref_02, asan ref_06) | Ø 2 cm, 5-9 cm off the wall | `FacadeCables` (nearest level only), hugging the wall so nothing hangs over the road |
-| Laundry, plants | Clothes drying across windows, pots on the sills (asan ref_06, colourful ref_06) | - | `WindowLaundry` 16% of Newar floors and 14% of RCC floors; sill plants 30% (Newar) / 25-45% (RCC) |
+| Wiring | 1-3 black cables clipped along every facade at the first floor, a drop to a meter box on a pier between the openings (patan_lane ref_02, asan ref_06) | Ø 2 cm, 5-9 cm off the wall; box 0.28 × 0.5 m at 1.55-2.05 m | `FacadeCables` (nearest level only): two-faced strips hugging the wall, so nothing hangs over the road; the drop stands on a solid pier at least 0.4 m wide clear of every ground-floor opening (frames and ears included, `DropPier`), else there is none (shop fronts) |
+| Laundry, plants | Clothes drying across windows, pots on the sills (asan ref_06, colourful ref_06) | - | `WindowLaundry` 16% of Newar floors and 14% of RCC floors, between two neighbouring windows on the same side of the sanjhya or gajhya (never across them, `LaundrySpan`), not under the eaves or in front of a balcony; sill plants 30% (Newar) / 25-45% (RCC) |
 | Weathering | Plaster patches and grey rain streaks under every sill on painted RCC fronts (asan ref_06, thamel ref_07) | patches 0.4-1.3 m; streaks 0.6-1.4 m | `Weathering`: patch quads 4 mm proud and streaks fading downwards by vertex colour (2 triangles each) |
 | Side walls | Courtyard and open-plot sides are windowed (taumadhi ref_02, asan ref_06) | - | §5: every wall not against a neighbour is dressed |
 
@@ -269,16 +269,35 @@ All from Flickr unless noted; licence as published.
 
 The triangles go to the near ring; the lite and flat levels lean on the material channels: the lite tikijhya draws its
 lattice as the carved channel's texture on a lattice-tinted panel (the geometry lattice stays at the full levels), the
-flat level likewise, and the openings of side walls are laid on the wall from the lite level on (a fill and a lintel
-board, proud on a street side; 4 triangles a window). Grille bars and the small ground-floor bars draw their front face
-only; the full-level lattice pitch is 0.175 m (was 0.16). The cost estimate of the per-plot cap was refitted on 12,400
-plots around Asan (`HouseBuilder.Estimate`, `LevelShare`), and a plot estimated 20% over its cap one level above the
-lite fallback goes straight to it. High's near ring is 30 m (was 36 m). Measured at Asan on the 3 × 3 tiles (§7): Low
-24.6 k, Mid 78.8 k, High 152.2 k of 25.3 k / 82.8 k / 155.3 k; cap retries 18 / 25 / 23% of plots.
+flat level likewise. A side wall on a street is cut and dressed like a front; an open side (a courtyard, an open plot)
+cuts its windows with the lite level's reveal, plain frame and lattice texture at every richer level (a fifth of a full
+window), and every side lays its openings on the wall from the lite level on (a fill and a lintel board, proud on a
+street side). Facade cables are two-faced strips, not tubes. Sills keep their top face below 3 m and at the richer
+levels (the chase and raised cameras look down on them).
+
+The per-plot cost estimate was refitted on 6,300 plots around Asan with the street and open side lengths apart
+(`HouseBuilder.Estimate`, `LevelShare`); a plot is tried at the base level unless its estimate is 5% over the cap.
+Caps 2,400 / 4,600 / 5,000 (Low / Mid / High). Share of houses drawn whole at the tier's richest level (every third
+house of the 3 × 3 tiles around Asan): High 90% (63% before this fix), Mid 86% (45%), Low 52% at its level 1 (16%);
+the core test asserts at least 80% on Mid and High at Asan's tile. Cap retries 25 / 12 / 8% of plots.
+
+B2: the minimum-area box is kept only where it reaches no deeper into a road corridor than the guard's trimmed ring;
+otherwise the hull (thinned back to a quad within 10% of its area) or the trimmed ring (ears clipped within 10%) stands
+in, both inside the footprint (decision 1; every level-10 tile of the sample: 167,786 shapes, none deeper than its ring).
+Measured at Asan on the 3 × 3 tiles (§7): Low 24.8 k, Mid 82.1 k, High 147.8 k of 25.3 k / 82.8 k / 155.3 k.
 
 ### 12.3 Previews
 
-`/home/user/wt/previews/buildings2/`: `cmp_taumadhi.png` (the lead's Taumadhi viewpoint, a Bhaktapur front close up and
-the square), `cmp_patan.png`, `cmp_asan.png`, `cmp_thamel.png`, `cmp_modern.png` (photo left, render right);
-`base/` (before), `final/` (after; chase, left, right and raised per place at the High tier), `lineup/` (archetype
-close-ups).
+`/home/user/wt/previews/buildings2/fix/` (after the review fixes): photo-matched street views, the eye standing 1.6 m
+on the street the photos show and looking along it slightly up, with a 50° vertical field of view like a phone photo,
+at the High tier's band configuration (the street is chosen within 90 m of each place as the stretch lined on both
+sides by the most houses of the photographed kind; `MeshingBuildingPreviewTests.PhotoEye`): `cmp_patan.png` (green and
+teal louvred rows, Newar rows with struts, hanging goods), `cmp_asan.png`, `cmp_thamel.png` (signs, shutters, painted
+RCC), `cmp_modern.png` (Baneshwor's pastel RCC blocks against Pulchowk Road and New Baneshwor photos),
+`cmp_taumadhi.png` (Bhaktapur lane); `lineup_sheet.png` (metro house and shops without a floating meter box, the
+Patan house with its second-floor bhaygah under the gajhya floor and the painted door panel, a Bhaktapur shop).
+Earlier sheets: `/home/user/wt/previews/buildings2/` (`base/` before, `final/` per place, `lineup/`).
+
+New reference photos (reference only): `/home/user/wt/refs/buildings2/modern_baneshwor/` - ref_00 "View of Buddhanagar
+from the Baneshwor Height, Kathmandu" (anantal, CC BY 2.0, flickr.com/photos/.../16940883482), ref_03 "Gas Station on
+Pulchowk Road" (René Clausen Nielsen, CC BY-SA 2.0, flickr.com/photos/86419644@N00/18780796726).

@@ -58,6 +58,10 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Carved toranas (over doors and crest windows) and timber bhaygah balconies drawn.</summary>
         public long Toranas, Bhaygahs;
+
+        /// <summary>Bhaygahs drawn on a top or attic floor (under the eaves, around the gajhya) or over a sanjhya floor:
+        /// none.</summary>
+        public long BhaygahsMisplaced;
     }
 
     /// <summary>
@@ -240,6 +244,10 @@ namespace Ghumante.Core.Meshing
 
             /// <summary>Length of the plot's body walls that look onto a street (side facades), for the cost estimate.</summary>
             public double StreetSides;
+
+            /// <summary>Length of the plot's body walls on open ground seen from a road (windowed sides), for the cost
+            /// estimate.</summary>
+            public double OpenSides;
         }
 
         /// <summary>Build one house (all plots at one drop level; tests and previews of a level). Returns false when the
@@ -413,15 +421,15 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// Mean cost of each drop level relative to level 0, per archetype (the second detail pass, measured over every
-        /// third house of the 3 × 3 tiles around Asan, 12,400 plots): Newar houses keep their lattice, carved frames and
+        /// sixth house of the 3 × 3 tiles around Asan, 6,300 plots): Newar houses keep their lattice, carved frames and
         /// toranas longest, modern houses shed most at level 3 (grilles, bands, chhajjas, balcony rails) and at the lite
-        /// level, where the side walls lay their openings on the wall; the flat level costs about half the lite one.
+        /// level, where the side walls lay their openings on the wall; the flat level costs about 60% of the lite one.
         /// </summary>
         private static readonly double[][] LevelShare =
         {
-            new[] { 1.0, 0.898, 0.777, 0.713, 0.671, 0.183, 0.087 },
-            new[] { 1.0, 0.897, 0.769, 0.642, 0.585, 0.180, 0.079 },
-            new[] { 1.0, 0.896, 0.767, 0.502, 0.405, 0.148, 0.066 },
+            new[] { 1.0, 0.886, 0.793, 0.698, 0.653, 0.198, 0.115 },
+            new[] { 1.0, 0.868, 0.804, 0.658, 0.584, 0.191, 0.111 },
+            new[] { 1.0, 0.869, 0.833, 0.532, 0.395, 0.149, 0.091 },
         };
 
         private static double[] SharesOf(BuildingArchetype a)
@@ -440,28 +448,35 @@ namespace Ghumante.Core.Meshing
             return next;
         }
 
-        /// <summary>The drop level a plot is first built at: the base level, or the richest lighter one whose estimated
-        /// cost fits the cap; the fallback level <paramref name="floor"/> only when the level above it is estimated 20%
-        /// over the cap. Most plots are built once.</summary>
+        /// <summary>How far over the cap (×) a plot's estimate may be and still be tried at the base level first: the
+        /// estimate errs both ways (<see cref="Estimate"/>), and a plot sent lighter on a pessimistic guess loses its
+        /// richest detail for nothing, while one that overflows is rebuilt once at the level its measured cost predicts.</summary>
+        private const double BaseTryOver = 1.05;
+
+        /// <summary>The drop level a plot is first built at: the base level unless its estimate is over the cap by more
+        /// than <see cref="BaseTryOver"/>, else the richest lighter one whose estimated cost fits the cap; the fallback
+        /// level <paramref name="floor"/> only when the level above it is estimated 20% over the cap. Most plots are
+        /// built once.</summary>
         private static int EstimateDrop(in Plot p, in HouseBudget budget, int floor)
         {
             int drop = budget.BaseDrop;
+            if (Estimate(p, drop) <= BaseTryOver * budget.PlotCap) return drop;
             while (drop < floor - 1 && Estimate(p, drop) > 1.0 * budget.PlotCap) drop++;
             // A plot clearly too big even one level above the fallback goes straight to it (built once, not twice).
             if (drop == floor - 1 && Estimate(p, drop) > 1.2 * budget.PlotCap) drop = floor;
             return drop;
         }
 
-        /// <summary>Estimated triangles of a plot at a drop level: a per-archetype base plus a cost per metre of front
-        /// and of dressed side wall per storey (least squares over the same plots as <see cref="LevelShare"/>; median
-        /// error 12% for Newar houses, 9% for hybrids, 17% for the more varied modern fronts), scaled by the level's
-        /// share.</summary>
+        /// <summary>Estimated triangles of a plot at a drop level: a per-archetype base plus a cost per metre and storey
+        /// of front, of street side (shops, cut windows, signs) and of open side (windows cut at the lite level's cost)
+        /// (least squares over the same plots as <see cref="LevelShare"/>; median error 9% for Newar houses, 8% for
+        /// hybrids, 19% for the more varied modern fronts), scaled by the level's share.</summary>
         private static double Estimate(in Plot p, int drop)
         {
             int storeys = Math.Max(1, p.Storeys);
-            double front = Math.Max(0.5, p.FU1 - p.FU0) * storeys, sides = p.StreetSides * storeys;
-            double full = p.Arch == BuildingArchetype.Newar ? 1230 + 92.5 * front + 50.5 * sides
-                : p.Arch == BuildingArchetype.NewarHybrid ? 1328 + 65.0 * front + 59.9 * sides : 1430 + 45.9 * front + 28.0 * sides;
+            double front = Math.Max(0.5, p.FU1 - p.FU0) * storeys, street = p.StreetSides * storeys, open = p.OpenSides * storeys;
+            double full = p.Arch == BuildingArchetype.Newar ? 788 + 67.1 * front + 55.1 * street + 13.2 * open
+                : p.Arch == BuildingArchetype.NewarHybrid ? 1031 + 54.1 * front + 44.1 * street + 13.7 * open : 1133 + 36.7 * front + 22.1 * street + 8.7 * open;
             return full * SharesOf(p.Arch)[drop];
         }
 
@@ -910,7 +925,7 @@ namespace Ghumante.Core.Meshing
                 p.FU0 = p.FU1 = p.GU0 = p.GU1 = p.U0; // no front: nothing to dress
             }
             // How each body wall is dressed (decided once: the cost estimate and the body walls both use it).
-            p.StreetSides = 0;
+            p.StreetSides = p.OpenSides = 0;
             for (int i = 0; i < o; i++)
             {
                 s.DS[at + i] = (byte)Side.Blank;
@@ -934,7 +949,8 @@ namespace Ghumante.Core.Meshing
                 }
                 Side side = h.Corner && OnSegment(ax, az, bx, bz, h.SecondAX, h.SecondAZ, h.SecondBX, h.SecondBZ) ? Side.Street : SideOf(ref h, ax, az, bx, bz, layout);
                 s.DS[at + i] = (byte)side;
-                if (side != Side.Blank) p.StreetSides += side == Side.Street ? layout : 0.6 * layout;
+                if (side == Side.Street) p.StreetSides += layout;
+                else if (side == Side.Open) p.OpenSides += layout;
             }
             return o;
         }

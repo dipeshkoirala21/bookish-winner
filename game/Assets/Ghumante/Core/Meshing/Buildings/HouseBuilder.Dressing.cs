@@ -5,8 +5,9 @@ namespace Ghumante.Core.Meshing
 {
     /// <summary>
     /// The second detail pass of the street facades (docs/research/w2/ref_buildings.md §12): the denser Newar window
-    /// grid, carved toranas over doors and the best windows, the glazed dachi apa bands and lintel courses at the floor
-    /// lines, the timber bhaygah balconies, a lime-washed ground floor, and the street dressing a Kathmandu facade wears
+    /// grid, carved toranas over the door or the central window of a few rich fronts (never gilt: gilt toranas belong to
+    /// temples, maths and palaces), the glazed dachi apa bands and lintel courses at the floor lines, the timber bhaygah
+    /// balconies, a lime-washed ground floor, and the street dressing a Kathmandu facade wears
     /// (cable runs, laundry, potted plants, plaster patches and rain streaks on painted houses). Projections ask the
     /// corridor clearance like every other element (decision 2); the small dressing only exists at the richest level
     /// (<see cref="Detail.Small"/>), the structure (balconies) at every level.
@@ -26,10 +27,10 @@ namespace Ghumante.Core.Meshing
         /// <summary>
         /// A carved torana: the semicircular tympanum over a Newar door or window (ref_buildings.md §12), standing on the
         /// lintel at <paramref name="v"/>: a half-disc board <paramref name="halfW"/> wide each side and
-        /// <paramref name="rise"/> high, with a rounded rim, a raised inner carving (gilt on some) and a small finial; as
-        /// deep as the road in front allows (at least a relief of 1.5 cm). About 40 triangles.
+        /// <paramref name="rise"/> high, with a rounded rim, a raised inner carving (the deity panel, carved wood) and a
+        /// small finial; as deep as the road in front allows (at least a relief of 1.5 cm). About 40 triangles.
         /// </summary>
-        private static void Torana(ref House h, in KitFrame f, double uc, double halfW, double v, double rise, uint wood, bool gilt, MeshData m)
+        private static void Torana(ref House h, in KitFrame f, double uc, double halfW, double v, double rise, uint wood, MeshData m)
         {
             double depth = Proud(ref h, f, uc - halfW, uc + halfW, v, 0.07, 0.015);
             const int Seg = 8;
@@ -46,17 +47,17 @@ namespace Ghumante.Core.Meshing
                 MeshKit.QuadLocal(m, f, ua, va, 0, ub, vb, 0, ub, vb, depth, ua, va, depth, nu, nv, 0.3, rim);
             }
             Fixed(ref h, f, m, v0, MaterialChannel.WoodCarved);
-            // The inner carving: a smaller raised half-disc (the deity panel), gilt or carved, and the finial on top.
+            // The inner carving: a smaller raised half-disc (the deity panel) and the finial on top.
             v0 = m.VertexCount;
             double ih = 0.58 * halfW, ir = 0.62 * rise, id = depth + Math.Min(0.025, 0.4 * depth);
-            uint inner = gilt ? BuildingGrammar.Brass : MeshColor.Scale(wood, 1.3f);
+            uint inner = MeshColor.Scale(wood, 1.3f);
             for (int i = 0; i < Seg / 2; i++)
             {
                 double a0 = Math.PI * i / (Seg / 2), a1 = Math.PI * (i + 1) / (Seg / 2);
                 MeshKit.TriLocal(m, f, uc, v, id, uc + ih * Math.Cos(a1), v + ir * Math.Sin(a1), id, uc + ih * Math.Cos(a0), v + ir * Math.Sin(a0), id, 0, 0, 1, inner);
             }
             MeshKit.Box(m, f, uc - 0.035, uc + 0.035, v + rise - 0.01, v + rise + 0.12, 0, Math.Min(0.05, depth), face, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
-            Fixed(ref h, f, m, v0, gilt ? MaterialChannel.Gilt : MaterialChannel.WoodCarved);
+            Fixed(ref h, f, m, v0, MaterialChannel.WoodCarved);
         }
 
         /// <summary>
@@ -82,18 +83,17 @@ namespace Ghumante.Core.Meshing
         /// A bhaygah: the long timber balcony of an upper Newar floor (Patan, the Kathmandu core, Bhaktapur's squares):
         /// a plank deck on carved struts, posts about every metre, a top rail and a lattice screen (a square jali) across
         /// the front and the cheeks. Clipped to the free depth before a road below 4.5 m; dropped when less than 0.35 m is
-        /// free. The structure is drawn at every level; the struts and the lattice thin out with the level; no strut stands
-        /// in [<paramref name="skipU0"/>, <paramref name="skipU1"/>] (the sanjhya of the floor below).
+        /// free. The structure is drawn at every level; the struts and the lattice thin out with the level. Returns the depth
+        /// drawn (0: none).
         /// </summary>
-        private static void Bhaygah(ref House h, ref Plot p, double u0, double u1, double floorV, double want, uint wood, MeshData m, double skipU0 = double.NaN,
-                                    double skipU1 = double.NaN)
+        private static double Bhaygah(ref House h, ref Plot p, double u0, double u1, double floorV, double want, uint wood, MeshData m)
         {
             KitFrame f = h.F;
             double d = Allow(ref h, f, u0, u1, floorV - 0.9, want);
             if (d < 0.35)
             {
                 d = Allow(ref h, f, u0, u1, floorV - 0.12, want);
-                if (d < 0.35) return;
+                if (d < 0.35) return 0;
             }
             bool struts = h.Det.Struts && Fits(ref h, f, u0, u1, floorV - 0.9, d);
             Stats.Bhaygahs++;
@@ -126,11 +126,11 @@ namespace Ghumante.Core.Meshing
                 for (int k = 0; k < count; k++)
                 {
                     double u = u0 + (k + 0.5) * (u1 - u0) / count;
-                    if (u > skipU0 && u < skipU1) continue;
                     Strut(m, f, u, floorV - 0.85, 0.04, floorV - 0.15, d - 0.1, 0.09, wood, h.Det.Segs);
                 }
                 Fixed(ref h, f, m, v0, MaterialChannel.WoodCarved);
             }
+            return d;
         }
 
         /// <summary>A lime-washed (or red-painted) ground floor band on a Newar brick front (Patan and Bhaktapur lanes):
@@ -145,62 +145,119 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>
-        /// Street wiring on a facade (every Kathmandu lane): two or three black cables clipped to the wall at
-        /// <paramref name="v"/>, sagging a little between the clips, and on some a drop to a meter box beside the door.
-        /// They hug the wall (5-8 cm proud, clipped like any relief), so nothing hangs over the road. <paramref name="drop"/>
-        /// false leaves out the drop to the meter box (a cantilevered wall that does not reach the ground).
+        /// Street wiring on a facade (every Kathmandu lane): one to three black cables clipped to the wall at
+        /// <paramref name="v"/>, sagging a little between the clips, each a two-faced strip (its upper and lower halves
+        /// angled out of the wall: 4 triangles a span), and on some a drop down the wall to a white meter box at
+        /// 1.55-2.05 m. The cables hug the wall (5-8 cm proud, clipped like any relief), so nothing hangs over the road. The
+        /// drop stands on a solid pier at least 0.4 m wide, clear of every ground-floor opening in
+        /// <paramref name="holes"/> (frames and ears included) and of the wall ends, nearest the drawn place; without such
+        /// a pier, or on a cantilevered wall that does not reach the ground (<paramref name="drop"/> false), there is none.
         /// </summary>
-        private static void FacadeCables(ref House h, in KitFrame f, double u0, double u1, double v, GrammarRng rng, MeshData m, bool drop = true)
+        private static void FacadeCables(ref House h, in KitFrame f, double u0, double u1, double v, GrammarRng rng, MeshData m, KitHole[] holes, int nh,
+                                         bool drop = true)
         {
             if (u1 - u0 < 1.5) return;
             int wires = rng.Int(1, 3);
             int v0 = m.VertexCount;
             int spans = Math.Max(1, (int)Math.Round((u1 - u0) / 2.4));
             int pts = 2 * spans + 1;
-            double[] px = Ensure3(pts);
+            uint black = MeshColor.FromHex(0x1C1C1E);
             for (int k = 0; k < wires; k++)
             {
                 double vk = v - 0.07 * k, w = Proud(ref h, f, u0, u1, vk - 0.1, 0.05 + 0.02 * k, 0.025);
+                const double R = 0.011;
+                int prev = -1;
                 for (int i = 0; i < pts; i++)
                 {
                     double t = (double)i / (pts - 1), u = u0 + (u1 - u0) * t;
                     double sag = (i & 1) == 1 ? 0.06 + 0.02 * k : 0;
-                    double x, y, z;
+                    double x, y, z, xt, yt, zt, xb, yb, zb;
+                    f.ToWorld(u, vk - sag + R, w - R, out xt, out yt, out zt);
                     f.ToWorld(u, vk - sag, w, out x, out y, out z);
-                    _cx3[i] = x;
-                    _cy3[i] = y;
-                    _cz3[i] = z;
+                    f.ToWorld(u, vk - sag - R, w - R, out xb, out yb, out zb);
+                    float ux = (float)(0.70710678 * f.WX), uz = (float)(0.70710678 * f.WZ);
+                    int a = m.AddVertex((float)xt, (float)yt, (float)zt, ux, 0.70710678f, uz, black);
+                    m.AddVertex((float)x, (float)y, (float)z, (float)f.WX, 0f, (float)f.WZ, black);
+                    m.AddVertex((float)xb, (float)yb, (float)zb, ux, -0.70710678f, uz, black);
+                    if (prev >= 0)
+                    {
+                        KitRound.TriOriented(m, prev, a, a + 1);
+                        KitRound.TriOriented(m, prev, a + 1, prev + 1);
+                        KitRound.TriOriented(m, prev + 1, a + 1, a + 2);
+                        KitRound.TriOriented(m, prev + 1, a + 2, prev + 2);
+                    }
+                    prev = a;
                 }
-                KitRound.Tube(m, _cx3, _cy3, _cz3, null, 0.011, pts, 3, false, MeshColor.FromHex(0x1C1C1E));
             }
             Fixed(ref h, f, m, v0, MaterialChannel.Rubber, 0.9f);
-            if (rng.Chance(0.5f) && drop)
-            {
-                // A drop down the wall to a meter box at 1.8 m (not from a cantilevered wall).
-                v0 = m.VertexCount;
-                double ud = u0 + (u1 - u0) * rng.Range(0.15f, 0.35f), w = Proud(ref h, f, ud - 0.15, ud + 0.15, 1.6, 0.05, 0.025);
-                double ax, ay, az, bx, by, bz;
-                f.ToWorld(ud, v, w, out ax, out ay, out az);
-                f.ToWorld(ud, 2.05, w, out bx, out by, out bz);
-                KitRound.Rod(m, ax, ay, az, bx, by, bz, 0.012, 3, false, MeshColor.FromHex(0x1C1C1E));
-                double bd = Proud(ref h, f, ud - 0.15, ud + 0.15, 1.55, 0.12, 0.03);
-                KitRound.BoxU(m, f, ud - 0.14, ud + 0.14, 1.55, 2.05, 0, bd, 0.015, 0, BoxFaces.All & ~BoxFaces.Back, MeshColor.FromHex(0xD8D6CC));
-                Fixed(ref h, f, m, v0, MaterialChannel.Metal);
-            }
+            // The drop: always drawn from the generator (the same draws at every level), placed only on a solid pier.
+            bool want = rng.Chance(0.5f);
+            double target = u0 + (u1 - u0) * rng.Range(0.15f, 0.35f);
+            if (!want || !drop) return;
+            double ud = DropPier(u0, u1, target, v, holes, nh);
+            if (double.IsNaN(ud)) return;
+            v0 = m.VertexCount;
+            double wd = Proud(ref h, f, ud - 0.15, ud + 0.15, 1.6, 0.05, 0.025);
+            double ax, ay, az, bx, by, bz;
+            f.ToWorld(ud, v, wd, out ax, out ay, out az);
+            f.ToWorld(ud, 2.05, wd, out bx, out by, out bz);
+            KitRound.Rod(m, ax, ay, az, bx, by, bz, 0.012, 3, false, black);
+            double bd = Proud(ref h, f, ud - 0.15, ud + 0.15, 1.55, 0.12, 0.03);
+            KitRound.BoxU(m, f, ud - 0.14, ud + 0.14, 1.55, 2.05, 0, bd, 0.015, 0, BoxFaces.All & ~BoxFaces.Back, MeshColor.FromHex(0xD8D6CC));
+            Fixed(ref h, f, m, v0, MaterialChannel.Metal);
         }
 
-        [ThreadStatic] private static double[] _cx3, _cy3, _cz3;
+        /// <summary>Frame and ear allowance (m) around an opening that the cable drop keeps clear of.</summary>
+        internal const double DropHoleMargin = 0.32;
 
-        private static double[] Ensure3(int n)
+        /// <summary>
+        /// Where a cable drop from <paramref name="v"/> down to a meter box at 1.55 m may stand on a wall from
+        /// <paramref name="u0"/> to <paramref name="u1"/>: the centre of the solid strip (at least 0.4 m wide once each
+        /// opening reaching into [1.5, v] is widened by <see cref="DropHoleMargin"/> and 0.3 m is kept from each wall end)
+        /// nearest <paramref name="target"/>, clamped so the 0.28 m box stays on it; NaN when no strip is wide enough.
+        /// Allocation-free.
+        /// </summary>
+        internal static double DropPier(double u0, double u1, double target, double v, KitHole[] holes, int nh)
         {
-            if (_cx3 == null || _cx3.Length < n)
+            double lo = u0 + 0.3, hi = u1 - 0.3, best = double.NaN, bestD = double.MaxValue;
+            // Sweep the strips between the blocked intervals (holes are few: a quadratic scan stays cheap).
+            double a = lo;
+            while (a < hi)
             {
-                int cap = Math.Max(16, n);
-                _cx3 = new double[cap];
-                _cy3 = new double[cap];
-                _cz3 = new double[cap];
+                // The next blocked interval at or after a (or one covering a).
+                double nextStart = hi, nextEnd = hi;
+                bool covered = false;
+                for (int i = 0; i < nh; i++)
+                {
+                    KitHole o = holes[i];
+                    if (o.V1 < 1.5 || o.V0 > v) continue;
+                    double b0 = o.U0 - DropHoleMargin, b1 = o.U1 + DropHoleMargin;
+                    if (b0 <= a && b1 > a)
+                    {
+                        covered = true;
+                        a = b1;
+                        break;
+                    }
+                    if (b0 > a && b0 < nextStart)
+                    {
+                        nextStart = b0;
+                        nextEnd = b1;
+                    }
+                }
+                if (covered) continue;
+                double sa = a, sb = Math.Min(nextStart, hi);
+                if (sb - sa >= 0.4)
+                {
+                    double u = Math.Max(sa + 0.2, Math.Min(sb - 0.2, target)), d = Math.Abs(u - target);
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = u;
+                    }
+                }
+                a = nextEnd > a ? nextEnd : hi;
             }
-            return _cx3;
+            return best;
         }
 
         /// <summary>Clothes drying on a line between two windows (or across one) of an upper floor, a hand's width off

@@ -44,14 +44,18 @@ namespace Ghumante.Core.Meshing
         /// the frustum), as in W2_DESIGN 2.4 / V3.</summary>
         public const double SliceHeadroom = 1.15;
 
-        private static readonly int[] Caps = { 2200, 3600, 4500 };
+        /// <summary>The near-ring cap per plot: around Asan (every third house of the 3 × 3 tiles) 90% of the houses on High
+        /// and 86% on Mid are drawn whole at the richest level, half on Low at its level 1 (core-tests
+        /// NearRingHousesStayAtTheTiersRichestLevel).</summary>
+        private static readonly int[] Caps = { 2400, 4600, 5000 };
         private static readonly int[] BaseDrops = { 1, 0, 0 };
         private static readonly float[] NearRadii = { 10f, 22f, 30f };
 
         /// <summary>The B0 share of the building slice per tier at Asan (40% in view): the measured near and lite rings
-        /// stay under it (Low 5.2 k, Mid 38.8 k, High 89.4 k after the second facade pass, which dresses every exposed
-        /// side wall), and the far bands B1-B3 measured the same way take the rest (Low 19.4 k, Mid 40 k, High 62.5 k).</summary>
-        private static readonly int[] B0Shares = { 5800, 41000, 90000 };
+        /// stay under it (Low 5.2 k, Mid 41.8 k, High 84.8 k after the second facade pass, whose open side walls cut their
+        /// windows at the lite level's cost), and the far bands B1-B3 measured the same way take the rest (Low 19.6 k,
+        /// Mid 40.3 k, High 63.0 k, B2 holding its corridor-safe shapes at 9 triangles a house).</summary>
+        private static readonly int[] B0Shares = { 5500, 42300, 90000 };
 
         /// <summary>Outer radius (m) of B0, B1, B2 and B3 per tier (W2_DESIGN 2.4).</summary>
         private static readonly float[][] Radii =
