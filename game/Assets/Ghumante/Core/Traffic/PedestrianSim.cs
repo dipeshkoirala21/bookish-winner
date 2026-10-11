@@ -176,8 +176,8 @@ namespace Ghumante.Core.Traffic
                     bool foot = RoadWidthModel.IsFootClass(r.RoadClass) || r.RoadClass == RoadClass.Pedestrian || r.RoadClass == RoadClass.Track;
                     bool bridge = (r.Flags & RoadFlags.Bridge) != 0;
                     bool deck = RoadAccess.IsElevated(t, ri);
-                    float[] surface = RoadAccess.SurfaceHeights(t, ri);
                     float lift = RoadMesher.LiftOf(r, opts);
+                    float[] surface = RoadAccess.SurfaceHeights(t, ri, sampler, RoadMesher.LiftOf(r, null));
                     if (foot)
                     {
                         built.Add(Line(id, t, r, first, last, prof, a, sampler, surface, lift, 0, EdgeKind.Path, area));
@@ -374,7 +374,7 @@ namespace Ghumante.Core.Traffic
                 }
                 double px = x + nx * lat, pz = z + nz * lat;
                 float h;
-                if (surface != null) h = surface[i] - baseLift; // structure heights: the walk sits on them
+                if (surface != null && !float.IsNaN(surface[i])) h = surface[i] - baseLift; // structure heights: the walk sits on them
                 else if (!sampler.TryHeightClamped(px, pz, out h)) h = 0f;
                 xs.Add(px);
                 zs.Add(pz);
