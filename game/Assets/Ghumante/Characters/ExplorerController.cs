@@ -179,6 +179,7 @@ namespace Ghumante.Characters
         private readonly FaceMood _mood = new FaceMood();
         private bool _landCue;
         private readonly MountDetector _detector = new MountDetector();
+        private readonly SprintLock _sprintLock = new SprintLock();
         private readonly PassengerRide _ride = new PassengerRide();
         private readonly List<PlayerVehicle> _vehicles = new List<PlayerVehicle>();
         private VehicleMeshCache _cache;
@@ -322,6 +323,12 @@ namespace Ghumante.Characters
 
         /// <summary>The Action button's meaning now.</summary>
         public ExplorerPrompt Prompt { get; private set; }
+
+        /// <summary>True while the sprint is locked on foot (<see cref="SprintLock"/>): the HUD shows the lock.</summary>
+        public bool SprintLocked
+        {
+            get { return _mode == ExplorerMode.Walk && _sprintLock.Locked; }
+        }
 
         /// <summary>The class icon for <see cref="ExplorerPrompt.HopOn"/>.</summary>
         public RigClass PromptRig { get; private set; }
@@ -527,6 +534,7 @@ namespace Ghumante.Characters
         {
             RequireBound();
             CancelTransition();
+            _sprintLock.Release();
             _exitPending = false;
             _jump.Cancel();
             _ride.End();
@@ -625,6 +633,7 @@ namespace Ghumante.Characters
             if (_ground == null) return;
             if (paused || !(dt > 0f))
             {
+                if (paused) _sprintLock.Release(); // a menu or the search sheet stops a hands-free run
                 Render(0f);
                 return;
             }
@@ -911,6 +920,11 @@ namespace Ghumante.Characters
         private void StepWalk(float dt, in ControlFrame f, float cameraYawRad)
         {
             ControlFrame c = f;
+            // Sprint lock (playtest #10): double-tap sprint, or drag the touch stick into the lock, and the explorer keeps
+            // sprinting forward hands-free until stopped. Never in a calm zone or during an emote.
+            if (_calm.Active || _emote != Emote.None) _sprintLock.Release();
+            else _sprintLock.Step(dt, ref c, _walker.Vehicle.SpeedMps);
+            if (_sprintLock.Changed) Raise(_sprintLock.Locked ? "hud.sprint_locked" : "hud.sprint_unlocked");
             if (_calm.Active) c.Boost = false;
             bool moving = c.MoveX != 0f || c.MoveY != 0f;
             if (moving) _emote = Emote.None;
@@ -1543,6 +1557,7 @@ namespace Ghumante.Characters
 
         private void BeginApproach(in MountDetector.Candidate c)
         {
+            _sprintLock.Release();
             PlayerVehicle vehicle = null;
             VehicleFrame frame;
             int agentId = -1;
@@ -2109,6 +2124,7 @@ namespace Ghumante.Characters
         {
             bool changed = mode != _mode;
             _mode = mode;
+            if (mode != ExplorerMode.Walk) _sprintLock.Release();
             if (!changed && !force) return;
             Action<ExplorerMode> handler = ModeChanged;
             if (handler != null) handler(mode);

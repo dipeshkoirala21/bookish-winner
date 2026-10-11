@@ -82,6 +82,9 @@ namespace Ghumante.Characters
         /// <summary>True while a look input is held (the camera does not swing back behind the explorer).</summary>
         public bool Looking;
 
+        /// <summary>The touch stick is pushed up past its rim (into the sprint lock, <see cref="SprintLock"/>).</summary>
+        public bool SprintLockDrag;
+
         /// <summary>The device that produced input this frame (None when nothing was touched).</summary>
         public ControlDevice Device;
 
@@ -113,6 +116,7 @@ namespace Ghumante.Characters
             LookYawDeg += other.LookYawDeg;
             LookPitchDeg += other.LookPitchDeg;
             Looking |= other.Looking;
+            SprintLockDrag |= other.SprintLockDrag;
             if (other.Device != ControlDevice.None) Device = other.Device;
         }
 

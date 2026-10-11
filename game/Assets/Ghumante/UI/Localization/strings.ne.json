@@ -242,5 +242,7 @@
   "vehicle.minibus": "मिनीबस",
   "vehicle.micro": "माइक्रो",
   "vehicle.tempo": "टेम्पो",
-  "vehicle.rickshaw": "रिक्सा"
+  "vehicle.rickshaw": "रिक्सा",
+  "hud.sprint_locked": "दौड लक भयो: हात नछोइकनै दौडिरहन्छ। रोक्न दौड फेरि थिच्नुहोस् वा पछाडि तान्नुहोस्।",
+  "hud.sprint_unlocked": "दौड लक खुल्यो।"
 }

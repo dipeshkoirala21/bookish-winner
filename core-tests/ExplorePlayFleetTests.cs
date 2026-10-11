@@ -177,5 +177,50 @@ namespace Ghumante.Core.Tests
             Assert.That(onBuilding, Is.EqualTo(0));
             Assert.That(overlapping, Is.EqualTo(0));
         }
+        /// <summary>Diagnostics for game/README.md's "where to find them" table: every named bus station and works yard of
+        /// the sample with the heavy vehicles parked within 100 m of it.</summary>
+        [Test, Explicit("diagnostics: lists the bus parks and depots with their parked heavy vehicles")]
+        public void ProbeWhereTheHeavyVehiclesStand()
+        {
+            var lines = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t;
+                List<ParkedVehicle> parked = Parked(id, out t);
+                if (t == null) continue;
+                var sites = new List<(string kind, string name, double x, double z)>();
+                foreach (PoiRecord p in t.Pois)
+                    if (p.Kind == PoiKind.BusStation)
+                        sites.Add(("bus station", t.Name(p.NameRef)?.En ?? t.Name(p.NameRef)?.Default ?? "(unnamed)", p.XCm / 100.0, p.ZCm / 100.0));
+                foreach (AreaRecord a in t.Areas)
+                {
+                    if (a.Kind != AreaKind.Industrial && a.Kind != AreaKind.BusPark || a.Vertices == null || a.Vertices.Length < 6) continue;
+                    double cx = 0, cz = 0;
+                    for (int k = 0; k + 1 < a.Vertices.Length; k += 2)
+                    {
+                        cx += a.Vertices[k] / 100.0;
+                        cz += a.Vertices[k + 1] / 100.0;
+                    }
+                    cx /= a.Vertices.Length / 2;
+                    cz /= a.Vertices.Length / 2;
+                    NameRecord n = t.Name(a.NameRef);
+                    sites.Add((a.Kind == AreaKind.Industrial ? "industrial" : "bus park area", n == null ? "(unnamed)" : n.En.Length > 0 ? n.En : n.Default, cx, cz));
+                }
+                foreach (var site in sites)
+                {
+                    var kinds = new List<string>();
+                    foreach (ParkedVehicle v in parked)
+                    {
+                        if (!Heavy(v.Variant)) continue;
+                        double dx = v.X - site.x, dz = v.Z - site.z;
+                        if (dx * dx + dz * dz < 100 * 100) kinds.Add(VehicleCatalog.At(v.Variant).Shape.ToString());
+                    }
+                    double lon, lat;
+                    WorldFrame.GameToLonLat(id.X0 + site.x, id.Z0 + site.z, out lon, out lat);
+                    lines.Add(site.kind + ": " + site.name + " (" + lon.ToString("0.0000") + ", " + lat.ToString("0.0000") + "): " + (kinds.Count == 0 ? "none" : string.Join(" ", kinds)));
+                }
+            }
+            foreach (string l in lines) TestContext.WriteLine(l);
+        }
     }
 }

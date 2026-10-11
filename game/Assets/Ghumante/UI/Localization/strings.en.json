@@ -242,5 +242,7 @@
   "vehicle.minibus": "Minibus",
   "vehicle.micro": "Micro",
   "vehicle.tempo": "Tempo",
-  "vehicle.rickshaw": "Rickshaw"
+  "vehicle.rickshaw": "Rickshaw",
+  "hud.sprint_locked": "Sprint locked: running hands free. Tap sprint or pull back to stop.",
+  "hud.sprint_unlocked": "Sprint lock off."
 }

@@ -39,6 +39,10 @@ namespace Ghumante.UI.Hud
 
         /// <summary>Taps since the last read: Namaste, the Stop bell, Ride as passenger.</summary>
         public bool Namaste, Bell, Passenger;
+
+        /// <summary>On foot, the stick's thumb is dragged up past the rim into the sprint lock
+        /// (<see cref="TouchMath.InSprintLock"/>).</summary>
+        public bool SprintLockDrag;
     }
 
     /// <summary>The elements of the touch controls, resolved by the Explore screen (check_ui verifies the names).</summary>
@@ -97,6 +101,7 @@ namespace Ghumante.UI.Hud
         private int _stickPointer = NoPointer;
         private Vector2 _stickOrigin;
         private float _stickX, _stickY;
+        private bool _stickLock;
 
         private int _drivePointer = NoPointer;
         private float _driveOriginX;
@@ -211,6 +216,7 @@ namespace Ghumante.UI.Hud
             {
                 s.MoveX = _stickX;
                 s.MoveY = _stickY;
+                s.SprintLockDrag = _stickLock;
             }
             s.ZoomSteps = _zoom;
             s.LookYawDeg = _lookYaw;
@@ -289,6 +295,9 @@ namespace Ghumante.UI.Hud
             Vector2 d = (Vector2)evt.localPosition - _stickOrigin;
             float kx, ky;
             TouchMath.Stick(d.x, d.y, out _stickX, out _stickY, out kx, out ky);
+            bool locking = TouchMath.InSprintLock(d.x, d.y);
+            if (locking && !_stickLock) _haptics.Play(HapticKind.Selection);
+            _stickLock = locking;
             _knobNode.Set(MotionChannel.TranslateX, kx);
             _knobNode.Set(MotionChannel.TranslateY, ky);
         }
@@ -314,6 +323,7 @@ namespace Ghumante.UI.Hud
             int pointer = _stickPointer;
             _stickPointer = NoPointer;
             _stickX = _stickY = 0f;
+            _stickLock = false;
             if (_view.StickZone.HasPointerCapture(pointer)) _view.StickZone.ReleasePointer(pointer);
             _view.Stick.RemoveFromClassList(ActiveClass);
             if (_animator.Reduced)

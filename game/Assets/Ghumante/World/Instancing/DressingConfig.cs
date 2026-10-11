@@ -67,9 +67,10 @@ namespace Ghumante.World.Instancing
 
         public int PropCap;
 
-        /// <summary>Parked vehicles (W2_DESIGN 5.2): near LOD (moving LOD2) to 20 m, block-out to 80 m, box to 150 m;
-        /// caps per level and in all.</summary>
-        public float ParkedNearM = 20f, ParkedBlockM = 80f, ParkedBoxM = 150f;
+        /// <summary>Parked vehicles (W2_DESIGN 5.2): near LOD (moving LOD2), block-out and box radii and the caps per level
+        /// and in all, from <see cref="ParkedLod"/> (the one source; retuned after the first playtest so no block-out or box
+        /// stands close to the camera).</summary>
+        public float ParkedNearM = ParkedLod.NearM, ParkedBlockM = ParkedLod.BlockM, ParkedBoxM = ParkedLod.BoxM;
 
         public int ParkedNearCap, ParkedBlockCap, ParkedCap;
 
@@ -82,14 +83,16 @@ namespace Ghumante.World.Instancing
         public static DressingConfig ForTier(int tier)
         {
             FloraBudget flora = FloraBudget.ForTier(tier);
+            int near, block, total;
+            ParkedLod.Caps(tier, out near, out block, out total);
             switch (tier <= 0 ? 0 : tier >= 2 ? 2 : 1)
             {
                 case 0:
-                    return new DressingConfig { Flora = flora, PropM = 120f, PropCap = 300, ParkedNearCap = 2, ParkedBlockCap = 20, ParkedCap = 80 };
+                    return new DressingConfig { Flora = flora, PropM = 120f, PropCap = 300, ParkedNearCap = near, ParkedBlockCap = block, ParkedCap = total };
                 case 1:
-                    return new DressingConfig { Flora = flora, PropM = 200f, PropCap = 800, ParkedNearCap = 10, ParkedBlockCap = 60, ParkedCap = 200 };
+                    return new DressingConfig { Flora = flora, PropM = 200f, PropCap = 800, ParkedNearCap = near, ParkedBlockCap = block, ParkedCap = total };
                 default:
-                    return new DressingConfig { Flora = flora, PropM = 250f, PropCap = 1500, ParkedNearCap = 10, ParkedBlockCap = 120, ParkedCap = 400 };
+                    return new DressingConfig { Flora = flora, PropM = 250f, PropCap = 1500, ParkedNearCap = near, ParkedBlockCap = block, ParkedCap = total };
             }
         }
 

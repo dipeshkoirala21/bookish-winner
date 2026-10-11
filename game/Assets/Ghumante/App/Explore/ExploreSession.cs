@@ -100,6 +100,18 @@ namespace Ghumante.App.Explore
         /// <summary>Community-fleet vehicles are offered within this distance.</summary>
         public const float FleetSearchM = 30f;
 
+        /// <summary>
+        /// Parked vehicles the player may borrow are solid within this distance of the player (playtest #11: every parked
+        /// vehicle can be ridden away, and #12: proper physics): the tiles' static collider sets leave them out
+        /// (<see cref="TileInstances.AppendColliders"/>: a borrowed one must not leave a ghost box behind), so the session
+        /// registers their bodies itself (<see cref="RefreshParkedSolids"/>), less the ones on loan.
+        /// </summary>
+        public const float ParkedSolidM = 60f;
+
+        /// <summary>Level of the quadtree cell whose key and frame carry the parked-vehicle colliders (128 m; the streamer
+        /// registers detail tiles at level 10 and coarser, so the key never meets a tile's).</summary>
+        public const int ParkedSolidLevel = 13;
+
         private ExploreScreen _screen;
         private SaveData _save;
         private Action _persist;
@@ -111,6 +123,9 @@ namespace Ghumante.App.Explore
         private readonly ParkedSpot[] _parked = new ParkedSpot[48];
         private int _parkedCount;
         private float _parkedTimer;
+        private readonly StructureColliders _parkedSolids = new StructureColliders();
+        private ulong _parkedSolidKey, _parkedSolidHash;
+        private bool _parkedSolidRegistered;
         private volatile float _cowDistance = float.PositiveInfinity;
         private double _cowX, _cowZ;
         private Action<TrafficSim, PedestrianSim, AnimalSim> _postPlayer;
@@ -265,6 +280,7 @@ namespace Ghumante.App.Explore
             }
             if (_world != null)
             {
+                if (_parkedSolidRegistered && _world.GroundQuery != null) _world.GroundQuery.Unregister(_parkedSolidKey);
                 _world.OriginShifted -= OnOriginShifted;
                 _world.DetailTileShown -= OnDetailShown;
                 _world.DetailTileHidden -= OnDetailHidden;
@@ -273,6 +289,8 @@ namespace Ghumante.App.Explore
             }
             _detailTiles.Clear();
             _hiddenParked.Clear();
+            _parkedSolidRegistered = false;
+            _parkedSolidHash = 0;
             if (_vehicleCache != null)
             {
                 _vehicleCache.Dispose();
@@ -636,6 +654,7 @@ namespace Ghumante.App.Explore
                 Namaste = t.Namaste,
                 Bell = t.Bell,
                 RidePassenger = t.Passenger,
+                SprintLockDrag = t.SprintLockDrag,
                 Device = t.Active || t.Touched ? ControlDevice.Touch : ControlDevice.None,
             };
         }
@@ -781,9 +800,14 @@ namespace Ghumante.App.Explore
             if (borrowed)
             {
                 if (_hiddenParked.Add(id)) OnNotice("hud.fleet_borrowed");
-                return;
             }
-            _hiddenParked.Remove(id);
+            else _hiddenParked.Remove(id);
+            // At once: the borrowed body must not stand inside its own parked box, and a returned one is solid again.
+            if (_explorer != null)
+            {
+                WorldPos at = _explorer.Position;
+                RefreshParkedSolids(at.X, at.Z);
+            }
         }
 
         /// <summary>What the explorer needs from the world this frame (no allocation).</summary>
@@ -795,6 +819,7 @@ namespace Ghumante.App.Explore
             {
                 _parkedTimer = 0.25f;
                 GatherParked(at.X, at.Z);
+                RefreshParkedSolids(at.X, at.Z);
             }
             LifeHost life = _world.Life;
             Camera cam = _rig.Camera;
@@ -814,6 +839,63 @@ namespace Ghumante.App.Explore
                 Portrait = cam != null && cam.aspect < 1f,
                 RequestedTaxi = _requestedTaxi,
             };
+        }
+
+        /// <summary>
+        /// Registers the bodies of the borrowable parked vehicles within <see cref="ParkedSolidM"/> of (x, z), less the ones
+        /// on loan, with the world's ground query as one collider set (in the frame of the <see cref="ParkedSolidLevel"/> cell
+        /// under the player). Rebuilt only when that set of vehicles or the cell changes; no allocation otherwise.
+        /// </summary>
+        private void RefreshParkedSolids(double x, double z)
+        {
+            TileGroundQuery ground = _world != null ? _world.GroundQuery : null;
+            if (ground == null) return;
+            TileId cell = TileId.At(ParkedSolidLevel, x, z);
+            ulong key = cell.Key;
+            // An order-free hash of the ids in reach (the same set gives the same hash whatever the tile order).
+            ulong hash = 0;
+            int count = 0;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                if (pass == 1)
+                {
+                    if (hash == _parkedSolidHash && key == _parkedSolidKey && _parkedSolidRegistered == count > 0) return;
+                    _parkedSolids.Clear();
+                }
+                foreach (KeyValuePair<TileId, TileExtras> kv in _detailTiles)
+                {
+                    TileInstances inst = kv.Value.Instances;
+                    if (inst == null || inst.Parked.Count == 0) continue;
+                    TileId id = kv.Key;
+                    if (x < id.X0 - ParkedSolidM || x > id.X0 + id.Size + ParkedSolidM || z < id.Z0 - ParkedSolidM || z > id.Z0 + id.Size + ParkedSolidM)
+                        continue;
+                    for (int i = 0; i < inst.Parked.Count; i++)
+                    {
+                        ParkedVehicle p = inst.Parked[i];
+                        if (!p.CommunityFleet || _hiddenParked.Contains(p.Id)) continue;
+                        double px = id.X0 + p.X, pz = id.Z0 + p.Z, dx = px - x, dz = pz - z;
+                        if (dx * dx + dz * dz > ParkedSolidM * ParkedSolidM) continue;
+                        if (pass == 0)
+                        {
+                            ulong h = (ulong)p.Id * 0x9E3779B97F4A7C15UL;
+                            hash += h ^ (h >> 29);
+                            count++;
+                        }
+                        else _parkedSolids.AddVehicle(px - cell.X0, pz - cell.Z0, p.Y, p.YawDeg, p.Variant);
+                    }
+                }
+            }
+            if (_parkedSolidRegistered && key != _parkedSolidKey) ground.Unregister(_parkedSolidKey);
+            _parkedSolidKey = key;
+            _parkedSolidHash = hash;
+            if (_parkedSolids.Count == 0)
+            {
+                if (_parkedSolidRegistered) ground.Unregister(key);
+                _parkedSolidRegistered = false;
+                return;
+            }
+            ground.Register(key, _parkedSolids);
+            _parkedSolidRegistered = true;
         }
 
         private void GatherParked(double x, double z)

@@ -28,6 +28,24 @@ namespace Ghumante.Core.Traffic
         public float SpawnIntervalS = 0.25f;
         public int SpawnAttempts = 4;
 
+        /// <summary>
+        /// Out of view, ambient vehicles farther than this from the player leave (W2 playtest #6: "there are absolutely no
+        /// traffics on the road"): the moving-vehicle cap stays around the player instead of thinning out over the whole
+        /// ghost radius. Routed buses, a hailed taxi and a vehicle pulling over keep the ghost radius. 0 = 1.2 × the ghost
+        /// radius (the old behaviour).
+        /// </summary>
+        public float KeepRadiusM = 260f;
+
+        /// <summary>
+        /// Moving motorbikes and scooters kept near the player (playtest #3: "on busy areas, instead of parked
+        /// motorcycles, bring up the actual person driving it instead. But not too many: 2-3"): when fewer two-wheelers than
+        /// this ride within <see cref="NearRiderRadiusM"/>, one is started on a lane at least <see cref="NearRiderMinM"/>
+        /// away, out of view, every spawn interval (within the cap).
+        /// </summary>
+        public int NearRiders = 3;
+
+        public float NearRiderRadiusM = 70f, NearRiderMinM = 35f;
+
         /// <summary>Weekly holiday: density × 0.6.</summary>
         public bool Saturday;
 
@@ -36,17 +54,17 @@ namespace Ghumante.Core.Traffic
 
         public static TrafficSettings Low()
         {
-            return new TrafficSettings { MaxVehicles = 12, FullRadiusM = 150f, GhostRadiusM = 300f };
+            return new TrafficSettings { MaxVehicles = 12, FullRadiusM = 150f, GhostRadiusM = 300f, KeepRadiusM = 180f, NearRiders = 2 };
         }
 
         public static TrafficSettings Mid()
         {
-            return new TrafficSettings { MaxVehicles = 30, FullRadiusM = 250f, GhostRadiusM = 500f };
+            return new TrafficSettings { MaxVehicles = 30, FullRadiusM = 250f, GhostRadiusM = 500f, KeepRadiusM = 230f, NearRiders = 3 };
         }
 
         public static TrafficSettings High()
         {
-            return new TrafficSettings { MaxVehicles = 50, FullRadiusM = 400f, GhostRadiusM = 800f };
+            return new TrafficSettings { MaxVehicles = 50, FullRadiusM = 400f, GhostRadiusM = 800f, KeepRadiusM = 280f, NearRiders = 3 };
         }
     }
 
@@ -782,7 +800,11 @@ namespace Ghumante.Core.Traffic
             // A full cap would starve the timetable: make room for a due bus by letting the farthest ambient lane ghost go
             // (out of view, beyond the full simulation radius), one per spawn interval.
             if (pending > 0 && alive >= _s.MaxVehicles) RetireFarthestGhost();
-            if (alive >= target) return;
+            if (alive >= target)
+            {
+                SpawnNearRider(hour, alive, target);
+                return;
+            }
             for (int attempt = 0; attempt < _s.SpawnAttempts && alive < target; attempt++)
             {
                 double ang = _rng.NextDouble() * 2 * Math.PI;
@@ -810,6 +832,56 @@ namespace Ghumante.Core.Traffic
                     alive++;
                     if (VehicleCatalog.At(variant).TrafficClass == VehicleClass.Rickshaw) rickshaws++;
                 }
+            }
+            SpawnNearRider(hour, alive, target);
+        }
+
+        /// <summary>
+        /// Keeps <see cref="TrafficSettings.NearRiders"/> moving two-wheelers round the player (playtest #3): counts the
+        /// motorbikes and scooters (not ghosts) within <see cref="TrafficSettings.NearRiderRadiusM"/> and, when short, starts
+        /// one on a lane between <see cref="TrafficSettings.NearRiderMinM"/> and that radius, out of view, on a lane two
+        /// wheelers may use. Within the cap: when the cap is full the farthest ambient ghost out of view makes room.
+        /// </summary>
+        private void SpawnNearRider(float hour, int alive, int target)
+        {
+            if (_s.NearRiders <= 0 || target <= 0) return;
+            double r2 = _s.NearRiderRadiusM * (double)_s.NearRiderRadiusM;
+            int riders = 0;
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive || _agents[i].Ghost || _agents[i].Class != VehicleClass.TwoWheeler) continue;
+                double dx = _agents[i].X - _focusX, dz = _agents[i].Z - _focusZ;
+                if (dx * dx + dz * dz <= r2) riders++;
+            }
+            if (riders >= _s.NearRiders) return;
+            if (alive >= _s.MaxVehicles)
+            {
+                RetireFarthestGhost();
+                return; // the slot frees for the next interval
+            }
+            uint bit = VehicleClasses.Bit(VehicleClass.TwoWheeler);
+            for (int attempt = 0; attempt < _s.SpawnAttempts; attempt++)
+            {
+                double ang = _rng.NextDouble() * 2 * Math.PI;
+                double rad = _s.NearRiderMinM + (_s.NearRiderRadiusM - _s.NearRiderMinM) * _rng.NextDouble();
+                double x = _focusX + rad * Math.Cos(ang), z = _focusZ + rad * Math.Sin(ang);
+                if (InView(x, z)) continue;
+                _near.Clear();
+                _g.LanesNear(x, z, 15.0, _near);
+                if (_near.Count == 0) continue;
+                _near.Sort();
+                int pick = _near[_rng.Next(_near.Count)];
+                LaneGraph.Lane l = _g.Lanes[pick];
+                if (l.Kind != LaneKind.Road || l.Length < 12f || (l.Mask & bit) == 0) continue;
+                float s;
+                double d = LaneGraph.Project(l, x, z, out s);
+                if (d > 18.0) continue;
+                // A rider of the street: the two-wheeler column of the lane's mix (scooter, commuter bike, cruiser, e-scooter).
+                int variant = TrafficTables.PickVariant(ref _rng, l.Class, l.Area, hour, bit);
+                if (variant < 0) continue;
+                int id;
+                byte livery = VehicleCatalog.At(variant).PickLivery(_rng.NextU32());
+                if (SpawnOnLane(pick, s, variant, livery, out id, true)) return;
             }
         }
 
@@ -957,9 +1029,24 @@ namespace Ghumante.Core.Traffic
                 ref Agent a = ref _agents[i];
                 if (a.Committed && a.CommitLane >= 0 && _g.IsAlive(new LaneId(a.CommitLane))) _resv[a.CommitLane]++;
                 else a.Committed = false;
-                if (a.TailLane >= 0 && (a.PrevLane != a.TailLane || a.S >= a.Length + 0.5f || !_g.IsAlive(new LaneId(a.TailLane)))) a.TailLane = -1;
+                // The tail frees the connector once less than TailFreeM of it is left in the connector's mouth: a scooter
+                // waiting on a 3 m stub between two chowks (Bakhundol) otherwise holds the connector behind it for ever
+                // and the two junctions lock each other. The geometric corridor check still sees the body.
+                if (a.TailLane >= 0 && (a.PrevLane != a.TailLane || a.S >= a.Length - TailFreeM || !_g.IsAlive(new LaneId(a.TailLane)))) a.TailLane = -1;
                 if (a.TailLane >= 0) _resv[a.TailLane]++;
             }
+        }
+
+        /// <summary>A body whose tail reaches less than this into the junction connector it left no longer reserves it.</summary>
+        private const float TailFreeM = 1.0f;
+
+        /// <summary>Signal cycle (W2_DESIGN 5.1: 90 s), shared by the phases with 5 s of amber and clear each, every phase
+        /// between <see cref="SignalPhaseMinS"/> and <see cref="SignalPhaseMaxS"/>.</summary>
+        private const float SignalCycleS = 90f, SignalPhaseMinS = 20f, SignalPhaseMaxS = 30f;
+
+        private static float SignalPhaseS(int phases)
+        {
+            return Math.Max(SignalPhaseMinS, Math.Min(SignalPhaseMaxS, SignalCycleS / Math.Max(1, phases)));
         }
 
         private void Kill(int i)
@@ -1016,7 +1103,7 @@ namespace Ghumante.Core.Traffic
                     // First step: a deterministic phase offset per node so the city does not switch in lockstep.
                     var r = new SimRng(SimRng.Mix(_seed, (ulong)c.NodeKey));
                     st.Phase = r.Next(Math.Max(1, c.Phases));
-                    st.PhaseLen = 30f;
+                    st.PhaseLen = c.Kind == ControllerKind.Signal ? SignalPhaseS(c.Phases) : 30f;
                     st.PhaseT = r.Range(0f, st.PhaseLen);
                 }
                 st.PhaseT += dt;
@@ -1029,7 +1116,7 @@ namespace Ghumante.Core.Traffic
                     st.GreenT = 0f;
                     if (c.Kind == ControllerKind.Signal)
                     {
-                        st.PhaseLen = 30f; // 25 s green + 5 s amber and clear: a 90 s cycle at three phases
+                        st.PhaseLen = SignalPhaseS(c.Phases); // 90 s cycle: 25 s green + 5 s amber and clear at three phases
                         st.ClearT = 0f;
                     }
                     else
@@ -1350,7 +1437,9 @@ namespace Ghumante.Core.Traffic
                 {
                     if (step == 0)
                     {
-                        float brake = a.V * a.V / (2f * p.B) + 3f;
+                        // Ask within braking distance plus the standing gap: IDM halts s0 short of the line, and a bus or a
+                        // lorry (s0 3 m) standing there must still be near enough to ask, or it waits through every green.
+                        float brake = a.V * a.V / (2f * p.B) + Math.Max(3f, p.S0 + StopLineM + 1f);
                         if (dist <= brake && CanEnter(idx, ref a, cl, nl))
                         {
                             a.Committed = true;
@@ -2856,6 +2945,7 @@ namespace Ghumante.Core.Traffic
         {
             if (!_hasFocus) return;
             double far = 1.2 * _s.GhostRadiusM;
+            double keep = _s.KeepRadiusM > 0f ? Math.Min(far, Math.Max(_s.KeepRadiusM, _s.SpawnMaxM + 30.0)) : far;
             for (int i = 0; i < _agents.Length; i++)
             {
                 if (!_agents[i].Alive) continue;
@@ -2863,7 +2953,9 @@ namespace Ghumante.Core.Traffic
                 double dx = a.X - _focusX, dz = a.Z - _focusZ;
                 double d = Math.Sqrt(dx * dx + dz * dz);
                 bool outOfView = !InView(a.X, a.Z);
-                if (d > far && outOfView || a.WaitT > 60f && outOfView && d > _s.SpawnMinM && !a.PullExternal)
+                // Ambient traffic stays round the player; routed buses, pull-overs and hailed taxis keep the ghost radius.
+                double limit = a.Route >= 0 || a.Pull != PullOverKind.None || a.PullExternal ? far : keep;
+                if (d > limit && outOfView || a.WaitT > 60f && outOfView && d > _s.SpawnMinM && !a.PullExternal)
                 {
                     if (a.Committed && a.CommitLane >= 0 && _resv[a.CommitLane] > 0) _resv[a.CommitLane]--;
                     if (a.TailLane >= 0 && _resv[a.TailLane] > 0) _resv[a.TailLane]--;
@@ -3017,6 +3109,21 @@ namespace Ghumante.Core.Traffic
                     if (_agents[i].Alive && (_agents[i].Lane == lane || _agents[i].CommitLane == lane || _agents[i].TailLane == lane))
                         sb.Append(" | " + Describe(_agents[i].Id));
                 return sb.ToString();
+            }
+        }
+
+        /// <summary>One line about a junction controller: kind, phase and its timers, each arm's phase and queue (test
+        /// diagnostics).</summary>
+        internal string DescribeController(int id)
+        {
+            lock (_g.SyncRoot)
+            {
+                if (id < 0 || id >= _g.Controllers.Count) return "controller " + id + " none";
+                LaneGraph.Controller c = _g.Controllers[id];
+                CtrlState st = StateOf(id);
+                return "controller " + id + " " + c.Kind + " alive " + c.Alive + " arms " + c.Arms + " phases " + c.Phases + " phase " + st.Phase + " t " +
+                       st.PhaseT.ToString("0") + "/" + st.PhaseLen.ToString("0") + " clear " + st.ClearT.ToString("0.0") + " phaseOf " + string.Join(",", c.PhaseOf) +
+                       " queue " + string.Join(",", st.Queue);
             }
         }
 

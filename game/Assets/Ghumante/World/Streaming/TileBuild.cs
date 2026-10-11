@@ -1034,7 +1034,7 @@ namespace Ghumante.World.Streaming
                 KeepTreesOffHeroes(inst.Trees, b.HeroColliders, src, b.Sampler, corridors);
             }
             PropPlacement.Place(src, b.Sampler, inst.Props);
-            ParkedPlacement.Place(src, b.Sampler, inst.Parked, settings.Roads);
+            ParkedPlacement.Place(src, b.Sampler, inst.Parked, settings.Roads, inst.Trees, inst.Props);
             inst.Index(src.Tile.Size);
             b.Instances = inst;
             if (b.Colliders == null) b.Colliders = new StructureColliders();

@@ -69,6 +69,7 @@ sample (Swayambhunath to Boudhanath); once the full valley is imported (`python 
 |---|---|---|
 | Walk / steer | W A S D or the arrows (walking is relative to the camera) | left stick |
 | Run, sprint | push further; **Shift** sprints (not inside temple compounds) | X |
+| Sprint lock (hands-free run) | double-tap **Shift**: the explorer keeps sprinting where the camera looks with no key held ("Sprint locked"); **A**/**D** and the camera steer; tap **Shift** again, pull back (**S**), press **E**, or run into a wall to stop | double-tap X |
 | Jump | **Space** on foot (apex 1 m) | A with nothing to hop on |
 | Hop on / Hop off | **E** (tap) | A |
 | Ride as passenger / hail a taxi | **E** next to a stopped taxi or a bus, micro or tempo with its doors open (or hold it 0.35 s); with nothing to board, hold **E** 0.4 s to wave down a taxi | hold A |
@@ -133,13 +134,21 @@ saved as `player.appearance` and `player.garage` and come back next time.
    foot to whistle: the garage's selected vehicle drives up from out of view. Press **G** again while it stands beside
    you (within 18 m) to pick and call the next garage vehicle instead: a toast names it (*Garage: Bicycle*, then
    *Garage: Car*, the small hatchback); the one beside you stays parked where it is and goes home once you are out of
-   sight. Or look for a parked vehicle with a **green key tag** (a diamond on the roof or above the handlebar): that is
-   the community fleet, free to borrow. Cars, scooters and bikes line the streets; green city buses, micros, minibuses
-   and tempos wait at the bus parks (**Ratna Park bus station**, **Naya Bus Park, Gongabu**, **Chabahil bus station**),
-   lorries, tippers and pickups by the depots and works yards, vans, tempos and lorries now and then on wide side
-   streets, and tractors on the farm lanes (on the sample: the fields of **Nagdesh** and Thimi, east of the airport; or
-   Tinchuli, north of Boudha). A borrowed vehicle goes home by itself 10 minutes after you leave it or once you are
-   150 m away.
+   sight. Or walk up to **any parked vehicle** (each wears a **green key tag**, a diamond on the roof or above the
+   handlebar: the community fleet, free to borrow) and press **E**: cars, taxis, vans, micros, tempos, buses, lorries,
+   tankers and tractors all drive, each with its own handling and camera. A borrowed vehicle goes home by itself
+   10 minutes after you leave it or once you are 150 m away. Parked vehicles are solid within 60 m of you.
+   Where to find them (the sample region):
+
+   | Vehicle | Where |
+   |---|---|
+   | Scooters, motorbikes, bicycles | residential lanes only, at most one every 30-40 m of kerb in the city (about one per 80 m on average; far fewer in the suburbs and villages), standing nose-in beside a house front, clear of the carriageway (a lane narrower than 6 m keeps its whole width, at least 2.7 m always stays clear); never on the Ring Road, Kantipath, New Baneshwor and other main roads, nor in the bazaars (Asan, Indra Chowk, New Road, Thamel's shopping streets) |
+   | Cars, SUVs, taxis, pickups | parallel at the kerb of residential and side streets, every 70-130 m |
+   | Green city bus (Sajha), micros, minibuses, tempos | the bus parks: **Ratna Park bus station** (Old Bus Park, by Tundikhel), **Naya Bus Park, Gongabu** (on the Ring Road, north-west), **Chabahil bus station**, and the other mapped bus and micro stations (Old Baneshwor, Tinkune, Kalanki, Sinamangal, the Gongabu ticket counters); four or so per park, a green bus first |
+   | Lorries, tippers, tankers, pickups | depots and works yards, off the road in the yard: **Balaju** industrial area (the dairy, Nepal Maida factory, Pooja International, Quality Feed: tippers, a tanker), the **Pepsi factory** south-east of the airport (two lorries), and smaller yards to the east (Kageshwori Mineral Water: a lorry) |
+   | Vans, micros, tempos, pickups, lorries | now and then at the kerb of residential and side streets in the city and suburbs (about one per 330 m of street), never in the bazaars |
+   | Tractors | farm lanes: the fields of **Nagdesh** and Thimi, east of the airport; Tinchuli, north of Boudha |
+
 2. Walk to the driver's door: the right side (Nepal drives on the left, cars are right-hand drive; a wall there sends
    you round). **E** hops in (0.9 s for a car, 1.4 s for a truck; any move key in the first 60% steps back out).
 3. Teleport (or drive) to **Maitighar Mandala** and go round it clockwise, keeping left. Each class has its own
@@ -165,7 +174,9 @@ Pixel and press Play. Mouse clicks act as touches:
   the left side), the big yellow **Action** button (Jump, turning green **Hop on** when a seat is offered: a vehicle
   to drive, or a stopped taxi or a bus, micro or tempo with its doors open to ride along in; with nothing to board, hold
   it to wave down a taxi), **Namaste** beside it, **Ride as passenger** when a bus, taxi or micro offers a seat, the
-  garage button in the top bar.
+  garage button in the top bar. Sprint lock: push the stick straight up past its rim (a light tick) and hold it there a
+  quarter of a second; lift the thumb and the explorer keeps sprinting where the camera looks. Pull the stick back, or
+  press the Action button, to stop.
 * In a vehicle: portrait holds anywhere in the lower-left area to go and slides to steer, **Brake** bottom left,
   **Horn** and **Hop off** in the right column; landscape steers with the left stick and has **Go**, **Brake**,
   **Horn** and **Hop off** on the right.
