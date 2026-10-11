@@ -122,9 +122,9 @@ namespace Ghumante.World.Streaming
     /// <item>collects finished builds (decoded source tiles go into an <see cref="LruByteCache{TKey,TValue}"/> sized by
     /// <see cref="StreamingConfig.CacheBudgetBytes"/>);</item>
     /// <item>uploads finished builds chunk by chunk (<see cref="TileBuild.Chunks"/>, at most
-    /// <see cref="TileBuild.UploadChunkVertices"/> vertices each) through the <see cref="ITileSink"/> until
-    /// <see cref="UploadBudgetMs"/> or <see cref="UploadBudgetBytes"/> is spent (at least one chunk per tick so
-    /// streaming never stalls);</item>
+    /// <see cref="TileBuild.UploadChunkVertices"/> vertices and <see cref="TileBuild.UploadChunkBytes"/> bytes each)
+    /// through the <see cref="ITileSink"/> until <see cref="UploadBudgetMs"/> is spent or the next chunk would exceed
+    /// <see cref="UploadBudgetBytes"/> (at least one chunk per tick so streaming never stalls);</item>
     /// <item>applies the swap rule (<see cref="TileResidency.Resolve"/>) to views and to the ground query, which therefore
     /// always describes exactly what is drawn;</item>
     /// <item>dispatches the nearest queued nodes to <see cref="ITileJobRunner"/>, at most <see cref="MaxConcurrentJobs"/>
@@ -235,8 +235,10 @@ namespace Ghumante.World.Streaming
         /// <summary>Main-thread milliseconds per tick for mesh uploads (2 ms at 30 fps, 1.5 ms at 60 fps).</summary>
         public double UploadBudgetMs = 2.0;
 
-        /// <summary>Mesh bytes per tick: no further chunk starts once this many were uploaded in the tick (the copy and
-        /// GPU upload cost grows with bytes, and the clock alone only notices after the fact).</summary>
+        /// <summary>Mesh bytes per tick: a chunk starts only while the tick's bytes including it stay within this (the
+        /// copy and GPU upload cost grows with bytes, and the clock alone only notices after the fact). The first chunk
+        /// of a tick always goes, and chunks are at most <see cref="TileBuild.UploadChunkBytes"/> (the same 1 MiB), so a
+        /// tick never copies more than the budget.</summary>
         public long UploadBudgetBytes = 1L << 20;
 
         /// <summary>The focus must move this far before the selection is recomputed.</summary>
@@ -488,7 +490,7 @@ namespace Ghumante.World.Streaming
                 }
                 if (b.NextChunk < b.Chunks.Count)
                 {
-                    if (uploaded && (bytes >= UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) break;
+                    if (uploaded && (bytes + b.ChunkBytes(b.NextChunk) > UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) break;
                     try
                     {
                         _sink.Upload(b, b.NextChunk);
@@ -578,7 +580,7 @@ namespace Ghumante.World.Streaming
             }
             if (b.NextChunk < b.Chunks.Count)
             {
-                if (uploaded && (bytes >= UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) return -1;
+                if (uploaded && (bytes + b.ChunkBytes(b.NextChunk) > UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) return -1;
                 try
                 {
                     _refreshSink.UploadRefresh(b, b.NextChunk);

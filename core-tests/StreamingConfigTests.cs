@@ -92,21 +92,38 @@ namespace Ghumante.Core.Tests
         [Test]
         public void TerrainStepFollowsTheRingQuads()
         {
-            StreamingConfig c = StreamingConfig.ForTier(StreamingConfig.TierMid); // L10 64 quads, L9 and L8 32, L7..L5 16
+            // Mid: L10 32 quads (detail tiles 64), L9 and L8 16, L7 16, L6 8, L5 16 (perf pass: the W2 terrain slice in view).
+            StreamingConfig c = StreamingConfig.ForTier(StreamingConfig.TierMid);
             var leaf = new TileId(10, 516, 161);
-            Assert.That(c.TerrainStep(leaf, leaf, 129), Is.EqualTo(2));
-            Assert.That(c.TerrainStep(leaf, leaf.Parent(), 129), Is.EqualTo(1)); // 64 source quads cover the leaf
+            Assert.That(c.TerrainStep(leaf, leaf, 129), Is.EqualTo(4));
+            Assert.That(c.TerrainStep(leaf, leaf.Parent(), 129), Is.EqualTo(2)); // 64 source quads cover the leaf
             Assert.That(c.TerrainStep(leaf, TileArea.AncestorAt(leaf, 8), 129), Is.EqualTo(1));
             var l6 = TileArea.AncestorAt(leaf, 6);
-            Assert.That(c.TerrainStep(l6, l6, 129), Is.EqualTo(8));
+            Assert.That(c.TerrainStep(l6, l6, 129), Is.EqualTo(16), "Mid L6: 8 quads, the 2 km spacing of its L5");
+            var l5 = TileArea.AncestorAt(leaf, 5);
+            Assert.That(c.TerrainStep(l5, l5, 129), Is.EqualTo(8));
             var l9 = leaf.Parent();
-            Assert.That(c.TerrainStep(l9, l9, 129), Is.EqualTo(4));
+            Assert.That(c.TerrainStep(l9, l9, 129), Is.EqualTo(8));
             Assert.That(c.TerrainStep(leaf, TileArea.AncestorAt(leaf, 2), 129), Is.EqualTo(1));
-            Assert.That(c.TerrainStep(leaf, leaf, 65), Is.EqualTo(1));
+            Assert.That(c.TerrainStep(leaf, leaf, 65), Is.EqualTo(2));
+            // Nodes: the detail tiles round the player keep the detail quads, the others take the ring's.
+            Assert.That(c.TerrainStep(new SelectedNode(leaf, leaf, true), 129), Is.EqualTo(2), "detail tile: 64 quads");
+            Assert.That(c.TerrainStep(new SelectedNode(leaf, leaf, false), 129), Is.EqualTo(4), "terrain-only tile: 32 quads");
+            Assert.That(c.TerrainStep(new SelectedNode(leaf, l9, true), 129), Is.EqualTo(2), "a cropped node never draws detail");
+            Assert.That(c.TerrainStep(new SelectedNode(l9, l9, true), 129), Is.EqualTo(8), "detail quads only on the finest level");
             StreamingConfig high = StreamingConfig.ForTier(StreamingConfig.TierHigh);
-            Assert.That(high.TerrainStep(leaf, leaf, 129), Is.EqualTo(2));
+            Assert.That(high.TerrainStep(leaf, leaf, 129), Is.EqualTo(4));
+            Assert.That(high.TerrainStep(new SelectedNode(leaf, leaf, true), 129), Is.EqualTo(2));
+            Assert.That(high.TerrainStep(l9, l9, 129), Is.EqualTo(4), "High keeps 32 quads on L9");
             StreamingConfig low = StreamingConfig.ForTier(StreamingConfig.TierLow);
             Assert.That(low.TerrainStep(leaf, leaf, 129), Is.EqualTo(4));
+            Assert.That(low.TerrainStep(new SelectedNode(leaf, leaf, true), 129), Is.EqualTo(4), "Low detail tiles: 32 quads");
+            Assert.That(low.TerrainStep(l9, l9, 129), Is.EqualTo(8));
+            var hand = new StreamingConfig { Rings = new[] { new LodRing(10, 1000, 16) }, MaxResidentTiles = 4 };
+            Assert.That(hand.TerrainStep(new SelectedNode(leaf, leaf, true), 129), Is.EqualTo(8), "no detail quads: the ring's");
+            Assert.That(c.Clone().DetailTerrainQuads, Is.EqualTo(64));
+            hand.DetailTerrainQuads = -1;
+            Assert.Throws<ArgumentException>(() => hand.Validate());
         }
 
         /// <summary>A pure (no hysteresis) copy of <paramref name="cfg"/> with every radius stretched by the hysteresis
@@ -155,7 +172,7 @@ namespace Ghumante.Core.Tests
                     long tris = 0;
                     foreach (SelectedNode n in result)
                     {
-                        int step = plain.TerrainStep(n.Area, n.Source, 129);
+                        int step = plain.TerrainStep(n, 129);
                         int quads = (128 >> n.CropDepth) / step;
                         tris += 2L * quads * quads;
                     }
@@ -226,7 +243,7 @@ namespace Ghumante.Core.Tests
                         foreach (SelectedNode n in result)
                         {
                             TileData src = StreamingSampleRegion.Tile(n.Source);
-                            int step = cfg.TerrainStep(n.Area, n.Source, src.HeightsN);
+                            int step = cfg.TerrainStep(n, src.HeightsN);
                             long[] c = NodeCost(src, n, step, tier, cfg, terrainCache, detailCache);
                             for (int k = 0; k < 4; k++) layers[k] += c[k];
                             bytes += c[4];
@@ -282,8 +299,9 @@ namespace Ghumante.Core.Tests
                     d = new long[4];
                     TileHeightSampler h = TileHeightSampler.ForArea(src, n.Area, step);
                     // Roads, bridges and ornaments as the streamer builds them (TileBuild, the tier's settings): the
-                    // triangles of the ribbons plus every bridge and ornament piece at its coarsest built LOD (most
-                    // pieces are far), the bytes of every LOD the tile uploads.
+                    // triangles of the ribbons' full kit (the cheap far copy stands in for it beyond the B1 radius,
+                    // RoadBlocks) plus every bridge and ornament piece at its coarsest built LOD (most pieces are far),
+                    // the bytes of everything the tile uploads (both road copies, every LOD).
                     World.Streaming.MeshingSettings roadsOnly = World.Streaming.MeshingSettings.ForTier(tier);
                     roadsOnly.DrawBuildings = false;
                     roadsOnly.DrawAreas = false;
@@ -291,7 +309,7 @@ namespace Ghumante.Core.Tests
                     roadsOnly.DrawRoadDecals = false;
                     var tb = new World.Streaming.TileBuild { Node = n, Source = src };
                     World.Streaming.TileBuild.Execute(tb, StreamingSampleRegion.Pack, cfg, roadsOnly, null);
-                    d[0] = tb.Layers[World.Streaming.TileLayers.Roads].TriangleCount + CoarsestPieceTris(tb, World.Streaming.TileLayers.Bridges)
+                    d[0] = FullKitRoadTris(tb) + CoarsestPieceTris(tb, World.Streaming.TileLayers.Bridges)
                            + CoarsestPieceTris(tb, World.Streaming.TileLayers.Ornaments);
                     d[3] += tb.LayerBytes(World.Streaming.TileLayers.Roads) + tb.LayerBytes(World.Streaming.TileLayers.Bridges)
                             + tb.LayerBytes(World.Streaming.TileLayers.Ornaments);
@@ -311,6 +329,15 @@ namespace Ghumante.Core.Tests
                 cost[4] += d[3];
             }
             return cost;
+        }
+
+        /// <summary>Triangles of the road layer's full kit (parts below <see cref="World.Streaming.RoadBlocks.FarPart"/>).</summary>
+        private static long FullKitRoadTris(World.Streaming.TileBuild b)
+        {
+            long tris = 0;
+            foreach (World.Streaming.UploadChunk c in b.Chunks)
+                if (c.Layer == World.Streaming.TileLayers.Roads && !World.Streaming.RoadBlocks.IsFar(c.Part)) tris += c.IndexCount / 3;
+            return tris;
         }
 
         /// <summary>Triangles of a layer's pieces (<see cref="World.Streaming.LodPiece"/>), each at its coarsest built LOD.</summary>

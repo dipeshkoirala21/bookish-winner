@@ -117,13 +117,15 @@ namespace Ghumante.World.Life
         }
 
         /// <summary>Sacred and compound zones of the visible tiles (W2_DESIGN 10.3): audio, gameplay and traffic share it.
-        /// Changed only between steps on the main thread.</summary>
+        /// Changed at the start of a step on its worker thread (before the lanes that read it); its queries are locked,
+        /// so the main thread may read it at any time.</summary>
         public SacredZoneIndex Zones
         {
             get { return _zones; }
         }
 
-        /// <summary>The 250 m area-type grid of the visible tiles (ambience, spawns).</summary>
+        /// <summary>The 250 m area-type grid of the visible tiles (ambience, spawns). Changed at the start of a step on its
+        /// worker thread; its queries are locked.</summary>
         public AreaTypeGrid AreaTypes
         {
             get { return _areaTypes; }
@@ -233,8 +235,8 @@ namespace Ghumante.World.Life
             get { return _resident.Count; }
         }
 
-        /// <summary>A detail tile became visible: its zones join at once (between steps), its lanes and walk graph at the
-        /// next step.</summary>
+        /// <summary>A detail tile became visible: its zones, area types, lanes and walk graph join at the next step, on the
+        /// step's worker thread (nothing is indexed on the main thread).</summary>
         public void AddTile(TileId id, TileData t)
         {
             if (_disposed || t == null) return;
@@ -290,13 +292,13 @@ namespace Ghumante.World.Life
                 return;
             }
 
-            // Zones change only here, while no step runs (the step's lane building reads them).
+            // Tile changes go to the step (worker thread), which indexes the zones and area types first and then the
+            // lanes that read them: 1 to 3 ms per dense tile that no longer lands on the main thread when a tile shows.
+            // Both indexes are locked, so the main thread's queries stay safe while the step changes them.
             for (int i = 0; i < _pendingRemove.Count; i++)
             {
                 TileId id = _pendingRemove[i];
                 if (!_resident.Remove(id)) continue;
-                _zones.RemoveTile(id);
-                _areaTypes.RemoveTile(id);
                 _jobRemove.Add(id);
             }
             _pendingRemove.Clear();
@@ -304,8 +306,6 @@ namespace Ghumante.World.Life
             {
                 KeyValuePair<TileId, TileData> kv = _pendingAdd[i];
                 if (!_resident.Add(kv.Key)) continue;
-                _zones.AddTile(kv.Key, kv.Value, _db);
-                _areaTypes.AddTile(kv.Key, kv.Value);
                 _jobAdd.Add(kv);
             }
             _pendingAdd.Clear();
@@ -358,11 +358,16 @@ namespace Ghumante.World.Life
             {
                 for (int i = 0; i < _jobRemove.Count; i++)
                 {
+                    _zones.RemoveTile(_jobRemove[i]);
+                    _areaTypes.RemoveTile(_jobRemove[i]);
                     _graph.RemoveTile(_jobRemove[i]);
                     _peds.RemoveTile(_jobRemove[i]);
                 }
                 for (int i = 0; i < _jobAdd.Count; i++)
                 {
+                    // Zones before lanes: the lane building reads them.
+                    _zones.AddTile(_jobAdd[i].Key, _jobAdd[i].Value, _db);
+                    _areaTypes.AddTile(_jobAdd[i].Key, _jobAdd[i].Value);
                     _graph.AddTile(_jobAdd[i].Key, _jobAdd[i].Value);
                     _peds.AddTile(_jobAdd[i].Key, _jobAdd[i].Value);
                     if (_aviation != null && HasAprons(_jobAdd[i].Value))

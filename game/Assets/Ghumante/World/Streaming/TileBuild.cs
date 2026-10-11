@@ -25,11 +25,16 @@ namespace Ghumante.World.Streaming
     /// and 4) and the roundabout and police-chowk dressing (<see cref="Ornaments"/>, roundabouts.md). The band, hero,
     /// bridge and ornament layers are split into parts (<see cref="UploadChunk.Part"/>): B1 and B2 per 128 m block, B3
     /// per 256 m block, heroes per (hero, LOD) as <c>hero × 4 + lod</c>, bridges and ornaments per (piece, LOD) as
-    /// <c>piece × 4 + lod</c> (<see cref="LodPiece"/>).
+    /// <c>piece × 4 + lod</c> (<see cref="LodPiece"/>). The perf pass splits the roads per 128 m block twice (the full kit
+    /// as <c>block</c>, the cheap far copy as <see cref="RoadBlocks.FarPart"/> + block) and the decals per 128 m block
+    /// (<see cref="RoadBlocks"/>).
     /// </summary>
     public static class TileLayers
     {
         public const int Terrain = 0;
+
+        /// <summary>Road ribbons, junctions and islands: the full kit per 128 m block (part = block) and the cheap far copy
+        /// (part = <see cref="RoadBlocks.FarPart"/> + block).</summary>
         public const int Roads = 1;
 
         /// <summary>B1 styled extrusions, one part per 128 m block.</summary>
@@ -37,7 +42,7 @@ namespace Ghumante.World.Streaming
 
         public const int Areas = 3;
 
-        /// <summary>Road markings (decals lifted over the ribbons).</summary>
+        /// <summary>Road markings (decals lifted over the ribbons), one part per 128 m block.</summary>
         public const int RoadDecals = 4;
 
         /// <summary>B2 prisms, one part per 128 m block.</summary>
@@ -73,10 +78,10 @@ namespace Ghumante.World.Streaming
 
     /// <summary>
     /// One upload unit of a <see cref="TileBuild"/>: a run of one layer's triangles and the vertex range they use, at
-    /// most <see cref="TileBuild.UploadChunkVertices"/> vertices, so the main thread never copies a whole dense layer
-    /// (a city buildings layer reaches 290 000 vertices) in one frame. Each chunk becomes its own mesh. Its indices
-    /// (<see cref="MeshData.Indices"/>, and <see cref="TileBuild.ShortIndices"/> when <see cref="UsesShortIndices"/>)
-    /// are relative to <see cref="FirstVertex"/>.
+    /// most <see cref="TileBuild.UploadChunkVertices"/> vertices and <see cref="TileBuild.UploadChunkBytes"/> bytes, so the
+    /// main thread never copies a whole dense layer (a city buildings layer reaches 290 000 vertices) in one frame. Each
+    /// chunk becomes its own mesh. Its indices (<see cref="MeshData.Indices"/>, and <see cref="TileBuild.ShortIndices"/>
+    /// when <see cref="UsesShortIndices"/>) are relative to <see cref="FirstVertex"/>.
     /// </summary>
     public struct UploadChunk
     {
@@ -149,8 +154,14 @@ namespace Ghumante.World.Streaming
         public bool DrawBuildings = true;
         public bool DrawAreas = true;
 
-        /// <summary>Road markings into <see cref="TileLayers.RoadDecals"/> (W2_DESIGN 4.5).</summary>
+        /// <summary>Road markings into <see cref="TileLayers.RoadDecals"/> (W2_DESIGN 4.5), one part per 128 m block
+        /// (<see cref="RoadBlocks"/>; the streamer shows them only within the B1 radius).</summary>
         public bool DrawRoadDecals = true;
+
+        /// <summary>Also build the cheap far copy of the road layer (<see cref="RoadBlocks.FarOptions"/> of
+        /// <see cref="Roads"/>, parts <see cref="RoadBlocks.FarPart"/> + block), which the streamer shows beyond the B1
+        /// radius instead of the full kit. Off: only the full kit, which then shows out to the far radius.</summary>
+        public bool FarRoads = true;
 
         /// <summary>W2 building bands: B1 split per 128 m block plus the B2 and B3 layers. Off: the W1 single B1 layer.</summary>
         public bool BuildingBands = true;
@@ -361,14 +372,15 @@ namespace Ghumante.World.Streaming
     /// (<see cref="Execute"/>, Core types only, no Unity API), and its result, which the main thread uploads chunk by
     /// chunk (<see cref="Chunks"/>). Instances and their <see cref="MeshData"/> buffers are pooled by <see cref="StreamingScheduler"/>.
     /// <para>
-    /// Per node: the terrain of the area from its source (decimation step from <see cref="StreamingConfig.TerrainStep"/>,
-    /// skirts), the matching <see cref="TileHeightSampler"/> for the ground query, and, for exact nodes whose source has
+    /// Per node: the terrain of the area from its source (decimation step from
+    /// <see cref="StreamingConfig.TerrainStep(SelectedNode, int)"/>, skirts), the matching <see cref="TileHeightSampler"/> for the ground query, and, for exact nodes whose source has
     /// detail chunks, roads, buildings and areas draped on that same sampler plus the road index. Positions are metres
     /// from the area's south-west corner with absolute heights.
     /// </para>
     /// <para>
-    /// Every layer is then split into <see cref="Chunks"/> of at most <see cref="UploadChunkVertices"/> vertices, the
-    /// unit the scheduler uploads (one or more per frame within its time and byte budgets).
+    /// Every layer is then split into <see cref="Chunks"/> of at most <see cref="UploadChunkVertices"/> vertices and
+    /// <see cref="UploadChunkBytes"/> bytes, the unit the scheduler uploads (one or more per frame within its time and byte
+    /// budgets). The road and decal layers are first regrouped per 128 m block (<see cref="RoadBlocks"/>).
     /// </para>
     /// </summary>
     public sealed class TileBuild
@@ -381,8 +393,17 @@ namespace Ghumante.World.Streaming
         /// </summary>
         public const int PoolKeepVertices = 262144;
 
-        /// <summary>Most vertices one <see cref="UploadChunk"/> spans (about 1 MB of vertex data, 16-bit indices).</summary>
+        /// <summary>Most vertices one <see cref="UploadChunk"/> spans (16-bit indices); <see cref="UploadChunkBytes"/>
+        /// usually ends a chunk first.</summary>
         public const int UploadChunkVertices = 32768;
+
+        /// <summary>
+        /// Most bytes one <see cref="UploadChunk"/> uploads (<see cref="UploadChunk.Bytes"/>: 28 bytes per vertex, 36 with
+        /// UV0, plus 2 per index): the scheduler's default per-tick byte budget (<see cref="StreamingScheduler.UploadBudgetBytes"/>,
+        /// 1 MiB), so a chunk never makes a tick copy more than the budget. A dense city layer with UV0 (the W2 detail
+        /// pass) ends its chunks at about 25 000 vertices instead of the 32 768 that 28-byte vertices allowed (1.43 MB).
+        /// </summary>
+        public const long UploadChunkBytes = 1L << 20;
 
         public SelectedNode Node;
 
@@ -451,6 +472,7 @@ namespace Ghumante.World.Streaming
 
         private readonly MeshData _scratch = new MeshData();
         private readonly MeshParts.Scratch _partScratch = new MeshParts.Scratch();
+        private readonly RoadBlocks.Scratch _roadScratch = new RoadBlocks.Scratch();
         private readonly GenColliders _gen = new GenColliders();
 
         /// <summary>Worker milliseconds spent on this build.</summary>
@@ -631,7 +653,7 @@ namespace Ghumante.World.Streaming
             if (settings == null) settings = new MeshingSettings();
             TileData src = b.Source;
             TileId area = n.Area;
-            int step = config.TerrainStep(area, n.Source, src.HeightsN);
+            int step = config.TerrainStep(n, src.HeightsN);
             b.Step = step;
             for (int i = 0; i < TileLayers.Count; i++) b.Layers[i].Clear();
             b.Chunks.Clear();
@@ -655,8 +677,7 @@ namespace Ghumante.World.Streaming
                 }
                 else
                 {
-                    if (settings.DrawRoads) RoadMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.Roads]);
-                    if (settings.DrawRoads && settings.DrawRoadDecals) MarkingMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.RoadDecals]);
+                    if (settings.DrawRoads) BuildRoads(b, src, settings);
                     if (settings.DrawRoads && settings.DrawBridges) BuildBridges(b, src, settings);
                     if (settings.DrawBuildings) BuildBuildings(b, src, settings);
                     if (settings.DrawAreas) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
@@ -679,8 +700,8 @@ namespace Ghumante.World.Streaming
                 b.Bounds[o + 3] = x1;
                 b.Bounds[o + 4] = y1;
                 b.Bounds[o + 5] = z1;
-                if (b.Parts[i].Count > 0) SplitLayer(m, i, b.Parts[i], UploadChunkVertices, b.Chunks, ref b.ShortIndices[i]);
-                else SplitLayer(m, i, UploadChunkVertices, b.Chunks, ref b.ShortIndices[i]);
+                if (b.Parts[i].Count > 0) SplitLayer(m, i, b.Parts[i], UploadChunkVertices, UploadChunkBytes, b.Chunks, ref b.ShortIndices[i]);
+                else SplitLayer(m, i, UploadChunkVertices, UploadChunkBytes, b.Chunks, ref b.ShortIndices[i]);
             }
 
             // Vertices drop with the square of their distance to the camera; the camera can be anywhere inside this
@@ -693,6 +714,33 @@ namespace Ghumante.World.Streaming
         private static bool Wants(int only, int layer)
         {
             return only == 0 || (only & (1 << layer)) != 0;
+        }
+
+        /// <summary>
+        /// The road ribbons and their markings per 128 m block (<see cref="RoadBlocks"/>): the full kit of
+        /// <see cref="MeshingSettings.Roads"/> as parts = block, the cheap far copy (<see cref="RoadBlocks.FarOptions"/>,
+        /// when <see cref="MeshingSettings.FarRoads"/>) as parts = <see cref="RoadBlocks.FarPart"/> + block, and the
+        /// markings (<see cref="MeshingSettings.DrawRoadDecals"/>) per block of the decal layer, every triangle clipped at
+        /// the block lines.
+        /// </summary>
+        private static void BuildRoads(TileBuild b, TileData src, MeshingSettings settings)
+        {
+            double size = src.Tile.Size;
+            MeshData roads = b.Layers[TileLayers.Roads];
+            List<PartRange> parts = b.Parts[TileLayers.Roads];
+            b._scratch.Clear();
+            RoadMesher.Build(src, b.Sampler, settings.Roads, b._scratch);
+            RoadBlocks.Append(b._scratch, size, RoadBlocks.BlockM, 0, roads, parts, b._roadScratch);
+            if (settings.FarRoads && b._scratch.IndexCount > 0)
+            {
+                b._scratch.Clear();
+                RoadMesher.Build(src, b.Sampler, RoadBlocks.FarOptions(settings.Roads), b._scratch);
+                RoadBlocks.Append(b._scratch, size, RoadBlocks.BlockM, RoadBlocks.FarPart, roads, parts, b._roadScratch);
+            }
+            if (!settings.DrawRoadDecals) return;
+            b._scratch.Clear();
+            MarkingMesher.Build(src, b.Sampler, settings.Roads, b._scratch);
+            RoadBlocks.Append(b._scratch, size, RoadBlocks.BlockM, 0, b.Layers[TileLayers.RoadDecals], b.Parts[TileLayers.RoadDecals], b._roadScratch);
         }
 
         /// <summary>
@@ -1174,10 +1222,20 @@ namespace Ghumante.World.Streaming
         /// </summary>
         public static void SplitLayer(MeshData m, int layer, int maxVertices, List<UploadChunk> chunks, ref ushort[] shortIndices)
         {
+            SplitLayer(m, layer, maxVertices, long.MaxValue, chunks, ref shortIndices);
+        }
+
+        /// <summary>
+        /// <see cref="SplitLayer(MeshData, int, int, List{UploadChunk}, ref ushort[])"/> that also ends a chunk before its
+        /// <see cref="UploadChunk.Bytes"/> would exceed <paramref name="maxBytes"/> (vertex streams of the layer's format plus
+        /// 16-bit indices), so the upload size per chunk is bounded whatever the vertex format.
+        /// </summary>
+        public static void SplitLayer(MeshData m, int layer, int maxVertices, long maxBytes, List<UploadChunk> chunks, ref ushort[] shortIndices)
+        {
             if (m == null) throw new ArgumentNullException(nameof(m));
             int n = m.IndexCount - m.IndexCount % 3;
             if (n <= 0) return;
-            SplitLayer(m, layer, new[] { new PartRange(0, 0, n) }, maxVertices, chunks, ref shortIndices);
+            SplitLayer(m, layer, new[] { new PartRange(0, 0, n) }, maxVertices, maxBytes, chunks, ref shortIndices);
         }
 
         /// <summary>
@@ -1187,6 +1245,16 @@ namespace Ghumante.World.Streaming
         public static void SplitLayer(MeshData m, int layer, IReadOnlyList<PartRange> parts, int maxVertices, List<UploadChunk> chunks,
                                       ref ushort[] shortIndices)
         {
+            SplitLayer(m, layer, parts, maxVertices, long.MaxValue, chunks, ref shortIndices);
+        }
+
+        /// <summary>
+        /// <see cref="SplitLayer(MeshData, int, IReadOnlyList{PartRange}, int, List{UploadChunk}, ref ushort[])"/> with a
+        /// byte cap per chunk (<see cref="SplitLayer(MeshData, int, int, long, List{UploadChunk}, ref ushort[])"/>).
+        /// </summary>
+        public static void SplitLayer(MeshData m, int layer, IReadOnlyList<PartRange> parts, int maxVertices, long maxBytes,
+                                      List<UploadChunk> chunks, ref ushort[] shortIndices)
+        {
             if (m == null) throw new ArgumentNullException(nameof(m));
             if (parts == null) throw new ArgumentNullException(nameof(parts));
             if (chunks == null) throw new ArgumentNullException(nameof(chunks));
@@ -1195,6 +1263,7 @@ namespace Ghumante.World.Streaming
             if (maxVertices < 3) maxVertices = 3;
             int[] idx = m.Indices;
             int firstChunk = chunks.Count;
+            long vertexBytes = 12 + 12 + 4 + (m.HasUv0 ? 8 : 0);
             for (int pi = 0; pi < parts.Count; pi++)
             {
                 PartRange pr = parts[pi];
@@ -1206,7 +1275,7 @@ namespace Ghumante.World.Streaming
                     int a = idx[t], b = idx[t + 1], c = idx[t + 2];
                     int tmin = Math.Min(a, Math.Min(b, c)), tmax = Math.Max(a, Math.Max(b, c));
                     int nmin = Math.Min(vmin, tmin), nmax = Math.Max(vmax, tmax);
-                    if (t > first && nmax - nmin >= maxVertices)
+                    if (t > first && (nmax - nmin >= maxVertices || ChunkBytes(nmax - nmin + 1, t + 3 - first, vertexBytes) > maxBytes))
                     {
                         chunks.Add(MakeChunk(m, layer, pr.Part, first, t - first, vmin, vmax));
                         first = t;
@@ -1236,6 +1305,13 @@ namespace Ghumante.World.Streaming
             }
         }
 
+        /// <summary>Bytes of a chunk spanning <paramref name="vertices"/> with <paramref name="indices"/> (as
+        /// <see cref="UploadChunk.Bytes"/>).</summary>
+        private static long ChunkBytes(int vertices, int indices, long vertexBytes)
+        {
+            return vertices * vertexBytes + (long)indices * (vertices <= 65535 ? 2 : 4);
+        }
+
         private static UploadChunk MakeChunk(MeshData m, int layer, int part, int firstIndex, int indexCount, int vmin, int vmax)
         {
             var c = new UploadChunk
@@ -1263,6 +1339,418 @@ namespace Ghumante.World.Streaming
                 else if (z > c.MaxZ) c.MaxZ = z;
             }
             return c;
+        }
+    }
+
+    /// <summary>
+    /// The road and road-decal layers per block (perf pass; W2_DESIGN 10.4 gives roads and decals a slice of 8 k / 20 k /
+    /// 30 k triangles in view). Both layers are regrouped per <see cref="BlockM"/> block of the tile, like the B1 and B2
+    /// band layers, so every block uploads as its own chunks and the camera frustum culls the blocks behind it. The road
+    /// layer holds two copies of every block: the full kit (part = block) and a cheap ribbon copy (part =
+    /// <see cref="FarPart"/> + block, meshed with <see cref="FarOptions"/>: the light kit, no trails, no footpaths). The streamer
+    /// (<c>WorldStreamer.UpdateBands</c>) shows a block's full copy and its markings while the block lies within the B1
+    /// radius (<see cref="Radii"/>: 120 / 200 / 250 m), the cheap copy beyond it out to the B2 radius (350 / 500 / 700 m),
+    /// and no road beyond that, where the B3 city blocks stand over the streets. Roads therefore stay smooth, wide and
+    /// fully detailed around the player, and only what is far or off-screen is cut.
+    /// <para>
+    /// Triangles crossing a block line are clipped at the line (<see cref="Append"/>), so the full copy of one block and
+    /// the cheap copy of its neighbour meet exactly on the line: no gap and no doubled, z-fighting sliver where a street
+    /// crosses the switch. Engine-free and deterministic; allocation-free once the scratch buffers have grown.
+    /// </para>
+    /// </summary>
+    public static class RoadBlocks
+    {
+        /// <summary>Block side (m): two by two B0 cells, the B1 and B2 block.</summary>
+        public const double BlockM = 128.0;
+
+        /// <summary>Part offset of the cheap far copy in <see cref="TileLayers.Roads"/> (part = FarPart + block).</summary>
+        public const int FarPart = 4096;
+
+        /// <summary>A block keeps its state until the camera is this much (m) beyond the radius that switched it, so a
+        /// player standing on the line never makes it flicker.</summary>
+        public const float HysteresisM = 8f;
+
+        /// <summary>True for a part of the cheap far copy.</summary>
+        public static bool IsFar(int part)
+        {
+            return part >= FarPart;
+        }
+
+        /// <summary>The block of a road or decal part.</summary>
+        public static int BlockOfPart(int part)
+        {
+            return part >= FarPart ? part - FarPart : part;
+        }
+
+        /// <summary>The tier's radii (m, horizontal from the camera to the nearest point of a block): the full kit and the
+        /// markings within <paramref name="nearM"/> (B1's outer radius), the cheap copy out to <paramref name="farM"/>
+        /// (B2's outer radius).</summary>
+        public static void Radii(BandConfig bands, out float nearM, out float farM)
+        {
+            if (bands == null) throw new ArgumentNullException(nameof(bands));
+            nearM = bands.B1OuterM;
+            farM = bands.B2OuterM;
+        }
+
+        /// <summary>The square of a block (tile-local metres).</summary>
+        public static void Square(int block, double tileSizeM, out double minX, out double minZ, out double maxX, out double maxZ)
+        {
+            int per = MeshParts.BlocksPerSide(tileSizeM, BlockM);
+            int bx = block % per, bz = block / per;
+            minX = bx * BlockM;
+            minZ = bz * BlockM;
+            maxX = minX + BlockM;
+            maxZ = minZ + BlockM;
+        }
+
+        /// <summary>Whether a block at <paramref name="distanceM"/> is inside a radius, with <see cref="HysteresisM"/>:
+        /// a block that was inside stays inside until it is that much beyond.</summary>
+        public static bool Inside(bool wasInside, double distanceM, float radiusM)
+        {
+            return distanceM <= (wasInside ? radiusM + HysteresisM : radiusM);
+        }
+
+        /// <summary>The options of the cheap far copy, a ribbon-only copy of <paramref name="near"/>: the light kit
+        /// (<see cref="RoadOptions.Detail"/> off), no trails (footways, paths, steps and tracks are thinner than a pixel
+        /// that far) and no cross-section kit (<see cref="RoadOptions.CrossSections"/> off: the raised footpaths, medians
+        /// and shoulders give way to the plain rounded skirt). The carriageway widths, curves, lifts, vertical profile and
+        /// junction caps stay the same, so the two copies' carriageways meet at a block line and no junction opens a
+        /// hole.</summary>
+        public static RoadOptions FarOptions(RoadOptions near)
+        {
+            if (near == null) near = new RoadOptions();
+            return new RoadOptions
+            {
+                LiftM = near.LiftM, ClassLiftStepM = near.ClassLiftStepM, PieceLiftStepM = near.PieceLiftStepM, PieceLiftLevels = near.PieceLiftLevels,
+                MaxSegmentM = near.MaxSegmentM, Drape = near.Drape, IncludeTrails = false, CentreLighten = near.CentreLighten,
+                MaxMiter = near.MaxMiter, WidthModel = near.WidthModel, CrossSections = false, JunctionCaps = near.JunctionCaps,
+                KerbHeightM = near.KerbHeightM, MedianHeightM = near.MedianHeightM, Detail = false, SmoothProfile = near.SmoothProfile,
+                PolicePodiums = near.PolicePodiums,
+            };
+        }
+
+        /// <summary>Scratch buffers of <see cref="Append"/> (one per worker; reuse across calls).</summary>
+        public sealed class Scratch
+        {
+            internal int[] TriBlock = new int[0];
+            internal int[] Order = new int[0];
+            internal int[] Counts = new int[0];
+            internal int[] CrossCounts = new int[0];
+            internal int[] Cross = new int[0];
+            internal int[] Map = new int[0];
+            internal int[] Stamp = new int[0];
+            internal int StampValue;
+
+            // Clipping: polygons of at most 3 + 4 points, Stride floats each (position, normal, colour, uv), and the
+            // source vertex of each point (-1 for a point on a block line).
+            internal readonly float[] PolyA = new float[16 * Stride];
+            internal readonly float[] PolyB = new float[16 * Stride];
+            internal readonly int[] SrcA = new int[16];
+            internal readonly int[] SrcB = new int[16];
+            internal readonly int[] Out = new int[16];
+        }
+
+        private const int Stride = 12;
+
+        /// <summary>
+        /// Appends the triangles of <paramref name="src"/> to <paramref name="dst"/> grouped by block (row-major from the
+        /// south-west), one <see cref="PartRange"/> per non-empty block with part = <paramref name="partBase"/> + block.
+        /// A triangle inside one block is copied (its vertices shared within the block); a triangle crossing a block line
+        /// is clipped to every block it touches (half-open blocks [k × blockM, (k + 1) × blockM), the tile's outer blocks
+        /// open towards the outside) and each piece fanned with interpolated normals, colours and UV0. The pieces cover
+        /// the triangle exactly once. Returns the parts added.
+        /// </summary>
+        public static int Append(MeshData src, double tileSizeM, double blockM, int partBase, MeshData dst, List<PartRange> parts, Scratch s)
+        {
+            if (src == null) throw new ArgumentNullException(nameof(src));
+            if (dst == null) throw new ArgumentNullException(nameof(dst));
+            if (parts == null) throw new ArgumentNullException(nameof(parts));
+            if (s == null) throw new ArgumentNullException(nameof(s));
+            int triCount = src.IndexCount / 3;
+            if (triCount == 0) return 0;
+            int per = MeshParts.BlocksPerSide(tileSizeM, blockM);
+            int blocks = per * per;
+            if (s.TriBlock.Length < triCount)
+            {
+                s.TriBlock = new int[Math.Max(triCount, s.TriBlock.Length * 2)];
+                s.Order = new int[s.TriBlock.Length];
+            }
+            if (s.Counts.Length < blocks + 1)
+            {
+                s.Counts = new int[blocks + 1];
+                s.CrossCounts = new int[blocks + 1];
+            }
+            if (s.Map.Length < src.VertexCount)
+            {
+                int cap = Math.Max(src.VertexCount, s.Map.Length * 2);
+                s.Map = new int[cap];
+                s.Stamp = new int[cap];
+                s.StampValue = 0;
+            }
+            Array.Clear(s.Counts, 0, blocks + 1);
+            Array.Clear(s.CrossCounts, 0, blocks + 1);
+            int[] idx = src.Indices;
+            float[] p = src.Positions;
+            // Pass 1: whole triangles per block; crossing triangles counted once per block their bounds touch.
+            int pairs = 0;
+            for (int t = 0; t < triCount; t++)
+            {
+                int a = idx[3 * t] * 3, b = idx[3 * t + 1] * 3, c = idx[3 * t + 2] * 3;
+                // Inside the closed square of its centroid's block (a vertex on a block line counts for both sides, so
+                // triangles of the terrain-grid drape that end on a line stay whole).
+                int kx = Cell((p[a] + p[b] + p[c]) / 3f, blockM, per), kz = Cell((p[a + 2] + p[b + 2] + p[c + 2]) / 3f, blockM, per);
+                if (InSquare(p, a, kx, kz, per, blockM) && InSquare(p, b, kx, kz, per, blockM) && InSquare(p, c, kx, kz, per, blockM))
+                {
+                    int k = kz * per + kx;
+                    s.TriBlock[t] = k;
+                    s.Counts[k + 1]++;
+                    continue;
+                }
+                int ax = Cell(p[a], blockM, per), az = Cell(p[a + 2], blockM, per);
+                int bx = Cell(p[b], blockM, per), bz = Cell(p[b + 2], blockM, per);
+                int cx = Cell(p[c], blockM, per), cz = Cell(p[c + 2], blockM, per);
+                s.TriBlock[t] = -1;
+                int x0 = Math.Min(ax, Math.Min(bx, cx)), x1 = Math.Max(ax, Math.Max(bx, cx));
+                int z0 = Math.Min(az, Math.Min(bz, cz)), z1 = Math.Max(az, Math.Max(bz, cz));
+                for (int zz = z0; zz <= z1; zz++)
+                for (int xx = x0; xx <= x1; xx++)
+                {
+                    s.CrossCounts[zz * per + xx + 1]++;
+                    pairs++;
+                }
+            }
+            for (int k = 0; k < blocks; k++)
+            {
+                s.Counts[k + 1] += s.Counts[k];
+                s.CrossCounts[k + 1] += s.CrossCounts[k];
+            }
+            if (s.Cross.Length < pairs) s.Cross = new int[Math.Max(pairs, s.Cross.Length * 2)];
+            // Pass 2: counting sorts (stable: triangles keep their order inside a block).
+            for (int t = 0; t < triCount; t++)
+            {
+                int k = s.TriBlock[t];
+                if (k >= 0)
+                {
+                    s.Order[s.Counts[k]++] = t;
+                    continue;
+                }
+                int a = idx[3 * t] * 3, b = idx[3 * t + 1] * 3, c = idx[3 * t + 2] * 3;
+                int x0 = Math.Min(Cell(p[a], blockM, per), Math.Min(Cell(p[b], blockM, per), Cell(p[c], blockM, per)));
+                int x1 = Math.Max(Cell(p[a], blockM, per), Math.Max(Cell(p[b], blockM, per), Cell(p[c], blockM, per)));
+                int z0 = Math.Min(Cell(p[a + 2], blockM, per), Math.Min(Cell(p[b + 2], blockM, per), Cell(p[c + 2], blockM, per)));
+                int z1 = Math.Max(Cell(p[a + 2], blockM, per), Math.Max(Cell(p[b + 2], blockM, per), Cell(p[c + 2], blockM, per)));
+                for (int zz = z0; zz <= z1; zz++)
+                for (int xx = x0; xx <= x1; xx++)
+                    s.Cross[s.CrossCounts[zz * per + xx]++] = t;
+            }
+            // Counts[k] and CrossCounts[k] now hold the ends of block k; the starts are the previous ends.
+            if (src.HasUv0 && !dst.HasUv0)
+            {
+                Array.Clear(dst.Uv0, 0, Math.Min(dst.Uv0.Length, dst.VertexCount * 2));
+                dst.HasUv0 = true;
+            }
+            dst.Reserve(src.VertexCount + src.VertexCount / 8, src.IndexCount + src.IndexCount / 8);
+            int added = 0, start = 0, crossStart = 0;
+            for (int k = 0; k < blocks; k++)
+            {
+                int end = s.Counts[k], crossEnd = s.CrossCounts[k];
+                if (end <= start && crossEnd <= crossStart)
+                {
+                    start = end;
+                    crossStart = crossEnd;
+                    continue;
+                }
+                if (++s.StampValue == int.MaxValue)
+                {
+                    Array.Clear(s.Stamp, 0, s.Stamp.Length);
+                    s.StampValue = 1;
+                }
+                int stamp = s.StampValue;
+                int firstIndex = dst.IndexCount;
+                for (int o = start; o < end; o++)
+                {
+                    int t = s.Order[o];
+                    int ia = Copy(src, dst, idx[3 * t], s, stamp);
+                    int ib = Copy(src, dst, idx[3 * t + 1], s, stamp);
+                    int ic = Copy(src, dst, idx[3 * t + 2], s, stamp);
+                    dst.AddTriangle(ia, ib, ic);
+                }
+                int bx = k % per, bz = k / per;
+                for (int o = crossStart; o < crossEnd; o++) Clip(src, s.Cross[o], bx, bz, per, blockM, dst, s, stamp);
+                if (dst.IndexCount > firstIndex)
+                {
+                    parts.Add(new PartRange(partBase + k, firstIndex, dst.IndexCount - firstIndex));
+                    added++;
+                }
+                start = end;
+                crossStart = crossEnd;
+            }
+            return added;
+        }
+
+        /// <summary>Block column (or row) of a coordinate, clamped into the tile (half-open cells).</summary>
+        private static int Cell(float v, double blockM, int per)
+        {
+            int c = (int)Math.Floor(v / blockM);
+            return c < 0 ? 0 : c >= per ? per - 1 : c;
+        }
+
+        /// <summary>True when vertex <paramref name="q"/> (offset into the positions) lies in the closed square of block
+        /// (kx, kz), the tile's outer blocks open towards the outside.</summary>
+        private static bool InSquare(float[] p, int q, int kx, int kz, int per, double blockM)
+        {
+            double x = p[q], z = p[q + 2];
+            if (kx > 0 && x < kx * blockM || kx < per - 1 && x > (kx + 1) * blockM) return false;
+            if (kz > 0 && z < kz * blockM || kz < per - 1 && z > (kz + 1) * blockM) return false;
+            return true;
+        }
+
+        private static int Copy(MeshData src, MeshData dst, int v, Scratch s, int stamp)
+        {
+            if (s.Stamp[v] == stamp) return s.Map[v];
+            int n = dst.VertexCount;
+            if ((n + 1) * 3 > dst.Positions.Length) dst.Reserve(Math.Max(64, n / 2), 0);
+            Array.Copy(src.Positions, v * 3, dst.Positions, n * 3, 3);
+            Array.Copy(src.Normals, v * 3, dst.Normals, n * 3, 3);
+            Array.Copy(src.Colors, v * 4, dst.Colors, n * 4, 4);
+            if (dst.HasUv0)
+            {
+                if (src.HasUv0) Array.Copy(src.Uv0, v * 2, dst.Uv0, n * 2, 2);
+                else dst.Uv0[n * 2] = dst.Uv0[n * 2 + 1] = 0f;
+            }
+            dst.VertexCount = n + 1;
+            s.Stamp[v] = stamp;
+            s.Map[v] = n;
+            return n;
+        }
+
+        /// <summary>Clips triangle <paramref name="t"/> to block (bx, bz) and fans the piece into <paramref name="dst"/>
+        /// (corners that are vertices of the source share the block's copy of that vertex).</summary>
+        private static void Clip(MeshData src, int t, int bx, int bz, int per, double blockM, MeshData dst, Scratch s, int stamp)
+        {
+            float[] a = s.PolyA, b = s.PolyB;
+            int[] sa = s.SrcA, sb = s.SrcB;
+            int n = 0;
+            for (int q = 0; q < 3; q++)
+            {
+                sa[n] = src.Indices[3 * t + q];
+                Load(src, sa[n], a, n++);
+            }
+            // Half-open block: x >= x0 (not for the first column), x < x1 (not for the last); the same along z.
+            if (bx > 0) Swap(ref a, ref b, ref sa, ref sb, ref n, ClipPlane(a, sa, n, b, sb, 0, (float)(bx * blockM), false));
+            if (n >= 3 && bx < per - 1) Swap(ref a, ref b, ref sa, ref sb, ref n, ClipPlane(a, sa, n, b, sb, 0, (float)((bx + 1) * blockM), true));
+            if (n >= 3 && bz > 0) Swap(ref a, ref b, ref sa, ref sb, ref n, ClipPlane(a, sa, n, b, sb, 2, (float)(bz * blockM), false));
+            if (n >= 3 && bz < per - 1) Swap(ref a, ref b, ref sa, ref sb, ref n, ClipPlane(a, sa, n, b, sb, 2, (float)((bz + 1) * blockM), true));
+            if (n < 3) return;
+            bool any = false;
+            for (int i = 1; i + 1 < n && !any; i++) any = !Degenerate(a, 0, i, i + 1);
+            if (!any) return;
+            int[] o = s.Out;
+            dst.Reserve(n, 3 * (n - 2));
+            for (int i = 0; i < n; i++) o[i] = sa[i] >= 0 ? Copy(src, dst, sa[i], s, stamp) : Store(a, i, dst);
+            for (int i = 1; i + 1 < n; i++)
+            {
+                if (Degenerate(a, 0, i, i + 1)) continue;
+                dst.AddTriangle(o[0], o[i], o[i + 1]);
+            }
+        }
+
+        private static void Swap(ref float[] a, ref float[] b, ref int[] sa, ref int[] sb, ref int n, int count)
+        {
+            float[] t = a;
+            a = b;
+            b = t;
+            int[] u = sa;
+            sa = sb;
+            sb = u;
+            n = count;
+        }
+
+        /// <summary>Sutherland-Hodgman against one axis plane: keeps <c>v &lt; c</c> (<paramref name="keepBelow"/>) or
+        /// <c>v ≥ c</c>; returns the points written to <paramref name="dst"/> (their source vertex in
+        /// <paramref name="dstSrc"/>, -1 for points made on the plane).</summary>
+        private static int ClipPlane(float[] src, int[] srcSrc, int n, float[] dst, int[] dstSrc, int axis, float c, bool keepBelow)
+        {
+            int m = 0;
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                float vi = src[i * Stride + axis], vj = src[j * Stride + axis];
+                bool inI = keepBelow ? vi < c : vi >= c, inJ = keepBelow ? vj < c : vj >= c;
+                if (inI)
+                {
+                    Array.Copy(src, i * Stride, dst, m * Stride, Stride);
+                    dstSrc[m++] = srcSrc[i];
+                }
+                if (inI != inJ)
+                {
+                    float f = (c - vi) / (vj - vi);
+                    int o = m * Stride, pi = i * Stride, pj = j * Stride;
+                    for (int k = 0; k < Stride; k++) dst[o + k] = src[pi + k] + (src[pj + k] - src[pi + k]) * f;
+                    dst[o + axis] = c;
+                    dstSrc[m++] = -1;
+                }
+            }
+            return m;
+        }
+
+        private static void Load(MeshData m, int v, float[] poly, int i)
+        {
+            int o = i * Stride;
+            poly[o] = m.Positions[v * 3];
+            poly[o + 1] = m.Positions[v * 3 + 1];
+            poly[o + 2] = m.Positions[v * 3 + 2];
+            poly[o + 3] = m.Normals[v * 3];
+            poly[o + 4] = m.Normals[v * 3 + 1];
+            poly[o + 5] = m.Normals[v * 3 + 2];
+            poly[o + 6] = m.Colors[v * 4];
+            poly[o + 7] = m.Colors[v * 4 + 1];
+            poly[o + 8] = m.Colors[v * 4 + 2];
+            poly[o + 9] = m.Colors[v * 4 + 3];
+            poly[o + 10] = m.HasUv0 ? m.Uv0[v * 2] : 0f;
+            poly[o + 11] = m.HasUv0 ? m.Uv0[v * 2 + 1] : 0f;
+        }
+
+        private static int Store(float[] poly, int i, MeshData m)
+        {
+            int o = i * Stride, v = m.VertexCount;
+            if ((v + 1) * 3 > m.Positions.Length) m.Reserve(Math.Max(64, v / 2), 0);
+            float nx = poly[o + 3], ny = poly[o + 4], nz = poly[o + 5];
+            float len = (float)Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            if (len > 1e-6f)
+            {
+                nx /= len;
+                ny /= len;
+                nz /= len;
+            }
+            m.Positions[v * 3] = poly[o];
+            m.Positions[v * 3 + 1] = poly[o + 1];
+            m.Positions[v * 3 + 2] = poly[o + 2];
+            m.Normals[v * 3] = nx;
+            m.Normals[v * 3 + 1] = ny;
+            m.Normals[v * 3 + 2] = nz;
+            for (int k = 0; k < 4; k++)
+            {
+                float c = poly[o + 6 + k] + 0.5f;
+                m.Colors[v * 4 + k] = (byte)(c <= 0f ? 0 : c >= 255f ? 255 : (int)c);
+            }
+            if (m.HasUv0)
+            {
+                m.Uv0[v * 2] = poly[o + 10];
+                m.Uv0[v * 2 + 1] = poly[o + 11];
+            }
+            m.VertexCount = v + 1;
+            return v;
+        }
+
+        /// <summary>True when the triangle (i, j, k) of a polygon has (almost) no area.</summary>
+        private static bool Degenerate(float[] poly, int i, int j, int k)
+        {
+            int a = i * Stride, b = j * Stride, c = k * Stride;
+            double ux = poly[b] - poly[a], uy = poly[b + 1] - poly[a + 1], uz = poly[b + 2] - poly[a + 2];
+            double vx = poly[c] - poly[a], vy = poly[c + 1] - poly[a + 1], vz = poly[c + 2] - poly[a + 2];
+            double cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+            return cx * cx + cy * cy + cz * cz < 1e-10;
         }
     }
 }

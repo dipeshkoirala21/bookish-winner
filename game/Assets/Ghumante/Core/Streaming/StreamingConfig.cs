@@ -43,20 +43,31 @@ namespace Ghumante.Core.Streaming
         /// <summary>Default <see cref="HysteresisFraction"/>: 10 % (75 m on the Low near ring).</summary>
         public const double DefaultHysteresisFraction = 0.1;
 
+        /// <summary>Terrain quads along one side of a finest-level (level-10) node that draws detail
+        /// (<see cref="SelectedNode.DrawsDetail"/>): the ground the player stands on, the roads drape on and the B0
+        /// cells sit on keeps this resolution while the other level-10 nodes of the near ring use the ring's
+        /// <see cref="LodRing.TerrainQuads"/>. 0: the ring's quads (<see cref="TerrainStep(SelectedNode, int)"/>).</summary>
+        public int DetailTerrainQuads;
+
         /// <summary>
         /// Settings for tier 0 (Low), 1 (Mid) or 2 (High). Near/mid/far radii are ARCHITECTURE 7.2's; the horizon
-        /// levels 7, 6 and 5 reach 50 / 80 / 120 km. Terrain quads per area (L10 32 / 64 / 64, L9 and L8 32, horizon
-        /// 16) keep a whole worst-case selection's terrain within ARCHITECTURE 10's visible-triangle estimate
-        /// (144 k / 395 k / 604 k triangles measured by StreamingConfigTests on a fully covered pack, of which
-        /// roughly a third is in view); the 2 m near-field refinement of ARCHITECTURE 6.3 comes later.
+        /// levels 7, 6 and 5 reach 50 / 80 / 120 km. Terrain quads per area are sized against the W2 terrain slice in
+        /// view (W2_DESIGN 10.4: 30 k / 70 k / 110 k): the detail tiles around the player keep 32 / 64 / 64 quads
+        /// (32 / 16 / 16 m, <see cref="DetailTerrainQuads"/>), the other level-10 tiles of the near ring 32 (32 m), L9
+        /// 16 / 16 / 32, L8 16 and the horizon levels 16, except Mid's L6 at 8 (2 km, the spacing its L5 already has).
+        /// Measured at Asan, Basantapur, Boudha, Thamel and Chabahil (StreamingViewBudgetTests: every node meeting a
+        /// 70 degree view wedge, worst of 16 headings) terrain in view is then 24-28 k / 47-63 k / 95-102 k triangles,
+        /// from 41-46 k / 84-129 k / 118-170 k before. Skirts hide the cracks between neighbouring steps as before
+        /// (a detail tile next to a terrain-only one, a level next to the coarser one), and the 2 m near-field
+        /// refinement of ARCHITECTURE 6.3 comes later.
         /// <para>
         /// Roads, buildings and areas cost far more than terrain in town (a dense 1 km tile of Thamel is about 140 k
         /// building triangles), so they are drawn only for level-10 tiles within <see cref="DetailRadiusM"/>
         /// (100 / 500 / 900 m) of the focus rather than across the whole near ring. Measured on the sample's densest
-        /// tiles (StreamingConfigTests, radii stretched by the hysteresis margin), whole selections then hold at most
-        /// about 0.62 M / 0.97 M / 1.54 M triangles (36 / 56 / 89 MB of meshes): within three times the visible estimate on Mid and High; Low's
-        /// worst case, four dense tiles meeting at the focus, is about 1.4 times that until building LOD and
-        /// distance bands land (ARCHITECTURE 7.5, W2).
+        /// tiles (StreamingConfigTests, radii stretched by the hysteresis margin; roads at their full kit, B1 for every
+        /// house), whole selections hold at most about 0.79 M / 1.10 M / 1.71 M triangles (56 / 77 / 121 MB of meshes,
+        /// both road copies included); the streamer draws only a fraction of that (the W2 bands, the road blocks and
+        /// the view: StreamingViewBudgetTests).
         /// </para>
         /// MaxResidentTiles is about 1.25 to 1.3 times the worst-case selection with the hysteresis margin
         /// (120 / 209 / 334 nodes).
@@ -70,36 +81,39 @@ namespace Ghumante.Core.Streaming
                     {
                         Rings = new[]
                         {
-                            new LodRing(10, 750, 32), new LodRing(9, 2500, 32), new LodRing(8, 6000, 32),
+                            new LodRing(10, 750, 32), new LodRing(9, 2500, 16), new LodRing(8, 6000, 16),
                             new LodRing(7, 14000, 16), new LodRing(6, 28000, 16), new LodRing(5, 50000, 16),
                         },
                         MaxResidentTiles = 160,
                         CacheBudgetBytes = 30L << 20,
                         DetailRadiusM = 100,
+                        DetailTerrainQuads = 32,
                     };
                 case TierMid:
                     return new StreamingConfig
                     {
                         Rings = new[]
                         {
-                            new LodRing(10, 1250, 64), new LodRing(9, 4000, 32), new LodRing(8, 10000, 32),
-                            new LodRing(7, 22000, 16), new LodRing(6, 44000, 16), new LodRing(5, 80000, 16),
+                            new LodRing(10, 1250, 32), new LodRing(9, 4000, 16), new LodRing(8, 10000, 16),
+                            new LodRing(7, 22000, 16), new LodRing(6, 44000, 8), new LodRing(5, 80000, 16),
                         },
                         MaxResidentTiles = 272,
                         CacheBudgetBytes = 60L << 20,
                         DetailRadiusM = 500,
+                        DetailTerrainQuads = 64,
                     };
                 case TierHigh:
                     return new StreamingConfig
                     {
                         Rings = new[]
                         {
-                            new LodRing(10, 1750, 64), new LodRing(9, 6000, 32), new LodRing(8, 14000, 32),
+                            new LodRing(10, 1750, 32), new LodRing(9, 6000, 32), new LodRing(8, 14000, 16),
                             new LodRing(7, 30000, 16), new LodRing(6, 60000, 16), new LodRing(5, 120000, 16),
                         },
                         MaxResidentTiles = 420,
                         CacheBudgetBytes = 90L << 20,
                         DetailRadiusM = 900,
+                        DetailTerrainQuads = 64,
                     };
                 default:
                     throw new ArgumentOutOfRangeException(nameof(tier), "tier must be 0 (Low), 1 (Mid) or 2 (High)");
@@ -113,6 +127,7 @@ namespace Ghumante.Core.Streaming
             {
                 Rings = Rings == null ? null : (LodRing[])Rings.Clone(), MaxResidentTiles = MaxResidentTiles,
                 CacheBudgetBytes = CacheBudgetBytes, DetailRadiusM = DetailRadiusM, HysteresisFraction = HysteresisFraction,
+                DetailTerrainQuads = DetailTerrainQuads,
             };
         }
 
@@ -151,6 +166,7 @@ namespace Ghumante.Core.Streaming
             if (CacheBudgetBytes < 0) throw new ArgumentException("CacheBudgetBytes must not be negative");
             if (!(DetailRadiusM >= 0)) throw new ArgumentException("DetailRadiusM must not be negative or NaN");
             if (!(HysteresisFraction >= 0) || HysteresisFraction > 1) throw new ArgumentException("HysteresisFraction must lie in [0, 1]");
+            if (DetailTerrainQuads < 0) throw new ArgumentException("DetailTerrainQuads must not be negative");
         }
 
         /// <summary>
@@ -183,11 +199,27 @@ namespace Ghumante.Core.Streaming
         /// </summary>
         public int TerrainStep(TileId area, TileId source, int sourceGridN)
         {
+            return StepFor(area, source, sourceGridN, RingFor(area.Level).TerrainQuads);
+        }
+
+        /// <summary>
+        /// The terrain step of a selected node (what <c>TileBuild</c> meshes it with): as
+        /// <see cref="TerrainStep(TileId, TileId, int)"/>, with <see cref="DetailTerrainQuads"/> instead of the ring's
+        /// quads for a finest-level node that draws detail.
+        /// </summary>
+        public int TerrainStep(SelectedNode node, int sourceGridN)
+        {
+            int target = RingFor(node.Area.Level).TerrainQuads;
+            if (node.DrawsDetail && DetailTerrainQuads > 0 && node.Area.Level >= FinestLevel) target = DetailTerrainQuads;
+            return StepFor(node.Area, node.Source, sourceGridN, target);
+        }
+
+        private static int StepFor(TileId area, TileId source, int sourceGridN, int target)
+        {
             int depth = area.Level - source.Level;
             int quads = sourceGridN - 1;
             if (depth < 0 || quads < 1) return 1;
             int cropQuads = depth >= 31 ? 0 : quads >> depth;
-            int target = RingFor(area.Level).TerrainQuads;
             if (cropQuads <= 1 || target <= 0 || target >= cropQuads) return 1;
             int step = 1;
             while (step * 2 * target <= cropQuads) step *= 2;

@@ -31,6 +31,11 @@ namespace Ghumante.World.Streaming
     /// cells (registered with the ground query while their tile is visible), and the per-frame render counters.
     /// </para>
     /// <para>
+    /// Perf pass: the road and decal layers come per 128 m block (<see cref="RoadBlocks"/>): a block shows its full road
+    /// kit and its markings within the B1 radius, its cheap ribbon copy out to the B2 radius and no road beyond, so the
+    /// camera frustum culls road blocks like band blocks and far streets cost a fraction of the near ones.
+    /// </para>
+    /// <para>
     /// Detail pass: the bridge and roundabout pieces (<see cref="LodPiece"/>: one LOD per span or site by the camera's
     /// distance, <see cref="PieceLod"/>), the colliders of the ornaments and the instanced dressing (registered with the
     /// heroes' and the B0 cells'), and in-place layer refreshes (<see cref="ITileRefreshSink"/>: the season's terrain
@@ -52,6 +57,7 @@ namespace Ghumante.World.Streaming
         private readonly HeroLodBudget _heroBudget;
         private readonly DetailCells _cells;
         private readonly Material _b0, _b1, _b1Full, _b2, _b3;
+        private readonly float _roadNearM, _roadFarM;
         private HeroLodBudget.Entry[] _heroEntries = new HeroLodBudget.Entry[32];
         private TileView[] _heroViews = new TileView[32];
         private int[] _heroIndex = new int[32];
@@ -81,6 +87,7 @@ namespace Ghumante.World.Streaming
             _b1Full = BandMaterial(materials.bandB1Full, BuildingBandLayer.B1, true);
             _b2 = BandMaterial(materials.bandB2, BuildingBandLayer.B2, false);
             _b3 = BandMaterial(materials.bandB3, BuildingBandLayer.B3, false);
+            RoadBlocks.Radii(_bands, out _roadNearM, out _roadFarM);
             var go = new GameObject("Tiles");
             _root = go.transform;
             if (parent != null) _root.SetParent(parent, false);
@@ -175,9 +182,9 @@ namespace Ghumante.World.Streaming
                 TileView view = kv.Value;
                 if (!view.IsVisible) continue;
                 _stats.TerrainTris += view.LayerTris(TileLayers.Terrain);
-                _stats.RoadTris += view.LayerTris(TileLayers.Roads) + view.EnabledTris(TileLayers.Bridges); // bridges share the roads slice
+                _stats.RoadTris += view.EnabledTris(TileLayers.Roads) + view.EnabledTris(TileLayers.Bridges); // bridges share the roads slice
                 _stats.HeroTris += view.EnabledTris(TileLayers.Ornaments); // roundabout statues count with the landmarks
-                _stats.DecalTris += view.LayerTris(TileLayers.RoadDecals);
+                _stats.DecalTris += view.EnabledTris(TileLayers.RoadDecals);
                 _stats.AreaTris += view.LayerTris(TileLayers.Areas);
                 _stats.B1Tris += view.EnabledTris(TileLayers.Buildings);
                 _stats.B2Tris += view.EnabledTris(TileLayers.BuildingsFar);
@@ -215,6 +222,7 @@ namespace Ghumante.World.Streaming
         private void UpdateBands(TileView view, double camX, double camZ)
         {
             double cx = camX - view.Node.Area.X0, cz = camZ - view.Node.Area.Z0;
+            UpdateRoadBlocks(view, cx, cz);
             float i1, o1, i2, o2, i3, o3;
             _bands.Range(BuildingBandLayer.B2, false, out i2, out o2);
             _bands.Range(BuildingBandLayer.B3, false, out i3, out o3);
@@ -240,11 +248,62 @@ namespace Ghumante.World.Streaming
                     case TileLayers.BuildingsBlock:
                         on = BandConfig.Touches(c.MinX, c.MinZ, c.MaxX, c.MaxZ, cx, cz, i3, o3);
                         break;
+                    case TileLayers.Roads:
+                        on = RoadShown(view, c.Part, cx, cz);
+                        break;
+                    case TileLayers.RoadDecals:
+                        on = RoadBlockIn(view, RoadBlocks.BlockOfPart(c.Part), true, cx, cz);
+                        break;
                     default:
                         continue;
                 }
                 if (c.Renderer.enabled != on) c.Renderer.enabled = on;
             }
+        }
+
+        // ---------------------------------------------------------------------------------------------------------
+        // Road blocks (RoadBlocks): the full kit and the markings within the B1 radius, the cheap copy out to the B2
+        // radius, nothing beyond; per 128 m block, with hysteresis kept in the view's block masks.
+
+        private void UpdateRoadBlocks(TileView view, double cx, double cz)
+        {
+            double size = view.Node.Area.Size;
+            int per = MeshParts.BlocksPerSide(size, RoadBlocks.BlockM);
+            int blocks = Math.Min(per * per, 64);
+            ulong near = 0, far = 0;
+            for (int k = 0; k < blocks; k++)
+            {
+                double x0, z0, x1, z1;
+                RoadBlocks.Square(k, size, out x0, out z0, out x1, out z1);
+                double d = BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz);
+                ulong bit = 1UL << k;
+                if (RoadBlocks.Inside((view.RoadNear & bit) != 0, d, _roadNearM)) near |= bit;
+                if (RoadBlocks.Inside((view.RoadFar & bit) != 0, d, _roadFarM)) far |= bit;
+            }
+            view.RoadNear = near;
+            view.RoadFar = far;
+        }
+
+        /// <summary>Whether block <paramref name="block"/> of the view is within the near (B1) or the far (B2) radius, from
+        /// the masks <see cref="UpdateRoadBlocks"/> keeps (blocks past the 64th, which no 1 km tile has, without
+        /// hysteresis).</summary>
+        private bool RoadBlockIn(TileView view, int block, bool nearRadius, double cx, double cz)
+        {
+            if (block < 64) return ((nearRadius ? view.RoadNear : view.RoadFar) & (1UL << block)) != 0;
+            double x0, z0, x1, z1;
+            RoadBlocks.Square(block, view.Node.Area.Size, out x0, out z0, out x1, out z1);
+            return BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz) <= (nearRadius ? _roadNearM : _roadFarM);
+        }
+
+        /// <summary>A road chunk is on when its copy is the one its block shows: the full kit within the near radius, the
+        /// cheap copy between the near and the far radius (the full kit out to the far radius for a view built without
+        /// the cheap copy).</summary>
+        private bool RoadShown(TileView view, int part, double cx, double cz)
+        {
+            int block = RoadBlocks.BlockOfPart(part);
+            bool near = RoadBlockIn(view, block, true, cx, cz);
+            if (RoadBlocks.IsFar(part)) return !near && RoadBlockIn(view, block, false, cx, cz);
+            return near || !view.HasFarRoads && RoadBlockIn(view, block, false, cx, cz);
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -581,6 +640,13 @@ namespace Ghumante.World.Streaming
         /// <summary>Shown LOD of each bridge and ornament piece (parallel to <see cref="TileExtras.Pieces"/>; -1 none).</summary>
         internal int[] PieceLod = new int[0];
 
+        /// <summary>Road blocks (bit = block, <see cref="RoadBlocks"/>) within the near (B1) and the far (B2) radius as the
+        /// streamer last decided them (its hysteresis state).</summary>
+        internal ulong RoadNear, RoadFar;
+
+        /// <summary>The road layer carries the cheap far copy (parts <see cref="RoadBlocks.FarPart"/> + block).</summary>
+        internal bool HasFarRoads;
+
         private readonly List<UploadChunk> _stagedChunks = new List<UploadChunk>(4);
         private readonly List<Mesh> _stagedMeshes = new List<Mesh>(4);
 
@@ -689,8 +755,11 @@ namespace Ghumante.World.Streaming
             chunk.MaxX = c.MaxX;
             chunk.MaxZ = c.MaxZ;
             chunk.Renderer.sharedMaterial = material != null ? material : _materials.ForLayer(layer);
-            // Hero, bridge and ornament LODs start hidden (the streamer shows one per piece); everything else starts on.
-            chunk.Renderer.enabled = layer != TileLayers.Heroes && layer != TileLayers.Bridges && layer != TileLayers.Ornaments;
+            // Hero, bridge and ornament LODs start hidden (the streamer shows one per piece), and so does the cheap far
+            // copy of the roads (the streamer switches road blocks between the copies); everything else starts on.
+            bool farRoad = layer == TileLayers.Roads && RoadBlocks.IsFar(c.Part);
+            if (farRoad) HasFarRoads = true;
+            chunk.Renderer.enabled = layer != TileLayers.Heroes && layer != TileLayers.Bridges && layer != TileLayers.Ornaments && !farRoad;
             chunk.Filter.sharedMesh = mesh;
             chunk.Filter.gameObject.SetActive(true);
             _layers[layer].SetActive(true);
@@ -779,6 +848,7 @@ namespace Ghumante.World.Streaming
             }
             _used[layer] = 0;
             _layerTris[layer] = 0;
+            if (layer == TileLayers.Roads) HasFarRoads = false;
             for (int i = _chunks.Count - 1; i >= 0; i--)
                 if (_chunks[i].Layer == layer) _chunks.RemoveAt(i);
             if (_layers[layer] != null) _layers[layer].SetActive(false);
@@ -829,6 +899,8 @@ namespace Ghumante.World.Streaming
             _chunks.Clear();
             Extras = null;
             IsVisible = false;
+            RoadNear = RoadFar = 0;
+            HasFarRoads = false;
             CollidersDirty = false;
             CollidersRegistered = false;
             StaticRegistered = false;

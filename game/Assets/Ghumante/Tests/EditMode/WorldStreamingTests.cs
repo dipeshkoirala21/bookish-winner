@@ -537,6 +537,103 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void SplitLayerEndsChunksAtTheByteCap()
+        {
+            // 300 separate triangles of 28-byte vertices: 3 * 28 + 3 * 2 = 90 bytes each.
+            var m = new MeshData();
+            for (int t = 0; t < 300; t++)
+            {
+                int a = m.AddVertex(t, 0, 0, 0, 1, 0, 0xFFFFFFFFu);
+                m.AddVertex(t, 0, 1, 0, 1, 0, 0xFFFFFFFFu);
+                m.AddVertex(t + 1, 0, 0, 0, 1, 0, 0xFFFFFFFFu);
+                m.AddTriangle(a, a + 1, a + 2);
+            }
+            var chunks = new List<UploadChunk>();
+            ushort[] s = null;
+            TileBuild.SplitLayer(m, TileLayers.Roads, 65535, 900, chunks, ref s);
+            Assert.AreEqual(30, chunks.Count, "ten triangles (900 bytes) per chunk");
+            foreach (UploadChunk c in chunks)
+            {
+                Assert.AreEqual(30, c.IndexCount);
+                Assert.LessOrEqual(c.Bytes(false), 900);
+            }
+            // With UV0 the vertices are 36 bytes: eight triangles (912 bytes) no longer fit, seven do.
+            var uv = new MeshData();
+            for (int t = 0; t < 70; t++)
+            {
+                int a = uv.AddVertex(t, 0, 0, 0, 1, 0, 0xFFFFFFFFu, 1f, 1f);
+                uv.AddVertex(t, 0, 1, 0, 1, 0, 0xFFFFFFFFu, 1f, 1f);
+                uv.AddVertex(t + 1, 0, 0, 0, 1, 0, 0xFFFFFFFFu, 1f, 1f);
+                uv.AddTriangle(a, a + 1, a + 2);
+            }
+            chunks.Clear();
+            TileBuild.SplitLayer(uv, TileLayers.Roads, 65535, 900, chunks, ref s);
+            Assert.AreEqual(10, chunks.Count);
+            Assert.AreEqual(21, chunks[0].IndexCount);
+            Assert.LessOrEqual(chunks[0].Bytes(true), 900);
+        }
+
+        [Test]
+        public void RoadAndDecalLayersComePerBlockWithACheapFarCopy()
+        {
+            StreamingConfig config = StreamingConfig.ForTier(StreamingConfig.TierMid);
+            MeshingSettings meshing = MeshingSettings.ForTier(StreamingConfig.TierMid);
+            meshing.DrawBuildings = false;
+            meshing.DrawInstances = false;
+            TileId leaf = TileId.At(10, SampleRegion.ThamelX, SampleRegion.ThamelZ);
+            var b = new TileBuild();
+            b.Node = new SelectedNode(leaf, leaf);
+            TileBuild.Execute(b, SampleRegion.Pack, config, meshing, null);
+            int nearTris = 0, farTris = 0, decalTris = 0;
+            var nearBlocks = new HashSet<int>();
+            var farBlocks = new HashSet<int>();
+            int per = MeshParts.BlocksPerSide(leaf.Size, RoadBlocks.BlockM);
+            foreach (UploadChunk c in b.Chunks)
+            {
+                if (c.Layer != TileLayers.Roads && c.Layer != TileLayers.RoadDecals) continue;
+                int block = RoadBlocks.BlockOfPart(c.Part);
+                Assert.That(block, Is.InRange(0, per * per - 1));
+                double x0, z0, x1, z1;
+                RoadBlocks.Square(block, leaf.Size, out x0, out z0, out x1, out z1);
+                // Clipped at the block lines (the tile's outer blocks may reach a little past the border).
+                if (x0 > 0) Assert.GreaterOrEqual(c.MinX, x0 - 1e-3);
+                if (z0 > 0) Assert.GreaterOrEqual(c.MinZ, z0 - 1e-3);
+                if (x1 < leaf.Size) Assert.LessOrEqual(c.MaxX, x1 + 1e-3);
+                if (z1 < leaf.Size) Assert.LessOrEqual(c.MaxZ, z1 + 1e-3);
+                Assert.LessOrEqual(c.Bytes(b.Layers[c.Layer].HasUv0), TileBuild.UploadChunkBytes);
+                if (c.Layer == TileLayers.RoadDecals)
+                {
+                    Assert.IsFalse(RoadBlocks.IsFar(c.Part), "markings only in the full kit's blocks");
+                    decalTris += c.IndexCount / 3;
+                }
+                else if (RoadBlocks.IsFar(c.Part))
+                {
+                    farTris += c.IndexCount / 3;
+                    farBlocks.Add(block);
+                }
+                else
+                {
+                    nearTris += c.IndexCount / 3;
+                    nearBlocks.Add(block);
+                }
+            }
+            Assert.Greater(nearBlocks.Count, 16, "the full kit is split per 128 m block");
+            Assert.Greater(decalTris, 0);
+            CollectionAssert.IsSubsetOf(farBlocks, nearBlocks, "the cheap copy covers the blocks that have roads");
+            Assert.Greater(farTris, 0);
+            Assert.Less(farTris, nearTris * 0.85, "the far copy is the cheap one");
+
+            // Without the far copy the road layer holds the full kit only.
+            meshing.FarRoads = false;
+            var c2 = new TileBuild();
+            c2.Node = new SelectedNode(leaf, leaf);
+            TileBuild.Execute(c2, SampleRegion.Pack, config, meshing, null);
+            foreach (UploadChunk c in c2.Chunks)
+                if (c.Layer == TileLayers.Roads) Assert.IsFalse(RoadBlocks.IsFar(c.Part));
+            Assert.AreEqual(nearTris, c2.Layers[TileLayers.Roads].TriangleCount);
+        }
+
+        [Test]
         public void UploadsStopAtTheByteBudgetAndSpreadDenseNodesOverSeveralTicks()
         {
             var sink = new FakeTileSink { MsPerUpload = 0 }; // the clock never runs out: only bytes limit a tick
