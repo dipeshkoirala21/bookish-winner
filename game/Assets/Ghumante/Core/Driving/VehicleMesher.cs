@@ -80,28 +80,32 @@ namespace Ghumante.Core.Driving
     /// origin on the ground under the rear axle, +X right, +Y up, +Z forward (the <see cref="ArcadeVehicle"/> and
     /// <see cref="Traffic.AgentPose"/> reference point). Wheels are separate meshes (<see cref="BuildWheel(in WheelSocket,
     /// VehicleLod, MeshData)"/> at <see cref="Wheels"/>) at LOD0 and LOD1 so they spin and steer; LOD2 and the parked
-    /// levels bake them in. Deterministic; allocation only through <see cref="MeshData"/> growth and per-thread scratch.
+    /// levels bake them in. Traffic riders are people from <see cref="Characters.HumanoidMesher"/> seated on the bike
+    /// (VehicleMesher.Rider.cs). Deterministic; allocation only through <see cref="MeshData"/> growth and per-thread
+    /// scratch, plus the rider's recipe and the humanoid generator's own build state (build time, worker threads).
     /// </summary>
     public static partial class VehicleMesher
     {
         /// <summary>The largest triangle cap per level over all families (<see cref="Budget(VehicleLod, BodyShape)"/>):
         /// W2_DESIGN 10.4 with the LOD0 cap raised for buses and trucks (they fill the screen; at most one is at LOD0),
-        /// LOD1 and LOD2 raised slightly for the rounded silhouettes; block-out 80, box 12.</summary>
+        /// LOD1 and LOD2 raised slightly for the rounded silhouettes and the two-wheelers' riders; block-out 80, box 12.</summary>
         public static int Budget(VehicleLod lod)
         {
             switch (lod)
             {
-                case VehicleLod.Lod0: return 9000;
-                case VehicleLod.Lod1: return 2600;
-                case VehicleLod.Lod2: return 900;
+                case VehicleLod.Lod0: return 9400;
+                case VehicleLod.Lod1: return 2700;
+                case VehicleLod.Lod2: return 1100;
                 case VehicleLod.Block: return 80;
                 default: return 12;
             }
         }
 
-        /// <summary>Triangle cap of a family at a level, wheels and rider included (ref_vehicles.md §7): two-wheelers 7 k
-        /// (the player's own bike fills the screen all game), cars and vans 7.5 k, buses, trucks and tractors 9 k at
-        /// LOD0; LOD1 2.2 k / 2.4 k / 2.6 k; LOD2 700 / 900.</summary>
+        /// <summary>Triangle cap of a family at a level, wheels and rider included (ref_vehicles.md §7): two-wheelers and
+        /// the rickshaw 9.4 k at LOD0 (the bike ≤ 6.1 k, the player's own fills the screen all game, plus its rider: the
+        /// pedestrians' near-crowd body with its helmet, 2.4-2.9 k, <see cref="RiderLevel"/>), cars and vans 7.5 k, buses,
+        /// trucks and tractors 9 k; LOD1 2.7 k (bike ≤ 1.9 k + the mid-distance body ≤ 720) / 2.4 k / 2.6 k; LOD2 1.1 k
+        /// (bike ≤ 600 + the far body ≤ 500) / 900.</summary>
         public static int Budget(VehicleLod lod, BodyShape shape)
         {
             bool two = IsTwo(shape) || shape == BodyShape.Rickshaw;
@@ -109,9 +113,9 @@ namespace Ghumante.Core.Driving
                          shape == BodyShape.Tractor;
             switch (lod)
             {
-                case VehicleLod.Lod0: return two ? 7000 : heavy ? 9000 : 7500;
-                case VehicleLod.Lod1: return two ? 2200 : heavy ? 2600 : 2400;
-                case VehicleLod.Lod2: return two ? 700 : 900;
+                case VehicleLod.Lod0: return two ? 9400 : heavy ? 9000 : 7500;
+                case VehicleLod.Lod1: return two ? 2700 : heavy ? 2600 : 2400;
+                case VehicleLod.Lod2: return two ? 1100 : 900;
                 default: return Budget(lod);
             }
         }
@@ -369,18 +373,31 @@ namespace Ghumante.Core.Driving
         /// Builds catalogue entry <paramref name="variant"/>, model type <paramref name="model"/> (wrapped), livery
         /// <paramref name="livery"/> at <paramref name="lod"/> into <paramref name="m"/> (appending). LOD0 and LOD1 leave
         /// the wheels out (draw them with <see cref="BuildWheel(in WheelSocket, VehicleLod, MeshData)"/>); LOD0 numbers
-        /// the plates from <paramref name="plateSeed"/>. With <paramref name="rider"/> a two-wheeler gets a helmeted
-        /// rider and the rickshaw its puller (traffic; the player's own character comes from Track D). Returns the
-        /// triangles added.
+        /// the plates from <paramref name="plateSeed"/>. With <paramref name="rider"/> a two-wheeler gets its rider and the
+        /// rickshaw its puller, built by <see cref="Characters.HumanoidMesher"/> like the pedestrians, helmeted on the
+        /// motor two-wheelers and posed on the seat, grips and pegs (traffic; the player's own character comes from
+        /// Track D). Returns the triangles added.
         /// </summary>
         public static int Build(int variant, byte livery, byte model, VehicleLod lod, MeshData m, uint plateSeed = 0, bool rider = false)
         {
             return Build(variant, livery, model, lod, m, plateSeed, rider, true);
         }
 
+        /// <summary>
+        /// As <see cref="Build(int, byte, byte, VehicleLod, MeshData, uint, bool)"/> with rider look
+        /// <paramref name="riderLook"/> (0..<see cref="RiderLooks"/> − 1, e.g. <see cref="RiderLookFor"/> of the agent):
+        /// a two-wheeler's rider (or the rickshaw's puller) is one of several people per livery and model type, the same
+        /// person at every level for one look.
+        /// </summary>
+        public static int Build(int variant, byte livery, byte model, VehicleLod lod, MeshData m, uint plateSeed, bool rider, byte riderLook)
+        {
+            return Build(variant, livery, model, lod, m, plateSeed, rider, true, riderLook);
+        }
+
         /// <summary>As <see cref="Build(int, byte, byte, VehicleLod, MeshData, uint, bool)"/>; without
         /// <paramref name="bakeWheels"/> LOD2 leaves its wheels out too (tests check the body on its own).</summary>
-        internal static int Build(int variant, byte livery, byte model, VehicleLod lod, MeshData m, uint plateSeed, bool rider, bool bakeWheels)
+        internal static int Build(int variant, byte livery, byte model, VehicleLod lod, MeshData m, uint plateSeed, bool rider, bool bakeWheels,
+                                  byte riderLook = 0)
         {
             if (m == null) throw new ArgumentNullException(nameof(m));
             VehicleCatalogEntry e = VehicleCatalog.At(variant);
@@ -406,7 +423,7 @@ namespace Ghumante.Core.Driving
             var c = new Ctx
             {
                 M = m, Lod = lod, S = new ShapeLod(lod == VehicleLod.Lod0 ? 0 : lod == VehicleLod.Lod1 ? 1 : 2), Model = (byte)(model % count),
-                Seed = plateSeed,
+                Seed = plateSeed, RiderLook = (byte)(riderLook % RiderLooks),
             };
             int v0 = m.VertexCount, i0 = m.IndexCount;
             switch (e.Shape)

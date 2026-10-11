@@ -60,6 +60,23 @@ namespace Ghumante.Core.Generators.Fauna
             N = w;
         }
 
+        /// <summary>
+        /// Height (species units) of a leg's last knot above a hoof or paw: <paramref name="y"/> on the levels that
+        /// model the hoof, and on the far level (which leaves it out) low enough that the leg's rounded end cap, of
+        /// radius <paramref name="r"/> bulging by <paramref name="cap"/>, rests on the ground.
+        /// </summary>
+        public float FootY(float y, float r, float cap)
+        {
+            return D.Far ? r * cap : y;
+        }
+
+        /// <summary>The colour of a leg's last knot: the far level, without a modelled hoof, darkens the pastern
+        /// towards <paramref name="hoof"/> so the foot still reads.</summary>
+        public uint FootColour(uint leg, uint hoof)
+        {
+            return D.Far ? FMath.LerpColour(leg, hoof, 0.7f) : leg;
+        }
+
         public Fv3 P(float x, float y, float z)
         {
             if (z < 0f) z *= Zb;

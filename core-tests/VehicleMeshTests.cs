@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Meshing;
 using NUnit.Framework;
@@ -17,9 +18,9 @@ namespace Ghumante.Core.Tests
     {
         private static readonly VehicleLod[] Moving = { VehicleLod.Lod0, VehicleLod.Lod1, VehicleLod.Lod2 };
 
-        private static int Assemble(int v, byte livery, byte model, VehicleLod lod, MeshData m, uint seed, bool rider)
+        private static int Assemble(int v, byte livery, byte model, VehicleLod lod, MeshData m, uint seed, bool rider, byte look = 0)
         {
-            int tris = VehicleMesher.Build(v, livery, model, lod, m, seed, rider);
+            int tris = VehicleMesher.Build(v, livery, model, lod, m, seed, rider, look);
             if (lod <= VehicleLod.Lod1)
                 foreach (WheelSocket w in VehicleMesher.Wheels(VehicleCatalog.At(v), model))
                     tris += VehicleMesher.BuildWheel(w, lod, new MeshData());
@@ -39,14 +40,16 @@ namespace Ghumante.Core.Tests
                     foreach (VehicleLod lod in Moving)
                     {
                         int worst = 0;
+                        bool riders = VehicleMesher.IsTwo(e.Shape) || e.Shape == BodyShape.Rickshaw;
                         for (int l = 0; l < e.LiveryCount; l++)
+                        for (int look = 0; look < (riders ? VehicleMesher.RiderLooks : 1); look++)
                         {
                             m.Clear();
-                            int tris = Assemble(v, (byte)l, (byte)k, lod, m, 77u, true);
+                            int tris = Assemble(v, (byte)l, (byte)k, lod, m, 77u, true, (byte)look);
                             worst = Math.Max(worst, tris);
                             Assert.That(tris, Is.GreaterThan(0), e.AssetId);
                             Assert.That(tris, Is.LessThanOrEqualTo(VehicleMesher.Budget(lod, e.Shape)),
-                                        e.AssetId + " " + VehicleMesher.ModelName(v, k) + " " + lod + " livery " + l);
+                                        e.AssetId + " " + VehicleMesher.ModelName(v, k) + " " + lod + " livery " + l + " rider " + look);
                             Assert.That(tris, Is.LessThanOrEqualTo(VehicleMesher.Budget(lod)));
                         }
                         report.Add(e.AssetId + "/" + VehicleMesher.ModelName(v, k) + " " + lod + ": " + worst);
@@ -348,6 +351,135 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>
+        /// Traffic riders (and the rickshaw's puller) are people from the pedestrians' generator (HumanoidMesher): at
+        /// every level the rider is exactly the humanoid body of its recipe at the matching level (the near-crowd body on
+        /// the nearest traffic, the mid-distance and far bodies beyond), helmeted on the motor two-wheelers (the law in
+        /// Kathmandu), and seated on the vehicle: the palms within 5 cm of the grips, the feet within 5 cm of the pegs,
+        /// floorboard spots or pedals, the hip joints just over the seat. The looks vary: women on some scooters, masks,
+        /// caps and topis on the pedal riders, and the four rider looks of one bike are different people.
+        /// </summary>
+        [Test]
+        public void TrafficRidersAreSeatedHumanoids()
+        {
+            var with = new MeshData(16384, 49152);
+            var without = new MeshData(8192, 24576);
+            var human = new MeshData(8192, 24576);
+            bool woman = false, mask = false, cap = false;
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                if (!VehicleMesher.IsTwo(e.Shape) && e.Shape != BodyShape.Rickshaw) continue;
+                HeadwearMode hw = VehicleMesher.RiderWearsHelmet(e.Shape) ? HeadwearMode.Helmet : HeadwearMode.Outfit;
+                Assert.AreEqual(e.Shape != BodyShape.Bicycle && e.Shape != BodyShape.Rickshaw, hw == HeadwearMode.Helmet, e.AssetId + " helmet");
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                {
+                    var people = new HashSet<string>();
+                    for (byte look = 0; look < VehicleMesher.RiderLooks; look++)
+                    {
+                        string id = e.AssetId + "/" + VehicleMesher.ModelName(v, k) + " look " + look;
+                        CharacterRecipe r = VehicleMesher.RiderOf(v, 0, (byte)k, look);
+                        people.Add(r.ToJson().ToString());
+                        woman |= r.Figure != 0 && e.Shape == BodyShape.Scooter;
+                        mask |= r.Has(CharacterAccents.Mask);
+                        cap |= r[OutfitSlotKind.Head].Item != OutfitItem.None && hw == HeadwearMode.Outfit;
+                        foreach (VehicleLod lod in Moving)
+                        {
+                            with.Clear();
+                            without.Clear();
+                            human.Clear();
+                            int a = VehicleMesher.Build(v, 0, (byte)k, lod, with, 5u, true, look);
+                            int b = VehicleMesher.Build(v, 0, (byte)k, lod, without, 5u, false, look);
+                            HumanoidMesher.Build(r, VehicleMesher.RiderLevel(lod), human, null, CharacterMeshOptions.For(hw));
+                            Assert.AreEqual(human.TriangleCount, a - b, id + " " + lod + ": the rider is the humanoid body");
+                        }
+                        VehicleMesher.RiderFit(v, (byte)k, look, out float hand, out float foot, out float hip);
+                        Assert.That(hand, Is.LessThan(0.05f), id + ": palms on the grips");
+                        Assert.That(foot, Is.LessThan(0.05f), id + ": feet on the pegs or pedals");
+                        Assert.That(hip, Is.InRange(0.01f, 0.08f), id + ": sitting on the seat");
+                    }
+                    Assert.That(people.Count, Is.GreaterThanOrEqualTo(3), e.AssetId + "/" + VehicleMesher.ModelName(v, k) + ": rider looks");
+                }
+            }
+            Assert.IsTrue(woman, "women ride scooters");
+            Assert.IsTrue(mask, "some riders wear a dust mask");
+            Assert.IsTrue(cap, "some cyclists and pullers wear a cap or a topi");
+        }
+
+        /// <summary>
+        /// Every two-wheeler's rear plate is mounted (scooter_ktm ref_04: under the tail lamp on a holder; motorbikes on
+        /// the rear hugger): voxelised at 2 cm, the plate's backing touches the body, so no plate hangs in the air behind
+        /// or below the tail.
+        /// </summary>
+        [Test]
+        public void TwoWheelerRearPlatesTouchTheBody()
+        {
+            var m = new MeshData(8192, 24576);
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                if (e.Shape != BodyShape.Scooter && e.Shape != BodyShape.Motorbike && e.Shape != BodyShape.Cruiser) continue;
+                uint plate = MeshColor.FromHex(VehiclePlates.For(e, 9u).Background);
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                    foreach (VehicleLod lod in new[] { VehicleLod.Lod0, VehicleLod.Lod1 })
+                    {
+                        string id = e.AssetId + "/" + VehicleMesher.ModelName(v, k) + " " + lod;
+                        m.Clear();
+                        VehicleMesher.Build(v, 0, (byte)k, lod, m, 9u, false, false);
+                        // The rear plate: plate-coloured vertices behind the rear axle.
+                        int seed = -1;
+                        for (int i = 0; i < m.VertexCount && seed < 0; i++)
+                            if (m.Positions[3 * i + 2] < -0.2f && RgbaAt(m, i) == plate) seed = i;
+                        Assert.That(seed, Is.GreaterThanOrEqualTo(0), id + ": a rear plate");
+                        float share = PieceShare(m, 0.02f, m.Positions[3 * seed], m.Positions[3 * seed + 1], m.Positions[3 * seed + 2]);
+                        Assert.That(share, Is.GreaterThan(0.5f), id + ": the rear plate hangs free of the body");
+                    }
+            }
+        }
+
+        private static uint RgbaAt(MeshData m, int v)
+        {
+            return (uint)(m.Colors[v * 4] << 24 | m.Colors[v * 4 + 1] << 16 | m.Colors[v * 4 + 2] << 8 | m.Colors[v * 4 + 3]);
+        }
+
+        /// <summary>The share of a mesh's voxels (at <paramref name="cell"/>) in the piece that holds the point.</summary>
+        internal static float PieceShare(MeshData m, float cell, float px, float py, float pz)
+        {
+            var cells = new HashSet<long>();
+            float[] p = m.Positions;
+            for (int t = 0; t < m.IndexCount; t += 3)
+            {
+                int a = m.Indices[t] * 3, b = m.Indices[t + 1] * 3, c = m.Indices[t + 2] * 3;
+                float e = Math.Max(Dist(p, a, b), Math.Max(Dist(p, b, c), Dist(p, c, a)));
+                int n = Math.Max(1, (int)Math.Ceiling(e / (0.4f * cell)));
+                for (int i = 0; i <= n; i++)
+                    for (int j = 0; j <= n - i; j++)
+                    {
+                        float u = (float)i / n, w = (float)j / n;
+                        float x = p[a] + (p[b] - p[a]) * u + (p[c] - p[a]) * w, y = p[a + 1] + (p[b + 1] - p[a + 1]) * u + (p[c + 1] - p[a + 1]) * w,
+                              z = p[a + 2] + (p[b + 2] - p[a + 2]) * u + (p[c + 2] - p[a + 2]) * w;
+                        cells.Add(Key((int)Math.Floor(x / cell), (int)Math.Floor(y / cell), (int)Math.Floor(z / cell)));
+                    }
+            }
+            long start = Key((int)Math.Floor(px / cell), (int)Math.Floor(py / cell), (int)Math.Floor(pz / cell));
+            var seen = new HashSet<long> { start };
+            var queue = new Queue<long>();
+            queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                long k = queue.Dequeue();
+                int cx = (int)((k >> 42) & 0x1FFFFF) - (1 << 20), cy = (int)((k >> 21) & 0x1FFFFF) - (1 << 20), cz = (int)(k & 0x1FFFFF) - (1 << 20);
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dz = -1; dz <= 1; dz++)
+                        {
+                            long nk = Key(cx + dx, cy + dy, cz + dz);
+                            if (cells.Contains(nk) && seen.Add(nk)) queue.Enqueue(nk);
+                        }
+            }
+            return (float)seen.Count / Math.Max(1, cells.Count);
+        }
+
         /// <summary>Connected pieces of a mesh voxelised at <paramref name="cell"/> (26-neighbourhood over the cells its
         /// triangles touch) and the z extent of the largest piece.</summary>
         internal static int Pieces(MeshData m, float cell, out float zMin, out float zMax)
@@ -463,6 +595,35 @@ namespace Ghumante.Core.Tests
             TestContext.WriteLine(string.Join("\n", lines));
         }
 
+        /// <summary>OBJs of the traffic riders on every two-wheeler and the rickshaw (every rider look at LOD0, the first at
+        /// LOD1 and LOD2, wheels in place) under riders/. Writes only with GHUMANTE_PREVIEW_DIR set.</summary>
+        [Test]
+        public void DumpRiderPreviews()
+        {
+            if (!ObjDump.Enabled) Assert.Pass("set " + ObjDump.EnvVar + " to dump the rider previews");
+            for (int v = 0; v < VehicleCatalog.Count; v++)
+            {
+                VehicleCatalogEntry e = VehicleCatalog.At(v);
+                if (!VehicleMesher.IsTwo(e.Shape) && e.Shape != BodyShape.Rickshaw) continue;
+                for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
+                    foreach (VehicleLod lod in Moving)
+                        for (int look = 0; look < (lod == VehicleLod.Lod0 ? VehicleMesher.RiderLooks : 1); look++)
+                        {
+                            var m = new MeshData();
+                            int tris = VehicleMesher.Build(v, (byte)look, (byte)k, lod, m, 1234u, true, (byte)look);
+                            if (lod <= VehicleLod.Lod1)
+                                foreach (WheelSocket s in VehicleMesher.Wheels(e, k))
+                                {
+                                    var wheel = new MeshData();
+                                    tris += VehicleMesher.BuildWheel(s, lod, wheel);
+                                    ObjDump.Append(m, wheel, s.X, s.Y, s.Z);
+                                }
+                            ObjDump.Write(m, "riders/" + VehicleMesher.ModelName(v, k) + "_" + lod.ToString().ToLowerInvariant() + "_look" + look + ".obj",
+                                          new[] { "tris " + tris });
+                        }
+            }
+        }
+
         /// <summary>OBJs of every model type (LOD0 with wheels and a rider on two-wheelers, plus LOD1 and LOD2) for
         /// tools/mesh-preview/render.py. Writes only with GHUMANTE_PREVIEW_DIR set.</summary>
         [Test]
@@ -474,7 +635,8 @@ namespace Ghumante.Core.Tests
             {
                 VehicleCatalogEntry e = VehicleCatalog.At(v);
                 if (!string.IsNullOrEmpty(only) && e.AssetId.IndexOf(only, StringComparison.Ordinal) < 0) continue;
-                bool two = e.Shape == BodyShape.Scooter || e.Shape == BodyShape.Motorbike || e.Shape == BodyShape.Cruiser || e.Shape == BodyShape.Bicycle;
+                bool two = e.Shape == BodyShape.Scooter || e.Shape == BodyShape.Motorbike || e.Shape == BodyShape.Cruiser || e.Shape == BodyShape.Bicycle ||
+                           e.Shape == BodyShape.Rickshaw;
                 for (int k = 0; k < VehicleMesher.ModelCount(v); k++)
                 {
                     string name = e.AssetId.Replace("ghm_veh_", "") + (string.IsNullOrEmpty(e.Variant) ? "" : "_" + e.Variant) + "_" + VehicleMesher.ModelName(v, k);
