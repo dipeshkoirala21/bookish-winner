@@ -12,6 +12,10 @@ namespace Ghumante.Core.Meshing
         public Clearance Clear;
         public BuildingBands.FootprintIndex Neighbours;
         public int Index;
+
+        /// <summary>Another volume stands on this one (a <c>building:part</c> under an upper part): a flat terrace, never
+        /// a gable that would run up into the volume above.</summary>
+        public bool FlatRoof;
     }
 
     /// <summary>
@@ -220,6 +224,9 @@ namespace Ghumante.Core.Meshing
             public int Index;
             public int Plots;
             public bool Corner;
+
+            /// <summary><see cref="HouseEnv.FlatRoof"/>.</summary>
+            public bool FlatRoof;
             public double SecondAX, SecondAZ, SecondBX, SecondBZ;
         }
 
@@ -290,7 +297,7 @@ namespace Ghumante.Core.Meshing
             {
                 Plan = plan, Style = BuildingGrammar.For(plan.Profile), F = new KitFrame(ax, ground, az, bx - ax, bz - az), Ground = ground, Drop = drop,
                 Det = Detail.For(drop), Colliders = c, CX = cxm, CZ = czm, AreaM2 = area, Clear = env.Clear, G = g, Neighbours = env.Neighbours,
-                Index = env.Index,
+                Index = env.Index, FlatRoof = env.FlatRoof,
             };
             h.L = Math.Sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
             if (h.L < 1.0) return false;
@@ -724,7 +731,7 @@ namespace Ghumante.Core.Meshing
             // profile's tile share: Bhaktapur 70%, Patan 45%) or the plan says so.
             bool tiled = p.Arch == BuildingArchetype.Newar ||
                          p.Arch == BuildingArchetype.NewarHybrid && (p.Index == 0 ? plan.TileRoof : rng.Chance(st.TileRoofShare));
-            p.Gable = tiled && p.Rect && p.Depth <= 13.5 && p.U1 - p.U0 >= 2.5;
+            p.Gable = tiled && p.Rect && p.Depth <= 13.5 && p.U1 - p.U0 >= 2.5 && !h.FlatRoof;
             p.Flat = !p.Gable;
             if (p.Index == 0 && plan.Roof != PlanRoof.Flat && plan.Roof != PlanRoof.Gable) p.Flat = true; // tagged odd shapes: a terrace
             p.Parapet = p.Flat ? (p.Arch == BuildingArchetype.ModernUrban ? 1.0 : 0.9) : 0.0;
