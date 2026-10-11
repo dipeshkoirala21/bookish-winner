@@ -255,10 +255,12 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void ABackWallWithNoRoadBehindItGetsNoShopOrSign()
+        public void ABackWallWithNoRoadBehindItGetsWindowsButNoShopOrSign()
         {
-            // A shop house on a lane, with the default corridor source (the stand-in): its front is dressed, its back
-            // and side walls face nothing and stay blank brick or paint (no shop bays, signs, sills or sunshades).
+            // A shop house on a lane, with the default corridor source (the stand-in): its front is dressed; its back
+            // and side walls look onto open ground, so they get windows on every floor (real houses are windowed on
+            // every side with light) but no shop bays, signs, blade signs, awnings or balconies (nothing stands out more
+            // than a chhajja). With a lane behind, the back wall is a street facade.
             foreach (var (profile, arch) in new[] { (StyleProfile.Thamel, BuildingArchetype.ModernUrban), (StyleProfile.KathmanduCore, BuildingArchetype.NewarHybrid),
                                                      (StyleProfile.Bhaktapur, BuildingArchetype.Newar) })
             {
@@ -279,11 +281,16 @@ namespace Ghumante.Core.Tests
                     if (behind == 1)
                         t.Roads.Add(new RoadRecord { OsmWayId = 2, RoadClass = RoadClass.Residential, Points = new[] { 28000, 51190, 34000, 51190 }, WidthCm = 400 });
                     var m = new MeshData();
+                    HouseBuilder.Stats = default(HouseStats);
                     Assert.That(BuildingDetailMesher.One(t, 0, new TileHeightSampler(t, 1), new BuildingOptions(), m, null), Is.True);
+                    long openings = HouseBuilder.Stats.SideOpenings;
                     HousePlan plan = BuildingGrammar.Plan(t, 0);
                     int outside = OutsideBackAndSides(m, 300, 307, 500, 509, 1300 + plan.WallTopM, 0.06);
-                    TestContext.WriteLine("{0} {1}, road behind {2}: {3} vertices dressing the back and sides", profile, arch, behind == 1, outside);
-                    if (behind == 0) Assert.That(outside, Is.EqualTo(0), profile + ": a wall with no road in front of it stays blank");
+                    int far = OutsideBackAndSides(m, 300, 307, 500, 509, 1300 + plan.WallTopM, 0.45);
+                    TestContext.WriteLine("{0} {1}, road behind {2}: {3} vertices dressing the back and sides, {4} more than 0.45 m out, {5} side openings", profile,
+                                          arch, behind == 1, outside, far, openings);
+                    Assert.That(openings, Is.GreaterThan(0), profile + ": exposed side and back walls have windows");
+                    if (behind == 0) Assert.That(far, Is.EqualTo(0), profile + ": no shop, sign or balcony on a wall with no road in front of it");
                     else Assert.That(outside, Is.GreaterThan(0), profile + ": a wall on a lane is dressed");
                 }
             }
@@ -380,6 +387,174 @@ namespace Ghumante.Core.Tests
                 if (m.Normals[3 * v + 2] < -0.9) south++;
             Assert.That(south, Is.GreaterThan(0), "the wall facing the dropped house (and the road) is drawn");
             Assert.That(g.Neighbours.Inside(323, 497, 1), Is.False, "the dropped footprint is not a neighbour");
+        }
+
+        /// <summary>
+        /// Decision 1 in the B2 band, over every level-10 tile of the sample region: the simplified prism (minimum-area
+        /// box, hull or trimmed ring) never reaches deeper into a road corridor than the guard's trimmed ring (the box of a
+        /// ring whose corner the guard cut off would put the corner back in the road).
+        /// </summary>
+        [Test]
+        public void B2PrismsStandNoDeeperInARoadThanTheTrimmedRings()
+        {
+            var o = new BuildingOptions { Band = BuildingBand.B2Prism };
+            var s = new BuildingBands.PrismScratch();
+            int shapes = 0, boxes = 0, hulls = 0, rings = 0, worse = 0;
+            double worst = 0;
+            string worstAt = "";
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                IRoadCorridorQuery q = o.CorridorsFor(t);
+                if (q == null || t.Buildings.Count == 0) continue;
+                BuildingFootprints guard = BuildingFootprints.For(t, q);
+                for (int i = 0; i < t.Buildings.Count; i++)
+                {
+                    if (guard.Dropped(i)) continue;
+                    BuildingRecord b = guard.Record(i);
+                    if ((b.Flags & BuildingFlags.HasParts) != 0) continue;
+                    int[] ring = b.Rings[0];
+                    int n = ring.Length / 2;
+                    if (n < 3) continue;
+                    bool convex;
+                    int k = BuildingBands.CorridorSafe(ring, t.Tile.X0, t.Tile.Z0, q, s, out convex);
+                    if (k < 3) continue;
+                    shapes++;
+                    var hx = new double[n + 1];
+                    var hz = new double[n + 1];
+                    int hn = BuildingBands.Hull(ring, hx, hz);
+                    if (!convex) rings++;
+                    else if (hn > 4 && k == hn) hulls++; // the box fell back to the hull
+                    else boxes++;
+                    var rx = new double[n];
+                    var rz = new double[n];
+                    for (int c = 0; c < n; c++)
+                    {
+                        rx[c] = t.Tile.X0 + ring[2 * c] / 100.0;
+                        rz[c] = t.Tile.Z0 + ring[2 * c + 1] / 100.0;
+                    }
+                    double dr, db;
+                    if (!q.Overlaps(rx, rz, n, out dr)) dr = 0;
+                    var bx = new double[k];
+                    var bz = new double[k];
+                    for (int c = 0; c < k; c++)
+                    {
+                        bx[c] = t.Tile.X0 + s.BX[c];
+                        bz[c] = t.Tile.Z0 + s.BZ[c];
+                    }
+                    if (!q.Overlaps(bx, bz, k, out db)) db = 0;
+                    if (db > dr + BuildingBands.B2CorridorToleranceM + 1e-6) worse++;
+                    if (db - dr > worst)
+                    {
+                        worst = db - dr;
+                        worstAt = id + " #" + i;
+                    }
+                }
+            }
+            TestContext.WriteLine("B2 shapes {0}: as box or small hull {1}, fallen back to the hull {2}, to the trimmed ring {3}; deeper than the ring: {4}, worst {5:0.000} m ({6})", shapes, boxes, hulls,
+                                  rings, worse, worst, worstAt);
+            Assert.That(shapes, Is.GreaterThan(10000));
+            Assert.That(worse, Is.EqualTo(0), "B2 prisms deeper in a corridor than their trimmed ring");
+            // The fall-backs stay a minority (B2 keeps about 10 triangles per house; measured 15% near the roads).
+            Assert.That(hulls + rings, Is.LessThan(shapes / 6));
+        }
+
+        [Test]
+        public void ABoxThatRebuildsACutCornerFallsBackToTheTrimmedShape()
+        {
+            // An 8 x 8 m house whose south-east corner the guard cut on a diagonal (a road bending past it): the
+            // minimum-area box of the 5-point ring is the full square and puts the corner back in the road.
+            TileData t = MeshingChecks.SyntheticTile(Leaf, (x, z) => 1300);
+            int X(double v) => (int)Math.Round(v * 100);
+            int[] ring = { X(300), X(500), X(305), X(500), X(308), X(503), X(308), X(508), X(300), X(508) };
+            var corridor = new Diagonal(Leaf.X0, Leaf.Z0);
+            var s = new BuildingBands.PrismScratch();
+            bool convex;
+            int k = BuildingBands.CorridorSafe(ring, Leaf.X0, Leaf.Z0, corridor, s, out convex);
+            Assert.That(k, Is.EqualTo(5), "the hull of the trimmed ring");
+            Assert.That(convex, Is.True);
+            k = BuildingBands.CorridorSafe(ring, Leaf.X0, Leaf.Z0, null, s, out convex);
+            Assert.That(k, Is.EqualTo(4), "without corridors the box");
+            // A concave trimmed ring (a notch cut out of the middle of the front) keeps the notch.
+            int[] notch = { X(300), X(500), X(303), X(500), X(303), X(503), X(305), X(503), X(305), X(500), X(308), X(500), X(308), X(508), X(300), X(508) };
+            var pit = new Pit(Leaf.X0 + 304, Leaf.Z0 + 500);
+            k = BuildingBands.CorridorSafe(notch, Leaf.X0, Leaf.Z0, pit, s, out convex);
+            Assert.That(convex, Is.False);
+            Assert.That(k, Is.InRange(5, 8), "the trimmed ring, its smallest ears clipped");
+            var px = new double[k];
+            var pz = new double[k];
+            for (int c = 0; c < k; c++)
+            {
+                px[c] = Leaf.X0 + s.BX[c];
+                pz[c] = Leaf.Z0 + s.BZ[c];
+            }
+            double pd;
+            Assert.That(pit.Overlaps(px, pz, k, out pd) ? pd : 0, Is.LessThanOrEqualTo(BuildingBands.B2CorridorToleranceM), "the notch stays out of the pit");
+            Assert.That(Polygon.SignedArea(s.BX, s.BZ, k), Is.GreaterThan(0), "counter-clockwise like the hull");
+            var m = new MeshData();
+            t.Buildings.Add(new BuildingRecord { Archetype = BuildingArchetype.ModernUrban, Levels = 3, Seed = 5, Rings = new[] { notch } });
+            Assert.That(BuildingMesher.Build(t, new TileHeightSampler(t, 1), new BuildingOptions { Corridors = _ => pit, Band = BuildingBand.B2Prism }, m), Is.EqualTo(1));
+            MeshingChecks.AssertWellFormed(m, "notched B2");
+            MeshingChecks.AssertFrontFacesAgreeWithNormals(m, 0, m.TriangleCount, 0.99, "notched B2");
+        }
+
+        /// <summary>A corridor whose edge runs diagonally past (305, 500)-(308, 503) of the leaf (tile-local).</summary>
+        private sealed class Diagonal : IRoadCorridorQuery
+        {
+            private readonly double _x0, _z0;
+
+            public Diagonal(double x0, double z0)
+            {
+                _x0 = x0;
+                _z0 = z0;
+            }
+
+            public double SignedDistance(double x, double z)
+            {
+                // Outside (positive) to the north-west of the line x - z = -195 (tile-local).
+                return ((x - _x0) - (z - _z0) + 195 - 0.03 * Math.Sqrt(2)) / Math.Sqrt(2) * -1;
+            }
+
+            public bool Overlaps(double[] x, double[] z, int n, out double depthM)
+            {
+                depthM = 0;
+                for (int i = 0; i < n; i++) depthM = Math.Max(depthM, -SignedDistance(x[i], z[i]));
+                return depthM > 0;
+            }
+        }
+
+        /// <summary>A small square corridor (a pit 1.6 m wide) centred on (cx, cz) and reaching 3 m north of cz.</summary>
+        private sealed class Pit : IRoadCorridorQuery
+        {
+            private readonly double _cx, _cz;
+
+            public Pit(double cx, double cz)
+            {
+                _cx = cx;
+                _cz = cz;
+            }
+
+            public double SignedDistance(double x, double z)
+            {
+                double dx = Math.Abs(x - _cx) - 0.97, dz = z - _cz - 2.97;
+                return Math.Max(dx, dz);
+            }
+
+            public bool Overlaps(double[] x, double[] z, int n, out double depthM)
+            {
+                depthM = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    int r = i + 1 == n ? 0 : i + 1;
+                    for (int k = 0; k <= 8; k++)
+                    {
+                        double px = x[i] + (x[r] - x[i]) * k / 8.0, pz = z[i] + (z[r] - z[i]) * k / 8.0;
+                        if (pz < _cz - 0.5) continue;
+                        depthM = Math.Max(depthM, -SignedDistance(px, pz));
+                    }
+                }
+                return depthM > 0;
+            }
         }
 
         private static double[] Xs(int[] r)

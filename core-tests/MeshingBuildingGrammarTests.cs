@@ -372,6 +372,43 @@ namespace Ghumante.Core.Tests
             Assert.That(HouseBuilder.Stats.Rebuilds, Is.EqualTo(0));
         }
 
+        /// <summary>
+        /// The detail pass spends its triangles on the near ring: at Asan (every third house of the chowk's tile) at least
+        /// 80% of the houses are drawn whole at the tier's richest level on Mid and High (the cheap open side walls, the
+        /// refitted cost estimate and the caps keep the street fronts rich), and a third on Low (over the 3 × 3 tiles
+        /// around it: 86% on Mid, 90% on High, 52% on Low).
+        /// </summary>
+        [Test]
+        public void NearRingHousesStayAtTheTiersRichestLevel()
+        {
+            TileData t = StreamingSampleRegion.Tile(Asan);
+            var h = new TileHeightSampler(t, 2);
+            var one = new MeshData();
+            string[] tier = { "Low", "Mid", "High" };
+            double[] want = { 0.33, 0.8, 0.8 };
+            for (int k = 0; k < 3; k++)
+            {
+                BuildingOptions near = BuildingBandTable.NearOptions(k), full = BuildingBandTable.NearOptions(k);
+                full.B0CapTris = int.MaxValue;
+                int houses = 0, whole = 0;
+                for (int i = 0; i < t.Buildings.Count; i += 3)
+                {
+                    one.Clear();
+                    if (!BuildingDetailMesher.One(t, i, h, full, one, null)) continue;
+                    int rich = one.TriangleCount;
+                    one.Clear();
+                    BuildingDetailMesher.One(t, i, h, near, one, null);
+                    houses++;
+                    if (one.TriangleCount == rich) whole++;
+                }
+                double share = (double)whole / houses;
+                TestContext.WriteLine("{0}: {1} of {2} houses whole at level {3} ({4:P1}), cap {5}", tier[k], whole, houses, BuildingBandTable.B0BaseDropFor(k), share,
+                                      BuildingBandTable.B0CapFor(k));
+                Assert.That(houses, Is.GreaterThan(300));
+                Assert.That(share, Is.GreaterThanOrEqualTo(want[k]), tier[k] + ": near-ring houses at the richest level");
+            }
+        }
+
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BuildingRecord, TileData> Singles =
             new System.Runtime.CompilerServices.ConditionalWeakTable<BuildingRecord, TileData>();
 
@@ -434,6 +471,7 @@ namespace Ghumante.Core.Tests
             float[] w2B0 = { 35f, 60f, 80f };
             var far = new double[3, 4];
             var b0 = new double[3];
+            var b0Near = new double[3];
             var inNear = new int[3];
             var inLite = new int[3];
             var one = new MeshData();
@@ -468,6 +506,7 @@ namespace Ghumante.Core.Tests
                         one.Clear();
                         if (!BuildingDetailMesher.One(n, i, hn, inner ? near : lite, one, null)) continue;
                         b0[k] += one.TriangleCount;
+                        if (inner) b0Near[k] += one.TriangleCount;
                         if (inner) inNear[k]++;
                         else inLite[k]++;
                     }
@@ -477,9 +516,9 @@ namespace Ghumante.Core.Tests
             {
                 Assert.That(BuildingBandTable.OuterM(k, 0), Is.GreaterThanOrEqualTo(w2B0[k]), tier[k] + ": B0 keeps the W2 radius");
                 double slice = BuildingBandTable.SliceTris(k), vB0 = 0.4 * b0[k], vFar = 0.4 * (far[k, 1] + far[k, 2] + far[k, 3]);
-                TestContext.WriteLine("{0}: B0 {1:0} ({2} near < {3} m, {4} lite) of its share {5}; B1 {6:0} B2 {7:0} B3 {8:0}; total {9:0} (slice {10}, x{11})",
+                TestContext.WriteLine("{0}: B0 {1:0} ({2} near < {3} m: {12:0}, {4} lite: {13:0}) of its share {5}; B1 {6:0} B2 {7:0} B3 {8:0}; total {9:0} (slice {10}, x{11})",
                                       tier[k], vB0, inNear[k], BuildingBandTable.NearOuterM(k), inLite[k], BuildingBandTable.B0ShareTris(k), 0.4 * far[k, 1],
-                                      0.4 * far[k, 2], 0.4 * far[k, 3], vB0 + vFar, slice, BuildingBandTable.SliceHeadroom);
+                                      0.4 * far[k, 2], 0.4 * far[k, 3], vB0 + vFar, slice, BuildingBandTable.SliceHeadroom, 0.4 * b0Near[k], vB0 - 0.4 * b0Near[k]);
                 Assert.That(vB0, Is.LessThanOrEqualTo(BuildingBandTable.B0ShareTris(k)), tier[k] + ": B0 within its share");
                 Assert.That(vB0 + vFar, Is.LessThanOrEqualTo(slice * BuildingBandTable.SliceHeadroom), tier[k] + ": the building slice");
                 Assert.That(BuildingBandTable.B0ShareTris(k) + vFar, Is.LessThanOrEqualTo(slice * BuildingBandTable.SliceHeadroom),

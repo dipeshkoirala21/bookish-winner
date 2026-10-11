@@ -132,6 +132,9 @@ namespace Ghumante.Core.Tests
         {
             public string Name;
             public double Lon, Lat;
+
+            /// <summary>The street the reference photos show is lined with modern (RCC) houses, not Newar rows.</summary>
+            public bool Modern;
         }
 
         private static readonly Place[] Places =
@@ -140,10 +143,79 @@ namespace Ghumante.Core.Tests
             new Place { Name = "bhaktapur_lane", Lon = 85.4318, Lat = 27.6720 },
             new Place { Name = "patan_lane", Lon = 85.3250, Lat = 27.6745 },
             new Place { Name = "asan", Lon = 85.3122, Lat = 27.7074 },
-            new Place { Name = "thamel", Lon = 85.3105, Lat = 27.7150 },
-            new Place { Name = "baneshwor", Lon = 85.3355, Lat = 27.6905 },
+            new Place { Name = "thamel", Lon = 85.3105, Lat = 27.7150, Modern = true },
+            new Place { Name = "baneshwor", Lon = 85.3355, Lat = 27.6905, Modern = true },
             new Place { Name = "kirtipur", Lon = 85.2775, Lat = 27.6785 },
         };
+
+        /// <summary>
+        /// The eye of a reference photo near (<paramref name="px"/>, <paramref name="pz"/>) (tile-local): standing on a
+        /// street (1.6 m above it) and looking along it, slightly up, like the street photos of
+        /// docs/research/w2/ref_buildings.md. Of the street stretches within 90 m, the one whose next 35 m is lined on both
+        /// sides by the most houses of the photographed kind (Newar and hybrid rows, or modern RCC fronts) is taken.
+        /// </summary>
+        private static void PhotoEye(TileData t, TileHeightSampler h, double px, double pz, bool modern, out float ex, out float ey, out float ez, out float lx,
+                                     out float ly, out float lz)
+        {
+            var cx = new List<double>();
+            var cz = new List<double>();
+            var w = new List<double>();
+            for (int i = 0; i < t.Buildings.Count; i++)
+            {
+                double bx, bz;
+                Centre(t.Buildings[i], out bx, out bz);
+                if ((bx - px) * (bx - px) + (bz - pz) * (bz - pz) > 140 * 140) continue;
+                BuildingArchetype a = BuildingGrammar.Plan(t, i).Archetype;
+                bool newar = a == BuildingArchetype.Newar || a == BuildingArchetype.NewarHybrid;
+                cx.Add(bx);
+                cz.Add(bz);
+                w.Add(modern ? (a == BuildingArchetype.ModernUrban ? 1.0 : 0.3) : (newar ? (a == BuildingArchetype.Newar ? 1.0 : 0.7) : 0.2));
+            }
+            double best = -1, qx = px, qz = pz, dx = 1, dz = 0;
+            foreach (RoadRecord r in t.Roads)
+            {
+                if (r.RoadClass == RoadClass.Unknown || r.PointCount < 2 || (r.Flags & (RoadFlags.Tunnel | RoadFlags.Bridge)) != 0) continue;
+                for (int i = 0; i + 1 < r.PointCount; i++)
+                {
+                    double ax = r.Points[2 * i] * 0.01, az = r.Points[2 * i + 1] * 0.01, bx = r.Points[2 * i + 2] * 0.01, bz = r.Points[2 * i + 3] * 0.01;
+                    double sx = bx - ax, sz = bz - az, len = Math.Sqrt(sx * sx + sz * sz);
+                    if (len < 8) continue;
+                    sx /= len;
+                    sz /= len;
+                    for (double at = 0; at <= len; at += 4)
+                    {
+                        double ox = ax + sx * at, oz = az + sz * at;
+                        if ((ox - px) * (ox - px) + (oz - pz) * (oz - pz) > 90 * 90) continue;
+                        for (int sign = -1; sign <= 1; sign += 2)
+                        {
+                            double fx = sx * sign, fz = sz * sign, left = 0, right = 0;
+                            for (int k = 0; k < cx.Count; k++)
+                            {
+                                double rx = cx[k] - ox, rz = cz[k] - oz, along = rx * fx + rz * fz, side = rx * fz - rz * fx;
+                                if (along < 4 || along > 38 || Math.Abs(side) < 3 || Math.Abs(side) > 13) continue;
+                                if (side > 0) right += w[k];
+                                else left += w[k];
+                            }
+                            double score = Math.Min(left, right) * 2 + Math.Max(left, right);
+                            if (score <= best) continue;
+                            best = score;
+                            qx = ox;
+                            qz = oz;
+                            dx = fx;
+                            dz = fz;
+                        }
+                    }
+                }
+            }
+            float g;
+            double tx = t.Tile.X0, tz = t.Tile.Z0;
+            ex = (float)qx;
+            ez = (float)qz;
+            ey = (h.TryHeight(tx + ex, tz + ez, out g) ? g : 1300f) + 1.6f;
+            lx = (float)(qx + dx * 30);
+            lz = (float)(qz + dz * 30);
+            ly = ey + 4.2f;
+        }
 
         private static PackReader _valley;
 
@@ -224,7 +296,20 @@ namespace Ghumante.Core.Tests
                 double lx = gx - t.Tile.X0, lz = gz - t.Tile.Z0;
                 TileHeightSampler sampler = TileHeightSampler.ForArea(t, id, 1);
                 float ex, ey, ez, vx, vy, vz;
-                Eye(t, sampler, lx, lz, out ex, out ey, out ez, out vx, out vy, out vz);
+                // The photo eye: standing on the street the photos show, looking along it; the chase camera 5 m behind
+                // it at 2.4 m, which the rings centre on.
+                float px, py, pz, qx, qy, qz;
+                PhotoEye(t, sampler, lx, lz, pl.Modern, out px, out py, out pz, out qx, out qy, out qz);
+                {
+                    double hx = qx - px, hz = qz - pz, hl = Math.Sqrt(hx * hx + hz * hz);
+                    float g;
+                    ex = (float)(px - hx / hl * 5);
+                    ez = (float)(pz - hz / hl * 5);
+                    ey = (sampler.TryHeight(t.Tile.X0 + ex, t.Tile.Z0 + ez, out g) ? g : py - 1.6f) + 2.4f;
+                    vx = (float)(px + hx / hl * 22);
+                    vz = (float)(pz + hz / hl * 22);
+                    vy = (sampler.TryHeight(t.Tile.X0 + vx, t.Tile.Z0 + vz, out g) ? g : py - 1.6f) + 3.2f;
+                }
                 // Side views: standing on the road looking across at each side's facades, and a raised view down it.
                 double fx = vx - ex, fz = vz - ez, fl = Math.Sqrt(fx * fx + fz * fz);
                 fx /= fl;
@@ -237,6 +322,7 @@ namespace Ghumante.Core.Tests
                 {
                     eyes.AppendLine(string.Format(ci, "{0} {1:0.##},{2:0.##},{3:0.##} {4:0.##},{5:0.##},{6:0.##}", vname, ax, ay, -az, bx, by, -bz));
                 }
+                View("photo", px, py, pz, qx, qy, qz);
                 View("chase", ex, ey, ez, vx, vy, vz);
                 View("right", mx - rx * 1.2 - fx * 3, ey - 0.6, mz - rz * 1.2 - fz * 3, mx + rx * 10 + fx * 4, ey + 4.5, mz + rz * 10 + fz * 4);
                 View("left", mx + rx * 1.2 - fx * 3, ey - 0.6, mz + rz * 1.2 - fz * 3, mx - rx * 10 + fx * 4, ey + 4.5, mz - rz * 10 + fz * 4);
@@ -316,40 +402,6 @@ namespace Ghumante.Core.Tests
             }
             cx /= n;
             cz /= n;
-        }
-
-        /// <summary>A chase-camera eye on the road nearest to the place: 5 m behind a point on it, 2.4 m up, looking
-        /// 22 m along it.</summary>
-        private static void Eye(TileData t, TileHeightSampler h, double px, double pz, out float ex, out float ey, out float ez, out float lx, out float ly,
-                                out float lz)
-        {
-            double best = double.MaxValue, qx = px, qz = pz, dx = 1, dz = 0;
-            foreach (RoadRecord r in t.Roads)
-            {
-                if (r.RoadClass == RoadClass.Unknown || r.PointCount < 2 || (r.Flags & RoadFlags.Tunnel) != 0) continue;
-                for (int i = 0; i + 1 < r.PointCount; i++)
-                {
-                    double ax = r.Points[2 * i] * 0.01, az = r.Points[2 * i + 1] * 0.01, bx = r.Points[2 * i + 2] * 0.01, bz = r.Points[2 * i + 3] * 0.01;
-                    double sx = bx - ax, sz = bz - az, len = Math.Sqrt(sx * sx + sz * sz);
-                    if (len < 12) continue;
-                    double tt = Math.Max(0, Math.Min(1, ((px - ax) * sx + (pz - az) * sz) / (len * len)));
-                    double cx = ax + sx * tt, cz = az + sz * tt, d = Math.Sqrt((cx - px) * (cx - px) + (cz - pz) * (cz - pz));
-                    if (d >= best) continue;
-                    best = d;
-                    qx = cx;
-                    qz = cz;
-                    dx = sx / len;
-                    dz = sz / len;
-                }
-            }
-            float g;
-            double ox = t.Tile.X0, oz = t.Tile.Z0;
-            ex = (float)(qx - dx * 5);
-            ez = (float)(qz - dz * 5);
-            ey = (h.TryHeight(ox + ex, oz + ez, out g) ? g : 1300f) + 2.4f;
-            lx = (float)(qx + dx * 22);
-            lz = (float)(qz + dz * 22);
-            ly = (h.TryHeight(ox + lx, oz + lz, out g) ? g : 1300f) + 3.2f;
         }
     }
 }

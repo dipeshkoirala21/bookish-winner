@@ -731,6 +731,19 @@ namespace Ghumante.Core.Meshing
                 if (w[k] < 1f) all = false;
             }
             if (!any) return;
+            // Stations off the deck (weight 0) carry no height of their own, but the Catmull-Rom of the rows reads them as
+            // control points next to deck stations: extend the nearest deck height over them, so the spline never swings
+            // through zero (a 0 m control point next to a 1 280 m deck made 50-200 m spikes and pits at deck ends).
+            int prev = -1;
+            for (int k = 0; k < n; k++)
+            {
+                if (w[k] > 0f)
+                {
+                    for (int j = prev + 1; j < k; j++) y[j] = prev < 0 ? y[k] : (k - j <= j - prev ? y[k] : y[prev]);
+                    prev = k;
+                }
+            }
+            for (int j = prev + 1; j < n; j++) y[j] = y[prev];
             p.DeckW = w;
             p.DeckY = y;
             p.AllDeck = all;

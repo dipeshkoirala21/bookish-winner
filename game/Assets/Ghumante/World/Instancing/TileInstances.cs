@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Ghumante.Core.Driving;
 using Ghumante.Core.Generators.Placement;
 
 namespace Ghumante.World.Instancing
@@ -60,6 +61,48 @@ namespace Ghumante.World.Instancing
             TreeCells = Sort(Trees, n, t => t.X, t => t.Z);
             PropCells = Sort(Props, n, p => p.X, p => p.Z);
             ParkedCells = Sort(Parked, n, p => p.X, p => p.Z);
+        }
+
+        /// <summary>
+        /// The colliders of the solid dressing, tile-local (collide package, StructureColliders): the trunk of every
+        /// generated tree (avenue, park, garden, forest; OSM trees and props are already solid through the tile's own
+        /// solids), boulders, the poles of generated street lamps, and every parked vehicle that is not
+        /// a community-fleet vehicle (those can be borrowed, so their spot must not stay solid when they drive away).
+        /// Flowers, shrubs, hedges, ground cover and pots stay passable.
+        /// </summary>
+        public void AppendColliders(StructureColliders into)
+        {
+            if (into == null) throw new ArgumentNullException(nameof(into));
+            for (int i = 0; i < Trees.Count; i++)
+            {
+                TreeInstance t = Trees[i];
+                if (t.Origin == TreeOrigin.Osm) continue;
+                if (IsTree(t.Species)) into.AddTree(t.X, t.Z, t.Y, t.HeightM);
+                else if (t.Species == TreeSpecies.Boulder && t.CrownM > 0.8f && t.HeightM > 0.4f)
+                    into.Cylinders.Add(new ColliderCylinder
+                    {
+                        CX = t.X, CZ = t.Z, Radius = 0.4f * t.CrownM, Bottom = t.Y - 0.3f, Top = t.Y + t.HeightM, CameraPasses = true,
+                    });
+            }
+            for (int i = 0; i < Props.Count; i++)
+            {
+                StreetProp p = Props[i];
+                // Generated lamps stand at the kerb; generated signal heads mark a junction, so they stay passable.
+                if (p.Osm || p.Kind != StreetPropKind.StreetLamp) continue;
+                into.AddPole(p.X, p.Z, p.Y, p.HeightM, 0.15f);
+            }
+            for (int i = 0; i < Parked.Count; i++)
+            {
+                ParkedVehicle v = Parked[i];
+                if (v.CommunityFleet) continue;
+                into.AddVehicle(v.X, v.Z, v.Y, v.YawDeg, v.Variant);
+            }
+        }
+
+        /// <summary>True for the kinds with a trunk (the trees, bamboo, palm and banana), false for small plants and rocks.</summary>
+        public static bool IsTree(TreeSpecies s)
+        {
+            return s <= TreeSpecies.Banana;
         }
 
         /// <summary>Cell index of a tile-local point.</summary>

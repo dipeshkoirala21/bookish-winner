@@ -4,9 +4,12 @@ using System.Diagnostics;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Generators;
+using Ghumante.Core.Generators.Ornaments;
 using Ghumante.Core.Generators.Placement;
 using Ghumante.Core.Generators.Sacred;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Bridges;
+using Ghumante.Core.Meshing.Roads;
 using Ghumante.Core.Streaming;
 using Ghumante.World.Buildings;
 using Ghumante.World.Instancing;
@@ -18,8 +21,11 @@ namespace Ghumante.World.Streaming
     /// <summary>
     /// The mesh layers of a tile view, in upload order. W2 adds the road-decal layer (markings and zebras, W2_DESIGN
     /// 4.5), the far building bands B2 and B3 (2.4; <see cref="Buildings"/> is B1), and the hero replicas (3.4). The
-    /// band and hero layers are split into parts (<see cref="UploadChunk.Part"/>): B1 and B2 per 128 m block, B3 per
-    /// 256 m block, heroes per (hero, LOD) as <c>hero × 4 + lod</c>.
+    /// detail pass adds the bridge and flyover structures (<see cref="Bridges"/>, docs/W2_DETAIL_CONTRACT.md decisions 3
+    /// and 4) and the roundabout and police-chowk dressing (<see cref="Ornaments"/>, roundabouts.md). The band, hero,
+    /// bridge and ornament layers are split into parts (<see cref="UploadChunk.Part"/>): B1 and B2 per 128 m block, B3
+    /// per 256 m block, heroes per (hero, LOD) as <c>hero × 4 + lod</c>, bridges and ornaments per (piece, LOD) as
+    /// <c>piece × 4 + lod</c> (<see cref="LodPiece"/>).
     /// </summary>
     public static class TileLayers
     {
@@ -43,9 +49,20 @@ namespace Ghumante.World.Streaming
         /// <summary>Hero replicas, part = hero × 4 + LOD.</summary>
         public const int Heroes = 7;
 
-        public const int Count = 8;
+        /// <summary>Bridge and flyover structures (decks, railings, piers, stairs, trench walls), part = piece × 4 + LOD
+        /// (<see cref="BridgeMesher"/>, one piece per span plus one for the trench walls).</summary>
+        public const int Bridges = 8;
 
-        private static readonly string[] Names = { "terrain", "roads", "buildings", "areas", "decals", "buildings_b2", "buildings_b3", "heroes" };
+        /// <summary>Roundabout islands, statues and police posts, part = piece × 4 + LOD (<see cref="RoundaboutDecorator"/>,
+        /// one piece per decorated site).</summary>
+        public const int Ornaments = 9;
+
+        public const int Count = 10;
+
+        private static readonly string[] Names =
+        {
+            "terrain", "roads", "buildings", "areas", "decals", "buildings_b2", "buildings_b3", "heroes", "bridges", "ornaments",
+        };
 
         /// <summary>Lowercase layer name (no allocation).</summary>
         public static string Name(int layer)
@@ -96,11 +113,17 @@ namespace Ghumante.World.Streaming
     }
 
     /// <summary>
-    /// Options every tile build shares. Treat as read-only once streaming started: worker threads read it.
+    /// Options every tile build shares. Treat as read-only once streaming started (worker threads read it), apart from
+    /// <see cref="SetMonth"/>, which the world calls on the main thread before it asks the scheduler to rebuild the
+    /// seasonal layers (<see cref="StreamingScheduler.RefreshLayers"/>). <see cref="ForTier"/> makes the game's options:
+    /// every per-tier choice of the detail-pass packages in one place.
     /// </summary>
     public sealed class MeshingSettings
     {
-        /// <summary>Palette season of the terrain colours.</summary>
+        /// <summary>Device tier the options are for (0 Low, 1 Mid, 2 High): which bridge and ornament LODs are built.</summary>
+        public int Tier = 1;
+
+        /// <summary>Palette season of the terrain and area colours (<see cref="SetMonth"/>).</summary>
         public Season Season = BiomePalette.DefaultSeason;
 
         /// <summary>Terrain skirt depth (below 0 automatic, see <see cref="TerrainOptions.SkirtDepthM"/>).</summary>
@@ -140,6 +163,46 @@ namespace Ghumante.World.Streaming
 
         public TreePlacementOptions Trees = new TreePlacementOptions();
 
+        /// <summary>Bridge and flyover structures into <see cref="TileLayers.Bridges"/>, one piece per span at every LOD of
+        /// <see cref="BridgeLods"/> (the streamer shows one per span by distance, <see cref="BridgeOptions.LodFor"/>).</summary>
+        public bool DrawBridges = true;
+
+        /// <summary>Roundabout islands, statues and police posts into <see cref="TileLayers.Ornaments"/>, one piece per
+        /// decorated site at every LOD of <see cref="OrnamentLods"/>. When on, the road mesher's own police podiums are
+        /// off (<see cref="RoadOptions.PolicePodiums"/>) and the decorator leaves the island disc to the road mesher.</summary>
+        public bool DrawOrnaments = true;
+
+        /// <summary>On a pack without structure records (RSTR), derive them from the tags (<see cref="BridgeStructures.For"/>)
+        /// before anything is meshed, so the road surface, the bridge decks, the ground query and traffic share one set
+        /// of deck heights (<see cref="StructureFallback"/>).</summary>
+        public bool DeriveStructures = true;
+
+        /// <summary>The road corridors of a tile in game metres (the roads package's <see cref="RoadCorridorIndex.ForTile"/>);
+        /// set it with <see cref="SetCorridors"/> so every consumer gets it in its own frame. Null: each package's
+        /// stand-in.</summary>
+        public Func<TileData, IRoadCorridorQuery> Corridors { get; private set; }
+
+        private readonly BridgeOptions[] _bridgeLods = { new BridgeOptions { Lod = 0 }, new BridgeOptions { Lod = 1 }, new BridgeOptions { Lod = 2 } };
+
+        /// <summary>Bridge options per LOD 0, 1, 2 (one instance each, so worker builds never share a mutable LOD).</summary>
+        public BridgeOptions BridgeLod(int lod)
+        {
+            return _bridgeLods[lod < 0 ? 0 : lod > 2 ? 2 : lod];
+        }
+
+        /// <summary>Bit mask of the bridge LODs built on <see cref="Tier"/>: Low never draws LOD0
+        /// (<see cref="BridgeOptions.Lod0RadiusM"/>), so it never builds it.</summary>
+        public int BridgeLods
+        {
+            get { return BridgeOptions.Lod0RadiusM[Tier < 0 ? 0 : Tier > 2 ? 2 : Tier] > 0 ? 0x7 : 0x6; }
+        }
+
+        /// <summary>Bit mask of the ornament LODs built on <see cref="Tier"/> (<see cref="OrnamentLod.BuiltMask"/>).</summary>
+        public int OrnamentLods
+        {
+            get { return OrnamentLod.BuiltMask(Tier); }
+        }
+
         /// <summary>Hide the hero zones' buildings in every band (W2_DESIGN 3.3 D5).</summary>
         public void SetHiddenRefs(ISet<ulong> refs)
         {
@@ -148,6 +211,112 @@ namespace Ghumante.World.Streaming
             BlockBuildings.HiddenRefs = refs;
             DetailBuildings.HiddenRefs = refs;
         }
+
+        /// <summary>
+        /// The road corridors (game metres) every consumer keeps clear (docs/W2_DETAIL_CONTRACT.md decisions 1 and 2): the
+        /// building bands (footprint guard and overhang clamp), the nature placement (its tile-local frame,
+        /// <see cref="CorridorFrames.TileLocal"/>) and the roundabout dressing. Null: each package's stand-in.
+        /// </summary>
+        public void SetCorridors(Func<TileData, IRoadCorridorQuery> corridors)
+        {
+            Corridors = corridors;
+            Buildings.Corridors = corridors;
+            FarBuildings.Corridors = corridors;
+            BlockBuildings.Corridors = corridors;
+            DetailBuildings.Corridors = corridors;
+            Trees.Corridors = corridors != null ? CorridorFrames.TileLocal(corridors) : null;
+        }
+
+        /// <summary>Season of the terrain and area palettes from a month (1-12, <see cref="BiomePalette.SeasonOf"/>).
+        /// Returns true when the season changed (the seasonal layers then need a rebuild).</summary>
+        public bool SetMonth(int month)
+        {
+            Season s = BiomePalette.SeasonOf(month);
+            bool changed = s != Season || s != Areas.Season;
+            Season = s;
+            Areas.Season = s;
+            return changed;
+        }
+
+        /// <summary>The layers whose look follows the season (terrain and areas), as a <see cref="TileLayers"/> bit mask.</summary>
+        public const int SeasonalLayers = (1 << TileLayers.Terrain) | (1 << TileLayers.Areas);
+
+        /// <summary>
+        /// The game's options for a device tier (0 Low, 1 Mid, 2 High) and month: the area budget
+        /// (<see cref="AreaOptions.ForTier"/>), the band table's B1 (styled front detail, <see cref="BuildingBandTable.B1Options"/>),
+        /// the light road kit on Low (<see cref="RoadOptions.Detail"/> off: about a quarter fewer road triangles), the
+        /// season of the month, the roads package's corridors for every consumer (<see cref="SetCorridors"/>), bridges and
+        /// roundabout dressing with their tier's LODs, and the hero set's replicas and hide zones.
+        /// </summary>
+        public static MeshingSettings ForTier(int tier, int month = BiomePalette.DefaultMonth, HeroSet heroes = null)
+        {
+            tier = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
+            var m = new MeshingSettings { Tier = tier };
+            m.Areas = AreaOptions.ForTier(tier);
+            m.Buildings = BuildingBandTable.B1Options(m.Buildings);
+            m.Roads.Detail = tier > 0;
+            m.Roads.PolicePodiums = !m.DrawOrnaments;
+            m.SetMonth(month);
+            m.SetCorridors(RoadCorridorIndex.ForTile);
+            m.Heroes = heroes;
+            if (heroes != null) m.SetHiddenRefs(heroes.HiddenRefs);
+            return m;
+        }
+    }
+
+    /// <summary>
+    /// A bridge span or a decorated roundabout built with a tile at several LODs (<see cref="TileLayers.Bridges"/>,
+    /// <see cref="TileLayers.Ornaments"/>): its parts are <c>Index × 4 + lod</c> for every lod in <see cref="LodMask"/>, and
+    /// the streamer shows one of them by the camera's distance to its footprint.
+    /// </summary>
+    public struct LodPiece
+    {
+        /// <summary><see cref="TileLayers.Bridges"/> or <see cref="TileLayers.Ornaments"/>.</summary>
+        public int Layer;
+
+        /// <summary>Index among the tile's pieces of that layer.</summary>
+        public int Index;
+
+        /// <summary>Plan centre (tile-local metres) and radius of the footprint (all LODs).</summary>
+        public double CX, CZ;
+
+        public float RadiusM;
+
+        /// <summary>Bit per LOD built (bit 0 = LOD0).</summary>
+        public int LodMask;
+
+        /// <summary>The LOD nearest to <paramref name="want"/> that was built: the next coarser first, else the next
+        /// finer (-1 when none).</summary>
+        public int Nearest(int want)
+        {
+            for (int l = want; l < 4; l++)
+                if ((LodMask & (1 << l)) != 0) return l;
+            for (int l = want - 1; l >= 0; l--)
+                if ((LodMask & (1 << l)) != 0) return l;
+            return -1;
+        }
+
+        /// <summary>The centreline of a bridge span or trench piece (tile-local; <see cref="BridgeMesher.Distance"/>), or
+        /// null (ornaments): then the distance is to the footprint circle.</summary>
+        public BridgeSpan Span;
+
+        /// <summary>How far the structure of <see cref="Span"/> reaches sideways from its centreline (m).</summary>
+        public float SpanHalfM;
+
+        /// <summary>Plan distance (m) from a tile-local point to the footprint (0 inside): to the structure along its
+        /// centreline for a bridge or trench (a long span is near only where the camera is near it), else to the circle
+        /// round the footprint. The circle distance is a lower bound of the other, so far pieces skip the walk along the
+        /// centreline. No allocation.</summary>
+        public double DistanceTo(double x, double z)
+        {
+            double dx = x - CX, dz = z - CZ;
+            double circle = Math.Max(0.0, Math.Sqrt(dx * dx + dz * dz) - RadiusM);
+            if (Span == null || circle >= FarM) return circle;
+            return Math.Max(circle, BridgeMesher.Distance(Span, x, z) - SpanHalfM);
+        }
+
+        /// <summary>Beyond this circle distance every piece shows its coarsest LOD anyway, so the centreline is not walked.</summary>
+        public const double FarM = 2000.0;
     }
 
     /// <summary>A hero replica built with a tile (W2_DESIGN 3.4): where it stands and its triangles per LOD.</summary>
@@ -166,14 +335,25 @@ namespace Ghumante.World.Streaming
     }
 
     /// <summary>What a ready node hands to its view besides meshes: the decoded tile and sampler (for B0 cells), the
-    /// instanced dressing, the heroes and their structure colliders (tile-local). Owned by the view.</summary>
+    /// instanced dressing, the heroes, the bridge and ornament pieces and the structure colliders (tile-local). Owned by
+    /// the view.</summary>
     public sealed class TileExtras
     {
         public TileData Source;
         public TileHeightSampler Sampler;
         public TileInstances Instances;
         public HeroPiece[] Heroes = new HeroPiece[0];
+
+        /// <summary>Bridge spans and decorated roundabouts with their LOD parts.</summary>
+        public LodPiece[] Pieces = new LodPiece[0];
+
+        /// <summary>Colliders of the heroes (tile-local), or null.</summary>
         public StructureColliders HeroColliders;
+
+        /// <summary>Colliders of the roundabout dressing (pedestals, gates, posts, island tops) and of the instanced
+        /// dressing (generated tree trunks, generated lamp and signal poles, parked vehicles that are not community
+        /// fleet), tile-local, or null.</summary>
+        public StructureColliders Colliders;
     }
 
     /// <summary>
@@ -248,6 +428,26 @@ namespace Ghumante.World.Streaming
 
         /// <summary>Heroes whose build threw (skipped; the tile still loads).</summary>
         public int HeroFailures;
+
+        /// <summary>Bridge spans and decorated roundabouts built with this node (their parts are <c>Index × 4 + lod</c>).</summary>
+        public readonly List<LodPiece> Pieces = new List<LodPiece>();
+
+        /// <summary>Colliders of the ornaments and the instanced dressing (tile-local), or null.</summary>
+        public StructureColliders Colliders;
+
+        /// <summary>Ornament sites whose build threw (skipped; the tile still loads).</summary>
+        public int OrnamentFailures;
+
+        /// <summary>
+        /// Non-zero for a refresh build (<see cref="StreamingScheduler.RefreshLayers"/>): only the layers of this
+        /// <see cref="TileLayers"/> bit mask are built (with the sampler), for a node whose view is already up; nothing
+        /// else (no instances, heroes, colliders or road index).
+        /// </summary>
+        public int RefreshMask;
+
+        /// <summary>The scheduler's settings version when the build was dispatched (a build older than the current
+        /// version is refreshed once it is up).</summary>
+        public int SettingsVersion;
 
         private readonly MeshData _scratch = new MeshData();
         private readonly MeshParts.Scratch _partScratch = new MeshParts.Scratch();
@@ -341,6 +541,11 @@ namespace Ghumante.World.Streaming
             Heroes.Clear();
             HeroColliders = null;
             HeroFailures = 0;
+            Pieces.Clear();
+            Colliders = null;
+            OrnamentFailures = 0;
+            RefreshMask = 0;
+            SettingsVersion = 0;
             for (int i = 0; i < TileLayers.Count; i++)
             {
                 Layers[i].Clear();
@@ -354,10 +559,13 @@ namespace Ghumante.World.Streaming
             var e = new TileExtras
             {
                 Source = Source, Sampler = Sampler, Instances = Instances, Heroes = Heroes.ToArray(), HeroColliders = HeroColliders,
+                Pieces = Pieces.ToArray(), Colliders = Colliders,
             };
             Instances = null;
             HeroColliders = null;
+            Colliders = null;
             Heroes.Clear();
+            Pieces.Clear();
             return e;
         }
 
@@ -374,6 +582,9 @@ namespace Ghumante.World.Streaming
             Instances = null;
             Heroes.Clear();
             HeroColliders = null;
+            Pieces.Clear();
+            Colliders = null;
+            RefreshMask = 0;
             if (_scratch.VertexCapacity > PoolKeepVertices) _scratch.Clear();
             for (int i = 0; i < TileLayers.Count; i++)
             {
@@ -403,7 +614,8 @@ namespace Ghumante.World.Streaming
 
         /// <summary>
         /// The worker-thread part: decode the source when needed, mesh every layer and build the sampler and road
-        /// index. Thread-safe for distinct builds (the meshers keep per-thread scratch); touches no Unity API.
+        /// index. Thread-safe for distinct builds (the meshers keep per-thread scratch); touches no Unity API. A refresh
+        /// build (<see cref="RefreshMask"/>) builds only those layers and the sampler.
         /// </summary>
         public static void Execute(TileBuild b, PackReader pack, StreamingConfig config, MeshingSettings settings, TileGroundQuery ground)
         {
@@ -416,26 +628,43 @@ namespace Ghumante.World.Streaming
                 if (b.Source == null) throw new InvalidOperationException("tile " + n.Source + " is not in the pack");
                 b.DecodedSource = true;
             }
+            if (settings == null) settings = new MeshingSettings();
             TileData src = b.Source;
             TileId area = n.Area;
             int step = config.TerrainStep(area, n.Source, src.HeightsN);
             b.Step = step;
             for (int i = 0; i < TileLayers.Count; i++) b.Layers[i].Clear();
             b.Chunks.Clear();
+            int only = b.RefreshMask;
+            bool detail = n.DrawsDetail && src.HasDetail;
+            // Before anything reads the tile's roads: one set of deck heights for roads, bridges, ground and traffic.
+            if (detail && settings.DeriveStructures) StructureFallback.Apply(src);
 
-            var terrain = new TerrainOptions { Step = step, SkirtDepthM = settings.SkirtDepthM, Season = settings.Season };
-            TerrainMesher.Build(src, area, terrain, b.Layers[TileLayers.Terrain]);
+            if (Wants(only, TileLayers.Terrain))
+            {
+                var terrain = new TerrainOptions { Step = step, SkirtDepthM = settings.SkirtDepthM, Season = settings.Season };
+                TerrainMesher.Build(src, area, terrain, b.Layers[TileLayers.Terrain]);
+            }
             b.Sampler = TileHeightSampler.ForArea(src, area, step);
 
-            if (n.DrawsDetail && src.HasDetail && b.Sampler.HasHeights)
+            if (detail && b.Sampler.HasHeights)
             {
-                if (settings.DrawRoads) RoadMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.Roads]);
-                if (settings.DrawRoads && settings.DrawRoadDecals) MarkingMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.RoadDecals]);
-                if (settings.DrawBuildings) BuildBuildings(b, src, settings);
-                if (settings.DrawAreas) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
-                if (settings.Heroes != null) BuildHeroes(b, src, settings.Heroes);
-                if (settings.DrawInstances) BuildInstances(b, src, settings);
-                b.Roads = ground != null ? ground.BuildRoadIndex(src) : null;
+                if (only != 0)
+                {
+                    if (settings.DrawAreas && Wants(only, TileLayers.Areas)) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
+                }
+                else
+                {
+                    if (settings.DrawRoads) RoadMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.Roads]);
+                    if (settings.DrawRoads && settings.DrawRoadDecals) MarkingMesher.Build(src, b.Sampler, settings.Roads, b.Layers[TileLayers.RoadDecals]);
+                    if (settings.DrawRoads && settings.DrawBridges) BuildBridges(b, src, settings);
+                    if (settings.DrawBuildings) BuildBuildings(b, src, settings);
+                    if (settings.DrawAreas) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
+                    if (settings.Heroes != null) BuildHeroes(b, src, settings.Heroes);
+                    if (settings.DrawRoads && settings.DrawOrnaments) BuildOrnaments(b, src, settings);
+                    if (settings.DrawInstances) BuildInstances(b, src, settings);
+                    b.Roads = ground != null ? ground.BuildRoadIndex(src) : null;
+                }
             }
 
             for (int i = 0; i < TileLayers.Count; i++)
@@ -459,6 +688,247 @@ namespace Ghumante.World.Streaming
             double reach = config.RingFor(area.Level).RadiusM + area.Size * 1.5;
             b.CurvatureMarginM = (float)EarthCurvature.DropM(reach);
             b.WorkMs = sw.Elapsed.TotalMilliseconds;
+        }
+
+        private static bool Wants(int only, int layer)
+        {
+            return only == 0 || (only & (1 << layer)) != 0;
+        }
+
+        /// <summary>
+        /// Every bridge and flyover span of the tile as its own piece at each LOD of <see cref="MeshingSettings.BridgeLods"/>
+        /// (parts <c>piece × 4 + lod</c>), then every underpass trench as a piece of its own. Spans follow the tile's
+        /// structure records (or the derived ones, <see cref="StructureFallback"/>), the same heights the road mesher
+        /// lays the carriageway at. Each piece keeps its centreline (<see cref="LodPiece.Span"/>), so the streamer picks
+        /// its LOD by the camera's distance to the structure itself, not to a circle round a 300-500 m span.
+        /// </summary>
+        private static void BuildBridges(TileBuild b, TileData src, MeshingSettings settings)
+        {
+            if (src.Roads.Count == 0) return;
+            BridgeLayout layout = BridgeLayout.For(src);
+            if (layout.Spans.Count == 0 && layout.Trenches.Count == 0) return;
+            MeshData layer = b.Layers[TileLayers.Bridges];
+            List<PartRange> parts = b.Parts[TileLayers.Bridges];
+            int mask = settings.BridgeLods;
+            int index = 0;
+            int spans = layout.Spans.Count, total = spans + layout.Trenches.Count;
+            for (int si = 0; si < total; si++)
+            {
+                bool trench = si >= spans;
+                BridgeSpan span = trench ? layout.Trenches[si - spans] : layout.Spans[si];
+                // A stair span's flights stand beside its path and are small: the footprint circle measures them.
+                var piece = new LodPiece { Layer = TileLayers.Bridges, Index = index };
+                if (!span.Stair)
+                {
+                    piece.Span = span;
+                    piece.SpanHalfM = SpanHalfWidth(span);
+                }
+                float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+                for (int lod = 0; lod < 3; lod++)
+                {
+                    if ((mask & (1 << lod)) == 0) continue;
+                    b._scratch.Clear();
+                    BridgeOptions o = settings.BridgeLod(lod);
+                    bool built = trench ? BridgeMesher.BuildTrench(layout, si - spans, b.Sampler, o, b._scratch)
+                                        : BridgeMesher.BuildSpan(layout, si, b.Sampler, o, b._scratch);
+                    if (!built || b._scratch.IndexCount == 0) continue;
+                    Grow(b._scratch, ref minX, ref minZ, ref maxX, ref maxZ);
+                    MeshParts.AppendPart(b._scratch, layer, index * 4 + lod, parts);
+                    piece.LodMask |= 1 << lod;
+                }
+                if (piece.LodMask == 0) continue;
+                SetFootprint(ref piece, minX, minZ, maxX, maxZ);
+                b.Pieces.Add(piece);
+                index++;
+            }
+        }
+
+        /// <summary>Most a span's structure reaches sideways from its centreline (m): the widest deck half plus walkway,
+        /// and a margin for railings, piers, stairs and wing walls.</summary>
+        internal static float SpanHalfWidth(BridgeSpan sp)
+        {
+            double half = 0;
+            for (int k = 0; k < sp.Count; k++)
+            {
+                double l = (sp.HalfL != null && k < sp.HalfL.Length ? sp.HalfL[k] : 0) + (sp.WalkL != null && k < sp.WalkL.Length ? sp.WalkL[k] : 0);
+                double r = (sp.HalfR != null && k < sp.HalfR.Length ? sp.HalfR[k] : 0) + (sp.WalkR != null && k < sp.WalkR.Length ? sp.WalkR[k] : 0);
+                half = Math.Max(half, Math.Max(l, r));
+            }
+            return (float)(half + 2.0);
+        }
+
+        /// <summary>
+        /// The roundabout and police-chowk dressing (<see cref="RoundaboutDecorator"/>): every raised island of the road
+        /// layout (the road mesher draws the island disc and kerb, the decorator its garden, statue, railing, lamps and
+        /// police post), the police posts of chowks without an island and the standalone curated sites (Shahid Gate,
+        /// Singha Durbar, Kalimati, with their own island base, fitted between the road corridors). One piece per site at
+        /// each LOD of <see cref="MeshingSettings.OrnamentLods"/>; the finest LOD's colliders (pedestals, gates, posts, and
+        /// the walkable top of a standalone island) join <see cref="Colliders"/>.
+        /// </summary>
+        private static void BuildOrnaments(TileBuild b, TileData src, MeshingSettings settings)
+        {
+            IRoadCorridorQuery corridors = settings.Corridors != null ? settings.Corridors(src) : null;
+            var opt = new RoundaboutDecorator.DecorOptions
+            {
+                DrawBase = false, DrawPolice = true, Corridors = corridors, Roads = settings.Roads,
+            };
+            if (src.Roads.Count > 0)
+            {
+                foreach (RoadIsland isl in RoadLayout.For(src).Islands)
+                {
+                    if (isl.Kind == IslandKind.Mini || isl.RadiusM < 0.5f) continue;
+                    RoadIsland island = isl;
+                    BuildOrnament(b, settings, (m, lod, o) => RoundaboutDecorator.Build(island, src, b.Sampler, m, lod, null, o), opt, false, 0, 0, 0, 0);
+                }
+            }
+            opt.DrawBase = true;
+            foreach (JunctionRecord j in src.Junctions)
+            {
+                RoadIsland unused;
+                if (RoundaboutDecorator.TryLayoutIsland(src, j.XCm / 100.0, j.ZCm / 100.0, out unused)) continue;
+                JunctionRecord rec = j;
+                BuildOrnament(b, settings, (m, lod, o) => RoundaboutDecorator.Build(rec, src, b.Sampler, m, lod, -1f, float.NaN, null, o), opt, false, 0, 0, 0, 0);
+            }
+            var standalone = new List<RoundaboutEntry>(2);
+            RoundaboutCatalog.StandaloneIn(src, standalone);
+            foreach (RoundaboutEntry e in standalone)
+            {
+                RoundaboutSite site = RoundaboutDecorator.StandaloneSite(e, src);
+                RoundaboutDesign design = e.Design;
+                BuildOrnament(b, settings, (m, lod, o) => RoundaboutDecorator.Build(site, design, b.Sampler, m, lod, null, o), opt, true,
+                              site.X, site.Z, site.RadiusM, site.RoadLiftM);
+            }
+        }
+
+        private delegate int OrnamentBuild(MeshData m, int lod, RoundaboutDecorator.DecorOptions options);
+
+        /// <summary>One decorated site at every built LOD; a standalone island also gets a walkable top (its kerb is
+        /// lower than a step, so riders mount it like a pavement).</summary>
+        private static void BuildOrnament(TileBuild b, MeshingSettings settings, OrnamentBuild build, RoundaboutDecorator.DecorOptions opt,
+                                          bool standalone, double sx, double sz, float radius, float roadLift)
+        {
+            MeshData layer = b.Layers[TileLayers.Ornaments];
+            List<PartRange> parts = b.Parts[TileLayers.Ornaments];
+            int index = b.PieceCount(TileLayers.Ornaments);
+            int mask = settings.OrnamentLods;
+            int partsBefore = parts.Count, v0 = layer.VertexCount, i0 = layer.IndexCount;
+            var piece = new LodPiece { Layer = TileLayers.Ornaments, Index = index };
+            float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+            int finest = -1;
+            for (int lod = 0; lod < 4 && finest < 0; lod++)
+                if ((mask & (1 << lod)) != 0) finest = lod;
+            try
+            {
+                b._gen.Clear();
+                for (int lod = 0; lod < 4; lod++)
+                {
+                    if ((mask & (1 << lod)) == 0) continue;
+                    b._scratch.Clear();
+                    RoundaboutDecorator.DecorOptions o = opt;
+                    o.Colliders = lod == finest ? b._gen : null;
+                    if (build(b._scratch, lod, o) <= 0 || b._scratch.IndexCount == 0) continue;
+                    Grow(b._scratch, ref minX, ref minZ, ref maxX, ref maxZ);
+                    MeshParts.AppendPart(b._scratch, layer, index * 4 + lod, parts);
+                    piece.LodMask |= 1 << lod;
+                }
+                if (piece.LodMask == 0) return;
+                // The island top (road lift + kerb, about 0.5 m over the terrain) of a standalone island this decorator
+                // draws itself, walkable: riders step onto it like a pavement instead of passing through the lawn.
+                double r = Math.Min(radius, 0.5 * Math.Min(maxX - minX, maxZ - minZ));
+                float g;
+                if (standalone && r >= 0.5 && b.Sampler.TryHeightClamped(b.Source.Tile.X0 + sx, b.Source.Tile.Z0 + sz, out g))
+                    AddIslandTop(b._gen, opt.Corridors, b.Source.Tile.X0, b.Source.Tile.Z0, sx, sz, r, g - 0.5, g + roadLift + 0.22);
+                if (b._gen.Boxes.Count + b._gen.Ramps.Count + b._gen.Cylinders.Count + b._gen.Walls.Count > 0)
+                {
+                    if (b.Colliders == null) b.Colliders = new StructureColliders();
+                    b.Colliders.AddFrom(b._gen);
+                }
+                SetFootprint(ref piece, minX, minZ, maxX, maxZ);
+                b.Pieces.Add(piece);
+            }
+            catch (Exception)
+            {
+                // A broken design must not take the tile down: drop what it added.
+                b.OrnamentFailures++;
+                parts.RemoveRange(partsBefore, parts.Count - partsBefore);
+                layer.VertexCount = v0;
+                layer.IndexCount = i0;
+            }
+        }
+
+        /// <summary>Squares (rotated <see cref="IslandTopStepDeg"/> apart) whose union approximates a standalone island's
+        /// round walkable top.</summary>
+        public const int IslandTopSquares = 3;
+
+        /// <summary>Turn (degrees) between the island-top squares: a quarter turn shared evenly.</summary>
+        public const double IslandTopStepDeg = 90.0 / IslandTopSquares;
+
+        /// <summary>
+        /// The walkable top of a round island of radius <paramref name="r"/> centred at (cx, cz) tile-local: squares
+        /// inscribed in the disc (corners on the rim), turned <see cref="IslandTopStepDeg"/> apart, so their union covers
+        /// the disc to about 0.82 r and never leaves it. Each square is shrunk until every corner and edge midpoint lies
+        /// outside the drawn road corridors (<paramref name="corridors"/>, game metres; <c>SignedDistance ≥ 0</c>), so the
+        /// top never becomes a kerb on the carriageway. Returns the boxes added.
+        /// </summary>
+        public static int AddIslandTop(GenColliders gen, IRoadCorridorQuery corridors, double x0, double z0, double cx, double cz,
+                                       double r, double y0, double y1)
+        {
+            int added = 0;
+            for (int k = 0; k < IslandTopSquares; k++)
+            {
+                double a = k * IslandTopStepDeg * Math.PI / 180.0;
+                double ux = Math.Cos(a), uz = Math.Sin(a);
+                double half = r / Math.Sqrt(2.0);
+                while (half >= 0.5 && !SquareClear(corridors, x0 + cx, z0 + cz, ux, uz, half)) half *= 0.92;
+                if (half < 0.5) continue;
+                gen.AddBox(cx, cz, y0, y1, half, half, ux, uz, GenColliderFlags.None, GenColliders.Grass);
+                added++;
+            }
+            return added;
+        }
+
+        /// <summary>True when the corners and edge midpoints of a square (centre game metres, U axis, half side) are all
+        /// outside the road corridors.</summary>
+        public static bool SquareClear(IRoadCorridorQuery corridors, double gx, double gz, double ux, double uz, double half)
+        {
+            if (corridors == null) return true;
+            double wx = -uz, wz = ux;
+            for (int i = -1; i <= 1; i++)
+            {
+                for (int j = -1; j <= 1; j++)
+                {
+                    if (i == 0 && j == 0) continue;
+                    double px = gx + (i * ux + j * wx) * half, pz = gz + (i * uz + j * wz) * half;
+                    if (corridors.SignedDistance(px, pz) < 0.0) return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>Pieces of a layer built so far.</summary>
+        private int PieceCount(int layer)
+        {
+            int c = 0;
+            for (int i = 0; i < Pieces.Count; i++)
+                if (Pieces[i].Layer == layer) c++;
+            return c;
+        }
+
+        private static void Grow(MeshData m, ref float minX, ref float minZ, ref float maxX, ref float maxZ)
+        {
+            float x0, y0, z0, x1, y1, z1;
+            m.GetBounds(out x0, out y0, out z0, out x1, out y1, out z1);
+            minX = Math.Min(minX, x0);
+            minZ = Math.Min(minZ, z0);
+            maxX = Math.Max(maxX, x1);
+            maxZ = Math.Max(maxZ, z1);
+        }
+
+        private static void SetFootprint(ref LodPiece p, float minX, float minZ, float maxX, float maxZ)
+        {
+            p.CX = 0.5 * (minX + maxX);
+            p.CZ = 0.5 * (minZ + maxZ);
+            p.RadiusM = 0.5f * (float)Math.Sqrt((maxX - minX) * (maxX - minX) + (maxZ - minZ) * (maxZ - minZ));
         }
 
         /// <summary>
@@ -533,8 +1003,9 @@ namespace Ghumante.World.Streaming
                     piece.GroundY = minY;
                     piece.TopY = maxY;
                     piece.RadiusM = 0.5f * (float)Math.Sqrt((maxX - minX) * (maxX - minX) + (maxZ - minZ) * (maxZ - minZ));
-                    if (b._gen.Boxes.Count > 0 || b._gen.Ramps.Count > 0)
+                    if (b._gen.Boxes.Count + b._gen.Ramps.Count + b._gen.Cylinders.Count + b._gen.Walls.Count > 0)
                     {
+                        // Every generator collider: boxes and ramps, and the cylinders and walls of statues, piers and parapets.
                         if (b.HeroColliders == null) b.HeroColliders = new StructureColliders();
                         b.HeroColliders.AddFrom(b._gen);
                     }
@@ -551,15 +1022,146 @@ namespace Ghumante.World.Streaming
             }
         }
 
-        /// <summary>Trees (OSM, avenues, forest clumps), street props and parked vehicles, indexed by 64 m cell.</summary>
+        /// <summary>Trees (OSM, avenues, forest clumps), street props and parked vehicles, indexed by 64 m cell, and the
+        /// colliders of what is solid among them (<see cref="TileInstances.AppendColliders"/>).</summary>
         private static void BuildInstances(TileBuild b, TileData src, MeshingSettings settings)
         {
             var inst = new TileInstances();
             TreePlacement.Place(src, b.Sampler, settings.Trees, inst.Trees);
+            if (b.HeroColliders != null)
+            {
+                IRoadCorridorQuery corridors = settings.Trees != null && settings.Trees.Corridors != null ? settings.Trees.Corridors(src) : null;
+                KeepTreesOffHeroes(inst.Trees, b.HeroColliders, src, b.Sampler, corridors);
+            }
             PropPlacement.Place(src, b.Sampler, inst.Props);
-            ParkedPlacement.Place(src, b.Sampler, inst.Parked);
+            ParkedPlacement.Place(src, b.Sampler, inst.Parked, settings.Roads);
             inst.Index(src.Tile.Size);
             b.Instances = inst;
+            if (b.Colliders == null) b.Colliders = new StructureColliders();
+            inst.AppendColliders(b.Colliders);
+            if (b.Colliders.Count == 0) b.Colliders = null;
+        }
+
+        /// <summary>Clearance (m) a tree trunk keeps from a hero's plinth, walls and statues.</summary>
+        public const float HeroTreeMarginM = 1.0f;
+
+        /// <summary>Farthest (m) a mapped tree standing on a hero is moved to stand beside it; farther, it is dropped.</summary>
+        public const float HeroTreeNudgeM = 8.0f;
+
+        /// <summary>
+        /// Keeps trees off the hero replicas (the heroes' LOD0 colliders, tile-local: plinth stages, walls, stairs and
+        /// statues standing above the tree's ground): temple plinths and the paved squares round them carry no trees in
+        /// the real squares (Taleju's twelve-stage plinth in Hanuman Dhoka, Basantapur), and a mapped tree whose point
+        /// falls on a plinth stands beside it. A mapped (OSM) tree is moved just outside the structure it stands on
+        /// (at most <see cref="HeroTreeNudgeM"/>, never into another hero structure or a road corridor, given in
+        /// tile-local metres) and set on the terrain there; a generated plant, or a mapped tree that cannot be moved, is
+        /// dropped. Low paving flush with the ground keeps its trees. Returns the trees moved or dropped.
+        /// </summary>
+        public static int KeepTreesOffHeroes(List<TreeInstance> trees, StructureColliders heroes, TileData src, TileHeightSampler h,
+                                             IRoadCorridorQuery corridors)
+        {
+            if (trees == null || heroes == null || heroes.Count == 0) return 0;
+            int changed = 0, w = 0;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                TreeInstance t = trees[i];
+                double x = t.X, z = t.Z;
+                if (OnHero(heroes, x, z, t.Y, HeroTreeMarginM))
+                {
+                    changed++;
+                    if (t.Origin != TreeOrigin.Osm || !NudgeOffHero(heroes, ref x, ref z, t.Y) ||
+                        corridors != null && corridors.SignedDistance(x, z) < 1.2)
+                        continue; // dropped
+                    float y;
+                    if (h != null && h.TryHeightClamped(src.Tile.X0 + x, src.Tile.Z0 + z, out y)) t.Y = y;
+                    t.X = (float)x;
+                    t.Z = (float)z;
+                }
+                trees[w++] = t;
+            }
+            if (w < trees.Count) trees.RemoveRange(w, trees.Count - w);
+            return changed;
+        }
+
+        /// <summary>True when a trunk at (x, z) with its foot at <paramref name="footY"/> stands within
+        /// <paramref name="margin"/> of a hero box, ramp or cylinder rising more than 0.3 m above its foot.</summary>
+        private static bool OnHero(StructureColliders c, double x, double z, float footY, double margin)
+        {
+            float above = footY + 0.3f;
+            for (int i = 0; i < c.Boxes.Count; i++)
+            {
+                OrientedBox b = c.Boxes[i];
+                if (b.Top <= above) continue;
+                double dx = x - b.CX, dz = z - b.CZ, cs = Math.Cos(b.YawRad), sn = Math.Sin(b.YawRad);
+                double lx = dx * cs + dz * sn, lz = -dx * sn + dz * cs;
+                if (Math.Abs(lx) < b.HalfX + margin && Math.Abs(lz) < b.HalfZ + margin) return true;
+            }
+            for (int i = 0; i < c.Cylinders.Count; i++)
+            {
+                ColliderCylinder y = c.Cylinders[i];
+                if (y.Top <= above) continue;
+                double dx = x - y.CX, dz = z - y.CZ, r = y.Radius + margin;
+                if (dx * dx + dz * dz < r * r) return true;
+            }
+            for (int i = 0; i < c.Ramps.Count; i++)
+            {
+                StepRamp r = c.Ramps[i];
+                if (Math.Max(r.Y0, r.Y1) <= above) continue;
+                double ax = r.X1 - r.X0, az = r.Z1 - r.Z0, l2 = ax * ax + az * az;
+                double f = l2 > 1e-9 ? ((x - r.X0) * ax + (z - r.Z0) * az) / l2 : 0.0;
+                if (f < 0 || f > 1) continue;
+                double qx = r.X0 + ax * f - x, qz = r.Z0 + az * f - z, hw = r.HalfWidth + margin;
+                if (qx * qx + qz * qz < hw * hw) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Moves (x, z) out of the hero box or cylinder it stands in, through the nearest side, to
+        /// <see cref="HeroTreeMarginM"/> beyond it; false when that is farther than <see cref="HeroTreeNudgeM"/> or the
+        /// spot is on another hero structure.</summary>
+        private static bool NudgeOffHero(StructureColliders c, ref double x, ref double z, float footY)
+        {
+            float above = footY + 0.3f;
+            double margin = HeroTreeMarginM + 0.05;
+            for (int pass = 0; pass < 3; pass++)
+            {
+                bool moved = false;
+                for (int i = 0; i < c.Boxes.Count && !moved; i++)
+                {
+                    OrientedBox b = c.Boxes[i];
+                    if (b.Top <= above) continue;
+                    double dx = x - b.CX, dz = z - b.CZ, cs = Math.Cos(b.YawRad), sn = Math.Sin(b.YawRad);
+                    double lx = dx * cs + dz * sn, lz = -dx * sn + dz * cs;
+                    double ox = b.HalfX + margin - Math.Abs(lx), oz = b.HalfZ + margin - Math.Abs(lz);
+                    if (ox <= 0 || oz <= 0) continue;
+                    if (ox < oz) lx = (lx < 0 ? -1 : 1) * (b.HalfX + margin);
+                    else lz = (lz < 0 ? -1 : 1) * (b.HalfZ + margin);
+                    double nx = b.CX + lx * cs - lz * sn, nz = b.CZ + lx * sn + lz * cs;
+                    if (Math.Min(ox, oz) > HeroTreeNudgeM) return false;
+                    x = nx;
+                    z = nz;
+                    moved = true;
+                }
+                for (int i = 0; i < c.Cylinders.Count && !moved; i++)
+                {
+                    ColliderCylinder y = c.Cylinders[i];
+                    if (y.Top <= above) continue;
+                    double dx = x - y.CX, dz = z - y.CZ, d = Math.Sqrt(dx * dx + dz * dz), r = y.Radius + margin;
+                    if (d >= r) continue;
+                    if (r - d > HeroTreeNudgeM) return false;
+                    if (d < 1e-6)
+                    {
+                        dx = 1;
+                        dz = 0;
+                        d = 1;
+                    }
+                    x = y.CX + dx / d * r;
+                    z = y.CZ + dz / d * r;
+                    moved = true;
+                }
+                if (!moved) return !OnHero(c, x, z, footY, HeroTreeMarginM);
+            }
+            return !OnHero(c, x, z, footY, HeroTreeMarginM);
         }
 
         /// <summary>

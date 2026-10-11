@@ -1,4 +1,6 @@
 using System;
+using Ghumante.Core.Characters;
+using Ghumante.Core.Generators.Fauna;
 
 namespace Ghumante.World.Life
 {
@@ -29,17 +31,31 @@ namespace Ghumante.World.Life
         /// <summary>NPC footsteps are played within this distance of the camera (the mixer caps them per tier).</summary>
         public float FootstepRadiusM = 12f;
 
+        /// <summary>The caps of a tier. People and animals come from their packages' plans, the one source each
+        /// (<see cref="CrowdLodPlan.Caps"/>: 1/4/13, 3/10/39, 6/20/78; <see cref="FaunaLod.AnimalCaps"/> and
+        /// <see cref="FaunaLod.AnimalRadii"/>, which also cover the ambient herds), so the presenters and the budgets
+        /// they were measured with never drift apart.</summary>
         public static LifeLod ForTier(int tier)
         {
-            switch (tier <= 0 ? 0 : tier >= 2 ? 2 : 1)
+            int t = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
+            LifeLod lod;
+            switch (t)
             {
                 case 0:
-                    return new LifeLod { VehicleCaps = new[] { 0, 1, 6 }, PeopleCaps = new[] { 1, 4, 13 }, AnimalCaps = new[] { 0, 1, 6 }, EngineVoices = 3 };
+                    lod = new LifeLod { VehicleCaps = new[] { 0, 1, 6 }, EngineVoices = 3 };
+                    break;
                 case 1:
-                    return new LifeLod { VehicleCaps = new[] { 1, 6, 16 }, PeopleCaps = new[] { 3, 10, 39 }, AnimalCaps = new[] { 1, 3, 15 }, EngineVoices = 6 };
+                    lod = new LifeLod { VehicleCaps = new[] { 1, 6, 16 }, EngineVoices = 6 };
+                    break;
                 default:
-                    return new LifeLod { VehicleCaps = new[] { 3, 10, 20 }, PeopleCaps = new[] { 6, 20, 78 }, AnimalCaps = new[] { 2, 6, 35 }, EngineVoices = 10 };
+                    lod = new LifeLod { VehicleCaps = new[] { 3, 10, 20 }, EngineVoices = 10 };
+                    break;
             }
+            lod.PeopleCaps = (int[])CrowdLodPlan.Caps[t].Clone();
+            lod.AnimalCaps = new int[3];
+            FaunaLod.AnimalCaps(t, lod.AnimalCaps);
+            lod.AnimalRadii = (float[])FaunaLod.AnimalRadii.Clone();
+            return lod;
         }
 
         /// <summary>
