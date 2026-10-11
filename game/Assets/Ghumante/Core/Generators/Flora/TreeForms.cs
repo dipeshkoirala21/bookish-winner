@@ -751,7 +751,7 @@ namespace Ghumante.Core.Generators.Flora
         {
             k.ClumpCount = 0;
             k.TipCount = 0;
-            int culms = k.D.Near ? 11 : 5;
+            int culms = k.D.Near ? 14 : 5;
             int segs = k.D.Near ? 5 : 2, sides = k.D.Near ? 4 : 3;
             var cs = new FloraBuilder.TubeStyle { Rgb = culm, PatchRgb = FloraBuilder.Mix(culm, 0x3E5A22u, 0.5f), PatchAmount = 0.6f, Banded = true, Channel = MaterialChannel.Bark };
             k.CrownC = new Vec3(0f, 0.68f * h, 0f);
@@ -761,32 +761,44 @@ namespace Ghumante.Core.Generators.Flora
             st.Bend = 0.35f;
             if (!k.D.Near)
             {
-                // Mid distance: five culms under two smooth plume masses.
+                // Mid distance: six culms rising from the clump and arching out, each hung with two sprays of big
+                // leaf cards along its upper half (the feathery fountain of a village bans clump, never a round head).
                 var cs1 = new FloraBuilder.TubeStyle { Rgb = culm, Channel = MaterialChannel.Bark };
-                for (int i = 0; i < 5; i++)
+                uint leafM = FloraBuilder.Leaf(leaf, 1f), leafM2 = FloraBuilder.Leaf(Sunlit(leaf, 0.35f), 1f);
+                Vec3[] q = FloraBuilder.Pts(3);
+                float[] qr = FloraBuilder.Radii(3);
+                for (int i = 0; i < 6; i++)
                 {
-                    double a = i * 2.39996;
-                    var foot = new Vec3((float)Math.Cos(a) * 0.4f, -0.1f, (float)Math.Sin(a) * 0.4f);
-                    var tipP = new Vec3((float)Math.Cos(a) * 0.3f * w, 0.75f * h, (float)Math.Sin(a) * 0.3f * w);
-                    k.Limb(foot, tipP, 0.08f, 0.04f, 0.1f * h, cs1, 0.5f, 0.85f, 2, 3);
+                    double a = i * 2.39996 + 0.3;
+                    var outDir = new Vec3((float)Math.Cos(a), 0f, (float)Math.Sin(a));
+                    var foot = outDir * (i == 0 ? 0.1f : 0.45f) - Vec3.Up * 0.1f;
+                    float hc = h * (i == 0 ? 1f : i % 2 == 0 ? 0.92f : 0.84f);
+                    float reach = 0.48f * w * (i == 0 ? 0.35f : i % 2 == 0 ? 0.95f : 0.8f);
+                    Vec3 p1 = foot + Vec3.Up * (1.4f * hc) + outDir * (0.15f * reach);
+                    Vec3 end = foot + Vec3.Up * (0.7f * hc) + outDir * reach;
+                    for (int s2 = 0; s2 <= 2; s2++)
+                    {
+                        q[s2] = Bez(foot, p1, end, 0.5f * s2);
+                        qr[s2] = 0.085f * (1f - 0.3f * s2);
+                    }
+                    k.B.Tube(q, qr, 3, 3, cs1, 0.5f, 0.85f, false);
+                    for (int sp = 0; sp < 2; sp++)
+                    {
+                        Vec3 c = Bez(foot, p1, end, sp == 0 ? 0.4f : 0.78f);
+                        Vec3 o = (outDir + Vec3.Up * 0.4f).Normalized;
+                        for (int j = 0; j < 3; j++)
+                        {
+                            double b2 = a + (j - 1) * 0.7 + k.Rng.Jitter(0.2f);
+                            var dir = new Vec3((float)Math.Cos(b2) * 0.8f, k.Rng.Range(-0.8f, -0.2f), (float)Math.Sin(b2) * 0.8f).Normalized;
+                            k.B.LeafCard(c, dir, o, k.Rng.Range(1.6f, 2.1f), 0.5f, j == 1 ? leafM2 : leafM, 0.85f);
+                        }
+                    }
                 }
-                k.Clump(new Vec3(0f, 0.68f * h, 0f), new Vec3(0.44f * w, 0.2f * h, 0.44f * w), 0.3f, st, 0, 1);
-                k.Clump(new Vec3(0f, 0.85f * h, 0f), new Vec3(0.26f * w, 0.14f * h, 0.26f * w), 0.3f, st, 0, 1);
+                k.CrownC = new Vec3(0f, 0.7f * h, 0f);
                 return;
             }
-            // A dense inner plume (drooping clumps) the culms rise through.
-            var coreSt = st;
-            coreSt.ShadeLow = 0.6f;
-            coreSt.ShadeHigh = 0.85f;
-            int core = k.D.Near ? 4 : 3;
-            for (int i = 0; i < core; i++)
-            {
-                double a = i * 2 * Math.PI / core + 0.4;
-                float rad = i == 0 ? 0f : 0.18f * w;
-                var c = new Vec3((float)Math.Cos(a) * rad, h * (i == 0 ? 0.62f : 0.55f), (float)Math.Sin(a) * rad);
-                float cr = 0.13f * w * (k.D.Near ? 1f : 1.6f);
-                k.Clump(c, new Vec3(cr, 0.09f * h, cr), 0.25f, coreSt, 0, -1);
-            }
+            // No round inner plume: a bans clump is a fountain of culms and their leafy sprays all the way through
+            // (refs dendrocalamus 05, bamboo_clump), which a solid core would turn into a round head.
             uint leafC = FloraBuilder.Leaf(leaf, 1f), leafTop = FloraBuilder.Leaf(Sunlit(leaf, 0.4f), 1f);
             Vec3[] p = new Vec3[segs + 1];
             float[] r = new float[segs + 1];
@@ -812,7 +824,8 @@ namespace Ghumante.Core.Generators.Flora
                 int sprays = k.D.Near ? 4 : 1;
                 for (int q = 0; q < sprays; q++)
                 {
-                    float t = sprays == 1 ? 0.75f : 0.4f + 0.18f * q;
+                    // Leafy from about a third of the way up (refs dendrocalamus 05): sprays from the rise to the tip.
+                    float t = sprays == 1 ? 0.75f : 0.25f + 0.22f * q;
                     Vec3 c = Bez(foot, p1, end, t);
                     int cards = k.D.Near ? 4 : 3;
                     for (int j = 0; j < cards; j++)
@@ -882,7 +895,7 @@ namespace Ghumante.Core.Generators.Flora
         private static void Banana(TreeKit k, float h, float w, uint leaf, uint stem)
         {
             var st = new FloraBuilder.TubeStyle { Rgb = stem, PatchRgb = 0x8A6A3Au, PatchAmount = 0.55f, Channel = MaterialChannel.Foliage };
-            float stemH = h * 0.56f;
+            float stemH = h * 0.5f;
             var lean = new Vec3(0.03f * h, 0f, 0f);
             k.Trunk(Vec3.Zero, stemH, 0.034f * h, 0.026f * h, lean, 0, 0f, st, 0.005f * h);
             Vec3 top = TreeKit.TrunkPoint(Vec3.Zero, stemH, lean, 1f, 0.005f * h, k.Seed);
@@ -893,13 +906,15 @@ namespace Ghumante.Core.Generators.Flora
             for (int i = 0; i < leaves; i++)
             {
                 double a = i * 2.39996 + 0.3;
-                float pitch = (float)(k.Rng.Range(35f, 70f) * Math.PI / 180);
+                // Huge paddle leaves (2-2.6 m long, 0.5-0.6 m wide; refs banana 03, 04, 09): the young ones held up,
+                // the older ones arching out over the garden with drooping tips.
+                float pitch = (float)(k.Rng.Range(i < 2 ? 50f : 20f, i < 2 ? 72f : 55f) * Math.PI / 180);
                 var dir = new Vec3((float)(Math.Cos(a) * Math.Cos(pitch)), (float)Math.Sin(pitch), (float)(Math.Sin(a) * Math.Cos(pitch)));
                 var side = new Vec3(-(float)Math.Sin(a), 0f, (float)Math.Cos(a));
-                float len = 0.46f * w * k.Rng.Range(0.85f, 1.05f);
-                float wide = 0.15f * w;
+                float len = 0.52f * w * k.Rng.Range(0.85f, 1.05f);
+                float wide = 0.13f * w;
                 // The petiole is the narrow first part of the blade.
-                k.B.Blade(top - Vec3.Up * 0.1f, dir, side, len, 0.06f, wide, wide * 0.45f, len * 0.3f, 0.15f, k.D.Near ? 5 : 3, c, MaterialChannel.Foliage, 0.6f, 1f, rib);
+                k.B.Blade(top - Vec3.Up * 0.1f, dir, side, len, 0.06f, wide, wide * 0.45f, len * (i < 2 ? 0.22f : 0.4f), 0.15f, k.D.Near ? 5 : 3, c, MaterialChannel.Foliage, 0.6f, 1f, rib);
             }
             if (!k.D.Near) return;
             for (int i = 0; i < 2; i++)
