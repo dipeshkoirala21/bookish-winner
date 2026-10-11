@@ -117,6 +117,9 @@ namespace Ghumante.App
             DeviceAccessibility.ReducedMotionChanged += OnOsReducedMotionChanged;
         }
 
+        /// <summary>Where Ghumante > Project Setup creates the panel settings (ProjectSetup.PanelSettingsPath).</summary>
+        private const string EditorPanelSettingsPath = "Assets/Ghumante/Settings/UI/GhumantePanelSettings.asset";
+
         private void Start()
         {
             // UIDocument creates its root in OnEnable; Start runs after every OnEnable in the scene.
@@ -128,6 +131,18 @@ namespace Ghumante.App
             {
                 Debug.LogError("Bootstrap: no UIDocument assigned. Run Ghumante > Project Setup to rebuild the scene.");
                 return;
+            }
+            if (document.panelSettings == null)
+            {
+                // Without panel settings UI Toolkit draws nothing (only the camera's sky colour shows).
+#if UNITY_EDITOR
+                document.panelSettings = UnityEditor.AssetDatabase.LoadAssetAtPath<PanelSettings>(EditorPanelSettingsPath);
+#endif
+                Debug.LogError(document.panelSettings != null
+                    ? "Bootstrap: the UI Document had no Panel Settings; using " + EditorPanelSettingsPath +
+                      " for this session. Run Ghumante > Project Setup (or Rebuild Bootstrap Scene) to fix the scene."
+                    : "Bootstrap: the UI Document has no Panel Settings, so no UI can show. Run Ghumante > Project Setup.");
+                if (document.panelSettings == null) return;
             }
             Show(startScreen);
         }
