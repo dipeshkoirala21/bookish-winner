@@ -508,8 +508,11 @@ namespace Ghumante.Core.Meshing
             bool house = IsHouse(plan.Archetype);
             var srng = new GrammarRng(seed, PurposeStoreys);
             int storeys = b.Levels < 1 ? 1 : b.Levels;
-            bool heightTagged = (b.Flags & BuildingFlags.HeightTagged) != 0;
-            if (house && (b.Flags & BuildingFlags.LevelsInferred) != 0 && !heightTagged && f.Profile != StyleProfile.None)
+            // A building:part keeps its own levels and height (the pipeline's, tagged or estimated from the part's
+            // height): it is one volume of a mapped building, never a seeded row house.
+            bool part = (b.Flags & BuildingFlags.Part) != 0;
+            bool heightTagged = (b.Flags & BuildingFlags.HeightTagged) != 0 || part && b.HeightCm >= 100;
+            if (house && !part && (b.Flags & BuildingFlags.LevelsInferred) != 0 && !heightTagged && f.Profile != StyleProfile.None)
             {
                 storeys = DrawStoreys(p, ref srng);
                 if (p.MaxUntaggedStoreys > 0 && storeys > p.MaxUntaggedStoreys) storeys = p.MaxUntaggedStoreys;

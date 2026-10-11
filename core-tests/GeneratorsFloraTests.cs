@@ -166,13 +166,19 @@ namespace Ghumante.Core.Tests
         public void FamilyFarLodsAreCheapAndGrey()
         {
             var m = new MeshData();
-            for (int f = 0; f < FloraMesher.Families; f++)
+            for (int f = 0; f < FloraMesher.FarForms; f++)
                 for (int lod = 2; lod < 4; lod++)
                 {
                     m.Clear();
-                    int tris = FloraMesher.Family((TreeShape)f, lod, m);
-                    Assert.That(tris, Is.InRange(3, FloraMesher.Budget[lod]), (TreeShape)f + " LOD" + lod);
-                    AssertFloraMesh(m, 0, (TreeShape)f + " LOD" + lod);
+                    int tris = FloraMesher.Far(f, lod, m);
+                    string what = FormName(f) + " LOD" + lod;
+                    Assert.That(tris, Is.InRange(3, FloraMesher.Budget[lod]), what);
+                    AssertFloraMesh(m, 0, what);
+                    if (f < FloraMesher.Families)
+                    {
+                        var fam = new MeshData();
+                        Assert.That(FloraMesher.Family((TreeShape)f, lod, fam), Is.EqualTo(tris), what + ": Family is the far form of the same index");
+                    }
                     float x0, y0, z0, x1, y1, z1;
                     m.GetBounds(out x0, out y0, out z0, out x1, out y1, out z1);
                     Assert.That(y1, Is.InRange(0.85f, 1.1f));
@@ -187,6 +193,17 @@ namespace Ghumante.Core.Tests
             m.Clear();
             Assert.That(FloraMesher.Chautari(0, m), Is.InRange(100, 600));
             AssertFloraMesh(m, 0, "chautari");
+            // Every tree species has a far form; palms and bamboo their own, banana the Fountain clump.
+            Assert.That(FloraMesher.FarFormOf(TreeSpecies.Palm), Is.EqualTo(FloraMesher.PalmForm));
+            Assert.That(FloraMesher.FarFormOf(TreeSpecies.Banana), Is.EqualTo((int)TreeShape.Fountain));
+            Assert.That(FloraMesher.FarFormOf(TreeSpecies.Bamboo), Is.EqualTo(FloraMesher.BambooForm));
+            Assert.That(FloraMesher.FarFormOf(TreeSpecies.MarigoldBed), Is.EqualTo(-1));
+            foreach (TreeSpecies sp in Trees) Assert.That(FloraMesher.FarFormOf(sp), Is.InRange(0, FloraMesher.FarForms - 1), sp.ToString());
+        }
+
+        private static string FormName(int f)
+        {
+            return f == FloraMesher.PalmForm ? "Palm" : f == FloraMesher.BambooForm ? "Bamboo" : f == (int)TreeShape.Fountain ? "Clump" : ((TreeShape)f).ToString();
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -200,10 +217,12 @@ namespace Ghumante.Core.Tests
         };
 
         /// <summary>
-        /// The LODs of a tree keep its silhouette so the switch does not pop: the near-mid model (LOD1) and the family
-        /// volume (LOD2) span about the width, height and crown base of the detailed model (LOD0), measured robustly
-        /// on the foliage vertices (the width from the 92nd percentile of their distance from the axis, the top and
-        /// the crown base from the 97th and 3rd percentiles of their height).
+        /// The LODs of a tree keep its silhouette so the switch does not pop: the near-mid model (LOD1) and the far form
+        /// (LOD2) span about the width, height and crown base of the detailed model (LOD0), measured robustly on the
+        /// foliage vertices (the width from the 92nd percentile of their distance from the axis, the top and the crown
+        /// base from the 97th and 3rd percentiles of their height); and every LOD covers about the same outline as LOD0
+        /// as seen from afar (<see cref="FloraSilhouette.Coverage"/>: side views from four bearings, blurred to the few dozen pixels a
+        /// far tree spans), so a palm, a banana or a bamboo clump never turns into a round crown on a stick.
         /// </summary>
         [Test]
         public void LodsKeepTheSilhouette()
@@ -213,10 +232,13 @@ namespace Ghumante.Core.Tests
             foreach (TreeSpecies sp in Trees)
             {
                 float[] w = new float[3], top = new float[3], bottom = new float[3];
-                for (int lod = 0; lod < 3; lod++)
+                float[][] cover = new float[FloraMesher.Lods][];
+                for (int lod = 0; lod < FloraMesher.Lods; lod++)
                 {
                     var m = new MeshData();
                     FloraMesher.Build(sp, lod, 10, m);
+                    cover[lod] = FloraSilhouette.Coverage(m);
+                    if (lod >= 3) continue;
                     var rad = new List<float>();
                     var ys = new List<float>();
                     for (int v = 0; v < m.VertexCount; v++)
@@ -233,21 +255,35 @@ namespace Ghumante.Core.Tests
                     top[lod] = ys[(int)(0.97f * (ys.Count - 1))];
                     bottom[lod] = ys[(int)(0.03f * (ys.Count - 1))];
                 }
-                report.AppendFormat("{0,-12} w {1:0.00} {2:0.00} {3:0.00}  top {4:0.00} {5:0.00} {6:0.00}  base {7:0.00} {8:0.00} {9:0.00}\n", sp, w[0], w[1], w[2],
-                                    top[0], top[1], top[2], bottom[0], bottom[1], bottom[2]);
-                // (Banana: its leaves rise from the ground, which no shared Fountain volume follows; it is a garden plant.)
-                for (int lod = 1; lod < (sp == TreeSpecies.Banana ? 2 : 3); lod++)
+                float iou1 = FloraSilhouette.SoftIoU(cover[0], cover[1]), iou2 = FloraSilhouette.SoftIoU(cover[0], cover[2]), iou3 = FloraSilhouette.SoftIoU(cover[0], cover[3]);
+                report.AppendFormat("{0,-12} w {1:0.00} {2:0.00} {3:0.00}  top {4:0.00} {5:0.00} {6:0.00}  base {7:0.00} {8:0.00} {9:0.00}  outline {10:0.00} {11:0.00} {12:0.00}\n", sp,
+                                    w[0], w[1], w[2], top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], iou1, iou2, iou3);
+                for (int lod = 1; lod < 3; lod++)
                 {
-                    // (Banana: the paddle leaves sample their length evenly, so the vertex percentile is no width.)
+                    // (Banana: the paddle leaves sample their length evenly, so the vertex percentile is no width; its
+                    // pseudostem is foliage too, so its crown base is the ground.)
                     if (sp != TreeSpecies.Banana && Math.Abs(w[lod] - w[0]) > 0.2f * w[0]) bad.Add(sp + " LOD" + lod + " width " + w[lod].ToString("0.00") + " vs " + w[0].ToString("0.00"));
                     if (Math.Abs(top[lod] - top[0]) > 0.1f) bad.Add(sp + " LOD" + lod + " top " + top[lod].ToString("0.00") + " vs " + top[0].ToString("0.00"));
-                    // The family volume (LOD2) is shared by the species of a family: its crown base may differ more.
-                    if (Math.Abs(bottom[lod] - bottom[0]) > (lod == 1 ? 0.12f : 0.22f)) bad.Add(sp + " LOD" + lod + " crown base " + bottom[lod].ToString("0.00") + " vs " + bottom[0].ToString("0.00"));
+                    // The far form (LOD2) is shared by the species of a form: its crown base may differ more.
+                    if (sp != TreeSpecies.Banana && Math.Abs(bottom[lod] - bottom[0]) > (lod == 1 ? 0.12f : 0.22f))
+                        bad.Add(sp + " LOD" + lod + " crown base " + bottom[lod].ToString("0.00") + " vs " + bottom[0].ToString("0.00"));
+                }
+                // Crowns of leaves: the outline holds at every level. Palms, bananas and bamboo are blades and sprays,
+                // whose thin outlines overlap less at this resolution; GeneratorsFloraLookTests checks them against a
+                // round crown instead (PalmsBananasAndBambooStayBladesAtEveryFarLod).
+                if (FloraMesher.FarFormOf(sp) < FloraMesher.Families && FloraCatalog.Info(sp).Family != TreeShape.Fountain)
+                {
+                    if (iou1 < MinOutline[1]) bad.Add(sp + " LOD1 outline " + iou1.ToString("0.00"));
+                    if (iou2 < MinOutline[2]) bad.Add(sp + " LOD2 outline " + iou2.ToString("0.00"));
+                    if (iou3 < MinOutline[3]) bad.Add(sp + " LOD3 outline " + iou3.ToString("0.00"));
                 }
             }
             TestContext.WriteLine(report.ToString());
             Assert.That(bad, Is.Empty, string.Join("; ", bad));
         }
+
+        /// <summary>Least outline overlap (soft IoU of <see cref="FloraSilhouette.Coverage"/>) of LOD1, LOD2 and LOD3 with LOD0.</summary>
+        private static readonly float[] MinOutline = { 1f, 0.5f, 0.45f, 0.45f };
 
         [Test]
         public void DumpFloraKit()
@@ -263,12 +299,12 @@ namespace Ghumante.Core.Tests
                         FloraMesher.Build(sp, lod, month, m, false);
                         FloraObj.Write(m, "flora/" + sp + "_m" + month + "_lod" + lod + ".obj");
                     }
-            for (int f = 0; f < FloraMesher.Families; f++)
+            for (int f = 0; f < FloraMesher.FarForms; f++)
                 for (int lod = 2; lod < 4; lod++)
                 {
                     var m = new MeshData();
-                    FloraMesher.Family((TreeShape)f, lod, m, 10f, 14f);
-                    FloraObj.Write(m, "flora/family_" + (TreeShape)f + "_lod" + lod + ".obj");
+                    FloraMesher.Far(f, lod, m, 10f, 14f);
+                    FloraObj.Write(m, "flora/family_" + FormName(f) + "_lod" + lod + ".obj");
                 }
             var c = new MeshData();
             FloraMesher.Chautari(0, c, false);

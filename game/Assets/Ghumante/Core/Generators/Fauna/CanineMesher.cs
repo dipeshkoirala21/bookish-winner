@@ -134,7 +134,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(-0.068f, 0.2f, 0.135f, 0.028f, 0.03f, 0.03f, FaunaBone.FrontUpperL, FaunaPalette.CoatLeg);
                 c.Add(-0.068f, 0.11f, 0.15f, 0.023f, 0.024f, 0.024f, FaunaBone.FrontLowerL, FaunaPalette.CoatLeg);
                 c.Add(-0.068f, 0.05f, 0.16f, 0.022f, 0.022f, 0.022f, FaunaBone.FrontFootL, FaunaPalette.CoatLeg);
-                c.Add(-0.068f, 0.03f, 0.17f, 0.022f, 0.022f, 0.022f, FaunaBone.FrontFootL, FaunaPalette.CoatLeg);
+                c.Add(-0.068f, c.FootY(0.03f, 0.022f, 0.3f), 0.17f, 0.022f, 0.022f, 0.022f, FaunaBone.FrontFootL, FaunaPalette.CoatLeg);
                 c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Leg, fur, Fv3.Forward, 0.5f, 0.3f);
                 Paw(c, -0.068f, 0.18f, FaunaBone.FrontFootL);
                 c.Begin();
@@ -144,7 +144,7 @@ namespace Ghumante.Core.Generators.Fauna
                 c.Add(-0.072f, 0.15f, -0.29f, 0.024f, 0.027f, 0.025f, FaunaBone.HindLowerL, FaunaPalette.CoatLeg);
                 c.Add(-0.072f, 0.09f, -0.28f, 0.022f, 0.022f, 0.022f, FaunaBone.HindLowerL, FaunaPalette.CoatLeg);
                 c.Add(-0.072f, 0.05f, -0.27f, 0.022f, 0.022f, 0.022f, FaunaBone.HindFootL, FaunaPalette.CoatLeg);
-                c.Add(-0.072f, 0.03f, -0.262f, 0.022f, 0.022f, 0.022f, FaunaBone.HindFootL, FaunaPalette.CoatLeg);
+                c.Add(-0.072f, c.FootY(0.03f, 0.022f, 0.3f), -0.262f, 0.022f, 0.022f, 0.022f, FaunaBone.HindFootL, FaunaPalette.CoatLeg);
                 c.Tube(d.LimbSegs, d.LimbRings, FaunaPart.Leg, fur, Fv3.Forward, 0.5f, 0.3f);
                 Paw(c, -0.072f, -0.25f, FaunaBone.HindFootL);
                 c.EndSide(m);

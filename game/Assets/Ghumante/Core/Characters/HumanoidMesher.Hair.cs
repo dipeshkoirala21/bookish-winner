@@ -87,11 +87,18 @@ namespace Ghumante.Core.Characters
                 }
                 if (style == CharacterRecipe.HairReceding)
                 {
-                    // A horseshoe of short hair round the sides and back; the crown is bare.
-                    HairBand(0.006f * hs, 0.03f * hs, -0.045f * hs, -0.1f * hs);
+                    // A horseshoe of short hair round the sides and back; the crown is bare. Under a topi or a hat the
+                    // short grey hair reaches up under the rim all round (ref_characters.md §2: no ring of scalp shows
+                    // between the hair and the cap).
+                    HairBand(0.006f * hs, 0.03f * hs, -0.045f * hs, -0.1f * hs, null, false, covered);
                     return;
                 }
-                if (style == 2 && covered) return; // a buzz cut disappears under a hat
+                if (style == 2 && covered)
+                {
+                    // A buzz cut disappears under a hat, except the cropped sides and back under a high topi rim.
+                    if (CoverRim(0f, out _)) HairBand(0.003f * hs, 0.03f * hs, -0.03f * hs, -0.1f * hs, CharacterPalette.Mix(_hair, _skin, 0.3f), false, true);
+                    return;
+                }
                 float offset = covered ? 0.004f : style == 2 ? 0.005f : style == CharacterRecipe.HairQuiff ? 0.01f : 0.011f;
                 bool longBack = style == 5 || style == 6 || style == 11 || style == CharacterRecipe.HairDreadlocks;
                 float front = style == 2 ? 0.115f * hs : 0.095f * hs;
@@ -348,31 +355,95 @@ namespace Ghumante.Core.Characters
                 }
             }
 
-            /// <summary>A band of short hair round the sides and back between two heights (receding hair, faded sides).</summary>
-            private void HairBand(float offset, float topY, float lowY, float backLowY, uint? colour = null, bool full = false)
+            /// <summary>
+            /// The height (above the head centre) of the lower edge of a cap that sits high on the head, at azimuth
+            /// <paramref name="a"/> (0 = the face, +π/2 = the wearer's left): the topi's tilted rim, or the sun hat's
+            /// crown band. False for bare heads and for headwear that comes down over the ears (helmets, beanies, peaked
+            /// caps, scarves), which hide the sides themselves.
+            /// </summary>
+            private bool CoverRim(float a, out float rimY)
+            {
+                rimY = 0f;
+                if (_o.Headwear != HeadwearMode.Outfit) return false;
+                float hs = _hs;
+                switch (_head.Item)
+                {
+                    case OutfitItem.DhakaTopi:
+                    case OutfitItem.BhadgaunleTopi:
+                    {
+                        // As Topi(): the rim fits the head at TopiRimY, tilted toward the left forehead.
+                        HeadSection(TopiRimY * hs, out float hx0, out _);
+                        rimY = TopiRimY * hs + MathF.Sin(a) * (hx0 + 0.011f * hs) * MathF.Tan(TopiTiltDeg * Quat.Deg2Rad);
+                        return true;
+                    }
+                    case OutfitItem.SunHat:
+                        rimY = 0.064f * hs;
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
+            /// <summary>
+            /// A band of short hair round the sides and back between two heights (receding hair, faded sides). Its ends
+            /// taper into the temples, its lower edge is tufted on the near level and its colour carries the toon shine and
+            /// a soft streak, so it reads as cropped hair rather than a painted strip. <paramref name="underCover"/>
+            /// raises the top edge under the rim of a topi or hat (<see cref="CoverRim"/>), so the hair meets the cap all
+            /// round with no bare scalp between.
+            /// </summary>
+            private void HairBand(float offset, float topY, float lowY, float backLowY, uint? colour = null, bool full = false, bool underCover = false)
             {
                 Mat(MaterialChannel.Hair);
-                int cols = Lod == 0 ? 24 : Lod == 1 ? 12 : 8, rows = Lod == 0 ? 3 : 2;
+                int cols = Lod == 0 ? 24 : Lod == 1 ? 12 : 8, rows = Lod == 0 ? 4 : Lod == 1 ? 3 : 2;
                 float e = HeadExponent, pe = 2f / e;
                 var r = new V3(_hr.X + offset, _hr.Y + offset, _hr.Z + offset);
                 uint rgb = colour ?? _hair;
-                // From the temples (−60°) round the back to the other temple; or all round.
-                float a0 = full ? 0f : 1.05f, a1 = full ? 6.28318530718f : 6.28318530718f - 1.05f;
+                bool cover = underCover && CoverRim(0f, out _);
+                // From the temples (−60°; in front of the ears under a cap) round the back to the other temple; or all round.
+                float a0 = full ? 0f : cover ? 0.95f : 1.05f, a1 = full ? 6.28318530718f : 6.28318530718f - a0;
                 int segCols = full ? cols : cols + 1;
+                float tuck = 0.012f * _hs;
                 _k.BeginGrid(rows, segCols);
                 for (int i = 0; i < rows; i++)
                 {
                     for (int j = 0; j < segCols; j++)
                     {
-                        float a = a0 + (a1 - a0) * j / (full ? cols : cols);
+                        float a = a0 + (a1 - a0) * j / cols;
                         float sa = MathF.Sin(a), ca = MathF.Cos(a);
                         float bw = MathF.Pow(Math.Max(0f, -ca), 1.4f);
+                        float top = topY;
+                        if (cover && CoverRim(a, out float rimY)) top = Math.Max(topY, rimY + tuck);
                         float low = lowY + (backLowY - lowY) * bw;
-                        float y = low + (topY - low) * i / (rows - 1);
+                        if (!full)
+                        {
+                            // The ends taper up into the temple hairline instead of stopping in a straight cut.
+                            float end = Math.Min(j, segCols - 1 - j) / (0.14f * cols);
+                            float k = end >= 1f ? 1f : end * end * (3f - 2f * end);
+                            low = top - (top - low) * (0.15f + 0.85f * k);
+                        }
+                        if (Lod == 0 && i == 0)
+                        {
+                            // A tufted lower edge: short points of cropped hair.
+                            float tuft = 0.5f + 0.5f * MathF.Sin(a * 13f + _v0 * 6.28f);
+                            low -= 0.012f * _hs * tuft * tuft;
+                        }
+                        float y = low + (top - low) * i / (rows - 1);
                         float yN = CharMath.Clamp(y / r.Y, -0.98f, 0.98f);
                         float ring = MathF.Pow(Math.Max(0f, 1f - MathF.Pow(MathF.Abs(yN), e)), 1f / e);
                         float x = r.X * ring * BodyKit.SPow(sa, pe) * JawX(yN), z = r.Z * ring * BodyKit.SPow(ca, pe);
-                        _k.GridSet(i, j, segCols, _hc + new V3(x, y, z), rgb, Bone.Head, Bone.Head, 1f);
+                        uint col = rgb;
+                        if (Lod < 2)
+                        {
+                            var n = new V3(BodyKit.SPow(x / r.X, e - 1f) / r.X, BodyKit.SPow(y / r.Y, e - 1f) / r.Y, BodyKit.SPow(z / r.Z, e - 1f) / r.Z).Normalized;
+                            if (!colour.HasValue) col = HairShine(n);
+                            // Combed streaks (salt and pepper in grey hair), the shadow under a rim, and the thin hair at
+                            // the tufted edge letting the skin show through, so the band fades into the scalp.
+                            float streak = 0.5f + 0.5f * MathF.Sin(a * 9f + _v0 * 4f) * MathF.Cos(a * 4f + i * 1.7f);
+                            float depth = CharacterPalette.Luma(rgb) > 0.6f ? 0.26f : 0.1f;
+                            col = CharacterPalette.Shade(col, (i == rows - 1 && cover ? 0.82f : 1f) * (1f - depth + depth * streak));
+                            if (i == 0 && !colour.HasValue) col = CharacterPalette.Mix(col, _skin, 0.35f);
+                        }
+                        _k.GridSet(i, j, segCols, _hc + new V3(x, y, z), col, Bone.Head, Bone.Head, 1f, i == rows - 1 && cover ? 0.75f : 1f);
                     }
                 }
                 _k.EndGrid(rows, segCols, full, _hc, V3.Up);
