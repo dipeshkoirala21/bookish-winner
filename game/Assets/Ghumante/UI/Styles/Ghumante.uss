@@ -724,6 +724,10 @@
     background-image: url("../Icons/energy.png");
 }
 
+.gh-toast__icon--gear {
+    background-image: url("../Icons/gear.png");
+}
+
 .gh-toast__text,
 .gh-root .gh-toast__text {
     -unity-font-definition: url("../Fonts/Mukta-Bold.ttf");
@@ -1209,6 +1213,50 @@
     background-color: var(--gh-yellow);
     border-bottom-width: 4px;
     border-color: var(--gh-yellow-dark);
+}
+
+/* Graphics quality (SettingsSheet): the label and status line above a full-width Auto / Low / Medium / High
+   segment, whose Auto option ("Auto (Medium)", "स्वचालित (मध्यम)") gets a little more room. */
+.gh-setting--stack {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.gh-setting--stack .gh-setting__text {
+    margin-right: 0;
+    margin-bottom: 10px;
+}
+
+.gh-segment--fill {
+    flex-shrink: 1;
+}
+
+.gh-segment--fill .gh-segment__option,
+.gh-segment--fill .gh-segment__option:focus,
+.gh-segment--fill .gh-segment__option:hover,
+.gh-segment--fill .gh-segment__option:active,
+.gh-segment--fill .gh-segment__option:hover:active {
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 0;
+    padding: 0 8px;
+}
+
+.gh-segment--fill .gh-segment__option--wide,
+.gh-segment--fill .gh-segment__option--wide:focus,
+.gh-segment--fill .gh-segment__option--wide:hover,
+.gh-segment--fill .gh-segment__option--wide:active,
+.gh-segment--fill .gh-segment__option--wide:hover:active {
+    flex-grow: 1.7;
+}
+
+.gh-root .gh-segment--fill .gh-segment__option {
+    font-size: 24px;
+}
+
+/* An option the current tier does not allow (60 fps on Low): still tappable, it explains itself. */
+.gh-segment__option--unavailable {
+    opacity: 0.4;
 }
 
 /* ----- Orientation (ARCHITECTURE.md 7.10a, ADR-017) ----------------------------------------------

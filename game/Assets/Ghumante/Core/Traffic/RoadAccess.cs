@@ -61,15 +61,27 @@ namespace Ghumante.Core.Traffic
             return (t.Roads[roadIndex].Flags & RoadFlags.Bridge) != 0;
         }
 
-        /// <summary>The structure surface heights of a road (one per point), or null when it is draped.</summary>
+        /// <summary>The structure surface heights of a road (one per point, NaN at draped points), or null when it is
+        /// draped.</summary>
         public static float[] SurfaceHeights(TileData t, int roadIndex)
         {
             RoadStructureRecord st = t.RoadStructureOf(roadIndex);
             return st.DeckY != null && st.DeckY.Length == t.Roads[roadIndex].PointCount ? st.DeckY : null;
         }
 
+        /// <summary>The structure surface heights of a road completed for interpolation
+        /// (<see cref="Driving.RoadSpatialIndex.BlendedSurfaceHeights"/>: a draped point next to a structure reads the
+        /// drape, terrain + <paramref name="lift"/>, so a ramp blends into the ground), or null when it is draped. NaN
+        /// remains only at draped points between draped points, where <see cref="SurfaceAt"/> returns NaN and the caller
+        /// drapes on the terrain.</summary>
+        public static float[] SurfaceHeights(TileData t, int roadIndex, Meshing.TileHeightSampler terrain, float lift)
+        {
+            return Driving.RoadSpatialIndex.BlendedSurfaceHeights(t, roadIndex, terrain, lift);
+        }
+
         /// <summary>The surface height at <paramref name="s"/> metres along a piece whose points <paramref name="first"/>..
-        /// <paramref name="last"/> lie at the arc lengths <paramref name="along"/> (indexed by point).</summary>
+        /// <paramref name="last"/> lie at the arc lengths <paramref name="along"/> (indexed by point); NaN on a segment with
+        /// a draped end (see <see cref="SurfaceHeights(TileData, int, Meshing.TileHeightSampler, float)"/>).</summary>
         public static float SurfaceAt(float[] heights, double[] along, int first, int last, double s)
         {
             if (s <= along[first]) return heights[first];

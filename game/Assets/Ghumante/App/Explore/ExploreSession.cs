@@ -717,18 +717,9 @@ namespace Ghumante.App.Explore
             bool quiet = _quietNextPlace;
             _quietNextPlace = false;
             if (!_seenPlaces.Add(key) || quiet) return;
+            // Only the face reacts: the owner found "Discovered: …" toasts annoying (the place banner already names it).
             _explorer.ReactFace(MoodCue.Discovery);
-            // A short "Discovered: …" toast, at most one per DiscoveryToastGapS so a dense bazaar does not chatter.
-            float now = Time.unscaledTime;
-            if (now - _lastDiscoveryToast < DiscoveryToastGapS) return;
-            _lastDiscoveryToast = now;
-            _screen.ShowToast(_localizer.Format("hud.discovered", place.Display(_localizer.Locale == Localizer.Nepali)), "gh-toast__icon--star", 2.4f);
         }
-
-        /// <summary>Seconds between two discovery toasts (the face still lights up for every new place).</summary>
-        private const float DiscoveryToastGapS = 20f;
-
-        private float _lastDiscoveryToast = float.NegativeInfinity;
 
         private void OnModeChanged(ExplorerMode mode)
         {

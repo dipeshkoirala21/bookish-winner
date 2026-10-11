@@ -706,6 +706,25 @@ namespace Ghumante.Core.Meshing.Bridges
             return Orient(cx, cz, dx, dz, bx, bz) != 0;
         }
 
+        /// <summary>
+        /// True when interior point <paramref name="a"/> of a bridge's points <paramref name="p"/> and interior point
+        /// <paramref name="b"/> of another road's points <paramref name="q"/> lie at the same position and the other road
+        /// passes there from one side of the bridge to the other (its neighbouring points lie on opposite sides of the
+        /// bridge's line through its neighbouring points). <see cref="Crosses"/> reads such a point as a shared node; the
+        /// caller tells a grade-separated crossing (the pipeline writes a crossing's station into both ways,
+        /// docs/DATA_FORMATS.md 1.4 and 1.15) from a junction by the heights there
+        /// (<see cref="RoadStructureRecord.GradeSeparationM"/>).
+        /// </summary>
+        internal static bool PassesThroughAt(int[] p, int a, int[] q, int b)
+        {
+            int pc = p.Length / 2, qc = q.Length / 2;
+            if (a <= 0 || a >= pc - 1 || b <= 0 || b >= qc - 1) return false;
+            if (p[2 * a] != q[2 * b] || p[2 * a + 1] != q[2 * b + 1]) return false;
+            long s0 = Orient(p[2 * a - 2], p[2 * a - 1], p[2 * a + 2], p[2 * a + 3], q[2 * b - 2], q[2 * b - 1]);
+            long s1 = Orient(p[2 * a - 2], p[2 * a - 1], p[2 * a + 2], p[2 * a + 3], q[2 * b + 2], q[2 * b + 3]);
+            return s0 != 0 && s1 != 0 && (s0 > 0) != (s1 > 0);
+        }
+
         /// <summary>Proper crossing of segments a-b and c-d (shared end points do not count).</summary>
         internal static bool SegmentsCross(long ax, long az, long bx, long bz, long cx, long cz, long dx, long dz)
         {

@@ -3,6 +3,7 @@ using Ghumante.Core.Synth.Textures;
 using Ghumante.Platform;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace Ghumante.World.Rendering
 {
@@ -21,8 +22,15 @@ namespace Ghumante.World.Rendering
     /// world's focus (<see cref="WorldRoot.Focus"/>, the explorer's position) raised by the target height; the camera-end
     /// radius covers the camera's view frustum just in front of the lens. Off while the debug free-fly camera drives the
     /// world and for every other camera.</item>
+    /// <item>applies the adaptive governor's dynamic resolution (<see cref="DynamicRenderScale"/>, App's quality director)
+    /// to the active URP asset, which changes with the quality level: the asset renders at the lower of its authored render
+    /// scale and the dynamic one, and gets its authored value back when another level takes over, on
+    /// <see cref="Shutdown"/> and when the application quits (in the editor the change would otherwise be saved into the
+    /// asset).</item>
     /// </list>
     /// It hooks <see cref="RenderPipelineManager.beginCameraRendering"/>, so it needs no scene object and no wiring.
+    /// A tier picked in Settings (or stepped by the governor) reaches the look through the quality level and
+    /// <see cref="OverrideTier"/>, which the world's <see cref="WorldRoot.Tier"/> also sets.
     /// </summary>
     public static class ToonLook
     {
@@ -49,6 +57,10 @@ namespace Ghumante.World.Rendering
         private static WorldMaterialSet _rolesSet;
         private static int _rolesVersion = -1;
         private static int _tierVersion;
+        private static float _dynamicScale = 1f;
+        private static UniversalRenderPipelineAsset _scaledAsset;
+        private static float _authoredScale = 1f;
+        private static bool _quitHooked;
         private static readonly Vector4[] ChannelA = new Vector4[MaterialLooks.ArraySize];
         private static readonly Vector4[] ChannelB = new Vector4[MaterialLooks.ArraySize];
 
@@ -96,6 +108,37 @@ namespace Ghumante.World.Rendering
             set { _occluder = value; }
         }
 
+        /// <summary>
+        /// Dynamic resolution from the adaptive quality governor, in [0.5, 1]: the active URP asset renders at the lower of
+        /// its authored render scale and this (Low is authored at 0.7, so it has no range). Applied before the next camera
+        /// renders. Main thread.
+        /// </summary>
+        public static float DynamicRenderScale
+        {
+            get { return _dynamicScale; }
+            set { _dynamicScale = Mathf.Clamp(float.IsNaN(value) ? 1f : value, 0.5f, 1f); }
+        }
+
+        /// <summary>The render scale the active URP asset was authored with (1 before a camera rendered).</summary>
+        public static float AuthoredRenderScale
+        {
+            get { return _authoredScale; }
+        }
+
+        /// <summary>The render scale in use (after the last camera's <see cref="Refresh"/>).</summary>
+        public static float AppliedRenderScale { get; private set; } = 1f;
+
+        /// <summary>The authored render scale of a quality level's URP asset (1 when it has none or is not URP), read before
+        /// any dynamic change: the governor's maximum for that tier.</summary>
+        public static float AuthoredRenderScaleOf(int qualityLevel)
+        {
+            if (qualityLevel < 0 || qualityLevel >= QualitySettings.names.Length) return 1f;
+            var asset = QualitySettings.GetRenderPipelineAssetAt(qualityLevel) as UniversalRenderPipelineAsset;
+            if (asset == null) asset = GraphicsSettings.defaultRenderPipeline as UniversalRenderPipelineAsset;
+            if (asset == null) return 1f;
+            return asset == _scaledAsset ? _authoredScale : asset.renderScale;
+        }
+
         /// <summary>Forces a tier (a settings menu); null follows the active quality level, as the world does.</summary>
         public static void OverrideTier(DeviceTier? tier)
         {
@@ -138,11 +181,18 @@ namespace Ghumante.World.Rendering
             Shader.SetGlobalVector(OccluderBId, Vector4.zero);
             RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
+            if (!_quitHooked)
+            {
+                _quitHooked = true;
+                Application.quitting += RestoreRenderScale;
+            }
         }
 
-        /// <summary>Unhooks and frees the textures (editor domain reloads, tests).</summary>
+        /// <summary>Unhooks, frees the textures and gives the URP asset its authored render scale back (editor domain
+        /// reloads, tests).</summary>
         public static void Shutdown()
         {
+            RestoreRenderScale();
             RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
             if (_pendingBank != null) _pendingBank.Dispose();
             if (_bank != null) _bank.Dispose();
@@ -173,6 +223,36 @@ namespace Ghumante.World.Rendering
             if ((int)tier != _appliedTier) ApplyTier(tier);
             ApplyWorldRoles();
             UpdateBank();
+            ApplyRenderScale();
+        }
+
+        // Dynamic resolution on the active URP asset (it changes with the quality level): remember its authored scale the
+        // first time, give the previous asset its own back, and write only when the value changes (no per-frame work).
+        private static void ApplyRenderScale()
+        {
+            var asset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            if (asset != _scaledAsset)
+            {
+                RestoreRenderScale();
+                _scaledAsset = asset;
+                _authoredScale = asset != null ? asset.renderScale : 1f;
+            }
+            if (asset == null)
+            {
+                AppliedRenderScale = 1f;
+                return;
+            }
+            float want = Mathf.Min(_authoredScale, _dynamicScale);
+            if (Mathf.Abs(asset.renderScale - want) > 0.001f) asset.renderScale = want;
+            AppliedRenderScale = want;
+        }
+
+        private static void RestoreRenderScale()
+        {
+            if (_scaledAsset != null && Mathf.Abs(_scaledAsset.renderScale - _authoredScale) > 0.0001f) _scaledAsset.renderScale = _authoredScale;
+            _scaledAsset = null;
+            _authoredScale = 1f;
+            AppliedRenderScale = 1f;
         }
 
         private static void OnBeginCamera(ScriptableRenderContext context, Camera camera)
