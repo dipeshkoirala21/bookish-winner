@@ -87,6 +87,15 @@ namespace Ghumante.Core.Driving
             HullSectionAt(bz, out bcv, out bhu, out bhv);
             const double blinkR = 0.016;
             double bx = bhu - 0.35 * blinkR, by = bcv + 0.2 * bhv;
+            // Rear plate (scooter_ktm ref_04, the Dio, Activa and Ntorq types): under the tail lamp on a black plastic
+            // holder that hangs from the underside of the tail, a little ahead of the tail end (sampled from this
+            // model's own tail, so the plate never floats behind it); the sporty high tails hang it lower.
+            double tailEnd = niu ? -0.45 : activa ? -0.46 : -0.50;
+            double pz = tailEnd + (niu || activa ? 0.05 : 0.07), pcv, phu, phv;
+            HullSectionAt(pz, out pcv, out phu, out phv);
+            double under = pcv - phv, plateTop = under - (niu || activa ? 0.025 : 0.06);
+            double py = plateTop - 0.5 * TwoWheelerPlateH * Math.Cos(ScooterPlateTilt);
+            if (c.L1) PlateHolder(ref c, under, plateTop, py, pz);
             if (c.L0 && !electric)
             {
                 // Side graphic / chrome strip on the rear body.
@@ -259,11 +268,29 @@ namespace Ghumante.Core.Driving
                 for (int s = -1; s <= 1; s += 2)
                     Blinker(ref c, s * bx, by, bz, blinkR);
 
-            SetPlates(0.50f, -0.47f, 0.60f, (float)(wb + 0.10), 0.20f, 0.15f);
+            SetPlates((float)py, (float)pz, 0.60f, (float)(wb + 0.10), (float)ScooterPlateTilt, 0.15f);
             s_rider = new RiderRef
             {
                 HipY = seatY + 0.07, HipZ = 0.42 * wb, GripX = 0.30, GripY = hbY + 0.005, GripZ = hbZ - 0.03, PegX = 0.11, PegY = 0.36, PegZ = 0.80,
             };
+        }
+
+        /// <summary>Height of the two-wheeler rear plate (<see cref="VehiclePlates.Make"/>, 0.20 × 0.13 m) and the lean of a
+        /// scooter's plate (radians, face up).</summary>
+        internal const double TwoWheelerPlateH = 0.13, TwoWheelerPlateW = 0.20, ScooterPlateTilt = 0.20;
+
+        /// <summary>
+        /// The black plastic plate holder of a scooter: a stem from inside the tail's underside (<paramref name="under"/>)
+        /// down to the plate's top edge, flaring into a backing a little larger than the plate, leaning with it; the plate
+        /// (<see cref="Plates"/>) sits on the backing's rear face at <paramref name="pz"/>.
+        /// </summary>
+        private static void PlateHolder(ref Ctx c, double under, double plateTop, double py, double pz)
+        {
+            ShapeBrush black = Plain(TrimC);
+            double stemTop = under + 0.02, stemBottom = plateTop - 0.012;
+            RBox(ref c, black, 0, 0.5 * (stemTop + stemBottom), pz + 0.03, 0.12, stemTop - stemBottom, 0.045, 0.012, 2);
+            Affine3 back = T(0, py, pz) * Affine3.RotationX(ScooterPlateTilt) * T(0, 0.004, 0.008);
+            RBox(ref c, black, back, TwoWheelerPlateW + 0.02, TwoWheelerPlateH + 0.024, 0.016, 0.006, 2);
         }
 
         // -----------------------------------------------------------------------------------------------------------
@@ -392,11 +419,12 @@ namespace Ghumante.Core.Driving
         private static void Rickshaw(ref Ctx c, in VehicleCatalogEntry e, Dims d, in Livery p, bool puller)
         {
             double wb = d.Wheelbase, r = d.WheelR, hw = d.Half;
-            ShapeBrush body = Paint(p.Body), hood = Fabric(p.Accent), black = Plain(EngineC), chrome = Chrome(), seat = Leather(MeshColor.FromHex(0x8E1B1B));
+            ShapeBrush body = Paint(p.Body), black = Plain(EngineC), chrome = Chrome(), seat = Leather(MeshColor.FromHex(0x8E1B1B));
             // Rear axle carriage: a painted box under the bench, footboard in front, bench with a backrest.
             Ell(ref c, body, 0, 0.62, 0.02, hw - 0.11, 0.10, 0.31, 0.25, 0.25, 12);
             Lump(ref c, Paint(Shade(p.Body, 0.8f)), T(0, 0.50, 0.42), 0.31, 0.02, 0.17, 0.3);
-            if (c.L1) Ell(ref c, seat, 0, 0.78, 0.0, hw - 0.13, 0.06, 0.25, 0.3, 0.3, 12);
+            // Bench cushion on the carriage (every level: the backrest and the hood stand on it) and the backrest.
+            Ell(ref c, seat, 0, 0.78, 0.0, hw - 0.13, 0.06, 0.25, 0.3, 0.3, c.L1 ? 12 : 6);
             Ell(ref c, seat, 0, 1.02, -0.26, hw - 0.13, 0.21, 0.05, 0.3, 0.3, 12);
             if (c.L1)
             {
@@ -405,9 +433,7 @@ namespace Ghumante.Core.Driving
                 Decal(ref c, Paint(MeshColor.FromHex(0xE91E63)), 0, 0.95, -0.312, 0, 0, -1, 0.20, 0.16, 0.08, 0.008);
                 for (int s = -1; s <= 1; s += 2) Rod(ref c, chrome, s * (hw - 0.14), 0.84, 0.25, s * (hw - 0.14), 0.92, -0.20, 0.012, 6);
             }
-            // Folding hood: a half-dome of fabric ribs over the bench.
-            Shapes.Lathe(c.M, Affine3.Translation(0, 1.18, -0.18) * Affine3.RotationZ(Math.PI / 2) * Affine3.RotationY(Math.PI / 2), hood,
-                         HoodProfile(0.70, 0.55), 22, c.S, 0, 180, true);
+            RickshawHood(ref c, p, hw);
             // Frame from the carriage to the front: the puller's bicycle half.
             Rod(ref c, body, 0, 0.62, 0.30, 0, 0.82, wb - 0.35, 0.03, 10);
             Rod(ref c, body, 0, 0.55, 0.30, 0, 0.45, wb - 0.50, 0.025, 10);
@@ -438,92 +464,149 @@ namespace Ghumante.Core.Driving
             _ = e;
         }
 
-        /// <summary>A quarter-ellipse hood profile (ribbed canvas) for the half-lathe over the rickshaw bench.</summary>
-        private static Profile2 HoodProfile(double w, double h)
+        /// <summary>Hood geometry of the cycle rickshaw: the pivot line of the bows (across the carriage at the sides of the
+        /// backrest), the bows' reach from it, their elevation range (degrees above the forward horizontal: the front bow
+        /// leaning forward over the bench, the rear one just behind the vertical), the canvas thickness and the radius of
+        /// the arch's top corners.</summary>
+        internal const double HoodPivotY = 1.0, HoodPivotZ = -0.18, HoodReach = 0.86, HoodFrontDeg = 52, HoodRearDeg = 96, HoodCanvas = 0.022,
+                              HoodCorner = 0.17, HoodInset = 0.09, HoodStretch = 1.25;
+
+        /// <summary>
+        /// The folding hood of the Thamel and Asan cycle rickshaws (ref_vehicles.md, photos rickshaw_thamel ref_00,
+        /// rickshaw_ktm ref_02/ref_07): a pram hood of canvas stretched over bows that pivot on the sides of the backrest,
+        /// as wide as the bench and symmetric about the centre line: flat fan-shaped side panels, a rounded arch on top,
+        /// open at the front and closed behind, its front edge leaning out over the passengers' heads. Built as the arch
+        /// section (a closed band, so the canvas has an inside and an outside) revolved about the pivot line between the
+        /// front and the rear bow, a back panel down to the pivot, raised bows under the canvas, a frilled valance in the
+        /// trim colour along the front edge with a row of tassels, and the pivot hubs. Every level keeps the full
+        /// silhouette; the small parts drop with the level.
+        /// </summary>
+        private static void RickshawHood(ref Ctx c, in Livery p, double hw)
         {
-            Profile2 p = Prof.Clear(false);
-            int n = 7;
-            for (int i = 0; i <= n; i++)
+            double half = hw - HoodInset;
+            uint canvas = p.Accent, trim = Luma(p.Accent) < 0.45f ? MeshColor.FromHex(0xF3E5D0) : MeshColor.FromHex(0xC2185B);
+            // Lathe frame: the lathe axis (+Y) runs across the carriage along the pivot line, angle 0 points forward and
+            // 90° straight up (local x → world up, local y → world x, local z → world forward). The bows of a real hood
+            // pivot at different points, which flattens its top and carries the front edge out over the footboard: the
+            // fan is stretched forward by HoodStretch.
+            Affine3 xf = Affine3.FromBasis(0, 1, 0, 1, 0, 0, 0, 0, HoodStretch, 0, HoodPivotY, HoodPivotZ);
+            int cs = c.L0 ? 4 : c.L1 ? 2 : 1;
+            int radial = c.L0 ? 48 : c.L1 ? 24 : 9;
+            // The canvas: a closed band (outer arch out, inner arch back), capped at the front and rear bows.
+            HoodArch(Prof.Clear(true), half, HoodReach, HoodCorner, HoodCanvas, cs);
+            Shapes.Lathe(c.M, xf, Fabric(canvas), Prof, radial, default, HoodFrontDeg, HoodRearDeg - HoodFrontDeg, true);
+            // The back panel: the rear bow's arch filled down to the pivot line (a sliver of a lathe with its two caps).
+            HoodArch(Prof.Clear(false), half, HoodReach, HoodCorner, 0, cs);
+            Shapes.Lathe(c.M, xf, Fabric(Shade(canvas, 0.92f)), Prof, 720, default, HoodRearDeg - 0.6, 0.6, true);
+            if (c.L1)
             {
-                double a = 0.5 * Math.PI * i / n;
-                p.Add(Math.Cos(a) * w * 0.5 + 0.0, Math.Sin(a) * h - 0.0, false);
+                // The valance: a trim band over the front edge, its frill hanging a little below it.
+                HoodArch(Prof.Clear(true), half + 0.006, HoodReach + 0.006, HoodCorner + 0.006, HoodCanvas + 0.012, cs);
+                Shapes.Lathe(c.M, xf, Fabric(trim), Prof, radial, default, HoodFrontDeg - 4, 6, true);
+                // Bows under the canvas (three near, one mid) and the hubs they pivot on.
+                int bows = c.L0 ? 3 : 1;
+                for (int k = 0; k < bows; k++)
+                {
+                    double a = HoodFrontDeg + (HoodRearDeg - HoodFrontDeg) * (k + 1) / (bows + 1);
+                    HoodArch(Prof.Clear(true), half + 0.004, HoodReach + 0.004, HoodCorner + 0.004, HoodCanvas + 0.008, Math.Max(1, cs / 2));
+                    Shapes.Lathe(c.M, xf, Fabric(Shade(canvas, 0.8f)), Prof, 360, default, a - 1, 2, true);
+                }
+                for (int s = -1; s <= 1; s += 2)
+                    Shapes.Cylinder(c.M, AcrossX(s > 0 ? half - 0.004 : -half - 0.026, HoodPivotY, HoodPivotZ), Metal(ChromeC), 0.035, 0.03, c.L0 ? 12 : 8, 0.008,
+                                    1, true, true, c.S);
             }
-            return p;
+            if (c.L0)
+            {
+                // Tassels hanging from the valance round the front opening.
+                double fa = HoodFrontDeg * Math.PI / 180, ca = Math.Cos(fa), sa = Math.Sin(fa);
+                for (int k = 0; k < 13; k++)
+                {
+                    double u = k / 12.0;
+                    // Along the arch: up the left side, across the top, down the right side (reach r, across x).
+                    double r, x;
+                    if (u < 0.25) { r = 0.30 + (HoodReach - 0.30) * u / 0.25; x = -half; }
+                    else if (u > 0.75) { r = 0.30 + (HoodReach - 0.30) * (1 - u) / 0.25; x = half; }
+                    else { r = HoodReach; x = -half + 2 * half * (u - 0.25) / 0.5; }
+                    if (Math.Abs(x) > half - HoodCorner && r > HoodReach - HoodCorner)
+                    {
+                        // Round the arch corner.
+                        double cx = Math.Sign(x) * (half - HoodCorner), cr = HoodReach - HoodCorner, dx = x - cx, dr = r - cr, l = Math.Sqrt(dx * dx + dr * dr);
+                        if (l > 1e-6)
+                        {
+                            x = cx + dx / l * HoodCorner;
+                            r = cr + dr / l * HoodCorner;
+                        }
+                    }
+                    Ball(ref c, Fabric(k % 2 == 0 ? trim : MeshColor.FromHex(0xFBC02D)), x * 1.01, HoodPivotY + r * sa - 0.035, HoodPivotZ + HoodStretch * r * ca + 0.01, 0.018,
+                         6);
+                }
+            }
         }
 
-        // -----------------------------------------------------------------------------------------------------------
-        // Rider (traffic two-wheelers and the rickshaw puller): helmet always (W2_DESIGN 5.2)
-        // -----------------------------------------------------------------------------------------------------------
-
-        private static readonly uint[] JacketC = { 0x212121, 0x263A5C, 0x8E2424, 0x4E5B31, 0x5D5F63, 0x1565C0, 0x6D4C41 };
-        private static readonly uint[] HelmetC = { 0xFAFAFA, 0x1A1A1A, 0xC62828, 0x1E88E5, 0xFDD835, 0x9E9E9E };
-
-        private static void Rider(ref Ctx c, in VehicleCatalogEntry e, Dims d, in Livery p)
+        /// <summary>
+        /// The hood's arch section in lathe coordinates (x = reach from the pivot line, y = across): an inverted U of half
+        /// width <paramref name="half"/> standing from just off the pivot to <paramref name="reach"/>, its top corners
+        /// rounded by <paramref name="corner"/>. With a <paramref name="thick"/>ness it is a closed band (the canvas),
+        /// otherwise the open outer arch (closed along the axis by the lathe caps: the back panel).
+        /// </summary>
+        private static void HoodArch(Profile2 pr, double half, double reach, double corner, double thick, int seg)
         {
-            RiderRef k = s_rider;
-            if (k.HipY <= 0) return;
-            uint h = VehicleCatalogEntry.Mix((uint)p.Index * 7919u + (uint)c.Model * 104729u + (uint)e.Shape);
-            bool bicycle = e.Shape == BodyShape.Bicycle || e.Shape == BodyShape.Rickshaw;
-            uint jacket = MeshColor.FromHex(JacketC[h % (uint)JacketC.Length]), helmet = MeshColor.FromHex(HelmetC[(h >> 8) % (uint)HelmetC.Length]);
-            uint jeans = MeshColor.FromHex(bicycle && (h & 1) == 0 ? 0x3E3A36u : 0x2F4A6Bu), skin = MeshColor.FromHex(0xB98A62), shoe = MeshColor.FromHex(0x2A2522);
-            ShapeBrush cloth = Fabric(jacket), legs = Fabric(jeans), sk = new ShapeBrush(skin, MaterialChannel.Skin), sh = Leather(shoe);
-            bool far = c.Lod == VehicleLod.Lod2;
-            double hy = k.HipY, hz = k.HipZ, lean = bicycle ? 0.30 : 0.18;
-            double shY = hy + 0.50 * Math.Cos(lean), shZ = hz + 0.50 * Math.Sin(lean);
-            double len;
-            // Pelvis and a torso leaning toward the bars.
-            if (!far) Ell(ref c, legs, 0, hy, hz, 0.16, 0.10, 0.12, 0.7, 0.8, 8);
-            Affine3 torso = Affine3.Along(0, hy + 0.04, hz, 0, shY, shZ, out len);
-            if (far) OBox(ref c, cloth, torso * T(0, 0.5 * len - 0.02, 0), 0.34, len + 0.12, 0.22);
-            else Ell(ref c, cloth, torso * T(0, 0.5 * len, 0), 0.19, 0.5 * len + 0.04, 0.12, 0.6, 0.7, c.L0 ? 12 : 8);
-            // Neck, head in a helmet with a visor and chin guard.
-            double nY = shY + 0.07, nZ = shZ + 0.02, headY = nY + 0.12, headZ = nZ + 0.03;
-            if (c.L0) Cyl(ref c, sk, 0, shY - 0.02, shZ, 0, nY + 0.03, nZ + 0.01, 0.045, 6);
-            Ell(ref c, Paint(helmet), Pitched(0, headY + 0.02, headZ - 0.005, 0.15), 0.135, 0.14, 0.15, 0.8, 0.9, c.L0 ? 12 : far ? 4 : 8);
-            if (c.L1) Decal(ref c, Glass(MeshColor.FromHex(0x1E2A33)), 0, headY + 0.0, headZ + 0.145, 0, 0.05, 1, 0.17, 0.08, 0.03, 0.004);
-            if (c.L0) Ell(ref c, Paint(Shade(helmet, 0.85f)), 0, headY - 0.08, headZ + 0.09, 0.10, 0.045, 0.05, 0.7, 0.8, 8);
-            for (int s = -1; s <= 1; s += 2)
+            const double root = 0.08;
+            ArchSide(pr, half, reach, corner, seg, root, false);
+            if (thick > 0)
+                ArchSide(pr, half - thick, reach - thick, Math.Max(0.02, corner - thick), seg, root, true);
+        }
+
+        private static void ArchSide(Profile2 pr, double half, double reach, double corner, int seg, double root, bool inner)
+        {
+            // Outer: up the −y side, over the top, down the +y side; inner: the same path back.
+            int n = 2 * (seg + 1) + 2;
+            for (int i = 0; i < n; i++)
             {
-                // Arms: shoulder → elbow → hand on the grip.
-                double sx = s * 0.17, sy = shY - 0.04, sz = shZ;
-                double gx = s * k.GripX, gy = k.GripY + 0.02, gz = k.GripZ;
-                double ex = s * (Math.Abs(gx) * 0.5 + 0.13), ey = (sy + gy) * 0.5 - 0.08, ez = (sz + gz) * 0.5 - 0.02;
-                // Legs: hip → knee → foot on the peg (or the pedal).
-                double px = s * 0.10, py = hy - 0.02, pz = hz + 0.04;
-                double fx = s * k.PegX, fy = k.PegY + 0.04, fz = k.PegZ;
-                if (k.Pedals)
+                int k = inner ? n - 1 - i : i;
+                double x, y;
+                bool crease;
+                if (k == 0)
                 {
-                    double a = s > 0 ? 0.9 : 0.9 + Math.PI;
-                    fy = k.PegY + Math.Cos(a) * 0.165 + 0.04;
-                    fz = k.PegZ + Math.Sin(a) * 0.165;
-                    fx = s * 0.13;
+                    x = root;
+                    y = -half;
+                    crease = true;
                 }
-                double kx = s * (Math.Abs(fx) * 0.5 + 0.12), ky = Math.Max(py, fy) + (bicycle ? 0.10 : 0.06), kz = Math.Max(pz, fz) + 0.10;
-                if (c.L0)
+                else if (k == n - 1)
                 {
-                    Caps(ref c, cloth, sx, sy, sz, ex, ey, ez, 0.05, 6);
-                    Caps(ref c, cloth, ex, ey, ez, gx, gy, gz - 0.03, 0.042, 6);
-                    Ell(ref c, Fabric(MeshColor.FromHex(0x2B2B2B)), gx, gy, gz, 0.04, 0.035, 0.045, 0.8, 0.8, 4);
-                    Caps(ref c, legs, px, py, pz, kx, ky, kz, 0.065, 6);
-                    Caps(ref c, legs, kx, ky, kz, fx, fy + 0.04, fz - 0.02, 0.05, 6);
-                    Ell(ref c, sh, fx, fy - 0.01, fz + 0.04, 0.045, 0.04, 0.10, 0.7, 0.8, 8);
-                }
-                else if (c.L1)
-                {
-                    Rod(ref c, cloth, sx, sy, sz, ex, ey, ez, 0.05, 4);
-                    Rod(ref c, cloth, ex, ey, ez, gx, gy, gz, 0.042, 4);
-                    Rod(ref c, legs, px, py, pz, kx, ky, kz, 0.065, 4);
-                    Rod(ref c, legs, kx, ky, kz, fx, fy + 0.04, fz - 0.02, 0.05, 4);
-                    OBox(ref c, sh, T(fx, fy - 0.01, fz + 0.04), 0.09, 0.08, 0.2);
+                    x = root;
+                    y = half;
+                    crease = true;
                 }
                 else
                 {
-                    OBar(ref c, cloth, sx, sy, sz, gx, gy, gz, 0.08, 0.08);
-                    OBar(ref c, legs, px, py, pz, kx, ky, kz, 0.12, 0.12);
-                    OBar(ref c, legs, kx, ky, kz, fx, fy, fz, 0.10, 0.10);
+                    // Corner arcs: k = 1..seg+1 the −y corner (from the side to the top), then the +y corner.
+                    int j = k - 1;
+                    bool second = j > seg;
+                    if (second) j -= seg + 1;
+                    double a = 0.5 * Math.PI * j / seg;
+                    double cy = (second ? 1 : -1) * (half - corner), cx = reach - corner;
+                    if (!second)
+                    {
+                        x = cx + corner * Math.Sin(a);
+                        y = cy - corner * Math.Cos(a);
+                    }
+                    else
+                    {
+                        x = cx + corner * Math.Cos(a);
+                        y = cy + corner * Math.Sin(a);
+                    }
+                    crease = false;
                 }
+                pr.Add(x, y, crease);
             }
-            _ = d;
+        }
+
+        /// <summary>Perceived brightness of a packed colour (0..1).</summary>
+        private static float Luma(uint rgba)
+        {
+            float r = (rgba >> 24) & 0xFF, g = (rgba >> 16) & 0xFF, b = (rgba >> 8) & 0xFF;
+            return (0.299f * r + 0.587f * g + 0.114f * b) / 255f;
         }
     }
 }

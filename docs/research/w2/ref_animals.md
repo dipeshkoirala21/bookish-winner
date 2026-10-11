@@ -104,6 +104,26 @@ legs. Rooster 45–55 cm: tall serrated red comb (`#D82828`), long wattles, gold
 saddle, red-brown back, black breast, arching green-black sickle tail (`#1E3A2E`), or all white. Duck: white or
 mottled brown, upright, flat orange bill and webbed orange feet (`#F09A2A`).
 
+**Duck bill and wings (assets-a fix round).** Photos refs/assets-a/duck_pekin ref_01-03, ref_06 (Pekin-type white
+ducks, the common village duck shape) and duck_white ref_00 (mallard-type). Real: the bill is a broad, flat spatula
+about as long as the head (≈ 5-6.5 cm on a Pekin), **as wide near its rounded tip as at the base** (≈ 2.5-2.8 cm)
+with a slight waist, deep where it meets the face (≈ 1.8-2 cm, continuing the forehead line) and thin at the end,
+the tip turned up a little under a small nail; yellow-orange `#F2A81E` to orange `#F09A2A`. The folded wings lie
+flush along the flanks, the primaries crossing over the rump. Built: `AvianSpec.Spatula` — a 4.6 cm × 2.6 cm
+rounded-rectangle loft (8 sides near, 4 mid, a flat oval far) with a dip of the culmen, the widest part just before
+the tip, an up-turned rounded end and a nail; the duck's bill used to taper to a gull-like point at 25% of its base
+width. Fowl wings are fitted to the flank they lie on (a ray across the body loft at each wing ring; the shell
+stands proud of the body by a little less than half its thickness), the duck's 30% thinner — the hen's and
+rooster's shoulders no longer stand out either. Test: `TheDuckBillIsASpatulaAndFowlWingsLieFlush`.
+
+**Every level stands on its legs (assets-a fix round).** On Low only the nearest animal is LOD0/LOD1, so the far
+level is seen at 2-3 m in the chicken yards, duck ponds and on the street. The far level now keeps a 3-sided leg
+per side from the hip into the ground for every bird and fowl (6 triangles each; the light bird of the flocks and
+the mid-level duck get it too), and the cattle, goat and dog legs end on the ground where the far level leaves out
+the hooves and paws (the last leg knot drops so its rounded end cap touches y = 0, the pastern darkened toward the
+hoof colour). Test: `EveryLevelStandsOnItsFeet` (lowest point within 1 cm of the ground for every species, level
+and coat in the Stand pose; the kite and the swallow never land).
+
 ## 7. Birds
 
 | Species | Size | Look (photos) | Behaviour |
@@ -123,6 +143,11 @@ light-bird cap a bird on the ground is a 4-triangle folded paper bird (a tent al
 flock is drawn on every tier.
 
 ## 8. Photo credits (Openverse; all CC licences as listed, reference only)
+
+Assets-a fix round (refs/assets-a/): duck_pekin ref_02 "Pekin Duck", Richard Heyes, CC BY 2.0
+(flickr.com/photos/81016120@N05/12707009183); duck_pekin ref_06 "American Pekin Duck", warriorwoman531, CC BY-ND 2.0
+(flickr.com/photos/59429971@N06/9895733353); duck_pekin ref_01, ref_03; duck_white ref_00 "Mallard Hybrid",
+TexasEagle, CC BY-NC 2.0. Side by side: /home/user/wt/previews/assets-a/png/sbs_duck.png, fauna_lod2_side.png.
 
 * "Kathmandu - Cows and pigeons in Durbar Square", Phil @ Delfryn Design, CC BY-NC-SA 2.0, flickr 5240497381
 * "Cow looking for food in the market", Francisco Anzola, CC BY 2.0, flickr 12653499773
