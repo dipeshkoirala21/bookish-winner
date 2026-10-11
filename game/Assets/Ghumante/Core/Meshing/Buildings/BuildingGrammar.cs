@@ -375,6 +375,16 @@ namespace Ghumante.Core.Meshing
         public static readonly uint PaintedBrown = MeshColor.FromHex(0x5A3222);
         /// <summary>Green-painted window frames and shutters (Patan and Kathmandu lanes).</summary>
         public static readonly uint PaintedGreen = MeshColor.FromHex(0x2F6E4E);
+
+        /// <summary>Teal-painted timber (Patan lanes: louvred window shutters and frames, ref_buildings.md §12).</summary>
+        public static readonly uint PaintedTeal = MeshColor.FromHex(0x3FA39A);
+
+        /// <summary>True for painted window timber (green or teal), whose windows carry louvred shutters instead of a
+        /// carved lattice.</summary>
+        public static bool IsPaintedWood(uint c)
+        {
+            return c == PaintedGreen || c == PaintedTeal;
+        }
         /// <summary>Red-painted doors and windows of the southern villages (Bungamati, Khokana).</summary>
         public static readonly uint PaintedRed = MeshColor.FromHex(0x9E2B25);
         public static readonly uint Hay = MeshColor.FromHex(0xC9A24E);

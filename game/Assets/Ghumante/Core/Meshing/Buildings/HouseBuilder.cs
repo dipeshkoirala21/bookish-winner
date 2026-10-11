@@ -55,6 +55,13 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Body walls dressed as side facades, and the openings cut (or laid) in them.</summary>
         public long SideWalls, SideOpenings;
+
+        /// <summary>Carved toranas (over doors and crest windows) and timber bhaygah balconies drawn.</summary>
+        public long Toranas, Bhaygahs;
+
+        /// <summary>Bhaygahs drawn on a top or attic floor (under the eaves, around the gajhya) or over a sanjhya floor:
+        /// none.</summary>
+        public long BhaygahsMisplaced;
     }
 
     /// <summary>
@@ -164,7 +171,7 @@ namespace Ghumante.Core.Meshing
             {
                 return new Detail
                 {
-                    LatticePitch = drop < 1 ? 0.16 : drop < 2 ? 0.19 : drop < 4 ? 0.24 : drop < 5 ? 0.3 : drop < 6 ? 0.46 : 0.58, Small = drop < 1,
+                    LatticePitch = drop < 1 ? 0.175 : drop < 2 ? 0.19 : drop < 4 ? 0.24 : drop < 5 ? 0.3 : drop < 6 ? 0.46 : 0.58, Small = drop < 1,
                     Struts = drop < 2, Courses = drop < 2, Grilles = drop < 2, Bands = drop < 3, Rails = drop < 3, Props = drop < 4, Lite = drop >= LiteDrop,
                     Flat = drop >= FlatDrop, Segs = drop < 1 ? 2 : drop < 3 ? 1 : 0,
                 };
@@ -237,6 +244,10 @@ namespace Ghumante.Core.Meshing
 
             /// <summary>Length of the plot's body walls that look onto a street (side facades), for the cost estimate.</summary>
             public double StreetSides;
+
+            /// <summary>Length of the plot's body walls on open ground seen from a road (windowed sides), for the cost
+            /// estimate.</summary>
+            public double OpenSides;
         }
 
         /// <summary>Build one house (all plots at one drop level; tests and previews of a level). Returns false when the
@@ -409,16 +420,16 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>
-        /// Mean cost of each drop level relative to level 0, per archetype (measured over the Bhaktapur, Patan, Asan,
-        /// Thamel, Baneshwor and Kirtipur cores, 3,000 plots): Newar houses keep their lattice and carved frames longest,
-        /// modern houses shed most at level 3 (grilles, bands, chhajjas, balcony rails) and at the lite level; the flat
-        /// level costs a little over half the lite one (Asan, 3 × 3 tiles).
+        /// Mean cost of each drop level relative to level 0, per archetype (the second detail pass, measured over every
+        /// sixth house of the 3 × 3 tiles around Asan, 6,300 plots): Newar houses keep their lattice, carved frames and
+        /// toranas longest, modern houses shed most at level 3 (grilles, bands, chhajjas, balcony rails) and at the lite
+        /// level, where the side walls lay their openings on the wall; the flat level costs about 60% of the lite one.
         /// </summary>
         private static readonly double[][] LevelShare =
         {
-            new[] { 1.0, 0.856, 0.677, 0.617, 0.578, 0.255, 0.15 },
-            new[] { 1.0, 0.854, 0.733, 0.636, 0.549, 0.252, 0.13 },
-            new[] { 1.0, 0.864, 0.783, 0.474, 0.332, 0.162, 0.09 },
+            new[] { 1.0, 0.886, 0.793, 0.698, 0.653, 0.198, 0.115 },
+            new[] { 1.0, 0.868, 0.804, 0.658, 0.584, 0.191, 0.111 },
+            new[] { 1.0, 0.869, 0.833, 0.532, 0.395, 0.149, 0.091 },
         };
 
         private static double[] SharesOf(BuildingArchetype a)
@@ -437,26 +448,35 @@ namespace Ghumante.Core.Meshing
             return next;
         }
 
-        /// <summary>The drop level a plot is first built at: the base level, or the richest lighter one whose estimated
-        /// cost fits the cap (the fallback level <paramref name="floor"/> is never chosen by estimate). Most plots are
+        /// <summary>How far over the cap (×) a plot's estimate may be and still be tried at the base level first: the
+        /// estimate errs both ways (<see cref="Estimate"/>), and a plot sent lighter on a pessimistic guess loses its
+        /// richest detail for nothing, while one that overflows is rebuilt once at the level its measured cost predicts.</summary>
+        private const double BaseTryOver = 1.05;
+
+        /// <summary>The drop level a plot is first built at: the base level unless its estimate is over the cap by more
+        /// than <see cref="BaseTryOver"/>, else the richest lighter one whose estimated cost fits the cap; the fallback
+        /// level <paramref name="floor"/> only when the level above it is estimated 20% over the cap. Most plots are
         /// built once.</summary>
         private static int EstimateDrop(in Plot p, in HouseBudget budget, int floor)
         {
             int drop = budget.BaseDrop;
+            if (Estimate(p, drop) <= BaseTryOver * budget.PlotCap) return drop;
             while (drop < floor - 1 && Estimate(p, drop) > 1.0 * budget.PlotCap) drop++;
+            // A plot clearly too big even one level above the fallback goes straight to it (built once, not twice).
+            if (drop == floor - 1 && Estimate(p, drop) > 1.2 * budget.PlotCap) drop = floor;
             return drop;
         }
 
-        /// <summary>Estimated triangles of a plot at a drop level: a per-archetype base plus a cost per metre of front
-        /// and of street-facing side wall per storey (least squares over the same 3,000 plots as <see cref="LevelShare"/>;
-        /// median error 9% for Newar houses, 12% for hybrids, 29% for the more varied modern fronts), scaled by the
-        /// level's share.</summary>
+        /// <summary>Estimated triangles of a plot at a drop level: a per-archetype base plus a cost per metre and storey
+        /// of front, of street side (shops, cut windows, signs) and of open side (windows cut at the lite level's cost)
+        /// (least squares over the same plots as <see cref="LevelShare"/>; median error 9% for Newar houses, 8% for
+        /// hybrids, 19% for the more varied modern fronts), scaled by the level's share.</summary>
         private static double Estimate(in Plot p, int drop)
         {
             int storeys = Math.Max(1, p.Storeys);
-            double front = Math.Max(0.5, p.FU1 - p.FU0) * storeys, sides = p.StreetSides * storeys;
-            double full = p.Arch == BuildingArchetype.Newar ? 554 + 57.4 * front + 40.2 * sides
-                : p.Arch == BuildingArchetype.NewarHybrid ? 978 + 44.2 * front + 35.0 * sides : 836 + 58.1 * front + 25.3 * sides;
+            double front = Math.Max(0.5, p.FU1 - p.FU0) * storeys, street = p.StreetSides * storeys, open = p.OpenSides * storeys;
+            double full = p.Arch == BuildingArchetype.Newar ? 788 + 67.1 * front + 55.1 * street + 13.2 * open
+                : p.Arch == BuildingArchetype.NewarHybrid ? 1031 + 54.1 * front + 44.1 * street + 13.7 * open : 1133 + 36.7 * front + 22.1 * street + 8.7 * open;
             return full * SharesOf(p.Arch)[drop];
         }
 
@@ -714,7 +734,8 @@ namespace Ghumante.Core.Meshing
             var pal = new GrammarRng(p.Seed, 0x50414C54);
             p.Wood = st.BlackWindowShare > 0 && pal.Chance(st.BlackWindowShare) ? BuildingGrammar.PaintedBlack
                 : plan.Profile == StyleProfile.Bungamati && pal.Chance(0.4f) ? BuildingGrammar.SalLight
-                : (plan.Profile == StyleProfile.Patan || plan.Profile == StyleProfile.KathmanduCore) && pal.Chance(0.22f) ? BuildingGrammar.PaintedGreen
+                : (plan.Profile == StyleProfile.Patan || plan.Profile == StyleProfile.KathmanduCore) && pal.Chance(plan.Profile == StyleProfile.Patan ? 0.38f : 0.22f)
+                    ? (pal.Chance(0.45f) ? BuildingGrammar.PaintedTeal : BuildingGrammar.PaintedGreen)
                 : plan.Profile == StyleProfile.KathmanduCore && pal.Chance(0.15f) ? BuildingGrammar.PaintedBrown : BuildingGrammar.SalDark;
             bool heritage = BuildingGrammar.IsNewarProfile(plan.Profile);
             switch (p.Arch)
@@ -904,7 +925,7 @@ namespace Ghumante.Core.Meshing
                 p.FU0 = p.FU1 = p.GU0 = p.GU1 = p.U0; // no front: nothing to dress
             }
             // How each body wall is dressed (decided once: the cost estimate and the body walls both use it).
-            p.StreetSides = 0;
+            p.StreetSides = p.OpenSides = 0;
             for (int i = 0; i < o; i++)
             {
                 s.DS[at + i] = (byte)Side.Blank;
@@ -928,7 +949,8 @@ namespace Ghumante.Core.Meshing
                 }
                 Side side = h.Corner && OnSegment(ax, az, bx, bz, h.SecondAX, h.SecondAZ, h.SecondBX, h.SecondBZ) ? Side.Street : SideOf(ref h, ax, az, bx, bz, layout);
                 s.DS[at + i] = (byte)side;
-                if (side != Side.Blank) p.StreetSides += side == Side.Street ? layout : 0.6 * layout;
+                if (side == Side.Street) p.StreetSides += layout;
+                else if (side == Side.Open) p.OpenSides += layout;
             }
             return o;
         }
@@ -1082,25 +1104,29 @@ namespace Ghumante.Core.Meshing
         /// <summary>
         /// How a body wall is dressed (<see cref="Side"/>), from three points along it: <b>street</b> when a road corridor
         /// lies within 4 m <i>in front of</i> it (stepping 3 m out along its normal brings the corridor at least 1 m
-        /// nearer, so a side wall beside a lane does not count); <b>open</b> when nothing stands within 3 m in front of it
-        /// and a road lies within 14 m in front (a wall on a small square or at a lane's bend, which the street sees);
-        /// <b>blank</b> otherwise (against a neighbour, a back wall on a courtyard or an open plot away from the roads, the
-        /// party wall at the end of a row). Without corridors every wall is blank.
+        /// nearer, so a side wall beside a lane does not count); <b>open</b> when no neighbour stands within 1.6 m in front
+        /// of it (a courtyard, an open plot, a square, a lane alongside: windows on every floor, as real Newar and RCC
+        /// houses have on every side with light, but no shop or sign); <b>blank</b> only against a neighbour (the party
+        /// walls of a row).
         /// </summary>
         private static Side SideOf(ref House h, double ax, double az, double bx, double bz, double len)
         {
-            if (!h.Clear.Active || len < 2.5) return Side.Blank;
+            if (len < 2.5) return Side.Blank;
             double nx = (bz - az) / len, nz = -(bx - ax) / len;
             Side best = Side.Blank;
             for (int k = 1; k <= 3; k++)
             {
                 double t = 0.25 * k, mx = ax + (bx - ax) * t, mz = az + (bz - az) * t;
-                if (h.Neighbours != null && h.Neighbours.Inside(mx + nx * 0.8, mz + nz * 0.8, h.Index)) continue;
-                double near = h.Clear.FreeAt(mx + nx * 0.3, mz + nz * 0.3);
-                if (near < 4.0 && h.Clear.FreeAt(mx + nx * 3.3, mz + nz * 3.3) < near - 1.0) return Side.Street;
-                if (best == Side.Blank && near < 14.0 && h.Clear.FreeAt(mx + nx * 6.3, mz + nz * 6.3) < near - 3.0 &&
-                    (h.Neighbours == null || !h.Neighbours.Inside(mx + nx * 3.0, mz + nz * 3.0, h.Index) && !h.Neighbours.Inside(mx + nx * 1.8, mz + nz * 1.8, h.Index)))
-                    best = Side.Open;
+                // A party wall, or a neighbour less than 1.6 m away: blank there.
+                if (h.Neighbours != null &&
+                    (h.Neighbours.Inside(mx + nx * 0.8, mz + nz * 0.8, h.Index) || h.Neighbours.Inside(mx + nx * 1.6, mz + nz * 1.6, h.Index)))
+                    continue;
+                if (h.Clear.Active)
+                {
+                    double near = h.Clear.FreeAt(mx + nx * 0.3, mz + nz * 0.3);
+                    if (near < 4.0 && h.Clear.FreeAt(mx + nx * 3.3, mz + nz * 3.3) < near - 1.0) return Side.Street;
+                }
+                best = Side.Open;
             }
             return best;
         }

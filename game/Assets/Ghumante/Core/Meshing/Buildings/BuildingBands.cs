@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
+using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Meshing
 {
     /// <summary>
     /// The far building bands (W2_DESIGN 2.4). <b>B2 prism</b>: each footprint simplified to its minimum-area oriented
-    /// box (or its convex hull when that has at most 6 points), walls hidden by a neighbour culled, a flat top at the
-    /// plan's mid-roof height: about 10 triangles. <b>B3 city block</b>: footprints rasterised to 16 m cells (max height,
-    /// built cover ≥ 30%), greedily merged into boxes of equal height step (3 m), a top and the walls not hidden by an
+    /// box (or its convex hull when that is a triangle or a quad), walls hidden by a neighbour culled, a flat top at the
+    /// plan's mid-roof height: about 9 triangles. The simplified shape never stands deeper in a road corridor than the
+    /// guard's trimmed ring (decision 1): a box that rebuilds a corner the guard cut off falls back to the convex hull,
+    /// and a hull that still bridges a cut (a concave trimmed ring) to the trimmed ring itself (<see cref="CorridorSafe"/>).
+    /// <b>B3 city block</b>: footprints rasterised to 16 m cells (max height,
+    /// built cover ≥ 30%), greedily merged into boxes of equal height step (4 m), a top and the walls not hidden by an
     /// equally tall neighbour cell: about 10 triangles per box. Both take heights and colours from
     /// <see cref="BuildingGrammar.Plan(TileData, int)"/>, so they match the near bands.
     /// </summary>
@@ -16,21 +20,210 @@ namespace Ghumante.Core.Meshing
     {
         public const double BlockCellM = 16.0;
         public const double MinCover = 0.30;
-        public const double HeightStepM = 3.0;
+        public const double HeightStepM = 4.0;
 
         // ------------------------------------------------------------------------------------------------------------
         // B2
         // ------------------------------------------------------------------------------------------------------------
 
+        /// <summary>How much deeper (m) than the trimmed ring a simplified B2 shape may reach into a corridor.</summary>
+        public const double B2CorridorToleranceM = 0.05;
+
+        /// <summary>Per-call scratch of <see cref="Prisms"/> and <see cref="CorridorSafe"/>.</summary>
+        internal sealed class PrismScratch
+        {
+            public double[] HX = new double[64], HZ = new double[64], BX = new double[64], BZ = new double[64], AX = new double[64], AZ = new double[64];
+            public int[] Tris = new int[192], Next = new int[64], Prev = new int[64];
+
+            public void Ensure(int n)
+            {
+                if (HX.Length >= n + 1) return;
+                int c = 2 * n + 2;
+                HX = new double[c];
+                HZ = new double[c];
+                BX = new double[c];
+                BZ = new double[c];
+                AX = new double[c];
+                AZ = new double[c];
+                Tris = new int[3 * c];
+                Next = new int[c];
+                Prev = new int[c];
+            }
+        }
+
+        /// <summary>
+        /// The B2 shape of a footprint (tile-local metres, counter-clockwise, into <c>s.BX/BZ</c>; returns the point count
+        /// and whether it is convex): the hull when it has at most 4 points, else the minimum-area box; then, against the
+        /// corridors <paramref name="q"/>, the box falls back to the hull (thinned towards a quad within
+        /// <see cref="B2ThinLoss"/> of its area, <see cref="Thin"/>) and the hull to the trimmed ring itself whenever it
+        /// reaches more than <see cref="B2CorridorToleranceM"/> deeper into a corridor than the ring does.
+        /// </summary>
+        internal static int CorridorSafe(int[] ring, double x0, double z0, IRoadCorridorQuery q, PrismScratch s, out bool convex)
+        {
+            convex = true;
+            int n = ring.Length / 2;
+            s.Ensure(n);
+            int hn = Hull(ring, s.HX, s.HZ);
+            if (hn < 3) return 0;
+            int k;
+            if (hn <= 4)
+            {
+                Array.Copy(s.HX, s.BX, hn);
+                Array.Copy(s.HZ, s.BZ, hn);
+                k = hn;
+            }
+            else
+            {
+                MinAreaBox(s.HX, s.HZ, hn, s.BX, s.BZ);
+                k = 4;
+            }
+            if (q == null) return k;
+            double depth = Depth(q, s.BX, s.BZ, k, x0, z0, s);
+            if (depth <= B2CorridorToleranceM) return k;
+            for (int i = 0; i < n; i++)
+            {
+                s.AX[i] = x0 + ring[2 * i] / 100.0;
+                s.AZ[i] = z0 + ring[2 * i + 1] / 100.0;
+            }
+            double ringDepth;
+            if (!q.Overlaps(s.AX, s.AZ, n, out ringDepth)) ringDepth = 0;
+            if (depth <= ringDepth + B2CorridorToleranceM) return k;
+            if (k != hn)
+            {
+                // The box rebuilt a corner the guard cut off: the hull follows the cut, thinned back towards a quad (it
+                // only shrinks, so it never reaches deeper than the hull).
+                Array.Copy(s.HX, s.BX, hn);
+                Array.Copy(s.HZ, s.BZ, hn);
+                k = hn;
+                if (Depth(q, s.BX, s.BZ, k, x0, z0, s) <= ringDepth + B2CorridorToleranceM) return Thin(s.BX, s.BZ, k, B2ThinLoss);
+            }
+            // A concave trimmed ring whose hull bridges the cut: the ring itself (counter-clockwise like the hull).
+            bool flip = Polygon.SignedArea(s.HX, s.HZ, hn) * RingArea(ring) < 0;
+            for (int i = 0; i < n; i++)
+            {
+                int r = flip ? n - 1 - i : i;
+                s.BX[i] = ring[2 * r] / 100.0;
+                s.BZ[i] = ring[2 * r + 1] / 100.0;
+            }
+            convex = false;
+            return ThinRing(s.BX, s.BZ, n, B2ThinLoss);
+        }
+
+        /// <summary>
+        /// Clips ears off the simple polygon (<paramref name="x"/>, <paramref name="z"/>,
+        /// <paramref name="k"/> points), always the convex vertex whose triangle is smallest and holds no other vertex, down
+        /// to a quad while the area lost stays within <paramref name="maxLoss"/> of the whole; returns the new point count.
+        /// The result lies inside the polygon (a trimmed ring keeps its notches), so it never reaches deeper into a
+        /// corridor. Allocation-free.
+        /// </summary>
+        internal static int ThinRing(double[] x, double[] z, int k, double maxLoss)
+        {
+            double area = Polygon.SignedArea(x, z, k), sign = area < 0 ? -1 : 1, left = maxLoss * Math.Abs(area);
+            while (k > 4)
+            {
+                int best = -1;
+                double bestA = double.MaxValue;
+                for (int i = 0; i < k; i++)
+                {
+                    int a = i == 0 ? k - 1 : i - 1, b = i + 1 == k ? 0 : i + 1;
+                    // The turn at i: a convex vertex turns the way the polygon winds; its ear's area.
+                    double t = 0.5 * sign * ((x[i] - x[a]) * (z[b] - z[a]) - (x[b] - x[a]) * (z[i] - z[a]));
+                    if (t <= 0 || t >= bestA) continue;
+                    bool empty = true;
+                    for (int j = 0; j < k && empty; j++)
+                    {
+                        if (j == a || j == i || j == b) continue;
+                        empty = !InTriangle(x[j], z[j], x[a], z[a], x[i], z[i], x[b], z[b]);
+                    }
+                    if (!empty) continue;
+                    bestA = t;
+                    best = i;
+                }
+                if (best < 0 || bestA > left) break;
+                left -= bestA;
+                for (int i = best; i + 1 < k; i++)
+                {
+                    x[i] = x[i + 1];
+                    z[i] = z[i + 1];
+                }
+                k--;
+            }
+            return k;
+        }
+
+        private static bool InTriangle(double px, double pz, double ax, double az, double bx, double bz, double cx, double cz)
+        {
+            double d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz);
+            double d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz);
+            double d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az);
+            bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+            return !(neg && pos);
+        }
+
+        /// <summary>The share of a fallen-back hull's area <see cref="Thin"/> may give up to save its extra walls.</summary>
+        public const double B2ThinLoss = 0.1;
+
+        /// <summary>
+        /// Drops vertices of the convex polygon (<paramref name="x"/>, <paramref name="z"/>, <paramref name="k"/> points),
+        /// always the one whose removal loses the least area, down to a quad while the area lost stays within
+        /// <paramref name="maxLoss"/> of the whole; returns the new point count. The result lies inside the polygon and
+        /// keeps its winding. Allocation-free.
+        /// </summary>
+        internal static int Thin(double[] x, double[] z, int k, double maxLoss)
+        {
+            double left = maxLoss * Math.Abs(Polygon.SignedArea(x, z, k));
+            while (k > 4)
+            {
+                int best = -1;
+                double bestA = double.MaxValue;
+                for (int i = 0; i < k; i++)
+                {
+                    int a = i == 0 ? k - 1 : i - 1, b = i + 1 == k ? 0 : i + 1;
+                    double t = 0.5 * Math.Abs((x[i] - x[a]) * (z[b] - z[a]) - (x[b] - x[a]) * (z[i] - z[a]));
+                    if (t < bestA)
+                    {
+                        bestA = t;
+                        best = i;
+                    }
+                }
+                if (bestA > left) break;
+                left -= bestA;
+                for (int i = best; i + 1 < k; i++)
+                {
+                    x[i] = x[i + 1];
+                    z[i] = z[i + 1];
+                }
+                k--;
+            }
+            return k;
+        }
+
+        private static double Depth(IRoadCorridorQuery q, double[] x, double[] z, int k, double x0, double z0, PrismScratch s)
+        {
+            for (int i = 0; i < k; i++)
+            {
+                s.AX[i] = x0 + x[i];
+                s.AZ[i] = z0 + z[i];
+            }
+            double d;
+            return q.Overlaps(s.AX, s.AZ, k, out d) ? d : 0;
+        }
+
+        private static double RingArea(int[] ring)
+        {
+            double a = 0;
+            int n = ring.Length / 2;
+            for (int i = 0, j = n - 1; i < n; j = i++) a += (double)ring[2 * j] * ring[2 * i + 1] - (double)ring[2 * i] * ring[2 * j + 1];
+            return a;
+        }
+
         public static int Prisms(TileData t, IHeightSampler h, BuildingOptions o, MeshData m)
         {
             var g = new BuildingGround(t, h);
-            BuildingFootprints guard = BuildingFootprints.For(t, o.CorridorsFor(t));
+            IRoadCorridorQuery corridors = o.CorridorsFor(t);
+            BuildingFootprints guard = BuildingFootprints.For(t, corridors);
             BuildingBands.FootprintIndex index = guard.Neighbours;
-            var hx = new double[64];
-            var hz = new double[64];
-            var bx = new double[8];
-            var bz = new double[8];
+            var s = new PrismScratch();
             int drawn = 0;
             for (int i = 0; i < t.Buildings.Count; i++)
             {
@@ -42,28 +235,10 @@ namespace Ghumante.Core.Meshing
                 int[] ring = b.Rings[0];
                 int n = ring.Length / 2;
                 if (n < 3) continue;
-                if (hx.Length < n + 1)
-                {
-                    hx = new double[n * 2];
-                    hz = new double[n * 2];
-                }
-                int hn = Hull(ring, hx, hz);
-                if (hn < 3) continue;
-                int k;
-                if (hn <= 6)
-                {
-                    for (int q = 0; q < hn; q++)
-                    {
-                        bx[q] = hx[q];
-                        bz[q] = hz[q];
-                    }
-                    k = hn;
-                }
-                else
-                {
-                    MinAreaBox(hx, hz, hn, bx, bz);
-                    k = 4;
-                }
+                bool convex;
+                int k = CorridorSafe(ring, t.Tile.X0, t.Tile.Z0, corridors, s, out convex);
+                if (k < 3) continue;
+                double[] bx = s.BX, bz = s.BZ;
                 double area = Math.Abs(Polygon.SignedArea(bx, bz, k));
                 if (area < o.MinAreaM2) continue;
                 HousePlan plan = guard.Adjust(i, BuildingGrammar.Plan(t, i));
@@ -89,7 +264,15 @@ namespace Ghumante.Core.Meshing
                     uint c = q == 0 ? plan.Front : plan.Wall;
                     MeshKit.Quad(m, bx[q], y0, bz[q], bx[r], y0, bz[r], bx[r], y1, bz[r], bx[q], y1, bz[q], ez, 0, -ex, c);
                 }
-                MeshKit.ConvexCap(m, bx, bz, k, y1, true, plan.RoofColour);
+                if (convex) MeshKit.ConvexCap(m, bx, bz, k, y1, true, plan.RoofColour);
+                else
+                {
+                    int tris = Polygon.Triangulate(bx, bz, k, s.Tris, s.Next, s.Prev, false);
+                    int c0 = m.VertexCount;
+                    for (int q2 = 0; q2 < k; q2++) m.AddVertex((float)bx[q2], (float)y1, (float)bz[q2], 0f, 1f, 0f, plan.RoofColour);
+                    // Counter-clockwise from above; Unity's up-facing front is clockwise from above.
+                    for (int tr = 0; tr < tris; tr++) m.AddTriangle(c0 + s.Tris[3 * tr], c0 + s.Tris[3 * tr + 2], c0 + s.Tris[3 * tr + 1]);
+                }
                 BuildingBandTable.PaintFar(m, v0, plan, o.SinkM);
                 drawn++;
             }
