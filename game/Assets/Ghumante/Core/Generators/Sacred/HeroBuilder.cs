@@ -408,6 +408,8 @@ namespace Ghumante.Core.Generators.Sacred
         private static void BuildStupa(HeroRecipe r, in GenFrame f, int lod, TileData tile, ref RoadSurface g, MeshData m, GenColliders c, SacredStats stats)
         {
             StupaParams p = StupaFor(r);
+            // The terraces and drum keep off the drawn kora streets and paths round them (heritage package).
+            if (tile.Roads.Count > 0) p.Clearance = SacredClearance.For(tile, null);
             if (lod >= 3)
             {
                 // Box terraces, a coarse dome and a cone spire (≤ 200 triangles).
@@ -417,7 +419,9 @@ namespace Ghumante.Core.Generators.Sacred
                 if (r.TerraceWidths != null)
                     for (int i = 0; i < r.TerraceWidths.Length; i++)
                     {
-                        double hw = 0.5 * r.TerraceWidths[i], t1 = r.TerraceTops != null && i < r.TerraceTops.Length ? r.TerraceTops[i] : top + 1;
+                        // A mandala terrace (Boudhanath) is its inner square out to its stepped corners (StupaGenerator).
+                        double hw = 0.5 * r.TerraceWidths[i] * (r.StupaStyle == StupaStyle.Boudha ? StupaGenerator.MandalaStep2 : 1.0);
+                        double t1 = r.TerraceTops != null && i < r.TerraceTops.Length ? r.TerraceTops[i] : top + 1;
                         SacredDraw.Box(m, k, -hw, hw, top, t1, -hw, hw, Looks.Whitewash, BoxFaces.All & ~BoxFaces.Bottom);
                         top = t1;
                     }

@@ -30,6 +30,17 @@ namespace Ghumante.Core.Generators.Fauna
         /// <summary>Keep the folded wings on the mid level (fowl walk close by; small birds read without them).</summary>
         public bool FoldOnCoarse;
 
+        /// <summary>A duck's bill: a broad, flat spatula about as wide at the rounded tip as at the base, its tip
+        /// turned up a little and capped by a nail (<see cref="BillR"/> is then its half-width).</summary>
+        public bool Spatula;
+
+        /// <summary>How far (fraction of <see cref="BodyW"/>) the folded wing is pulled in towards the flank: 0 for the
+        /// slim birds, more for the broad-breasted duck, whose wings lie flush along its sides.</summary>
+        public float FoldInset;
+
+        /// <summary>Thickness of the folded wing as a fraction of the default shell (0 = 1).</summary>
+        public float FoldThin;
+
         /// <summary>Rings of the folded wing (0 = wrist at the shoulder, 1 = primary tips over the rump) and their colours:
         /// the pigeon's two black bars, the sparrow's white bar, the myna's white patch. Null: plain (wing, wing tip).</summary>
         public float[] FoldU;
@@ -56,6 +67,9 @@ namespace Ghumante.Core.Generators.Fauna
         internal struct Landmarks
         {
             public Fv3 HeadC, BillBase, BillTip, NeckTop, NeckBase, TailBase, TailTip, Shoulder, BodyC;
+
+            /// <summary>The outer surface of the left folded wing halfway along it (the duck's speculum sits there).</summary>
+            public Fv3 FoldSide;
             public Fv3 Fwd, Up, NeckDir, BillDir;
         }
 
@@ -147,7 +161,9 @@ namespace Ghumante.Core.Generators.Fauna
                 AddK(c, headC - billDir * (0.05f * s.HeadLen), 0.92f * hr, hr, 0.86f * hr, FaunaBone.Head, head);
                 AddK(c, headC + billDir * (0.62f * s.HeadLen) - up * (0.08f * hr), 0.5f * hr, 0.48f * hr, 0.45f * hr, FaunaBone.Head, head);
             }
+            int iLoft = b.IndexCount;
             int vLoft = b.Tube(c.K, c.N, 1, d.BodySegs, up, feathers, FaunaPart.Body, 0.55f, d.Coarse ? 0.8f : 0.45f);
+            int iLoftEnd = b.IndexCount;
             for (int v = vLoft; v < b.VertexCount; v++)
             {
                 FaunaBone bone = b.BoneOf(v);
@@ -177,7 +193,11 @@ namespace Ghumante.Core.Generators.Fauna
             L.BillTip = billTip;
             float flatW = 1f + s.BillFlat;
             float flatH = 1f - 0.45f * s.BillFlat;
-            if (d.Coarse)
+            if (s.Spatula)
+            {
+                SpatulaBill(c, s, billBase, billTip);
+            }
+            else if (d.Coarse)
             {
                 Fv3 mid = (billBase + billTip) * 0.5f;
                 b.Ellipsoid(mid, (billTip - billBase).Normalized, Fv3.Up, s.BillR * flatW, s.BillR * flatH, 0.5f * Fv3.Distance(billBase, billTip) + s.BillR * 0.3f, 2,
@@ -282,18 +302,22 @@ namespace Ghumante.Core.Generators.Fauna
             {
                 SideMark m = c.StartSide();
                 c.Begin();
-                Fv3 f0 = shoulder + new Fv3(-0.76f * s.BodyW, -0.16f * s.BodyH, -0.04f * s.BodyLen);
+                Fv3 f0 = shoulder + new Fv3(-(0.76f - s.FoldInset) * s.BodyW, -0.16f * s.BodyH, -0.04f * s.BodyLen);
+                // Fowl, seen up close in the yards, fit their wings to the flank they lie on.
+                var fit = new FlankFit(b, s.FoldOnCoarse ? iLoft : 0, s.FoldOnCoarse ? iLoftEnd : 0);
                 if (s.FoldU != null && d.Fine)
                 {
-                    for (int k = 0; k < s.FoldU.Length; k++) FoldKnot(c, s, f0, fwd, s.FoldU[k], s.FoldCol[k]);
+                    for (int k = 0; k < s.FoldU.Length; k++) FoldKnot(c, s, f0, fwd, s.FoldU[k], s.FoldCol[k], fit);
                 }
                 else
                 {
-                    FoldKnot(c, s, f0, fwd, 0f, s.Wing);
-                    FoldKnot(c, s, f0, fwd, 0.5f, s.Wing);
-                    if (d.Fine && s.FoldOnCoarse) FoldKnot(c, s, f0, fwd, 0.85f, FMath.LerpColour(s.Wing, s.WingTip, 0.6f));
-                    FoldKnot(c, s, f0, fwd, 1f, s.WingTip);
+                    FoldKnot(c, s, f0, fwd, 0f, s.Wing, fit);
+                    FoldKnot(c, s, f0, fwd, 0.5f, s.Wing, fit);
+                    if (d.Fine && s.FoldOnCoarse) FoldKnot(c, s, f0, fwd, 0.85f, FMath.LerpColour(s.Wing, s.WingTip, 0.6f), fit);
+                    FoldKnot(c, s, f0, fwd, 1f, s.WingTip, fit);
                 }
+                Knot mid = c.K[Math.Min(1, c.N - 1)];
+                L.FoldSide = new Fv3(mid.C.X - mid.A, mid.C.Y, mid.C.Z);
                 // Small birds: three sides round (a shell with its ridge outwards, the two hidden faces against the body);
                 // the fowl, seen up close in the yards, get the rounder section.
                 b.Tube(c.K, c.N, 1, d.Coarse || !s.FoldOnCoarse ? 3 : d.LimbSegs, Fv3.Up, feathers, FaunaPart.Wing, s.FoldOnCoarse ? 0.35f : -1f, 0.3f);
@@ -337,9 +361,10 @@ namespace Ghumante.Core.Generators.Fauna
             }
 
             // Legs: a bare tarsus (the feathered thigh of the long-legged birds above it) and toes, three forward and
-            // the hind one where it shows; the light bird keeps only the long legs.
+            // the hind one where it shows. The lighter levels (the light bird, the mid duck and every far bird) keep a
+            // plain stick leg from inside the body down to the ground, so no level ever hovers over the yard.
             bool longLegs = s.LegLen >= 0.08f;
-            if (!d.Far && (d.Fine || longLegs))
+            if (d.Fine || (longLegs && !d.Far))
             {
                 SideMark m = c.StartSide();
                 c.Begin();
@@ -370,22 +395,145 @@ namespace Ghumante.Core.Generators.Fauna
                 }
                 c.EndSide(m);
             }
+            else
+            {
+                StickLegs(c, s, hipY);
+            }
             return L;
+        }
+
+        /// <summary>
+        /// The lighter levels' legs: one 3-sided tapered tube per leg (6 triangles) from the hip, hidden in the body, to
+        /// the ground (its open lower end lies flat on y = 0, where it cannot be seen), in the leg colour. The hip, knee
+        /// and foot bones blend along it, so the walk and peck clips still move it.
+        /// </summary>
+        private static void StickLegs(FaunaSketch c, in AvianSpec s, float hipY)
+        {
+            SideMark m = c.StartSide();
+            c.Begin();
+            float r = Math.Max(s.LegR, 0.004f);
+            AddK(c, new Fv3(-s.LegSpread, hipY + 0.1f * s.BodyH, 0.02f * s.BodyLen), 1.5f * r, 1.5f * r, 1.5f * r, FaunaBone.HindUpperL, s.Leg);
+            AddK(c, new Fv3(-s.LegSpread * 1.05f, 0f, 0.008f), 1.1f * r, 1.1f * r, 1.1f * r, FaunaBone.HindFootL, s.Leg);
+            c.B.Tube(c.K, c.N, 1, 3, Fv3.Forward, FaunaPalette.SkinChannel, FaunaPart.Leg, -1f, -1f);
+            c.EndSide(m);
+        }
+
+        /// <summary>
+        /// The duck's bill (ref_animals.md §6, Pekin and village ducks): a broad, flat spatula as long as the head, about
+        /// as wide at the rounded tip as at the base with a slight waist, thick where it joins the face and thin at the
+        /// end, the tip turned up a little and capped by a nail. Near level: a rounded-rectangle loft with a nail; mid:
+        /// the same spatula with fewer sides; far: one flat oval of the same width.
+        /// </summary>
+        private static void SpatulaBill(FaunaSketch c, in AvianSpec s, Fv3 billBase, Fv3 billTip)
+        {
+            FaunaBuilder b = c.B;
+            FaunaDetail d = c.D;
+            Fv3 dir = (billTip - billBase).Normalized;
+            Fv3 up = Fv3.Cross(Fv3.Cross(dir, Fv3.Up), dir).Normalized;
+            if (up.Y < 0f) up = -up;
+            float w = s.BillR, len = Fv3.Distance(billBase, billTip);
+            uint nail = FMath.LerpColour(s.Bill, s.BillTip, 0.85f);
+            if (d.Far)
+            {
+                // Far: one flat oval as wide as the spatula, rounded at the end.
+                b.Ellipsoid((billBase + billTip) * 0.5f + up * (0.1f * w), dir, up, 0.95f * w, 0.4f * w, 0.5f * len + 0.3f * w, 2, 4, FaunaBone.Head, s.Bill,
+                            FaunaPalette.KeratinChannel, FaunaPart.Beak);
+                return;
+            }
+            c.Begin();
+            // Root, sunk into the face: as tall as it is wide where the feathers meet it.
+            c.K[c.N++] = Spk(billBase - dir * (0.3f * w) + up * (0.1f * w), 1.05f * w, 1f * w, 0.75f * w, s.Bill, 2.4f);
+            if (d.Fine)
+            {
+                // A slight waist and the dip of the culmen, then the widest part before the tip.
+                c.K[c.N++] = Spk(billBase + dir * (0.35f * len) - up * (0.02f * w), 0.92f * w, 0.56f * w, 0.46f * w, s.Bill, 3f);
+                c.K[c.N++] = Spk(billBase + dir * (0.78f * len) + up * (0.02f * w), 1.02f * w, 0.32f * w, 0.28f * w, s.Bill, 3f);
+            }
+            else
+            {
+                c.K[c.N++] = Spk(billBase + dir * (0.6f * len), 0.96f * w, 0.44f * w, 0.36f * w, s.Bill, 3f);
+            }
+            // The rounded end, turned up a little.
+            c.K[c.N++] = Spk(billTip + up * (0.12f * w), 0.72f * w, 0.24f * w, 0.2f * w, FMath.LerpColour(s.Bill, s.BillTip, 0.4f), 2.2f);
+            b.Tube(c.K, c.N, 1, d.Fine ? 8 : 4, up, FaunaPalette.KeratinChannel, FaunaPart.Beak, -1f, 0.7f);
+            if (d.Fine)
+            {
+                // The nail over the tip.
+                b.Ellipsoid(billTip + up * (0.2f * w) - dir * (0.12f * w), dir, up, 0.36f * w, 0.1f * w, 0.26f * w, 2, 5, FaunaBone.Head, nail,
+                            FaunaPalette.KeratinChannel, FaunaPart.Beak);
+            }
+        }
+
+        private static Knot Spk(Fv3 p, float a, float bt, float bb, uint col, float e)
+        {
+            return new Knot(p.X, p.Y, p.Z, a, bt, bb, FaunaBone.Head, col, e);
         }
 
         /// <summary>A ring of the folded wing at <paramref name="u"/> of its length: full over the coverts, narrowing to
         /// the primary tips that cross over the rump.</summary>
-        private static void FoldKnot(FaunaSketch c, in AvianSpec s, Fv3 f0, Fv3 fwd, float u, uint col)
+        private static void FoldKnot(FaunaSketch c, in AvianSpec s, Fv3 f0, Fv3 fwd, float u, uint col, in FlankFit fit)
         {
             // A shell lying on the upper flank, following the body's contour back to the rump, where the primaries
             // converge and cross over the tail.
             float bump = 4f * u * (1f - u); // fullest in the middle
-            float a = (FMath.Lerp(0.26f, 0.08f, u * u) + 0.03f * bump) * s.BodyW;
+            float thin = s.FoldThin > 0f ? s.FoldThin : 1f;
+            float a = (FMath.Lerp(0.26f, 0.08f, u * u) + 0.03f * bump) * s.BodyW * thin;
             float bt = (FMath.Lerp(0.3f, 0.06f, u) + 0.1f * bump) * s.BodyH;
             float bb = (FMath.Lerp(0.36f, 0.05f, u) + 0.14f * bump) * s.BodyH;
             float x = u < 0.55f ? -0.05f * s.BodyW * u / 0.55f : FMath.Lerp(-0.05f, 0.66f, FMath.SmoothStep((u - 0.55f) / 0.45f)) * s.BodyW;
             float y = (0.03f * bump + 0.05f * u * u) * s.BodyH;
-            AddK(c, f0 - fwd * (u * s.FoldLen) + new Fv3(x, y, 0f), a, bt, bb, FaunaBone.FoldL, col);
+            Fv3 p = f0 - fwd * (u * s.FoldLen) + new Fv3(x, y, 0f);
+            if (fit.Active)
+            {
+                // Lie on the flank: the shell's inner half sunk into the body, its outer half standing proud by a
+                // little less than half its thickness; over the narrowing rump the primaries close in towards the
+                // midline (never crossing it).
+                float flank = fit.HalfWidth(p.Y, p.Z);
+                p = new Fv3(Math.Min(-(flank - 0.6f * a), -0.35f * a), p.Y, p.Z);
+            }
+            AddK(c, p, a, bt, bb, FaunaBone.FoldL, col);
+        }
+
+        /// <summary>
+        /// The half-width of the body loft along a horizontal line across the bird: where a ray along +X at
+        /// (<c>y</c>, <c>z</c>) first enters the loft's triangles (0 when it misses). Inactive for an empty range.
+        /// </summary>
+        private readonly struct FlankFit
+        {
+            private readonly MeshData _m;
+            private readonly int _i0, _i1;
+
+            public FlankFit(FaunaBuilder b, int i0, int i1)
+            {
+                _m = b.Target.Mesh;
+                _i0 = i0;
+                _i1 = i1;
+            }
+
+            public bool Active
+            {
+                get { return _i1 > _i0; }
+            }
+
+            public float HalfWidth(float y, float z)
+            {
+                float best = 0f;
+                float[] pos = _m.Positions;
+                int[] idx = _m.Indices;
+                for (int i = _i0; i + 2 < _i1; i += 3)
+                {
+                    int a = 3 * idx[i], b = 3 * idx[i + 1], c = 3 * idx[i + 2];
+                    float ya = pos[a + 1], za = pos[a + 2], yb = pos[b + 1], zb = pos[b + 2], yc = pos[c + 1], zc = pos[c + 2];
+                    float det = (yb - ya) * (zc - za) - (yc - ya) * (zb - za);
+                    if (Math.Abs(det) < 1e-12f) continue;
+                    float l1 = ((y - ya) * (zc - za) - (yc - ya) * (z - za)) / det;
+                    float l2 = ((yb - ya) * (z - za) - (y - ya) * (zb - za)) / det;
+                    if (l1 < 0f || l2 < 0f || l1 + l2 > 1f) continue;
+                    float xh = pos[a] + l1 * (pos[b] - pos[a]) + l2 * (pos[c] - pos[a]);
+                    if (-xh > best) best = -xh;
+                }
+                return best;
+            }
         }
 
         /// <summary>How much of a loft vertex's colour is the plain body colour (the back and belly shading applies to it,

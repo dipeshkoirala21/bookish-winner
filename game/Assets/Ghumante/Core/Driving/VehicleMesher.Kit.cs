@@ -38,6 +38,9 @@ namespace Ghumante.Core.Driving
             public byte Model;
             public uint Seed;
 
+            /// <summary>Which of the <see cref="RiderLooks"/> people rides a two-wheeler (or pulls the rickshaw).</summary>
+            public byte RiderLook;
+
             /// <summary>Full detail (player and nearest traffic).</summary>
             public bool L0
             {
@@ -284,8 +287,10 @@ namespace Ghumante.Core.Driving
                 seg = c.Lod == VehicleLod.Lod2 ? Math.Max(4, seg / 3) : Math.Max(6, (seg * 2) / 3);
             }
             Affine3 xf = AcrossX(x, y, z);
-            // Compass angle a of the lathe maps to vehicle (Y = −r sin a, Z = r cos a): θ (from +Z toward +Y) = −a.
-            return Shapes.Lathe(c.M, xf, b, p, seg, c.S, -fromDeg - sweepDeg, sweepDeg, true);
+            // Compass angle a of the lathe maps to vehicle (Y = −r sin a, Z = r cos a): θ (from +Z toward +Y) = −a. LOD1
+            // has already taken its segments down above; the shapes level would halve them again (two chords over a
+            // Classic's valanced guard, its plate hanging 9 cm off the sagging chord), so it keeps them.
+            return Shapes.Lathe(c.M, xf, b, p, seg, c.Lod == VehicleLod.Lod1 ? ShapeLod.Lod0 : c.S, -fromDeg - sweepDeg, sweepDeg, true);
         }
 
         /// <summary>A coil spring (helix tube) from a to b: shock absorbers. LOD1 and below draw a plain cylinder.</summary>

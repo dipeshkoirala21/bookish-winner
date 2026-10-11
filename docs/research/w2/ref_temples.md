@@ -173,8 +173,10 @@ width `E` of that tier unless metres are given.
 ## 5. Other heroes
 
 * **Dharahara (2021)**: rebuilt "in the same style with a larger diameter" [S: Wikipedia], white `#F7F5EF`, a tapering
-  round fluted shaft with storey bands, a **gallery balcony** ring near the top, a short drum and an onion/cone cap with
-  the bronze `#8C6A3A` mast; 72 m [S].
+  (1.26 : 1) telescoping shaft with eight projecting cream storey cornices and porthole windows, a corbelled **gallery
+  balcony** with a white balustrade at about 57.5 m, a drum with arched openings, a white bell dome and a **gilt**
+  kalash and needle spire; 72 m [S]. Measured on post-2021 photos from Sundhara: ref_assets-b.md §3 (supersedes the
+  fluted shaft and bronze mast of this line's first version).
 * **Kal Bhairav**: open-air stone relief, black-blue body `#2A3550`, gilt crown, red and yellow accents; no roof.
 * **Hanuman Dhoka**: stone Hanuman on a plinth **wrapped in a red cloth** with a **red parasol** over it, flanked by
   lions; the gilt door in a painted palace wall.
