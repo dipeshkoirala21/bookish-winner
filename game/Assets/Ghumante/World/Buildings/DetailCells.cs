@@ -11,9 +11,11 @@ namespace Ghumante.World.Buildings
 {
     /// <summary>
     /// The Unity side of the B0 "kit-lite" band (W2_DESIGN 2.4; the detail pass band table): <see cref="B0CellSet"/>
-    /// decides which cells draw which houses at which level, builds them on a worker in 4 ms slices, keeps them within
-    /// <see cref="BandConfig.CellCacheBytes"/> and registers their colliders per cell; this class maps the streamer's
-    /// detail tile views to its tiles and puts the cells on screen. Each upload chunk of a cell (at most
+    /// decides which cells draw which houses at which level (each house once; hysteresis on every switch; built ahead of
+    /// the band centre's motion so a house is never missing; the old mesh shown until the new one is up; a B1 block
+    /// standing in only for houses B0 does not draw, never over them), builds them on a worker in duty-limited slices,
+    /// keeps them within <see cref="BandConfig.CellCacheBytes"/> and registers their colliders per shown cell; this class
+    /// maps the streamer's detail tile views to its tiles and puts the cells on screen. Each upload chunk of a cell (at most
     /// <see cref="B0CellSet.ChunkVertices"/> vertices with 16-bit indices, copied straight from the worker's arrays
     /// through the advanced Mesh API) gets a pooled GameObject under its tile view with the streamer's B0 band material,
     /// whose band range dithers the 4 m cross-fade into B1. Uploads take what the streamer leaves of its per-frame upload
@@ -99,8 +101,8 @@ namespace Ghumante.World.Buildings
             get { return _set.ResidentBytes; }
         }
 
-        /// <summary>Per frame, with the visible detail views and the camera (game metres). <paramref name="nowMs"/> is not
-        /// used: the cell set keeps its own clock.</summary>
+        /// <summary>Per frame, with the visible detail views and the band centre (game metres; WorldStreamer's
+        /// <see cref="BandAnchor"/>). <paramref name="nowMs"/> is not used: the cell set keeps its own clock.</summary>
         public void Update(List<TileView> views, double camX, double camZ, double nowMs)
         {
             if (_disposed) return;
@@ -121,9 +123,9 @@ namespace Ghumante.World.Buildings
             _set.Update(camX, camZ);
         }
 
-        /// <summary>True when every B0 cell the camera wants in B1 block <paramref name="block"/> of the view draws all of
-        /// its ring's houses, so the block may hand its inner range to B0 (decided by this frame's <see cref="Update"/>;
-        /// the tile-local camera is not needed).</summary>
+        /// <summary>True when B0 draws every house the band draws in B1 block <paramref name="block"/> of the view, so the
+        /// block hands its inner range to B0; false while it stands in (decided by this frame's <see cref="Update"/>; the
+        /// tile-local centre is not needed).</summary>
         public bool BlockReady(TileView view, int block, double cx, double cz)
         {
             B0Tile t;

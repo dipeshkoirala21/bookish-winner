@@ -107,6 +107,16 @@ namespace Ghumante.Core.Tests
                 return best;
             }
 
+            /// <summary>Shown triangles inside a 70 degree horizontal view from (x, z) along (hx, hz) (unit).</summary>
+            public int InViewTris(double x, double z, double hx, double hz)
+            {
+                double cos = Math.Cos(35 * Math.PI / 180);
+                int t = 0;
+                foreach (Chunk c in Live)
+                    if (c.Shown && InView(c, x, z, hx, hz, cos)) t += c.Tris;
+                return t;
+            }
+
             private static bool InView(Chunk c, double x, double z, double hx, double hz, double cos)
             {
                 if (x >= c.MinX && x <= c.MaxX && z >= c.MinZ && z <= c.MaxZ) return true;
@@ -579,10 +589,11 @@ namespace Ghumante.Core.Tests
             Assert.Greater(b.Set.ShownTris, 0);
         }
 
-        /// <summary>A build slice stops once <see cref="B0CellSet.SliceMs"/> has passed (after a house at least), and the
-        /// next waits three times as long (the worker busy at most a quarter of the time).</summary>
+        /// <summary>A build slice stops once its share of the frame has passed (<see cref="B0CellSet.WorkerDuty"/> of the
+        /// frame time, at least <see cref="B0CellSet.SliceMs"/>; after a house at least), and the next waits three times as
+        /// long: the worker is busy at most a quarter of the time.</summary>
         [Test]
-        public void BuildsRunInSlicesOfAboutFourMilliseconds()
+        public void BuildsRunInSlicesOfAQuarterFrame()
         {
             double now = 0;
             int calls = 0;
@@ -598,9 +609,11 @@ namespace Ghumante.Core.Tests
             b.AddTilesAround(x, z);
             b.Settle(x, z);
             Assert.Greater(b.Set.Slices, b.Set.Builds, "dense cells take several slices");
-            double perSlice = b.Set.WorkMs / b.Set.Slices;
-            TestContext.WriteLine("Mid at Asan: {0} builds in {1} slices, {2:0.0} ms per slice", b.Set.Builds, b.Set.Slices, perSlice);
-            Assert.LessOrEqual(perSlice, B0CellSet.SliceMs + 1.0);
+            double perSlice = b.Set.WorkMs / b.Set.Slices, elapsed = now + b.NowMs;
+            TestContext.WriteLine("Mid at Asan: {0} builds in {1} slices, {2:0.0} ms per slice, worker busy {3:0.0}% of {4:0} ms", b.Set.Builds, b.Set.Slices,
+                                  perSlice, 100 * b.Set.WorkMs / elapsed, elapsed);
+            Assert.LessOrEqual(perSlice, B0CellSet.WorkerDuty * b.TickMs + 1.0, "a quarter of a 30 fps frame (and one house)");
+            Assert.LessOrEqual(b.Set.WorkMs, B0CellSet.WorkerDuty * elapsed + 50, "the worker is busy a quarter of the time at most");
         }
 
         /// <summary>

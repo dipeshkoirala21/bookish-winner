@@ -179,6 +179,37 @@ namespace Ghumante.World.Buildings
             return Math.Sqrt(dx * dx + dz * dz);
         }
 
+        /// <summary>Horizontal distance (m) from (cx, cz) to the nearest point of building <paramref name="i"/>'s B0 geometry
+        /// (0 inside it).</summary>
+        public double Distance(int i, double cx, double cz)
+        {
+            return BandConfig.NearestDistance(_bounds[4 * i], _bounds[4 * i + 1], _bounds[4 * i + 2], _bounds[4 * i + 3], cx, cz);
+        }
+
+        /// <summary>
+        /// The B1 blocks (<see cref="BandConfig.B1BlockM"/>, <paramref name="perSide"/> per tile side, clamped at the tile's
+        /// edge as MeshParts.BlockOf clamps) that horizontal bounds [x0, x1] × [z0, z1] (tile-local) touch: every block a B1
+        /// triangle of a house within them can fall in (MeshParts.ByBlocks assigns triangles by their centroid).
+        /// </summary>
+        public static void Blocks(double x0, double z0, double x1, double z1, int perSide, out int kx0, out int kz0, out int kx1, out int kz1)
+        {
+            kx0 = ClampBlock(Math.Floor(x0 / BandConfig.B1BlockM), perSide);
+            kz0 = ClampBlock(Math.Floor(z0 / BandConfig.B1BlockM), perSide);
+            kx1 = ClampBlock(Math.Floor(x1 / BandConfig.B1BlockM), perSide);
+            kz1 = ClampBlock(Math.Floor(z1 / BandConfig.B1BlockM), perSide);
+        }
+
+        private static int ClampBlock(double k, int perSide)
+        {
+            return k < 0 ? 0 : k >= perSide ? perSide - 1 : (int)k;
+        }
+
+        /// <summary>The B1 blocks building <paramref name="i"/>'s B0 geometry touches (<see cref="Blocks"/>).</summary>
+        public void HouseBlocks(int i, int perSide, out int kx0, out int kz0, out int kx1, out int kz1)
+        {
+            Blocks(_bounds[4 * i], _bounds[4 * i + 1], _bounds[4 * i + 2], _bounds[4 * i + 3], perSide, out kx0, out kz0, out kx1, out kz1);
+        }
+
         /// <summary>True when building <paramref name="i"/> fronts a street (<see cref="StreetFrontM"/>).</summary>
         public bool Street(int i)
         {

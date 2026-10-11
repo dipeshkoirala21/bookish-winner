@@ -60,16 +60,32 @@ namespace Ghumante.World.Buildings
         /// and fro along a radius never makes it switch back and forth. Each house is drawn at exactly one level, in
         /// exactly one cell: the level switches when its cell is rebuilt (B0CellSet).
         /// </summary>
-        public const float B0LevelHysteresisM = 6f;
+        public const float B0LevelHysteresisM = 4f;
 
-        /// <summary>A B0 cell is built with the houses that meet B0 this much beyond its fade (m): the camera travels about
-        /// this far towards new houses before the cell is rebuilt. Smaller on Low, whose flat houses are cheap to add
-        /// (a rebuild copies the houses it already has) and whose budget is tightest.</summary>
+        /// <summary>A B0 cell is built with the houses that meet B0 this much beyond its fade (m), around the band centre
+        /// and around where its smoothed velocity takes it (<see cref="B0BuildLeadS"/>): the centre travels about
+        /// <see cref="B0BuildPadM"/> − <see cref="B0LeadM"/> towards new houses before the cell is rebuilt. Smaller on Low,
+        /// whose flat houses are cheap to add (a rebuild copies the houses it already has) and whose budget is tightest.</summary>
         public float B0BuildPadM;
 
-        /// <summary>True when B0 builds 32 m cells (Mid and High: finer frustum culling and cheaper rebuilds around the
-        /// camera), false for 64 m cells (Low: fewer draw calls).</summary>
+        /// <summary>A cell is rebuilt (before anything else is built) once a house it lacks comes within this much of the
+        /// band's fade (m), or within the fade around where the band centre will be in <see cref="B0NeedLeadS"/>: the build
+        /// finishes before the house is drawn, so no frame lacks it. Less than <see cref="B0BuildPadM"/>.</summary>
+        public float B0LeadM;
+
+        /// <summary>Seconds of the band centre's smoothed velocity a missing house is looked for ahead (it triggers a
+        /// rebuild, <see cref="B0LeadM"/>) and houses are built ahead (taken into the build, <see cref="B0BuildPadM"/>): the
+        /// difference is how long a leading cell goes without a rebuild. Short on Low, whose flat houses build fast and
+        /// whose 35 m band would otherwise carry a long crescent of houses beyond it.</summary>
+        public float B0NeedLeadS, B0BuildLeadS;
+
+        /// <summary>True when B0 builds 32 m cells (finer frustum culling and cheaper rebuilds around the band centre; every
+        /// tier), false for 64 m cells.</summary>
         public bool B0FineCells;
+
+        /// <summary>The triangles of all shown B0 cells this tier allows (<see cref="B0ShownBudgetTris"/>): near it, the cells
+        /// shed the houses they no longer need before raising any level.</summary>
+        public int B0BudgetTris;
 
         /// <summary>GPU bytes of B0 cell meshes kept resident, shown and cached (25 / 50 / 80 MB; the cells shown at
         /// Asan take 3 / 8 / 15 MB): the least recently needed cells are evicted beyond it. With the tiles and the vehicle
@@ -113,13 +129,17 @@ namespace Ghumante.World.Buildings
                 B3OuterM = BuildingBandTable.OuterM(k, 3), B0NearOuterM = k == 0 ? 0f : BuildingBandTable.NearOuterM(k), B0LiteOuterM = LiteRadii[k],
                 B0FineCells = true, CellCacheBytes = CacheMegabytes[k] << 20, HeroBudgetTris = k == 0 ? 20000 : k == 1 ? 40000 : 60000,
                 HeroLod0Allowed = HeroLod0AllowedFor(k), B0CapTris = BuildingBandTable.B0CapFor(k), B0BaseDrop = BuildingBandTable.B0BaseDropFor(k),
-                B0LiteDrop = BuildingBandTable.LiteDrop, B0FlatDrop = BuildingBandTable.FlatDrop, B0BuildPadM = BuildPads[k],
+                B0LiteDrop = BuildingBandTable.LiteDrop, B0FlatDrop = BuildingBandTable.FlatDrop, B0BuildPadM = BuildPads[k], B0LeadM = Leads[k],
+                B0NeedLeadS = NeedLeads[k], B0BuildLeadS = BuildLeads[k], B0BudgetTris = B0ShownBudgetTris(k),
             };
         }
 
         private static readonly long[] CacheMegabytes = { 25, 50, 80 };
         private static readonly float[] LiteRadii = { 0f, 30f, 55f };
-        private static readonly float[] BuildPads = { 2f, 4f, 6f };
+        private static readonly float[] BuildPads = { 1f, 4f, 6f };
+        private static readonly float[] Leads = { 0.5f, 2f, 3f };
+        private static readonly float[] NeedLeads = { 0.4f, 0.6f, 0.6f };
+        private static readonly float[] BuildLeads = { 0.7f, 1.1f, 1.2f };
 
         /// <summary>False on Low, whose hero budget never shows LOD0 (W2_DESIGN 3.2): tile builds then skip it.</summary>
         public static bool HeroLod0AllowedFor(int tier)
@@ -144,8 +164,10 @@ namespace Ghumante.World.Buildings
             return k == 0 ? LowB0ShownTris : (int)(BuildingBandTable.B0ShareTris(k) / InViewShare);
         }
 
-        /// <summary>Low's B0 budget, whole shown cells at Asan (see <see cref="B0ShownBudgetTris"/>).</summary>
-        public const int LowB0ShownTris = 30000;
+        /// <summary>Low's B0 budget, whole shown cells (see <see cref="B0ShownBudgetTris"/>): 27.6 k at Asan at rest, and up to
+        /// 32.4 k riding from Thamel to Asan at 10 m/s, at the large hotels of Dabali Marga, where the houses inside the
+        /// 35 m band alone come to about 29.5 k at the flat level (core-tests MeshingBuildingB0StabilityTests).</summary>
+        public const int LowB0ShownTris = 33000;
 
         /// <summary>B0 levels: 0 near (full grammar), 1 lite, 2 flat.</summary>
         public const int LevelNear = 0, LevelLite = 1, LevelFlat = 2;
@@ -246,6 +268,68 @@ namespace Ghumante.World.Buildings
         private static double Clamp01(double v)
         {
             return v < 0 ? 0 : v > 1 ? 1 : v;
+        }
+    }
+
+    /// <summary>
+    /// The point the building bands are measured from (the shader's band centre, the B0 cells' selection and the band
+    /// blocks' switching; WorldStreamer.UpdateView). It follows the player (the streaming focus) while the camera rides
+    /// within <see cref="ChaseRangeM"/> of it, so a chase camera swaying, bobbing or swinging round the rider never moves
+    /// a band edge across a house (owner playtest #4: "Buildings constantly flickers"), and the camera otherwise (free
+    /// flight, framed shots). It ignores motion within <see cref="DeadzoneM"/> (it trails the player by at most that while
+    /// riding) and jumps on a teleport. Engine-free; core-tests MeshingBuildingB0StabilityTests ride it.
+    /// </summary>
+    public sealed class BandAnchor
+    {
+        /// <summary>The anchor stays put while its target moves within this distance (m).</summary>
+        public const double DeadzoneM = 1.0;
+
+        /// <summary>A camera within this distance of the focus (m) is a chase camera: the bands follow the focus.</summary>
+        public const double ChaseRangeM = 30.0;
+
+        /// <summary>A target this far from the anchor (m) is a teleport: the anchor jumps there.</summary>
+        public const double JumpM = 50.0;
+
+        /// <summary>The anchor (game metres) once <see cref="Valid"/>.</summary>
+        public double X { get; private set; }
+
+        public double Z { get; private set; }
+
+        public bool Valid { get; private set; }
+
+        /// <summary>Follows the focus (<paramref name="hasFocus"/>) while the camera is within <see cref="ChaseRangeM"/> of
+        /// it, else the camera, with the dead zone; returns true when the anchor moved.</summary>
+        public bool Follow(double camX, double camZ, double focusX, double focusZ, bool hasFocus)
+        {
+            double tx = camX, tz = camZ;
+            if (hasFocus)
+            {
+                double fx = camX - focusX, fz = camZ - focusZ;
+                if (fx * fx + fz * fz <= ChaseRangeM * ChaseRangeM)
+                {
+                    tx = focusX;
+                    tz = focusZ;
+                }
+            }
+            double dx = tx - X, dz = tz - Z, d = Math.Sqrt(dx * dx + dz * dz);
+            if (!Valid || d > JumpM)
+            {
+                X = tx;
+                Z = tz;
+                Valid = true;
+                return true;
+            }
+            if (d <= DeadzoneM) return false;
+            double k = (d - DeadzoneM) / d;
+            X += dx * k;
+            Z += dz * k;
+            return true;
+        }
+
+        /// <summary>Forgets the anchor (the next <see cref="Follow"/> jumps).</summary>
+        public void Reset()
+        {
+            Valid = false;
         }
     }
 }

@@ -25,10 +25,11 @@ namespace Ghumante.World.Streaming
     /// rebuilt when the origin moves. Owned by <see cref="WorldRoot"/>; main thread only.
     /// <para>
     /// W2 (<see cref="UpdateView"/>, once per frame after <see cref="Tick"/>): the building bands of W2_DESIGN 2.4 (B1
-    /// blocks, B2 blocks and the B3 layer switched by their distance range around the camera, the band materials
-    /// dithering the exact 4 m cross-fade; B0 cells from <see cref="DetailCells"/>, with a B1 block standing in for its
-    /// cells until they are ready), the hero LODs (<see cref="HeroLodBudget"/>), the structure colliders of heroes and B0
-    /// cells (registered with the ground query while their tile is visible), and the per-frame render counters.
+    /// blocks, B2 blocks and the B3 layer switched by their distance range around the band centre
+    /// (<see cref="BandAnchor"/>: the player while the camera chases it), the band materials dithering the exact 4 m
+    /// cross-fade; B0 cells from <see cref="DetailCells"/>, with a B1 block standing in only where B0 does not draw a
+    /// house), the hero LODs (<see cref="HeroLodBudget"/>), the structure colliders of heroes and B0 cells (registered
+    /// with the ground query while their tile is visible), and the per-frame render counters.
     /// </para>
     /// <para>
     /// Detail pass: the bridge and roundabout pieces (<see cref="LodPiece"/>: one LOD per span or site by the camera's
@@ -136,6 +137,9 @@ namespace Ghumante.World.Streaming
         public void Tick(WorldPos focus)
         {
             if (_disposed) return;
+            _focusX = focus.X;
+            _focusZ = focus.Z;
+            _hasFocus = true;
             double budget = Application.targetFrameRate >= 50 ? 1.5 : 2.0;
             _scheduler.UploadBudgetMs = budget;
             long cap = _uploadCapBytes, b0 = 0;
@@ -157,6 +161,12 @@ namespace Ghumante.World.Streaming
         /// <summary>Frames B0 cells wait behind tile uploads before they upload first.</summary>
         private const int B0StarvedTicks = 3;
 
+        /// <summary>Where the building bands are measured from (the player while the camera chases it; owner playtest #4).</summary>
+        private readonly BandAnchor _bandAnchor = new BandAnchor();
+
+        private double _focusX, _focusZ;
+        private bool _hasFocus;
+
         private readonly long _uploadCapBytes;
         private long _tickUploadBytes;
         private int _b0Starved;
@@ -169,21 +179,27 @@ namespace Ghumante.World.Streaming
         }
 
         /// <summary>
-        /// Per-frame view work: band switching around the camera (scene position), B0 cells, hero LODs, colliders and
-        /// counters. <paramref name="verticalFovDeg"/> is the camera's vertical field of view (hero screen heights).
+        /// Per-frame view work: band switching around the band centre (<see cref="BandAnchor"/>: the streaming focus of the
+        /// last <see cref="Tick"/>, the player, while the camera chases it, so a swaying or swinging chase camera never
+        /// sweeps a band edge across the houses; the camera otherwise), B0 cells, hero LODs, colliders and counters.
+        /// <paramref name="cameraScene"/> is the camera's scene position; <paramref name="verticalFovDeg"/> its vertical
+        /// field of view (hero screen heights).
         /// </summary>
         public void UpdateView(Vector3 cameraScene, float verticalFovDeg, float nowS)
         {
             if (_disposed) return;
-            Shader.SetGlobalVector(WorldShaders.BandCentre, new Vector4(cameraScene.x, cameraScene.y, cameraScene.z, 0f));
             double camX = _origin.X + cameraScene.x, camZ = _origin.Z + cameraScene.z;
             float camY = _origin.Y + cameraScene.y;
+            _bandAnchor.Follow(camX, camZ, _focusX, _focusZ, _hasFocus);
+            double bandX = _bandAnchor.X, bandZ = _bandAnchor.Z;
+            // The shader's band centre and the bands' switching below use the same point (the shader reads only x and z).
+            Shader.SetGlobalVector(WorldShaders.BandCentre, new Vector4((float)(bandX - _origin.X), cameraScene.y, (float)(bandZ - _origin.Z), 0f));
             _stats = default(RenderStats); // the instanced renderers and life presenters add theirs after this call
 
-            _cells.Update(_detailViews, camX, camZ, NowMs());
+            _cells.Update(_detailViews, bandX, bandZ, NowMs());
             for (int v = 0; v < _detailViews.Count; v++)
             {
-                UpdateBands(_detailViews[v], camX, camZ);
+                UpdateBands(_detailViews[v], bandX, bandZ);
                 UpdatePieces(_detailViews[v], camX, camZ);
             }
             UpdateHeroes(camX, camY, camZ, verticalFovDeg, nowS);

@@ -272,6 +272,33 @@ namespace Ghumante.Tests.EditMode
             }
         }
 
+        /// <summary>
+        /// Owner playtest #4 ("Buildings constantly flickers"): the streamer measures every building band from
+        /// <see cref="BandAnchor"/>, which follows the player while the camera chases it, so a chase camera swinging round
+        /// a standing rider never moves a band edge across a house; a far camera (free flight) is followed itself.
+        /// </summary>
+        [Test]
+        public void BandsAreCentredOnTheRiderNotTheSwayingCamera()
+        {
+            var anchor = new BandAnchor();
+            const double rx = 1000, rz = 2000;
+            anchor.Follow(rx - 4.5, rz, rx, rz, true);
+            Assert.AreEqual(rx, anchor.X);
+            for (int f = 0; f < 300; f++)
+            {
+                double a = 0.7 * Math.Sin(f * 0.03);
+                Assert.IsFalse(anchor.Follow(rx - 4.5 * Math.Cos(a), rz - 4.5 * Math.Sin(a), rx, rz, true), "frame " + f + ": the swinging camera moves nothing");
+            }
+            Assert.AreEqual(rx, anchor.X);
+            Assert.AreEqual(rz, anchor.Z);
+            // Riding: the centre trails the rider by at most the dead zone.
+            for (int f = 1; f <= 100; f++) anchor.Follow(rx + f * 0.33 - 4.5, rz, rx + f * 0.33, rz, true);
+            Assert.AreEqual(rx + 33 - BandAnchor.DeadzoneM, anchor.X, 1e-6);
+            // A free camera far from the focus is followed itself.
+            anchor.Follow(rx + 500, rz, rx, rz, true);
+            Assert.AreEqual(rx + 500, anchor.X);
+        }
+
         /// <summary>Records which B0 chunks are shown (the Unity sink is DetailCells).</summary>
         private sealed class B0Sink : IB0CellSink
         {
