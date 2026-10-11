@@ -1,0 +1,25 @@
+{
+    "name": "Ghumante.ScreenshotTour.Editor",
+    "rootNamespace": "Ghumante.EditorTools",
+    "references": [
+        "Ghumante.Core",
+        "Ghumante.Platform",
+        "Ghumante.World",
+        "Ghumante.Vehicles",
+        "Ghumante.Characters",
+        "Ghumante.UI",
+        "Ghumante.App",
+        "Ghumante.EditorTools"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

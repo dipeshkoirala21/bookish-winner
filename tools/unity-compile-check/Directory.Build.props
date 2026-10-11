@@ -17,6 +17,9 @@
     <WarningsAsErrors>$(WarningsAsErrors);CS0618;CS0619</WarningsAsErrors>
     <NoWarn>$(NoWarn);CS0649;CS1591;NU1701</NoWarn>
     <Deterministic>true</Deterministic>
+    <!-- Unity asmdef references are not transitive: an assembly sees only the assemblies it lists. Without this,
+         MSBuild would let Characters use World's Platform types and hide Unity's CS0012. -->
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
   </PropertyGroup>
   <!-- API audit (run.sh with the audit flag): the analyzer checks every Unity symbol we use against the Unity 6.3 API. -->
   <ItemGroup Condition="'$(UnityApiIndex)' != ''">

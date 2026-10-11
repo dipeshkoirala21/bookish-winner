@@ -87,6 +87,18 @@ namespace Ghumante.Core.Save
             /// <summary>Accessibility: replaces bounces, parallax and idle animation with simple fades.</summary>
             public bool ReduceMotion;
 
+            /// <summary>Settings > Graphics: "auto" (default), "low", "medium" or "high" (<c>Ghumante.Core.Platform.QualityChoices</c>).</summary>
+            public string Graphics = "auto";
+
+            /// <summary>Settings > Frame rate: 30 or 60, or 0 for the tier's default.</summary>
+            public int FrameRate;
+
+            /// <summary>The tier the adaptive governor lowered Auto to on this phone (-1: none), and the phone's model
+            /// identifier (a save restored on another phone ignores it).</summary>
+            public int AutoTierCap = -1;
+
+            public string AutoTierDevice = "";
+
             public JsonObject Extra = new JsonObject();
         }
 
@@ -133,7 +145,9 @@ namespace Ghumante.Core.Save
                 .Set("nepaliNumerals", Settings.NepaliNumerals).Set("musicVolume", Settings.MusicVolume)
                 .Set("sfxVolume", Settings.SfxVolume).Set("orientationLock", Settings.OrientationLock ?? "auto")
                 .Set("analyticsConsent", Settings.AnalyticsConsent).Set("haptics", Settings.Haptics)
-                .Set("reduceMotion", Settings.ReduceMotion);
+                .Set("reduceMotion", Settings.ReduceMotion).Set("graphics", Settings.Graphics ?? "auto")
+                .Set("frameRate", Settings.FrameRate).Set("autoTierCap", Settings.AutoTierCap)
+                .Set("autoTierDevice", Settings.AutoTierDevice ?? "");
             CopyExtra(Settings.Extra, st);
             root.Set("settings", st);
 
@@ -208,8 +222,12 @@ namespace Ghumante.Core.Save
             s.Settings.AnalyticsConsent = st.GetBool("analyticsConsent");
             s.Settings.Haptics = st.GetBool("haptics", true);
             s.Settings.ReduceMotion = st.GetBool("reduceMotion");
+            s.Settings.Graphics = st.GetString("graphics", "auto");
+            s.Settings.FrameRate = st.GetInt("frameRate", 0);
+            s.Settings.AutoTierCap = st.GetInt("autoTierCap", -1);
+            s.Settings.AutoTierDevice = st.GetString("autoTierDevice", "");
             KeepExtra(st, s.Settings.Extra, "language", "nepaliNumerals", "musicVolume", "sfxVolume", "orientationLock",
-                      "analyticsConsent", "haptics", "reduceMotion");
+                      "analyticsConsent", "haptics", "reduceMotion", "graphics", "frameRate", "autoTierCap", "autoTierDevice");
 
             s.Story = root.GetObject("story") ?? new JsonObject();
             s.Quests = root.GetObject("quests") ?? new JsonObject();

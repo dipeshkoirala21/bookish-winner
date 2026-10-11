@@ -84,6 +84,27 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
+        public void RoutedSpawnOnLanesThatStreamedInSinceTheLastStepDoesNotThrow()
+        {
+            // LifeHost.Step adds the tiles that streamed in, then the bus runner spawns on their lanes before the
+            // traffic step: the lane arrays must grow first (Unity Play mode threw IndexOutOfRange in BuildOccupancy).
+            var g = new LaneGraph();
+            var sim = new TrafficSim(g, TrafficSettings.High(), 3);
+            sim.Step(Dt, 9f, 0f);
+            TileData t = Streets(4, 6, true, false);
+            g.AddTile(t.Tile, t);
+            bool spawned = false;
+            for (int i = g.LaneCapacity - 1; i >= 0 && !spawned; i--)
+            {
+                if (!g.IsAlive(new LaneId(i))) continue;
+                int id;
+                spawned = sim.SpawnRouted(i, 8f, VehicleCatalog.Scooter, 0, -1, 0, out id);
+            }
+            Assert.That(spawned, Is.True, "a scooter fits on some lane of the new tile");
+            Assert.DoesNotThrow(() => sim.Step(Dt, 9f, 0f));
+        }
+
+        [Test]
         public void AiCarsNeverEnterNarrowStreets()
         {
             var g = new LaneGraph();

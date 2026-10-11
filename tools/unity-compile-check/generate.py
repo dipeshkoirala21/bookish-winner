@@ -158,11 +158,17 @@ def main() -> int:
             package_refs.append('    <PackageReference Include="NUnit" Version="3.14.0" />')
         if not no_engine:
             refs.append(f'    <ProjectReference Include="{STUB_PROJECTS["Unity6"]}" />')
+            if not editor_only:
+                refs.append(f'    <ProjectReference Include="{STUB_PROJECTS["UnityEditor"]}" '
+                            f'Condition="\'$(UnityEditorPass)\' == \'true\'" />')
 
         defines = ["UNITY_6000_3_OR_NEWER", "UNITY_6000_0_OR_NEWER", "UNITY_2021_3_OR_NEWER", "ENABLE_IL2CPP"]
         # Player assemblies are compiled once per mobile platform (run.sh passes UnityPlatformDefine=UNITY_ANDROID,
         # then UNITY_IOS) so platform #if branches are checked too; editor assemblies see UNITY_EDITOR.
-        defines += ["UNITY_EDITOR", "UNITY_INCLUDE_TESTS"] if editor_only else ["DEVELOPMENT_BUILD", "$(UnityPlatformDefine)"]
+        # The Unity Editor compiles runtime assemblies too, with UNITY_EDITOR, the editor's build target (macOS
+        # standalone on a fresh Mac project) and UnityEditor.dll referenced: run.sh's editor pass sets UnityEditorPass
+        # and UnityPlatformDefine to those defines, so `#if UNITY_EDITOR` blocks in runtime code are compiled as well.
+        defines += ["UNITY_EDITOR", "UNITY_INCLUDE_TESTS"] if editor_only else ["$(UnityPlatformDefine)"]
         defines += version_defines(name, data, packages, notes)
         unity_import = "" if no_engine else '  <Import Project="$(MSBuildThisFileDirectory)../../UnityEngine.props" />\n'
         csproj = f'''<Project Sdk="Microsoft.NET.Sdk">

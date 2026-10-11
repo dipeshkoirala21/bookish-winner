@@ -722,14 +722,48 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// The corridor shift of road <paramref name="road"/> (metres, positive = left, one sample every
-        /// <see cref="CorridorShiftSpacingM"/> from the first rendered point), or null. The data package's RSTR record
-        /// carries it as <c>RoadStructureRecord.CorridorShiftCm</c> (docs/DATA_FORMATS.md 1.15), which the base stub of
-        /// <see cref="RoadStructureRecord"/> does not have yet: integration wires it here (open issue in
-        /// docs/research/w2/ref_roads.md §8); until then only <see cref="WithCorridorShifts"/> sets shifts.
+        /// <see cref="CorridorShiftSpacingM"/> from the first rendered point), or null: the shifts set by
+        /// <see cref="WithCorridorShifts"/>, else the data package's RSTR <c>RoadStructureRecord.CorridorShiftCm</c>
+        /// (docs/DATA_FORMATS.md 1.15: the corridor moved away from a protected hero or temple footprint, which the
+        /// pipeline never trims; the buildings beside it were trimmed to the shifted corridor).
         /// </summary>
         private float[] CorridorShiftOf(int road)
         {
-            return _shiftOverride != null && road < _shiftOverride.Length ? _shiftOverride[road] : null;
+            if (_shiftOverride != null) return road < _shiftOverride.Length ? _shiftOverride[road] : null;
+            int[] cm = Structures[road].CorridorShiftCm;
+            if (cm == null || cm.Length == 0) return null;
+            var m = new float[cm.Length];
+            for (int i = 0; i < cm.Length; i++) m[i] = cm[i] / 100f;
+            return m;
+        }
+
+        /// <summary>
+        /// Corridor shifts end at tile-border cut ends and at knee ends, tapered at 1 : 20 like every other carriageway
+        /// shift (<see cref="AddShift"/>): both tiles keep a cut where it is and a continuing piece meets a knee there,
+        /// while each piece's RSTR samples are the largest shift within its own spacing windows, which the pieces either
+        /// side of a cut or a node do not share.
+        /// </summary>
+        private void TaperCorridorShifts(TileData t)
+        {
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                RoadWidthProfile p = Profiles[i];
+                if (p.Shift == null) continue;
+                RoadRecord r = t.Roads[i];
+                bool capStart = r.HasPrevContext || Knees[2 * i].Has, capEnd = r.HasNextContext || Knees[2 * i + 1].Has;
+                if (!capStart && !capEnd) continue;
+                float k = p.StepM / RoadWidthModel.TaperRatio;
+                bool any = false;
+                for (int j = 0; j < p.Count; j++)
+                {
+                    float cap = float.PositiveInfinity;
+                    if (capStart) cap = Math.Min(cap, k * j);
+                    if (capEnd) cap = Math.Min(cap, k * (p.Count - 1 - j));
+                    p.Shift[j] = Math.Max(-cap, Math.Min(cap, p.Shift[j]));
+                    any |= Math.Abs(p.Shift[j]) > 1e-4f;
+                }
+                if (!any) p.Shift = null;
+            }
         }
 
         /// <summary>Spacing of the RSTR corridor shift samples.</summary>

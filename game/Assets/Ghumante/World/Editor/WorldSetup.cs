@@ -50,6 +50,10 @@ namespace Ghumante.World.EditorTools
             var set = AssetDatabase.LoadAssetAtPath<WorldMaterialSet>(MaterialSetPath);
             if (set == null)
             {
+                // A file that does not load as a WorldMaterialSet lost its script link (it was made while the scripts did not
+                // compile, or the script's .meta changed): Unity warns "The referenced script ... is missing" and the game
+                // falls back to runtime materials. Replace it.
+                if (System.IO.File.Exists(MaterialSetPath)) AssetDatabase.DeleteAsset(MaterialSetPath);
                 set = ScriptableObject.CreateInstance<WorldMaterialSet>();
                 AssetDatabase.CreateAsset(set, MaterialSetPath);
             }
