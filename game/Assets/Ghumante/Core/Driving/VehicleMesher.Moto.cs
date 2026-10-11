@@ -488,8 +488,11 @@ namespace Ghumante.Core.Driving
             else if (c.L1)
             {
                 FenderArc(ref c, Plain(TrimC), 0, r, 0, r + 0.03, 0.12, 0.008, 70, 60, 16);
+                // The hanger reaches up into the tail cowl (its underside is at 0.87-0.89 m over the hanger's root on the
+                // Pulsar and streetfighter types, 0.72 m on the Shine type), so the plate hangs from the body.
+                double root = model == Shine ? 0.79 : 0.89;
                 Profile2 tt = Prof.Clear(true);
-                tt.Add(-0.24, 0.81, true).Add(-0.40, 0.72, true).Add(-0.44, 0.55, true).Add(-0.40, 0.55, true).Add(-0.36, 0.69, true).Add(-0.22, 0.77, true);
+                tt.Add(-0.21, root, true).Add(-0.40, 0.72, true).Add(-0.44, 0.55, true).Add(-0.40, 0.55, true).Add(-0.36, 0.69, true).Add(-0.18, root - 0.04, true);
                 Fil(ref c, tt, 0.015, 1);
                 SideExtrude(ref c, Plain(TrimC), tt, -0.04, 0.04, 0.012, 1);
             }

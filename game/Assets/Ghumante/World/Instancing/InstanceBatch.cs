@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -9,8 +10,9 @@ namespace Ghumante.World.Instancing
     /// <see cref="Graphics.RenderMeshInstanced{T}(in RenderParams, Mesh, int, T[], int, int)"/> in runs of at most
     /// <see cref="MaxPerDraw"/> (GPU instancing: GLES3, Metal and Vulkan; no compute, no BatchRendererGroup, so it works on
     /// every target device). With a tint the per-instance colours go through a <see cref="MaterialPropertyBlock"/> array
-    /// (<c>_InstanceTint</c>, or another vector property). Buffers are allocated once; adding and flushing allocate
-    /// nothing. Main thread only.
+    /// (<c>_InstanceTint</c>, or another vector property) that copies only the tints of the instances in the run (a list
+    /// filled to the run's length, W2 perf pass: the full 1,023-entry array cost a 16 KB copy per tinted draw). Buffers
+    /// are allocated once; adding and flushing allocate nothing. Main thread only.
     /// </summary>
     public sealed class InstanceBatch
     {
@@ -18,10 +20,16 @@ namespace Ghumante.World.Instancing
         public const int MaxPerDraw = 1023;
 
         private readonly Matrix4x4[] _matrices = new Matrix4x4[MaxPerDraw];
-        private readonly Vector4[] _tints;
+
+        /// <summary>Tints of the current run, filled to <see cref="_count"/>: the list overload of
+        /// <see cref="MaterialPropertyBlock.SetVectorArray(int, List{Vector4})"/> copies only its count.</summary>
+        private readonly List<Vector4> _tints;
         private readonly MaterialPropertyBlock _block;
         private readonly int _tintId;
         private int _count;
+
+        /// <summary>A full-size array that fixes each block's tint array size once (shared; never written).</summary>
+        private static Vector4[] s_fullSize;
 
         public Mesh Mesh;
         public Material Material;
@@ -43,9 +51,12 @@ namespace Ghumante.World.Instancing
             TrisPerInstance = trisPerInstance;
             if (tinted)
             {
-                _tints = new Vector4[MaxPerDraw];
+                _tints = new List<Vector4>(MaxPerDraw);
                 _block = new MaterialPropertyBlock();
                 _tintId = tintPropertyId != 0 ? tintPropertyId : Rendering.WorldShaders.InstanceTint;
+                // The first set fixes the property's array size for the block's lifetime: set it at full size once, so the
+                // shorter runs that follow never trip Unity's array-size lock.
+                _block.SetVectorArray(_tintId, s_fullSize ?? (s_fullSize = new Vector4[MaxPerDraw]));
             }
         }
 
@@ -64,7 +75,7 @@ namespace Ghumante.World.Instancing
         public void Add(in Matrix4x4 m)
         {
             _matrices[_count] = m;
-            if (_tints != null) _tints[_count] = Vector4.one;
+            if (_tints != null) _tints.Add(Vector4.one);
             if (++_count == MaxPerDraw) Flush();
         }
 
@@ -72,7 +83,7 @@ namespace Ghumante.World.Instancing
         public void Add(in Matrix4x4 m, Vector4 tint)
         {
             _matrices[_count] = m;
-            if (_tints != null) _tints[_count] = tint;
+            if (_tints != null) _tints.Add(tint);
             if (++_count == MaxPerDraw) Flush();
         }
 
@@ -83,6 +94,7 @@ namespace Ghumante.World.Instancing
             if (Mesh == null || Material == null)
             {
                 _count = 0;
+                if (_tints != null) _tints.Clear();
                 return;
             }
             var rp = new RenderParams(Material)
@@ -94,7 +106,7 @@ namespace Ghumante.World.Instancing
             };
             if (_block != null)
             {
-                _block.SetVectorArray(_tintId, _tints);
+                _block.SetVectorArray(_tintId, _tints); // copies _tints.Count (= _count) entries, not 1,023
                 rp.matProps = _block;
             }
             Graphics.RenderMeshInstanced(rp, Mesh, 0, _matrices, _count);
@@ -102,6 +114,7 @@ namespace Ghumante.World.Instancing
             Tris += _count * TrisPerInstance;
             Draws++;
             _count = 0;
+            if (_tints != null) _tints.Clear();
         }
 
         /// <summary>Destroys the mesh (when the batch owns it).</summary>
