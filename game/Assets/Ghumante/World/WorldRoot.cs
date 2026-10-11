@@ -106,6 +106,8 @@ namespace Ghumante.World
         private RenderStats _renderStats;
         private int _month = 10;
         private bool _lifeErrorLogged;
+        private int _builtTier = -1;
+        private int _tierRequest;
 
         private struct CameraState
         {
@@ -131,6 +133,11 @@ namespace Ghumante.World
         /// <summary>The world was closed.</summary>
         public event Action Closed;
 
+        /// <summary>The world now streams and simulates for another tier (<see cref="ApplyTierAsync"/>): raised on the main
+        /// thread after the rebuild (streaming radii, building bands, meshing options, life caps, dressing, airport), or at
+        /// once when the world is closed (the tier applies at the next open).</summary>
+        public event Action<DeviceTier> TierChanged;
+
         /// <summary>Any world became ready (raised after <see cref="Ready"/>). Presenter assemblies that World cannot
         /// reference (Traffic, Wildlife) attach to it from a <c>RuntimeInitializeOnLoadMethod</c>.</summary>
         public static event Action<WorldRoot> AnyReady;
@@ -153,7 +160,8 @@ namespace Ghumante.World
         }
 
         /// <summary>Device tier for the streaming rings and budgets (ARCHITECTURE 10). Default: the active quality
-        /// level (Bootstrap sets it from the detected tier). Takes effect at the next open.</summary>
+        /// level (Bootstrap sets it from the detected tier). Setting it takes effect at the next open; to switch an open
+        /// world live, call <see cref="ApplyTierAsync"/>.</summary>
         public DeviceTier Tier
         {
             get
@@ -460,7 +468,8 @@ namespace Ghumante.World
                     searchStream = await source.OpenAsync(regionId, RegionFileKind.SearchIndex, cancellationToken);
                 if (manifest.FileFor(RegionFileKind.RouteGraph) != null)
                     routeStream = await source.OpenAsync(regionId, RegionFileKind.RouteGraph, cancellationToken);
-                StreamingConfig config = StreamingConfig.ForTier((int)Tier);
+                int openTier = (int)Tier; // one tier for the whole build, even if ApplyTierAsync runs meanwhile
+                StreamingConfig config = StreamingConfig.ForTier(openTier);
                 Stream ps = packStream, ss = searchStream, rs = routeStream;
                 packStream = searchStream = routeStream = null; // owned by LoadRegionData from here
                 // No cancellation token here: a task cancelled before it starts never runs LoadRegionData, and nothing
@@ -471,7 +480,7 @@ namespace Ghumante.World
                 ThrowIfStale(version, cancellationToken);
                 for (int i = 0; i < data.Warnings.Count; i++) Debug.LogWarning("WorldRoot: " + data.Warnings[i]);
 
-                Build(manifest, config, data);
+                Build(manifest, config, data, openTier);
                 data = null; // owned by the streamer now
                 IsOpening = false;
                 IsOpen = true;
@@ -480,6 +489,8 @@ namespace Ghumante.World
                           _config.Rings.Length + " LOD rings to " + (_config.ViewRadiusM / 1000.0).ToString("0") + " km.");
                 Raise(Ready);
                 RaiseAnyReady(this);
+                // A tier picked while the region was opening: switch to it now.
+                if ((int)Tier != _builtTier) FollowTier();
             }
             catch
             {
@@ -546,6 +557,8 @@ namespace Ghumante.World
             _meshing = null;
             _manifest = null;
             _config = null;
+            _builtTier = -1;
+            IsSwitchingTier = false;
             Search = null;
             Routes = null;
             _focusOverride = null;
@@ -572,7 +585,7 @@ namespace Ghumante.World
             if (wasOpen) Raise(Closed);
         }
 
-        private void Build(RegionManifest manifest, StreamingConfig config, RegionData data)
+        private void Build(RegionManifest manifest, StreamingConfig config, RegionData data, int tier)
         {
             _manifest = manifest;
             _config = config;
@@ -582,7 +595,7 @@ namespace Ghumante.World
             _transit = data.Transit;
             _aviationConfig = data.Aviation;
             _heroes = data.Heroes;
-            int tier = (int)Tier;
+            _builtTier = tier;
             // Every per-tier option of the detail-pass packages, the month's season and the roads package's corridors.
             _meshing = MeshingSettings.ForTier(tier, _month, _heroes);
             // Layered ground: bridge and flyover decks over and under (the bridges package's index on the RSTR records or
@@ -630,6 +643,167 @@ namespace Ghumante.World
             sky.enabled = true;
             ConfigureCamera();
             EnsureRoute().Material = _materials.route;
+        }
+
+        // -------------------------------------------------------------------------------------------------------------
+        // Live tier switch (Settings > Graphics and the adaptive governor, App's QualityDirector)
+
+        /// <summary>True while <see cref="ApplyTierAsync"/> prepares a rebuild (the old tier still draws meanwhile).</summary>
+        public bool IsSwitchingTier { get; private set; }
+
+        /// <summary>The tier the open world was built for (-1 when closed).</summary>
+        public int BuiltTier
+        {
+            get { return _builtTier; }
+        }
+
+        /// <summary>
+        /// Switches the world to <paramref name="tier"/> without closing it. Closed (or opening): sets <see cref="Tier"/>,
+        /// which the next open (or the open in progress, once ready) uses. Open: reopens the region pack on a worker and
+        /// builds the tier's selector, then, on the main thread in one go, replaces the tier-bound parts while the region
+        /// data, ground query, floating origin, focus, sky, route and presenters stay: the streamer (LOD rings and view
+        /// radius, building bands, B0 cells, hero budget and every per-tier meshing option, which re-stream nearest
+        /// first), the life simulations (traffic, people and animal caps), the instanced dressing and the airport. The
+        /// camera's far clip and the fog follow the new view radius, the presenters attached through
+        /// <see cref="AnyReady"/> re-bind for the tier, and <see cref="TierChanged"/> is raised. While the new streamer
+        /// loads, the ground near the focus is missing for a moment (controllers hold still without ground); callers
+        /// cover it (App shows a short "redrawing" overlay). A newer call or <see cref="Close"/> supersedes one in
+        /// flight. Main thread.
+        /// </summary>
+        public async Task ApplyTierAsync(DeviceTier tier, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            Tier = tier; // the look's tier override follows (Tier's setter)
+            int request = ++_tierRequest;
+            if (!IsOpen || (int)tier == _builtTier)
+            {
+                // Closed or opening: the (next) open builds for it. Already built for it: nothing to rebuild (and a switch
+                // still in flight to another tier is superseded by this request).
+                IsSwitchingTier = false;
+                if (!IsOpening) RaiseTierChanged(tier);
+                return;
+            }
+            int version = _openVersion;
+            string regionId = RegionId;
+            IsSwitchingTier = true;
+            PackReader pack = null;
+            try
+            {
+                var config = StreamingConfig.ForTier((int)tier);
+                Stream stream = await RegionSource.OpenAsync(regionId, RegionFileKind.Pack, cancellationToken);
+                TileSelector selector = null;
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        pack = new PackReader(stream, true);
+                        selector = TileSelector.ForPack(config, pack);
+                    });
+                }
+                catch
+                {
+                    if (pack == null) stream.Dispose();
+                    throw;
+                }
+                if (this == null || version != _openVersion || request != _tierRequest || !IsOpen) return; // superseded
+                cancellationToken.ThrowIfCancellationRequested();
+                PackReader owned = pack;
+                pack = null; // the new streamer owns it
+                RebuildForTier((int)tier, config, owned, selector);
+            }
+            finally
+            {
+                if (pack != null) pack.Dispose();
+                if (request == _tierRequest) IsSwitchingTier = false;
+            }
+            RaiseTierChanged(tier);
+            RaiseAnyReady(this);
+        }
+
+        /// <summary>
+        /// Replaces the tier-bound parts of the open world (see <see cref="ApplyTierAsync"/>) with a pack and selector made
+        /// for <paramref name="config"/>; the new streamer owns <paramref name="pack"/>. Main thread.
+        /// </summary>
+        private void RebuildForTier(int tier, StreamingConfig config, PackReader pack, TileSelector selector)
+        {
+            // The old streamer hides every view first (DetailTileHidden for each visible detail tile, so the life host,
+            // the session and the presenters drop them) and closes its pack after its last running build.
+            if (_streamer != null)
+            {
+                _streamer.Dispose();
+                _streamer.DetailShown -= OnDetailShown;
+                _streamer.DetailHidden -= OnDetailHidden;
+                _streamer = null;
+            }
+            if (_life != null) _life.Dispose();
+            if (_dressing != null) _dressing.Dispose();
+            if (_aviation != null) _aviation.Dispose();
+            _life = null;
+            _dressing = null;
+            _aviation = null;
+
+            _config = config;
+            _builtTier = tier;
+            _meshing = MeshingSettings.ForTier(tier, _month, _heroes);
+            // The ground query stays (controllers and the camera hold it): only its corridor factory follows. Its road
+            // lift and kerb heights are the same on every tier.
+            _ground.CorridorFactory = _meshing.Corridors;
+            SacredClearance.Corridors = _meshing.Corridors;
+            WorldMaterialDefaults.ApplyLook(_materials, false); // the tier's outline roles, as when the world opened
+            _streamer = new WorldStreamer(transform, _materials, pack, config, selector, _ground, _meshing, tier);
+            _streamer.Rebase(_origin);
+            _streamer.DetailShown += OnDetailShown;
+            _streamer.DetailHidden += OnDetailHidden;
+            _life = new LifeHost(LifeSettings.ForTier(tier), RegionSeed(RegionId), _transit, _aviationConfig, _curated);
+            _lifeErrorLogged = false;
+            _dressing = new DressingRenderer(DressingConfig.ForTier(tier), _materials) { Month = _month, ViewCamera = ViewCamera };
+            if (_aviationConfig != null) _aviation = new AviationPresenter(tier, _materials);
+            if (_audioWired && AudioDirector.Exists) AudioDirector.Instance.SetZones(_life.AreaTypes, _life.Zones);
+            if (_sky != null) _sky.ViewRadiusM = (float)config.ViewRadiusM;
+            Camera cam = _camera.Camera != null ? _camera.Camera : ViewCamera;
+            if (cam != null)
+            {
+                // Far clip for the new view radius; the near plane belongs to whoever drives the camera (the chase rig).
+                float near = cam.nearClipPlane;
+                ConfigureCamera(cam, config);
+                cam.nearClipPlane = near;
+            }
+            _renderStats = default(RenderStats);
+            _debugText = null;
+            Debug.Log("WorldRoot: switched '" + RegionId + "' to tier " + (DeviceTier)tier + ", " + config.Rings.Length + " LOD rings to " +
+                      (config.ViewRadiusM / 1000.0).ToString("0") + " km.");
+        }
+
+        /// <summary>The tier changed while the region was opening: switch once it is open (errors are logged).</summary>
+        private async void FollowTier()
+        {
+            try
+            {
+                await ApplyTierAsync(Tier);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
+        }
+
+        private void RaiseTierChanged(DeviceTier tier)
+        {
+            Action<DeviceTier> handler = TierChanged;
+            if (handler == null) return;
+            foreach (Delegate d in handler.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<DeviceTier>)d)(tier);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
+                }
+            }
         }
 
         // -------------------------------------------------------------------------------------------------------------

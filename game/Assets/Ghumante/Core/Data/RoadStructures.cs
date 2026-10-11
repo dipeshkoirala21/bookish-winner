@@ -81,6 +81,15 @@ namespace Ghumante.Core.Data
         /// <summary>Spacing of <see cref="CorridorShiftCm"/> (metres).</summary>
         public const double ShiftSpacingM = 5.0;
 
+        /// <summary>
+        /// Two road points at the same position (the same centimetre) whose surfaces lie more than this apart are no
+        /// shared node but a grade-separated crossing (metres). The pipeline densifies both ways of a crossing with a
+        /// station at the crossing point (docs/DATA_FORMATS.md 1.4 and 1.15), so a deck and the road under it can hold
+        /// points at the same position; roads that meet at a node share one height (the structure solve), and a crossing
+        /// keeps at least RoadClearance.MinUnderpassClearanceM plus a deck depth, so the two never come near this.
+        /// </summary>
+        public const float GradeSeparationM = 2.0f;
+
         /// <summary>True when <paramref name="shifts"/> samples every <see cref="ShiftSpacingM"/> fit a piece with
         /// <paramref name="corridorSamples"/> RATR samples (both start at the first rendered point and cover the
         /// rendered length): 0, or 4 (corridorSamples - 1) + 1 to 4 corridorSamples.</summary>
