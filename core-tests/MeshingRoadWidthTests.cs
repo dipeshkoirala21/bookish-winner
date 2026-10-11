@@ -317,13 +317,36 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>True when the drawn centreline <paramref name="c"/> bends tighter than a 20 m radius within 3 m of raw
+        /// along <paramref name="s"/>, turning toward <paramref name="side"/> (+1 left, -1 right): that side is the inner
+        /// edge of the bend.</summary>
+        private static bool InnerBend(RoadCentreline c, double s, int side)
+        {
+            if (c == null || c.Count == 0) return false;
+            int lo = 0, hi = c.Count - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (c.S[mid] < s - 3.0) lo = mid + 1;
+                else hi = mid;
+            }
+            for (int p = lo; p < c.Count && c.S[p] <= s + 3.0; p++)
+                if (c.Curv[p] * side > 1.0 / 20.0) return true;
+            return false;
+        }
+
         [Test]
         public void RibbonsNeverCoverBuildingsOnTheSamplePack()
         {
             // V2: every 2 m along every drawn road, both ribbon edges (carriageway + footpath, 0.1 m inset) lie
             // outside buildings, except where the road is already at its real width (the data overlaps; the
             // model may not narrow further). Corner geometry at vertices leaves a few hundredths of a percent.
-            long samples = 0, over = 0;
+            // The inner edge of a bend is counted on its own: the data package's final corridors (RATR with RSTR) trim
+            // every building to 5 cm outside the corridor of the mapped polyline, while the ribbon follows the smoothed
+            // centreline, whose inner edge moves into the inside of a bend by the fillet's sagitta (the stage-one
+            // corridors this bound was first set on kept a further 1 m); the game's footprint guard trims those houses
+            // to the drawn corridor (RoadCorridorIndex holds the smoothed surfaces).
+            long samples = 0, over = 0, bend = 0;
             var areaSamples = new long[16];
             var areaOver = new long[16];
             foreach (TileId id in StreamingSampleRegion.TilesAt(10).OrderBy(i => i.Key))
@@ -360,6 +383,11 @@ namespace Ghumante.Core.Tests
                             if (b < 0 || access <= prof.RealM + 0.01f) continue;
                             double er = side * (0.5 * prof.RealM - 0.1);
                             if (fp.Inside(c.CX + c.UX * er, c.CZ + c.UZ * er) >= 0) continue; // the real road overlaps too
+                            if (InnerBend(layout.Centres[ri], s, side))
+                            {
+                                bend++;
+                                continue;
+                            }
                             over++;
                             areaOver[area]++;
                         }
@@ -367,7 +395,9 @@ namespace Ghumante.Core.Tests
                 }
             }
             Assert.That(samples, Is.GreaterThan(100000));
+            TestContext.Progress.WriteLine("V2: " + over + " of " + samples + " edge samples over a building, " + bend + " more on the inner edge of a bend");
             Assert.That((double)over / samples, Is.LessThan(5e-4), over + " of " + samples + " edge samples over a building");
+            Assert.That((double)bend / samples, Is.LessThan(1e-3), bend + " of " + samples + " inner bend edge samples over a building");
             // Per area type too (an aggregate hides a whole class going over, e.g. old-core lanes at tile seams).
             // Per area type, inside tiles and in the 35 m seam bands (an aggregate hides a whole class going over, e.g.
             // old-core lanes at tile seams). Near a seam pieces are floored at the shared border width (URBAN column for

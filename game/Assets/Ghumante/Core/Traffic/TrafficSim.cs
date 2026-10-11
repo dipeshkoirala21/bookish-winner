@@ -896,6 +896,8 @@ namespace Ghumante.Core.Traffic
 
         private void BuildOccupancy()
         {
+            // Spawns outside Step (bus runner, garage summon, hail) can reach here right after new tiles added lanes.
+            EnsureLaneArrays();
             _stamp++;
             _occCount = 0;
             for (int i = 0; i < _agents.Length; i++)
@@ -957,6 +959,7 @@ namespace Ghumante.Core.Traffic
 
         private void ProjectObstacles()
         {
+            EnsureLaneArrays();
             _laneObsCount = 0;
             for (int k = 0; k < _obstacleCount; k++)
             {

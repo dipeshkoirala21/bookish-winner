@@ -1314,6 +1314,8 @@ namespace Ghumante.Core.Traffic
                 public int First, Last;
                 public double[] Along;
                 public float[] SurfaceY; // structure heights per point (decks, underpasses), or null
+                public float[] PointY; // surface height at every point (structure, else the drape)
+                public bool[] Lone; // a point that shares its position only with points of other heights (no node)
             }
 
             private sealed class JInfo
@@ -1357,7 +1359,7 @@ namespace Ghumante.Core.Traffic
                         Ring = a.Has(RoadAttrFlags.RingMember), Dual = a.Has(RoadAttrFlags.Dual), Service = a.Has(RoadAttrFlags.ServiceRoad),
                     };
                     p.Oneway = (r.Flags & RoadFlags.Oneway) != 0 || p.Ring;
-                    p.SurfaceY = RoadAccess.SurfaceHeights(t, ri);
+                    p.SurfaceY = RoadAccess.SurfaceHeights(t, ri, sampler, RoadMesher.LiftOf(r, opts));
                     p.Along = new double[r.PointCount];
                     for (int i = first + 1; i <= last; i++)
                         p.Along[i] = p.Along[i - 1] + Math.Sqrt(Sq((r.Points[2 * i] - r.Points[2 * i - 2]) / 100.0) +
@@ -1366,17 +1368,43 @@ namespace Ghumante.Core.Traffic
                 }
 
                 // 2. Node points: piece ends and interior points shared by two or more pieces; the arm count of a node
-                // (an end is one arm, a piece passing through is two) decides junction or plain joint.
+                // (an end is one arm, a piece passing through is two) decides junction or plain joint. Points at one
+                // position whose surfaces lie more than RoadStructureRecord.GradeSeparationM apart are no shared node: the
+                // pipeline writes a grade-separated crossing's station into the deck and into the road under it
+                // (docs/DATA_FORMATS.md 1.4, 1.15), and no lane may turn from a deck down to that road.
                 var count = new Dictionary<long, int>();
+                var heights = new Dictionary<long, List<float>>();
                 foreach (Piece p in pieces)
                 {
                     int[] pts = t.Roads[p.Road].Points;
+                    p.PointY = new float[pts.Length / 2];
+                    float lift = RoadMesher.LiftOf(t.Roads[p.Road], opts);
                     for (int i = p.First; i <= p.Last; i++)
                     {
                         long k = Key(pts[2 * i], pts[2 * i + 1]);
                         int c;
                         count.TryGetValue(k, out c);
                         count[k] = c + 1;
+                        float y = p.SurfaceY != null ? p.SurfaceY[i] : float.NaN, h;
+                        if (float.IsNaN(y)) y = (sampler.TryHeightClamped(_id.X0 + pts[2 * i] / 100.0, _id.Z0 + pts[2 * i + 1] / 100.0, out h) ? h : 0f) + lift;
+                        p.PointY[i] = y;
+                        List<float> l;
+                        if (!heights.TryGetValue(k, out l)) heights[k] = l = new List<float>(2);
+                        l.Add(y);
+                    }
+                }
+                foreach (Piece p in pieces)
+                {
+                    int[] pts = t.Roads[p.Road].Points;
+                    p.Lone = new bool[pts.Length / 2];
+                    for (int i = p.First; i <= p.Last; i++)
+                    {
+                        List<float> l = heights[Key(pts[2 * i], pts[2 * i + 1])];
+                        if (l.Count < 2) continue;
+                        int level = 0;
+                        foreach (float y in l)
+                            if (Math.Abs(y - p.PointY[i]) <= RoadStructureRecord.GradeSeparationM) level++;
+                        p.Lone[i] = level < 2;
                     }
                 }
                 foreach (Piece p in pieces)
@@ -1387,7 +1415,7 @@ namespace Ghumante.Core.Traffic
                         long k = Key(pts[2 * i], pts[2 * i + 1]);
                         int c;
                         count.TryGetValue(k, out c);
-                        if (c < 2 && i != p.First && i != p.Last) continue;
+                        if ((c < 2 || p.Lone[i]) && i != p.First && i != p.Last) continue;
                         int a;
                         _arms.TryGetValue(k, out a);
                         _arms[k] = a + (i == p.First || i == p.Last ? 1 : 2);
@@ -1403,7 +1431,7 @@ namespace Ghumante.Core.Traffic
                         long k = Key(pts[2 * i], pts[2 * i + 1]);
                         int c;
                         count.TryGetValue(k, out c);
-                        if (c < 2 && i != p.First && i != p.Last) continue;
+                        if ((c < 2 || p.Lone[i]) && i != p.First && i != p.Last) continue;
                         float w = p.Prof.WidthAt(p.Along[i]), old;
                         if (!_nodeWidth.TryGetValue(k, out old) || w > old) _nodeWidth[k] = w;
                     }
@@ -1445,7 +1473,7 @@ namespace Ghumante.Core.Traffic
                         long k = Key(pts[2 * i], pts[2 * i + 1]);
                         int c;
                         count.TryGetValue(k, out c);
-                        if (i < p.Last && c < 2) continue;
+                        if (i < p.Last && (c < 2 || p.Lone[i])) continue;
                         edges.Add(new KeyValuePair<Piece, int[]>(p, new[] { start, i }));
                         ArmAngle(Key(pts[2 * start], pts[2 * start + 1]), pts, start, start + 1);
                         ArmAngle(k, pts, i, i - 1);
@@ -1802,7 +1830,9 @@ namespace Ghumante.Core.Traffic
                             zs[i] = cz[src] + nz[src] * lat;
                             if (src == n / 2) offMid = lat;
                             float h;
-                            if (p.SurfaceY != null) ys[i] = RoadAccess.SurfaceAt(p.SurfaceY, p.Along, p.First, p.Last, cs[src]);
+                            // Structure heights where the piece has them (NaN on its draped stretches: the terrain there).
+                            float sy = p.SurfaceY != null ? RoadAccess.SurfaceAt(p.SurfaceY, p.Along, p.First, p.Last, cs[src]) : float.NaN;
+                            if (!float.IsNaN(sy)) ys[i] = sy;
                             else ys[i] = (sampler.TryHeightClamped(xs[i], zs[i], out h) ? h : 0f) + lift;
                         }
                         var lane = new Lane

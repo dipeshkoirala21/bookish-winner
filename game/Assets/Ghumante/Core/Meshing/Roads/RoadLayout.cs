@@ -255,6 +255,7 @@ namespace Ghumante.Core.Meshing
                 cutEnds[4 * i + 3] = Profiles[i].Drawn[Math.Max(0, Profiles[i].Count - 1)];
             }
             FindKnees(t);
+            TaperCorridorShifts(t);
             ClampParallel(t);
             AbsorbSidewalks(t);
             RingsAndIslands(t);
