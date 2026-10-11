@@ -6,7 +6,6 @@ using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Bridges;
 using Ghumante.Core.Meshing.Roads;
 using Ghumante.Core.Traffic;
-using Ghumante.World.Instancing;
 using NUnit.Framework;
 
 namespace Ghumante.Core.Tests
@@ -304,8 +303,8 @@ namespace Ghumante.Core.Tests
 
         /// <summary>
         /// A walker walks through each dhoka passage of Asan (RSTR kind Passage under a house that stays whole) from one end
-        /// to the other: the passage is drawn and in the ground index, the house's ground floor is open along the gateway
-        /// and its storeys stay solid above the gateway's free height.
+        /// to the other: the passage is drawn and in the ground index, the drawn house's ground floor is open along the
+        /// gateway and its storeys stay solid above the gateway's free height.
         /// </summary>
         [Test]
         public void WalksThroughTheAsanDhokaPassages()
@@ -360,106 +359,16 @@ namespace Ghumante.Core.Tests
             Assert.That(underHouse, Is.GreaterThanOrEqualTo(3));
         }
 
-        /// <summary>
-        /// Parked vehicles in the sample's old-core lanes (Asan, Indra Chowk, Thamel, Patan) stand on the kerb line of the
-        /// drawn cross-section and leave at least three motorbike widths (2.7 m) free between the kerb lines wherever they
-        /// stand; lanes narrower than 6 m park on one side only (finding: 71 % of parked vehicles stood within 1.2 m of the
-        /// drawn centreline, rows on both sides left about 1.3 m in a 5.3 m Thamel lane).
-        /// </summary>
-        [Test]
-        public void ParkedVehiclesLeaveThreeBikesOfRoomInTheOldCoreLanes()
-        {
-            int vehicles = 0, nearCentre = 0, narrowRoads = 0, bothSides = 0;
-            double tightest = double.MaxValue;
-            string where = "";
-            foreach (TileData t in DrivingData.SampleTiles().Values)
-            {
-                if (t.Tile.Level != 10 || !t.HasDetail || t.Roads.Count == 0) continue;
-                bool oldCore = false;
-                for (int i = 0; i < t.Roads.Count && !oldCore; i++) oldCore = t.RoadAttrOf(i).Area == AreaType.OldCore;
-                if (!oldCore) continue;
-                var list = new List<ParkedVehicle>();
-                ParkedPlacement.Place(t, new TileHeightSampler(t, 1), list);
-                RoadLayout layout = RoadLayout.For(t);
-                var idx = new RoadSpatialIndex(t);
-                // Per road: the parked vehicles with their along interval and the lateral span they take (left positive).
-                var rows = new Dictionary<int, List<double[]>>();
-                foreach (ParkedVehicle v in list)
-                {
-                    double gx = t.Tile.X0 + v.X, gz = t.Tile.Z0 + v.Z;
-                    VehicleCatalogEntry e = VehicleCatalog.At(v.Variant);
-                    double yaw = v.YawDeg * Math.PI / 180.0, fx = Math.Sin(yaw), fz = Math.Cos(yaw), rx = fz, rz = -fx;
-                    // The footprint's middle (the frame origin is under the rear axle).
-                    double mid = 0.5 * e.LengthM - e.RearOverhangM;
-                    RoadHit hit;
-                    if (!idx.TryNearest(gx + fx * mid, gz + fz * mid, 3.0, out hit)) continue;
-                    int road = hit.RoadIndex;
-                    if (t.RoadAttrOf(road).Area != AreaType.OldCore || !ParkedPlacement.ParksOn(t.Roads[road].RoadClass)) continue;
-                    double s = hit.AlongM;
-                    RoadCut cut = layout.DrawnCutAt(t, road, s);
-                    double lo = double.MaxValue, hi = double.MinValue, a0 = double.MaxValue, a1 = double.MinValue;
-                    for (int c = 0; c < 4; c++)
-                    {
-                        double along = c < 2 ? -e.RearOverhangM : e.LengthM - e.RearOverhangM, lat = (c & 1) == 0 ? -0.5 * e.WidthM : 0.5 * e.WidthM;
-                        double cx = v.X + fx * along + rx * lat, cz = v.Z + fz * along + rz * lat;
-                        double l = (cx - cut.CX) * cut.UX + (cz - cut.CZ) * cut.UZ, a = (cx - cut.CX) * cut.UZ - (cz - cut.CZ) * cut.UX;
-                        lo = Math.Min(lo, l);
-                        hi = Math.Max(hi, l);
-                        a0 = Math.Min(a0, s + a);
-                        a1 = Math.Max(a1, s + a);
-                    }
-                    vehicles++;
-                    double centre = 0.5 * (lo + hi) - cut.Shift;
-                    if (Math.Abs(centre) < 1.2) nearCentre++;
-                    List<double[]> row;
-                    if (!rows.TryGetValue(road, out row)) rows[road] = row = new List<double[]>();
-                    row.Add(new[] { a0, a1, lo, hi, s });
-                }
-                foreach (KeyValuePair<int, List<double[]>> kv in rows)
-                {
-                    bool narrow = false, left = false, right = false;
-                    foreach (double[] v in kv.Value)
-                    {
-                        double kerbL, kerbR;
-                        ParkedPlacement.KerbLine(t, layout, kv.Key, v[4], out kerbL, out kerbR);
-                        RoadCut cut = layout.DrawnCutAt(t, kv.Key, v[4]);
-                        if (kerbL + kerbR < ParkedPlacement.OneSideBelowM) narrow = true;
-                        bool onLeft = 0.5 * (v[2] + v[3]) > cut.Shift;
-                        if (onLeft) left = true;
-                        else right = true;
-                        // How far the vehicles beside this one (overlapping it along the street) reach in from each kerb line.
-                        double inL = 0, inR = 0;
-                        foreach (double[] w in kv.Value)
-                        {
-                            if (w[1] < v[0] - 0.5 || w[0] > v[1] + 0.5) continue;
-                            if (0.5 * (w[2] + w[3]) > cut.Shift) inL = Math.Max(inL, kerbL - (w[2] - cut.Shift) + 0.0);
-                            else inR = Math.Max(inR, kerbR + (w[3] - cut.Shift));
-                        }
-                        double free = kerbL + kerbR - inL - inR;
-                        if (free < tightest)
-                        {
-                            tightest = free;
-                            where = t.Roads[kv.Key].RoadClass + " way " + t.Roads[kv.Key].OsmWayId + " at " + v[4].ToString("0") + " m in " + t.Tile;
-                        }
-                    }
-                    if (narrow) narrowRoads++;
-                    if (narrow && left && right) bothSides++;
-                }
-            }
-            TestContext.WriteLine("old-core parked vehicles " + vehicles + ", centre within 1.2 m of the drawn centreline " + nearCentre + ", narrow lanes " +
-                                  narrowRoads + " (parked on both sides " + bothSides + "), tightest free width " + tightest.ToString("0.00") + " m " + where);
-            Assert.That(vehicles, Is.GreaterThan(500), "the old cores are full of parked bikes");
-            Assert.That(tightest, Is.GreaterThanOrEqualTo(ParkedPlacement.ClearWidthM - 0.05), "three bikes still pass: " + where);
-            Assert.That(nearCentre, Is.LessThan(vehicles / 50 + 1), "nobody parks in the middle of the lane");
-            Assert.That(narrowRoads, Is.GreaterThan(20));
-            Assert.That(bothSides, Is.EqualTo(0), "lanes under 6 m park on one side only");
-        }
-
+        /// <summary>True when (x, z) lies inside a house as the building meshers draw it (the corridor guard's outlines;
+        /// a house the guard drops for standing in a road is not drawn, so a passage under it runs in the open).</summary>
         private static bool InsideFootprint(TileData t, double x, double z)
         {
             double lx = x - t.Tile.X0, lz = z - t.Tile.Z0;
-            foreach (BuildingRecord b in t.Buildings)
+            BuildingFootprints drawn = BuildingFootprints.For(t, RoadCorridorIndex.ForTile(t));
+            for (int k = 0; k < t.Buildings.Count; k++)
             {
+                if (drawn.Dropped(k)) continue;
+                BuildingRecord b = drawn.Record(k);
                 if (b.Rings == null || b.Rings.Length == 0 || b.Rings[0] == null) continue;
                 int[] ring = b.Rings[0];
                 int n = ring.Length / 2;

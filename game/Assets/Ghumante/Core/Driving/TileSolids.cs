@@ -10,14 +10,17 @@ namespace Ghumante.Core.Driving
     /// The solids a tile's own data implies (docs/W2_DETAIL_CONTRACT.md §1), built once per exact tile for the ground
     /// query, on a worker when it comes through <see cref="TileGroundQuery.BuildRoadIndex"/>:
     /// <list type="bullet">
-    /// <item><b>Building footprints</b> (the rings as the data package trimmed them): every outline wall from below its
-    /// base to its top, an elevated part (<c>min_height</c>) only from that height, open canopies as corner posts and a
-    /// roof slab. Sacred outlines and their parts (the temple generators emit their own walkable plinths and walls),
-    /// hidden hero footprints and outlines whose parts are drawn instead are left out. As a runtime guard
-    /// (<see cref="FootprintGuard"/>) an outline never reaches into a road: the part inside is trimmed back to the edge
-    /// of the road it intrudes into, on the building's side (decision 1). A building passage (RSTR kind Passage, a dhoka
-    /// under a house that stays whole) opens the ground floor along its gateway the same way, and the whole outline stands
-    /// again from the gateway's free height up (the storeys over the passage).</item>
+    /// <item><b>Building footprints</b>, exactly the outlines the building meshers draw (owner playtest #1 and #14: no
+    /// solid where nothing is drawn, house walls where the drawn walls are): with the roads package's corridors the
+    /// building package's guard (<see cref="BuildingFootprints"/>, the same instance the meshers use) trims every outline
+    /// to the corridors and drops a house that stands in a road (it is neither drawn nor solid); without corridors the
+    /// runtime guard (<see cref="FootprintGuard"/>) trims an outline back to the edge of the carriageway it intrudes into,
+    /// on the building's side (decision 1). Every outline wall stands from below its base to its top, an elevated part
+    /// (<c>min_height</c>) only from that height, open canopies as corner posts and a roof slab. Sacred outlines and their
+    /// parts (the temple generators emit their own walkable plinths and walls), hidden hero footprints and outlines whose
+    /// parts are drawn instead are left out. A building passage (RSTR kind Passage, a dhoka under a house the drawing keeps
+    /// whole) opens the ground floor along its gateway, and the whole outline stands again from the gateway's free height up
+    /// (the storeys over the passage).</item>
     /// <item><b>Point objects</b> (PROP): tree trunks, poles, lamps, masts, towers, chimneys, tanks, wells, taps, benches
     /// and statues (artwork), each a cylinder sized by kind; never one standing on a drawn carriageway.</item>
     /// <item><b>Railings and parapets</b> along both edges of every bridge and flyover, walked every
@@ -116,8 +119,13 @@ namespace Ghumante.Core.Driving
                     sacredHosts.Add(i);
                 }
             }
-            FootprintGuard guard = roads != null && roads.SegmentCount > 0 ? new FootprintGuard(roads, corridors) : null;
-            double[] xs = new double[64], zs = new double[64], hx = new double[16], hz = new double[16];
+            // With the roads package's corridors the solids are the outlines the building meshers draw (owner playtest #1,
+            // #14: no solid where nothing is drawn): the same corridor guard, cached per tile and corridor source, trims
+            // them, and a house it drops (it stands in a road) is neither drawn nor solid. Without corridors the runtime
+            // guard trims the outlines back to the drawn carriageways.
+            BuildingFootprints drawn = corridors != null ? BuildingFootprints.For(t, corridors) : null;
+            FootprintGuard guard = roads != null && roads.SegmentCount > 0 ? new FootprintGuard(roads, drawn != null ? null : corridors) : null;
+            double[] xs = new double[64], zs = new double[64], hx = new double[16], hz = new double[16], ox = new double[16], oz = new double[16];
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             List<double> passages = roads != null ? Passages(t, roads) : null;
             for (int i = 0; i < t.Buildings.Count; i++)
@@ -129,10 +137,17 @@ namespace Ghumante.Core.Driving
                 bool part = (r.Flags & BuildingFlags.Part) != 0;
                 if ((r.Flags & BuildingFlags.HasParts) != 0 && !part) continue; // its parts are the solids
                 if (part && sacredHosts != null && InsideHost(t, r, sacredHosts)) continue;
+                BuildingRecord dr = r;
+                if (drawn != null)
+                {
+                    if (drawn.Dropped(i)) continue; // not drawn: no solid
+                    dr = drawn.Record(i);
+                    if (dr == null || dr.Rings == null || dr.Rings.Length == 0 || dr.Rings[0] == null || dr.Rings[0].Length < 6) continue;
+                }
 
                 // Heights: from below the lowest corner to the top over the highest.
                 float minG = float.PositiveInfinity, maxG = float.NegativeInfinity;
-                int[] outer = r.Rings[0];
+                int[] outer = dr.Rings[0];
                 for (int k = 0; k + 1 < outer.Length; k += 2)
                 {
                     float g;
@@ -150,7 +165,13 @@ namespace Ghumante.Core.Driving
 
                 bool canopy = (r.Flags & BuildingFlags.OpenCanopy) != 0 || r.Use == BuildingUse.Roof;
                 int n = Ring(t, outer, ref xs, ref zs);
-                bool trimmed = guard != null && guard.Trim(xs, zs, n);
+                // A building passage (a dhoka) under a house the drawing keeps whole: its ground floor opens along the
+                // gateway, the whole outline stands again from the gateway's free height up (the storeys over it).
+                float clear = 0f;
+                int on = 0;
+                bool overPassage = passages != null && !canopy && PassageUnder(passages, xs, zs, n, out clear);
+                if (overPassage) on = Ring(t, outer, ref ox, ref oz);
+                bool trimmed = guard != null && (drawn == null || overPassage) && guard.Trim(xs, zs, n);
                 int pieces = trimmed ? guard.PieceCount : 1;
                 for (int piece = 0; piece < pieces; piece++)
                 {
@@ -168,32 +189,30 @@ namespace Ghumante.Core.Driving
                         {
                             double px = x0 + outer[k] / 100.0, pz = z0 + outer[k + 1] / 100.0;
                             if (guard != null && guard.InRoad(px, pz)) continue;
+                            if (corridors != null && corridors.SignedDistance(px, pz) < 0) continue;
                             b.AddCylinder(px, pz, 0.2f, bottom, slabBottom, SolidFlags.NoCamera);
                         }
                         continue;
                     }
                     b.AddRing(xs, zs, n, WallHalfM, bottom, top, SolidFlags.None);
-                    if (piece == 0 && passages != null && trimmed)
+                    if (piece == 0 && overPassage && trimmed && top > maxG + clear + 0.2f)
                     {
-                        // A building passage (a dhoka) runs under the house: the guard opened the ground floor along its
-                        // gateway; the storeys above it stay solid from the gateway's free height up.
-                        float clear;
-                        int on = Ring(t, outer, ref hx, ref hz);
-                        if (PassageUnder(passages, hx, hz, on, out clear) && top > minG + clear + 0.2f)
-                        {
-                            b.BeginGroup();
-                            b.AddRing(hx, hz, on, WallHalfM, minG + clear, top, SolidFlags.None);
-                        }
+                        // From the gateway's free height over the highest ground under the house, so on a slope the
+                        // storeys never come down into the passage or a street beside the house.
+                        b.BeginGroup();
+                        b.AddRing(ox, oz, on, WallHalfM, maxG + clear, top, SolidFlags.None);
                     }
                     if (trimmed && pieces > 1) continue; // holes of a footprint cut in two are dropped
-                    for (int ring = 1; ring < r.Rings.Length; ring++)
+                    for (int ring = 1; ring < dr.Rings.Length; ring++)
                     {
                         // Courtyards stay as drawn, except one that opens onto a road: filled, so no wall of it stands in
                         // the road.
-                        int[] pts = r.Rings[ring];
+                        int[] pts = dr.Rings[ring];
                         if (pts == null || pts.Length < 6) continue;
                         int hn = Ring(t, pts, ref hx, ref hz);
                         if (guard != null && guard.Intrudes(hx, hz, hn)) continue;
+                        double depth;
+                        if (corridors != null && corridors.Overlaps(hx, hz, hn, out depth) && depth > FootprintGuard.ClearM) continue;
                         b.AddRing(hx, hz, hn, WallHalfM, bottom, top, SolidFlags.None);
                     }
                 }

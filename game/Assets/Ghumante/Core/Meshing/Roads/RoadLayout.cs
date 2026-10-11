@@ -262,9 +262,9 @@ namespace Ghumante.Core.Meshing
             KeepCutEnds(t, cutEnds);
             MatchKneeEnds(t);
             BorderCrossSections(t);
-            ClampFootpaths(t);
             Junctions(t);
             KneeTangents(t);
+            ClampFootpaths(t); // after every width change (border pins, knee and junction widenings)
             for (int i = 0; i < n; i++) Centres[i] = BuildCentre(t, i);
             _nodeSets.Clear();
         }
@@ -348,8 +348,13 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         private void ClampFootpaths(TileData t)
         {
-            for (int i = 0; i < t.Roads.Count; i++) ClampFootpathsToCorridor(i, Profiles[i]);
-            for (int i = 0; i < t.Roads.Count; i++)
+            // The footpaths at a tile-border cut keep the tile-independent border pins (the two tiles meet vertex for vertex
+            // across the seam); from the next sample in they are clamped to this tile's corridor, so a pinned footpath wider
+            // than the room ends within one profile step of the border instead of running 70 m into the trimmed houses.
+            int n = t.Roads.Count;
+            var cut = new float[4 * n];
+            for (int i = 0; i < n; i++) ClampFootpathsToCorridor(i, Profiles[i], t.Roads[i], cut);
+            for (int i = 0; i < n; i++)
             {
                 for (int e = 0; e < 2; e++)
                 {
@@ -357,7 +362,23 @@ namespace Ghumante.Core.Meshing
                     if (kn.Has && kn.Other > i) MatchKneeFootpaths(Profiles[i], e == 0, Profiles[kn.Other], kn.OtherStarts);
                 }
             }
-            for (int i = 0; i < t.Roads.Count; i++)
+            for (int i = 0; i < n; i++)
+            {
+                RoadRecord r = t.Roads[i];
+                RoadWidthProfile p = Profiles[i];
+                if (p.Count == 0) continue;
+                if (r.HasPrevContext)
+                {
+                    p.FootLeft[0] = cut[4 * i];
+                    p.FootRight[0] = cut[4 * i + 1];
+                }
+                if (r.HasNextContext)
+                {
+                    p.FootLeft[p.Count - 1] = cut[4 * i + 2];
+                    p.FootRight[p.Count - 1] = cut[4 * i + 3];
+                }
+            }
+            for (int i = 0; i < n; i++)
             {
                 RoadWidthProfile p = Profiles[i];
                 for (int j = 0; j < p.Count; j++)
@@ -376,9 +397,18 @@ namespace Ghumante.Core.Meshing
         /// to the corridor samples each holds near the cut (a 3.7 m footpath was drawn into the trimmed houses along about
         /// 70 m of every tile crossing).
         /// </summary>
-        private void ClampFootpathsToCorridor(int road, RoadWidthProfile p)
+        private void ClampFootpathsToCorridor(int road, RoadWidthProfile p, RoadRecord r, float[] cut)
         {
             bool dual = Attrs[road].Has(RoadAttrFlags.Dual), clamped = false;
+            if (p.Count > 0)
+            {
+                // The border cross-section at a cut (both tiles see the same pins; their RATR limit samples there differ by
+                // a few decimetres, so a clamp at the cut itself would open a step in the kerb across the seam).
+                cut[4 * road] = p.FootLeft[0];
+                cut[4 * road + 1] = p.FootRight[0];
+                cut[4 * road + 2] = p.FootLeft[p.Count - 1];
+                cut[4 * road + 3] = p.FootRight[p.Count - 1];
+            }
             for (int j = 0; j < p.Count; j++)
             {
                 float lim = p.Limit[j];
@@ -783,7 +813,7 @@ namespace Ghumante.Core.Meshing
             {
                 if (v[i] <= 0f) continue;
                 int d = atStart ? i : p.Count - 1 - i;
-                v[i] = Math.Max(RoadWidthModel.MinFootpathM, Math.Min(v[i], target + k * d));
+                v[i] = Math.Min(v[i], Math.Max(RoadWidthModel.MinFootpathM, target + k * d)); // only ever lowered
             }
         }
 

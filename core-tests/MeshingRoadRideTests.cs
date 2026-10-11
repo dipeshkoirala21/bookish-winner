@@ -168,9 +168,10 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
-        /// Footpaths never reach beyond the final corridor the houses were trimmed to, also where a tile-border cut pins them
-        /// to the border cross-section (finding: 3.6 m footpaths beside a 14 m carriageway in a 14 m corridor at every tile
-        /// crossing, 3 398 samples over by more than 0.3 m).
+        /// Footpaths never reach beyond the final corridor the houses were trimmed to, also next to a tile-border cut that
+        /// pins them to the border cross-section (finding: 3.6 m footpaths beside a 14 m carriageway in a 14 m corridor along
+        /// about 70 m of every tile crossing, 3 398 samples over by more than 0.3 m); only the cut sample itself keeps the
+        /// tile-independent pin, so the two tiles still meet across the seam.
         /// </summary>
         [Test]
         public void FootpathsStayInsideTheFinalCorridor()
@@ -193,6 +194,8 @@ namespace Ghumante.Core.Tests
                         if (float.IsPositiveInfinity(lim)) continue;
                         double s = k * (double)p.StepM;
                         bool nearCut = r.HasPrevContext && s < 80 || r.HasNextContext && s > p.LengthM - 80;
+                        // The cut sample itself keeps the tile-independent border cross-section (seams meet exactly).
+                        if (r.HasPrevContext && k == 0 || r.HasNextContext && k == p.Count - 1) continue;
                         float shift = p.ShiftAt(s), cs = p.CorridorShiftAt(s), half = 0.5f * p.Drawn[k];
                         for (int side = 0; side < 2; side++)
                         {
@@ -223,9 +226,9 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
-        /// A lowered road (structure heights 6 m under the terrain) with a 40° bend: on the outside of the bend, inside the
-        /// carriageway, the ground is the road and not the terrain beside it (finding: a 6.6 m wall at every joint because
-        /// a point past a segment end counted as beside the road).
+        /// A lowered road (structure heights 6 m under the terrain) with a 40° bend: everywhere on its drawn carriageway round
+        /// the bend the ground is the road, never the terrain 6 m above (finding: a 6.6 m wall at every polyline joint, where
+        /// the raw polyline's square segment ends said "beside the road"; feet and wheels now stand on the drawn surface).
         /// </summary>
         [Test]
         public void LoweredRoadsHaveNoHardEdgeAtTheirJoints()
@@ -243,30 +246,24 @@ namespace Ghumante.Core.Tests
             });
             var g = new TileGroundQuery();
             g.Add(t);
+            RoadSurfaceQuery q = RoadSurfaceQuery.For(t, new TileHeightSampler(t, 1), g.RoadOptions);
             double vx = t.Tile.X0 + 460, vz = t.Tile.Z0 + 400;
-            // The outside of the bend is to the south-east of the vertex: the bisector of the two right normals.
-            double nx = Math.Sin(0) + Math.Sin(bend), nz = -Math.Cos(0) - Math.Cos(bend);
-            double nl = Math.Sqrt(nx * nx + nz * nz);
-            nx /= nl;
-            nz /= nl;
-            RoadSpatialIndex idx = g.RoadIndexOf(t.Tile);
-            float half = idx.HalfWidthM(0);
-            int checkedPoints = 0;
-            for (double f = 0.2; f <= 0.9; f += 0.1)
+            int onCarriageway = 0, outside = 0;
+            for (double dz = -6; dz <= 6; dz += 0.25)
+            for (double dx = -6; dx <= 6; dx += 0.25)
             {
-                double x = vx + nx * half * f, z = vz + nz * half * f;
-                RoadHit hit;
-                Assert.That(idx.TryNearest(x, z, 0.0, out hit), Is.True, "on the carriageway at " + f.ToString("0.0") + " of the half width");
-                Assert.That(hit.EdgeDistanceM, Is.LessThanOrEqualTo(0f));
+                double x = vx + dx, z = vz + dz;
+                RoadSurfaceHit hit;
+                if (!q.TrySample(x, z, 1294.1f, out hit) || !hit.OnCarriageway || hit.Y > 1296f) continue;
+                if (Math.Abs(hit.LateralM) > hit.HalfWidthM - 0.1f) continue; // clear of the drawn edge rows
                 GroundSample s;
-                Assert.That(g.TrySample(x, z, 1294.1f, out s), Is.True);
-                Assert.That(s.Height, Is.EqualTo(1294f).Within(0.3f), "the lowered road, not the terrain 6 m above, at " + f.ToString("0.0"));
-                checkedPoints++;
+                Assert.That(g.TrySample(x, z, hit.Y + 0.05f, out s), Is.True);
+                Assert.That(s.Height, Is.EqualTo(hit.Y).Within(0.1f), "the lowered road, not the terrain 6 m above, at " + dx + ", " + dz);
+                if (dx > 0 && dz < 0 && dx * Math.Sin(bend / 2) - dz * Math.Cos(bend / 2) > 0) outside++;
+                onCarriageway++;
             }
-            Assert.That(checkedPoints, Is.GreaterThanOrEqualTo(7));
-            // Past the piece's own end it still ends square.
-            RoadHit end;
-            Assert.That(idx.TryNearest(t.Tile.X0 + 400 - 1.0, t.Tile.Z0 + 400, 0.0, out end), Is.False, "the free end stays square");
+            Assert.That(onCarriageway, Is.GreaterThan(200), "the drawn carriageway round the bend");
+            Assert.That(outside, Is.GreaterThan(10), "including the outside of the bend");
         }
     }
 }

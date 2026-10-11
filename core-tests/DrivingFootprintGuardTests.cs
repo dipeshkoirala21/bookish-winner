@@ -168,8 +168,12 @@ namespace Ghumante.Core.Tests
                 TileGroundQuery g = Ground(t);
                 List<SolidPrim> walls = Walls(g, t);
                 rings += walls.Count;
+                var h = new TileHeightSampler(t, 1);
                 foreach (SolidPrim p in walls)
                 {
+                    // The storeys over a building passage start above head height: they do not stand in its carriageway.
+                    float ground;
+                    if (h.TryHeightClamped(p.Ax, p.Az, out ground) && p.Bottom > ground + 2.0f) continue;
                     double dx = p.Bx - p.Ax, dz = p.Bz - p.Az;
                     int n = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dz * dz) / 0.5));
                     for (int k = 0; k <= n; k++)

@@ -318,6 +318,13 @@ namespace Ghumante.Core.Driving
                 CountsRoads = roads != null && roads.SegmentCount > 0,
                 Paving = exact ? PavingIndex.Build(sampler.SourceTile) : null,
             };
+            if (exact && roads != null && roads.SegmentCount > 0 && (roads.DrawnSurface == null || !ReferenceEquals(roads.DrawnSampler, sampler)))
+            {
+                // The drawn road surface on this very sampler (the streamer attaches it on the worker from the mesh it
+                // uploads, BuildRoadIndex(tile, sampler, roadsLayer); every other caller gets it meshed here).
+                roads.DrawnSurface = DrawnRoadSurface.Build(sampler.SourceTile, sampler, _roadOptions);
+                roads.DrawnSampler = sampler;
+            }
             if (exact)
             {
                 // Solids and decks come with the road index when it was built on a worker; otherwise build them here.
@@ -351,6 +358,24 @@ namespace Ghumante.Core.Driving
             idx.Decks = DeckFactory != null ? DeckFactory(tile) : null;
             idx.Prepared = true;
             if (idx.SegmentCount == 0 && idx.Solids == null && idx.Decks == null) return null;
+            return idx;
+        }
+
+        /// <summary>
+        /// As <see cref="BuildRoadIndex(TileData)"/>, with the tile's road surface exactly as drawn
+        /// (<see cref="RoadSpatialIndex.DrawnSurface"/>, owner playtest #8): from <paramref name="roadsLayer"/>, the roads layer
+        /// the streamer meshed with <see cref="RoadMesher.Build"/> on <paramref name="sampler"/> (tile-local positions, absolute
+        /// indices: call it before the layer is split into upload chunks), or, when that is null, meshed here on
+        /// <paramref name="sampler"/>. Pass the sampler the area is added with (<see cref="Add(TileId, TileHeightSampler, RoadSpatialIndex)"/>).
+        /// Worker-safe like the other overload.
+        /// </summary>
+        public RoadSpatialIndex BuildRoadIndex(TileData tile, TileHeightSampler sampler, MeshData roadsLayer)
+        {
+            RoadSpatialIndex idx = BuildRoadIndex(tile);
+            if (idx == null || idx.SegmentCount == 0 || sampler == null) return idx;
+            idx.DrawnSurface = roadsLayer != null ? DrawnRoadSurface.FromMesh(roadsLayer, tile.Tile.X0, tile.Tile.Z0)
+                : DrawnRoadSurface.Build(tile, sampler, _roadOptions);
+            idx.DrawnSampler = sampler;
             return idx;
         }
 
@@ -501,9 +526,23 @@ namespace Ghumante.Core.Driving
                 return true;
             }
 
-            // 2. The roads that are not bridges or flyovers (draped, lowered underpasses, fords) and their footpaths; where
-            //    such roads cover the point at different levels (a street at grade over a lowered underpass), the level of
-            //    the asker's feet.
+            // 2. The road surface exactly as drawn (owner playtest #8): the roads layer's triangles (carriageways on their
+            //    smoothed profile with crown and camber, kerbs, footpaths, medians, shoulders, junction caps and their corner
+            //    footpaths, rings, islands, a lowered underpass in its cutting), the level the feet stand on where several
+            //    cover the point (a street at grade over an underpass). Where no drawn road covers the point it is not a road.
+            float dy;
+            MaterialChannel channel;
+            bool drawnKnown;
+            if (TryDrawnRoad(x, z, nearY, out dy, out dnx, out dny, out dnz, out channel, out drawnKnown))
+            {
+                DrawnRoad(x, z, nearY, h, dy, dnx, dny, dnz, channel, ref s);
+                return true;
+            }
+            if (drawnKnown) return true;
+
+            // Areas without a drawn surface (an index added without its sampler's mesh): the roads that are not bridges or
+            // flyovers (draped, lowered underpasses, fords) and their footpaths; where such roads cover the point at
+            // different levels (a street at grade over a lowered underpass), the level of the asker's feet.
             float road = h, deckGrade = 0f;
             bool spans = false;
             bool found = TryNearestGroundRoad(x, z, RoadSpatialIndex.MaxFootpathM, nearY, h, out hit) && (hit.OnRoad || hit.OnFootpath);
@@ -540,6 +579,109 @@ namespace Ghumante.Core.Driving
             s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
             SetRoad(ref s, ref hit);
             return true;
+        }
+
+        /// <summary>Farthest a tile's drawn road surface reaches beyond its own square (a junction cap or a kerb return at a
+        /// node near the tile edge; ribbons stop at the edge).</summary>
+        private const double DrawnReachM = 32.0;
+
+        /// <summary>
+        /// The drawn road surface under (x, z) for feet at <paramref name="nearY"/> over the loaded exact tiles of the finest
+        /// road level (<see cref="DrawnRoadSurface.TrySample"/>: of the drawn levels at most <see cref="DeckStepUpM"/> above
+        /// the feet the one nearest to them; the highest for feet at +∞). <paramref name="known"/> tells whether some tile
+        /// with a drawn surface covers the point's surroundings, so a miss there means "no road here" rather than "not
+        /// known".
+        /// </summary>
+        private bool TryDrawnRoad(double x, double z, float nearY, out float y, out float nx, out float ny, out float nz, out MaterialChannel channel,
+                                  out bool known)
+        {
+            y = 0f;
+            nx = 0f;
+            ny = 1f;
+            nz = 0f;
+            channel = MaterialChannel.Plain;
+            known = false;
+            NearRoadEntries(x, z, DrawnReachM);
+            bool found = false;
+            for (int i = 0; i < _near.Count; i++)
+            {
+                DrawnRoadSurface d = _near[i].Roads.DrawnSurface;
+                if (d == null) continue;
+                known = true;
+                float yy, ax, ay, az;
+                MaterialChannel ch;
+                if (!d.TrySample(x, z, nearY, DeckStepUpM, out yy, out ax, out ay, out az, out ch)) continue;
+                if (found && (float.IsNegativeInfinity(nearY) ? !(yy < y)
+                        : float.IsInfinity(nearY) || float.IsNaN(nearY) ? !(yy > y) : Math.Abs(yy - nearY) >= Math.Abs(y - nearY))) continue;
+                y = yy;
+                nx = ax;
+                ny = ay;
+                nz = az;
+                channel = ch;
+                found = true;
+            }
+            return found;
+        }
+
+        /// <summary>Fills a ground sample standing on the drawn road surface (height <paramref name="y"/>, face normal, the
+        /// triangle's material): the road it belongs to from the road index (class, surface, direction, lateral offset), the
+        /// footpath band of that road on raised pavers, the foot surface from the drawn material.</summary>
+        private void DrawnRoad(double x, double z, float nearY, float terrain, float y, float nx, float ny, float nz, MaterialChannel channel,
+                               ref GroundSample s)
+        {
+            s.Height = y;
+            s.Nx = nx;
+            s.Ny = ny;
+            s.Nz = nz;
+            s.OnRoad = true;
+            RoadHit hit;
+            if (TryNearestGroundRoad(x, z, RoadSpatialIndex.MaxFootpathM, nearY, terrain, out hit) && hit.Road != null)
+            {
+                SetRoad(ref s, ref hit);
+                s.Surface = SurfaceGroups.Of(hit.Road.Surface);
+                s.Foot = FootSurfaces.OfRoad(hit.Road.Surface, hit.Road.RoadClass);
+                if (hit.OnFootpath && (channel == MaterialChannel.Flagstone || channel == MaterialChannel.Concrete))
+                {
+                    s.OnFootpath = true;
+                    s.OnRoad = false;
+                }
+            }
+            // The drawn material names what is underfoot where it is not the road's own paving (kerbs, footpath pavers,
+            // medians, island grass), or where no road is named; the road's surface tag is finer than its drawn channel
+            // (gravel, compacted and dirt share one).
+            FootSurface f;
+            bool own = s.RoadClass != RoadClass.Unknown && !s.OnFootpath && channel != MaterialChannel.Paint && channel != MaterialChannel.Grass
+                       && !(channel == MaterialChannel.Concrete && s.RoadSurface != Surface.Concrete);
+            if (!own && FootOfChannel(channel, out f))
+            {
+                s.Foot = f;
+                s.Surface = FootSurfaces.GroupOf(f);
+            }
+        }
+
+        /// <summary>The foot surface a drawn road material stands for (false: keep the road's own).</summary>
+        private static bool FootOfChannel(MaterialChannel c, out FootSurface f)
+        {
+            switch (c)
+            {
+                case MaterialChannel.Asphalt: f = FootSurface.Asphalt; return true;
+                case MaterialChannel.Concrete:
+                case MaterialChannel.Paint:
+                    f = FootSurface.Concrete;
+                    return true;
+                case MaterialChannel.Brick: f = FootSurface.Brick; return true;
+                case MaterialChannel.Flagstone:
+                case MaterialChannel.Stone:
+                    f = FootSurface.Stone;
+                    return true;
+                case MaterialChannel.Dirt: f = FootSurface.Dirt; return true;
+                case MaterialChannel.Grass: f = FootSurface.Grass; return true;
+                case MaterialChannel.Wood: f = FootSurface.Wood; return true;
+                case MaterialChannel.Metal: f = FootSurface.Metal; return true;
+                default:
+                    f = FootSurface.Asphalt;
+                    return false;
+            }
         }
 
         /// <summary>The road index of the tile a hit came from (null when that tile is gone).</summary>

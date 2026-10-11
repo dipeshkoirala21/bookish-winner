@@ -99,6 +99,14 @@ namespace Ghumante.Core.Driving
         /// <summary>True once <see cref="TileGroundQuery.BuildRoadIndex"/> attached the solids and decks.</summary>
         internal bool Prepared;
 
+        /// <summary>The tile's road surface exactly as drawn (<see cref="Meshing.Roads.DrawnRoadSurface"/>), attached by
+        /// <see cref="TileGroundQuery.BuildRoadIndex(TileData, TileHeightSampler, MeshData)"/> from the roads layer the
+        /// streamer uploads, or built by the ground query from the area's sampler; null until then.</summary>
+        public Meshing.Roads.DrawnRoadSurface DrawnSurface { get; internal set; }
+
+        /// <summary>The sampler <see cref="DrawnSurface"/> was drawn on (a re-added area with another sampler rebuilds it).</summary>
+        internal TileHeightSampler DrawnSampler;
+
         public const double DefaultCellM = 32.0;
 
         /// <summary>Cap on grid cells per side (bounds memory for big tiles; cells grow instead).</summary>
@@ -126,7 +134,6 @@ namespace Ghumante.Core.Driving
         private readonly int[] _road, _seg;
         private readonly float[] _roadHalfWidth, _roadLength; // per road record (half width: the widest along the piece)
         private readonly float[] _lift; // per road record: the ribbon lift over the terrain (RoadMesher.LiftOf with the index's options)
-        private readonly byte[] _joint; // per segment: bit 0 its start, bit 1 its end is an interior point of its piece
         private readonly RoadLayout _layout; // W2 widths, or null (W1 widths)
         private readonly bool[] _dual, _bridge;
         private readonly bool[] _elevated; // bridge or flyover (structure data, else the Bridge flag)
@@ -221,7 +228,6 @@ namespace Ghumante.Core.Driving
             _bz = new double[segCount];
             _along = new float[segCount];
             _road = new int[segCount];
-            _joint = new byte[segCount];
             _lift = new float[roads.Count];
             for (int r = 0; r < roads.Count; r++) _lift[r] = RoadMesher.LiftOf(roads[r], drawn);
             _seg = new int[segCount];
@@ -257,7 +263,6 @@ namespace Ghumante.Core.Driving
                     _along[s] = (float)along;
                     _road[s] = r;
                     _seg[s] = k;
-                    _joint[s] = (byte)((k > first ? 1 : 0) | (k + 1 < last ? 2 : 0));
                     if (_elevated[r] && _surfaceY[r] != null) _elevatedSegs++;
                     if (_elevated[r]) _anyElevated = true;
                     else if (_surfaceY[r] != null) _anyGroundHeights = true;
@@ -508,7 +513,7 @@ namespace Ghumante.Core.Driving
                         double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
                         float half, shift, fl, fr;
                         SectionAt(_road[i], _along[i] + t * len, out half, out shift, out fl, out fr);
-                        edge = SectionEdge(i, lat - shift, half, over, tRaw);
+                        edge = SectionEdge(lat - shift, half, over);
                     }
                     if (edge > maxDistM) continue;
                     if (edge < bestEdge || edge == bestEdge && i < best)
@@ -704,7 +709,7 @@ namespace Ghumante.Core.Driving
             double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
             float half, shift, fl, fr;
             SectionAt(_road[i], _along[i] + t * len, out half, out shift, out fl, out fr);
-            double edge = SectionEdge(i, lat - shift, half, over, tRaw);
+            double edge = SectionEdge(lat - shift, half, over);
             float foot = lat - shift < 0 ? fl : fr;
             covers = edge <= OnRoadMarginM || edge > 0 && foot > 0f && edge <= foot;
             return edge;
@@ -928,27 +933,18 @@ namespace Ghumante.Core.Driving
             double over = len > 0 ? Math.Max(0.0, Math.Max(-tRaw, tRaw - 1.0)) * len : 0.0;
             float half, shift, fl, fr;
             SectionAt(_road[i], _along[i] + t * len, out half, out shift, out fl, out fr);
-            return SectionEdge(i, lat - shift, half, over, tRaw);
+            return SectionEdge(lat - shift, half, over);
         }
 
-        /// <summary>
-        /// Signed distance from a point to the drawn carriageway of segment <paramref name="i"/> (negative inside), from its
+        /// <summary>Signed distance from a point to the carriageway of segment <paramref name="i"/> (negative inside), from its
         /// offset <paramref name="lateral"/> from the carriageway centre, the half width there and how far
-        /// (<paramref name="over"/>, metres) it projects past the segment end that <paramref name="tRaw"/> overshoots. Past an
-        /// end that is an interior point of the piece (a polyline joint: the ribbon runs on round the bend) the carriageway
-        /// is round about the joint, so the outside of every bend is road and not a false edge (a lowered road reported a
-        /// 6.6 m wall at each joint); past the piece's own first or last rendered point it ends square.
-        /// </summary>
-        private double SectionEdge(int i, double lateral, float half, double over, double tRaw)
+        /// (<paramref name="over"/>, metres) it projects past the segment end it overshoots: square ends, so heights read
+        /// on a segment (decks, structure heights) are never taken past its ends. (Feet and wheels on ground roads stand on
+        /// the drawn surface, <see cref="DrawnSurface"/>, which follows the ribbon round every bend.)</summary>
+        private static double SectionEdge(double lateral, float half, double over)
         {
-            double lat = Math.Abs(lateral), side = lat - half;
-            if (over > 0)
-            {
-                bool joint = tRaw < 0 ? (_joint[i] & 1) != 0 : (_joint[i] & 2) != 0;
-                if (joint) return Math.Sqrt(lat * lat + over * over) - half;
-                return side > 0 ? Math.Sqrt(side * side + over * over) : over;
-            }
-            return side;
+            double side = Math.Abs(lateral) - half;
+            return side > 0 ? Math.Sqrt(side * side + over * over) : over > 0 ? over : side;
         }
 
         /// <summary>

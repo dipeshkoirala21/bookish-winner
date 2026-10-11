@@ -663,7 +663,9 @@ namespace Ghumante.World.Streaming
                     if (settings.Heroes != null) BuildHeroes(b, src, settings.Heroes);
                     if (settings.DrawRoads && settings.DrawOrnaments) BuildOrnaments(b, src, settings);
                     if (settings.DrawInstances) BuildInstances(b, src, settings);
-                    b.Roads = ground != null ? ground.BuildRoadIndex(src) : null;
+                    // The road index with the drawn road surface taken from the roads layer just meshed (before the
+                    // layer's indices are rebased into upload chunks), so feet and wheels stand on what is drawn.
+                    b.Roads = ground != null ? ground.BuildRoadIndex(src, b.Sampler, settings.DrawRoads ? b.Layers[TileLayers.Roads] : null) : null;
                 }
             }
 

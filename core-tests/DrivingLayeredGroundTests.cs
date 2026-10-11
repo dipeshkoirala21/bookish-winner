@@ -163,10 +163,12 @@ namespace Ghumante.Core.Tests
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             GroundSample s;
             Assert.That(g.TrySample(x0 + 500, z0 + 500, (float)H - 1.7f, out s), Is.True);
-            Assert.That(s.Height, Is.EqualTo((float)H + 0.3f - 2f).Within(0.01f), "the lowered profile");
-            Assert.That(s.Ny, Is.EqualTo(1f).Within(1e-4f));
+            // The lowered carriageway as drawn (its crown a few centimetres over the profile at the centreline).
+            Assert.That(s.Height, Is.EqualTo((float)H + 0.3f - 2f).Within(0.05f), "the lowered profile");
+            Assert.That(s.Ny, Is.GreaterThan(0.995f));
             Assert.That(g.TrySample(x0 + 400, z0 + 500, (float)H, out s), Is.True);
-            Assert.That(s.Height, Is.EqualTo((float)H + 0.3f - 1.5f).Within(0.01f), "on the way down");
+            // (The drawn ramp is the smoothed vertical profile through the structure heights: within a decimetre of them.)
+            Assert.That(s.Height, Is.EqualTo((float)H + 0.3f - 1.5f).Within(0.15f), "on the way down");
             Assert.That(s.Ny, Is.LessThan(0.999995f), "on its slope");
             // Beside the lowered road: the terrain (a hard edge), not a ramp up the wall.
             Assert.That(g.TrySample(x0 + 500, z0 + 500 + 6.5, (float)H, out s), Is.True);

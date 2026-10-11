@@ -9,17 +9,13 @@ namespace Ghumante.World.Instancing
 {
     /// <summary>
     /// Parked vehicles along the streets of a tile (W2_DESIGN 5.2): motorbikes and scooters angled 60-90° to the kerb
-    /// at 10-25 per 100 m in old cores, 5-15 in URBAN streets and 1-4 in PERI_URBAN, bicycles at 0.5-2 per 100 m, and a few
-    /// cars parked parallel on wider URBAN residential streets. Never on trunk or primary roads, dual carriageways,
-    /// heritage-pedestrian or no-motor ways, footways or trails, never inside a junction cap or within 12 m of a piece end,
-    /// and never on a building footprint. About 30% carry the community-fleet tag (W2-O5).
-    /// <para>The rows stand on the kerb line of the drawn cross-section (<see cref="KerbLine"/>: the carriageway edge where a
-    /// footpath is drawn, else the edge of the shoulder, where the pipeline trimmed the walls), on the drawn road surface,
-    /// and leave the street rideable (owner: three motorbikes side by side in the narrowest street): every vehicle keeps at
-    /// least <see cref="ClearWidthM"/> free between the kerb lines; a street narrower than <see cref="OneSideBelowM"/> parks
-    /// on one side only and parallel against the wall; wider streets park on both sides, angled only where the angled
-    /// bike still leaves the clear width.</para>
-    /// Deterministic from the way id and slot. Engine-free; runs on the tile build worker.
+    /// (parallel along the wall on lanes narrower than 4.5 m) at 10-25 per 100 m in old cores, 5-15 in URBAN streets
+    /// and 1-4 in PERI_URBAN, bicycles at 0.5-2 per 100 m, and a few cars parked parallel on wider URBAN residential
+    /// streets. Never on trunk or primary roads, dual carriageways, heritage-pedestrian or no-motor ways, footways or
+    /// trails, never inside a junction cap or within 12 m of a piece end, and never on a building footprint. About 30%
+    /// carry the community-fleet tag (W2-O5). Positions sit on the carriageway edge of the W2 game width
+    /// (<see cref="RoadLayout"/>), so the parked row follows the drawn road. Deterministic from the way id and slot.
+    /// Engine-free; runs on the tile build worker.
     /// </summary>
     public static class ParkedPlacement
     {
@@ -187,47 +183,6 @@ namespace Ghumante.World.Instancing
         /// <summary>Least gap (metres) between two vehicles parked one after the other at the same kerb.</summary>
         public const double KerbGapM = 0.15;
 
-        /// <summary>Width every parked row leaves free between the kerb lines: three motorbike widths (owner: at least three
-        /// bikes side by side in the narrowest street), metres.</summary>
-        public const float ClearWidthM = 2.7f;
-
-        /// <summary>Streets whose kerb lines are closer than this park on one side only, parallel against the wall.</summary>
-        public const float OneSideBelowM = 6f;
-
-        /// <summary>Gap between a parked vehicle and its kerb line or wall (metres).</summary>
-        public const double WallGapM = 0.12;
-
-        /// <summary>
-        /// The kerb lines of road <paramref name="road"/> at raw along <paramref name="at"/>, as metres from the drawn (smoothed)
-        /// centreline, left (<paramref name="left"/>) and right (<paramref name="right"/>): the drawn carriageway edge
-        /// (<see cref="RoadLayout.DrawnCutAt"/>: drawn width and its shift) where that side has a footpath, else the outer edge
-        /// of the shoulder, where the pipeline trimmed the walls (old-core lanes park against the house fronts).
-        /// </summary>
-        public static void KerbLine(TileData t, RoadLayout layout, int road, double at, out double left, out double right)
-        {
-            RoadCut cut = layout.DrawnCutAt(t, road, at);
-            RoadWidthProfile p = layout.Profiles[road];
-            float shoulder = layout.ShoulderAt(road, at);
-            left = cut.Shift + cut.Half + (p.Sample(p.FootLeft, at) > 0f ? 0f : shoulder);
-            right = -cut.Shift + cut.Half + (p.Sample(p.FootRight, at) > 0f ? 0f : shoulder);
-        }
-
-        /// <summary>Depth into the street an angled bike (60-90° nose to the kerb) takes from its kerb line (a 2.15 m cruiser
-        /// at 60° reaches 2.3 m), metres: angled rows only where the row's room allows it.</summary>
-        public const double AngledDepthM = 2.35;
-
-        /// <summary>How far the footprint of a vehicle (frame origin at (ox, oz) under its rear axle, facing (fx, fz)) reaches
-        /// into the street from the kerb line through (ex, ez) whose unit normal towards the kerb is (wx, wz): the deepest of
-        /// its four corners, metres.</summary>
-        public static double DepthFromKerb(double ox, double oz, double fx, double fz, in VehicleCatalogEntry e, double ex, double ez, double wx,
-                                           double wz)
-        {
-            double hw = 0.5 * e.WidthM, ro = e.RearOverhangM, ahead = e.LengthM - ro;
-            double fw = fx * wx + fz * wz, rw = fz * wx - fx * wz; // forward and right (fz, -fx) along the normal
-            double origin = (ex - ox) * wx + (ez - oz) * wz; // the origin's distance inside the kerb line
-            return origin + Math.Max(ro * fw, -ahead * fw) + hw * Math.Abs(rw);
-        }
-
         private static void PlaceAlong(TileData t, IHeightSampler h, RoadSurfaceQuery surface, RoadLayout layout, FootprintGrid mask, int road,
                                        AreaType area, List<ParkedVehicle> output)
         {
@@ -246,8 +201,6 @@ namespace Ghumante.World.Instancing
             // The last vehicle placed at each kerb (its centre along the road and half its length along it), so the next
             // one at that kerb leaves a gap instead of overlapping it (angled bikes are 0.7-1.6 m along the kerb).
             double lastLeft = double.NegativeInfinity, lastRight = double.NegativeInfinity, halfLeft = 0, halfRight = 0;
-            // Narrow streets park on one side only, the same side all along the piece.
-            double narrowSide = (WorldHash.Fnv1a(way, PurposeSlot + 9) & 1) == 0 ? 1.0 : -1.0;
             uint slot = 0;
             for (double s = 12 + WorldHash.Range(way, PurposeSlot, 0f, (float)spacing); s < length - 12; slot++)
             {
@@ -256,24 +209,17 @@ namespace Ghumante.World.Instancing
                 double at = s;
                 s += step;
                 if (layout.InGap(road, at)) continue;
-                // The drawn cross-section (the smoothed centreline, the drawn carriageway and its shift, the kerb lines), so
-                // parked vehicles line the kerb the road mesher draws, also on filleted bends.
-                RoadCut cut = layout.DrawnCutAt(t, road, at);
+                // The drawn cross-section (the smoothed centreline, the drawn carriageway and its shift), so parked
+                // vehicles line the kerb the road mesher draws, also on filleted bends.
+                RoadCut cut = layout.CutAt(t, road, at);
                 double px = cut.CX, pz = cut.CZ;
                 double lx = cut.UX, lz = cut.UZ; // left of travel
                 double tx = lz, tz = -lx;
-                double kerbL, kerbR;
-                KerbLine(t, layout, road, at, out kerbL, out kerbR);
-                double street = kerbL + kerbR; // between the kerb lines
-                bool oneSide = street < OneSideBelowM;
-                // Room a row may take from its kerb line: the street less the clear width, shared by both sides on wider streets.
-                double room = oneSide ? street - ClearWidthM : 0.5 * (street - ClearWidthM);
-                if (room < 0.8) continue;
-                double side = oneSide ? narrowSide : (WorldHash.Fnv1a(key, PurposeSlot + 7) & 1) == 0 ? 1.0 : -1.0; // +1 left kerb, −1 right kerb
-                double kerb = side > 0 ? kerbL : -kerbR;
-                double ex = px + lx * kerb, ez = pz + lz * kerb;
+                float half = (float)cut.Half;
+                if (half < 1.5f) continue;
+                double side = (WorldHash.Fnv1a(key, PurposeSlot + 7) & 1) == 0 ? 1.0 : -1.0; // +1 left kerb, −1 right kerb
+                double ex = px + lx * (cut.Shift + side * half), ez = pz + lz * (cut.Shift + side * half);
                 double wx = lx * side, wz = lz * side; // towards the kerb
-                float half = (float)(0.5 * street);
 
                 float pick = WorldHash.Unit(key, PurposeKind) * (bikes + cycles + cars);
                 ushort variant;
@@ -282,43 +228,35 @@ namespace Ghumante.World.Instancing
                 {
                     float u2 = WorldHash.Unit(key, PurposeKind + 1);
                     variant = (ushort)(u2 < 0.35f ? VehicleCatalog.Scooter : u2 < 0.92f ? VehicleCatalog.MotorbikeCommuter : u2 < 0.95f ? VehicleCatalog.MotorbikeCruiser : VehicleCatalog.EScooter);
-                    if (!oneSide && room >= AngledDepthM)
+                    if (half >= 2.25f)
                     {
-                        // Angled 60-90° with the nose to the kerb: the front corners WallGapM inside the kerb line (the
-                        // vehicle frame's origin is under the rear axle, the nose LengthM − RearOverhangM ahead of it).
-                        VehicleCatalogEntry eb = VehicleCatalog.At(variant);
+                        // Angled 60-90° with the nose to the kerb.
                         double ang = WorldHash.Range(key, PurposeAngle, 60f, 90f) * Math.PI / 180.0;
                         double dir = (WorldHash.Fnv1a(key, PurposeAngle + 1) & 1) == 0 ? 1.0 : -1.0;
                         fx = tx * Math.Cos(ang) * dir + wx * Math.Sin(ang);
                         fz = tz * Math.Cos(ang) * dir + wz * Math.Sin(ang);
-                        double inset = WallGapM + 0.5 * eb.WidthM * Math.Cos(ang), ahead = eb.LengthM - eb.RearOverhangM;
-                        ox = ex - wx * inset - fx * ahead;
-                        oz = ez - wz * inset - fz * ahead;
+                        ox = ex - wx * 0.2 - fx * 1.75;
+                        oz = ez - wz * 0.2 - fz * 1.75;
                     }
                     else
                     {
-                        // Parallel against the wall (the kerb line), its middle on the slot.
-                        VehicleCatalogEntry eb = VehicleCatalog.At(variant);
                         fx = tx * side;
                         fz = tz * side;
-                        double off = WallGapM + 0.5 * eb.WidthM, back = 0.5 * eb.LengthM - eb.RearOverhangM;
-                        ox = ex - wx * off - fx * back;
-                        oz = ez - wz * off - fz * back;
+                        ox = ex - wx * 0.45 - fx * 0.65;
+                        oz = ez - wz * 0.45 - fz * 0.65;
                     }
                 }
                 else if (pick < bikes + cycles)
                 {
                     variant = VehicleCatalog.Bicycle;
-                    VehicleCatalogEntry eb = VehicleCatalog.At(variant);
                     fx = tx * side;
                     fz = tz * side;
-                    double off = WallGapM + 0.5 * eb.WidthM, back = 0.5 * eb.LengthM - eb.RearOverhangM;
-                    ox = ex - wx * off - fx * back;
-                    oz = ez - wz * off - fz * back;
+                    ox = ex - wx * 0.4 - fx * 0.6;
+                    oz = ez - wz * 0.4 - fz * 0.6;
                 }
                 else
                 {
-                    if (oneSide || half < 3f) continue;
+                    if (half < 3f) continue;
                     float u3 = WorldHash.Unit(key, PurposeKind + 2);
                     variant = (ushort)(u3 < 0.55f ? VehicleCatalog.Hatchback : u3 < 0.75f ? VehicleCatalog.Taxi : u3 < 0.9f ? VehicleCatalog.Suv : VehicleCatalog.Ev);
                     // Left-hand traffic: cars park facing the way their kerb's traffic flows.
@@ -329,8 +267,6 @@ namespace Ghumante.World.Instancing
                 }
                 if (ox < 0 || oz < 0 || ox >= t.Tile.Size || oz >= t.Tile.Size) continue;
                 VehicleCatalogEntry e = VehicleCatalog.At(variant);
-                // Never more than the row's room into the street from its kerb line (the clear width stays free).
-                if (DepthFromKerb(ox, oz, fx, fz, e, ex, ez, wx, wz) > room) continue;
                 // Along-road centre and half extent of the footprint (length and width projected on the road tangent).
                 double cosA = Math.Abs(fx * tx + fz * tz), sinA = Math.Sqrt(Math.Max(0.0, 1.0 - cosA * cosA));
                 double alongC = at + (ox - px) * tx + (oz - pz) * tz;
