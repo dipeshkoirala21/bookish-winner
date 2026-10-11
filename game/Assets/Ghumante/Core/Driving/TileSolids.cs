@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Bridges;
 using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Driving
@@ -86,7 +87,11 @@ namespace Ghumante.Core.Driving
             var b = new SolidBuilder();
             Buildings(t, h, roads, corridors, hidden, b);
             Props(t, h, roads, b);
-            if (roads != null) Railings(t, h, roads, roadOptions ?? new RoadOptions(), b);
+            // Bridges, flyovers, overbridges, stairs and underpass trenches: the solids of what the bridges package draws
+            // (railings on the drawn railing line, supports, trench walls); the road-based railings below skip those roads.
+            BridgeColliders bridges = t.HasDetail && t.Roads.Count > 0 ? BridgeColliders.For(BridgeLayout.For(t)) : null;
+            if (roads != null) Railings(t, h, roads, roadOptions ?? new RoadOptions(), b, bridges != null ? bridges.Covered : null);
+            if (bridges != null) BridgeSolids(t, bridges, b);
             return b.Build();
         }
 
@@ -378,13 +383,27 @@ namespace Ghumante.Core.Driving
                    st.Kind == RoadStructureKind.None && (r.Flags & RoadFlags.Bridge) != 0;
         }
 
-        private static void Railings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, SolidBuilder b)
+        /// <summary>The bridges package's solids (<see cref="BridgeColliders"/>, tile-local) in game metres.</summary>
+        private static void BridgeSolids(TileData t, BridgeColliders c, SolidBuilder b)
+        {
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+            var sx = new double[4];
+            var sz = new double[4];
+            foreach (BridgeColliders.Wall w in c.Walls)
+                b.AddWall(x0 + w.X0, z0 + w.Z0, x0 + w.X1, z0 + w.Z1, w.HalfThickness, w.Bottom, w.Top, SolidFlags.None);
+            foreach (BridgeColliders.Block k in c.Blocks)
+                b.AddBox(x0 + k.CX, z0 + k.CZ, k.HalfAlong, k.HalfAcross, k.Yaw, k.Bottom, k.Top, 0.05f, SolidFlags.None, sx, sz);
+            foreach (BridgeColliders.Column k in c.Columns) b.AddCylinder(x0 + k.CX, z0 + k.CZ, k.Radius, k.Bottom, k.Top, SolidFlags.None);
+        }
+
+        private static void Railings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, SolidBuilder b, bool[] covered)
         {
             var run = new RailRun(b);
             double[] xs = new double[16], zs = new double[16], along = new double[16];
             float[] ys = new float[16];
             for (int ri = 0; ri < t.Roads.Count; ri++)
             {
+                if (covered != null && ri < covered.Length && covered[ri]) continue; // drawn and made solid by the bridges package
                 bool elevated = roads.IsElevated(ri);
                 float[] deck = roads.SurfaceHeights(ri);
                 if (!elevated && deck == null) continue;

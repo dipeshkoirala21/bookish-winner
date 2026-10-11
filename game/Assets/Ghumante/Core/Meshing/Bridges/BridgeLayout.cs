@@ -533,6 +533,76 @@ namespace Ghumante.Core.Meshing.Bridges
                 if (bad.Count == 0) break;
                 Spans.RemoveAll(bad.Contains);
             }
+            foreach (BridgeSpan tr in Trenches) TrenchWalls(tr);
+        }
+
+        /// <summary>A trench needs a retaining wall where the ground behind it stands this far above the road.</summary>
+        public const float TrenchWallMinCutM = 0.5f;
+
+        /// <summary>
+        /// Where each side's retaining wall of an underpass trench stands (the trench's <see cref="BridgeSpan.RailRunsL"/>
+        /// and <see cref="BridgeSpan.RailRunsR"/>): wherever the ground behind the wall (or under the centreline) stands
+        /// at least <see cref="TrenchWallMinCutM"/> above the road, carried a metre further into the slope, and never in
+        /// another road's corridor (owner playtest #2: a twin carriageway alongside, or a street joining the lowered road,
+        /// had a wall standing across it that blocked the road under Ratopul and Setopul). The mesher draws the walls and
+        /// <see cref="BridgeColliders"/> makes them solid along exactly these runs.
+        /// </summary>
+        private void TrenchWalls(BridgeSpan sp)
+        {
+            sp.RailRunsL.Clear();
+            sp.RailRunsR.Clear();
+            if (sp.Count < 2) return;
+            var exclude = new bool[Tile.Roads.Count];
+            exclude[sp.Road] = true;
+            const double Step = 0.25, Pad = 1.0, MinRun = 1.0;
+            int n = Math.Max(2, (int)Math.Ceiling((sp.Path.End - sp.Path.Start) / Step) + 1);
+            var s = new double[n];
+            var cut = new bool[n];
+            var clear = new bool[n];
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    s[i] = Math.Min(sp.Path.End, sp.Path.Start + (sp.Path.End - sp.Path.Start) * i / (n - 1));
+                    double px, pz, ux, uz, nx, nz, tx, tz;
+                    float y;
+                    sp.Path.Frame(s[i], out px, out pz, out y, out ux, out uz, out nx, out nz, out tx, out tz);
+                    double half = side > 0 ? sp.Lerp(sp.HalfL, s[i]) : sp.Lerp(sp.HalfR, s[i]);
+                    double walk = side > 0 ? sp.Lerp(sp.WalkL, s[i]) : sp.Lerp(sp.WalkR, s[i]);
+                    double clamp = side > 0 ? sp.Lerp(sp.ClampL, s[i]) : sp.Lerp(sp.ClampR, s[i]);
+                    double w = Math.Min(half + walk, clamp - BridgeStyle.RailBaseM);
+                    double wx = px + ux * side * (w + 0.15), wz = pz + uz * side * (w + 0.15);
+                    double bx = px + ux * side * (w + 0.3), bz = pz + uz * side * (w + 0.3);
+                    float behind = BridgeStructures.Ground(Tile, Ground, bx, bz);
+                    float g = Math.Max(behind, sp.Lerp(sp.Ground, s[i]));
+                    cut[i] = g - y >= TrenchWallMinCutM;
+                    float top = Math.Max(y + 0.4f, behind) + 1.0f;
+                    clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude);
+                }
+                List<double> runs = side > 0 ? sp.RailRunsL : sp.RailRunsR;
+                double from = double.NaN, last = double.NaN;
+                for (int i = 0; i < n; i++)
+                {
+                    bool near = false;
+                    for (int j = i; j >= 0 && s[i] - s[j] <= Pad && !near; j--) near = cut[j];
+                    for (int j = i + 1; j < n && s[j] - s[i] <= Pad && !near; j++) near = cut[j];
+                    bool wall = near && clear[i];
+                    if (wall)
+                    {
+                        if (double.IsNaN(from)) from = s[i];
+                        last = s[i];
+                    }
+                    if ((!wall || i == n - 1) && !double.IsNaN(from))
+                    {
+                        if (last - from >= MinRun)
+                        {
+                            runs.Add(from);
+                            runs.Add(last);
+                        }
+                        from = double.NaN;
+                    }
+                }
+            }
         }
 
         /// <summary>The sweeps ring the deck at key stations only and are linear between them: a station where the

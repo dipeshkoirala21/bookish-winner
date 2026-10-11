@@ -1943,23 +1943,13 @@ namespace Ghumante.Core.Meshing.Bridges
                 _p = new BridgeProfile();
                 _q = new BridgeProfile();
             }
-            BridgePath path = sp.Path;
-            int n = sp.Count;
-            int k = 0;
-            while (k < n)
+            // The retaining walls along the layout's wall runs (where the trench is cut into the ground and no other road's
+            // corridor lies): the same runs the colliders follow (BridgeColliders).
+            for (int side = -1; side <= 1; side += 2)
             {
-                if (sp.Ground[k] - path.Y[k] < 0.5f)
-                {
-                    k++;
-                    continue;
-                }
-                int a = k;
-                while (k + 1 < n && sp.Ground[k + 1] - path.Y[k + 1] >= 0.5f) k++;
-                int b = k;
-                k++;
-                double s0 = a > 0 ? path.S[a - 1] : path.S[a], s1 = b < n - 1 ? path.S[b + 1] : path.S[b];
-                for (int side = -1; side <= 1; side += 2)
-                    PartSweep(ref x, sp, Part.TrenchWall, side, s0, s1, x.Lod == 0 ? WallPanelM : 0, BridgeStyle.Concrete,
+                List<double> runs = side > 0 ? sp.RailRunsL : sp.RailRunsR;
+                for (int r = 0; r + 1 < runs.Count; r += 2)
+                    PartSweep(ref x, sp, Part.TrenchWall, side, runs[r], runs[r + 1], x.Lod == 0 ? WallPanelM : 0, BridgeStyle.Concrete,
                               MeshColor.Scale(BridgeStyle.Concrete, 0.93f), MaterialChannel.Concrete, m);
             }
         }

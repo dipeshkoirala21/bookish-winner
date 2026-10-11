@@ -20,6 +20,10 @@ namespace Ghumante.Core.Meshing.Bridges
     {
         private const double CellM = 16.0;
 
+        /// <summary>Steepest grade a stair flight reports for its normal (tan 35°): below the walker's limit
+        /// (<c>VehicleSpec.Walker().MaxSlopeDeg</c>, 40°), above every wheeled vehicle's.</summary>
+        public const float MaxStairGrade = 0.70f;
+
         private static readonly ConditionalWeakTable<TileData, BridgeDeckIndex> Cache = new ConditionalWeakTable<TileData, BridgeDeckIndex>();
 
         /// <summary>The layout this index answers for.</summary>
@@ -265,7 +269,10 @@ namespace Ghumante.Core.Meshing.Bridges
                 if (along < 0 || along > st.Length || Math.Abs(across) > st.HalfWidth) return false;
                 y = st.SurfaceAt(along);
                 if (soffit) y -= 0.35f;
-                float g = st.GradeAt(along);
+                // The normal of a flight is no steeper than a comfortable stair (each tread is level; the walking line
+                // only averages them): steep mapped flights stay climbable on foot (owner playtest #15), while wheels still
+                // meet a grade beyond every vehicle's limit.
+                float g = Math.Max(-MaxStairGrade, Math.Min(MaxStairGrade, st.GradeAt(along)));
                 gx = (float)(g * st.Dx);
                 gz = (float)(g * st.Dz);
                 return true;
@@ -283,18 +290,29 @@ namespace Ghumante.Core.Meshing.Bridges
                 // Beyond this segment: answered by the neighbour, unless the point sits in the outer wedge of a bend
                 // (it projects past both segments), where the joint covers it out to the miter.
                 int nb = t > 1 ? Next(sp, k) : Prev(sp, k);
-                if (nb == int.MinValue) return false;
-                double nax, naz, nbx, nbz;
-                Ends(sp, nb, out nax, out naz, out nbx, out nbz);
-                double ndx = nbx - nax, ndz = nbz - naz, nl2 = ndx * ndx + ndz * ndz;
-                if (nl2 > 1e-12)
-                {
-                    double tn = ((lx - nax) * ndx + (lz - naz) * ndz) / nl2;
-                    if (t > 1 && tn >= 0 || t < 0 && tn <= 1) return false;
-                }
                 double excess = (t > 1 ? t - 1 : -t) * len;
                 double reach = 1.75 * Math.Max(Math.Max(sp.EdgeL(s0), sp.EdgeR(s0)), Math.Max(sp.EdgeL(s1), sp.EdgeR(s1)));
-                if (excess > reach) return false;
+                if (nb == int.MinValue)
+                {
+                    // Past the context point beyond a cut end, the structure goes on in the neighbour tile: a wide deck
+                    // crossing the border at a shallow angle covers points of this square that project beyond the context
+                    // point (owner playtest #2: walkers dropped through the deck there). The context segment carries on
+                    // straight and level for as far as the deck is wide.
+                    bool beyondCut = k == -1 && t < 0 || k == -2 && t > 1;
+                    if (!beyondCut || excess > reach) return false;
+                }
+                else
+                {
+                    double nax, naz, nbx, nbz;
+                    Ends(sp, nb, out nax, out naz, out nbx, out nbz);
+                    double ndx = nbx - nax, ndz = nbz - naz, nl2 = ndx * ndx + ndz * ndz;
+                    if (nl2 > 1e-12)
+                    {
+                        double tn = ((lx - nax) * ndx + (lz - naz) * ndz) / nl2;
+                        if (t > 1 && tn >= 0 || t < 0 && tn <= 1) return false;
+                    }
+                    if (excess > reach) return false;
+                }
             }
             double tc = t < 0 ? 0 : t > 1 ? 1 : t;
             double qx = ax + dx * tc, qz = az + dz * tc;
