@@ -224,6 +224,30 @@
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:ScrollView name="settings-scroll" class="gh-sheet__body">
+                        <!-- Graphics quality and frame rate (SettingsSheet.RefreshQuality fills the Auto label, the status and the fps labels). -->
+                        <ui:VisualElement name="settings-row-graphics" class="gh-setting gh-setting--stack">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.quality" text="Graphics quality" />
+                                <ui:Label name="settings-graphics-status" class="gh-setting__status" text="Your phone: Medium" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="gh-segment gh-segment--fill">
+                                <ui:Button name="settings-graphics-auto" class="gh-segment__option gh-segment__option--wide" text="Auto (Medium)" />
+                                <ui:Button name="settings-graphics-low" class="gh-segment__option" binding-path="settings.quality.low" text="Low" />
+                                <ui:Button name="settings-graphics-medium" class="gh-segment__option" binding-path="settings.quality.medium" text="Medium" />
+                                <ui:Button name="settings-graphics-high" class="gh-segment__option" binding-path="settings.quality.high" text="High" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:Label name="settings-graphics-note" class="gh-setting__note" binding-path="settings.quality.redraw_note" text="The streets around you redraw when you close Settings." />
+                        <ui:VisualElement name="settings-row-fps" class="gh-setting">
+                            <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
+                                <ui:Label class="gh-setting__label" binding-path="settings.framerate" text="Frame rate" />
+                                <ui:Label name="settings-fps-hint" class="gh-setting__hint" text="60 is smoother, 30 saves battery" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="gh-segment">
+                                <ui:Button name="settings-fps-30" class="gh-segment__option" text="30 fps" />
+                                <ui:Button name="settings-fps-60" class="gh-segment__option" text="60 fps" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
                         <ui:VisualElement name="settings-row-haptics" class="gh-setting">
                             <ui:VisualElement class="gh-setting__text" picking-mode="Ignore">
                                 <ui:Label class="gh-setting__label" binding-path="settings.haptics" text="Vibration" />
