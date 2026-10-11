@@ -208,15 +208,18 @@ the view frustum 0.8 m in front of the lens is wider: landscape, wide FOV) to 1.
 camera (a wall 0.1 m in front of the lens is gone), soft edges of 12% of the capsule (0.15–0.6 m) outside that radius,
 nothing at or beyond the plane through the player (the background stays), and a solid sphere of 0.5 m (at most a quarter
 of the capsule) around the player end. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a
-camera rig sets a better point that frame. The road material fades as a **ground layer** (`_OccluderGround`): only above
-the player's knees, and upward-facing surfaces only from 0.8 m above the player end, so bridge railings, piers, parapets,
-flyover undersides and decks overhead dissolve while the road surface, kerbs and footpaths never do. The plain building
+camera rig sets a better point that frame. Bridge, flyover and underpass structures (decks, railings, piers, parapets,
+ramps and trench walls) are their own tile layer with their own material, `bridges`, which fades whole; the road
+material (driving surface, kerbs, footpaths, also the carriageway on a deck) no longer fades, so road fragments carry no
+`clip()`. The ground mode (`_OccluderGround`: only above the player's knees, upward-facing surfaces only from 0.8 m above
+the player end) stays in the shader for any later ground layer. The plain building
 material (the explorer's own material is copied from it) and traffic never fade; shadows of faded houses stay.
 
 | Material | Outline (tier) | Occluder fade |
 |---|---|---|
 | terrain, areas, decals | — | — |
-| roads (also bridge and flyover parts) | — | ground layer |
+| roads | — | — |
+| bridges (decks, railings, piers, trench walls) | — | yes |
 | buildings (explorer source), instanced (traffic) | Mid, High | — |
 | instancedTint (people, animals, aircraft), heroes | Mid, High | yes |
 | props | High | yes |
@@ -236,11 +239,8 @@ walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN
 - **Props material** (nature): `DressingRenderer` draws street props and the chautari with `WorldMaterialSet.instancedTint`
   (the people's material), so props are outlined on Mid too. Switch those two batches to `WorldMaterialSet.props` (same
   shader setup) to get the ARCHITECTURE 10 split (props outlined on High only).
-- **Bridge and flyover layer** (integration, bridges): structure geometry drawn with the road material fades as a ground
-  layer (above the player's knees). That puts a `clip()` in every road fragment, which costs early depth writes and
-  hidden-surface removal on mobile GPUs over a large share of the screen. Once the bridge meshes get a layer of their
-  own, draw it with a material that fades whole (like `heroes`), keep the deck surface on the road layer and turn the
-  road material's fade off again (`WorldMaterialDefaults.RoleOf`).
+- **Bridge and flyover layer** (integration, bridges): done. `TileLayers.Bridges` draws with `WorldMaterialSet.bridges`
+  (whole fade) and the road material's fade is off (`WorldMaterialDefaults.RoleOf`).
 - **Outline cost in the HUD** (integration): show `RenderStats.OutlinedTris(ToonLook.Tier)` next to the triangle counters
   in the debug HUD for the Wave 3 device pass.
 - **Inspector-assigned material sets**: a `WorldRoot` with a set assigned in the inspector skips `WorldMaterialSet.Load`, so

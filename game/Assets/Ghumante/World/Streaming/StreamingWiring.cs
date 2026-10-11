@@ -83,12 +83,14 @@ namespace Ghumante.World.Streaming
 
     /// <summary>
     /// Structure records for packs without the RSTR chunk (bridges_flyovers.md §6 open issue): the bridges package
-    /// derives them from the W1 tags (<see cref="BridgeStructures.For"/>); this writes them into the decoded tile and
-    /// into its cached road layout before anything is meshed, so the road mesher lays the carriageway at the same deck
-    /// heights the bridge mesher builds under it, and the ground query (<see cref="TileData.RoadStructureOf"/>), the deck
-    /// index and traffic read the same records. The road layout is built first, so its corridor widths keep the
-    /// stage-one rule the pack was made for (<see cref="RoadWidthModel.UsesFinalCorridor"/> is decided before the
-    /// records exist). A pack with RSTR is left alone. Idempotent and thread-safe (locks the tile).
+    /// derives them from the W1 tags (<see cref="BridgeStructures.For"/>); this writes them into the decoded tile before
+    /// anything is meshed and then rebuilds the tile's cached road layout from them (<see cref="RoadLayout.Rebuild"/>), so
+    /// the road mesher lays the carriageway on the same mapped deck points and heights the bridge mesher builds under it,
+    /// derived foot structures lose car access, and the ground query (<see cref="TileData.RoadStructureOf"/>), the deck
+    /// index and traffic read the same records. The corridor rule (<see cref="RoadWidthModel.UsesFinalCorridor"/>, which
+    /// reads the record count) is decided before the records are installed and kept by the rebuild, so the widths stay
+    /// the stage-one widths the pack was made for. A pack with RSTR is left alone. Idempotent and thread-safe (locks
+    /// the tile).
     /// </summary>
     public static class StructureFallback
     {
@@ -99,7 +101,7 @@ namespace Ghumante.World.Streaming
             lock (t)
             {
                 if (t.HasRoadStructures) return false;
-                RoadLayout layout = RoadLayout.For(t);
+                bool finalCorridor = RoadWidthModel.UsesFinalCorridor(t); // before the records exist
                 IReadOnlyList<RoadStructureRecord> derived = BridgeStructures.For(t);
                 if (derived == null || derived.Count != t.Roads.Count) return false;
                 bool any = false;
@@ -112,11 +114,8 @@ namespace Ghumante.World.Streaming
                     }
                 }
                 if (!any) return false; // nothing elevated: keep the tile as it came
-                for (int i = 0; i < derived.Count; i++)
-                {
-                    layout.Structures[i] = derived[i];
-                    t.RoadStructures.Add(derived[i]);
-                }
+                for (int i = 0; i < derived.Count; i++) t.RoadStructures.Add(derived[i]);
+                RoadLayout.Rebuild(t, finalCorridor);
                 return true;
             }
         }

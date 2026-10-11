@@ -182,11 +182,27 @@ namespace Ghumante.Core.Meshing
             return Cache.GetValue(t, k => new RoadLayout(k));
         }
 
+        /// <summary>
+        /// Replaces the cached layout of a tile with one rebuilt from the tile's current records, for a tile whose
+        /// structure records were installed after its layout was first built (packs without RSTR get derived ones,
+        /// <c>World.Streaming.StructureFallback</c>): centrelines, car access, deck-end knees, caps and ring approaches
+        /// then follow the installed records. <paramref name="finalCorridor"/> keeps the corridor rule decided before
+        /// the records existed (<see cref="RoadWidthModel.UsesFinalCorridor"/> reads the record count), so the widths do
+        /// not change. Call before anything else meshes or queries the tile; layouts already handed out stay as they were.
+        /// </summary>
+        public static RoadLayout Rebuild(TileData t, bool finalCorridor)
+        {
+            if (t == null) throw new ArgumentNullException(nameof(t));
+            var layout = new RoadLayout(t, null, finalCorridor);
+            Cache.AddOrUpdate(t, layout);
+            return layout;
+        }
+
         private RoadLayout(TileData t) : this(t, null)
         {
         }
 
-        private RoadLayout(TileData t, float[][] corridorShifts)
+        private RoadLayout(TileData t, float[][] corridorShifts, bool? finalCorridor = null)
         {
             Tile = t;
             _shiftOverride = corridorShifts;
@@ -204,7 +220,7 @@ namespace Ghumante.Core.Meshing
             for (int i = 0; i < _endShoulder.Length; i++) _endShoulder[i] = float.NaN;
             _along = new double[n][];
             FromRatr = t.HasRoadAttrs;
-            FinalCorridor = RoadWidthModel.UsesFinalCorridor(t);
+            FinalCorridor = finalCorridor ?? RoadWidthModel.UsesFinalCorridor(t);
             Paving = new RoadPaving[n];
             for (int i = 0; i < n; i++)
             {

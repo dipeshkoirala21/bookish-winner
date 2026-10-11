@@ -731,11 +731,20 @@ namespace Ghumante.Core.Driving
 
         // ---- structure colliders (IStructureGround) ----
 
-        /// <summary>Adds (or replaces) a tile's structure colliders (tile-local coordinates, copied).</summary>
+        /// <summary>
+        /// Key bit of a tile's second collider set: <c>tileKey | StaticSetKeyBit</c> registers colliders in the same
+        /// tile-local frame under their own key, so a set that rarely changes (the instanced dressing: trunks, poles,
+        /// parked vehicles) is built once while the tile is visible and a small set that changes often (heroes and B0
+        /// cells) is rebuilt alone. Morton bit 57 (tile row 2^28) never occurs in a real tile key.
+        /// </summary>
+        public const ulong StaticSetKeyBit = 1UL << 57;
+
+        /// <summary>Adds (or replaces) a tile's structure colliders (tile-local coordinates, copied). The key is the tile's
+        /// key, optionally with <see cref="StaticSetKeyBit"/> for its second set.</summary>
         public void Register(ulong tileKey, StructureColliders c)
         {
             if (c == null) throw new ArgumentNullException(nameof(c));
-            var set = new StructureSet(tileKey, c, BodyRadiusM + StructureColliders.SoftMarginM);
+            var set = new StructureSet(tileKey & ~StaticSetKeyBit, c, BodyRadiusM + StructureColliders.SoftMarginM);
             AddSolids(tileKey | StructureKeyBit, set.Solids.Count > 0 ? set.Solids : null);
             int i = _structureKeys.BinarySearch(tileKey);
             if (i >= 0)
@@ -748,6 +757,8 @@ namespace Ghumante.Core.Driving
             _structures.Insert(i, set);
         }
 
+        /// <summary>Removes the colliders registered under <paramref name="tileKey"/> (the tile's key, or its second set's
+        /// key with <see cref="StaticSetKeyBit"/>); the other set of the tile stays.</summary>
         public void Unregister(ulong tileKey)
         {
             RemoveSolids(tileKey | StructureKeyBit);
@@ -757,7 +768,8 @@ namespace Ghumante.Core.Driving
             _structures.RemoveAt(i);
         }
 
-        /// <summary>Number of tiles with registered structure colliders.</summary>
+        /// <summary>Number of registered structure collider sets (a tile may hold two: its own key and
+        /// <see cref="StaticSetKeyBit"/>).</summary>
         public int StructureTileCount
         {
             get { return _structures.Count; }

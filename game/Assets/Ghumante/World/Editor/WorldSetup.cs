@@ -72,6 +72,8 @@ namespace Ghumante.World.EditorTools
             set.props = Ensure("GhumanteProps", toon, set.props, m => fresh.props = m);
             set.trees = Ensure("GhumanteTrees", toon, set.trees, m => fresh.trees = m);
             set.lights = Ensure("GhumanteLights", lights, set.lights, m => fresh.lights = m);
+            // Detail pass: bridge, flyover and underpass structures (TileLayers.Bridges), fading whole.
+            set.bridges = Ensure("GhumanteBridges", toon, set.bridges, m => fresh.bridges = m);
             WorldMaterialDefaults.Apply(fresh); // only the materials created now
             WorldMaterialDefaults.ApplyExtras(fresh, false);
             MarkDirty(fresh);

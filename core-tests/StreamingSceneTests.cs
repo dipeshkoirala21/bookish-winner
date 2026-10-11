@@ -360,8 +360,10 @@ namespace Ghumante.Core.Tests
             Assert.That(lod.AnimalCaps, Is.EqualTo(caps));
         }
 
-        /// <summary>A pack without RSTR (stage one): the derived records go into the tile and its road layout before
-        /// anything is meshed, so the road surface lies on the derived deck heights the bridge mesher builds.</summary>
+        /// <summary>A pack without RSTR (stage one): the derived records go into the tile before anything is meshed and its
+        /// road layout is rebuilt from them, so the road surface lies on the derived deck heights the bridge mesher builds,
+        /// elevated decks keep their mapped points (no fillet, unlike the layout built from absent records), derived foot
+        /// structures lose car access, and the corridor widths keep the stage-one rule.</summary>
         [Test]
         public void PacksWithoutStructureRecordsGetTheDerivedOnes()
         {
@@ -369,19 +371,59 @@ namespace Ghumante.Core.Tests
             TileData t = StreamingSampleRegion.Pack.ReadTile(id); // a private decode: the shared cache keeps its records
             t.RoadStructures.Clear();
             Assert.That(t.HasRoadStructures, Is.False);
+            // What the layout looked like before (absent records): a layout read before the fallback is replaced.
+            RoadLayout before = RoadLayout.For(t);
             Assert.That(StructureFallback.Apply(t), Is.True);
             Assert.That(t.HasRoadStructures, Is.True);
             Assert.That(StructureFallback.Apply(t), Is.False, "idempotent");
             RoadLayout layout = RoadLayout.For(t);
+            Assert.That(layout, Is.Not.SameAs(before), "the cached layout is rebuilt from the installed records");
             IReadOnlyList<RoadStructureRecord> derived = BridgeStructures.For(t);
-            int decks = 0;
+            int decks = 0, elevated = 0;
+            double worstNew = 0, worstOld = 0;
+            double size = t.Tile.Size;
             for (int i = 0; i < t.Roads.Count; i++)
             {
                 Assert.That(layout.Structures[i].Kind, Is.EqualTo(derived[i].Kind));
+                Assert.That(layout.Profiles[i].NoCars, Is.EqualTo(!t.RoadStructures[i].Has(RoadStructureFlags.CarAccessible)),
+                            "car access of road " + i + " follows the installed record");
                 if (derived[i].HasHeights) decks++;
+                if (!derived[i].IsElevated || layout.RingOf[i] >= 0) continue;
+                // An elevated deck keeps its mapped points (only the simplifier's tolerance, no fillet): the points the
+                // bridge mesher builds the deck on.
+                elevated++;
+                double tol = RoadCentreline.SimplifyToleranceM(t.Roads[i].RoadClass) + 0.02;
+                int[] pts = t.Roads[i].Points;
+                for (int k = 0; k < t.Roads[i].PointCount; k++)
+                {
+                    double px = pts[2 * k] / 100.0, pz = pts[2 * k + 1] / 100.0;
+                    if (px < 1 || pz < 1 || px > size - 1 || pz > size - 1) continue;
+                    double dNew = DistanceToCentre(layout.Centres[i], px, pz), dOld = DistanceToCentre(before.Centres[i], px, pz);
+                    worstNew = Math.Max(worstNew, dNew);
+                    worstOld = Math.Max(worstOld, dOld);
+                    Assert.That(dNew, Is.LessThan(tol), "elevated road " + i + " point " + k + " is on the drawn centreline");
+                }
             }
+            TestContext.WriteLine("{0} decks, {1} elevated roads; mapped points off the drawn centreline: {2:0.000} m (rebuilt), {3:0.000} m (absent records)",
+                                  decks, elevated, worstNew, worstOld);
             Assert.That(decks, Is.GreaterThan(0));
+            Assert.That(elevated, Is.GreaterThan(0));
             Assert.That(layout.FinalCorridor, Is.False, "the layout keeps the stage-one width rule");
+            Assert.That(layout.FinalCorridor, Is.EqualTo(before.FinalCorridor));
+        }
+
+        private static double DistanceToCentre(RoadCentreline c, double x, double z)
+        {
+            double best = double.MaxValue;
+            for (int q = 0; q + 1 < c.Count; q++)
+            {
+                double ax = c.X[q], az = c.Z[q], dx = c.X[q + 1] - ax, dz = c.Z[q + 1] - az, l2 = dx * dx + dz * dz;
+                double f = l2 > 1e-12 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+                f = f < 0 ? 0 : f > 1 ? 1 : f;
+                double qx = ax + dx * f - x, qz = az + dz * f - z;
+                best = Math.Min(best, Math.Sqrt(qx * qx + qz * qz));
+            }
+            return best;
         }
 
         [Test]
@@ -427,6 +469,266 @@ namespace Ghumante.Core.Tests
             bool o2 = g.Overlaps(px, pz, 4, out d2);
             Assert.That(o1, Is.EqualTo(o2));
             Assert.That(d1, Is.EqualTo(d2));
+        }
+
+        /// <summary>The instanced dressing's colliders (trunks, poles, parked vehicles) are a set of their own in the
+        /// ground query: the small hero and B0 set is rebuilt alone when a B0 cell shows or hides, and dropping it leaves
+        /// the dressing standing.</summary>
+        [Test]
+        public void DressingCollidersAreASetOfTheirOwn()
+        {
+            MeshingSettings s = StreamingScene.Settings(1, 10);
+            TileId id = StreamingScene.TileAt(AsanLon, AsanLat);
+            TileBuild b = StreamingScene.Build(id, s);
+            Assert.That(b.Colliders, Is.Not.Null);
+            Assert.That(b.Colliders.Count, Is.GreaterThan(500), "Asan's dressing");
+            ColliderCylinder trunk = default(ColliderCylinder);
+            bool found = false;
+            foreach (ColliderCylinder c in b.Colliders.Cylinders)
+            {
+                if (c.Radius < 0.15f || c.Top - c.Bottom < 2f) continue;
+                trunk = c;
+                found = true;
+                break;
+            }
+            Assert.That(found, Is.True, "a trunk or pole");
+            TileGroundQuery ground = StreamingScene.Ground(s);
+            ulong key = id.Key, staticKey = key | TileGroundQuery.StaticSetKeyBit;
+            double gx = id.X0 + trunk.CX, gz = id.Z0 + trunk.CZ;
+            float feet = trunk.Bottom + 0.1f;
+            Assert.That(ground.IsBlocked(gx, gz, feet), Is.False, "nothing registered yet");
+            ground.Register(staticKey, b.Colliders);
+            Assert.That(ground.IsBlocked(gx, gz, feet), Is.True, "the trunk blocks once the static set is in");
+            // The hero/B0 set comes and goes (a B0 cell toggling) without touching the static set.
+            var small = new StructureColliders();
+            small.Boxes.Add(new OrientedBox { CX = 5, CZ = 5, CY = 1300f, HalfX = 1f, HalfY = 1f, HalfZ = 1f, Material = FootSurface.Stone });
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 20; i++)
+            {
+                ground.Register(key, small);
+                ground.Unregister(key);
+            }
+            double smallMs = sw.Elapsed.TotalMilliseconds / 20;
+            sw.Restart();
+            ground.Register(staticKey, b.Colliders);
+            double staticMs = sw.Elapsed.TotalMilliseconds;
+            TestContext.WriteLine("{0} dressing colliders: static set {1:0.00} ms once, hero/B0 set {2:0.000} ms per toggle", b.Colliders.Count,
+                                  staticMs, smallMs);
+            Assert.That(ground.StructureTileCount, Is.EqualTo(1));
+            Assert.That(ground.IsBlocked(gx, gz, feet), Is.True, "the dressing stays while the hero set toggles");
+            ground.Register(key, small);
+            Assert.That(ground.StructureTileCount, Is.EqualTo(2), "two sets for one tile");
+            ground.Unregister(staticKey);
+            Assert.That(ground.IsBlocked(gx, gz, feet), Is.False, "dropping the static set frees the trunk");
+            Assert.That(ground.StructureTileCount, Is.EqualTo(1));
+        }
+
+        /// <summary>The walkable top of a standalone island (Shahid Gate, 10/517/160) stays inside the island: no corner or
+        /// edge of it lies on the drawn carriageway, so riders circling the gate meet no invisible kerb.</summary>
+        [Test]
+        public void StandaloneIslandTopsStayOffTheCarriageway()
+        {
+            MeshingSettings s = StreamingScene.Settings(2, 10);
+            TileId id = StreamingScene.TileAt(85.31497, 27.69959);
+            TileBuild b = StreamingScene.Build(id, s);
+            Assert.That(b.Error, Is.Null);
+            IRoadCorridorQuery q = RoadCorridorIndex.ForTile(b.Source);
+            var sites = new List<Generators.Ornaments.RoundaboutEntry>();
+            Generators.Ornaments.RoundaboutCatalog.StandaloneIn(b.Source, sites);
+            Assert.That(sites.Count, Is.GreaterThan(0), "Shahid Gate is a standalone site");
+            int tops = 0;
+            double worst = double.MaxValue;
+            foreach (Generators.Ornaments.RoundaboutEntry e in sites)
+            {
+                Generators.Ornaments.RoundaboutSite site = Generators.Ornaments.RoundaboutDecorator.StandaloneSite(e, b.Source);
+                foreach (OrientedBox box in b.Colliders.Boxes)
+                {
+                    if (box.Material != FootSurface.Grass) continue;
+                    double d = Math.Sqrt((box.CX - site.X) * (box.CX - site.X) + (box.CZ - site.Z) * (box.CZ - site.Z));
+                    if (d > 0.5) continue;
+                    tops++;
+                    double cs = Math.Cos(box.YawRad), sn = Math.Sin(box.YawRad);
+                    for (int i = -1; i <= 1; i++)
+                        for (int j = -1; j <= 1; j++)
+                        {
+                            if (i == 0 && j == 0) continue;
+                            double lx = i * box.HalfX, lz = j * box.HalfZ;
+                            double px = id.X0 + box.CX + lx * cs - lz * sn, pz = id.Z0 + box.CZ + lx * sn + lz * cs;
+                            worst = Math.Min(worst, q.SignedDistance(px, pz));
+                        }
+                    // The top still covers most of the island (union of turned inscribed squares, about 0.8 r).
+                    Assert.That(Math.Max(box.HalfX, box.HalfZ), Is.GreaterThan(0.5 * site.RadiusM), e.Id);
+                }
+            }
+            TestContext.WriteLine("{0} island top boxes, nearest corner {1:0.00} m outside the corridors", tops, worst);
+            Assert.That(tops, Is.GreaterThanOrEqualTo(TileBuild.IslandTopSquares), "the island top");
+            Assert.That(worst, Is.GreaterThanOrEqualTo(0.0), "no island-top corner on the carriageway");
+        }
+
+        /// <summary>Parked vehicles stand on the drawn road they line (within <see cref="ParkedPlacement.SurfaceToleranceM"/>)
+        /// on every tile with bridges, flyovers or ramps, and never under a deck or inside an embankment.</summary>
+        [Test]
+        public void ParkedVehiclesStandOnTheDrawnRoadNotUnderDecks()
+        {
+            MeshingSettings s = StreamingScene.Settings(1, 10, false);
+            int tiles = 0, vehicles = 0, off = 0, under = 0;
+            string first = null;
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                if (t == null || t.Roads.Count == 0 || !t.HasRoadStructures) continue;
+                bool elevated = false;
+                for (int i = 0; i < t.Roads.Count && !elevated; i++)
+                    elevated = t.RoadStructureOf(i).IsElevated || t.RoadStructureOf(i).HasHeights;
+                if (!elevated) continue;
+                tiles++;
+                TileHeightSampler h = TileHeightSampler.ForArea(t, id, StreamingConfig.ForTier(1).TerrainStep(id, id, t.HeightsN));
+                var parked = new List<ParkedVehicle>();
+                ParkedPlacement.Place(t, h, parked, s.Roads);
+                RoadSurfaceQuery road = RoadSurfaceQuery.For(t, h, s.Roads);
+                IBridgeDeckQuery decks = BridgeDeckIndex.ForTile(t);
+                foreach (ParkedVehicle p in parked)
+                {
+                    vehicles++;
+                    double gx = id.X0 + p.X, gz = id.Z0 + p.Z;
+                    RoadSurfaceHit hit;
+                    if (road.TrySample(gx, gz, p.Y + 0.3f, out hit) && (hit.OnDeck || Math.Abs(hit.Y - p.Y) > ParkedPlacement.SurfaceToleranceM))
+                    {
+                        off++;
+                        if (first == null) first = id + " at (" + p.X.ToString("0.0", CultureInfo.InvariantCulture) + ", " + p.Z.ToString("0.0", CultureInfo.InvariantCulture) + ")";
+                    }
+                    float under0;
+                    if (decks.TryCeiling(gx, gz, p.Y + 0.2f, out under0) && under0 - p.Y < RoadClearance.MinOverheadClearanceM)
+                    {
+                        under++;
+                        if (first == null) first = id + " under a deck at (" + p.X.ToString("0.0", CultureInfo.InvariantCulture) + ", " + p.Z.ToString("0.0", CultureInfo.InvariantCulture) + ")";
+                    }
+                }
+            }
+            TestContext.WriteLine("{0} tiles with structures, {1} parked vehicles, {2} off the drawn surface, {3} under a low deck; first {4}",
+                                  tiles, vehicles, off, under, first);
+            Assert.That(tiles, Is.GreaterThan(0));
+            Assert.That(vehicles, Is.GreaterThan(1000));
+            Assert.That(off, Is.EqualTo(0), "parked vehicles stand on the drawn surface");
+            Assert.That(under, Is.EqualTo(0), "nobody parks under a deck lower than a lorry");
+        }
+
+        /// <summary>Parked bikes, cycles and cars along the lanes of Thamel and Asan never overlap one another.</summary>
+        [Test]
+        public void ParkedVehiclesDoNotOverlap()
+        {
+            MeshingSettings s = StreamingScene.Settings(1, 10, false);
+            int vehicles = 0, overlaps = 0;
+            string first = null;
+            foreach (var (name, lon, lat) in new[] { ("thamel", ThamelLon, ThamelLat), ("asan", AsanLon, AsanLat) })
+            {
+                TileId id = StreamingScene.TileAt(lon, lat);
+                TileData t = StreamingSampleRegion.Tile(id);
+                TileHeightSampler h = TileHeightSampler.ForArea(t, id, StreamingConfig.ForTier(1).TerrainStep(id, id, t.HeightsN));
+                var parked = new List<ParkedVehicle>();
+                ParkedPlacement.Place(t, h, parked, s.Roads);
+                vehicles += parked.Count;
+                for (int i = 0; i < parked.Count; i++)
+                    for (int j = i + 1; j < parked.Count; j++)
+                    {
+                        ParkedVehicle a = parked[i], b = parked[j];
+                        float dx = a.X - b.X, dz = a.Z - b.Z;
+                        if (dx * dx + dz * dz > 36f || !ParkedPlacement.Overlap(a, b)) continue;
+                        overlaps++;
+                        if (first == null) first = name + " (" + a.X + ", " + a.Z + ") and (" + b.X + ", " + b.Z + ")";
+                    }
+            }
+            TestContext.WriteLine("{0} parked vehicles, {1} overlapping pairs; first {2}", vehicles, overlaps, first);
+            Assert.That(vehicles, Is.GreaterThan(500));
+            Assert.That(overlaps, Is.EqualTo(0));
+        }
+
+        /// <summary>Bridge and trench pieces pick their LOD by the distance to the structure along its centreline, not to a
+        /// circle round its footprint, and every trench is a piece of its own.</summary>
+        [Test]
+        public void BridgePiecesMeasureTheirDistanceAlongTheStructure()
+        {
+            MeshingSettings s = StreamingScene.Settings(2, 10, false);
+            s.DrawBuildings = false;
+            s.DrawInstances = false;
+            int spans = 0, trenches = 0, long_ = 0;
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                if (t == null || t.Roads.Count == 0 || !t.HasRoadStructures) continue;
+                if (BridgeLayout.For(t).Spans.Count == 0) continue;
+                TileBuild b = StreamingScene.Build(id, s);
+                BridgeLayout layout = BridgeLayout.For(b.Source); // the build's own decode
+                int pieceTrenches = 0;
+                var seen = new HashSet<BridgeSpan>();
+                foreach (LodPiece p in b.Pieces)
+                {
+                    if (p.Layer != TileLayers.Bridges) continue;
+                    if (p.Span != null) Assert.That(seen.Add(p.Span), Is.True, id + ": a structure in two pieces");
+                    if (p.Span == null) continue; // a stair span: measured by its footprint circle
+                    bool trench = layout.Trenches.Contains(p.Span);
+                    if (trench) pieceTrenches++;
+                    else spans++;
+                    BridgePath path = p.Span.Path;
+                    int k = p.Span.Count / 2;
+                    // On a span's centreline the camera is on the structure (a trench draws walls only where the road is
+                    // cut, so its middle station may lie beside its footprint).
+                    if (!trench)
+                        Assert.That(p.DistanceTo(path.X[k], path.Z[k]), Is.LessThan(0.5),
+                                    id + " span of road " + p.Span.Road + " (" + p.Span.Kind + (p.Span.Foot ? ", foot" : "") + (p.Span.Stair ? ", stair" : "") +
+                                    ", " + p.Span.Count + " stations, mask " + p.LodMask + ") at (" + path.X[k] + ", " + path.Z[k] + "), footprint (" + p.CX + ", " + p.CZ +
+                                    ") r " + p.RadiusM + ": on the structure");
+                    // 150 m to the side of the middle station: about 150 m away, whatever the span's length.
+                    double ox = path.X[k] + path.Nx[k] * 150, oz = path.Z[k] + path.Nz[k] * 150;
+                    double d = p.DistanceTo(ox, oz), centreline = BridgeMesher.Distance(p.Span, ox, oz);
+                    Assert.That(d, Is.LessThanOrEqualTo(centreline + 1e-9));
+                    Assert.That(d, Is.GreaterThanOrEqualTo(centreline - p.SpanHalfM - 1e-9));
+                    double circle = Math.Max(0.0, Math.Sqrt((ox - p.CX) * (ox - p.CX) + (oz - p.CZ) * (oz - p.CZ)) - p.RadiusM);
+                    if (p.RadiusM > 60 && centreline > 120)
+                    {
+                        long_++;
+                        Assert.That(d, Is.GreaterThan(circle + 20), "a long span is not near everywhere in its circle");
+                        Assert.That(PieceLod.Choose(p, 2, d, -1), Is.Not.EqualTo(0), "no LOD0 150 m beside a long span");
+                    }
+                }
+                // One piece per trench that draws walls (a trench whose road is nowhere cut 0.5 m deep draws none).
+                Assert.That(pieceTrenches, Is.LessThanOrEqualTo(layout.Trenches.Count), id + ": one piece per trench");
+                trenches += pieceTrenches;
+            }
+            TestContext.WriteLine("{0} span pieces ({1} long), {2} trench pieces", spans, long_, trenches);
+            Assert.That(spans, Is.GreaterThan(0));
+            Assert.That(long_, Is.GreaterThan(0), "the sample has spans over 120 m to check");
+        }
+
+        /// <summary>No tree stands on a hero's plinth, walls, stairs or statue (Taleju's stepped plinth in Hanuman Dhoka
+        /// had a mapped 24 m tree on it): mapped trees are moved beside the structure, generated ones dropped.</summary>
+        [Test]
+        public void TreesKeepOffTheHeroPlinths()
+        {
+            MeshingSettings s = StreamingScene.Settings(1, 10);
+            int checkedTrees = 0, heroTiles = 0;
+            foreach (var (name, lon, lat) in new[] { ("basantapur", BasantapurLon, BasantapurLat), ("asan", AsanLon, AsanLat) })
+            {
+                TileId id = StreamingScene.TileAt(lon, lat);
+                TileBuild b = StreamingScene.Build(id, s);
+                Assert.That(b.Error, Is.Null);
+                if (b.HeroColliders == null) continue;
+                heroTiles++;
+                foreach (TreeInstance t in b.Instances.Trees)
+                {
+                    checkedTrees++;
+                    foreach (OrientedBox box in b.HeroColliders.Boxes)
+                    {
+                        if (box.Top <= t.Y + 0.3f) continue;
+                        double dx = t.X - box.CX, dz = t.Z - box.CZ, cs = Math.Cos(box.YawRad), sn = Math.Sin(box.YawRad);
+                        double lx = dx * cs + dz * sn, lz = -dx * sn + dz * cs;
+                        Assert.That(Math.Abs(lx) >= box.HalfX || Math.Abs(lz) >= box.HalfZ, Is.True,
+                                    name + ": " + t.Species + " (" + t.Origin + ") at (" + t.X + ", " + t.Z + ") stands on a hero structure");
+                    }
+                }
+            }
+            Assert.That(heroTiles, Is.GreaterThan(0));
+            TestContext.WriteLine("{0} trees checked against the hero structures", checkedTrees);
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -563,6 +865,9 @@ namespace Ghumante.Core.Tests
 
             /// <summary>Target the nearest hero replica instead of the place itself.</summary>
             public bool Hero;
+
+            /// <summary>With <see cref="Hero"/>: the hero whose id contains this (else the nearest).</summary>
+            public string HeroId;
         }
 
         [Test]
@@ -575,9 +880,12 @@ namespace Ghumante.Core.Tests
             MeshingSettings s = StreamingScene.Settings(tier, month);
             var shots = new[]
             {
-                new Shot { Name = "thamel", Lon = ThamelLon, Lat = ThamelLat, DistM = 45, EyeH = 2.2f, LookH = 2.2f, Street = true },
-                new Shot { Name = "asan", Lon = AsanLon, Lat = AsanLat, DistM = 40, EyeH = 2.2f, LookH = 2.2f, Street = true },
-                new Shot { Name = "basantapur", Lon = BasantapurLon, Lat = BasantapurLat, DistM = 75, EyeH = 24f, LookH = 4f, Free = true, Hero = true },
+                // Street level: a rider's eye (1.8-2.2 m) on a drawn carriageway, looking down the street, with a clear
+                // line of sight (no house between the eye and the target, the eye outside every footprint).
+                new Shot { Name = "thamel", Lon = ThamelLon, Lat = ThamelLat, DistM = 45, EyeH = 1.9f, LookH = 2.2f, Street = true },
+                new Shot { Name = "asan", Lon = AsanLon, Lat = AsanLat, DistM = 40, EyeH = 1.9f, LookH = 2.2f, Street = true },
+                new Shot { Name = "basantapur", Lon = BasantapurLon, Lat = BasantapurLat, DistM = 60, EyeH = 1.8f, LookH = 9f, Free = true, Hero = true, HeroId = "taleju" },
+                new Shot { Name = "basantapur_square", Lon = 85.30705, Lat = 27.70398, DistM = 40, EyeH = 1.8f, LookH = 3f, Street = true },
                 new Shot { Name = "new_road_statue", Lon = 85.30914, Lat = 27.70365, DistM = 32, EyeH = 2.2f, LookH = 3.5f, Island = true },
                 new Shot { Name = "shahid_gate", Lon = 85.31497, Lat = 27.69959, DistM = 48, EyeH = 2.2f, LookH = 6f, Island = true },
                 new Shot { Name = "maitighar", Lon = MaitigharLon, Lat = MaitigharLat, DistM = 42, EyeH = 2.2f, LookH = 3f, Island = true },
@@ -602,10 +910,10 @@ namespace Ghumante.Core.Tests
                 tz -= id.Z0;
                 if (shot.Bridge) BridgeTarget(b.Source, ref tx, ref tz);
                 if (shot.Island) IslandTarget(b, ref tx, ref tz);
-                if (shot.Hero) HeroTarget(b, ref tx, ref tz);
+                if (shot.Hero) HeroTarget(b, shot.HeroId, ref tx, ref tz);
                 double ex, ez;
-                if (shot.Free) FreeEye(b.Source, tx, tz, shot.DistM, out ex, out ez);
-                else if (shot.DistM > 0 && shot.Street) EyeAlongRoad(b.Source, ref tx, ref tz, shot.DistM, out ex, out ez);
+                if (shot.Free) FreeEye(b, tx, tz, shot.DistM, out ex, out ez);
+                else if (shot.DistM > 0 && shot.Street) EyeAlongRoad(b, ref tx, ref tz, shot.DistM, out ex, out ez);
                 else if (shot.DistM > 0) EyeOnRoad(b.Source, tx, tz, shot.DistM, out ex, out ez);
                 else
                 {
@@ -675,35 +983,37 @@ namespace Ghumante.Core.Tests
             z = bz;
         }
 
-        /// <summary>The eye on a circle round the target whose sight line crosses the fewest house walls (inside no
-        /// house), preferring points on a drawn road.</summary>
-        private static void FreeEye(TileData t, double x, double z, double dist, out double ex, out double ez)
+        /// <summary>The eye on a circle round the target whose sight line crosses the fewest house walls and hero
+        /// structures (inside no house, off every plinth), preferring points on a drawn road or open paving.</summary>
+        private static void FreeEye(TileBuild b, double x, double z, double dist, out double ex, out double ez)
         {
+            TileData t = b.Source;
             IRoadCorridorQuery q = RoadCorridorIndex.ForTile(t);
+            var mask = new FootprintGrid(t);
             double best = double.MaxValue;
             ex = x + dist;
             ez = z;
-            for (int a = 0; a < 360; a += 10)
+            for (int a = 0; a < 360; a += 5)
             {
                 double r = a * Math.PI / 180, cx = x + dist * Math.Sin(r), cz = z + dist * Math.Cos(r);
+                if (mask.Inside(cx, cz) || OnHeroStructure(b, cx, cz, 1.0)) continue;
                 int walls = 0;
-                bool inside = false;
                 foreach (BuildingRecord br in t.Buildings)
                 {
                     if (br.Rings == null || br.Rings.Length == 0) continue;
                     int[] ring = br.Rings[0];
                     int n = ring.Length / 2;
-                    bool inPoly = false;
                     for (int i = 0, j = n - 1; i < n; j = i++)
-                    {
-                        double ax = ring[2 * i] / 100.0, az = ring[2 * i + 1] / 100.0, bx = ring[2 * j] / 100.0, bz = ring[2 * j + 1] / 100.0;
-                        if ((az > cz) != (bz > cz) && cx < (bx - ax) * (cz - az) / (bz - az) + ax) inPoly = !inPoly;
-                        if (Crosses(cx, cz, x, z, ax, az, bx, bz)) walls++;
-                    }
-                    if (inPoly) inside = true;
+                        if (Crosses(cx, cz, x, z, ring[2 * i] / 100.0, ring[2 * i + 1] / 100.0, ring[2 * j] / 100.0, ring[2 * j + 1] / 100.0)) walls++;
                 }
-                if (inside) continue;
-                double score = walls + (q.SignedDistance(t.Tile.X0 + cx, t.Tile.Z0 + cz) < 0 ? 0 : 0.5);
+                // Hero structures between the eye and the target (other than the target's own) block the view too.
+                int heroes = 0;
+                for (int k = 1; k < 20; k++)
+                {
+                    double f = k / 20.0 * 0.7;
+                    if (OnHeroStructure(b, cx + (x - cx) * f, cz + (z - cz) * f, 0.0)) heroes++;
+                }
+                double score = walls + heroes * 0.5 + (q.SignedDistance(t.Tile.X0 + cx, t.Tile.Z0 + cz) < 0 ? 0 : 0.25);
                 if (score < best)
                 {
                     best = score;
@@ -713,6 +1023,26 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>True when tile-local (x, z) is within <paramref name="margin"/> of a hero collider box or cylinder that
+        /// stands more than 0.5 m high (a plinth, wall or statue).</summary>
+        private static bool OnHeroStructure(TileBuild b, double x, double z, double margin)
+        {
+            if (b.HeroColliders == null) return false;
+            foreach (OrientedBox box in b.HeroColliders.Boxes)
+            {
+                if (box.Top - box.Bottom < 0.5f) continue;
+                double dx = x - box.CX, dz = z - box.CZ, cs = Math.Cos(box.YawRad), sn = Math.Sin(box.YawRad);
+                double lx = dx * cs + dz * sn, lz = -dx * sn + dz * cs;
+                if (Math.Abs(lx) < box.HalfX + margin && Math.Abs(lz) < box.HalfZ + margin) return true;
+            }
+            foreach (ColliderCylinder c in b.HeroColliders.Cylinders)
+            {
+                double dx = x - c.CX, dz = z - c.CZ, r = c.Radius + margin;
+                if (dx * dx + dz * dz < r * r) return true;
+            }
+            return false;
+        }
+
         private static bool Crosses(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz)
         {
             double d1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
@@ -720,13 +1050,14 @@ namespace Ghumante.Core.Tests
             return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0);
         }
 
-        /// <summary>The centre of the hero replica nearest the place.</summary>
-        private static void HeroTarget(TileBuild b, ref double x, ref double z)
+        /// <summary>The centre of the hero replica whose id contains <paramref name="id"/>, else the one nearest the place.</summary>
+        private static void HeroTarget(TileBuild b, string id, ref double x, ref double z)
         {
             double best = double.MaxValue, bx = x, bz = z;
             foreach (HeroPiece h in b.Heroes)
             {
                 double d = (h.CX - x) * (h.CX - x) + (h.CZ - z) * (h.CZ - z);
+                if (id != null && h.Id != null && h.Id.IndexOf(id, StringComparison.OrdinalIgnoreCase) >= 0) d = -1;
                 if (d >= best) continue;
                 best = d;
                 bx = h.CX;
@@ -771,46 +1102,67 @@ namespace Ghumante.Core.Tests
                 }
         }
 
-        /// <summary>An eye on the drawn motor road nearest the target, <paramref name="dist"/> back along its centreline,
-        /// and the target moved onto that centreline, so the camera looks down the street.</summary>
-        private static void EyeAlongRoad(TileData t, ref double x, ref double z, double dist, out double ex, out double ez)
+        /// <summary>
+        /// A street-level view down a drawn road near the target: candidate targets are the centreline stations of every
+        /// drawn road within 35 m of the place, the eye <paramref name="dist"/> back (or forward) along the same
+        /// centreline. The eye must stand well inside the drawn corridor (houses are trimmed to it, so it is outside every
+        /// footprint) and off every hero structure; the sight line is sampled every metre and each sample inside a house
+        /// footprint or a hero structure costs, as does each sample off the corridor (the view cuts a corner). The
+        /// clearest candidate wins, ties to the one nearest the place; the target moves onto its centreline.
+        /// </summary>
+        private static void EyeAlongRoad(TileBuild b, ref double x, ref double z, double dist, out double ex, out double ez)
         {
+            TileData t = b.Source;
             RoadLayout layout = RoadLayout.For(t);
+            IRoadCorridorQuery q = RoadCorridorIndex.ForTile(t);
+            var mask = new FootprintGrid(t);
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             ex = x + dist;
             ez = z;
-            double best = double.MaxValue;
-            int br = -1, bk = 0;
+            double best = double.MaxValue, bx = x, bz = z;
             for (int i = 0; i < t.Roads.Count; i++)
             {
-                RoadCentreline c = layout.Centres[i];
-                if (c == null || c.Count < 2 || !RoadMesher.IsDrawn(t, i, new RoadOptions())) continue;
-                for (int k = 0; k < c.Count; k++)
+                RoadCentreline cl = layout.Centres[i];
+                if (cl == null || cl.Count < 2 || !RoadMesher.IsDrawn(t, i, new RoadOptions())) continue;
+                for (int k = 0; k < cl.Count; k++)
                 {
-                    double d = (c.X[k] - x) * (c.X[k] - x) + (c.Z[k] - z) * (c.Z[k] - z);
-                    if (d < best)
+                    double near = Math.Sqrt((cl.X[k] - x) * (cl.X[k] - x) + (cl.Z[k] - z) * (cl.Z[k] - z));
+                    if (near > 35) continue;
+                    for (int dir = -1; dir <= 1; dir += 2)
                     {
-                        best = d;
-                        br = i;
-                        bk = k;
+                        double want = cl.S[k] + dir * dist;
+                        if (want < cl.S[0] || want > cl.S[cl.Count - 1]) continue;
+                        double cx = cl.X[0], cz = cl.Z[0];
+                        for (int j = 0; j + 1 < cl.Count; j++)
+                        {
+                            if (want < cl.S[j] || want > cl.S[j + 1]) continue;
+                            double f = cl.S[j + 1] > cl.S[j] ? (want - cl.S[j]) / (cl.S[j + 1] - cl.S[j]) : 0;
+                            cx = cl.X[j] + (cl.X[j + 1] - cl.X[j]) * f;
+                            cz = cl.Z[j] + (cl.Z[j + 1] - cl.Z[j]) * f;
+                            break;
+                        }
+                        if (q.SignedDistance(x0 + cx, z0 + cz) > -0.8 || mask.Inside(cx, cz) || OnHeroStructure(b, cx, cz, 1.0)) continue;
+                        double tx = cl.X[k], tz = cl.Z[k], len = Math.Sqrt((tx - cx) * (tx - cx) + (tz - cz) * (tz - cz));
+                        int n = Math.Max(2, (int)len), blocked = 0, offRoad = 0;
+                        for (int m = 1; m < n; m++)
+                        {
+                            double f = (double)m / n, px = cx + (tx - cx) * f, pz = cz + (tz - cz) * f;
+                            if (mask.Inside(px, pz) || OnHeroStructure(b, px, pz, 0.0)) blocked++;
+                            else if (q.SignedDistance(x0 + px, z0 + pz) > 0) offRoad++;
+                        }
+                        // A street a rider uses (a motor road) over a footway or path beside it.
+                        double score = blocked * 10 + offRoad + near / 10 + (RoadWidthModel.IsMotor(t.Roads[i].RoadClass) ? 0 : 5);
+                        if (score >= best) continue;
+                        best = score;
+                        ex = cx;
+                        ez = cz;
+                        bx = tx;
+                        bz = tz;
                     }
                 }
             }
-            if (br < 0) return;
-            RoadCentreline cl = layout.Centres[br];
-            x = cl.X[bk];
-            z = cl.Z[bk];
-            // Back along the road (or forward when the road starts too close), as far as the road goes.
-            double want = cl.S[bk] - dist >= cl.S[0] ? cl.S[bk] - dist : Math.Min(cl.S[cl.Count - 1], cl.S[bk] + dist);
-            for (int k = 0; k + 1 < cl.Count; k++)
-            {
-                if (want < cl.S[k] || want > cl.S[k + 1]) continue;
-                double f = cl.S[k + 1] > cl.S[k] ? (want - cl.S[k]) / (cl.S[k + 1] - cl.S[k]) : 0;
-                ex = cl.X[k] + (cl.X[k + 1] - cl.X[k]) * f;
-                ez = cl.Z[k] + (cl.Z[k + 1] - cl.Z[k]) * f;
-                return;
-            }
-            ex = cl.X[0];
-            ez = cl.Z[0];
+            x = bx;
+            z = bz;
         }
 
         /// <summary>An eye on a drawn motor road about <paramref name="dist"/> from the target (on the centreline).</summary>

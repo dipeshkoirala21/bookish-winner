@@ -318,7 +318,10 @@ namespace Ghumante.World.Streaming
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Structure colliders (heroes + shown B0 cells), registered while the tile is visible
+        // Structure colliders, registered while the tile is visible: two sets per tile in the ground query. The heroes and
+        // the shown B0 cells (small, rebuilt whenever a B0 cell shows or hides) under the tile key, and the static
+        // dressing (ornaments, generated trunks, poles, parked vehicles: hundreds to a few thousand colliders) under
+        // tileKey | TileGroundQuery.StaticSetKeyBit, built once when the tile becomes visible and dropped when it hides.
 
         private readonly StructureColliders _merged = new StructureColliders();
 
@@ -331,14 +334,14 @@ namespace Ghumante.World.Streaming
             {
                 if (view.CollidersRegistered) _ground.Unregister(key);
                 view.CollidersRegistered = false;
+                UnregisterStatic(view);
                 return;
             }
+            RegisterStatic(view);
             _merged.Clear();
-            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers, trunks, poles and parapets).
+            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers and parapets).
             StructureColliders heroes = view.Extras != null ? view.Extras.HeroColliders : null;
             if (heroes != null) _merged.AddAll(heroes);
-            StructureColliders dressing = view.Extras != null ? view.Extras.Colliders : null;
-            if (dressing != null) _merged.AddAll(dressing);
             _cells.AppendColliders(view, _merged);
             if (_merged.Count == 0)
             {
@@ -348,6 +351,22 @@ namespace Ghumante.World.Streaming
             }
             _ground.Register(key, _merged);
             view.CollidersRegistered = true;
+        }
+
+        /// <summary>The tile's static dressing colliders, once per visible spell (no-op when already registered).</summary>
+        private void RegisterStatic(TileView view)
+        {
+            if (view.StaticRegistered || _ground == null) return;
+            StructureColliders dressing = view.Extras != null ? view.Extras.Colliders : null;
+            if (dressing == null || dressing.Count == 0) return;
+            _ground.Register(view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit, dressing);
+            view.StaticRegistered = true;
+        }
+
+        private void UnregisterStatic(TileView view)
+        {
+            if (view.StaticRegistered && _ground != null) _ground.Unregister(view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit);
+            view.StaticRegistered = false;
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -373,9 +392,9 @@ namespace Ghumante.World.Streaming
                 case TileLayers.Buildings: return _b1Full != null ? _b1Full : _materials.buildings;
                 case TileLayers.BuildingsFar: return _b2 != null ? _b2 : _materials.buildings;
                 case TileLayers.BuildingsBlock: return _b3 != null ? _b3 : _materials.buildings;
-                // Decks, railings and piers take the road material's ground-mode occluder fade (World/README "Look":
-                // railings and piers fade above the rider's knees, the deck surface never).
-                case TileLayers.Bridges: return _materials.roads;
+                // Decks, railings, piers and trench walls: their own material, which fades whole between the camera
+                // and the player (World/README "Look"); the driving surface on the deck stays on the road layer.
+                case TileLayers.Bridges: return _materials.ForLayer(layer);
                 // Statues, gates and garden furniture are landmarks: the hero material (outlined, occluder fade).
                 case TileLayers.Ornaments: return _materials.heroes != null ? _materials.heroes : _materials.buildings;
                 default: return _materials.ForLayer(layer);
@@ -412,7 +431,11 @@ namespace Ghumante.World.Streaming
         public void Ready(SelectedNode node, TileExtras extras)
         {
             TileView view;
-            if (_views.TryGetValue(node, out view)) view.SetExtras(extras);
+            if (!_views.TryGetValue(node, out view)) return;
+            // New extras for a view: its static set (if any) is dropped and registered from them on the next view update.
+            UnregisterStatic(view);
+            view.SetExtras(extras);
+            if (view.IsVisible) view.CollidersDirty = true;
         }
 
         public void SetVisible(SelectedNode node, bool visible)
@@ -447,6 +470,7 @@ namespace Ghumante.World.Streaming
             if (view.IsVisible) SetVisible(node, false);
             if (view.CollidersRegistered && _ground != null) _ground.Unregister(node.Area.Key);
             view.CollidersRegistered = false;
+            UnregisterStatic(view);
             _cells.Release(view);
             _views.Remove(node);
             view.Clear();
@@ -550,6 +574,9 @@ namespace Ghumante.World.Streaming
         internal float[] HeroChanged = new float[0];
         internal bool[] HeroShown = new bool[0];
         internal bool CollidersDirty, CollidersRegistered;
+
+        /// <summary>True while the tile's static dressing colliders are registered (key | <see cref="TileGroundQuery.StaticSetKeyBit"/>).</summary>
+        internal bool StaticRegistered;
 
         /// <summary>Shown LOD of each bridge and ornament piece (parallel to <see cref="TileExtras.Pieces"/>; -1 none).</summary>
         internal int[] PieceLod = new int[0];
@@ -804,6 +831,7 @@ namespace Ghumante.World.Streaming
             IsVisible = false;
             CollidersDirty = false;
             CollidersRegistered = false;
+            StaticRegistered = false;
             if (_root != null) _root.SetActive(false);
         }
     }

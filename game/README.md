@@ -281,10 +281,9 @@ Everything the owner asked for in the detail pass, from the player's seat, in on
 below is checked against the sample's search index by `ExplorePlayIntegrationTests.ReadmeTeleportsFindTheirPlaceOnTheSample`).
 Steps marked *valley pack* need `kathmandu_valley` imported (see "How to play the M1 slice"); the rest run on the
 committed `kathmandu_core` sample. The game starts in October, so the fields and terraces show their October colours.
-Parts marked **(needs integ-world)** are drawn by world layers (bridge decks, roundabout statues and gates, statue and
-pier colliders) that the world integration package wires into the streamer; on a build without that merge they are not
-there yet, so skip them (`ExplorePlayIntegrationTests.ReadmeMarksTheWorldLayersThatAreNotWiredYet` keeps these marks
-honest: it fails once the layers are wired until the marks are removed, so re-check those steps then).
+The world layers these steps use (bridge decks, roundabout statues and gates, statue and pier colliders) are wired
+into the streamer by the world integration package (`ExplorePlayIntegrationTests.ReadmeMarksTheWorldLayersThatAreNotWiredYet`
+checks that no step still carries a "not wired" mark).
 
 1. **Camera angles (C).** On foot press **C**: *Near chase*, *Far chase*, *Over the shoulder*. **G** for the scooter,
    **E** to hop on, **C**: *Near*, *Far*, *Low cinematic*, *Handlebar*. A car adds *Bonnet* and *Driver's view*; a bus
@@ -297,7 +296,7 @@ honest: it fails once the layers are wired until the marks are removed, so re-ch
    terrain, is the camera's obstacle query), and it keeps doing so after the floating origin rebases (ride a couple of
    kilometres) and after you leave Explore and open it again
    (`ExplorePlayIntegrationTests.TheChaseBoomStopsShortOfThamelHousesAcrossRebasesAndAReopenedRegion`). Statues, piers
-   and bridge decks stop it too **(needs integ-world)**. Ride into a wall: a cartoon knock, a body bounce, a firm haptic
+   and bridge decks stop it too. Ride into a wall: a cartoon knock, a body bounce, a firm haptic
    on a phone, and the explorer winces and laughs.
 3. **Basantapur and Patan squares.** Teleport to **Basantapur** and walk onto the square: the explorer's face turns
    calm inside the sacred zone (the card names the site's rule), the pigeons peck on the bricks and burst up, circle
@@ -312,14 +311,14 @@ honest: it fails once the layers are wired until the marks are removed, so re-ch
    the dome. Teleport to **Swayambhunath** and walk the platform and the east stair: the macaque troop sits, grooms and
    climbs on the walls and chaityas. Near **Pashupatinath** a few of the men walking are sadhus in saffron
    with piled jata.
-6. **Bridges and the flyover (needs integ-world).** Teleport to **Thapathali** and ride south over the Bagmati to
+6. **Bridges and the flyover.** Teleport to **Thapathali** and ride south over the Bagmati to
    Kupondole: twin decks at street level with railings, kerbs and lamp posts. *Valley pack:* teleport to **Gwarko**,
    ride the Ring Road over the flyover, then take the road beneath it: 6 m of clearance, nothing gets stuck, the camera
-   stays under the deck. Without the world integration the road crosses the river on its ribbon with no deck, railings
-   or piers.
+   stays under the deck. On the sample, ride over the Thapathali bridge, not under it: the bank road beneath its deck
+   is not verified yet (open issue).
 7. **Maitighar Mandala and Shahid Gate.** Teleport to **Maitighar Mandala** and drive round the roundabout clockwise,
    keeping left, then ride to **Shahid Gate** and round its island. The mandala garden on the island, and the arch with
-   its lantern and the busts in the pavilions, are drawn by the roundabout decorator **(needs integ-world)**.
+   its lantern and the busts in the pavilions, are drawn by the roundabout decorator.
 8. **Buses at Ratna Park.** Teleport to **Ratna Park bus station**: green city buses, minibuses and micros (generic
    liveries, no operator names) run the real routes, sharing the moving-vehicle cap with the rest of the traffic. Hold **E** at an open front door to ride along, **B** to stop. A parked
    community-fleet vehicle (green key tag) keeps its model type (the same body shape and wheels) when you borrow it;

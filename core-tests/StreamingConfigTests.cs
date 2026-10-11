@@ -189,7 +189,8 @@ namespace Ghumante.Core.Tests
         /// <summary>
         /// All four layers of whole selections on the real sample, meshed the way TileBuild does with the game's
         /// options (<c>MeshingSettings.ForTier</c>: terrain at the tier's step from the node's source; for nodes that draw
-        /// detail the tier's road kit plus the bridge structures at their far LOD, the band table's B1 layer with its
+        /// detail the tier's road kit plus the bridge and roundabout pieces (triangles at their coarsest LOD, mesh bytes of
+        /// every LOD the tile uploads), the band table's B1 layer with its
         /// front detail and the roads package's corridors, and the tier's area options), for foci over every level-10
         /// tile of the sample including the densest (Thamel) and radii stretched by the hysteresis margin. Roughly a
         /// third of a selection is in view, so the whole selection must stay within three times ARCHITECTURE 10's
@@ -226,7 +227,7 @@ namespace Ghumante.Core.Tests
                         {
                             TileData src = StreamingSampleRegion.Tile(n.Source);
                             int step = cfg.TerrainStep(n.Area, n.Source, src.HeightsN);
-                            long[] c = NodeCost(src, n, step, tier, terrainCache, detailCache);
+                            long[] c = NodeCost(src, n, step, tier, cfg, terrainCache, detailCache);
                             for (int k = 0; k < 4; k++) layers[k] += c[k];
                             bytes += c[4];
                         }
@@ -258,8 +259,8 @@ namespace Ghumante.Core.Tests
 
         /// <summary>Terrain, roads, buildings and areas triangles of a node, then its mesh bytes (TileBuild.LayerBytes:
         /// position, normal, colour, optional uv0, 16- or 32-bit indices), meshed with the tier's game options.</summary>
-        private static long[] NodeCost(TileData src, SelectedNode n, int step, int tier, Dictionary<(ulong, ulong, int), long[]> terrainCache,
-                                       Dictionary<(ulong, int, int), long[]> detailCache)
+        private static long[] NodeCost(TileData src, SelectedNode n, int step, int tier, StreamingConfig cfg,
+                                       Dictionary<(ulong, ulong, int), long[]> terrainCache, Dictionary<(ulong, int, int), long[]> detailCache)
         {
             World.Streaming.MeshingSettings game = World.Streaming.MeshingSettings.ForTier(tier);
             var cost = new long[5];
@@ -280,12 +281,21 @@ namespace Ghumante.Core.Tests
                 {
                     d = new long[4];
                     TileHeightSampler h = TileHeightSampler.ForArea(src, n.Area, step);
+                    // Roads, bridges and ornaments as the streamer builds them (TileBuild, the tier's settings): the
+                    // triangles of the ribbons plus every bridge and ornament piece at its coarsest built LOD (most
+                    // pieces are far), the bytes of every LOD the tile uploads.
+                    World.Streaming.MeshingSettings roadsOnly = World.Streaming.MeshingSettings.ForTier(tier);
+                    roadsOnly.DrawBuildings = false;
+                    roadsOnly.DrawAreas = false;
+                    roadsOnly.DrawInstances = false;
+                    roadsOnly.DrawRoadDecals = false;
+                    var tb = new World.Streaming.TileBuild { Node = n, Source = src };
+                    World.Streaming.TileBuild.Execute(tb, StreamingSampleRegion.Pack, cfg, roadsOnly, null);
+                    d[0] = tb.Layers[World.Streaming.TileLayers.Roads].TriangleCount + CoarsestPieceTris(tb, World.Streaming.TileLayers.Bridges)
+                           + CoarsestPieceTris(tb, World.Streaming.TileLayers.Ornaments);
+                    d[3] += tb.LayerBytes(World.Streaming.TileLayers.Roads) + tb.LayerBytes(World.Streaming.TileLayers.Bridges)
+                            + tb.LayerBytes(World.Streaming.TileLayers.Ornaments);
                     var m = new MeshData();
-                    RoadMesher.Build(src, h, game.Roads, m);
-                    Meshing.Bridges.BridgeMesher.Build(src, h, game.BridgeLod(2), m);
-                    d[0] = m.TriangleCount;
-                    d[3] += Bytes(m);
-                    m = new MeshData();
                     BuildingMesher.Build(src, h, game.Buildings, m);
                     d[1] = m.TriangleCount;
                     d[3] += Bytes(m);
@@ -301,6 +311,26 @@ namespace Ghumante.Core.Tests
                 cost[4] += d[3];
             }
             return cost;
+        }
+
+        /// <summary>Triangles of a layer's pieces (<see cref="World.Streaming.LodPiece"/>), each at its coarsest built LOD.</summary>
+        private static long CoarsestPieceTris(World.Streaming.TileBuild b, int layer)
+        {
+            var coarsest = new Dictionary<int, int>();
+            foreach (World.Streaming.LodPiece p in b.Pieces)
+            {
+                if (p.Layer != layer) continue;
+                for (int l = 3; l >= 0; l--)
+                {
+                    if ((p.LodMask & (1 << l)) == 0) continue;
+                    coarsest[p.Index * 4 + l] = 1;
+                    break;
+                }
+            }
+            long tris = 0;
+            foreach (World.Streaming.UploadChunk c in b.Chunks)
+                if (c.Layer == layer && coarsest.ContainsKey(c.Part)) tris += c.IndexCount / 3;
+            return tris;
         }
 
         private static long Bytes(MeshData m)

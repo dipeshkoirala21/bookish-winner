@@ -185,8 +185,9 @@ namespace Ghumante.EditorTools
             // buildings, temples, trees and props). The look needs no URP renderer feature: the outline is a material pass
             // URP's opaque pass draws, the tier toggle is the shader LOD, and the textures and the occluder capsule are
             // globals ToonLook sets itself (RuntimeInitializeOnLoadMethod + beginCameraRendering). The detail pass's new
-            // tile layers draw with materials of this set (bridges: the road material with its ground-mode occluder fade;
-            // roundabout ornaments: the hero material), so EnsureMaterials covers them; it only creates what is missing.
+            // tile layers draw with materials of this set (bridges: their own material, GhumanteBridges, which fades whole
+            // between the camera and the player, while the road material no longer fades; roundabout ornaments: the hero
+            // material), so EnsureMaterials covers them; it only creates what is missing.
             WorldSetup.EnsureMaterials();
             if (!Application.isBatchMode) ToonLookEditor.Refresh(); // re-bake the edit-mode textures with the new settings
             AssetDatabase.SaveAssets();
