@@ -129,10 +129,12 @@ namespace Ghumante.Core.Generators.Flora
                 }
             // Sayapatri (African marigold) heads: a carpet of round orange and yellow pom-poms over most of the green
             // at Tihar (October-November; ref_assets-b.md §2). A jittered grid keeps them evenly spread; each head
-            // sits on the mound surface under it, most of it emerged. Bloom thins the carpet in the other months.
-            float cell = k.D.Near ? 0.2f : 0.32f;
-            float hr = k.D.Near ? 0.095f : 0.16f;
-            float spanX = w - 0.36f, spanZ = d - 0.3f;
+            // is held at the crest of the mound under it (far: over the whole bed top). Bloom thins the carpet in the
+            // other months.
+            float cell = k.D.Near ? 0.2f : 0.34f;
+            float hr = k.D.Near ? 0.12f : 0.235f;
+            // Far, the heads spread over the whole bed top (its brick edge is only a side colour there).
+            float spanX = w - (k.D.Near ? 0.36f : 0.24f), spanZ = d - (k.D.Near ? 0.3f : 0.2f);
             int nx = Math.Max(1, (int)Math.Round(spanX / cell)), nz = Math.Max(1, (int)Math.Round(spanZ / cell));
             float cx = spanX / nx, cz = spanZ / nz;
             for (int j = 0; j < nz; j++)
@@ -144,8 +146,10 @@ namespace Ghumante.Core.Generators.Flora
                     if (roll > 0.15f + 0.85f * bloom) continue;
                     float top = MoundTop(x, z, rows, cols, w, d, mrx, mry, mrz, my);
                     if (top <= 0f) continue;
-                    // The lumpy mound surface wanders ±18 % about the ellipsoid: sink the head a little into it.
-                    float y = Math.Min(top - (k.D.Near ? 0.12f : 0.25f) * r, h - 0.95f * r);
+                    // Held just above the leaves on its short stem (refs marigold_np 05, marigold_field 07): the lumpy
+                    // mound surface wanders ±18 % about the ellipsoid, so the head's rim sits at its crest.
+                    // (Capped by the model height: the near pom-pom rises 0.95 r above its rim, the far dome 0.55 r.)
+                    float y = Math.Min(top + (k.D.Near ? 0.02f : 0.05f) * r, h - (k.D.Near ? 0.95f : 0.55f) * r);
                     uint rgb = roll < 0.62f ? 0xF5821Fu : roll < 0.8f ? 0xF6B21Bu : 0xE8641Au;
                     Pompom(k.B, new Vec3(x, y, z), r, FloraBuilder.Fixed(rgb, shade), k.D.Near, rot);
                 }
@@ -177,7 +181,7 @@ namespace Ghumante.Core.Generators.Flora
         /// A marigold head: a ruffled pom-pom ball. Near: a crown point, an upper ring of five and a ruffled rim of ten
         /// (alternately out and in), 15 triangles, normals of a ball, the crown lighter and the rim darker, so it shades
         /// round; it sits on the foliage, so it has no underside. Far (<paramref name="near"/> false): a dome of six
-        /// (6 triangles) set into the mound.
+        /// (6 triangles) resting on the mound.
         /// </summary>
         private static void Pompom(FloraBuilder b, Vec3 c, float r, uint rgba, bool near, float rot)
         {

@@ -7,65 +7,14 @@ using NUnit.Framework;
 namespace Ghumante.Core.Tests
 {
     /// <summary>
-    /// The Dharahara and the hiti (Manga Hiti) forms of <see cref="HeroForms"/> against the photos (docs/research/w2/
-    /// ref_assets-b.md §3-§4): the 2021 tower's storey cornices, taper and dome-and-spire top; the hiti sunk below the
-    /// square with its stepped sides, spouts and walkable way down. Dumps (GHUMANTE_PREVIEW_DIR) for the visual check.
+    /// The hiti (Manga Hiti) form of <see cref="HeroForms"/> in detail (docs/research/w2/ref_assets-b.md §4): the pit's
+    /// levels from OSM, its stepped sides, spouts, Mani Mandap pavilions, walkable way down and the ground cut the
+    /// terrain must leave open; and the dumps (GHUMANTE_PREVIEW_DIR) of the Dharahara and the hitis for the visual
+    /// check. The reproductions of the reviewer's findings are in <see cref="HeroLandmarkLookTests"/>.
     /// </summary>
     public class HeroLandmarkFormsTests
     {
         private static readonly GenFrame Origin = new GenFrame(0, 0, 0f, 180f);
-
-        /// <summary>Largest distance from the vertical axis of the vertices with height in [y0, y1].</summary>
-        private static double MaxRadius(MeshData m, double y0, double y1)
-        {
-            double best = 0;
-            for (int v = 0; v < m.VertexCount; v++)
-            {
-                double y = m.Positions[3 * v + 1];
-                if (y < y0 || y > y1) continue;
-                double x = m.Positions[3 * v], z = m.Positions[3 * v + 2];
-                best = Math.Max(best, Math.Sqrt(x * x + z * z));
-            }
-            return best;
-        }
-
-        [Test]
-        public void DharaharaHasProjectingStoreyCorniceTaperAndDomeSpireTop()
-        {
-            for (int lod = 0; lod <= 3; lod++)
-            {
-                var m = new MeshData();
-                var c = new GenColliders();
-                var stats = new SacredStats();
-                int tris = HeroForms.Dharahara(72f, Origin, lod, m, c, stats);
-                MeshingChecks.AssertWellFormed(m, "Dharahara LOD" + lod);
-                Assert.That(m.HasUv0, Is.True);
-                Assert.That(tris, Is.LessThanOrEqualTo(HeroRecipe.BudgetB[lod]), "LOD" + lod + " budget");
-                float x0, y0, z0, x1, y1, z1;
-                m.GetBounds(out x0, out y0, out z0, out x1, out y1, out z1);
-                Assert.That(y1, Is.EqualTo(72f).Within(0.05f), "spire tip at 72 m");
-                Assert.That(stats.TopM, Is.EqualTo(72f));
-                TestContext.WriteLine("Dharahara LOD{0}: {1} tris", lod, tris);
-                if (lod >= 3) continue;
-                // Every storey cornice stands out of the shaft by at least 0.25 m (a ring, not a painted band); the
-                // shaft between them stays inside.
-                foreach (double yb in new[] { 9.0, 15.2, 21.2, 27.2, 33.1, 39.1, 45.1, 51.0 })
-                {
-                    double band = MaxRadius(m, yb - 0.1, yb + 0.1), wall = MaxRadius(m, yb + 1.5, yb + 3.0);
-                    Assert.That(band - wall, Is.GreaterThan(0.25), "LOD" + lod + " cornice at " + yb + " m projects");
-                }
-                // The shaft tapers: about 1.26 between its foot and the gallery.
-                double foot = MaxRadius(m, 9.19, 9.3), head = MaxRadius(m, 55.5, 55.7);
-                Assert.That(foot / head, Is.InRange(1.15, 1.35), "taper");
-                // The gallery balcony oversails the shaft; above it, the drum, the dome and the gilt spire rise 14 m,
-                // well over twice the dome's base radius (no squat cap).
-                Assert.That(MaxRadius(m, 57.2, 57.7), Is.GreaterThan(head + 1.8), "gallery balcony");
-                double dome = MaxRadius(m, 62.355, 62.45);
-                Assert.That(dome, Is.InRange(3.4, 4.3), "dome base radius");
-                Assert.That((72.0 - 62.36) / dome, Is.GreaterThan(2.2), "the top tapers to a spire");
-                Assert.That(MaxRadius(m, 68.5, 71.5), Is.LessThan(0.2), "needle spire");
-            }
-        }
 
         [Test]
         public void HitiIsASunkenSteppedPitWithSpoutsAndAWayDown()

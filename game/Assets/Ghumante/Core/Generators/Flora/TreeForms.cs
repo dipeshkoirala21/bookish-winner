@@ -751,98 +751,71 @@ namespace Ghumante.Core.Generators.Flora
         {
             k.ClumpCount = 0;
             k.TipCount = 0;
-            int culms = k.D.Near ? 14 : 5;
-            int segs = k.D.Near ? 5 : 2, sides = k.D.Near ? 4 : 3;
+            int culms = k.D.Near ? 14 : 6;
+            int segs = k.D.Near ? 4 : 2, sides = k.D.Near ? 4 : 3;
             var cs = new FloraBuilder.TubeStyle { Rgb = culm, PatchRgb = FloraBuilder.Mix(culm, 0x3E5A22u, 0.5f), PatchAmount = 0.6f, Banded = true, Channel = MaterialChannel.Bark };
-            k.CrownC = new Vec3(0f, 0.68f * h, 0f);
+            if (!k.D.Near) cs = new FloraBuilder.TubeStyle { Rgb = culm, Channel = MaterialChannel.Bark };
+            k.CrownC = new Vec3(0f, 0.7f * h, 0f);
             k.CrownRad = 0.4f * w;
-            var st = FloraBuilder.PuffStyle.Foliage(leaf, k.CrownC, 0.5f * w);
-            st.TopRgb = Sunlit(leaf, 0.35f);
-            st.Bend = 0.35f;
-            if (!k.D.Near)
-            {
-                // Mid distance: six culms rising from the clump and arching out, each hung with two sprays of big
-                // leaf cards along its upper half (the feathery fountain of a village bans clump, never a round head).
-                var cs1 = new FloraBuilder.TubeStyle { Rgb = culm, Channel = MaterialChannel.Bark };
-                uint leafM = FloraBuilder.Leaf(leaf, 1f), leafM2 = FloraBuilder.Leaf(Sunlit(leaf, 0.35f), 1f);
-                Vec3[] q = FloraBuilder.Pts(3);
-                float[] qr = FloraBuilder.Radii(3);
-                for (int i = 0; i < 6; i++)
-                {
-                    double a = i * 2.39996 + 0.3;
-                    var outDir = new Vec3((float)Math.Cos(a), 0f, (float)Math.Sin(a));
-                    var foot = outDir * (i == 0 ? 0.1f : 0.45f) - Vec3.Up * 0.1f;
-                    float hc = h * (i == 0 ? 1f : i % 2 == 0 ? 0.92f : 0.84f);
-                    float reach = 0.48f * w * (i == 0 ? 0.35f : i % 2 == 0 ? 0.95f : 0.8f);
-                    Vec3 p1 = foot + Vec3.Up * (1.4f * hc) + outDir * (0.15f * reach);
-                    Vec3 end = foot + Vec3.Up * (0.7f * hc) + outDir * reach;
-                    for (int s2 = 0; s2 <= 2; s2++)
-                    {
-                        q[s2] = Bez(foot, p1, end, 0.5f * s2);
-                        qr[s2] = 0.085f * (1f - 0.3f * s2);
-                    }
-                    k.B.Tube(q, qr, 3, 3, cs1, 0.5f, 0.85f, false);
-                    for (int sp = 0; sp < 2; sp++)
-                    {
-                        Vec3 c = Bez(foot, p1, end, sp == 0 ? 0.4f : 0.78f);
-                        Vec3 o = (outDir + Vec3.Up * 0.4f).Normalized;
-                        for (int j = 0; j < 3; j++)
-                        {
-                            double b2 = a + (j - 1) * 0.7 + k.Rng.Jitter(0.2f);
-                            var dir = new Vec3((float)Math.Cos(b2) * 0.8f, k.Rng.Range(-0.8f, -0.2f), (float)Math.Sin(b2) * 0.8f).Normalized;
-                            k.B.LeafCard(c, dir, o, k.Rng.Range(1.6f, 2.1f), 0.5f, j == 1 ? leafM2 : leafM, 0.85f);
-                        }
-                    }
-                }
-                k.CrownC = new Vec3(0f, 0.7f * h, 0f);
-                return;
-            }
-            // No round inner plume: a bans clump is a fountain of culms and their leafy sprays all the way through
-            // (refs dendrocalamus 05, bamboo_clump), which a solid core would turn into a round head.
             uint leafC = FloraBuilder.Leaf(leaf, 1f), leafTop = FloraBuilder.Leaf(Sunlit(leaf, 0.4f), 1f);
-            Vec3[] p = new Vec3[segs + 1];
-            float[] r = new float[segs + 1];
+            Vec3[] p = FloraBuilder.Pts(segs + 1);
+            float[] r = FloraBuilder.Radii(segs + 1);
+            // A bans clump is a fountain of culms and their leafy sprays all the way through (refs dendrocalamus 05,
+            // bamboo_clump 09): the culms splay from a narrow foot into a vase and arch over at the top, the crown is a
+            // broad, ragged mass of hanging sprays over the upper two thirds of every culm, never a round head.
             for (int i = 0; i < culms; i++)
             {
-                double a = i * 2.39996 + k.Rng.Jitter(0.4f);
-                float rb = (float)Math.Sqrt((i + 0.5f) / culms) * 0.65f;
-                var foot = new Vec3((float)Math.Cos(a) * rb, -0.1f, (float)Math.Sin(a) * rb);
+                double a = i * 2.39996 + (k.D.Near ? k.Rng.Jitter(0.4f) : 0.3f);
                 var outDir = new Vec3((float)Math.Cos(a), 0f, (float)Math.Sin(a));
-                float hc = h * k.Rng.Range(0.82f, 1f);
-                float reach = 0.48f * w * k.Rng.Range(0.65f, 1f);
-                // Each culm rises nearly straight, then arches out and over; its tip hangs.
-                Vec3 p1 = foot + Vec3.Up * (1.4f * hc) + outDir * (0.15f * reach);
-                Vec3 end = foot + Vec3.Up * (0.7f * hc) + outDir * reach;
+                float rb = k.D.Near ? (float)Math.Sqrt((i + 0.5f) / culms) * 0.7f : (i == 0 ? 0.1f : 0.5f);
+                var foot = outDir * rb - Vec3.Up * 0.1f;
+                float hc = h * (k.D.Near ? k.Rng.Range(0.84f, 1.03f) : i == 0 ? 1.03f : i % 2 == 0 ? 0.95f : 0.88f);
+                float reach = 0.5f * w * (k.D.Near ? k.Rng.Range(0.6f, 1f) : i == 0 ? 0.4f : i % 2 == 0 ? 0.95f : 0.8f);
+                Vec3 ctrl, end;
+                BambooArch(foot, outDir, hc, reach, out ctrl, out end);
                 for (int s = 0; s <= segs; s++)
                 {
                     float t = (float)s / segs;
-                    p[s] = Bez(foot, p1, end, t);
+                    p[s] = Bez(foot, ctrl, end, t);
                     r[s] = 0.085f * (1f - 0.65f * t);
                 }
-                k.B.Tube(p, r, segs + 1, sides, cs, 0.5f, 0.9f, false, 0, 0f, k.Seed ^ (uint)i);
-                // Sprays: fans of narrow leaves hanging from the nodes of the upper, arching half.
-                int sprays = k.D.Near ? 4 : 1;
+                if (k.D.Near) k.B.Tube(p, r, segs + 1, sides, cs, 0.5f, 0.9f, false, 0, 0f, k.Seed ^ (uint)i);
+                else k.B.Tube(p, r, segs + 1, sides, cs, 0.5f, 0.85f, false);
+                // Sprays: fans of leaves hanging from the nodes of the upper two thirds, longest along the arch.
+                int sprays = k.D.Near ? 5 : 2;
                 for (int q = 0; q < sprays; q++)
                 {
-                    // Leafy from about a third of the way up (refs dendrocalamus 05): sprays from the rise to the tip.
-                    float t = sprays == 1 ? 0.75f : 0.25f + 0.22f * q;
-                    Vec3 c = Bez(foot, p1, end, t);
+                    float t = k.D.Near ? 0.36f + 0.145f * q : (q == 0 ? 0.5f : 0.82f);
+                    Vec3 c = Bez(foot, ctrl, end, t);
+                    Vec3 o = (outDir + Vec3.Up * 0.4f).Normalized;
                     int cards = k.D.Near ? 4 : 3;
                     for (int j = 0; j < cards; j++)
                     {
-                        double b = a + (j - (cards - 1) * 0.5) * 0.55 + k.Rng.Jitter(0.2f);
-                        var dir = new Vec3((float)Math.Cos(b) * 0.8f, k.Rng.Range(-0.9f, -0.2f), (float)Math.Sin(b) * 0.8f).Normalized;
-                        Vec3 o = (outDir + Vec3.Up * 0.4f).Normalized;
-                        float len = k.Rng.Range(0.9f, 1.3f);
-                        k.B.LeafCard(c, dir, o, len, 0.24f, j % 2 == 0 ? leafC : leafTop, 0.85f);
+                        double b = a + (j - (cards - 1) * 0.5) * 0.6 + k.Rng.Jitter(0.2f);
+                        var dir = new Vec3((float)Math.Cos(b) * 0.8f, k.Rng.Range(-0.9f, -0.25f), (float)Math.Sin(b) * 0.8f).Normalized;
+                        float len = k.D.Near ? k.Rng.Range(1.3f, 1.8f) * (0.75f + 0.4f * t) : k.Rng.Range(2.3f, 2.9f);
+                        float wide = k.D.Near ? 0.6f : 1.1f;
+                        k.B.LeafCard(c, dir, o, len, wide, j % 2 == 0 ? leafC : leafTop, 0.85f);
                     }
-                    if (k.ClumpCount < k.ClumpC.Length)
+                    if (k.D.Near && k.ClumpCount < k.ClumpC.Length)
                     {
                         k.ClumpC[k.ClumpCount] = c;
                         k.ClumpR[k.ClumpCount++] = new Vec3(0.5f, 0.5f, 0.5f);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// The arch of a bamboo culm (shared by the detailed clump and its far form, <see cref="FountainFar.Bamboo"/>):
+        /// a quadratic curve from <paramref name="foot"/> through <paramref name="ctrl"/> to <paramref name="tip"/> that
+        /// splays out from the foot (the vase), tops out at about 0.89 <paramref name="hc"/> some 0.6 of the way out
+        /// and droops to 0.7 <paramref name="hc"/> at <paramref name="reach"/>.
+        /// </summary>
+        internal static void BambooArch(Vec3 foot, Vec3 outDir, float hc, float reach, out Vec3 ctrl, out Vec3 tip)
+        {
+            ctrl = foot + Vec3.Up * (1.3f * hc) + outDir * (0.35f * reach);
+            tip = foot + Vec3.Up * (0.7f * hc) + outDir * reach;
         }
 
         private static Vec3 Bez(Vec3 a, Vec3 b, Vec3 c, float t)

@@ -424,10 +424,10 @@ namespace Ghumante.Core.Generators.Sacred
                     double yb = DharaharaBands[b], rb = DharaharaR(yb);
                     pf.Add(rb + 0.35, yb, true).Add(rb, yb + 0.25, true);
                 }
-                pf.Add(DharaharaR(55.6), 55.6, true).Add(7.0, 57.4, true).Add(4.5, 57.7, true).Add(4.5, 61.3, true).Add(3.95, 62.4, true).Add(0.4, 66.1, true);
+                pf.Add(DharaharaR(55.6), 55.6, true).Add(7.0, 57.4, true).Add(4.5, 57.7, true).Add(4.5, 61.3, true).Add(3.55, 62.4, true).Add(0.4, 66.35, true);
                 Shapes.Lathe(m, ks, white, pf, sides);
                 Profile2 ps = Prof;
-                ps.Add(0.45, 66.0, true).Add(0.12, 67.9).Add(0, 72.0);
+                ps.Add(0.45, 66.25, true).Add(0.12, 67.9).Add(0, 72.0);
                 Shapes.Lathe(m, ks, Looks.Gilt, ps, 3);
             }
             else
@@ -470,18 +470,19 @@ namespace Ghumante.Core.Generators.Sacred
                     // rounded top rail.
                     Profile2 rail = Prof;
                     rail.Clear(true);
-                    rail.Add(railR - 0.1, railTop - 0.12, true).Add(railR + 0.1, railTop - 0.12, true).Add(railR + 0.12, railTop - 0.04).Add(railR, railTop)
-                        .Add(railR - 0.12, railTop - 0.04);
+                    rail.Add(railR - 0.13, railTop - 0.16, true).Add(railR + 0.13, railTop - 0.16, true).Add(railR + 0.15, railTop - 0.05).Add(railR, railTop)
+                        .Add(railR - 0.15, railTop - 0.05);
                     Shapes.Lathe(m, ks, white, rail, sides);
                     Profile2 low = Prof;
                     low.Clear(true);
                     low.Add(railR - 0.1, deck, true).Add(railR + 0.1, deck, true).Add(railR + 0.1, deck + 0.38, true).Add(railR - 0.1, deck + 0.38, true);
                     Shapes.Lathe(m, ks, white, low, sides);
-                    int posts = lod == 0 ? 48 : 24;
+                    int posts = lod == 0 ? 44 : 24;
                     for (int q = 0; q < posts; q++)
                     {
                         double a = 2 * Math.PI * (q + 0.5) / posts;
-                        Shapes.Cylinder(m, SacredDraw.At(ks, railR * Math.Sin(a), deck + 0.36, railR * Math.Cos(a)), white, lod == 0 ? 0.075 : 0.09, railTop - deck - 0.46,
+                        // Fat white balusters (photos: the balustrade reads as a white lattice, not a thin rail).
+                        Shapes.Cylinder(m, SacredDraw.At(ks, railR * Math.Sin(a), deck + 0.36, railR * Math.Cos(a)), white, lod == 0 ? 0.11 : 0.12, railTop - deck - 0.5,
                                         lod == 0 ? 6 : 4, 0, 0, false, false);
                     }
                 }
@@ -497,34 +498,36 @@ namespace Ghumante.Core.Generators.Sacred
                 // Drum, drum cornice, collar, dome.
                 Profile2 pd = Prof;
                 pd.Add(4.5, 57.68, true).Add(4.5, 60.9, true);
-                if (lod == 2) pd.Add(4.84, 61.1, true).Add(4.2, 61.32, true).Add(4.2, 62.36, true).Add(3.95, 62.36, true);
+                if (lod == 2) pd.Add(4.84, 61.1, true).Add(4.0, 61.32, true).Add(4.0, 62.36, true).Add(3.55, 62.36, true);
                 Shapes.Lathe(m, ks, white, pd, sides);
                 if (lod <= 1)
                 {
                     Profile2 dc = Prof;
-                    dc.Add(4.5, 60.9, true).Add(4.72, 61.0).Add(4.84, 61.15).Add(4.76, 61.3, true).Add(4.2, 61.32, true);
+                    dc.Add(4.5, 60.9, true).Add(4.72, 61.0).Add(4.84, 61.15).Add(4.76, 61.3, true).Add(4.0, 61.32, true);
                     Shapes.Lathe(m, ks, cream, dc, sides);
                     Profile2 col = Prof;
-                    col.Add(4.2, 61.32, true).Add(4.2, 62.05, true).Add(4.38, 62.15).Add(4.36, 62.32, true).Add(3.95, 62.36, true);
+                    // The narrower collar ring between the drum and the dome (photos c_00, c_11: a second step).
+                    col.Add(4.0, 61.32, true).Add(4.0, 62.0, true).Add(4.18, 62.1).Add(4.16, 62.3, true).Add(3.55, 62.36, true);
                     Shapes.Lathe(m, ks, white, col, sides);
                 }
                 Profile2 dome = Prof;
-                dome.Add(3.95, 62.36, true).Add(3.98, 62.9).Add(3.82, 63.7).Add(3.32, 64.6).Add(2.5, 65.3).Add(1.4, 65.8).Add(0.5, 66.05).Add(0.36, 66.1, true);
+                // A tall white bell dome (photos: a little taller than half its width), narrower than the collar.
+                dome.Add(3.55, 62.36, true).Add(3.6, 62.9).Add(3.48, 63.8).Add(3.08, 64.75).Add(2.35, 65.55).Add(1.35, 66.1).Add(0.5, 66.32).Add(0.36, 66.35, true);
                 if (lod == 2)
                 {
                     dome.Clear(false);
-                    dome.Add(3.95, 62.36, true).Add(3.9, 63.4).Add(3.0, 64.9).Add(1.5, 65.75).Add(0.36, 66.1, true);
+                    dome.Add(3.55, 62.36, true).Add(3.52, 63.6).Add(2.75, 65.1).Add(1.4, 66.05).Add(0.36, 66.35, true);
                 }
                 Shapes.Lathe(m, ks, white, dome, sides);
 
                 // Gilt kalash and needle spire.
                 Profile2 fin = Prof;
-                fin.Add(0.36, 66.0, true).Add(0.48, 66.05, true).Add(0.64, 66.3).Add(0.68, 66.62).Add(0.52, 66.95).Add(0.22, 67.15, true).Add(0.36, 67.4)
-                   .Add(0.3, 67.66).Add(0.12, 67.86, true).Add(0.07, 70.6).Add(0, 72.0);
+                fin.Add(0.36, 66.25, true).Add(0.46, 66.3, true).Add(0.6, 66.52).Add(0.63, 66.8).Add(0.5, 67.08).Add(0.22, 67.26, true).Add(0.34, 67.48)
+                   .Add(0.28, 67.7).Add(0.12, 67.88, true).Add(0.07, 70.6).Add(0, 72.0);
                 if (lod == 2)
                 {
                     fin.Clear(false);
-                    fin.Add(0.36, 66.0, true).Add(0.66, 66.5).Add(0.22, 67.15, true).Add(0.12, 67.86, true).Add(0, 72.0);
+                    fin.Add(0.36, 66.25, true).Add(0.62, 66.7).Add(0.22, 67.26, true).Add(0.12, 67.88, true).Add(0, 72.0);
                 }
                 Shapes.Lathe(m, ks, Looks.Gilt, fin, lod == 0 ? 12 : lod == 1 ? 8 : 5);
 

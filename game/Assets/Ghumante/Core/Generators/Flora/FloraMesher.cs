@@ -8,7 +8,7 @@ namespace Ghumante.Core.Generators.Flora
     /// Meshes of the nature kit (W2_DESIGN 5.8; docs/W2_DETAIL_CONTRACT.md §1.6 and §5): every
     /// <see cref="TreeSpecies"/> at LOD0 (detailed: trunk, limbs, twigs, layered clumps with leafy fringes, bloom; ≤ 1,600 triangles)
     /// and LOD1 (simple: ≤ 240), the shared far LODs per far form (<see cref="FarForms"/>: the crowns of leaves of the
-    /// <see cref="TreeShape"/> families, the clump of banana and bamboo, the palm; LOD2 volume ≤ 112 triangles, LOD3
+    /// <see cref="TreeShape"/> families, the banana clump, the palm and the bamboo clump; LOD2 volume ≤ 112 triangles, LOD3
     /// impostor ≤ 24, both grey and tinted per instance with <see cref="FloraCatalog.FoliageColour"/>), and the
     /// chautari platform.
     /// <para>
@@ -34,22 +34,27 @@ namespace Ghumante.Core.Generators.Flora
 
         /// <summary>
         /// Number of far forms (the shared LOD2 volume and LOD3 impostor shapes): the five <see cref="TreeShape"/>
-        /// families, then <see cref="PalmForm"/>. The Fountain family is the clump of banana mats and bamboo (stems from
-        /// the ground, big arching blades); palms, whose fronds spring from the top of a bare trunk, have their own
-        /// form. A renderer that keeps one far mesh per form (<see cref="Far"/>, indexed by <see cref="FarFormOf"/>)
-        /// draws every far tree with its own silhouette; one keyed by <see cref="TreeShape"/> (<see cref="Family"/>)
-        /// draws palms as clumps.
+        /// families, then <see cref="PalmForm"/> and <see cref="BambooForm"/>. The Fountain family is the clump of banana
+        /// mats (stems from the ground, big arching paddle blades); palms, whose fronds spring from the top of a bare
+        /// trunk, and bamboo, a tall vase of culms arching over under feathery plumes, have their own forms. A renderer
+        /// that keeps one far mesh per form (<see cref="Far"/>, indexed by <see cref="FarFormOf"/>) draws every far tree
+        /// with its own silhouette; one keyed by <see cref="TreeShape"/> (<see cref="Family"/>) draws palms and bamboo
+        /// as banana clumps.
         /// </summary>
-        public const int FarForms = 6;
+        public const int FarForms = 7;
 
         /// <summary>The far form of palms: a crown of arching fronds on a bare ringed trunk.</summary>
         public const int PalmForm = 5;
+
+        /// <summary>The far form of bamboo: a vase of arching culms under feathery leaf plumes.</summary>
+        public const int BambooForm = 6;
 
         /// <summary>The far form a species draws with (<see cref="Far"/>), or −1 for plants without far LODs
         /// (<see cref="TreeShape.Low"/>).</summary>
         public static int FarFormOf(TreeSpecies s)
         {
             if (s == TreeSpecies.Palm) return PalmForm;
+            if (s == TreeSpecies.Bamboo) return BambooForm;
             TreeShape f = FloraCatalog.Info(s).Family;
             return f == TreeShape.Low ? -1 : (int)f;
         }
@@ -100,9 +105,10 @@ namespace Ghumante.Core.Generators.Flora
         /// A far form (<see cref="FarForms"/>; <see cref="FarFormOf"/> gives a species' form) at <paramref name="lod"/>
         /// 2 (≤ 112 triangles) or 3 (≤ 24). Crowns of leaves (Round, Cone, Umbrella, Column): LOD2 a smooth lumpy volume
         /// on a short trunk, LOD3 a lumpy rounded crown on a three-sided trunk that keeps the silhouette, crown base and
-        /// stem at a few dozen pixels. The clump (Fountain: banana, bamboo): stems from the ground and nine blades arching
-        /// up, out and over from low on the clump. The palm: a leaning trunk under a star of arching fronds. At LOD3 each
-        /// blade is one two-sided triangle over its arch. Unit model scaled by (<paramref name="width"/>,
+        /// stem at a few dozen pixels. The clump (Fountain: banana): stems from the ground and nine paddle blades arching
+        /// up, out and over from low on the clump. The palm: a leaning trunk under a star of arching fronds. The bamboo:
+        /// a vase of culms arching over under leaf plumes. At LOD3 each blade or plume is one two-sided triangle over its
+        /// arch. Unit model scaled by (<paramref name="width"/>,
         /// <paramref name="height"/>). Foliage is grey (alpha 255) for the instance's crown colour; trunks are fixed bark
         /// (clump stems are tinted a shade darker than the leaves). Returns the triangles added.
         /// </summary>
@@ -114,6 +120,7 @@ namespace Ghumante.Core.Generators.Flora
             var b = new FloraBuilder(m);
             if (form == (int)TreeShape.Fountain) FountainFar.Clump(b, lod);
             else if (form == PalmForm) FountainFar.Palm(b, lod);
+            else if (form == BambooForm) FountainFar.Bamboo(b, lod);
             else Crown(b, (TreeShape)form, lod);
             Scale(m, v0, width, height);
             return m.TriangleCount - t0;
