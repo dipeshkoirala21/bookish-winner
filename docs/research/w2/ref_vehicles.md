@@ -106,6 +106,33 @@ rim and a disc or drum brake.
 ### 1.8 Riders
 * Riders **always wear a full-face or open-face helmet** (W2_DESIGN 5.2): black, white, red, blue with a dark visor;
   jacket or shirt, jeans, shoes; hands on the grips, feet on the pegs. Pillions common (not modelled in traffic).
+* **As built (assets-a fix round, `VehicleMesher.Rider.cs`):** traffic riders and the rickshaw puller are people from
+  the pedestrians' generator (`HumanoidMesher`), posed on the vehicle and baked into its body. Photos:
+  refs/assets-a/scooter_ktm ref_00 (a woman on a Dio-type scooter in Kathmandu: black jacket, jeans, red-black
+  open-face helmet, a green dust mask, upright back, arms straight to the grips, feet forward on the floorboard,
+  sandals) and ref_01 (a man on a red Pulsar-type bike: black full-face helmet, grey jacket, sandals, knees bent to
+  the pegs, children as pillions); rickshaw_ktm ref_02 and rickshaw_thamel ref_00 (pullers in shirts or vests, caps).
+  * **Who:** `RiderRecipe`: Kathmandu commuters (UrbanCasual recipes) — women on 45% of scooters (kurta suruwal or
+    jeans; a sari becomes a kurta), 8% of commuter bikes, 12% of bicycles; 65% of motor riders in a riding jacket
+    (black `#222326`, navy `#2B3550`, olive `#556B2F`, maroon `#6E1F2A`, red `#C62828`, grey `#6E7076`); a dust mask on
+    a third of motor riders; helmets black 34%, white 20%, red 15%, blue 15%, others 4% each; cyclists bare-headed or
+    in caps; rickshaw pullers (Farmer recipes: shirt or vest, rolled trousers, chappals or bare feet) in a cap, a
+    dhaka topi or a sun hat. No umbrella or prayer wheel (both hands are on the bars); a daypack is kept.
+  * **Helmet:** the motor two-wheelers (scooter, e-scooter, commuter bike, cruiser) always (`RiderWearsHelmet`), the
+    player's own helmet geometry; never on bicycles and rickshaws.
+  * **Pose** (`PoseRider`): hip joints 4.5 cm over the seat top (2.5 cm on saddles), the back leaning 16° on the
+    sporty commuters, 9° on the Shine type, 3-4° on scooters and the cruiser, 22° on the MTB, 10° on the roadster,
+    15° for the puller, the head lifted to look ahead; two-bone IK of the rig's own bones: palms on the grips (palm
+    down, a quarter turn about the forearm, fingers and thumb wrapped round the grip), feet flat on pegs and
+    floorboards, toes down 35° on the pedals with the crank a quarter turn from the top. Pedal riders use the
+    long-legged build at full adult height (the cartoon legs of the shorter builds do not reach a real-size cycle's
+    pedals). Tested: palms ≤ 5 cm from the grips, feet ≤ 5 cm from pegs or pedals (measured 1.4-4.1 cm and 0-3.3 cm).
+  * **Levels:** vehicle LOD0 → the near-crowd body (humanoid LOD1: face with eyes and brows, mitten hands with a
+    thumb, 2.2-2.9 k with the helmet), LOD1 → the mid-distance body (LOD2, ≤ 720), LOD2 → the far body (≤ 500). The
+    rider triangles are exactly the humanoid body's (`TrafficRidersAreSeatedHumanoids`).
+  * **Variety:** `RiderLooks` = 4 people per livery and model type (`Build(..., rider, riderLook)`,
+    `RiderLookFor(agentSeed)`); the look depends only on livery, model type and look, so an agent keeps its rider
+    across levels. Until the cache keys its bodies by look (open issue §11), look 0 is drawn.
 
 ## 2. Cars
 
@@ -247,23 +274,30 @@ type and livery by `core-tests/VehicleMeshTests`):
 
 | Family | LOD0 | LOD1 | LOD2 |
 |---|---|---|---|
-| Two-wheelers and the rickshaw | 7 000 | 2 200 | 700 |
+| Two-wheelers and the rickshaw | 9 400 | 2 700 | 1 100 |
 | Cars, taxis, SUVs, pickups, vans, tempo | 7 500 | 2 400 | 900 |
 | Buses, trucks, tippers, tankers, tractor | 9 000 | 2 600 | 900 |
 
 * LOD0 (player and the nearest one to three agents): everything above, numbered plates. W2_DESIGN 10.4 gives the
-  player 6 k; the two-wheeler cap is 7 k because the helmeted traffic rider alone is ≈ 0.9 k and the Classic-type
-  bike needs its spoked wheels, chrome lamp and springs to read. Buses and trucks fill the screen and at most one is
-  at LOD0.
+  player 6 k; the two-wheeler cap is 9.4 k because the traffic rider is now the pedestrians' near-crowd body with its
+  helmet (2.2-2.9 k; it was a 0.9 k primitive rig) on a bike of up to 6.1 k (the Classic type needs its spoked
+  wheels, chrome lamp and springs to read); measured worst 9.0 k (Classic). The player's own bike carries no traffic
+  rider. Buses and trucks fill the screen and at most one is at LOD0.
 * LOD1 (25-80 m): same silhouette, small parts dropped (levers, cables, nuts, wipers, mirrors' glass), small
   rounded parts become plain boxes, cladding and fenders use a plain section, blank plates; wheels are a 5-point
   tyre on 10-14 segments with a rim face and the style's spokes or lugs (10.4 assumes ≈ 2 k).
-* LOD2: rounded silhouette, wheels baked, rider as boxes, 700-900 (10.4 assumes ≈ 600). Most LOD2 agents are
-  two-wheelers at 650-700.
+* LOD2: rounded silhouette, wheels baked, the rider the far crowd body (≤ 500), 900-1 100 for two-wheelers
+  (measured 911-1 053) and 900 for the rest (10.4 assumes ≈ 600). Riders at LOD1 are the mid-distance body
+  (≤ 720; two-wheelers measured 1.8-2.6 k).
 * **Slice check (open issue for the 10.4 owner):** 10.4's worked count for Low is player 6 k + 1 × 2 k + 6 × 0.6 k
   ≈ 11.6 k moving. With these caps a typical Low frame (player on a bike 7 k, one LOD1 car 2.4 k, six LOD2
   two-wheelers 4.2 k) is ≈ 13.6 k, about 2 k over; the worst case (heavy vehicles at every level) is ≈ 3.5 k over.
   Mid and High have the headroom (34 k / 56 k worked counts against 45 k / 75 k slices).
+* **Rider cost (assets-a fix round, open issue for the 10.4 owner):** humanoid riders add ≈ +1.6 k per LOD0, +0.35 k
+  per LOD1 and +0.3 k per LOD2 two-wheeler over the old primitive rig. With two-wheelers at about 60% of traffic
+  that is ≈ +1.2 k on Low (1 LOD1 + 6 LOD2 agents), ≈ +5 k on Mid and ≈ +9 k on High, i.e. 1-1.3% of each frame.
+  Proposal: count traffic riders in the characters slice (they are people), or let the presenter draw one fewer
+  LOD1 two-wheeler on Low; parked vehicles carry no rider and are unchanged.
 * Block-out ≤ 80 and box 12 for parked vehicles (W2_DESIGN 5.2).
 
 ## 8. Modal mix (unchanged, W2_DESIGN 5.2)
@@ -321,7 +355,48 @@ Kathmandu e-bus, decorated truck front, HORN PLEASE tailgate, tipper, Hilux, Nex
 | Decorated truck | truck_art 01/03, tata_truck 00/05, horn_please 00 |
 | Tipper | c_tipper 00 (Mosbatho, CC BY 4.0) |
 
+## 10a. Fix round assets-a: rickshaw hood, scooter plates (as built)
+
+* **Cycle-rickshaw hood** (photos refs/assets-a/rickshaw_thamel ref_00, rickshaw_ktm ref_02 and ref_07: Thamel and
+  Asan tourist rickshaws). Real: a folding pram hood of canvas (green, maroon, blue, black; a frilled valance in white,
+  pink or red with tassels) stretched over 4-5 bows that pivot on the sides of the backrest; it is as wide as the
+  bench (≈ 0.95 m), symmetric, open at the front, its front edge leaning out over the passengers' knees at ≈ 1.7 m,
+  its top ≈ 1.85-1.9 m, closed behind by an arched panel above the painted back board. Built (`RickshawHood`): the
+  arch section (half-width bench − 9 cm, reach 0.86 m from the pivot line at y 1.00, z −0.18, top corners r 0.17) as
+  a closed canvas band revolved about the pivot line from 52° (front bow) to 96° (rear bow) and stretched 1.25×
+  forward (the bows of a real hood pivot at different points: a flatter top that reaches over the footboard); a back
+  panel down to the pivot; at LOD0/LOD1 a valance band in the trim colour, raised bows (3 / 1) and chrome pivot hubs;
+  at LOD0 13 tassels round the opening. Symmetric about x = 0 at every level (the old hood was a quarter-dome off one
+  side). The bench cushion is built at every level, so the backrest and hood stand on it at LOD2 too.
+* **Scooter rear plates** (photos refs/assets-a/scooter_plate ref_05 and ref_06, scooter_ktm ref_04; the Dio,
+  Activa and Ntorq carry the plate on a black plastic holder under the tail lamp). Built: the plate's z is just ahead
+  of the model's own tail end (Dio, Ntorq, Ather −0.43; Activa −0.41; NIU −0.40), its top edge 2.5 cm (round tails)
+  or 6 cm (high sporty tails) under the tail's underside sampled from the hull, leaning 0.2 rad; a black holder stem
+  from inside the tail down to the plate and a backing 2 cm larger than the plate (`PlateHolder`). The motorbike
+  plate hanger now reaches up into the tail cowl (it stopped 5.6 cm short on the Pulsar and streetfighter types),
+  and the Classic's valanced guard keeps its LOD1 segments (`FenderArc` no longer halves them twice), so its plate
+  sits on the guard at LOD1. Test: every two-wheeler's rear plate touches the body (2 cm voxels,
+  `TwoWheelerRearPlatesTouchTheBody`).
+
+**Photo credits of the assets-a fix round** (Openverse, reference only, never in the repository; under
+/home/user/wt/refs/assets-a/): scooter_ktm ref_00, ref_01 "120907-F-CP197-859/-865", Pacific Air Forces, CC BY 2.0
+(flickr.com/photos/69646446@N02/7957502154, /7957420324); scooter_ktm ref_04 "Woman in an orange sari walking down the
+street near Shree Pashupatinath Temple", BryonLippincott, CC BY-ND 2.0; scooter_plate ref_05 "Electric Scooter",
+pixelfrenzy, CC BY-NC-SA 2.0 (flickr.com/photos/71594384@N00/5383933763); scooter_plate ref_06 "Cool Number Plate",
+RobW_, CC BY-NC-ND 2.0; rickshaw_ktm ref_02 "Cycle Rickshaws", jackol, CC BY-NC-SA 2.0
+(flickr.com/photos/44124329962@N01/3671312795); rickshaw_ktm ref_07 "Cycle-rickshaws can be a good way to negotiate
+the narrow and crowded streets", Globalism Pictures, CC BY 2.0; rickshaw_thamel ref_00 "Rickshaw. Thamel -
+Kathmandu", Phil @ Delfryn Design, CC BY-NC-SA 2.0 (flickr.com/photos/43555170@N00/5257539016). Side-by-side
+renders: /home/user/wt/previews/assets-a/png/sbs_riders.png, sbs_rickshaw.png, sbs_scooter_plate.png, riders_all.png.
+
 ## 11. Open issues (outside this package)
+
+* **integration (VehicleMeshCache, TrafficPresenter) — rider variety.** Pass `VehicleMesher.RiderLookFor(agentId)` as
+  `riderLook` to `VehicleMesher.Build(variant, livery, model, lod, m, plateSeed, rider, riderLook)` for every level
+  (LOD0 unique, LOD1 and LOD2 shared bodies), and add the look to the shared-body key (`Body`, `TryBody`, the batch
+  key): four different riders per livery and model type instead of one. Without it every bike of one livery and
+  model type carries the same person (look 0), as before, but now a detailed one.
+* **integration / 10.4 owner — rider triangles.** See §7 "Rider cost": about +1.2 k / +5 k / +9 k per tier.
 
 * **camera — the player's car wheels.** `Characters/Rides/DrivenVehicleView.cs` builds the body with
   `cache.CreateUnique(variant, livery, Lod0, plateSeed)` (model type `ModelFor(variant, plateSeed)`) but places the

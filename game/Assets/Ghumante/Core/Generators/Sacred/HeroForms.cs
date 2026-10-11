@@ -371,97 +371,235 @@ namespace Ghumante.Core.Generators.Sacred
         // Towers
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>The 2021 Dharahara (rebuilt "in the old style with a larger diameter"): a moulded podium, a white
-        /// fluted shaft of 22 storeys tapering to the top drum, storey bands and window slots, the balcony gallery with its
-        /// railing, the cupola and the bronze mast, to exactly <paramref name="totalM"/>.</summary>
+        /// <summary>Storey cornices of the 2021 Dharahara below the gallery (heights in metres of the 72 m tower,
+        /// measured on photos from Sundhara: refs dharahara_new 00, 02, 05, 07; ref_assets-b.md §3).</summary>
+        private static readonly double[] DharaharaBands = { 9.0, 15.2, 21.2, 27.2, 33.1, 39.1, 45.1, 51.0 };
+
+        /// <summary>Shaft radius of the Dharahara at height <paramref name="y"/> (72 m scale): 6.0 m above the plinth
+        /// tapering to 4.75 m under the gallery (1.26 : 1), flared to 6.35 m at its foot.</summary>
+        private static double DharaharaR(double y)
+        {
+            double r = 6.0 - 1.25 * (y - 1.4) / (55.6 - 1.4);
+            if (y < 2.4) r += 0.35 * (2.4 - y);
+            return r;
+        }
+
+        /// <summary>
+        /// The 2021 Dharahara at Sundhara (rebuilt "in the old style with a larger diameter", 22 storeys, 72 m; refs
+        /// dharahara_new; ref_assets-b.md §3): a stepped round stone plinth; a white tapering shaft (1.26 : 1)
+        /// telescoping in nine sections, each storey band a projecting cream cornice with an undercut cove, round
+        /// porthole windows in each section and the arched door at the foot; the corbelled balcony gallery at 57.5 m
+        /// with its white balustrade; the drum with eight arched openings and a cornice, a collar and the white bell
+        /// dome; the gilt kalash and needle spire to exactly <paramref name="totalM"/>. LOD 0-2 keep every cornice (the
+        /// tower is seen across the valley); LOD 3 (≤ 200 triangles) is the same silhouette on six sides.
+        /// </summary>
         public static int Dharahara(float totalM, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
             int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
             Affine3 k = SacredDraw.Xf(f.Kit);
             double s = totalM / 72.0;
-            double baseTop = 1.4 * s, shaftTop = 57.0 * s, galleryTop = 58.4 * s, drumTop = 63.0 * s, capTop = 67.0 * s;
-            int sides = lod == 0 ? 32 : lod == 1 ? 20 : 10;
-            ShapeBrush white = Looks.Of(MeshColor.FromHex(0xF7F5EF), MaterialChannel.Plaster), trim = Looks.Of(MeshColor.FromHex(0xE6E1D6), MaterialChannel.Plaster);
+            int sides = lod <= 0 ? 40 : lod == 1 ? 20 : lod == 2 ? 8 : 6;
+            ShapeBrush white = Looks.Of(MeshColor.FromHex(0xF7F5EF), MaterialChannel.Plaster), cream = Looks.Of(MeshColor.FromHex(0xF0E6CC), MaterialChannel.Plaster);
+            ShapeBrush stone = Looks.Of(MeshColor.FromHex(0x8E8A82), MaterialChannel.Stone), glass = Looks.Of(MeshColor.FromHex(0x34404E), MaterialChannel.Glass);
+            Affine3 ks = Affine3.Scaling(s).Then(k);
+
+            // Stepped round plinth (three 0.45 m steps; refs dharahara_new 03-05).
             Profile2 pb = Prof;
-            pb.Add(0, -0.3).Add(7.6, -0.3, true).Add(7.6, 0.4 * baseTop, true).Add(7.2, 0.5 * baseTop, true).Add(7.2, baseTop, true).Add(0, baseTop);
-            Shapes.Lathe(m, k, trim, pb, sides);
-            // Fluted shaft.
-            int rows = lod == 0 ? 23 : lod == 1 ? 8 : 2, n = sides;
-            int fst = m.VertexCount;
-            for (int r = 0; r <= rows; r++)
+            if (lod >= 3) pb.Add(8.0, -0.3, true).Add(8.0, 1.4, true).Add(0, 1.4);
+            else if (lod == 2) pb.Add(0, -0.3).Add(8.0, -0.3, true).Add(8.0, 1.4, true).Add(0, 1.4);
+            else
+                pb.Add(0, -0.3).Add(8.6, -0.3, true).Add(8.6, 0.45, true).Add(8.0, 0.45, true).Add(8.0, 0.9, true).Add(7.4, 0.9, true).Add(7.4, 1.4, true)
+                  .Add(0, 1.4);
+            Shapes.Lathe(m, ks, stone, pb, sides);
+
+            // Shaft sections and storey cornices.
+            int nb = DharaharaBands.Length;
+            if (lod >= 3)
             {
-                double t = (double)r / rows, y = baseTop + (shaftTop - baseTop) * t, rad = 5.4 * (1 - 0.16 * t);
-                bool band = lod == 0 && r > 0 && r < rows;
-                for (int i = 0; i <= n; i++)
+                // Far: one white lathe with every other cornice as a sharp shelf.
+                Profile2 pf = Prof;
+                pf.Add(DharaharaR(1.4), 1.4, true);
+                for (int b = 1; b < nb; b += 2)
                 {
-                    double a = 2 * Math.PI * i / n, flute = i % 2 == 0 ? 1.0 : 0.93, rr = rad * flute * (band ? 1.02 : 1.0);
-                    SacredDraw.V(m, k, rr * Math.Sin(a), y, rr * Math.Cos(a), Math.Sin(a), 0.05, Math.Cos(a), band ? trim : white);
+                    double yb = DharaharaBands[b], rb = DharaharaR(yb);
+                    pf.Add(rb + 0.35, yb, true).Add(rb, yb + 0.25, true);
                 }
+                pf.Add(DharaharaR(55.6), 55.6, true).Add(7.0, 57.4, true).Add(4.5, 57.7, true).Add(4.5, 61.3, true).Add(3.55, 62.4, true).Add(0.4, 66.35, true);
+                Shapes.Lathe(m, ks, white, pf, sides);
+                Profile2 ps = Prof;
+                ps.Add(0.45, 66.25, true).Add(0.12, 67.9).Add(0, 72.0);
+                Shapes.Lathe(m, ks, Looks.Gilt, ps, 3);
             }
-            SacredDraw.Grid(m, fst, rows + 1, n + 1, false, null);
-            if (lod <= 1)
+            else
             {
-                int storeys = 22, slots = 0;
-                double sh = (shaftTop - baseTop) / storeys;
-                for (int q = 1; q < storeys; q += lod == 0 ? 1 : 3)
+                double y0 = 1.4;
+                for (int b = 0; b <= nb; b++)
                 {
-                    double t = (q * sh) / (shaftTop - baseTop), rr = 5.4 * (1 - 0.16 * t);
-                    for (int sd = 0; sd < 4; sd++)
+                    double y1 = b < nb ? DharaharaBands[b] : 55.6;
+                    // The section: tapering a little faster than the tower, so each band oversails the one above
+                    // (the telescoped look of the photos); the foot of the bottom section flares onto the plinth.
+                    Profile2 sec = Prof;
+                    double rTop = DharaharaR(y1) - (b < nb ? 0.1 : 0.0), yTop = b < nb ? y1 - (lod == 2 ? 0.3 : 0.42) : y1;
+                    if (b == 0 && lod == 2) sec.Add(6.3, 1.4, true);
+                    else if (b == 0) sec.Add(6.4, 1.4, true).Add(6.3, 1.65).Add(DharaharaR(2.4), 2.4);
+                    else sec.Add(DharaharaR(y0) - 0.05, y0, true);
+                    sec.Add(rTop, yTop, true);
+                    Shapes.Lathe(m, ks, white, sec, sides);
+                    if (b == nb) break;
+                    double yb = y1, rb = DharaharaR(yb);
+                    Profile2 cor = Prof;
+                    if (lod == 2) cor.Add(rb - 0.1, yb - 0.3, true).Add(rb + 0.34, yb, true).Add(rb - 0.05, yb + 0.2, true);
+                    else
+                        cor.Add(rb - 0.1, yb - 0.42, true).Add(rb + 0.1, yb - 0.32).Add(rb + 0.28, yb - 0.14).Add(rb + 0.36, yb + 0.02).Add(rb + 0.3, yb + 0.15)
+                           .Add(rb + 0.14, yb + 0.21, true).Add(rb - 0.05, yb + 0.22, true);
+                    Shapes.Lathe(m, ks, cream, cor, sides);
+                    y0 = yb + (lod == 2 ? 0.2 : 0.22);
+                }
+
+                // Gallery: a concave corbel out to the balcony slab with a rounded edge, the deck, the balustrade.
+                Profile2 pg = Prof;
+                if (lod == 2) pg.Add(DharaharaR(55.6), 55.6, true).Add(5.6, 56.8).Add(7.0, 57.3, true).Add(6.95, 57.66, true).Add(4.5, 57.68, true);
+                else
+                    pg.Add(DharaharaR(55.6), 55.6, true).Add(4.85, 55.95).Add(5.4, 56.45).Add(6.3, 56.85).Add(6.95, 56.95, true).Add(7.05, 57.3)
+                      .Add(6.95, 57.66, true).Add(4.5, 57.68, true);
+                Shapes.Lathe(m, ks, white, pg, sides);
+                double railR = 6.78, deck = 57.68, railTop = deck + 1.05;
+                if (lod <= 1)
+                {
+                    // White balustrade (photos: a pale lattice round the deck): a low solid parapet, balusters, a
+                    // rounded top rail.
+                    Profile2 rail = Prof;
+                    rail.Clear(true);
+                    rail.Add(railR - 0.13, railTop - 0.16, true).Add(railR + 0.13, railTop - 0.16, true).Add(railR + 0.15, railTop - 0.05).Add(railR, railTop)
+                        .Add(railR - 0.15, railTop - 0.05);
+                    Shapes.Lathe(m, ks, white, rail, sides);
+                    Profile2 low = Prof;
+                    low.Clear(true);
+                    low.Add(railR - 0.1, deck, true).Add(railR + 0.1, deck, true).Add(railR + 0.1, deck + 0.38, true).Add(railR - 0.1, deck + 0.38, true);
+                    Shapes.Lathe(m, ks, white, low, sides);
+                    int posts = lod == 0 ? 44 : 24;
+                    for (int q = 0; q < posts; q++)
                     {
-                        Affine3 side = SacredDraw.Turn(k, 0, 0, 0, sd * 0.5 * Math.PI + 0.25 * Math.PI * (q % 2));
-                        SacredDraw.Panel(m, side, -0.22, baseTop + q * sh + 0.35, 0.22, baseTop + q * sh + 0.35 + 0.55 * sh, rr + 0.02, Looks.Of(MeshColor.FromHex(0x3A4A5C), MaterialChannel.Glass));
-                        slots++;
+                        double a = 2 * Math.PI * (q + 0.5) / posts;
+                        // Fat white balusters (photos: the balustrade reads as a white lattice, not a thin rail).
+                        Shapes.Cylinder(m, SacredDraw.At(ks, railR * Math.Sin(a), deck + 0.36, railR * Math.Cos(a)), white, lod == 0 ? 0.11 : 0.12, railTop - deck - 0.5,
+                                        lod == 0 ? 6 : 4, 0, 0, false, false);
                     }
                 }
-                if (stats != null) stats.Windows = slots;
-            }
-            // Gallery slab, railing posts, top drum, cupola, mast.
-            Profile2 pg = Prof;
-            pg.Add(0, shaftTop - 0.6).Add(4.6, shaftTop - 0.6, true).Add(6.4, shaftTop - 0.05, true).Add(6.4, shaftTop + 0.25, true).Add(0, shaftTop + 0.25);
-            Shapes.Lathe(m, k, trim, pg, sides);
-            if (lod <= 1)
-            {
-                Profile2 rail = Prof;
-                rail.Add(6.25, galleryTop - 0.02).Add(6.35, galleryTop + 0.02, true).Add(6.35, galleryTop + 0.1, true).Add(6.25, galleryTop + 0.1);
-                Shapes.Lathe(m, k, Looks.Of(MeshColor.FromHex(0xC9CED6), MaterialChannel.Metal), rail, sides);
-                int posts = lod == 0 ? 24 : 12;
-                for (int q = 0; q < posts; q++)
+                else
                 {
-                    double a = 2 * Math.PI * q / posts;
-                    Shapes.Cylinder(m, SacredDraw.At(k, 6.3 * Math.Sin(a), shaftTop + 0.25, 6.3 * Math.Cos(a)), Looks.Of(MeshColor.FromHex(0xC9CED6), MaterialChannel.Metal), 0.04,
-                                    galleryTop + 0.05 - shaftTop - 0.25, 4, 0, 0, false, false);
+                    // A solid low balustrade ring reads from afar.
+                    Profile2 bal = Prof;
+                    bal.Clear(true);
+                    bal.Add(railR - 0.06, deck, true).Add(railR + 0.06, deck, true).Add(railR + 0.06, railTop - 0.1, true).Add(railR - 0.06, railTop - 0.1, true);
+                    Shapes.Lathe(m, ks, white, bal, sides);
                 }
-            }
-            Profile2 pd = Prof;
-            pd.Add(0, shaftTop + 0.2).Add(4.7, shaftTop + 0.2, true).Add(4.7, drumTop - 0.6).Add(5.1, drumTop - 0.3, true).Add(5.1, drumTop, true).Add(4.6, drumTop, true);
-            int cap = lod == 0 ? 8 : 4;
-            for (int q = 1; q <= cap; q++)
-            {
-                double a = 0.5 * Math.PI * q / cap;
-                pd.Add(4.6 * Math.Cos(a) + 0.25 * (q == cap ? 1 : 0), drumTop + (capTop - drumTop) * Math.Sin(a), q == cap);
-            }
-            pd.Add(0, capTop);
-            Shapes.Lathe(m, k, white, pd, sides);
-            if (lod <= 1)
-            {
-                for (int sd = 0; sd < 8; sd++)
+
+                // Drum, drum cornice, collar, dome.
+                Profile2 pd = Prof;
+                pd.Add(4.5, 57.68, true).Add(4.5, 60.9, true);
+                if (lod == 2) pd.Add(4.84, 61.1, true).Add(4.0, 61.32, true).Add(4.0, 62.36, true).Add(3.55, 62.36, true);
+                Shapes.Lathe(m, ks, white, pd, sides);
+                if (lod <= 1)
                 {
-                    Affine3 side = SacredDraw.Turn(k, 0, 0, 0, sd * 0.25 * Math.PI);
-                    SacredDraw.Panel(m, side, -0.45, shaftTop + 1.0, 0.45, drumTop - 1.0, 4.72, Looks.Of(MeshColor.FromHex(0x3A4A5C), MaterialChannel.Glass));
+                    Profile2 dc = Prof;
+                    dc.Add(4.5, 60.9, true).Add(4.72, 61.0).Add(4.84, 61.15).Add(4.76, 61.3, true).Add(4.0, 61.32, true);
+                    Shapes.Lathe(m, ks, cream, dc, sides);
+                    Profile2 col = Prof;
+                    // The narrower collar ring between the drum and the dome (photos c_00, c_11: a second step).
+                    col.Add(4.0, 61.32, true).Add(4.0, 62.0, true).Add(4.18, 62.1).Add(4.16, 62.3, true).Add(3.55, 62.36, true);
+                    Shapes.Lathe(m, ks, white, col, sides);
                 }
+                Profile2 dome = Prof;
+                // A tall white bell dome (photos: a little taller than half its width), narrower than the collar.
+                dome.Add(3.55, 62.36, true).Add(3.6, 62.9).Add(3.48, 63.8).Add(3.08, 64.75).Add(2.35, 65.55).Add(1.35, 66.1).Add(0.5, 66.32).Add(0.36, 66.35, true);
+                if (lod == 2)
+                {
+                    dome.Clear(false);
+                    dome.Add(3.55, 62.36, true).Add(3.52, 63.6).Add(2.75, 65.1).Add(1.4, 66.05).Add(0.36, 66.35, true);
+                }
+                Shapes.Lathe(m, ks, white, dome, sides);
+
+                // Gilt kalash and needle spire.
+                Profile2 fin = Prof;
+                fin.Add(0.36, 66.25, true).Add(0.46, 66.3, true).Add(0.6, 66.52).Add(0.63, 66.8).Add(0.5, 67.08).Add(0.22, 67.26, true).Add(0.34, 67.48)
+                   .Add(0.28, 67.7).Add(0.12, 67.88, true).Add(0.07, 70.6).Add(0, 72.0);
+                if (lod == 2)
+                {
+                    fin.Clear(false);
+                    fin.Add(0.36, 66.25, true).Add(0.62, 66.7).Add(0.22, 67.26, true).Add(0.12, 67.88, true).Add(0, 72.0);
+                }
+                Shapes.Lathe(m, ks, Looks.Gilt, fin, lod == 0 ? 12 : lod == 1 ? 8 : 5);
+
+                int windows = 0;
+                if (lod <= 1)
+                {
+                    // Arched openings round the drum (people look out over the valley from the deck behind them).
+                    for (int q = 0; q < 8; q++)
+                    {
+                        Affine3 side = SacredDraw.Turn(ks, 0, 0, 0, q * 0.25 * Math.PI + 0.125 * Math.PI);
+                        ArchPanel(m, side, 0, 58.15, 1.15, 2.05, 4.51, glass, lod == 0 ? 6 : 2);
+                        windows++;
+                    }
+                    // The arched door at the foot (+W) and the round porthole windows of each section.
+                    ArchPanel(m, ks, 0, 1.4, 1.7, 2.7, DharaharaR(2.6) + 0.02, Looks.Of(MeshColor.FromHex(0x5A3A26), MaterialChannel.Wood), lod == 0 ? 6 : 2);
+                    if (lod == 0)
+                    {
+                        double yPrev = 1.4;
+                        for (int b = 0; b <= nb; b++)
+                        {
+                            double yTop = b < nb ? DharaharaBands[b] : 55.6, ym = 0.5 * (yPrev + yTop) + (b == 0 ? 1.2 : 0.3);
+                            int per = b == 0 ? 3 : 4;
+                            for (int q = 0; q < per; q++)
+                            {
+                                double a = 2 * Math.PI * q / per + (b % 2 == 0 ? 0.25 * Math.PI : 0.0) + (b == 0 ? 0.5 * Math.PI : 0.0);
+                                double r = DharaharaR(ym) - 0.07 * (ym - yPrev) / (yTop - yPrev) - 0.05, dx = Math.Sin(a), dz = Math.Cos(a);
+                                Affine3 at = SacredDraw.Basis(ks, r * dx, ym, r * dz, 0, 1, 0, dx, 0, dz);
+                                Shapes.Cylinder(m, at, cream, 0.34, 0.13, 10, 0.03, 1, false, true);
+                                Shapes.Cylinder(m, at, glass, 0.24, 0.15, 10, 0, 0, false, true);
+                                windows++;
+                            }
+                            yPrev = yTop;
+                        }
+                    }
+                }
+                if (stats != null) stats.Windows = windows;
             }
-            Profile2 pm = Prof;
-            pm.Add(0, capTop - 0.1).Add(0.45, capTop - 0.1, true).Add(0.35, capTop + 0.4).Add(0.5, capTop + 0.9).Add(0.2, capTop + 1.3).Add(0.12, totalM - 1.5)
-              .Add(0.22, totalM - 1.2).Add(0.06, totalM - 0.5).Add(0, totalM);
-            Shapes.Lathe(m, k, Looks.Of(MeshColor.FromHex(0x8C6A3A), MaterialChannel.Metal), pm, lod == 0 ? 10 : 6);
-            if (c != null) c.AddBox(f.X, f.Z, f.GroundY, f.GroundY + totalM, 7.6, 7.6, 1, 0, GenColliderFlags.NoClimb, GenColliders.Concrete);
+            if (c != null)
+            {
+                // The plinth's three steps are walkable; the shaft is a solid round tower.
+                for (int q = 0; q < 3; q++)
+                {
+                    double half = (8.6 - 0.6 * q) * 0.82 * s;
+                    c.AddBox(f.X, f.Z, f.GroundY - 0.3, f.GroundY + 0.45 * (q + 1) * s + (q == 2 ? 0.05 * s : 0), half, half, 1, 0, GenColliderFlags.Walkable, GenColliders.Stone);
+                }
+                c.AddCylinder(f.X, f.Z, f.GroundY + 1.3 * s, f.GroundY + totalM, 6.3 * s);
+            }
             if (stats != null)
             {
                 stats.TopM = totalM;
+                stats.PlinthTopM = (float)(1.4 * s);
                 stats.DoorYawDeg = f.YawDeg;
             }
             SacredDraw.Bake(m, v0, i0, f.GroundY);
             return m.TriangleCount - t0;
+        }
+
+        /// <summary>A vertical arched panel facing +w at depth <paramref name="w"/>: a rectangle from
+        /// <paramref name="v0"/> up to the springing line and a semicircular head of <paramref name="segs"/> fan
+        /// triangles (doors, drum openings).</summary>
+        private static void ArchPanel(MeshData m, in Affine3 k, double u, double v0, double width, double height, double w, in ShapeBrush b, int segs)
+        {
+            double hw = 0.5 * width, spring = v0 + height - hw;
+            SacredDraw.Panel(m, k, u - hw, v0, u + hw, spring, w, b);
+            int cv = SacredDraw.V(m, k, u, spring, w, 0, 0, 1, b), prev = -1;
+            for (int q = 0; q <= segs; q++)
+            {
+                double a = Math.PI * q / segs;
+                int v = SacredDraw.V(m, k, u + hw * Math.Cos(a), spring + hw * Math.Sin(a), w, 0, 0, 1, b);
+                if (prev >= 0) SacredDraw.Tri(m, cv, prev, v);
+                prev = v;
+            }
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -494,53 +632,359 @@ namespace Ghumante.Core.Generators.Sacred
             return m.TriangleCount - t0;
         }
 
-        /// <summary>A hiti (stone water spouts; stage 1 keeps the ground level): a stone rim, steps descending on three
-        /// sides to a dark stone floor, a back wall with a small deity niche over each carved makara spout and its stream.</summary>
-        public static int Hiti(float w, float d, int spouts, bool flowing, in GenFrame f, int lod, MeshData m, GenColliders c)
+        /// <summary>Thickness of a hiti's parapet wall (OSM w328923444: 0.4 m).</summary>
+        private const double HitiParapetT = 0.4;
+
+        /// <summary>Parapet height above the square (OSM w328923444: 0.8 m).</summary>
+        private const double HitiParapetH = 0.8;
+
+        /// <summary>
+        /// Depth of a hiti's terrace level and its spout court below the square for a pit of
+        /// <paramref name="w"/> × <paramref name="d"/> metres: Manga Hiti (about 15 × 15 m) has its terrace at −2.5 m and
+        /// the court at −3.5 m (OSM walls w328923444 / w328923445; temples.md 2.9: about 3 m); small neighbourhood
+        /// hitis are shallower.
+        /// </summary>
+        public static void HitiLevels(float w, float d, out double terraceV, out double courtV)
+        {
+            double m = Math.Min(w, d);
+            terraceV = -Math.Min(2.5, 0.85 + 0.22 * m);
+            courtV = terraceV - Math.Min(1.0, 0.3 + 0.08 * m);
+        }
+
+        /// <summary>
+        /// The opening a hiti cuts into the ground, in its frame (centred, half extents along U and W): the inside of the
+        /// parapet. The terrain, the paved areas and the ground query must leave this rectangle open (the pit lies
+        /// below grade), as they do under a hero plinth; see docs/research/w2/ref_assets-b.md §4 (open issue).
+        /// </summary>
+        public static void HitiGroundCut(float w, float d, out double halfU, out double halfW)
+        {
+            halfU = Math.Max(0.5, 0.5 * w - HitiParapetT);
+            halfW = Math.Max(0.5, 0.5 * d - HitiParapetT);
+        }
+
+        /// <summary>
+        /// A hiti (dhunge dhara; temples.md 2.9; Manga Hiti refs mangahiti_c, ref_assets-b.md §4): a <b>sunken stepped
+        /// stone pit</b> below the square. A low brick parapet with a stone coping rings the opening (0.8 m), broken on
+        /// the front (+W) by the main stair; brick walls line the pit down to a brick-paved terrace ledge, from which
+        /// stone flights step down on the two sides and the stair continues to the flagstone spout court; the back (−W)
+        /// wall carries <paramref name="spouts"/> carved stone makara spouts, each under a horseshoe stela with a deity
+        /// niche, pouring into the water channel at its foot (when <paramref name="flowing"/>), and a round stone basin
+        /// stands in the court. With <paramref name="maniMandap"/> the two Mani Mandap pavilions (1700, on their brick
+        /// platform) stand in front of the stair beyond the parapet, as at Patan Durbar Square (OSM w328706342,
+        /// w328706352). Walkable colliders follow the terrace, court and stairs down into the pit; the parapet blocks.
+        /// The ground inside <see cref="HitiGroundCut"/> must be cut by the terrain and area meshers.
+        /// </summary>
+        public static int Hiti(float w, float d, int spouts, bool flowing, in GenFrame f, int lod, MeshData m, GenColliders c, bool maniMandap = false)
         {
             int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
             KitFrame kf = f.Kit;
             Affine3 k = SacredDraw.Xf(kf);
-            double hw = 0.5 * w, hd = 0.5 * d;
-            ShapeBrush stone = Looks.Stone, light = Looks.StoneLight;
+            double hw = 0.5 * w, hd = 0.5 * d, pt = HitiParapetT, ph = HitiParapetH;
+            double tv, cv;
+            HitiLevels(w, d, out tv, out cv);
+            ShapeBrush brick = Looks.Of(MeshColor.FromHex(0xB5533A), MaterialChannel.Brick), coping = Looks.Of(MeshColor.FromHex(0x9A958B), MaterialChannel.Stone);
+            ShapeBrush stone = Looks.Of(MeshColor.FromHex(0x8C887C), MaterialChannel.Stone), mossy = Looks.Of(MeshColor.FromHex(0x737A62), MaterialChannel.Stone);
+            ShapeBrush paving = Looks.Of(MeshColor.FromHex(0xA65A40), MaterialChannel.Brick, 0.85f), flag = Looks.Of(MeshColor.FromHex(0x66665C), MaterialChannel.Flagstone, 0.8f);
+            ShapeBrush water = Looks.Of(MeshColor.FromHex(0x4F6E5A), MaterialChannel.Water);
+            // Inside of the parapet (the opening), the terrace ledge and the court.
+            double iu = hw - pt, iw = hd - pt;
+            double ledge = Math.Max(0.6, Math.Min(2.8, 0.18 * Math.Min(w, d)));
+            double cu = iu - ledge, cwB = -iw + Math.Max(0.5, 0.6 * ledge), cwF = iw - ledge;
+            double stairHalf = Math.Max(0.6, Math.Min(0.9, 0.08 * w));
             if (lod >= 3)
             {
-                SacredDraw.Box(m, k, -hw, hw, -0.2, 0.5, -hd, hd, light, BoxFaces.All & ~BoxFaces.Bottom);
-                SacredDraw.Bake(m, v0, i0, f.GroundY);
+                // Far: the parapet ring round a dark opening.
+                ParapetRing(m, k, hw, hd, pt, 0, ph, 0, brick, coping, 3);
+                SacredDraw.Quad(m, k, -iu, -0.6, -iw, iu, -0.6, -iw, iu, -0.6, iw, -iu, -0.6, iw, 0, 1, 0, Looks.Ao(flag, 0.45f));
+                if (maniMandap) ManiMandap(m, k, hd, lod, null, kf, f);
+                SacredDraw.Bake(m, v0, i0, f.GroundY + cv);
                 return m.TriangleCount - t0;
             }
-            // Rim and descending steps (rings of decreasing size).
-            int steps = lod == 0 ? 3 : 1;
-            for (int q = 0; q < steps; q++)
+            // Parapet (brick, stone coping) broken by the stair at the front.
+            ParapetRing(m, k, hw, hd, pt, stairHalf, ph, -0.05, brick, coping, lod);
+            // Pit walls: brick from the square down to the terrace, all round the inside of the parapet (the front one
+            // broken by the stair).
+            ShapeBrush brickIn = Looks.Ao(brick, 0.8f);
+            Affine3 back = SacredDraw.Turn(k, 0, 0, 0, Math.PI);
+            SacredDraw.Panel(m, back, -iu, tv, -stairHalf, 0, iw, brickIn);                                 // front wall (facing −W), right of the stair
+            SacredDraw.Panel(m, back, stairHalf, tv, iu, 0, iw, brickIn);                                   // and left of it
+            SacredDraw.Panel(m, k, -iu, tv, iu, 0, -iw, brickIn);                                            // back wall, facing +W
+            SacredDraw.Panel(m, SacredDraw.Turn(k, 0, 0, 0, 0.5 * Math.PI), -iw, tv, iw, 0, -iu, brickIn);  // −U wall, facing +U
+            SacredDraw.Panel(m, SacredDraw.Turn(k, 0, 0, 0, -0.5 * Math.PI), -iw, tv, iw, 0, -iu, brickIn); // +U wall, facing −U
+            if (lod <= 1)
             {
-                double ins = 0.45 * q, top = 0.5 - 0.15 * q;
-                SacredParts.PlinthLevel(m, k, hw - ins, hd - ins, -0.2, top, 0, q == 0 ? light : stone, light, Math.Max(lod, 2));
+                // Stone string course a little under the square, as in the photos (mangahiti_c 14).
+                double band = -0.55;
+                SacredDraw.Box(m, k, -iu, iu, band - 0.18, band, -iw, -iw + 0.08, coping, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+                SacredDraw.Box(m, k, -iu, -iu + 0.08, band - 0.18, band, -iw, iw, coping, BoxFaces.Right | BoxFaces.Top | BoxFaces.Bottom);
+                SacredDraw.Box(m, k, iu - 0.08, iu, band - 0.18, band, -iw, iw, coping, BoxFaces.Left | BoxFaces.Top | BoxFaces.Bottom);
             }
-            SacredDraw.CapRect(m, k, 0, 0, hw - 0.45 * steps, hd - 0.45 * steps, 0.06 + 0.5 - 0.15 * steps, true, Looks.Of(MeshColor.FromHex(0x4A4E48), MaterialChannel.Flagstone, 0.7f));
-            // Back wall with niches and spouts.
-            double bw = -hd + 0.2;
-            SacredDraw.Box(m, k, -hw, hw, -0.2, 1.9, bw - 0.4, bw, light, BoxFaces.All & ~BoxFaces.Bottom);
+            // Terrace ledge (brick paving) round the court; stone flights step down from it on both sides.
+            int sideSteps = lod == 0 ? Math.Max(2, (int)Math.Round((tv - cv) / 0.25)) : lod == 1 ? 2 : 1;
+            double run = Math.Min(0.75 * ledge, 0.3 * sideSteps), su = cu + run;
+            SacredDraw.Quad(m, k, -iu, tv, -iw, iu, tv, -iw, iu, tv, cwB, -iu, tv, cwB, 0, 1, 0, paving);            // back ledge
+            SacredDraw.Quad(m, k, -iu, tv, cwF, -stairHalf, tv, cwF, -stairHalf, tv, iw, -iu, tv, iw, 0, 1, 0, paving); // front ledge, either side of the stair
+            SacredDraw.Quad(m, k, stairHalf, tv, cwF, iu, tv, cwF, iu, tv, iw, stairHalf, tv, iw, 0, 1, 0, paving);
+            SacredDraw.Quad(m, k, -iu, tv, cwB, -su, tv, cwB, -su, tv, cwF, -iu, tv, cwF, 0, 1, 0, paving);            // side ledges
+            SacredDraw.Quad(m, k, su, tv, cwB, iu, tv, cwB, iu, tv, cwF, su, tv, cwF, 0, 1, 0, paving);
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                Flight(m, k, false, cwB, cwF, sgn * su, sgn * cu, tv, cv, sideSteps, stone, Looks.Ao(mossy, 0.85f));
+            // Court floor (flagstones) and the stone face of the front ledge down to it.
+            SacredDraw.Quad(m, k, -cu, cv, cwB, cu, cv, cwB, cu, cv, cwF, -cu, cv, cwF, 0, 1, 0, flag);
+            SacredDraw.Panel(m, back, -cu, cv, -stairHalf, tv, -cwF, mossy);
+            SacredDraw.Panel(m, back, stairHalf, cv, cu, tv, -cwF, mossy);
+            // Back: the stone spout wall with its stelae and makara spouts, the water channel at its foot.
+            SacredDraw.Panel(m, k, -su, cv, su, tv, cwB, mossy);
+            SacredDraw.Box(m, k, -iu, iu, tv - 0.02, tv + 0.12, cwB - 0.05, cwB + 0.12, coping, BoxFaces.Front | BoxFaces.Top);
             int n = Math.Max(1, spouts);
+            double chanW = Math.Min(1.0, 0.14 * d), fall = Math.Min(0.94, chanW - 0.08);
+            SacredDraw.Quad(m, k, -cu, cv - 0.18, cwB, cu, cv - 0.18, cwB, cu, cv - 0.18, cwB + chanW, -cu, cv - 0.18, cwB + chanW, 0, 1, 0, water);
+            SacredDraw.Panel(m, back, -cu, cv - 0.2, cu, cv, -(cwB + chanW), Looks.Ao(stone, 0.7f));
+            double spoutY = cv + Math.Min(1.0, 0.8 * (tv - cv) + 0.1);
             for (int q = 0; q < n; q++)
             {
-                double u = -hw + w * (q + 0.5) / n;
-                if (lod <= 1)
-                {
-                    SacredDraw.Panel(m, k, u - 0.25, 1.2, u + 0.25, 1.7, bw + 0.005, Looks.Recess);
-                    ShikharaGenerator.Arch(m, k, u, 1.7, bw + 0.005, 0.56, 0.2, 0.05, 0.05, true, light, lod + 1);
-                }
-                Path3 sp = new Path3(4);
-                sp.Add(u, 0.95, bw).Add(u, 0.98, bw + 0.45).Add(u, 0.9, bw + 0.8);
-                Shapes.Tube(m, k, stone, sp, 0.14, lod == 0 ? 6 : 4, true, false, default, 0.08);
-                if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(k, u, 1.0, bw + 0.25), stone, 0.2, 0.17, 0.22, 4, false);
+                double u = -cu + 2 * cu * (q + 0.5) / n;
+                Spout(m, k, u, spoutY, cwB, Math.Min(1.0, 1.6 * cu / n), tv, stone, mossy, lod);
                 if (flowing && lod <= 1)
-                    SacredDraw.Quad(m, k, u - 0.05, 0.88, bw + 0.82, u + 0.05, 0.88, bw + 0.82, u + 0.07, 0.07, bw + 0.95, u - 0.07, 0.07, bw + 0.95, 0, 0.1, 1,
-                                    Looks.Of(MeshColor.FromHex(0x9CC9E0), MaterialChannel.Water));
+                    SacredDraw.Quad(m, k, u - 0.05, spoutY - 0.08, cwB + 0.86, u + 0.05, spoutY - 0.08, cwB + 0.86, u + 0.07, cv - 0.16, cwB + fall, u - 0.07, cv - 0.16, cwB + fall,
+                                    0, 0.1, 1, Looks.Of(MeshColor.FromHex(0xA8D2E6), MaterialChannel.Water));
             }
-            if (c != null) c.AddBox(kf.OX, kf.OZ, f.GroundY - 0.2, f.GroundY + 0.5, hw, hd, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
-            SacredDraw.Bake(m, v0, i0, f.GroundY);
+            // Main stair: from the parapet gap at the front straight down over the ledge to the court, between cheek walls.
+            int mainSteps = lod == 0 ? Math.Max(4, (int)Math.Round(-cv / 0.26)) : lod == 1 ? 5 : 1;
+            double runMain = Math.Min(-cv / 0.26 * 0.28, iw - cwB - 1.6), wFootMain = hd - pt - runMain;
+            if (lod >= 2) SacredDraw.Quad(m, k, -stairHalf, 0, hd, stairHalf, 0, hd, stairHalf, cv, wFootMain, -stairHalf, cv, wFootMain, 0, runMain, -cv, stone);
+            else Flight(m, k, true, -stairHalf, stairHalf, hd, wFootMain, 0, cv, mainSteps, stone, Looks.Ao(stone, 0.8f));
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+            {
+                double u = sgn * stairHalf;
+                int a = SacredDraw.V(m, k, u, 0, iw, sgn, 0, 0, brickIn), b = SacredDraw.V(m, k, u, cv, wFootMain, sgn, 0, 0, brickIn);
+                int cA = SacredDraw.V(m, k, u, cv, iw, sgn, 0, 0, brickIn);
+                SacredDraw.Tri(m, a, b, cA);
+            }
+            // A round stone basin in the court (mangahiti_c 04, 10).
+            if (lod <= 1 && cu > 1.2)
+            {
+                Profile2 bp = Prof;
+                bp.Add(0, 0).Add(0.42, 0, true).Add(0.48, 0.12).Add(0.46, 0.42, true).Add(0.36, 0.44, true).Add(0.34, 0.2, true).Add(0, 0.2);
+                Shapes.Lathe(m, SacredDraw.At(k, 0.25 * cu, cv, 0.5 * (cwB + cwF) + 0.4), stone, bp, lod == 0 ? 14 : 8);
+            }
+            if (lod <= 1 && w >= 9)
+            {
+                // Black iron railings on the parapet beside the stair (mangahiti_c 01, 06).
+                ShapeBrush iron = Looks.Of(MeshColor.FromHex(0x23262B), MaterialChannel.Metal);
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                {
+                    double ua = sgn * (stairHalf + 0.2), ub = sgn * Math.Min(iu, stairHalf + 3.0);
+                    Shapes.Bar(m, k, iron, ua, ph + 0.95, hd - 0.5 * pt, ub, ph + 0.95, hd - 0.5 * pt, 0.025, 4);
+                    int posts = lod == 0 ? 8 : 3;
+                    for (int q = 0; q <= posts; q++)
+                    {
+                        double u = ua + (ub - ua) * q / posts;
+                        Shapes.Bar(m, k, iron, u, ph, hd - 0.5 * pt, u, ph + 0.95, hd - 0.5 * pt, 0.018, 4);
+                    }
+                }
+            }
+            if (lod == 0 && w >= 9)
+            {
+                // Potted plants along the back ledge above the spouts (mangahiti_c 02, 14).
+                ShapeBrush pot = Looks.Of(MeshColor.FromHex(0xA4583A), MaterialChannel.Dirt), plant = Looks.Of(MeshColor.FromHex(0x4E7A34), MaterialChannel.Foliage);
+                Profile2 pp = Prof;
+                pp.Add(0, 0).Add(0.13, 0, true).Add(0.17, 0.22, true).Add(0.19, 0.26, true).Add(0.15, 0.27, true).Add(0, 0.25);
+                int pots = (int)(2 * iu / 1.6);
+                for (int q = 0; q < pots; q++)
+                {
+                    double u = -iu + 0.8 + (2 * iu - 1.6) * q / Math.Max(1, pots - 1), wq = 0.5 * (-iw + cwB);
+                    Shapes.Lathe(m, SacredDraw.At(k, u, tv, wq), pot, pp, 8);
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, u, tv + 0.36, wq), plant, 0.2, 0.16, 0.2, 6, false);
+                }
+            }
+            if (maniMandap) ManiMandap(m, k, hd, lod, c, kf, f);
+            if (c != null)
+            {
+                double g = f.GroundY;
+                // The parapet blocks; the ledge, court and stairs are walkable ground inside the pit.
+                c.AddWall(kf.OX + kf.UX * -hw + kf.WX * -hd, kf.OZ + kf.UZ * -hw + kf.WZ * -hd, kf.OX + kf.UX * hw + kf.WX * -hd, kf.OZ + kf.UZ * hw + kf.WZ * -hd, g + cv, g + ph, 0.5 * pt);
+                c.AddWall(kf.OX + kf.UX * -hw + kf.WX * -hd, kf.OZ + kf.UZ * -hw + kf.WZ * -hd, kf.OX + kf.UX * -hw + kf.WX * hd, kf.OZ + kf.UZ * -hw + kf.WZ * hd, g + cv, g + ph, 0.5 * pt);
+                c.AddWall(kf.OX + kf.UX * hw + kf.WX * -hd, kf.OZ + kf.UZ * hw + kf.WZ * -hd, kf.OX + kf.UX * hw + kf.WX * hd, kf.OZ + kf.UZ * hw + kf.WZ * hd, g + cv, g + ph, 0.5 * pt);
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                    c.AddWall(kf.OX + kf.UX * sgn * stairHalf + kf.WX * hd, kf.OZ + kf.UZ * sgn * stairHalf + kf.WZ * hd, kf.OX + kf.UX * sgn * hw + kf.WX * hd,
+                              kf.OZ + kf.UZ * sgn * hw + kf.WZ * hd, g + cv, g + ph, 0.5 * pt);
+                // Ledge ring (four strips) and court.
+                AddFrameBox(c, kf, 0, 0.5 * (-iw + cwB), iu, 0.5 * (cwB + iw), g + tv - 0.3, g + tv, GenColliders.Brick);
+                AddFrameBox(c, kf, 0, 0.5 * (cwF + iw), iu, 0.5 * (iw - cwF), g + tv - 0.3, g + tv, GenColliders.Brick);
+                AddFrameBox(c, kf, -0.5 * (iu + cu), 0.5 * (cwB + cwF), 0.5 * (iu - cu), 0.5 * (cwF - cwB), g + tv - 0.3, g + tv, GenColliders.Stone);
+                AddFrameBox(c, kf, 0.5 * (iu + cu), 0.5 * (cwB + cwF), 0.5 * (iu - cu), 0.5 * (cwF - cwB), g + tv - 0.3, g + tv, GenColliders.Stone);
+                AddFrameBox(c, kf, 0, 0.5 * (cwB + cwF), cu, 0.5 * (cwF - cwB), g + cv - 0.3, g + cv, GenColliders.Stone);
+                // The main stair, from the square at the parapet gap down to the court.
+                double wTop = hd, wFoot = hd - runMain - pt;
+                c.AddRamp(new GenRamp
+                {
+                    X0 = kf.OX + kf.WX * wTop, Z0 = kf.OZ + kf.WZ * wTop, Y0 = (float)g, X1 = kf.OX + kf.WX * wFoot, Z1 = kf.OZ + kf.WZ * wFoot, Y1 = (float)(g + cv),
+                    HalfWidth = (float)stairHalf, Material = GenColliders.Stone,
+                });
+            }
+            SacredDraw.Bake(m, v0, i0, f.GroundY + cv);
             return m.TriangleCount - t0;
         }
 
+        /// <summary>A walkable frame-aligned box (centre (u, w) in the frame, half sizes, absolute heights).</summary>
+        private static void AddFrameBox(GenColliders c, in KitFrame kf, double u, double w, double hu, double hw, double y0, double y1, byte material)
+        {
+            if (hu <= 0.05 || hw <= 0.05) return;
+            c.AddBox(kf.OX + kf.UX * u + kf.WX * w, kf.OZ + kf.UZ * u + kf.WZ * w, y0, y1, hu, hw, kf.UX, kf.UZ, GenColliderFlags.Walkable, material);
+        }
+
+        /// <summary>The hiti parapet: four brick walls from <paramref name="v0"/> to <paramref name="h"/> with a stone
+        /// coping, the front (+W) wall broken by a gap of half width <paramref name="gapHalf"/> for the stair.</summary>
+        private static void ParapetRing(MeshData m, in Affine3 k, double hw, double hd, double t, double gapHalf, double h, double v0, in ShapeBrush brick,
+                                        in ShapeBrush coping, int lod)
+        {
+            double cop = lod >= 2 ? 0 : 0.1;
+            BoxFaces outer = lod >= 3 ? BoxFaces.Top | BoxFaces.Back | BoxFaces.Front | BoxFaces.Left | BoxFaces.Right : BoxFaces.All & ~BoxFaces.Bottom;
+            // Back (−W) and the two sides run full length; the front is two pieces either side of the gap.
+            SacredDraw.Box(m, k, -hw, hw, v0, h - cop, -hd, -hd + t, brick, outer);
+            SacredDraw.Box(m, k, -hw, -hw + t, v0, h - cop, -hd + t, hd - t, brick, outer);
+            SacredDraw.Box(m, k, hw - t, hw, v0, h - cop, -hd + t, hd - t, brick, outer);
+            if (gapHalf > 0)
+            {
+                SacredDraw.Box(m, k, -hw, -gapHalf, v0, h - cop, hd - t, hd, brick, outer);
+                SacredDraw.Box(m, k, gapHalf, hw, v0, h - cop, hd - t, hd, brick, outer);
+            }
+            else SacredDraw.Box(m, k, -hw, hw, v0, h - cop, hd - t, hd, brick, outer);
+            if (cop <= 0) return;
+            const double o = 0.04;
+            SacredDraw.Box(m, k, -hw - o, hw + o, h - cop, h, -hd - o, -hd + t + o, coping, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, k, -hw - o, -hw + t + o, h - cop, h, -hd + t + o, hd - t - o, coping, BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Box(m, k, hw - t - o, hw + o, h - cop, h, -hd + t + o, hd - t - o, coping, BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Box(m, k, -hw - o, -gapHalf, h - cop, h, hd - t - o, hd + o, coping, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, k, gapHalf, hw + o, h - cop, h, hd - t - o, hd + o, coping, BoxFaces.All & ~BoxFaces.Bottom);
+        }
+
+        /// <summary>A flight of <paramref name="steps"/> stone steps in frame <paramref name="k"/>: along W
+        /// (<paramref name="alongW"/>) or along U, spanning [<paramref name="a0"/>, <paramref name="a1"/>] across, from
+        /// <paramref name="top"/> (at <paramref name="vTop"/>) down to <paramref name="foot"/> (at
+        /// <paramref name="vFoot"/>) along: a riser facing the foot, then a tread, per step.</summary>
+        private static void Flight(MeshData m, in Affine3 k, bool alongW, double a0, double a1, double top, double foot, double vTop, double vFoot, int steps,
+                                   in ShapeBrush tread, in ShapeBrush riser)
+        {
+            double dir = foot > top ? 1 : -1;
+            for (int q = 0; q < steps; q++)
+            {
+                double fa = (double)q / steps, fb = (double)(q + 1) / steps;
+                double la = top + (foot - top) * fa, lb = top + (foot - top) * fb;
+                double va = vTop + (vFoot - vTop) * fa, vb = vTop + (vFoot - vTop) * fb;
+                if (alongW)
+                {
+                    SacredDraw.Quad(m, k, a0, vb, la, a1, vb, la, a1, va, la, a0, va, la, 0, 0, dir, riser);
+                    SacredDraw.Quad(m, k, a0, vb, la, a1, vb, la, a1, vb, lb, a0, vb, lb, 0, 1, 0, tread);
+                }
+                else
+                {
+                    SacredDraw.Quad(m, k, la, vb, a0, la, vb, a1, la, va, a1, la, va, a0, dir, 0, 0, riser);
+                    SacredDraw.Quad(m, k, la, vb, a0, la, vb, a1, lb, vb, a1, lb, vb, a0, 0, 1, 0, tread);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A carved stone makara spout on the hiti's back wall (face at w = <paramref name="wall"/>, facing +W): a
+        /// horseshoe stela with a dark deity niche rising from just above the spout toward the ledge, and the makara
+        /// head projecting about 0.75 m: a snout tapering forward from the wall and lifting at its tip, a curled
+        /// upper lip, eyes and the ridge of its crest (LOD0); a tapered tube at LOD1, a block at LOD2.
+        /// </summary>
+        private static void Spout(MeshData m, in Affine3 k, double u, double v, double wall, double width, double ledgeV, in ShapeBrush stone, in ShapeBrush mossy,
+                                  int lod)
+        {
+            double sw = Math.Max(0.7, Math.Min(1.25, width)), st0 = v + 0.15, sh = Math.Max(0.8, Math.Min(1.6, ledgeV - st0 + 0.7));
+            if (lod <= 1)
+            {
+                // Stela: a slab with a semicircular head, extruded out of the wall.
+                int segs = lod == 0 ? 10 : 4;
+                double[] px = ShapeScratch.U, pz = ShapeScratch.W;
+                int n = 0;
+                double r = 0.5 * sw, spring = sh - r;
+                px[n] = -r;
+                pz[n++] = 0;
+                px[n] = r;
+                pz[n++] = 0;
+                for (int q = 0; q <= segs; q++)
+                {
+                    double a = Math.PI * q / segs;
+                    px[n] = r * Math.Cos(a);
+                    pz[n++] = spring + r * Math.Sin(a);
+                }
+                // The polygon lies in the slab's local XZ (z up the wall: x = −U so that x × y = up); extrude along
+                // +Y = out of the wall (+W).
+                Affine3 slab = SacredDraw.Basis(k, u, st0, wall, -1, 0, 0, 0, 0, 1);
+                Shapes.BevelExtrude(m, slab, stone, px, pz, n, 0.16, 0.04, lod == 0 ? 2 : 1, BevelStyle.Round, true, false);
+                // The deity niche: a dark arched recess on the stela face.
+                ArchPanel(m, k, u, st0 + 0.3 * sh, 0.42 * sw, 0.5 * sh, wall + 0.165, Looks.Recess, lod == 0 ? 5 : 2);
+                // The makara: snout from the wall, tapering and lifting at the tip.
+                Path3 sp = new Path3(5);
+                sp.Add(u, v + 0.1, wall).Add(u, v + 0.02, wall + 0.34).Add(u, v - 0.03, wall + 0.62).Add(u, v + 0.06, wall + 0.85);
+                Shapes.Tube(m, k, mossy, sp, 0.25, lod == 0 ? 10 : 6, true, false, default, 0.11);
+                if (lod == 0)
+                {
+                    // Head mass with eyes, the crest ridge and the curled upper lip (trunk) at the tip.
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.2, wall + 0.24), stone, 0.32, 0.28, 0.34, 10, false);
+                    for (int sgn = -1; sgn <= 1; sgn += 2)
+                        Shapes.Ellipsoid(m, SacredDraw.At(k, u + sgn * 0.17, v + 0.34, wall + 0.38), Looks.Of(MeshColor.FromHex(0x56544C), MaterialChannel.Stone), 0.075, 0.06, 0.06, 6,
+                                         false);
+                    Path3 crest = new Path3(4);
+                    crest.Add(u, v + 0.46, wall + 0.05).Add(u, v + 0.52, wall + 0.3).Add(u, v + 0.38, wall + 0.5);
+                    Shapes.Tube(m, k, stone, crest, 0.07, 5, true, false, default, 0.04);
+                    Path3 lip = new Path3(5);
+                    lip.Add(u, v + 0.08, wall + 0.82).Add(u, v + 0.28, wall + 0.96).Add(u, v + 0.4, wall + 0.84).Add(u, v + 0.3, wall + 0.72);
+                    Shapes.Tube(m, k, mossy, lip, 0.08, 6, true, false, default, 0.045);
+                }
+            }
+            else
+            {
+                SacredDraw.Box(m, k, u - 0.5 * sw, u + 0.5 * sw, st0, st0 + sh, wall, wall + 0.14, stone, BoxFaces.Front | BoxFaces.Top);
+                SacredDraw.Box(m, k, u - 0.12, u + 0.12, v - 0.1, v + 0.12, wall, wall + 0.7, stone, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            }
+        }
+
+        /// <summary>
+        /// The Mani Mandap (Patan Durbar Square, 1700; restored after 2015): two open royal pavilions side by side on a
+        /// raised brick platform in front of Manga Hiti's stair (OSM w328706342 / w328706352: about 7 × 7 m roofs, 6 m
+        /// high, four metres apart across the stair), each a ring of carved wooden posts on a brick plinth under a
+        /// broad hipped tile roof on struts with a gilt finial.
+        /// </summary>
+        private static void ManiMandap(MeshData m, in Affine3 k, double hd, int lod, GenColliders c, in KitFrame kf, in GenFrame f)
+        {
+            const double size = 5.6, platformH = 0.9, eave = 3.6, apex = 6.0, overhang = 0.9;
+            // Roofs about 6.9 m square (OSM), their eaves a little beyond the parapet, 1.3 m apart across the stair.
+            double w = hd + 0.85 + 0.5 * size - 0.45 + 0.2 + overhang;
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+            {
+                double u = sgn * 4.1;
+                Affine3 p = SacredDraw.At(k, u, 0, w);
+                double h = 0.5 * size;
+                if (lod >= 3)
+                {
+                    SacredDraw.Box(m, p, -h, h, 0, eave, -h, h, Looks.Of(MeshColor.FromHex(0xB5533A), MaterialChannel.Brick), BoxFaces.All & ~BoxFaces.Bottom);
+                    Lod3Roof(m, p, h + 0.8, h + 0.8, eave, apex, Looks.Tile);
+                    continue;
+                }
+                SacredParts.PlinthLevel(m, p, h, h, 0, platformH, 0.3, Looks.PlinthBrick, Looks.Stone, lod);
+                double pu = h - 0.45;
+                int per = lod == 0 ? 4 : 2;
+                for (int q = 0; q < per; q++)
+                    for (int side = 0; side < 4; side++)
+                    {
+                        double t = -pu + 2 * pu * q / per;
+                        double pu2 = side == 0 ? t : side == 1 ? pu : side == 2 ? -t : -pu, pw2 = side == 0 ? -pu : side == 1 ? t : side == 2 ? pu : -t;
+                        SacredParts.Post(m, p, pu2, pw2, platformH, eave - 0.35, 0.26, Looks.WoodDark, lod);
+                    }
+                SacredDraw.Box(m, p, -pu - 0.2, pu + 0.2, eave - 0.35, eave, -pu - 0.2, pu + 0.2, Looks.WoodDark, BoxFaces.All);
+                RoofSpec r = SacredParts.HipRoof(m, p, pu + 0.2, pu + 0.2, eave + 0.25, overhang, 0.3, apex - 0.35, false, 0, false, lod);
+                if (lod <= 1) SacredParts.Struts(m, p, r, eave - 0.3, 3, 3, false, Looks.WoodDark, 5u, lod);
+                SacredParts.Gajur(m, p, apex - 0.4, 0.45, 0.16, Looks.Gilt, lod);
+                if (c != null)
+                    c.AddBox(kf.OX + kf.UX * u + kf.WX * w, kf.OZ + kf.UZ * u + kf.WZ * w, f.GroundY - 0.3, f.GroundY + platformH, h, h, kf.UX, kf.UZ,
+                             GenColliderFlags.Walkable, GenColliders.Brick);
+            }
+        }
     }
 }
