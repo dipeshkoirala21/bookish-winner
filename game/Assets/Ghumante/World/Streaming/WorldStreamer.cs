@@ -418,7 +418,10 @@ namespace Ghumante.World.Streaming
             if (view.StaticRegistered || _ground == null) return;
             StructureColliders dressing = view.Extras != null ? view.Extras.Colliders : null;
             if (dressing == null || dressing.Count == 0) return;
-            _ground.Register(view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit, dressing);
+            // Perf pass: indexed by the tile build's worker (TileExtras.PreparedColliders), so showing a tile only links it.
+            TileGroundQuery.PreparedColliders prepared = view.Extras.PreparedColliders;
+            if (prepared != null && prepared.TileKey == (view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit)) _ground.Register(prepared);
+            else _ground.Register(view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit, dressing);
             view.StaticRegistered = true;
         }
 

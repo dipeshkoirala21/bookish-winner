@@ -89,6 +89,41 @@ namespace Ghumante.Core.Synth
             _tiles.Add(e);
         }
 
+        /// <summary>A detail tile indexed ahead of time (<see cref="Prepare"/>), ready to join with
+        /// <see cref="AddTile(PreparedTile)"/>.</summary>
+        public sealed class PreparedTile
+        {
+            internal readonly object Entry; // a Tile
+
+            /// <summary>The tile it indexes.</summary>
+            public readonly TileId Id;
+
+            internal PreparedTile(TileId id, object entry)
+            {
+                Id = id;
+                Entry = entry;
+            }
+        }
+
+        /// <summary>The indexing work of <see cref="AddTile(TileId, TileData)"/> without touching any index: reads only
+        /// the tile, so a worker thread may run it while the owner queries (perf pass: 1 to 2 ms per dense tile that no
+        /// longer lands on the main thread when the tile shows).</summary>
+        public static PreparedTile Prepare(TileId id, TileData t)
+        {
+            if (t == null) throw new ArgumentNullException(nameof(t));
+            return new PreparedTile(id, Build(id, t));
+        }
+
+        /// <summary>Adds (or replaces) a prepared tile (owner thread; no indexing).</summary>
+        public void AddTile(PreparedTile prepared)
+        {
+            if (prepared == null) throw new ArgumentNullException(nameof(prepared));
+            RemoveTile(prepared.Id);
+            var e = (Tile)prepared.Entry;
+            _byId.Add(prepared.Id, e);
+            _tiles.Add(e);
+        }
+
         public void RemoveTile(TileId id)
         {
             Tile e;

@@ -95,6 +95,19 @@ namespace Ghumante.World.Streaming
         /// <summary>Main-thread upload milliseconds in the last tick, and the worst tick of the last second.</summary>
         public double UploadMs;
 
+        /// <summary>Mesh bytes and chunks the last tick uploaded (tile chunks only; the bytes a caller reserved for its
+        /// own uploads, <see cref="StreamingScheduler.Tick(double, double, long)"/>, are not included).</summary>
+        public long TickUploadBytes;
+
+        public int TickUploadChunks;
+
+        /// <summary>Main-thread milliseconds of the last tick's phases besides the uploads: the selection (only when the
+        /// focus moved far enough), collecting finished builds, the swap rule with the ground query, and dispatching.</summary>
+        public double SelectMs, CollectMs, ResolveMs, DispatchMs;
+
+        /// <summary>Of <see cref="ResolveMs"/>: milliseconds spent adding areas to and removing them from the ground query.</summary>
+        public double GroundMs;
+
         public double WorstUploadMs;
 
         /// <summary>Worker milliseconds of the last finished build.</summary>
@@ -124,7 +137,9 @@ namespace Ghumante.World.Streaming
     /// <item>uploads finished builds chunk by chunk (<see cref="TileBuild.Chunks"/>, at most
     /// <see cref="TileBuild.UploadChunkVertices"/> vertices and <see cref="TileBuild.UploadChunkBytes"/> bytes each)
     /// through the <see cref="ITileSink"/> until <see cref="UploadBudgetMs"/> is spent or the next chunk would exceed
-    /// <see cref="UploadBudgetBytes"/> (at least one chunk per tick so streaming never stalls);</item>
+    /// <see cref="UploadBudgetBytes"/> less the bytes other uploaders reserved in the frame
+    /// (<see cref="Tick(double, double, long)"/>; a chunk bigger than a whole frame goes alone after
+    /// <see cref="MaxHeldTicks"/>, so streaming never stalls);</item>
     /// <item>applies the swap rule (<see cref="TileResidency.Resolve"/>) to views and to the ground query, which therefore
     /// always describes exactly what is drawn;</item>
     /// <item>dispatches the nearest queued nodes to <see cref="ITileJobRunner"/>, at most <see cref="MaxConcurrentJobs"/>
@@ -176,6 +191,8 @@ namespace Ghumante.World.Streaming
         private double _selX, _selZ;
         private StreamingStats _stats;
         private double _worstWindowStart, _worstInWindow;
+        private int _heldTicks; // ticks in a row whose first chunk did not fit the frame
+        private bool _held;
         private int _groundVersion;
 
         /// <summary>What a resident node keeps after its build was uploaded.</summary>
@@ -235,11 +252,18 @@ namespace Ghumante.World.Streaming
         /// <summary>Main-thread milliseconds per tick for mesh uploads (2 ms at 30 fps, 1.5 ms at 60 fps).</summary>
         public double UploadBudgetMs = 2.0;
 
-        /// <summary>Mesh bytes per tick: a chunk starts only while the tick's bytes including it stay within this (the
-        /// copy and GPU upload cost grows with bytes, and the clock alone only notices after the fact). The first chunk
-        /// of a tick always goes, and chunks are at most <see cref="TileBuild.UploadChunkBytes"/> (the same 1 MiB), so a
-        /// tick never copies more than the budget.</summary>
+        /// <summary>Mesh bytes per frame: a chunk starts only while the frame's bytes including it stay within this (the
+        /// copy and GPU upload cost grows with bytes, and the clock alone only notices after the fact). The bytes other
+        /// uploaders already copied in the frame (the B0 building cells) count against it
+        /// (<see cref="Tick(double, double, long)"/>). Chunks are at most <see cref="TileBuild.UploadChunkBytes"/> (the
+        /// same 1 MiB), so with the default budget every chunk fits a frame of its own and a frame never copies more than
+        /// the budget; a budget lowered below a chunk holds it back (<see cref="MaxHeldTicks"/>).</summary>
         public long UploadBudgetBytes = 1L << 20;
+
+        /// <summary>A chunk too big for a whole frame's <see cref="UploadBudgetBytes"/> (a budget lowered below
+        /// <see cref="TileBuild.UploadChunkBytes"/>, nothing reserved) goes anyway, alone, once it has waited this many
+        /// ticks, so streaming never stalls. Never with bytes reserved: a frame that shares its budget stays within it.</summary>
+        public int MaxHeldTicks = 8;
 
         /// <summary>The focus must move this far before the selection is recomputed.</summary>
         public double ReselectDistanceM = 4.0;
@@ -363,12 +387,43 @@ namespace Ghumante.World.Streaming
             _resolveDirty = true;
         }
 
-        /// <summary>One main-thread step around focus (x, z).</summary>
+        /// <summary>Bytes of the chunk waiting at the head of the upload queue (0 when nothing waits): what a caller sharing
+        /// the frame's byte budget must leave free for the tiles to make progress (<see cref="Tick(double, double, long)"/>).</summary>
+        public long NextChunkBytes
+        {
+            get
+            {
+                for (int i = 0; i < _uploads.Count; i++)
+                {
+                    TileBuild b = _uploads[i];
+                    if (b.NextChunk < b.Chunks.Count) return b.ChunkBytes(b.NextChunk);
+                }
+                return 0;
+            }
+        }
+
+        /// <summary>One main-thread step around focus (x, z), the frame's whole <see cref="UploadBudgetBytes"/> for the
+        /// tiles.</summary>
         public void Tick(double x, double z)
+        {
+            Tick(x, z, 0);
+        }
+
+        /// <summary>
+        /// One main-thread step around focus (x, z) in a frame where other uploaders (the B0 building cells) already
+        /// copied <paramref name="reservedBytes"/> of mesh data. The tile chunks of this tick then fit in what is left of
+        /// <see cref="UploadBudgetBytes"/>, so the frame's uploads together stay within it: a chunk that does not fit
+        /// waits for a later frame (<see cref="NextChunkBytes"/> says how much room it needs; chunks are at most
+        /// <see cref="TileBuild.UploadChunkBytes"/>, so it fits any frame with nothing reserved). A caller that uploads
+        /// after the tick has <c>UploadBudgetBytes - reservedBytes - Stats.TickUploadBytes</c> left.
+        /// </summary>
+        public void Tick(double x, double z, long reservedBytes)
         {
             if (_disposed) return;
             if (double.IsNaN(x) || double.IsNaN(z) || double.IsInfinity(x) || double.IsInfinity(z)) return;
             double dx = x - _selX, dz = z - _selZ;
+            double t0 = _clockMs();
+            _stats.SelectMs = 0;
             if (_dirty || !_hasSelection || dx * dx + dz * dz > ReselectDistanceM * ReselectDistanceM)
             {
                 _selector.Select(x, z, _selection);
@@ -379,25 +434,34 @@ namespace Ghumante.World.Streaming
                 _dirty = false;
                 _hasSelection = true;
                 _stats.Selections++;
+                _stats.SelectMs = _clockMs() - t0;
             }
 
+            double t1 = _clockMs();
             TileBuild done;
             while (_finished.TryDequeue(out done))
             {
                 _inFlight--;
                 Collect(done);
             }
+            _stats.CollectMs = _clockMs() - t1;
 
-            Upload();
+            Upload(reservedBytes > 0 ? reservedBytes : 0);
+            double t2 = _clockMs();
+            _stats.ResolveMs = 0;
+            _stats.GroundMs = 0;
             if (_resolveDirty)
             {
                 // Only when the selection changed or a load ended: the swap rule cannot change otherwise.
                 _resolveDirty = false;
                 Resolve();
                 UpdateFinestLevel();
+                _stats.ResolveMs = _clockMs() - t2;
             }
+            double t3 = _clockMs();
             Dispatch();
             UpdateStats();
+            _stats.DispatchMs = _clockMs() - t3;
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -453,21 +517,38 @@ namespace Ghumante.World.Streaming
             _uploads.Add(b);
         }
 
-        private void Upload()
+        /// <summary>Whether the next chunk (<paramref name="chunkBytes"/>) may start in this tick: within the frame's bytes
+        /// (<see cref="UploadBudgetBytes"/> less <paramref name="reserved"/>) and, after the first, within the time budget;
+        /// a first chunk that does not fit is held (<see cref="MaxHeldTicks"/>).</summary>
+        private bool MayUpload(long chunkBytes, bool uploaded, long bytes, long reserved, double start)
+        {
+            if (!uploaded)
+            {
+                if (reserved + chunkBytes <= UploadBudgetBytes || reserved <= 0 && _heldTicks >= MaxHeldTicks) return true;
+                _held = true;
+                return false;
+            }
+            return reserved + bytes + chunkBytes <= UploadBudgetBytes && _clockMs() - start < UploadBudgetMs;
+        }
+
+        private void Upload(long reserved)
         {
             double start = _clockMs();
             bool uploaded = false;
             long bytes = 0;
+            int chunks = 0;
+            _held = false;
             while (_uploads.Count > 0)
             {
                 TileBuild b = _uploads[0];
                 if (b.RefreshMask != 0)
                 {
-                    int step = UploadRefresh(b, uploaded, bytes, start);
+                    int step = UploadRefresh(b, uploaded, bytes, reserved, start);
                     if (step < 0) break;
                     if (step > 0)
                     {
                         bytes += b.ChunkBytes(b.NextChunk - 1);
+                        chunks++;
                         uploaded = true;
                     }
                     continue;
@@ -490,7 +571,7 @@ namespace Ghumante.World.Streaming
                 }
                 if (b.NextChunk < b.Chunks.Count)
                 {
-                    if (uploaded && (bytes + b.ChunkBytes(b.NextChunk) > UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) break;
+                    if (!MayUpload(b.ChunkBytes(b.NextChunk), uploaded, bytes, reserved, start)) break;
                     try
                     {
                         _sink.Upload(b, b.NextChunk);
@@ -523,6 +604,7 @@ namespace Ghumante.World.Streaming
                     c.Bytes += chunkBytes;
                     c.LayerBytes[b.Chunks[b.NextChunk].Layer] += chunkBytes;
                     bytes += chunkBytes;
+                    chunks++;
                     b.NextChunk++;
                     uploaded = true;
                     continue;
@@ -556,6 +638,10 @@ namespace Ghumante.World.Streaming
             }
             double ms = _clockMs() - start;
             _stats.UploadMs = ms;
+            _stats.TickUploadBytes = bytes;
+            _stats.TickUploadChunks = chunks;
+            if (chunks > 0) _heldTicks = 0;
+            else if (_held) _heldTicks++;
             if (start - _worstWindowStart > 1000.0)
             {
                 _stats.WorstUploadMs = _worstInWindow;
@@ -568,7 +654,7 @@ namespace Ghumante.World.Streaming
 
         /// <summary>One step of a refresh build's upload: -1 = the tick's budget is spent (stop), 1 = a chunk was staged,
         /// 0 = the build was committed or dropped (nothing uploaded).</summary>
-        private int UploadRefresh(TileBuild b, bool uploaded, long bytes, double start)
+        private int UploadRefresh(TileBuild b, bool uploaded, long bytes, long reserved, double start)
         {
             Content rc;
             if (!_content.TryGetValue(b.Node, out rc) || !rc.HasView || _refreshSink == null)
@@ -580,7 +666,7 @@ namespace Ghumante.World.Streaming
             }
             if (b.NextChunk < b.Chunks.Count)
             {
-                if (uploaded && (bytes + b.ChunkBytes(b.NextChunk) > UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) return -1;
+                if (!MayUpload(b.ChunkBytes(b.NextChunk), uploaded, bytes, reserved, start)) return -1;
                 try
                 {
                     _refreshSink.UploadRefresh(b, b.NextChunk);
@@ -624,7 +710,9 @@ namespace Ghumante.World.Streaming
                 if (!_content.TryGetValue(n, out c)) continue;
                 if (c.InGround)
                 {
+                    double g0 = _clockMs();
                     _ground.Remove(n.Area);
+                    _stats.GroundMs += _clockMs() - g0;
                     _groundVersion++;
                 }
                 if (c.HasView) _sink.Release(n);
@@ -641,7 +729,9 @@ namespace Ghumante.World.Streaming
                 if (c.HasView) _sink.SetVisible(n, false);
                 if (c.InGround)
                 {
+                    double g0 = _clockMs();
                     _ground.Remove(n.Area);
+                    _stats.GroundMs += _clockMs() - g0;
                     c.InGround = false;
                     _groundVersion++;
                 }
@@ -654,7 +744,9 @@ namespace Ghumante.World.Streaming
                 if (c.HasView) _sink.SetVisible(n, true);
                 if (c.Sampler != null && c.Sampler.HasHeights)
                 {
+                    double g0 = _clockMs();
                     _ground.Add(n.Area, c.Sampler, c.Roads);
+                    _stats.GroundMs += _clockMs() - g0;
                     c.InGround = true;
                     _groundVersion++;
                 }

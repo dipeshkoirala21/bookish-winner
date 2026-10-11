@@ -659,6 +659,34 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void ReservedBytesKeepTheFrameWithinTheCapWhenTheB0CellsUploadFirst()
+        {
+            // Perf pass: the B0 building cells may upload before the tiles in a frame (perf-cells); the tick then gets
+            // their bytes as reserved and its chunks, the first one included, fit in what is left of the 1 MiB.
+            var sink = new FakeTileSink { MsPerUpload = 0 };
+            TileGroundQuery ground;
+            using (StreamingScheduler s = NewScheduler(sink, StreamingConfig.TierMid, out ground))
+            {
+                const long cap = 1L << 20;
+                s.UploadBudgetBytes = cap;
+                int ticks = 0, held = 0;
+                while (!s.IsSettled)
+                {
+                    Assert.Less(ticks++, 8000, s.Stats.Format());
+                    // Every other frame the cells took all but 100 kB: bigger tile chunks wait for the frame after.
+                    long reserved = ticks % 2 == 0 ? cap - 100000 : 0;
+                    sink.BytesThisTick = 0;
+                    s.Tick(SampleRegion.ThamelX, SampleRegion.ThamelZ, reserved);
+                    Assert.LessOrEqual(reserved + sink.BytesThisTick, cap, "tick " + ticks);
+                    Assert.AreEqual(sink.BytesThisTick, s.Stats.TickUploadBytes);
+                    if (reserved > 0 && sink.BytesThisTick == 0 && s.NextChunkBytes > cap - reserved) held++;
+                }
+                Assert.AreEqual(0, s.Stats.Failed);
+                Assert.Greater(held, 0, "dense chunks waited for a frame with room instead of overrunning the cap");
+            }
+        }
+
+        [Test]
         public void RecycledBuildsKeepTheBuffersOfDenseCityLayers()
         {
             Assert.IsTrue(SampleRegion.Pack.Contains(DenseLeaf2));

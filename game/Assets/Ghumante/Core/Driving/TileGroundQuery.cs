@@ -768,6 +768,54 @@ namespace Ghumante.Core.Driving
             _structures.RemoveAt(i);
         }
 
+        /// <summary>
+        /// A tile's collider set indexed ahead of time (<see cref="PrepareColliders"/>, safe on a worker thread), so that
+        /// registering it (<see cref="Register(PreparedColliders)"/>) on the main thread only links it in. Perf pass
+        /// (perf-roads): indexing a dense tile's static dressing (thousands of trunks, poles and parked vehicles) took 2 to
+        /// 3 ms on the main thread of a desktop each time a detail tile showed.
+        /// </summary>
+        public sealed class PreparedColliders
+        {
+            internal readonly StructureSet Set;
+
+            /// <summary>The key it registers under (a tile key, optionally with <see cref="StaticSetKeyBit"/>).</summary>
+            public readonly ulong TileKey;
+
+            internal PreparedColliders(ulong tileKey, StructureSet set)
+            {
+                TileKey = tileKey;
+                Set = set;
+            }
+        }
+
+        /// <summary>The work of <see cref="Register(ulong, StructureColliders)"/> without touching the query: indexes
+        /// <paramref name="c"/> (tile-local, copied) for <paramref name="tileKey"/>. Reads only <paramref name="c"/>, so
+        /// a worker may call it while the main thread uses the query.</summary>
+        public static PreparedColliders PrepareColliders(ulong tileKey, StructureColliders c)
+        {
+            if (c == null) throw new ArgumentNullException(nameof(c));
+            return new PreparedColliders(tileKey, new StructureSet(tileKey & ~StaticSetKeyBit, c, BodyRadiusM + StructureColliders.SoftMarginM));
+        }
+
+        /// <summary>Adds (or replaces) a prepared set under its <see cref="PreparedColliders.TileKey"/>, as
+        /// <see cref="Register(ulong, StructureColliders)"/> does with an unprepared one.</summary>
+        public void Register(PreparedColliders prepared)
+        {
+            if (prepared == null) throw new ArgumentNullException(nameof(prepared));
+            ulong tileKey = prepared.TileKey;
+            StructureSet set = prepared.Set;
+            AddSolids(tileKey | StructureKeyBit, set.Solids.Count > 0 ? set.Solids : null);
+            int i = _structureKeys.BinarySearch(tileKey);
+            if (i >= 0)
+            {
+                _structures[i] = set;
+                return;
+            }
+            i = ~i;
+            _structureKeys.Insert(i, tileKey);
+            _structures.Insert(i, set);
+        }
+
         /// <summary>Number of registered structure collider sets (a tile may hold two: its own key and
         /// <see cref="StaticSetKeyBit"/>).</summary>
         public int StructureTileCount

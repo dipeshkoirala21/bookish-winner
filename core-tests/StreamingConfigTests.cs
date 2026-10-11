@@ -27,7 +27,7 @@ namespace Ghumante.Core.Tests
                 Assert.That(c.ViewRadiusM, Is.EqualTo(horizon[tier]));
                 Assert.That(c.CacheBudgetBytes, Is.EqualTo(cacheMb[tier] << 20));
                 Assert.That(c.FinestLevel, Is.EqualTo(10));
-                Assert.That(c.DetailRadiusM, Is.EqualTo(new[] { 100.0, 500, 900 }[tier]));
+                Assert.That(c.DetailRadiusM, Is.EqualTo(new[] { 350.0, 500, 900 }[tier]), "the lead a 50 km/h rider needs (StreamingRideTests)");
                 Assert.That(c.DetailRadiusM, Is.LessThan(c.Rings[0].RadiusM));
                 Assert.That(c.CoarsestLevel, Is.EqualTo(5));
                 if (tier > 0)

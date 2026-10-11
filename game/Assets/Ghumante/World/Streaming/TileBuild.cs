@@ -365,6 +365,12 @@ namespace Ghumante.World.Streaming
         /// dressing (generated tree trunks, generated lamp and signal poles, parked vehicles that are not community
         /// fleet), tile-local, or null.</summary>
         public StructureColliders Colliders;
+
+        /// <summary><see cref="Colliders"/> indexed by the build's worker for the ground query
+        /// (<see cref="TileGroundQuery.PrepareColliders"/>, key <c>tile | TileGroundQuery.StaticSetKeyBit</c>), so
+        /// registering the static set when the tile shows only links it in (perf pass); null without colliders or
+        /// without a ground query.</summary>
+        public TileGroundQuery.PreparedColliders PreparedColliders;
     }
 
     /// <summary>
@@ -455,6 +461,9 @@ namespace Ghumante.World.Streaming
 
         /// <summary>Colliders of the ornaments and the instanced dressing (tile-local), or null.</summary>
         public StructureColliders Colliders;
+
+        /// <summary><see cref="Colliders"/> prepared for the ground query on the worker (<see cref="TileExtras.PreparedColliders"/>).</summary>
+        public TileGroundQuery.PreparedColliders PreparedColliders;
 
         /// <summary>Ornament sites whose build threw (skipped; the tile still loads).</summary>
         public int OrnamentFailures;
@@ -565,6 +574,7 @@ namespace Ghumante.World.Streaming
             HeroFailures = 0;
             Pieces.Clear();
             Colliders = null;
+            PreparedColliders = null;
             OrnamentFailures = 0;
             RefreshMask = 0;
             SettingsVersion = 0;
@@ -581,11 +591,12 @@ namespace Ghumante.World.Streaming
             var e = new TileExtras
             {
                 Source = Source, Sampler = Sampler, Instances = Instances, Heroes = Heroes.ToArray(), HeroColliders = HeroColliders,
-                Pieces = Pieces.ToArray(), Colliders = Colliders,
+                Pieces = Pieces.ToArray(), Colliders = Colliders, PreparedColliders = PreparedColliders,
             };
             Instances = null;
             HeroColliders = null;
             Colliders = null;
+            PreparedColliders = null;
             Heroes.Clear();
             Pieces.Clear();
             return e;
@@ -606,6 +617,7 @@ namespace Ghumante.World.Streaming
             HeroColliders = null;
             Pieces.Clear();
             Colliders = null;
+            PreparedColliders = null;
             RefreshMask = 0;
             if (_scratch.VertexCapacity > PoolKeepVertices) _scratch.Clear();
             for (int i = 0; i < TileLayers.Count; i++)
@@ -687,6 +699,10 @@ namespace Ghumante.World.Streaming
                     b.Roads = ground != null ? ground.BuildRoadIndex(src) : null;
                 }
             }
+
+            // The static dressing set indexed here rather than on the main thread when the tile shows (perf pass).
+            if (ground != null && b.Colliders != null && b.Colliders.Count > 0)
+                b.PreparedColliders = TileGroundQuery.PrepareColliders(area.Key | TileGroundQuery.StaticSetKeyBit, b.Colliders);
 
             for (int i = 0; i < TileLayers.Count; i++)
             {

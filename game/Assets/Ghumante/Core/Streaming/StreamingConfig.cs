@@ -63,7 +63,14 @@ namespace Ghumante.Core.Streaming
         /// <para>
         /// Roads, buildings and areas cost far more than terrain in town (a dense 1 km tile of Thamel is about 140 k
         /// building triangles), so they are drawn only for level-10 tiles within <see cref="DetailRadiusM"/>
-        /// (100 / 500 / 900 m) of the focus rather than across the whole near ring. Measured on the sample's densest
+        /// (350 / 500 / 900 m) of the focus rather than across the whole near ring. The radius is the lead a rider gets:
+        /// a dense tile takes 3 to 5 s to build on this desktop, about four times that on a Low or Mid phone, so at
+        /// 50 km/h the next tile must be asked for 230 m and more before its streets come within the B1 radius
+        /// (120 / 200 / 250 m, where the full road kit and the B1 houses are drawn). Low's radius was 100 m until the
+        /// playtest-fix pass, and a rider entered a terrain-only tile whose roads and houses popped in seconds later
+        /// (StreamingRideTests rides Thamel, Asan and New Road at 50 km/h and checks it). Below 500 m at most four
+        /// detail tiles are resident at once (a 1 km tile corner), so the larger radius does not raise the worst case
+        /// that the budgets below hold. Measured on the sample's densest
         /// tiles (StreamingConfigTests, radii stretched by the hysteresis margin; roads at their full kit, B1 for every
         /// house), whole selections hold at most about 0.79 M / 1.10 M / 1.71 M triangles (56 / 77 / 121 MB of meshes,
         /// both road copies included); the streamer draws only a fraction of that (the W2 bands, the road blocks and
@@ -86,7 +93,7 @@ namespace Ghumante.Core.Streaming
                         },
                         MaxResidentTiles = 160,
                         CacheBudgetBytes = 30L << 20,
-                        DetailRadiusM = 100,
+                        DetailRadiusM = 350,
                         DetailTerrainQuads = 32,
                     };
                 case TierMid:
