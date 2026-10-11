@@ -26,6 +26,10 @@ namespace Ghumante.Core.Meshing.Bridges
 
         /// <summary>Half width of the lower road corridor (carriageway, footpaths and a margin).</summary>
         public double LowHalfM;
+
+        /// <summary>Half the deck's footprint over it (carriageway, walkways, railing base, overhang and a margin): with
+        /// <see cref="LowHalfM"/> it sets <see cref="HalfAlong"/>.</summary>
+        public double DeckHalfM;
     }
 
     /// <summary>An along interval [S0, S1] of a span (an opening over a road, a railing gap, a stair stretch), with
@@ -918,7 +922,7 @@ namespace Ghumante.Core.Meshing.Bridges
                         double sc = Math.Abs(cand[k]);
                         bool key = cand[k] > 0;
                         // (Zone edges come within a centimetre of their neighbours: the structure thins exactly there.)
-                        double near = key ? 0.01 : 0.05;
+                        double near = key ? ZoneEdgeMergeM : 0.05;
                         if (sc - lastS < near || sb - sc < near) continue;
                         double f = (sc - sa) / len;
                         float y = (float)(deck[i - 1] + (deck[i] - deck[i - 1]) * f);
@@ -984,7 +988,8 @@ namespace Ghumante.Core.Meshing.Bridges
                 float depth = baseDepth;
                 foreach (BridgeCrossing c in sp.Crossings)
                 {
-                    if (Math.Abs(s - c.S) > c.HalfAlong + 1e-3) continue;
+                    // A zone edge merged into a station within ZoneEdgeMergeM of it: that station is the edge.
+                    if (Math.Abs(s - c.S) > c.HalfAlong + ZoneEdgeMergeM + 1e-3) continue;
                     float room = path.Y[k] - c.LowY - BridgeStyle.UnderClearanceM(Tile.Roads[c.Road].RoadClass);
                     depth = Math.Min(depth, Math.Max(BridgeStyle.MinDepthFor(sp.Foot), room));
                 }
@@ -995,11 +1000,15 @@ namespace Ghumante.Core.Meshing.Bridges
                 double s = path.S[k];
                 bool inCrossing = false;
                 foreach (BridgeCrossing c in sp.Crossings)
-                    if (Math.Abs(s - c.S) <= c.HalfAlong + 1e-3) inCrossing = true;
+                    if (Math.Abs(s - c.S) <= c.HalfAlong + ZoneEdgeMergeM + 1e-3) inCrossing = true;
                 sp.Fill[k] = rec.Kind == RoadStructureKind.Flyover && !sp.Foot && !inCrossing && !sp.InOpening(s) && path.Y[k] - sp.Ground[k] < BridgeStyle.FillMaxM;
             }
             return sp;
         }
+
+        /// <summary>A crossing or opening edge this close to a station (or a road point) is not added as a station of its
+        /// own: the station stands for it, so the structure over a crossing thins out to it (metres).</summary>
+        private const double ZoneEdgeMergeM = 0.01;
 
         private static void AddEdge(double[] cand, ref int nc, double e, double sa, double sb)
         {
@@ -1013,29 +1022,68 @@ namespace Ghumante.Core.Meshing.Bridges
             return _footDeckPoints.TryGetValue(BridgeStructures.Key(p[2 * k], p[2 * k + 1]), out c) && c > 1;
         }
 
-        /// <summary>The length a foot overbridge end at along <paramref name="sEnd"/> (dir −1 start, +1 end) must grow
-        /// so it lies outside the corridor stretch of every road it crosses, plus room for a stair landing (0 when it
-        /// already does), kept inside the tile.</summary>
+        /// <summary>The length a foot overbridge end at along <paramref name="sEnd"/> (road point k, reached from point
+        /// kIn; dir −1 start, +1 end) must grow straight on so its deck lies outside the widened corridor of every road
+        /// it crosses, plus room for a stair landing (0 when it already does), kept inside the tile.</summary>
         private static double Extension(BridgeSpan sp, double sEnd, int dir, int[] p, int k, int kIn, TileData t)
         {
             const double Landing = 2.8, MaxExt = 15.0;
-            double need = double.NegativeInfinity;
-            foreach (BridgeCrossing c in sp.Crossings)
-                need = Math.Max(need, dir > 0 ? c.S + c.HalfAlong - sEnd : sEnd - (c.S - c.HalfAlong));
-            if (double.IsNegativeInfinity(need) || need + Landing <= 0) return 0;
-            double ext = Math.Min(MaxExt, need + Landing);
-            // Stay inside the tile (the neighbour cannot answer for a deck it does not know).
             double ex = p[2 * k] / 100.0, ez = p[2 * k + 1] / 100.0;
             double dx = ex - p[2 * kIn] / 100.0, dz = ez - p[2 * kIn + 1] / 100.0, dl = Math.Sqrt(dx * dx + dz * dz);
             if (dl < 1e-6) return 0;
             dx /= dl;
             dz /= dl;
+            double need = double.NegativeInfinity;
+            foreach (BridgeCrossing c in sp.Crossings)
+                need = Math.Max(need, CorridorExit(c, t.Roads[c.Road].Points, ex, ez, dx, dz, dir > 0 ? c.S + c.HalfAlong - sEnd : sEnd - (c.S - c.HalfAlong)));
+            if (double.IsNegativeInfinity(need) || need + Landing <= 0) return 0;
+            double ext = Math.Min(MaxExt, need + Landing);
+            // Stay inside the tile (the neighbour cannot answer for a deck it does not know).
             double size = t.Tile.Size, room = MaxExt;
             if (dx > 1e-6) room = Math.Min(room, (size - 0.5 - ex) / dx);
             if (dx < -1e-6) room = Math.Min(room, (0.5 - ex) / dx);
             if (dz > 1e-6) room = Math.Min(room, (size - 0.5 - ez) / dz);
             if (dz < -1e-6) room = Math.Min(room, (0.5 - ez) / dz);
             return Math.Max(0, Math.Min(ext, room));
+        }
+
+        /// <summary>
+        /// How far (metres) a deck end at (<paramref name="ex"/>, <paramref name="ez"/>) heading (<paramref name="dx"/>,
+        /// <paramref name="dz"/>) must move straight on until its footprint leaves the widened corridor of the road
+        /// crossed at <paramref name="c"/> (negative: how far it already lies beyond), in plan: from the end's distance
+        /// to the nearest segment of that road and the angle between the two there. On a deck that runs straight on
+        /// from the crossing this is the end's distance to the edge of the overlap stretch
+        /// (<paramref name="alongNeed"/>); a deck that turns after the crossing (to run beside the road) leaves the
+        /// corridor sooner, and one heading back toward the road from outside it never needs to move on. Where moving
+        /// on cannot lead out of the corridor, the stretch answers.
+        /// </summary>
+        private static double CorridorExit(in BridgeCrossing c, int[] q, double ex, double ez, double dx, double dz, double alongNeed)
+        {
+            double best = double.PositiveInfinity, ox = 0, oz = 0, rx = 0, rz = 0;
+            for (int b = 0; b + 1 < q.Length / 2; b++)
+            {
+                double ax = q[2 * b] / 100.0, az = q[2 * b + 1] / 100.0, sx = q[2 * b + 2] / 100.0 - ax, sz = q[2 * b + 3] / 100.0 - az;
+                double l2 = sx * sx + sz * sz;
+                if (l2 < 1e-12) continue;
+                double f = ((ex - ax) * sx + (ez - az) * sz) / l2;
+                f = f < 0 ? 0 : f > 1 ? 1 : f;
+                double vx = ex - (ax + sx * f), vz = ez - (az + sz * f), d2 = vx * vx + vz * vz;
+                if (d2 >= best) continue;
+                double l = Math.Sqrt(l2);
+                best = d2;
+                ox = vx;
+                oz = vz;
+                rx = sx / l;
+                rz = sz / l;
+            }
+            if (double.IsPositiveInfinity(best)) return alongNeed;
+            double h = Math.Sqrt(best);
+            // The footprint's corner nearest the road reaches the corridor edge at this distance of the end.
+            double reach = c.LowHalfM + c.DeckHalfM * Math.Abs(dx * rx + dz * rz);
+            // How fast moving on carries the end away from the road (the heading's component away from it).
+            double rate = h > 1e-6 ? (dx * ox + dz * oz) / h : 0;
+            if (h >= reach) return rate > 1e-3 ? -(h - reach) / rate : double.NegativeInfinity;
+            return rate > 0.1 ? (reach - h) / rate : alongNeed;
         }
 
         /// <summary>A key station <paramref name="ext"/> metres beyond road point k, straight on from point kIn, at the
@@ -1113,18 +1161,29 @@ namespace Ghumante.Core.Meshing.Bridges
                     double blen = BridgeStructures.SegLen(q, b);
                     for (int a = k0; a < k1; a++)
                     {
+                        // A proper plan crossing, or the station the pipeline wrote into both ways at a grade-separated
+                        // crossing (the deck and the road under it hold a point at the same position: no shared node).
+                        bool atPoint = false;
                         if (!BridgeStructures.Crosses(p[2 * a], p[2 * a + 1], p[2 * a + 2], p[2 * a + 3], a == k0, a + 1 == k1, q[2 * b], q[2 * b + 1],
-                                                      q[2 * b + 2], q[2 * b + 3])) continue;
+                                                      q[2 * b + 2], q[2 * b + 3]))
+                        {
+                            if (a == k0 || !BridgeStructures.PassesThroughAt(p, a, q, b)) continue;
+                            float under = os.DeckY != null && os.DeckY.Length == oc && !float.IsNaN(os.DeckY[b])
+                                ? os.DeckY[b]
+                                : BridgeStructures.Ground(t, Ground, p[2 * a] / 100.0, p[2 * a + 1] / 100.0) + RoadMesher.LiftOf(o, DefaultRoadOptions);
+                            if (!(Math.Abs(deck[a] - under) > RoadStructureRecord.GradeSeparationM)) continue;
+                            atPoint = true;
+                        }
                         double ax = p[2 * a] / 100.0, az = p[2 * a + 1] / 100.0, bx = p[2 * a + 2] / 100.0, bz = p[2 * a + 3] / 100.0;
                         double cx = q[2 * b] / 100.0, cz = q[2 * b + 1] / 100.0, dx = q[2 * b + 2] / 100.0, dz = q[2 * b + 3] / 100.0;
-                        double ta, tb;
-                        BridgeStructures.Intersect(ax, az, bx, bz, cx, cz, dx, dz, out ta, out tb);
+                        double ta = 0, tb = 0;
+                        if (!atPoint) BridgeStructures.Intersect(ax, az, bx, bz, cx, cz, dx, dz, out ta, out tb);
                         double sAt = along[a] + (along[a + 1] - along[a]) * ta;
                         float deckY = (float)(deck[a] + (deck[a + 1] - deck[a]) * ta);
                         double ix = ax + (bx - ax) * ta, iz = az + (bz - az) * ta;
                         float lowY;
-                        bool otherDeck = os.DeckY != null && os.DeckY.Length == oc && !float.IsNaN(os.DeckY[b]) && !float.IsNaN(os.DeckY[b + 1]);
-                        if (otherDeck) lowY = (float)(os.DeckY[b] + (os.DeckY[b + 1] - os.DeckY[b]) * tb);
+                        bool otherDeck = os.DeckY != null && os.DeckY.Length == oc && !float.IsNaN(os.DeckY[b]) && (atPoint || !float.IsNaN(os.DeckY[b + 1]));
+                        if (otherDeck) lowY = atPoint ? os.DeckY[b] : (float)(os.DeckY[b] + (os.DeckY[b + 1] - os.DeckY[b]) * tb);
                         else lowY = BridgeStructures.Ground(t, Ground, ix, iz) + RoadMesher.LiftOf(o, DefaultRoadOptions);
                         // A deck passing over this one: its own crossing.
                         if (otherDeck && os.IsElevated && lowY > deckY) continue;
@@ -1141,7 +1200,7 @@ namespace Ghumante.Core.Meshing.Bridges
                         bool shortfall = minDeck - lowY < need - 1e-3f;
                         if (!shortfall || !Derived && minDeck - lowY >= need - BridgeStyle.IssueToleranceM)
                         {
-                            sp.Crossings.Add(new BridgeCrossing { Road = j, S = sAt, HalfAlong = half, LowY = lowY, X = ix, Z = iz, LowHalfM = lowHalf });
+                            sp.Crossings.Add(new BridgeCrossing { Road = j, S = sAt, HalfAlong = half, LowY = lowY, X = ix, Z = iz, LowHalfM = lowHalf, DeckHalfM = deckHalf });
                         }
                         else
                         {

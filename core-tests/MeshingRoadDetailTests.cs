@@ -226,7 +226,9 @@ namespace Ghumante.Core.Tests
         /// corridor is at least 4.8 m, and the drawn road surface really covers that width (points 0.1 m inside
         /// the floor width on both sides lie on an up-facing triangle of the tile's road mesh; a tenth of a percent do not:
         /// the inner edge of an arc too tight for the width is pinched so the ribbon never folds, and mapped corners left
-        /// sharp at a junction cap leave slivers beside the cap's kerb return).
+        /// sharp at a junction cap leave slivers beside the cap's kerb return). Building passages (RSTR kind Passage, a
+        /// gateway under a house that stays whole) are drawn at their gateway width instead
+        /// (<see cref="RoadLayout.MinPassageWidthM"/>..<see cref="RoadLayout.MaxPassageWidthM"/>), never the floor.
         /// </summary>
         [Test]
         public void EveryDrawnRoadIsAtLeastRideableOnEveryLeafTile()
@@ -244,6 +246,12 @@ namespace Ghumante.Core.Tests
                 for (int i = 0; i < t.Roads.Count; i++)
                 {
                     if (!RoadMesher.IsDrawn(t, i, o)) continue;
+                    if (layout.IsPassage(i))
+                    {
+                        // The gateway under the house (the data package keeps the house whole over a passage).
+                        Assert.That(layout.Profiles[i].MinDrawn, Is.GreaterThanOrEqualTo(RoadLayout.MinPassageWidthM - 1e-4f), t.Tile + " passage " + i);
+                        continue;
+                    }
                     pieces++;
                     RoadClass cls = t.Roads[i].RoadClass;
                     float floor = RoadWidthModel.RideableMinM(cls);

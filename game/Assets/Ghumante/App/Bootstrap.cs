@@ -1,5 +1,6 @@
 using System;
 using Ghumante.App.Explore;
+using Ghumante.Core.Platform;
 using Ghumante.Core.Save;
 using Ghumante.Core.Services;
 using Ghumante.Platform;
@@ -9,6 +10,7 @@ using Ghumante.UI;
 using Ghumante.UI.Localization;
 using Ghumante.UI.Motion;
 using Ghumante.UI.Screens;
+using Ghumante.World;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -16,8 +18,9 @@ namespace Ghumante.App
 {
     /// <summary>
     /// Entry point of <c>Assets/Ghumante/Scenes/Bootstrap.unity</c> (created by
-    /// <c>Ghumante.EditorTools.ProjectSetup</c>). It applies the device tier, loads the player's settings from
-    /// the local save, wires services (haptics included), loads the string tables and shows the first screen:
+    /// <c>Ghumante.EditorTools.ProjectSetup</c>). It loads the player's settings from the local save, applies the
+    /// graphics tier (<see cref="QualityDirector"/>: the detected tier or the player's Settings > Graphics choice, adapted
+    /// at runtime by the quality governor), wires services (haptics included), loads the string tables and shows the first screen:
     /// the main menu. Explore opens the world (<see cref="ExploreSession"/> behind the <see cref="ExploreScreen"/> HUD)
     /// and its Main menu comes back here with the world closed. The Devanagari TextSpike (ARCHITECTURE.md section 2, P3)
     /// is one tap away ("Text test"). Pick <see cref="StartScreen.Explore"/> or <see cref="StartScreen.TextSpike"/> in
@@ -25,7 +28,7 @@ namespace Ghumante.App
     /// </summary>
     [DefaultExecutionOrder(-1000)]
     [DisallowMultipleComponent]
-    public sealed class Bootstrap : MonoBehaviour
+    public sealed class Bootstrap : MonoBehaviour, IQualityHost
     {
         /// <summary>
         /// The first screen. The value is serialized as an int: 0 is the default, so scenes saved while the
@@ -60,6 +63,7 @@ namespace Ghumante.App
         private SaveData _save;
         private IHaptics _haptics;
         private MotionSettings _motion;
+        private QualityDirector _quality;
         private MenuCounters _demoCounters = DemoCounters();
 
         /// <summary>The live Bootstrap, once its Awake has run.</summary>
@@ -69,7 +73,15 @@ namespace Ghumante.App
 
         public Localizer Localizer { get; private set; }
 
+        /// <summary>The graphics tier in use (detected, chosen in Settings, or stepped by the governor on Auto).</summary>
         public DeviceTier Tier { get; private set; }
+
+        /// <summary>Graphics quality: detection, the Settings choice, the adaptive governor (also registered as
+        /// <see cref="IQualityOptions"/>).</summary>
+        public QualityDirector Quality
+        {
+            get { return _quality; }
+        }
 
         /// <summary>Haptics for every screen (also registered as <see cref="IHaptics"/>).</summary>
         public IHaptics Haptics
@@ -94,9 +106,9 @@ namespace Ghumante.App
             DontDestroyOnLoad(gameObject);
 
             Services = new ServiceRegistry();
-            ApplyDeviceTier(DeviceTierDetector.Detect());
-            WireCoreServices();
             LoadSettings();
+            ApplyQuality();
+            WireCoreServices();
             WireFeel();
 
             Localizer = CreateLocalizer();
@@ -104,6 +116,9 @@ namespace Ghumante.App
             Application.lowMemory += OnLowMemory;
             DeviceAccessibility.ReducedMotionChanged += OnOsReducedMotionChanged;
         }
+
+        /// <summary>Where Ghumante > Project Setup creates the panel settings (ProjectSetup.PanelSettingsPath).</summary>
+        private const string EditorPanelSettingsPath = "Assets/Ghumante/Settings/UI/GhumantePanelSettings.asset";
 
         private void Start()
         {
@@ -117,12 +132,34 @@ namespace Ghumante.App
                 Debug.LogError("Bootstrap: no UIDocument assigned. Run Ghumante > Project Setup to rebuild the scene.");
                 return;
             }
+            if (document.panelSettings == null)
+            {
+                // Without panel settings UI Toolkit draws nothing (only the camera's sky colour shows).
+#if UNITY_EDITOR
+                document.panelSettings = UnityEditor.AssetDatabase.LoadAssetAtPath<PanelSettings>(EditorPanelSettingsPath);
+#endif
+                Debug.LogError(document.panelSettings != null
+                    ? "Bootstrap: the UI Document had no Panel Settings; using " + EditorPanelSettingsPath +
+                      " for this session. Run Ghumante > Project Setup (or Rebuild Bootstrap Scene) to fix the scene."
+                    : "Bootstrap: the UI Document has no Panel Settings, so no UI can show. Run Ghumante > Project Setup.");
+                if (document.panelSettings == null) return;
+            }
             Show(startScreen);
+        }
+
+        private void Update()
+        {
+            if (_quality != null) _quality.Tick(Time.unscaledDeltaTime);
         }
 
         private void OnDestroy()
         {
             if (Instance != this) return;
+            if (_quality != null)
+            {
+                _quality.TierApplied -= OnTierApplied;
+                _quality.Dispose();
+            }
             Application.lowMemory -= OnLowMemory;
             DeviceAccessibility.ReducedMotionChanged -= OnOsReducedMotionChanged;
             DisposeCurrentScreen();
@@ -179,6 +216,7 @@ namespace Ghumante.App
                 menu.AddCounterRequested += _ => _demoCounters = menu.Counters;
                 menu.HapticsChanged += OnHapticsChanged;
                 menu.ReduceMotionChanged += OnReduceMotionChanged;
+                menu.BindQuality(_quality);
                 _current = menu;
             }
             else if (screen == StartScreen.Explore)
@@ -187,6 +225,7 @@ namespace Ghumante.App
                 explore.LanguageSelected += SetLanguage;
                 explore.HapticsChanged += OnHapticsChanged;
                 explore.ReduceMotionChanged += OnReduceMotionChanged;
+                explore.BindQuality(_quality);
                 _current = explore;
                 _explore = ExploreSession.Begin(explore, _haptics, _motion, Localizer, Tier, _save, PersistSettings);
                 _explore.ExitRequested += () => Show(StartScreen.MainMenu);
@@ -329,25 +368,78 @@ namespace Ghumante.App
             return localizer;
         }
 
-        private void ApplyDeviceTier(DeviceTier tier)
+        /// <summary>
+        /// Classifies the device, resolves Settings > Graphics and applies the tier (quality level, frame rate, look,
+        /// dynamic resolution), logging the decision once (<see cref="QualityDirector.ApplyAtStartup"/>).
+        /// </summary>
+        private void ApplyQuality()
+        {
+            _quality = new QualityDirector(_save, this, DeviceFacts.Current());
+            _quality.TierApplied += OnTierApplied;
+            _quality.ApplyAtStartup();
+            Tier = _quality.Tier;
+            Services.Register<IQualityOptions>(_quality);
+            Screen.sleepTimeout = SleepTimeout.NeverSleep;
+        }
+
+        private void OnTierApplied(DeviceTier tier)
         {
             Tier = tier;
-            string levelName = DeviceTierDetector.QualityLevelName(tier);
-            int level = Array.IndexOf(QualitySettings.names, levelName);
-            if (level >= 0)
+            // The menus' idle effects follow the tier too (MotionSettings.LowPower).
+            if (_motion != null) _motion.LowPower = tier == DeviceTier.Low;
+        }
+
+        // ----- IQualityHost (the quality director's view of the app) ------------------------------------------------
+
+        WorldRoot IQualityHost.QualityWorld
+        {
+            get { return _explore != null ? _explore.World : null; }
+        }
+
+        bool IQualityHost.QualityBlocked
+        {
+            get
             {
-                QualitySettings.SetQualityLevel(level, true);
+                var screen = _current as ExploreScreen;
+                return _explore == null || !_explore.Playing || screen == null || screen.BlocksGameplay;
             }
-            else
+        }
+
+        bool IQualityHost.QualitySettingsOpen
+        {
+            get
             {
-                Debug.LogWarning("Bootstrap: quality level '" + levelName + "' missing. Run Ghumante > Project Setup.");
+                var explore = _current as ExploreScreen;
+                if (explore != null) return explore.SettingsOpen;
+                var menu = _current as MainMenuScreen;
+                return menu != null && menu.SettingsOpen;
             }
-            QualitySettings.vSyncCount = 0;
-            Application.targetFrameRate = DeviceTierDetector.TargetFrameRate(tier);
-            Screen.sleepTimeout = SleepTimeout.NeverSleep;
-            Debug.Log("Bootstrap: device tier " + tier + " (" + SystemInfo.deviceModel + ", " +
-                      SystemInfo.systemMemorySize + " MB RAM), quality '" + levelName + "', " +
-                      Application.targetFrameRate + " fps target.");
+        }
+
+        void IQualityHost.ShowQualityRedraw(bool show, string statusKey, string tierKey)
+        {
+            var screen = _current as ExploreScreen;
+            if (screen == null) return;
+            if (show) screen.ShowLoading(statusKey, Localizer.Get(tierKey));
+            else screen.HideLoading();
+        }
+
+        void IQualityHost.ShowQualityToast(string key)
+        {
+            const string icon = "gh-toast__icon--gear";
+            var explore = _current as ExploreScreen;
+            if (explore != null)
+            {
+                explore.ShowToast(Localizer.Get(key), icon);
+                return;
+            }
+            var menu = _current as MainMenuScreen;
+            if (menu != null) menu.ShowToast(Localizer.Get(key), icon);
+        }
+
+        void IQualityHost.PersistQuality()
+        {
+            PersistSettings();
         }
 
         /// <summary>

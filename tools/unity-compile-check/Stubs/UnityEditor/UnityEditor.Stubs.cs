@@ -37,6 +37,21 @@ namespace UnityEditor
         public static void Exit(int returnValue) { throw null; }
         public static bool isPlaying { get { throw null; } set { } }
         public static void EnterPlaymode() { throw null; }
+        public static event Action<PlayModeStateChange> playModeStateChanged { add { } remove { } }
+    }
+
+    public enum PlayModeStateChange
+    {
+        EnteredEditMode,
+        ExitingEditMode,
+        EnteredPlayMode,
+        ExitingPlayMode,
+    }
+
+    public class SessionState
+    {
+        public static bool GetBool(string key, bool defaultValue) { throw null; }
+        public static void SetBool(string key, bool value) { throw null; }
     }
 
     public sealed class EditorUtility
@@ -44,11 +59,14 @@ namespace UnityEditor
         public static void SetDirty(UnityEngine.Object target) { throw null; }
         public static string OpenFolderPanel(string title, string folder, string defaultName) { throw null; }
         public static bool DisplayDialog(string title, string message, string ok) { throw null; }
+        public static void RevealInFinder(string path) { throw null; }
     }
 
     public sealed class AssetDatabase
     {
         public static T LoadAssetAtPath<T>(string assetPath) where T : UnityEngine.Object { throw null; }
+        public static string AssetPathToGUID(string path) { throw null; }
+        public static bool DeleteAsset(string path) { throw null; }
         public static UnityEngine.Object[] LoadAllAssetsAtPath(string assetPath) { throw null; }
         public static void CreateAsset(UnityEngine.Object asset, string path) { throw null; }
         public static void SaveAssets() { throw null; }
@@ -465,5 +483,6 @@ namespace UnityEditor.SceneManagement
         public static Scene NewScene(NewSceneSetup setup, NewSceneMode mode) { throw null; }
         public static bool SaveScene(Scene scene, string dstScenePath) { throw null; }
         public static bool SaveCurrentModifiedScenesIfUserWantsTo() { throw null; }
+        public static Scene OpenScene(string scenePath) { throw null; }
     }
 }

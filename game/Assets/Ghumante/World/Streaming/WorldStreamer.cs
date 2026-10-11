@@ -30,8 +30,14 @@ namespace Ghumante.World.Streaming
     /// cells until they are ready), the hero LODs (<see cref="HeroLodBudget"/>), the structure colliders of heroes and B0
     /// cells (registered with the ground query while their tile is visible), and the per-frame render counters.
     /// </para>
+    /// <para>
+    /// Detail pass: the bridge and roundabout pieces (<see cref="LodPiece"/>: one LOD per span or site by the camera's
+    /// distance, <see cref="PieceLod"/>), the colliders of the ornaments and the instanced dressing (registered with the
+    /// heroes' and the B0 cells'), and in-place layer refreshes (<see cref="ITileRefreshSink"/>: the season's terrain
+    /// and areas swap in without a hole).
+    /// </para>
     /// </summary>
-    public sealed class WorldStreamer : ITileSink, IDisposable
+    public sealed class WorldStreamer : ITileSink, ITileRefreshSink, IDisposable
     {
         private static readonly double TicksToMs = 1000.0 / Stopwatch.Frequency;
 
@@ -52,6 +58,7 @@ namespace Ghumante.World.Streaming
         private WorldPos _origin;
         private RenderStats _stats;
         private bool _disposed;
+        private readonly int _tier;
 
         /// <summary>A detail tile became visible (its decoded tile and extras) or was hidden. Raised on the main thread.</summary>
         public event Action<TileId, TileExtras> DetailShown;
@@ -66,6 +73,7 @@ namespace Ghumante.World.Streaming
             if (materials == null) throw new ArgumentNullException(nameof(materials));
             _materials = materials;
             _ground = ground;
+            _tier = tier <= 0 ? 0 : tier >= 2 ? 2 : 1;
             _bands = BandConfig.ForTier(tier);
             _heroBudget = new HeroLodBudget(_bands.HeroBudgetTris, _bands.HeroLod0Allowed);
             _b0 = BandMaterial(materials.bandB0, BuildingBandLayer.B0, false);
@@ -151,7 +159,11 @@ namespace Ghumante.World.Streaming
             _stats = default(RenderStats); // the instanced renderers and life presenters add theirs after this call
 
             _cells.Update(_detailViews, camX, camZ, NowMs());
-            for (int v = 0; v < _detailViews.Count; v++) UpdateBands(_detailViews[v], camX, camZ);
+            for (int v = 0; v < _detailViews.Count; v++)
+            {
+                UpdateBands(_detailViews[v], camX, camZ);
+                UpdatePieces(_detailViews[v], camX, camZ);
+            }
             UpdateHeroes(camX, camY, camZ, verticalFovDeg, nowS);
             for (int v = 0; v < _detailViews.Count; v++)
             {
@@ -163,7 +175,8 @@ namespace Ghumante.World.Streaming
                 TileView view = kv.Value;
                 if (!view.IsVisible) continue;
                 _stats.TerrainTris += view.LayerTris(TileLayers.Terrain);
-                _stats.RoadTris += view.LayerTris(TileLayers.Roads);
+                _stats.RoadTris += view.LayerTris(TileLayers.Roads) + view.EnabledTris(TileLayers.Bridges); // bridges share the roads slice
+                _stats.HeroTris += view.EnabledTris(TileLayers.Ornaments); // roundabout statues count with the landmarks
                 _stats.DecalTris += view.LayerTris(TileLayers.RoadDecals);
                 _stats.AreaTris += view.LayerTris(TileLayers.Areas);
                 _stats.B1Tris += view.EnabledTris(TileLayers.Buildings);
@@ -235,6 +248,24 @@ namespace Ghumante.World.Streaming
         }
 
         // ---------------------------------------------------------------------------------------------------------
+        // Bridge spans and decorated roundabouts: one LOD per piece by the camera's plan distance
+
+        private void UpdatePieces(TileView view, double camX, double camZ)
+        {
+            LodPiece[] pieces = view.Extras != null ? view.Extras.Pieces : null;
+            if (pieces == null || pieces.Length == 0) return;
+            double cx = camX - view.Node.Area.X0, cz = camZ - view.Node.Area.Z0;
+            for (int i = 0; i < pieces.Length; i++)
+            {
+                int current = view.PieceLod[i];
+                int lod = PieceLod.Choose(pieces[i], _tier, pieces[i].DistanceTo(cx, cz), current);
+                if (lod == current) continue;
+                view.ShowPieceLod(pieces[i].Layer, pieces[i].Index, lod);
+                view.PieceLod[i] = lod;
+            }
+        }
+
+        // ---------------------------------------------------------------------------------------------------------
         // Heroes
 
         private void UpdateHeroes(double camX, float camY, double camZ, float fovDeg, float nowS)
@@ -287,7 +318,10 @@ namespace Ghumante.World.Streaming
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Structure colliders (heroes + shown B0 cells), registered while the tile is visible
+        // Structure colliders, registered while the tile is visible: two sets per tile in the ground query. The heroes and
+        // the shown B0 cells (small, rebuilt whenever a B0 cell shows or hides) under the tile key, and the static
+        // dressing (ornaments, generated trunks, poles, parked vehicles: hundreds to a few thousand colliders) under
+        // tileKey | TileGroundQuery.StaticSetKeyBit, built once when the tile becomes visible and dropped when it hides.
 
         private readonly StructureColliders _merged = new StructureColliders();
 
@@ -300,15 +334,14 @@ namespace Ghumante.World.Streaming
             {
                 if (view.CollidersRegistered) _ground.Unregister(key);
                 view.CollidersRegistered = false;
+                UnregisterStatic(view);
                 return;
             }
+            RegisterStatic(view);
             _merged.Clear();
+            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers and parapets).
             StructureColliders heroes = view.Extras != null ? view.Extras.HeroColliders : null;
-            if (heroes != null)
-            {
-                _merged.Boxes.AddRange(heroes.Boxes);
-                _merged.Ramps.AddRange(heroes.Ramps);
-            }
+            if (heroes != null) _merged.AddAll(heroes);
             _cells.AppendColliders(view, _merged);
             if (_merged.Count == 0)
             {
@@ -318,6 +351,22 @@ namespace Ghumante.World.Streaming
             }
             _ground.Register(key, _merged);
             view.CollidersRegistered = true;
+        }
+
+        /// <summary>The tile's static dressing colliders, once per visible spell (no-op when already registered).</summary>
+        private void RegisterStatic(TileView view)
+        {
+            if (view.StaticRegistered || _ground == null) return;
+            StructureColliders dressing = view.Extras != null ? view.Extras.Colliders : null;
+            if (dressing == null || dressing.Count == 0) return;
+            _ground.Register(view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit, dressing);
+            view.StaticRegistered = true;
+        }
+
+        private void UnregisterStatic(TileView view)
+        {
+            if (view.StaticRegistered && _ground != null) _ground.Unregister(view.Node.Area.Key | TileGroundQuery.StaticSetKeyBit);
+            view.StaticRegistered = false;
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -343,14 +392,50 @@ namespace Ghumante.World.Streaming
                 case TileLayers.Buildings: return _b1Full != null ? _b1Full : _materials.buildings;
                 case TileLayers.BuildingsFar: return _b2 != null ? _b2 : _materials.buildings;
                 case TileLayers.BuildingsBlock: return _b3 != null ? _b3 : _materials.buildings;
+                // Decks, railings, piers and trench walls: their own material, which fades whole between the camera
+                // and the player (World/README "Look"); the driving surface on the deck stays on the road layer.
+                case TileLayers.Bridges: return _materials.ForLayer(layer);
+                // Statues, gates and garden furniture are landmarks: the hero material (outlined, occluder fade).
+                case TileLayers.Ornaments: return _materials.heroes != null ? _materials.heroes : _materials.buildings;
                 default: return _materials.ForLayer(layer);
             }
+        }
+
+        // ITileRefreshSink
+
+        public void UploadRefresh(TileBuild build, int chunk)
+        {
+            TileView view;
+            if (!_views.TryGetValue(build.Node, out view)) return;
+            view.Stage(build.Chunks[chunk], MeshUpload.Create(build, chunk));
+        }
+
+        public void CommitRefresh(SelectedNode node, int layerMask)
+        {
+            TileView view;
+            if (!_views.TryGetValue(node, out view)) return;
+            view.CommitStaged(layerMask, this);
+        }
+
+        public void AbortRefresh(SelectedNode node)
+        {
+            TileView view;
+            if (_views.TryGetValue(node, out view)) view.AbortStaged();
+        }
+
+        internal Material LayerMaterial(int layer)
+        {
+            return MaterialFor(layer);
         }
 
         public void Ready(SelectedNode node, TileExtras extras)
         {
             TileView view;
-            if (_views.TryGetValue(node, out view)) view.SetExtras(extras);
+            if (!_views.TryGetValue(node, out view)) return;
+            // New extras for a view: its static set (if any) is dropped and registered from them on the next view update.
+            UnregisterStatic(view);
+            view.SetExtras(extras);
+            if (view.IsVisible) view.CollidersDirty = true;
         }
 
         public void SetVisible(SelectedNode node, bool visible)
@@ -385,6 +470,7 @@ namespace Ghumante.World.Streaming
             if (view.IsVisible) SetVisible(node, false);
             if (view.CollidersRegistered && _ground != null) _ground.Unregister(node.Area.Key);
             view.CollidersRegistered = false;
+            UnregisterStatic(view);
             _cells.Release(view);
             _views.Remove(node);
             view.Clear();
@@ -488,6 +574,15 @@ namespace Ghumante.World.Streaming
         internal float[] HeroChanged = new float[0];
         internal bool[] HeroShown = new bool[0];
         internal bool CollidersDirty, CollidersRegistered;
+
+        /// <summary>True while the tile's static dressing colliders are registered (key | <see cref="TileGroundQuery.StaticSetKeyBit"/>).</summary>
+        internal bool StaticRegistered;
+
+        /// <summary>Shown LOD of each bridge and ornament piece (parallel to <see cref="TileExtras.Pieces"/>; -1 none).</summary>
+        internal int[] PieceLod = new int[0];
+
+        private readonly List<UploadChunk> _stagedChunks = new List<UploadChunk>(4);
+        private readonly List<Mesh> _stagedMeshes = new List<Mesh>(4);
 
         public TileView(Transform parent, WorldMaterialSet materials)
         {
@@ -594,8 +689,8 @@ namespace Ghumante.World.Streaming
             chunk.MaxX = c.MaxX;
             chunk.MaxZ = c.MaxZ;
             chunk.Renderer.sharedMaterial = material != null ? material : _materials.ForLayer(layer);
-            // Hero LODs start hidden (the streamer shows one per hero); everything else starts on.
-            chunk.Renderer.enabled = layer != TileLayers.Heroes;
+            // Hero, bridge and ornament LODs start hidden (the streamer shows one per piece); everything else starts on.
+            chunk.Renderer.enabled = layer != TileLayers.Heroes && layer != TileLayers.Bridges && layer != TileLayers.Ornaments;
             chunk.Filter.sharedMesh = mesh;
             chunk.Filter.gameObject.SetActive(true);
             _layers[layer].SetActive(true);
@@ -619,6 +714,74 @@ namespace Ghumante.World.Streaming
                 HeroChanged[i] = -1000f;
                 HeroShown[i] = false;
             }
+            int np = extras != null && extras.Pieces != null ? extras.Pieces.Length : 0;
+            if (PieceLod.Length < np) PieceLod = new int[np];
+            for (int i = 0; i < PieceLod.Length; i++) PieceLod[i] = -1;
+        }
+
+        /// <summary>Enable exactly the chunks of piece <paramref name="index"/>'s <paramref name="lod"/> in a layer
+        /// (<see cref="TileLayers.Bridges"/> or <see cref="TileLayers.Ornaments"/>; -1 hides the piece).</summary>
+        internal void ShowPieceLod(int layer, int index, int lod)
+        {
+            List<ChunkRef> parts = _parts[layer];
+            int lo = index * 4, hi = lo + 4, want = lod < 0 ? -1 : lo + lod;
+            for (int k = 0; k < _used[layer]; k++)
+            {
+                ChunkRef c = parts[k];
+                if (c.Part < lo || c.Part >= hi) continue;
+                bool on = c.Part == want;
+                if (c.Renderer.enabled != on) c.Renderer.enabled = on;
+            }
+        }
+
+        /// <summary>Keep a refresh chunk hidden until <see cref="CommitStaged"/> (the view owns the mesh).</summary>
+        internal void Stage(UploadChunk c, Mesh mesh)
+        {
+            _stagedChunks.Add(c);
+            _stagedMeshes.Add(mesh);
+        }
+
+        /// <summary>Replace the layers of <paramref name="layerMask"/> by the staged chunks (the old meshes are destroyed in
+        /// the same frame, so nothing flickers).</summary>
+        internal void CommitStaged(int layerMask, WorldStreamer streamer)
+        {
+            for (int layer = 0; layer < TileLayers.Count; layer++)
+                if ((layerMask & (1 << layer)) != 0) ClearLayer(layer);
+            for (int i = 0; i < _stagedChunks.Count; i++)
+            {
+                UploadChunk c = _stagedChunks[i];
+                AddChunk(c, _stagedMeshes[i], streamer.LayerMaterial(c.Layer));
+            }
+            _stagedChunks.Clear();
+            _stagedMeshes.Clear();
+        }
+
+        /// <summary>Destroy the staged chunks (refresh abandoned).</summary>
+        internal void AbortStaged()
+        {
+            for (int i = 0; i < _stagedMeshes.Count; i++)
+                if (_stagedMeshes[i] != null) UnityEngine.Object.Destroy(_stagedMeshes[i]);
+            _stagedChunks.Clear();
+            _stagedMeshes.Clear();
+        }
+
+        private void ClearLayer(int layer)
+        {
+            List<ChunkRef> parts = _parts[layer];
+            for (int k = 0; k < _used[layer]; k++)
+            {
+                MeshFilter f = parts[k].Filter;
+                if (f == null) continue;
+                Mesh mesh = f.sharedMesh;
+                f.sharedMesh = null;
+                if (mesh != null) UnityEngine.Object.Destroy(mesh);
+                f.gameObject.SetActive(false);
+            }
+            _used[layer] = 0;
+            _layerTris[layer] = 0;
+            for (int i = _chunks.Count - 1; i >= 0; i--)
+                if (_chunks[i].Layer == layer) _chunks.RemoveAt(i);
+            if (_layers[layer] != null) _layers[layer].SetActive(false);
         }
 
         /// <summary>Enable exactly the chunks of hero <paramref name="hero"/>'s <paramref name="lod"/>.</summary>
@@ -646,6 +809,7 @@ namespace Ghumante.World.Streaming
         /// <summary>Destroy the meshes and hide (back to the pool; the chunk GameObjects are kept for reuse).</summary>
         internal void Clear()
         {
+            AbortStaged();
             for (int i = 0; i < TileLayers.Count; i++)
             {
                 List<ChunkRef> parts = _parts[i];
@@ -667,6 +831,7 @@ namespace Ghumante.World.Streaming
             IsVisible = false;
             CollidersDirty = false;
             CollidersRegistered = false;
+            StaticRegistered = false;
             if (_root != null) _root.SetActive(false);
         }
     }

@@ -50,6 +50,10 @@ namespace Ghumante.World.EditorTools
             var set = AssetDatabase.LoadAssetAtPath<WorldMaterialSet>(MaterialSetPath);
             if (set == null)
             {
+                // A file that does not load as a WorldMaterialSet lost its script link (it was made while the scripts did not
+                // compile, or the script's .meta changed): Unity warns "The referenced script ... is missing" and the game
+                // falls back to runtime materials. Replace it.
+                if (System.IO.File.Exists(MaterialSetPath)) AssetDatabase.DeleteAsset(MaterialSetPath);
                 set = ScriptableObject.CreateInstance<WorldMaterialSet>();
                 AssetDatabase.CreateAsset(set, MaterialSetPath);
             }
@@ -72,6 +76,8 @@ namespace Ghumante.World.EditorTools
             set.props = Ensure("GhumanteProps", toon, set.props, m => fresh.props = m);
             set.trees = Ensure("GhumanteTrees", toon, set.trees, m => fresh.trees = m);
             set.lights = Ensure("GhumanteLights", lights, set.lights, m => fresh.lights = m);
+            // Detail pass: bridge, flyover and underpass structures (TileLayers.Bridges), fading whole.
+            set.bridges = Ensure("GhumanteBridges", toon, set.bridges, m => fresh.bridges = m);
             WorldMaterialDefaults.Apply(fresh); // only the materials created now
             WorldMaterialDefaults.ApplyExtras(fresh, false);
             MarkDirty(fresh);

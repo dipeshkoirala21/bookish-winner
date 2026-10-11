@@ -293,7 +293,7 @@ namespace Ghumante.UI.Screens
             Feel(Required<Button>("pause-menu"), HapticKind.MediumImpact, () => Raise(MenuRequested));
 
             _settingsLayer = Required<VisualElement>("settings-layer");
-            _settingsFirst = Required<Button>("settings-haptics-toggle");
+            _settingsFirst = Required<Button>("settings-graphics-auto"); // the first row: Graphics quality
             _settings = new SettingsSheet(new SettingsSheetView
             {
                 Layer = _settingsLayer,
@@ -311,9 +311,21 @@ namespace Ghumante.UI.Screens
                 LanguageNepali = Required<Button>("settings-lang-ne"),
                 FeelPlay = Required<Button>("settings-feel-play"),
                 FeelStatus = Required<Label>("settings-feel-status"),
+                GraphicsRow = Required<VisualElement>("settings-row-graphics"),
+                GraphicsAuto = Required<Button>("settings-graphics-auto"),
+                GraphicsLow = Required<Button>("settings-graphics-low"),
+                GraphicsMedium = Required<Button>("settings-graphics-medium"),
+                GraphicsHigh = Required<Button>("settings-graphics-high"),
+                GraphicsStatus = Required<Label>("settings-graphics-status"),
+                GraphicsNote = Required<Label>("settings-graphics-note"),
+                FrameRateRow = Required<VisualElement>("settings-row-fps"),
+                FrameRateHint = Required<Label>("settings-fps-hint"),
+                FrameRate30 = Required<Button>("settings-fps-30"),
+                FrameRate60 = Required<Button>("settings-fps-60"),
                 Handle = Required<VisualElement>("settings-handle"),
                 Rows = new[]
                 {
+                    Required<VisualElement>("settings-row-graphics"), Required<VisualElement>("settings-row-fps"),
                     Required<VisualElement>("settings-row-haptics"), Required<VisualElement>("settings-row-motion"),
                     Required<VisualElement>("settings-row-language"), Required<VisualElement>("settings-row-feel"),
                 },
@@ -872,6 +884,12 @@ namespace Ghumante.UI.Screens
             if (IsLoading || IsPaused) return;
             _touch.ReleaseAll();
             _search.Open(fromGamepad);
+        }
+
+        /// <summary>Connects Settings > Graphics and Frame rate to App's quality settings (null hides those rows).</summary>
+        public void BindQuality(Ghumante.Core.Platform.IQualityOptions quality)
+        {
+            _settings.BindQuality(quality);
         }
 
         public void OpenSettings()

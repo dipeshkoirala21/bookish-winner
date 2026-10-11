@@ -178,13 +178,18 @@ namespace Ghumante.Core.Driving
             _elevated = new bool[roads.Count];
             _surfaceY = new float[roads.Count][];
             bool structures = t.RoadStructures.Count == roads.Count && roads.Count > 0;
+            TileHeightSampler terrain = null;
             for (int r = 0; r < roads.Count; r++)
             {
                 if (structures)
                 {
                     RoadStructureRecord st = t.RoadStructures[r];
                     _elevated[r] = st.Kind == RoadStructureKind.Bridge || st.Kind == RoadStructureKind.Flyover;
-                    if (st.DeckY != null && st.DeckY.Length == roads[r].PointCount) _surfaceY[r] = st.DeckY;
+                    if (st.DeckY != null && st.DeckY.Length == roads[r].PointCount)
+                    {
+                        if (terrain == null && HasDraped(st.DeckY)) terrain = new TileHeightSampler(t, 1);
+                        _surfaceY[r] = BlendedSurfaceHeights(t, r, terrain, RoadMesher.LiftOf(roads[r], drawn));
+                    }
                 }
                 else
                 {
@@ -299,11 +304,52 @@ namespace Ghumante.Core.Driving
             return _elevated[roadIndex];
         }
 
-        /// <summary>The absolute surface heights per point of a road (its <see cref="RoadStructureRecord.DeckY"/>), or
-        /// null when it is draped on the terrain.</summary>
+        /// <summary>The absolute surface heights per point of a road (its <see cref="RoadStructureRecord.DeckY"/> as
+        /// <see cref="BlendedSurfaceHeights"/> completes it: NaN only at draped points between draped points), or null when
+        /// it is draped on the terrain.</summary>
         public float[] SurfaceHeights(int roadIndex)
         {
             return _surfaceY[roadIndex];
+        }
+
+        /// <summary>True when per-point structure heights hold a draped point (NaN).</summary>
+        internal static bool HasDraped(float[] deckY)
+        {
+            if (deckY == null) return false;
+            for (int i = 0; i < deckY.Length; i++)
+                if (float.IsNaN(deckY[i])) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The per-point surface heights of road <paramref name="road"/> of <paramref name="t"/> for consumers that
+        /// interpolate between points (physics, lanes, walks): its <see cref="RoadStructureRecord.DeckY"/> (null when the
+        /// road has none), where a draped point (NaN, docs/DATA_FORMATS.md 1.15) next to a point with a height reads the
+        /// drape there (the terrain from <paramref name="terrain"/> plus <paramref name="lift"/>), so a segment from a ramp,
+        /// deck or cutting to the ground blends from the structure height to the drape as the road mesher draws it
+        /// (RoadGrade). Draped points between draped points stay NaN: those segments lie on the terrain and the caller
+        /// drapes there. Returns the record's own array when it has no draped point (do not modify it).
+        /// </summary>
+        public static float[] BlendedSurfaceHeights(TileData t, int road, TileHeightSampler terrain, float lift)
+        {
+            if (t == null) throw new ArgumentNullException(nameof(t));
+            RoadStructureRecord st = t.RoadStructureOf(road);
+            float[] raw = st.DeckY;
+            int[] p = t.Roads[road].Points;
+            if (raw == null || raw.Length != p.Length / 2) return null;
+            if (!HasDraped(raw)) return raw;
+            var y = (float[])raw.Clone();
+            for (int i = 0; i < raw.Length; i++)
+            {
+                if (!float.IsNaN(raw[i])) continue;
+                bool border = i > 0 && !float.IsNaN(raw[i - 1]) || i + 1 < raw.Length && !float.IsNaN(raw[i + 1]);
+                if (!border || terrain == null) continue;
+                double gx, gz;
+                t.LocalToGame(p[2 * i], p[2 * i + 1], out gx, out gz);
+                float g;
+                if (terrain.TryHeightClamped(gx, gz, out g)) y[i] = g + lift;
+            }
+            return y;
         }
 
         /// <summary>True when any bridge or flyover of the tile has deck heights.</summary>
@@ -313,7 +359,8 @@ namespace Ghumante.Core.Driving
         }
 
         /// <summary>The road surface height of a hit on a road with structure heights (interpolated between the
-        /// segment's points), or false when the road is draped.</summary>
+        /// segment's points, <see cref="SurfaceHeights"/>), or false when the road is draped there (no heights, or a
+        /// segment between two draped points).</summary>
         public bool TrySurfaceHeight(in RoadHit hit, out float y, out float gradeAlong)
         {
             y = 0f;
@@ -322,6 +369,7 @@ namespace Ghumante.Core.Driving
             float[] d = _surfaceY[hit.RoadIndex];
             if (d == null || hit.Segment < 0 || hit.Segment + 1 >= d.Length) return false;
             float a = d[hit.Segment], b = d[hit.Segment + 1];
+            if (float.IsNaN(a) || float.IsNaN(b)) return false;
             y = a + (b - a) * hit.T;
             int[] p = hit.Road.Points;
             double dx = (p[2 * hit.Segment + 2] - p[2 * hit.Segment]) / 100.0, dz = (p[2 * hit.Segment + 3] - p[2 * hit.Segment + 1]) / 100.0;

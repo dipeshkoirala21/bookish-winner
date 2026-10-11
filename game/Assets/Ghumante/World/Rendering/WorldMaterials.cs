@@ -113,6 +113,10 @@ namespace Ghumante.World.Rendering
         [Tooltip("W2 airport and aircraft lights: Ghumante/InstancedLights.")]
         public Material lights;
 
+        [Tooltip("Detail pass: bridge, flyover and underpass structures (decks, railings, piers, trench walls; the driving " +
+                 "surface stays on the road layer): Ghumante/ToonLit, fades whole between the camera and the player.")]
+        public Material bridges;
+
         private bool _extrasRuntime;
 
         /// <summary>True when the set was made at runtime (destroy it with the world).</summary>
@@ -129,7 +133,8 @@ namespace Ghumante.World.Rendering
             get
             {
                 return decals != null && bandB0 != null && bandB1 != null && bandB1Full != null && bandB2 != null && bandB3 != null &&
-                       heroes != null && instanced != null && instancedTint != null && props != null && trees != null && lights != null;
+                       heroes != null && instanced != null && instancedTint != null && props != null && trees != null && lights != null &&
+                       bridges != null;
             }
         }
 
@@ -145,6 +150,7 @@ namespace Ghumante.World.Rendering
                 case TileLayers.BuildingsFar: return bandB2 != null ? bandB2 : buildings;
                 case TileLayers.BuildingsBlock: return bandB3 != null ? bandB3 : buildings;
                 case TileLayers.Heroes: return heroes != null ? heroes : buildings;
+                case TileLayers.Bridges: return bridges != null ? bridges : roads;
                 default: return areas;
             }
         }
@@ -167,6 +173,7 @@ namespace Ghumante.World.Rendering
             if (props == null) props = MakeExtra(WorldShaders.ToonLit, "Ghumante Props (runtime)");
             if (trees == null) trees = MakeExtra(WorldShaders.ToonLit, "Ghumante Trees (runtime)");
             if (lights == null) lights = MakeExtra(WorldShaders.InstancedLights, "Ghumante Lights (runtime)");
+            if (bridges == null) bridges = MakeExtra(WorldShaders.ToonLit, "Ghumante Bridges (runtime)");
             WorldMaterialDefaults.ApplyExtras(this, true);
             WorldMaterialDefaults.ApplyLook(this, true);
         }
@@ -246,6 +253,7 @@ namespace Ghumante.World.Rendering
                 props = DropRuntime(props);
                 trees = DropRuntime(trees);
                 lights = DropRuntime(lights);
+                bridges = DropRuntime(bridges);
                 _extrasRuntime = false;
             }
         }
@@ -336,6 +344,8 @@ namespace Ghumante.World.Rendering
                 bands[i].SetVector(WorldShaders.BandRange, new Vector4(0f, 100000f, 4f, 0f));
             }
             if (Fresh(set.heroes, onlyRuntime)) Toon(set.heroes, 0f, 2000);
+            // Bridge structures are solid geometry: no depth pull (the road ribbon on the deck keeps its own and wins).
+            if (Fresh(set.bridges, onlyRuntime)) Toon(set.bridges, 0f, 2000);
             if (Fresh(set.instanced, onlyRuntime))
             {
                 Toon(set.instanced, 0f, 2000);
@@ -414,10 +424,11 @@ namespace Ghumante.World.Rendering
         /// traffic (instanced), people, animals and aircraft (instancedTint) and the hero replicas (landmarks). High adds the
         /// street props (props) and the near building band (B0, inside the outline range). Never: the ground layers,
         /// trees and the B1/B2/B3 bands (the B1 band reaches 200-250 m, far past the outline). Low: none.</item>
-        /// <item>Occluder fade: near buildings (B0, B1, B1 full), heroes, trees, props, people and animals; the road layer as
-        /// a ground layer (bridge railings, piers, flyover decks and the like fade above the player's knees, the road surface,
-        /// kerbs and footpaths never). Terrain, areas, markings, the far bands, the explorer and traffic never fade (the bus
-        /// a passenger rides stays solid).</item>
+        /// <item>Occluder fade: near buildings (B0, B1, B1 full), heroes, trees, props, people and animals, and the bridge
+        /// layer (decks, railings, piers, flyover ramps and trench walls) whole. Roads, terrain, areas, markings, the far
+        /// bands, the explorer and traffic never fade (the bus a passenger rides stays solid); the road layer holds only
+        /// the driving surface, kerbs and footpaths now that the structures have their own layer, so it is spared the
+        /// fade's <c>clip()</c> (early depth on mobile GPUs).</item>
         /// </list>
         /// </summary>
         public static LookRole RoleOf(WorldMaterialSet set, Material m, in ToonLookTier tier)
@@ -425,7 +436,8 @@ namespace Ghumante.World.Rendering
             if (set == null || m == null) return new LookRole(0f, false);
             float on = tier.Outlines ? 1f : 0f;
             if (m == set.terrain || m == set.areas || m == set.decals) return new LookRole(0f, false);
-            if (m == set.roads) return new LookRole(0f, true, true);
+            if (m == set.roads) return new LookRole(0f, false);
+            if (m == set.bridges) return new LookRole(0f, true);
             if (m == set.bandB0) return new LookRole(tier.OutlineNearBuildings ? on : 0f, true);
             if (m == set.bandB1 || m == set.bandB1Full || m == set.trees) return new LookRole(0f, true);
             if (m == set.bandB2 || m == set.bandB3) return new LookRole(0f, false);
@@ -454,7 +466,7 @@ namespace Ghumante.World.Rendering
             Material[] all =
             {
                 set.terrain, set.roads, set.buildings, set.areas, set.decals, set.bandB0, set.bandB1, set.bandB1Full, set.bandB2,
-                set.bandB3, set.heroes, set.instanced, set.instancedTint, set.props, set.trees,
+                set.bandB3, set.heroes, set.instanced, set.instancedTint, set.props, set.trees, set.bridges,
             };
             for (int i = 0; i < all.Length; i++)
             {

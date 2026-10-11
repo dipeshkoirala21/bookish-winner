@@ -108,7 +108,9 @@ namespace Ghumante.Core.Tests
         /// Sample-wide: outside decks and synthetic bridges almost every drawn carriageway centre stays within the profile
         /// band of the lifted terrain, nearly all within the band plus the dish allowance of a concave cross-section, none
         /// half a metre above it, and no carriageway edge as much as 0.8 m (the review measured 16 roads above 2 m, the
-        /// Pasang Lhamu Highway at 9.4 m).
+        /// Pasang Lhamu Highway at 9.4 m). Stretches the data package gives structure heights (RSTR deck and ramp points:
+        /// embankments and stairs up to a deck, cuttings) leave the terrain by design and are not counted, nor the
+        /// segments that blend from such a point into the drape.
         /// </summary>
         [Test]
         public void NoRoadFloatsAboveTheTerrainOnTheSample()
@@ -128,9 +130,10 @@ namespace Ghumante.Core.Tests
                     RoadCentreline c = lay.Centres[i];
                     RoadWidthProfile prof = lay.Profiles[i];
                     float lift = g.LiftOf(i);
+                    RoadStructureRecord st = t.RoadStructureOf(i);
                     for (double s = 1; s < c.RawLengthM - 1; s += 2)
                     {
-                        if (g.OnDeck(i, s)) continue;
+                        if (g.OnDeck(i, s) || NearStructurePoint(lay, st, i, s)) continue;
                         double x, z, tx, tz;
                         c.At(s, out x, out z, out tx, out tz);
                         double ux = -tz, uz = tx;
@@ -163,6 +166,20 @@ namespace Ghumante.Core.Tests
             Assert.That((double)overDish / samples, Is.LessThan(0.005), "centres above the band and the dish allowance");
             Assert.That(worstCentre, Is.LessThan(0.5), where);
             Assert.That(worstEdge, Is.LessThan(0.8));
+        }
+
+        /// <summary>True when raw along <paramref name="s"/> of road <paramref name="road"/> lies on a segment touching a
+        /// point with structure heights (RSTR deck or ramp role).</summary>
+        private static bool NearStructurePoint(RoadLayout lay, in RoadStructureRecord st, int road, double s)
+        {
+            if (st.DeckY == null) return false;
+            int n = st.DeckY.Length;
+            for (int k = 0; k < n; k++)
+            {
+                if (st.RoleAt(k) == DeckPointRole.Draped) continue;
+                if (s >= lay.AlongAt(road, Math.Max(0, k - 1)) && s <= lay.AlongAt(road, Math.Min(n - 1, k + 1))) return true;
+            }
+            return false;
         }
 
         // -------------------------------------------------------------------------------------------------------
@@ -399,7 +416,11 @@ namespace Ghumante.Core.Tests
         /// Footpaths are reserved before the carriageway widens (review finding 4): an urban primary in a 17 m corridor keeps
         /// its class footpaths on both sides at their full width and draws its carriageway between them, never under the
         /// real width; and on the sample, where an urban primary's or secondary's corridor holds the real width and both
-        /// nominal footpaths, they are drawn (the review measured 43 % and 18 % against 99 % and 87 % nominal).
+        /// nominal footpaths, they are drawn (the review measured 43 % and 18 % against 99 % and 87 % nominal). The final
+        /// corridors (data package, RATR with RSTR) measure the space between buildings only, so a carriageway mapped
+        /// beside another one (the Ring Road's side lanes along the Kalanki underpass) can have a corridor with room while
+        /// the parallel carriageway takes it: where the piece gives way to such a neighbour (<c>ClampParallel</c> draws it
+        /// narrower than its §4.2 width) the inner footpath is dropped by design, and those samples are not counted.
         /// </summary>
         [Test]
         public void UrbanArterialsWithRoomKeepTheirFootpaths()
@@ -440,6 +461,7 @@ namespace Ghumante.Core.Tests
                         if (s < 40 || s > q.LengthM - 40 || l.InGap(i, s) || l.InGap(i, s - 10) || l.InGap(i, s + 10)) continue;
                         if (float.IsPositiveInfinity(q.Limit[k]) || q.Limit[k] < q.RealM + 2 * Math.Max(fl, fr) + 0.5f) continue;
                         if (q.Drawn[k] > q.Limit[k] - 2 * Math.Max(fl, fr) + 0.01f) continue; // the rideability floor took it
+                        if (q.Drawn[k] < q.Width[k] - 0.01f) continue; // giving way to a parallel carriageway
                         room++;
                         if (q.FootLeft[k] > 0f && q.FootRight[k] > 0f) kept++;
                     }

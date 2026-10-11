@@ -1,5 +1,6 @@
 using System;
 using Ghumante.Core.Motion;
+using Ghumante.Core.Platform;
 using Ghumante.Core.Services;
 using Ghumante.UI.Localization;
 using Ghumante.UI.Motion;
@@ -28,6 +29,24 @@ namespace Ghumante.UI.Screens
         public Button FeelPlay;
         public Label FeelStatus;
 
+        /// <summary>Graphics quality (may be null in older UXML): the row, the Auto / Low / Medium / High segment, the
+        /// status line naming the phone's tier, and the note shown while the world still has to redraw.</summary>
+        public VisualElement GraphicsRow;
+
+        public Button GraphicsAuto;
+        public Button GraphicsLow;
+        public Button GraphicsMedium;
+        public Button GraphicsHigh;
+        public Label GraphicsStatus;
+        public Label GraphicsNote;
+
+        /// <summary>Frame rate (may be null): the row, its hint and the 30 / 60 segment.</summary>
+        public VisualElement FrameRateRow;
+
+        public Label FrameRateHint;
+        public Button FrameRate30;
+        public Button FrameRate60;
+
         /// <summary>The grabber and header (may be null): dragging it towards the sheet's edge dismisses the
         /// sheet. Buttons inside it (close) keep their own taps.</summary>
         public VisualElement Handle;
@@ -37,8 +56,12 @@ namespace Ghumante.UI.Screens
     }
 
     /// <summary>
-    /// Settings (Screens/MainMenu.uxml, "settings-layer"): Vibration, Reduce motion, Language and "Feel the
-    /// haptics". A bottom sheet in portrait and a side panel in landscape (ARCHITECTURE.md 7.10a); it slides
+    /// Settings (Screens/MainMenu.uxml and Explore.uxml, "settings-layer"): Graphics quality (Auto, showing the tier the
+    /// phone runs, e.g. "Auto (Medium)", or Low / Medium / High), Frame rate (30 / 60 where the tier allows it),
+    /// Vibration, Reduce motion, Language and "Feel the haptics". Graphics changes apply at once through
+    /// <see cref="IQualityOptions"/> (<see cref="BindQuality"/>; without it the two rows hide); the world redraws when the
+    /// sheet closes, which the note under the row says. A bottom sheet in portrait and a side panel in landscape
+    /// (ARCHITECTURE.md 7.10a); it slides
     /// in with a little overshoot (a stretch from its screen edge, see <see cref="EdgeSheet.Pose"/>), or just
     /// fades with Reduce motion. It closes with the scrim, the close button, Done, a drag on its grabber and
     /// header towards the edge (with a Selection tick where letting go would close it), and the Android back
@@ -50,6 +73,9 @@ namespace Ghumante.UI.Screens
         public const string OpenClass = "gh-sheet-layer--open";
         public const string ToggleOnClass = "gh-toggle--on";
         public const string SelectedClass = "gh-segment__option--selected";
+
+        /// <summary>A segment option the current tier does not allow (60 fps on Low).</summary>
+        public const string UnavailableClass = "gh-segment__option--unavailable";
 
         /// <summary>Knob travel between off and on (USS .gh-toggle__knob left 4px vs 50px).</summary>
         private const float KnobTravel = 46f;
@@ -112,6 +138,8 @@ namespace Ghumante.UI.Screens
         private long _dragLastTime;
         private float _dragVelocity;
         private bool _pastDismiss;
+        private IQualityOptions _quality;
+        private readonly Action _qualityChanged;
 
         /// <param name="view">Elements.</param>
         /// <param name="animator">The owning screen's animator.</param>
@@ -153,6 +181,13 @@ namespace Ghumante.UI.Screens
             feel(view.LanguageEnglish, HapticKind.Selection, () => ChooseLanguage(Localizer.English));
             feel(view.LanguageNepali, HapticKind.Selection, () => ChooseLanguage(Localizer.Nepali));
             feel(view.FeelPlay, HapticKind.LightImpact, PlayFeelDemo).ExtendTo(view.FeelPlay.parent);
+            _qualityChanged = RefreshQuality;
+            if (view.GraphicsAuto != null) feel(view.GraphicsAuto, HapticKind.Selection, () => ChooseGraphics(GraphicsChoice.Auto));
+            if (view.GraphicsLow != null) feel(view.GraphicsLow, HapticKind.Selection, () => ChooseGraphics(GraphicsChoice.Low));
+            if (view.GraphicsMedium != null) feel(view.GraphicsMedium, HapticKind.Selection, () => ChooseGraphics(GraphicsChoice.Medium));
+            if (view.GraphicsHigh != null) feel(view.GraphicsHigh, HapticKind.Selection, () => ChooseGraphics(GraphicsChoice.High));
+            if (view.FrameRate30 != null) feel(view.FrameRate30, HapticKind.Selection, () => ChooseFrameRate(30));
+            if (view.FrameRate60 != null) feel(view.FrameRate60, HapticKind.Selection, () => ChooseFrameRate(60));
 
             if (view.Handle != null)
             {
@@ -185,6 +220,21 @@ namespace Ghumante.UI.Screens
         public bool IsOpen
         {
             get { return _open; }
+        }
+
+        /// <summary>The graphics settings the Graphics and Frame rate rows show and change (null hides both rows).</summary>
+        public IQualityOptions Quality
+        {
+            get { return _quality; }
+        }
+
+        /// <summary>Connects the Graphics and Frame rate rows to <paramref name="quality"/> (null hides them).</summary>
+        public void BindQuality(IQualityOptions quality)
+        {
+            if (_quality != null) _quality.Changed -= _qualityChanged;
+            _quality = quality;
+            if (_quality != null) _quality.Changed += _qualityChanged;
+            RefreshQuality();
         }
 
         public void Open()
@@ -232,11 +282,104 @@ namespace Ghumante.UI.Screens
             DisplayStyle note = _haptics.IsSupported ? DisplayStyle.None : DisplayStyle.Flex;
             if (_view.HapticsNote.style.display != note) _view.HapticsNote.style.display = note;
             _view.FeelStatus.text = _localizer.Get("settings.feel.hint");
+            RefreshQuality();
+        }
+
+        /// <summary>
+        /// The Graphics and Frame rate rows from <see cref="Quality"/>: the selected options, "Auto (Medium)" with the
+        /// tier Auto uses, the phone's tier (and a governor step down), the redraw note, and 60 fps greyed out where the
+        /// tier does not allow it.
+        /// </summary>
+        public void RefreshQuality()
+        {
+            IQualityOptions q = _quality;
+            DisplayStyle rows = q != null ? DisplayStyle.Flex : DisplayStyle.None;
+            SetDisplay(_view.GraphicsRow, rows);
+            SetDisplay(_view.FrameRateRow, rows);
+            if (q == null)
+            {
+                SetDisplay(_view.GraphicsNote, DisplayStyle.None);
+                return;
+            }
+            GraphicsChoice choice = q.Choice;
+            Select(_view.GraphicsAuto, choice == GraphicsChoice.Auto);
+            Select(_view.GraphicsLow, choice == GraphicsChoice.Low);
+            Select(_view.GraphicsMedium, choice == GraphicsChoice.Medium);
+            Select(_view.GraphicsHigh, choice == GraphicsChoice.High);
+            if (_view.GraphicsAuto != null) _view.GraphicsAuto.text = _localizer.Format("settings.quality.auto", TierName(q.AutoTier));
+            if (_view.GraphicsStatus != null)
+            {
+                _view.GraphicsStatus.text = q.AutoTier < q.DetectedTier
+                    ? _localizer.Format("settings.quality.lowered", TierName(q.DetectedTier), TierName(q.AutoTier))
+                    : _localizer.Format("settings.quality.detected", TierName(q.DetectedTier));
+            }
+            SetDisplay(_view.GraphicsNote, q.WorldRedrawPending ? DisplayStyle.Flex : DisplayStyle.None);
+
+            int fps = q.FrameRate;
+            bool sixtyAllowed = q.MaxFrameRate >= 60;
+            Select(_view.FrameRate30, fps <= 30);
+            Select(_view.FrameRate60, fps >= 60);
+            if (_view.FrameRate30 != null) _view.FrameRate30.text = _localizer.Format("settings.framerate.value", 30);
+            if (_view.FrameRate60 != null)
+            {
+                _view.FrameRate60.text = _localizer.Format("settings.framerate.value", 60);
+                _view.FrameRate60.EnableInClassList(UnavailableClass, !sixtyAllowed);
+            }
+            if (_view.FrameRateHint != null)
+            {
+                _view.FrameRateHint.text = sixtyAllowed
+                    ? _localizer.Format("settings.framerate.hint", 60, 30)
+                    : _localizer.Format("settings.framerate.low_only", 30, 60);
+            }
+        }
+
+        /// <summary>String keys of the tier names, by <see cref="QualityTier"/>.</summary>
+        private static readonly string[] TierKeys = { "settings.quality.low", "settings.quality.medium", "settings.quality.high" };
+
+        private string TierName(QualityTier tier)
+        {
+            int i = (int)tier;
+            return _localizer.Get(TierKeys[i < 0 ? 0 : i >= TierKeys.Length ? TierKeys.Length - 1 : i]);
+        }
+
+        private static void Select(Button option, bool selected)
+        {
+            if (option != null) option.EnableInClassList(SelectedClass, selected);
+        }
+
+        private static void SetDisplay(VisualElement e, DisplayStyle display)
+        {
+            if (e != null && e.style.display != display) e.style.display = display;
+        }
+
+        private void ChooseGraphics(GraphicsChoice choice)
+        {
+            if (_quality == null || _quality.Choice == choice) return;
+            _quality.SetChoice(choice); // applies at once; Changed refreshes the rows
+            RefreshQuality();
+        }
+
+        private void ChooseFrameRate(int fps)
+        {
+            if (_quality == null) return;
+            if (fps > _quality.MaxFrameRate)
+            {
+                // 60 fps needs Medium or High: say so where the hint is, with a little shake.
+                if (_view.FrameRateHint != null) _view.FrameRateHint.text = _localizer.Format("settings.framerate.low_only", 30, 60);
+                if (!_animator.Reduced && _view.FrameRate60 != null) _animator.Node(_view.FrameRate60).KickWobble(260f);
+                _haptics.Play(HapticKind.Warning);
+                return;
+            }
+            if (_quality.FrameRate == fps) return;
+            _quality.SetFrameRate(fps);
+            RefreshQuality();
         }
 
         public void Dispose()
         {
             _feelToken++;
+            if (_quality != null) _quality.Changed -= _qualityChanged;
+            _quality = null;
             CancelDrag();
             StopListeningForBack();
             if (_bleedRoot != null) _bleedRoot.UnregisterCallback<GeometryChangedEvent>(OnRootGeometry);

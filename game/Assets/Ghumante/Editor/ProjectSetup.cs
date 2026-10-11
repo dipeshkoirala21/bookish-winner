@@ -177,12 +177,17 @@ namespace Ghumante.EditorTools
             AdvancedTextGeneratorSetting.Enable();
             PanelSettings panel = EnsurePanelSettings();
             EnsureBootstrapScene(forceRebuild: false, panelSettings: panel);
-            // World (M1 track C): the sample region in StreamingAssets/Regions and the world materials.
-            RegionImport.EnsureSampleRegion();
+            // World (M1 track C): the sample region in StreamingAssets/Regions and the world materials. A rebuilt sample
+            // (the detail pass's kathmandu_core with its RSTR structures, JNCT junctions, BFNT fronts and final corridors)
+            // has a new manifest, so it replaces an older install; an identical one is left alone.
+            if (RegionImport.EnsureSampleRegion()) Debug.Log("ProjectSetup: installed the sample region " + RegionImport.SampleRegionId + ".");
             // The materials carry the cartoon look roles (W2 detail pass: outline pass on near layers, occluder fade on
             // buildings, temples, trees and props). The look needs no URP renderer feature: the outline is a material pass
             // URP's opaque pass draws, the tier toggle is the shader LOD, and the textures and the occluder capsule are
-            // globals ToonLook sets itself (RuntimeInitializeOnLoadMethod + beginCameraRendering).
+            // globals ToonLook sets itself (RuntimeInitializeOnLoadMethod + beginCameraRendering). The detail pass's new
+            // tile layers draw with materials of this set (bridges: their own material, GhumanteBridges, which fades whole
+            // between the camera and the player, while the road material no longer fades; roundabout ornaments: the hero
+            // material), so EnsureMaterials covers them; it only creates what is missing.
             WorldSetup.EnsureMaterials();
             if (!Application.isBatchMode) ToonLookEditor.Refresh(); // re-bake the edit-mode textures with the new settings
             AssetDatabase.SaveAssets();
@@ -563,6 +568,14 @@ namespace Ghumante.EditorTools
             catch (IOException)
             {
                 return true;
+            }
+            // The UIDocument must point at the panel settings asset as it is now: an older scene can keep a GUID from a
+            // panel settings asset that was deleted and recreated, which Unity shows as "None" and draws no UI at all.
+            string panelGuid = AssetDatabase.AssetPathToGUID(PanelSettingsPath);
+            if (!string.IsNullOrEmpty(panelGuid) && text.IndexOf("m_PanelSettings: {fileID: 11400000, guid: " + panelGuid,
+                                                                StringComparison.Ordinal) < 0)
+            {
+                return false;
             }
             foreach (string field in BootstrapFields)
             {

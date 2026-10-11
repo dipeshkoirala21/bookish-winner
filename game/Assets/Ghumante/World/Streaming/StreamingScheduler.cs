@@ -30,6 +30,24 @@ namespace Ghumante.World.Streaming
         void Ready(SelectedNode node, TileExtras extras);
     }
 
+    /// <summary>
+    /// The optional side of an <see cref="ITileSink"/> that replaces layers of a view in place
+    /// (<see cref="StreamingScheduler.RefreshLayers"/>, the season change): the new chunks are staged hidden and swapped
+    /// in at once, so the old layers stay on screen until the new ones are complete.
+    /// </summary>
+    public interface ITileRefreshSink
+    {
+        /// <summary>Stage one chunk of a refresh build (<c>build.Chunks[chunk]</c>) for the node's existing view.</summary>
+        void UploadRefresh(TileBuild build, int chunk);
+
+        /// <summary>Every chunk of the refresh is staged: destroy the view's chunks of the layers in
+        /// <paramref name="layerMask"/> (<see cref="TileLayers"/> bits) and show the staged ones instead.</summary>
+        void CommitRefresh(SelectedNode node, int layerMask);
+
+        /// <summary>Drop the node's staged chunks (the refresh was abandoned).</summary>
+        void AbortRefresh(SelectedNode node);
+    }
+
     /// <summary>Runs tile builds off the main thread.</summary>
     public interface ITileJobRunner
     {
@@ -110,7 +128,10 @@ namespace Ghumante.World.Streaming
     /// <item>applies the swap rule (<see cref="TileResidency.Resolve"/>) to views and to the ground query, which therefore
     /// always describes exactly what is drawn;</item>
     /// <item>dispatches the nearest queued nodes to <see cref="ITileJobRunner"/>, at most <see cref="MaxConcurrentJobs"/>
-    /// at once, never decoding one source tile twice at the same time.</item>
+    /// at once, never decoding one source tile twice at the same time;</item>
+    /// <item>when nothing is queued, rebuilds the layers <see cref="RefreshLayers"/> marked out of date (the season of
+    /// the terrain and areas) for the nearest ready nodes, swapping them in place through the sink's
+    /// <see cref="ITileRefreshSink"/> side, so nothing disappears while the world changes month.</item>
     /// </list>
     /// Builds (<see cref="TileBuild.Execute"/>) touch no Unity API. Main thread only, apart from the workers.
     /// <see cref="Dispose"/> releases all views and, when the scheduler owns the pack, closes it once the last running
@@ -126,6 +147,10 @@ namespace Ghumante.World.Streaming
         private readonly PackReader _pack;
         private readonly bool _ownsPack;
         private readonly ITileSink _sink;
+        private readonly ITileRefreshSink _refreshSink;
+        private readonly List<SelectedNode> _stale = new List<SelectedNode>(64);
+        private readonly HashSet<SelectedNode> _staleSet = new HashSet<SelectedNode>();
+        private int _settingsVersion, _refreshMask;
         private readonly ITileJobRunner _runner;
         private readonly Func<double> _clockMs;
         private readonly LruByteCache<TileId, TileData> _cache;
@@ -161,7 +186,13 @@ namespace Ghumante.World.Streaming
             public bool HasView;
             public bool InGround;
             public long Bytes;
+            public readonly long[] LayerBytes = new long[TileLayers.Count];
             public int Level;
+
+            /// <summary>Settings version the shown layers were built with, and whether a refresh build is under way.</summary>
+            public int Version;
+
+            public bool Refreshing;
         }
 
         /// <param name="pack">Region pack the builds decode from.</param>
@@ -184,6 +215,7 @@ namespace Ghumante.World.Streaming
             _selector = selector ?? TileSelector.ForPack(_config, pack);
             _ground = ground ?? throw new ArgumentNullException(nameof(ground));
             _sink = sink ?? throw new ArgumentNullException(nameof(sink));
+            _refreshSink = sink as ITileRefreshSink;
             _runner = runner ?? throw new ArgumentNullException(nameof(runner));
             _clockMs = clockMs ?? throw new ArgumentNullException(nameof(clockMs));
             _meshing = meshing ?? new MeshingSettings();
@@ -276,6 +308,52 @@ namespace Ghumante.World.Streaming
             get { return _disposed; }
         }
 
+        /// <summary>Settings version (<see cref="RefreshLayers"/> bumps it).</summary>
+        public int SettingsVersion
+        {
+            get { return _settingsVersion; }
+        }
+
+        /// <summary>Ready nodes waiting for a refresh build.</summary>
+        public int StaleCount
+        {
+            get { return _stale.Count; }
+        }
+
+        /// <summary>
+        /// The meshing settings of the layers in <paramref name="layerMask"/> (<see cref="TileLayers"/> bits, e.g.
+        /// <see cref="MeshingSettings.SeasonalLayers"/>) changed: every node shown or loading is rebuilt for them, the
+        /// nearest first and only while nothing else is queued, and swapped in place (the old layers stay until the new
+        /// ones are up). Builds already running finish with what they read and are refreshed again once up. Needs a sink
+        /// that implements <see cref="ITileRefreshSink"/> (otherwise the change shows on tiles loaded from now on).
+        /// Returns the nodes marked. Main thread.
+        /// </summary>
+        public int RefreshLayers(int layerMask)
+        {
+            if (_disposed || layerMask == 0) return 0;
+            _settingsVersion++;
+            _refreshMask |= layerMask;
+            if (_refreshSink == null) return 0;
+            int n = 0;
+            foreach (KeyValuePair<SelectedNode, Content> kv in _content)
+            {
+                if (!kv.Value.HasView) continue;
+                MarkStale(kv.Key);
+                n++;
+            }
+            return n;
+        }
+
+        private void MarkStale(SelectedNode n)
+        {
+            if (_refreshSink != null && _staleSet.Add(n)) _stale.Add(n);
+        }
+
+        private void Unstale(SelectedNode n)
+        {
+            if (_staleSet.Remove(n)) _stale.Remove(n);
+        }
+
         /// <summary>Recompute the selection on the next tick even if the focus did not move.</summary>
         public void ForceReselect()
         {
@@ -339,6 +417,21 @@ namespace Ghumante.World.Streaming
                 _decoding.Remove(b.Node.Source); // decode failed before the flag was set
             }
             _stats.LastBuildMs = b.WorkMs;
+            if (b.RefreshMask != 0)
+            {
+                Content rc;
+                bool live = _content.TryGetValue(b.Node, out rc) && rc.HasView;
+                if (b.Error != null || !live)
+                {
+                    if (b.Error != null && _failed.Add(b.Node) && Warning != null) Warning("tile " + b.Node + " failed to refresh: " + b.Error.Message);
+                    if (rc != null) rc.Refreshing = false;
+                    ReturnToPool(b);
+                    return;
+                }
+                b.NextChunk = 0;
+                _uploads.Add(b);
+                return;
+            }
             if (b.Error != null)
             {
                 if (_failed.Add(b.Node) && Warning != null) Warning("tile " + b.Node + " failed to build: " + b.Error.Message);
@@ -366,6 +459,17 @@ namespace Ghumante.World.Streaming
             while (_uploads.Count > 0)
             {
                 TileBuild b = _uploads[0];
+                if (b.RefreshMask != 0)
+                {
+                    int step = UploadRefresh(b, uploaded, bytes, start);
+                    if (step < 0) break;
+                    if (step > 0)
+                    {
+                        bytes += b.ChunkBytes(b.NextChunk - 1);
+                        uploaded = true;
+                    }
+                    continue;
+                }
                 if (!_residency.IsDesired(b.Node))
                 {
                     // Dropped out of the selection mid-upload.
@@ -415,6 +519,7 @@ namespace Ghumante.World.Streaming
                     c.HasView = true;
                     long chunkBytes = b.ChunkBytes(b.NextChunk);
                     c.Bytes += chunkBytes;
+                    c.LayerBytes[b.Chunks[b.NextChunk].Layer] += chunkBytes;
                     bytes += chunkBytes;
                     b.NextChunk++;
                     uploaded = true;
@@ -434,7 +539,10 @@ namespace Ghumante.World.Streaming
                 {
                     _content[b.Node] = content;
                     _stats.MeshBytes += content.Bytes;
+                    content.Version = b.SettingsVersion;
                     if (content.HasView) _sink.Ready(b.Node, b.TakeExtras());
+                    // Built before the settings last changed: refresh what changed once nothing else waits.
+                    if (content.HasView && b.SettingsVersion != _settingsVersion) MarkStale(b.Node);
                 }
                 else
                 {
@@ -456,6 +564,54 @@ namespace Ghumante.World.Streaming
             if (ms > _stats.WorstUploadMs) _stats.WorstUploadMs = ms;
         }
 
+        /// <summary>One step of a refresh build's upload: -1 = the tick's budget is spent (stop), 1 = a chunk was staged,
+        /// 0 = the build was committed or dropped (nothing uploaded).</summary>
+        private int UploadRefresh(TileBuild b, bool uploaded, long bytes, double start)
+        {
+            Content rc;
+            if (!_content.TryGetValue(b.Node, out rc) || !rc.HasView || _refreshSink == null)
+            {
+                // Released meanwhile (its view, staged chunks included, is gone).
+                _uploads.RemoveAt(0);
+                ReturnToPool(b);
+                return 0;
+            }
+            if (b.NextChunk < b.Chunks.Count)
+            {
+                if (uploaded && (bytes >= UploadBudgetBytes || _clockMs() - start >= UploadBudgetMs)) return -1;
+                try
+                {
+                    _refreshSink.UploadRefresh(b, b.NextChunk);
+                }
+                catch (Exception e)
+                {
+                    if (_failed.Add(b.Node) && Warning != null) Warning("tile " + b.Node + " failed to refresh: " + e.Message);
+                    _refreshSink.AbortRefresh(b.Node);
+                    rc.Refreshing = false;
+                    _uploads.RemoveAt(0);
+                    ReturnToPool(b);
+                    return 0;
+                }
+                b.NextChunk++;
+                return 1;
+            }
+            _refreshSink.CommitRefresh(b.Node, b.RefreshMask);
+            for (int l = 0; l < TileLayers.Count; l++)
+            {
+                if ((b.RefreshMask & (1 << l)) == 0) continue;
+                long nb = b.LayerBytes(l);
+                _stats.MeshBytes += nb - rc.LayerBytes[l];
+                rc.Bytes += nb - rc.LayerBytes[l];
+                rc.LayerBytes[l] = nb;
+            }
+            rc.Refreshing = false;
+            rc.Version = b.SettingsVersion;
+            if (rc.Version != _settingsVersion) MarkStale(b.Node);
+            _uploads.RemoveAt(0);
+            ReturnToPool(b);
+            return 0;
+        }
+
         private void Resolve()
         {
             _residency.Resolve(_show, _hide, _release);
@@ -472,6 +628,7 @@ namespace Ghumante.World.Streaming
                 if (c.HasView) _sink.Release(n);
                 _stats.MeshBytes -= c.Bytes;
                 _content.Remove(n);
+                Unstale(n);
                 ReturnContent(c);
             }
             for (int i = 0; i < _hide.Count; i++)
@@ -521,6 +678,54 @@ namespace Ghumante.World.Streaming
                 b.Reset(this, n, cached ? source : null, _generation);
                 if (!cached) _decoding.Add(n.Source);
                 _residency.BeginLoad(n); // removes n from the queue
+                b.SettingsVersion = _settingsVersion;
+                _inFlight++;
+                Interlocked.Increment(ref _running);
+                _runner.Run(b.Work);
+            }
+            if (_stale.Count > 0 && _residency.QueuedCount == 0) DispatchRefresh();
+        }
+
+        /// <summary>Refresh builds for the nearest stale nodes while the job and upload limits allow.</summary>
+        private void DispatchRefresh()
+        {
+            while (_inFlight < MaxConcurrentJobs && _uploads.Count + _inFlight < MaxPendingUploads + MaxConcurrentJobs)
+            {
+                int best = -1;
+                double bestD = double.MaxValue;
+                for (int i = 0; i < _stale.Count; i++)
+                {
+                    SelectedNode s = _stale[i];
+                    Content sc;
+                    if (!_content.TryGetValue(s, out sc) || !sc.HasView)
+                    {
+                        _staleSet.Remove(s);
+                        _stale.RemoveAt(i--);
+                        continue;
+                    }
+                    if (sc.Refreshing || !_residency.IsDesired(s)) continue;
+                    double cx = s.Area.X0 + 0.5 * s.Area.Size - _selX, cz = s.Area.Z0 + 0.5 * s.Area.Size - _selZ;
+                    double d = cx * cx + cz * cz;
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = i;
+                    }
+                }
+                if (best < 0) return;
+                SelectedNode n = _stale[best];
+                TileData source;
+                bool cached = _cache.TryGet(n.Source, out source);
+                if (!cached && _decoding.Contains(n.Source)) return; // wait for the decode in flight
+                _staleSet.Remove(n);
+                _stale.RemoveAt(best);
+                Content c = _content[n];
+                c.Refreshing = true;
+                TileBuild b = _pool.Count > 0 ? _pool.Pop() : new TileBuild();
+                b.Reset(this, n, cached ? source : null, _generation);
+                b.RefreshMask = _refreshMask;
+                b.SettingsVersion = _settingsVersion;
+                if (!cached) _decoding.Add(n.Source);
                 _inFlight++;
                 Interlocked.Increment(ref _running);
                 _runner.Run(b.Work);
@@ -569,7 +774,10 @@ namespace Ghumante.World.Streaming
             c.HasView = false;
             c.InGround = false;
             c.Bytes = 0;
+            Array.Clear(c.LayerBytes, 0, c.LayerBytes.Length);
             c.Level = 0;
+            c.Version = 0;
+            c.Refreshing = false;
             _contentPool.Push(c);
         }
 
@@ -610,6 +818,8 @@ namespace Ghumante.World.Streaming
             _uploads.Clear();
             _cache.Clear();
             _decoding.Clear();
+            _stale.Clear();
+            _staleSet.Clear();
             _stats.MeshBytes = 0;
             _groundVersion++;
             if (Volatile.Read(ref _running) == 0) DisposePackOnce();

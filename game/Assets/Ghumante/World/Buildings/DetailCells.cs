@@ -348,8 +348,7 @@ namespace Ghumante.World.Buildings
                     Cell lite;
                     if (map.TryGetValue(Key(LiteLayer, c.CX / sub, c.CZ / sub), out lite) && lite.Shown) continue;
                 }
-                into.Boxes.AddRange(c.Colliders.Boxes);
-                into.Ramps.AddRange(c.Colliders.Ramps);
+                into.AddAll(c.Colliders); // every kind: boxes, ramps, cylinders and walls
             }
         }
 

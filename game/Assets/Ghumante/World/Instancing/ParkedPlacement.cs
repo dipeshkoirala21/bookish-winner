@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.World.Instancing
 {
@@ -61,14 +62,17 @@ namespace Ghumante.World.Instancing
             }
         }
 
-        /// <summary>Appends the tile's parked vehicles; returns how many were added.</summary>
-        public static int Place(TileData t, IHeightSampler h, List<ParkedVehicle> output)
+        /// <summary>Appends the tile's parked vehicles; returns how many were added. With <paramref name="roads"/> (the
+        /// road mesher's options) each vehicle stands on the drawn road surface (<see cref="RoadSurfaceQuery"/>: the smoothed
+        /// profile, decks and caps), else on the terrain plus the default ribbon lift.</summary>
+        public static int Place(TileData t, IHeightSampler h, List<ParkedVehicle> output, RoadOptions roads = null)
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
             if (output == null) throw new ArgumentNullException(nameof(output));
             if (t.Roads.Count == 0) return 0;
             int before = output.Count;
             RoadLayout layout = RoadLayout.For(t);
+            RoadSurfaceQuery surface = roads != null && h != null ? RoadSurfaceQuery.For(t, h, roads) : null;
             // Exact footprint tests: lanes in the old cores are 3-5 m wide, so a raster mask would have to be ~1 m fine
             // (a megabyte and ~100 ms per tile) to tell the kerb from the wall.
             var mask = new FootprintGrid(t);
@@ -79,13 +83,108 @@ namespace Ghumante.World.Instancing
                 RoadAttrRecord a = t.RoadAttrOf(i);
                 if (a.Has(RoadAttrFlags.NoMotor) || a.Has(RoadAttrFlags.HeritagePedestrian) || a.Has(RoadAttrFlags.Dual)) continue;
                 if ((r.Access & Travel.Car) == 0 && (r.Access & Travel.Motorbike) == 0) continue;
-                PlaceAlong(t, h, layout, mask, i, a.Area, output);
+                if (!Grounded(t, i)) continue;
+                PlaceAlong(t, h, surface, layout, mask, i, a.Area, output);
             }
+            RemoveOverlaps(output, before);
             return output.Count - before;
         }
 
-        private static void PlaceAlong(TileData t, IHeightSampler h, RoadLayout layout, FootprintGrid mask, int road, AreaType area,
-                                       List<ParkedVehicle> output)
+        /// <summary>
+        /// Drops every vehicle (from <paramref name="first"/> on) whose plan rectangle overlaps one kept before it: two
+        /// road pieces sharing a kerb (a way split at a tile edge, roads meeting at a junction) would otherwise park two
+        /// vehicles in one spot. Kerb-to-kerb spacing on one road is already kept by <see cref="KerbGapM"/>. Deterministic
+        /// (placement order); a 4 m grid keeps it linear.
+        /// </summary>
+        public static int RemoveOverlaps(List<ParkedVehicle> output, int first)
+        {
+            if (output.Count - first < 2) return 0;
+            const double cell = 4.0;
+            var grid = new Dictionary<long, List<int>>();
+            int w = first, removed = 0;
+            for (int i = first; i < output.Count; i++)
+            {
+                ParkedVehicle v = output[i];
+                long cx = (long)Math.Floor(v.X / cell), cz = (long)Math.Floor(v.Z / cell);
+                bool hit = false;
+                for (long gx = cx - 1; gx <= cx + 1 && !hit; gx++)
+                    for (long gz = cz - 1; gz <= cz + 1 && !hit; gz++)
+                    {
+                        List<int> list;
+                        if (!grid.TryGetValue(gx * 1000003L + gz, out list)) continue;
+                        for (int k = 0; k < list.Count && !hit; k++) hit = Overlap(output[list[k]], v);
+                    }
+                if (hit)
+                {
+                    removed++;
+                    continue;
+                }
+                output[w] = v;
+                List<int> own;
+                long key = cx * 1000003L + cz;
+                if (!grid.TryGetValue(key, out own)) grid[key] = own = new List<int>(4);
+                own.Add(w);
+                w++;
+            }
+            output.RemoveRange(w, output.Count - w);
+            return removed;
+        }
+
+        /// <summary>True when two parked vehicles' plan rectangles (catalogue length and width, compass yaw) overlap and
+        /// they stand within 2 m of the same height (separating axes).</summary>
+        public static bool Overlap(in ParkedVehicle a, in ParkedVehicle b)
+        {
+            if (Math.Abs(a.Y - b.Y) > 2f) return false;
+            VehicleCatalogEntry ea = VehicleCatalog.At(a.Variant), eb = VehicleCatalog.At(b.Variant);
+            double ya = a.YawDeg * Math.PI / 180.0, yb = b.YawDeg * Math.PI / 180.0;
+            double afx = Math.Sin(ya), afz = Math.Cos(ya), bfx = Math.Sin(yb), bfz = Math.Cos(yb);
+            double ha = 0.5 * ea.LengthM, wa = 0.5 * ea.WidthM, hb = 0.5 * eb.LengthM, wb = 0.5 * eb.WidthM;
+            double cx = b.X - a.X, cz = b.Z - a.Z;
+            if (cx * cx + cz * cz > (ha + wa + hb + wb) * (ha + wa + hb + wb)) return false;
+            for (int k = 0; k < 4; k++)
+            {
+                // Axes: a's forward and right, b's forward and right (right = (fz, -fx)).
+                double nx = k == 0 ? afx : k == 1 ? afz : k == 2 ? bfx : bfz;
+                double nz = k == 0 ? afz : k == 1 ? -afx : k == 2 ? bfz : -bfx;
+                double ra = ha * Math.Abs(afx * nx + afz * nz) + wa * Math.Abs(afz * nx - afx * nz);
+                double rb = hb * Math.Abs(bfx * nx + bfz * nz) + wb * Math.Abs(bfz * nx - bfx * nz);
+                if (Math.Abs(cx * nx + cz * nz) >= ra + rb) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// True when road <paramref name="i"/> lies on the ground along its whole length: not a bridge, flyover or tunnel
+        /// (tags or structure record) and no point on a deck, ramp or lowered cutting (<see cref="RoadStructureRecord.HasHeights"/>).
+        /// Nobody parks on a deck, an embankment or in a cutting, and a vehicle placed by the terrain there would stand
+        /// under the deck or inside the fill.
+        /// </summary>
+        public static bool Grounded(TileData t, int i)
+        {
+            RoadRecord r = t.Roads[i];
+            if ((r.Flags & (RoadFlags.Bridge | RoadFlags.Tunnel)) != 0) return false;
+            RoadStructureRecord s = t.RoadStructureOf(i);
+            if (s.HasHeights || s.IsElevated) return false;
+            switch (s.Kind)
+            {
+                case RoadStructureKind.Bridge:
+                case RoadStructureKind.Flyover:
+                case RoadStructureKind.Tunnel:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>Most a parked vehicle may stand off the drawn road surface under it (metres) before the slot is
+        /// skipped.</summary>
+        public const float SurfaceToleranceM = 0.3f;
+
+        /// <summary>Least gap (metres) between two vehicles parked one after the other at the same kerb.</summary>
+        public const double KerbGapM = 0.15;
+
+        private static void PlaceAlong(TileData t, IHeightSampler h, RoadSurfaceQuery surface, RoadLayout layout, FootprintGrid mask, int road,
+                                       AreaType area, List<ParkedVehicle> output)
         {
             RoadRecord r = t.Roads[road];
             ulong way = r.OsmWayId * 31UL + (ulong)road;
@@ -99,7 +198,9 @@ namespace Ghumante.World.Instancing
             double length = layout.AlongAt(road, r.PointCount - 1);
             if (length < 30) return;
             double spacing = 1.0 / perM;
-            int seg = 0;
+            // The last vehicle placed at each kerb (its centre along the road and half its length along it), so the next
+            // one at that kerb leaves a gap instead of overlapping it (angled bikes are 0.7-1.6 m along the kerb).
+            double lastLeft = double.NegativeInfinity, lastRight = double.NegativeInfinity, halfLeft = 0, halfRight = 0;
             uint slot = 0;
             for (double s = 12 + WorldHash.Range(way, PurposeSlot, 0f, (float)spacing); s < length - 12; slot++)
             {
@@ -108,21 +209,16 @@ namespace Ghumante.World.Instancing
                 double at = s;
                 s += step;
                 if (layout.InGap(road, at)) continue;
-                while (seg + 2 < r.PointCount && layout.AlongAt(road, seg + 1) < at) seg++;
-                double s0 = layout.AlongAt(road, seg), s1 = layout.AlongAt(road, seg + 1);
-                double x0 = r.Points[2 * seg] / 100.0, z0 = r.Points[2 * seg + 1] / 100.0;
-                double x1 = r.Points[2 * seg + 2] / 100.0, z1 = r.Points[2 * seg + 3] / 100.0;
-                double dx = x1 - x0, dz = z1 - z0, len = Math.Sqrt(dx * dx + dz * dz);
-                if (len < 1e-3) continue;
-                double u = s1 > s0 ? (at - s0) / (s1 - s0) : 0;
-                double px = x0 + dx * u, pz = z0 + dz * u;
-                double tx = dx / len, tz = dz / len;
-                double lx = -tz, lz = tx; // left of travel
-                RoadProfile prof = layout.ProfileAt(road, at);
-                float half = 0.5f * prof.CarriagewayM;
+                // The drawn cross-section (the smoothed centreline, the drawn carriageway and its shift), so parked
+                // vehicles line the kerb the road mesher draws, also on filleted bends.
+                RoadCut cut = layout.CutAt(t, road, at);
+                double px = cut.CX, pz = cut.CZ;
+                double lx = cut.UX, lz = cut.UZ; // left of travel
+                double tx = lz, tz = -lx;
+                float half = (float)cut.Half;
                 if (half < 1.5f) continue;
                 double side = (WorldHash.Fnv1a(key, PurposeSlot + 7) & 1) == 0 ? 1.0 : -1.0; // +1 left kerb, −1 right kerb
-                double ex = px + lx * (prof.CentreShiftM + side * half), ez = pz + lz * (prof.CentreShiftM + side * half);
+                double ex = px + lx * (cut.Shift + side * half), ez = pz + lz * (cut.Shift + side * half);
                 double wx = lx * side, wz = lz * side; // towards the kerb
 
                 float pick = WorldHash.Unit(key, PurposeKind) * (bikes + cycles + cars);
@@ -170,14 +266,38 @@ namespace Ghumante.World.Instancing
                     oz = ez - wz * 1.05 - fz * 1.3;
                 }
                 if (ox < 0 || oz < 0 || ox >= t.Tile.Size || oz >= t.Tile.Size) continue;
+                VehicleCatalogEntry e = VehicleCatalog.At(variant);
+                // Along-road centre and half extent of the footprint (length and width projected on the road tangent).
+                double cosA = Math.Abs(fx * tx + fz * tz), sinA = Math.Sqrt(Math.Max(0.0, 1.0 - cosA * cosA));
+                double alongC = at + (ox - px) * tx + (oz - pz) * tz;
+                double halfAlong = 0.5 * (e.LengthM * cosA + e.WidthM * sinA);
+                double prevC = side > 0 ? lastLeft : lastRight, prevHalf = side > 0 ? halfLeft : halfRight;
+                if (alongC - prevC < prevHalf + halfAlong + KerbGapM) continue;
                 double nose = variant >= VehicleCatalog.Taxi ? 3.0 : 1.6;
                 if (mask.Inside(ox, oz) || mask.Inside(ox + fx * nose, oz + fz * nose)) continue;
                 float y;
                 if (!h.TryHeight(t.Tile.X0 + ox, t.Tile.Z0 + oz, out y)) continue; // samplers take game metres
-                VehicleCatalogEntry e = VehicleCatalog.At(variant);
+                y += RoadLiftM;
+                RoadSurfaceHit hit;
+                if (surface != null && surface.TrySample(t.Tile.X0 + ox, t.Tile.Z0 + oz, y, out hit))
+                {
+                    // The drawn surface near the lifted terrain, or nothing: a vehicle never stands under a deck or in fill.
+                    if (hit.OnDeck || Math.Abs(hit.Y - y) >= 1.5f) continue;
+                    y = hit.Y;
+                }
+                if (side > 0)
+                {
+                    lastLeft = alongC;
+                    halfLeft = halfAlong;
+                }
+                else
+                {
+                    lastRight = alongC;
+                    halfRight = halfAlong;
+                }
                 output.Add(new ParkedVehicle
                 {
-                    X = (float)ox, Y = y + RoadLiftM, Z = (float)oz,
+                    X = (float)ox, Y = y, Z = (float)oz,
                     YawDeg = (float)(Math.Atan2(fx, fz) * 180.0 / Math.PI),
                     Variant = variant,
                     Livery = e.PickLivery(WorldHash.Fnv1a(key, PurposeLivery)),
