@@ -7,41 +7,45 @@ using Ghumante.Core.Meshing.Roads;
 namespace Ghumante.Core.Meshing
 {
     /// <summary>
-    /// The vertical profile of every road piece of a tile for one height sampler (owner feedback: make roads smoother):
-    /// the terrain drape along the smoothed centreline, low-passed (Gaussian over a class-dependent length) and with its
-    /// grade changes capped, but held inside a band of ± <see cref="BandM"/> around the drawn terrain plus the ribbon
-    /// lift at the carriageway centre, with a cross-fall (bank) that follows the terrain's cross slope: up to the
-    /// comfortable ± <see cref="MaxBank"/>, and further (up to <see cref="MaxSteepBank"/>) wherever holding that would leave
-    /// an edge more than <see cref="MaxBuryM"/> off the terrain, so a hill road hugs the hillside instead of standing on a
-    /// causeway. So the road stays on the terrain TerrainMesher draws (no draped vertex more than <see cref="MaxBuryM"/>
-    /// under the lifted terrain below it, and the centre within the band above it) while the DEM steps and facet creases
-    /// are ironed out.
+    /// The vertical profile of every road piece of a tile for one height sampler (owner feedback: make roads smoother; owner
+    /// playtest at Gaurighat: "make them flat like how they make them, cutting the hills"): the natural terrain drape along
+    /// the smoothed centreline (balanced cut and fill across the carriageway), low-passed (Gaussian over a class-dependent
+    /// length) and with its grade changes capped, held inside a band of ± <see cref="BandM"/> around that drape plus the
+    /// ribbon lift, and a carriageway that stays level across as real roads are built: a cross-fall (bank) of normal
+    /// camber, at most <see cref="Camber"/>, leaning with gentle ground and falling toward the hill (the side drain) on
+    /// slopes, and superelevation toward the inside of curves, never steeper than <see cref="MaxBank"/> (6 %). The terrain
+    /// is carved to meet the road, not the road bent to the terrain: <see cref="TerrainCarve"/> cuts the uphill side and
+    /// fills the downhill side to the level bench this profile defines (<see cref="BenchY"/>), and the samplers, the terrain
+    /// mesh, the ground query and every placer read that carved surface. Draped vertices never lie more than
+    /// <see cref="MaxBuryM"/> under the carved (drawn) terrain below them.
     /// <para>
-    /// Seams are pinned exactly: at tile-border cuts, junction-cap and ring-entry cuts and knee joins the surface fades
-    /// (over <see cref="PinFadeM"/>, an analytic weight that is exactly 1 at the seam) to the sampled terrain plus the
-    /// lift both sides agree on, so neighbouring tiles, caps and ribbons meet without steps; the shading normal fades to
-    /// the terrain's own normal there. Structures (<see cref="RoadStructureRecord.DeckY"/>, absolute surface heights per
-    /// road point, NaN where draped): decks follow their heights (Catmull-Rom between points, + <see cref="DeckSurfacingM"/>;
-    /// the bridges package draws the slab below) and blend linearly to the drape over a segment that leaves the deck;
-    /// at-grade pieces that end on a deck ramp to it. OSM bridges without deck heights run straight between their lifted
-    /// ends (never below the lifted terrain). Underpasses whose clearance is under
-    /// <see cref="RoadClearance.MinUnderpassClearanceM"/> are lowered with <see cref="RampGrade"/> ramps (the terrain
-    /// mesher must cut the terrain above them). Built once per (tile, sampler) and cached on the sampler; immutable and
+    /// Seams are pinned exactly: at tile-border cuts and knee joins the profile is held level across at the natural
+    /// terrain of the centre point plus the lift both sides agree on (flat over <see cref="SeamLandingM"/> at a tile border,
+    /// so both tiles carve the same bench there), fading into the smoothed profile over <see cref="PinFadeM"/>; at junction
+    /// caps and ring entries the end row lies on the junction's levelled platform (<see cref="RoadPads"/>) and is drawn on
+    /// the carved terrain under it, as the cap is. Structures (<see cref="RoadStructureRecord.DeckY"/>, absolute surface
+    /// heights per road point, NaN where draped): decks follow their heights (Catmull-Rom between points, +
+    /// <see cref="DeckSurfacingM"/>; the bridges package draws the slab below) and blend linearly to the drape over a
+    /// segment that leaves the deck; at-grade pieces that end on a deck ramp to it. OSM bridges without deck heights run
+    /// straight between their lifted ends (never below the lifted terrain). Underpasses whose clearance is under
+    /// <see cref="RoadClearance.MinUnderpassClearanceM"/> are lowered with <see cref="RampGrade"/> ramps (the terrain carve
+    /// cuts the trench above them like any other cut). Built once per (tile, sampler) and cached (on the sampler, or per
+    /// tile, area and step for <see cref="TileHeightSampler"/>s, which all describe the same surface); immutable and
     /// thread-safe afterwards.
     /// </para>
     /// </summary>
     public sealed class RoadGrade
     {
-        /// <summary>The smoothed profile stays within this of the banked plane through the lifted terrain across the
-        /// carriageway at its highest point (at most <see cref="MaxDishM"/> above the centre).</summary>
+        /// <summary>The smoothed profile stays within this of the natural drape (the balanced level cross-section through
+        /// the natural terrain) plus the lift.</summary>
         public const float BandM = 0.12f;
 
-        /// <summary>No draped surface vertex lies more than this under the lifted terrain below it.</summary>
+        /// <summary>No draped surface vertex lies more than this under the carved terrain (plus the lift) below it; also how
+        /// far the carve lets the terrain under a road rise above the bench (<see cref="TerrainCarve.CutToleranceM"/>).</summary>
         public const float MaxBuryM = 0.12f;
 
-        /// <summary>Where the terrain across the road is concave (a road along a gully), the profile rises by at most this
-        /// above the lifted terrain at the centre to keep the edges out of the ground; beyond that the per-vertex floor
-        /// lifts the low columns (a dished cross-section) instead of the whole road floating.</summary>
+        /// <summary>Legacy allowance of a dished cross-section (no longer used for the profile: a concave cross-section
+        /// is filled level by the terrain carve instead); kept for the road tests' tolerances.</summary>
         public const float MaxDishM = 0.20f;
 
         /// <summary>Station spacing of the profile along the curve.</summary>
@@ -50,15 +54,17 @@ namespace Ghumante.Core.Meshing
         /// <summary>Length over which a pinned seam fades into the smoothed profile.</summary>
         public const float PinFadeM = 12f;
 
-        /// <summary>Comfortable cross-fall of the carriageway (25 %): on gentle cross slopes the road leans with the terrain up
-        /// to this; where holding it would leave an edge more than <see cref="MaxBuryM"/> off the terrain (the road standing
-        /// on a causeway above the downhill side, or cut into the uphill side), the bank follows the slope further, up to
-        /// <see cref="MaxSteepBank"/>, so hill roads hug the hillside.</summary>
-        public const float MaxBank = 0.25f;
+        /// <summary>Half length of the level landing at a tile-border cut: within it the profile is held exactly at the
+        /// seam height with no cross-fall, so the two tiles' carves agree on the bench beside the border.</summary>
+        public const float SeamLandingM = 3f;
 
-        /// <summary>Steepest cross-fall a road follows (45°). The terrain mesher draws the 30 m DEM's hillsides; a true bench
-        /// (cut uphill, fill downhill) needs it to cut and fill to the drawn road surface (open issue, ref_roads.md §8).</summary>
-        public const float MaxSteepBank = 1.0f;
+        /// <summary>Steepest cross-fall of a carriageway (6 %): superelevation on curves; normal camber is
+        /// <see cref="Camber"/>. Roads are level across as they are built, whatever the hillside does.</summary>
+        public const float MaxBank = 0.06f;
+
+        /// <summary>Normal camber (one-way cross-fall) of a straight carriageway: it leans with gentle ground up to this, and
+        /// on hillsides falls this much toward the hill, where the side drain runs (Nepal hill road practice).</summary>
+        public const float Camber = 0.03f;
 
         /// <summary>Road surfacing above an elevated deck's surface height (DeckY), so the two never z-fight.</summary>
         public const float DeckSurfacingM = 0.03f;
@@ -75,9 +81,15 @@ namespace Ghumante.Core.Meshing
 
         private struct Pin
         {
-            public double L, Fade;
-            public float Rel, AbsY;
+            public double L, Fade, Land;
+
+            /// <summary>Absolute target (centre height and cross-fall), else relative to the terrain under each vertex.</summary>
             public bool Abs;
+
+            public float AbsY, Bank, Rel;
+
+            /// <summary>For a relative pin: the absolute plane the terrain carve uses (the junction platform).</summary>
+            public float BenchY, BenchBank;
         }
 
         private sealed class Piece
@@ -115,7 +127,7 @@ namespace Ghumante.Core.Meshing
         internal struct Row
         {
             public float P, B, G;
-            public float PinW, PinRel, PinAbsY;
+            public float PinW, PinRel, PinAbsY, PinBank, PinBenchY, PinBenchBank;
             public bool PinAbs;
             public float DeckW, DeckY, DeckG;
             public bool Clamp;
@@ -126,45 +138,90 @@ namespace Ghumante.Core.Meshing
         private sealed class Key
         {
             public TileData Tile;
+            public TileId Area;
+            public int Step;
             public float LiftM, ClassLiftStepM, PieceLiftStepM, KerbHeightM;
             public int PieceLiftLevels;
             public bool Smooth;
             public RoadGrade Grade;
+
+            public bool Matches(RoadOptions o)
+            {
+                return LiftM == o.LiftM && ClassLiftStepM == o.ClassLiftStepM && PieceLiftStepM == o.PieceLiftStepM && PieceLiftLevels == o.PieceLiftLevels &&
+                       KerbHeightM == o.KerbHeightM && Smooth == o.SmoothProfile;
+            }
         }
 
         private static readonly ConditionalWeakTable<IHeightSampler, Key> Cache = new ConditionalWeakTable<IHeightSampler, Key>();
+
+        /// <summary>Grades of <see cref="TileHeightSampler"/>s per tile: every sampler of one (tile, area, step) describes the
+        /// same natural and carved surfaces, so they share one grade.</summary>
+        private static readonly ConditionalWeakTable<TileData, List<Key>> TileCache = new ConditionalWeakTable<TileData, List<Key>>();
+
         private static readonly object CacheLock = new object();
 
         public readonly TileData Tile;
         public readonly RoadLayout Layout;
+
+        /// <summary>The junction platforms (caps and roundabouts) the arms' end rows lie on.</summary>
+        public readonly RoadPads Pads;
+
         private readonly IHeightSampler _h;
         private readonly TileHeightSampler _ths;
         private readonly double _x0, _z0, _size;
         private readonly Piece[] _pieces;
         private readonly RoadOptions _o;
 
-        /// <summary>The grade of a tile's roads on a sampler (cached on the sampler for the same tile and lifts).</summary>
+        /// <summary>The grade of a tile's roads on a sampler (cached on the sampler for the same tile and lifts; shared by
+        /// every <see cref="TileHeightSampler"/> of the same tile, area and step).</summary>
         public static RoadGrade For(TileData t, IHeightSampler h, RoadOptions o)
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
             if (h == null) throw new ArgumentNullException(nameof(h));
             if (o == null) o = new RoadOptions();
+            var ths = h as TileHeightSampler;
             lock (CacheLock)
             {
                 Key k;
-                if (Cache.TryGetValue(h, out k) && ReferenceEquals(k.Tile, t) && k.LiftM == o.LiftM && k.ClassLiftStepM == o.ClassLiftStepM &&
-                    k.PieceLiftStepM == o.PieceLiftStepM && k.PieceLiftLevels == o.PieceLiftLevels && k.KerbHeightM == o.KerbHeightM &&
-                    k.Smooth == o.SmoothProfile) return k.Grade;
+                if (Cache.TryGetValue(h, out k) && ReferenceEquals(k.Tile, t) && k.Matches(o)) return k.Grade;
+                if (ths != null)
+                {
+                    List<Key> list;
+                    if (TileCache.TryGetValue(t, out list))
+                    {
+                        foreach (Key e in list)
+                            if (e.Area == ths.Area && e.Step == ths.Step && e.Matches(o)) return e.Grade;
+                    }
+                }
             }
             var g = new RoadGrade(t, h, o);
+            var key = new Key
+            {
+                Tile = t, LiftM = o.LiftM, ClassLiftStepM = o.ClassLiftStepM, PieceLiftStepM = o.PieceLiftStepM, PieceLiftLevels = o.PieceLiftLevels,
+                KerbHeightM = o.KerbHeightM, Smooth = o.SmoothProfile, Grade = g,
+            };
             lock (CacheLock)
             {
-                Cache.Remove(h);
-                Cache.Add(h, new Key
+                if (ths != null)
                 {
-                    Tile = t, LiftM = o.LiftM, ClassLiftStepM = o.ClassLiftStepM, PieceLiftStepM = o.PieceLiftStepM, PieceLiftLevels = o.PieceLiftLevels,
-                    KerbHeightM = o.KerbHeightM, Smooth = o.SmoothProfile, Grade = g,
-                });
+                    key.Area = ths.Area;
+                    key.Step = ths.Step;
+                    List<Key> list;
+                    if (!TileCache.TryGetValue(t, out list))
+                    {
+                        list = new List<Key>(2);
+                        TileCache.Add(t, list);
+                    }
+                    foreach (Key e in list)
+                        if (e.Area == key.Area && e.Step == key.Step && e.Matches(o)) return e.Grade; // built meanwhile
+                    if (list.Count >= 6) list.RemoveAt(0);
+                    list.Add(key);
+                }
+                else
+                {
+                    Cache.Remove(h);
+                    Cache.Add(h, key);
+                }
             }
             return g;
         }
@@ -184,6 +241,7 @@ namespace Ghumante.Core.Meshing
             _z0 = t.Tile.Z0;
             _size = t.Tile.Size;
             _pieces = new Piece[t.Roads.Count];
+            Pads = RoadPads.Build(Layout, NaturalTerrain);
             // Deck end heights by end point, for at-grade pieces that ramp onto a deck.
             var deckEnds = new Dictionary<long, float>();
             for (int i = 0; i < t.Roads.Count; i++)
@@ -213,7 +271,8 @@ namespace Ghumante.Core.Meshing
         // Queries
         // -------------------------------------------------------------------------------------------------------
 
-        /// <summary>Terrain height (drawn surface) at tile-local metres, clamped onto the tile.</summary>
+        /// <summary>Terrain height as drawn (the carved surface: <see cref="TerrainCarve"/>) at tile-local metres, clamped onto
+        /// the tile.</summary>
         public float Terrain(double lx, double lz)
         {
             float v;
@@ -225,6 +284,16 @@ namespace Ghumante.Core.Meshing
             }
             double cx = lx < 0 ? 0 : lx > _size ? _size : lx, cz = lz < 0 ? 0 : lz > _size ? _size : lz;
             return _h.TryHeight(_x0 + cx, _z0 + cz, out v) ? v : 0f;
+        }
+
+        /// <summary>The natural (uncarved) terrain at tile-local metres, clamped onto the tile: what the profile, the
+        /// junction platforms and the cut and fill are measured from. Samplers other than <see cref="TileHeightSampler"/>
+        /// carry no carve, so it is <see cref="Terrain"/> for them.</summary>
+        public float NaturalTerrain(double lx, double lz)
+        {
+            if (_ths == null) return Terrain(lx, lz);
+            float v;
+            return _ths.TryNaturalHeightClamped(_x0 + lx, _z0 + lz, out v) ? v : 0f;
         }
 
         /// <summary>Terrain shading normal at tile-local metres (the terrain mesh's own smooth normal when the sampler is a
@@ -356,14 +425,17 @@ namespace Ghumante.Core.Meshing
             for (int k = 0; k < p.PinCount; k++)
             {
                 Pin pin = p.Pins[k];
-                double d = Math.Abs(l - pin.L);
+                double d = Math.Abs(l - pin.L) - pin.Land;
                 if (d >= pin.Fade) continue;
-                float w = (float)(1.0 - Smoothstep(d / pin.Fade));
+                float w = d <= 0 ? 1f : (float)(1.0 - Smoothstep(d / pin.Fade));
                 if (w <= best) continue;
                 best = w;
                 r.PinAbs = pin.Abs;
                 r.PinRel = pin.Rel;
                 r.PinAbsY = pin.AbsY;
+                r.PinBank = pin.Bank;
+                r.PinBenchY = pin.Abs ? pin.AbsY : pin.BenchY;
+                r.PinBenchBank = pin.Abs ? pin.Bank : pin.BenchBank;
             }
             r.PinW = best;
             bool lowered = false;
@@ -380,14 +452,19 @@ namespace Ghumante.Core.Meshing
             r.Clamp = r.DeckW <= 0f && !lowered;
             if (!_o.SmoothProfile && r.DeckW <= 0f && !lowered)
             {
-                // Unsmoothed: exactly the terrain plus the lift at every vertex (a full-weight pin to the terrain).
+                // Unsmoothed: exactly the (carved) terrain plus the lift at every vertex; the carve levels it to the drape.
                 r.PinW = 1f;
                 r.PinAbs = false;
                 r.PinRel = p.Lift;
+                r.PinBenchY = r.P;
+                r.PinBenchBank = r.B;
             }
             return r;
         }
 
+        /// <summary>The drawn surface of a row at lateral offset <paramref name="off"/> for the point at tile-local (x, z):
+        /// the level carriageway (profile plus cross-fall), pinned at seams and junction ends, blended onto decks, and never
+        /// more than <see cref="MaxBuryM"/> under the carved terrain (plus the lift) below it.</summary>
         internal float Y(in Row r, double off, double x, double z)
         {
             if (!r.Valid) return Terrain(x, z) + _o.LiftM;
@@ -396,7 +473,7 @@ namespace Ghumante.Core.Meshing
             float ter = needTer ? Terrain(x, z) : 0f;
             if (r.PinW > 0f)
             {
-                float target = r.PinAbs ? r.PinAbsY : ter + r.PinRel;
+                float target = r.PinAbs ? r.PinAbsY + (float)off * r.PinBank : ter + r.PinRel;
                 y += (target - y) * r.PinW;
             }
             if (r.DeckW > 0f) y += (r.DeckY - y) * r.DeckW;
@@ -408,9 +485,27 @@ namespace Ghumante.Core.Meshing
             return y;
         }
 
+        /// <summary>
+        /// The road surface of a row at lateral offset <paramref name="off"/> that the terrain is carved to (independent of
+        /// the terrain under it): the level carriageway, its seam pins, and at junction ends the junction platform's plane
+        /// (<see cref="RoadPads"/>). The bench under the road is this less the lift (<see cref="TerrainCarve"/>).
+        /// </summary>
+        internal float BenchY(in Row r, double off)
+        {
+            float y = r.P + (float)off * r.B;
+            if (r.PinW > 0f) y += (r.PinBenchY + (float)off * r.PinBenchBank - y) * r.PinW;
+            if (r.DeckW > 0f) y += (r.DeckY - y) * r.DeckW;
+            return y;
+        }
+
         internal void Normal(in Row r, double tx, double tz, double x, double z, out float nx, out float ny, out float nz)
         {
             double g = r.G, b = r.B;
+            if (r.PinW > 0f && r.PinAbs)
+            {
+                b += (r.PinBank - b) * r.PinW;
+                g *= 1f - r.PinW;
+            }
             if (r.DeckW > 0f)
             {
                 g += (r.DeckG - g) * r.DeckW;
@@ -429,6 +524,20 @@ namespace Ghumante.Core.Meshing
                 float w = r.PinW;
                 RoadSweep.Normalise(nx + (tnx - nx) * w, ny + (tny - ny) * w, nz + (tnz - nz) * w, out nx, out ny, out nz);
             }
+        }
+
+        /// <summary>Stations of the profile of road <paramref name="road"/> (0 without one).</summary>
+        internal int StationCount(int road)
+        {
+            Piece p = road >= 0 && road < _pieces.Length ? _pieces[road] : null;
+            return p != null ? p.N : 0;
+        }
+
+        /// <summary>Spacing of the profile's stations along the smoothed curve of road <paramref name="road"/>.</summary>
+        internal double StationStep(int road)
+        {
+            Piece p = road >= 0 && road < _pieces.Length ? _pieces[road] : null;
+            return p != null ? p.Step : 0;
         }
 
         private static float Lerp(float[] v, int n, double f)
@@ -534,7 +643,7 @@ namespace Ghumante.Core.Meshing
                 return p;
             }
             bool synthetic = !hasDeck && (r.Flags & RoadFlags.Bridge) != 0;
-            // Terrain across the road at every station: five points over the carriageway (edges at q = ±2).
+            // Natural terrain across the road at every station: five points over the carriageway (edges at q = ±2).
             for (int k = 0; k < n; k++)
             {
                 double s = c.AlongAtArc(k * p.Step);
@@ -547,11 +656,11 @@ namespace Ghumante.Core.Meshing
                 offs[2 * k] = (float)shift;
                 offs[2 * k + 1] = (float)half;
                 double xl = x + ux * (shift + half), zl = z + uz * (shift + half), xr = x + ux * (shift - half), zr = z + uz * (shift - half);
-                h0[k] = Terrain(xr, zr);
-                h1[k] = Terrain(x + ux * (shift - 0.5 * half), z + uz * (shift - 0.5 * half));
-                h2[k] = Terrain(x + ux * shift, z + uz * shift);
-                h3[k] = Terrain(x + ux * (shift + 0.5 * half), z + uz * (shift + 0.5 * half));
-                h4[k] = Terrain(xl, zl);
+                h0[k] = NaturalTerrain(xr, zr);
+                h1[k] = NaturalTerrain(x + ux * (shift - 0.5 * half), z + uz * (shift - 0.5 * half));
+                h2[k] = NaturalTerrain(x + ux * shift, z + uz * shift);
+                h3[k] = NaturalTerrain(x + ux * (shift + 0.5 * half), z + uz * (shift + 0.5 * half));
+                h4[k] = NaturalTerrain(xl, zl);
                 tmp[k] = (float)((h4[k] - h0[k]) / Math.Max(0.5, 2 * half));
             }
             if (synthetic)
@@ -561,8 +670,8 @@ namespace Ghumante.Core.Meshing
                 float hs = h2[0] + lift, he = h2[n - 1] + lift;
                 // Cut ends: the lifted terrain at the centreline point itself (on the border line, so both tiles sample
                 // the same height; a dual carriageway's shifted centre would depend on this tile's real width).
-                if (r.HasPrevContext) hs = Terrain(c.X[0], c.Z[0]) + lift;
-                if (r.HasNextContext) he = Terrain(c.X[c.Count - 1], c.Z[c.Count - 1]) + lift;
+                if (r.HasPrevContext) hs = NaturalTerrain(c.X[0], c.Z[0]) + lift;
+                if (r.HasNextContext) he = NaturalTerrain(c.X[c.Count - 1], c.Z[c.Count - 1]) + lift;
                 for (int k = 0; k < n; k++)
                 {
                     float line = hs + (he - hs) * k / (n - 1);
@@ -575,64 +684,81 @@ namespace Ghumante.Core.Meshing
                 }
                 return p;
             }
-            // Cross-fall: the terrain's cross slope, held to the comfortable bank where that keeps both edges within
-            // MaxBuryM of the terrain, else following the slope (hill roads hug the hillside instead of standing on a
-            // causeway above it), then smoothed along the road.
+            // Cross-fall as roads are built: camber leaning with gentle ground, toward the hill on slopes, superelevation
+            // toward the inside of curves; never steeper than MaxBank, then smoothed along the road.
+            float speed = DesignSpeedKmh(r.RoadClass);
             for (int k = 0; k < n; k++)
             {
-                float raw = tmp[k], a = Math.Abs(raw), half = Math.Max(0.25f, offs[2 * k + 1]);
-                // Up to MaxBank the bank is the slope; just above it the bank stays near MaxBank while the edges are within
-                // MaxBuryM of the terrain; on steeper hillsides it is the slope itself (smoothly: no edge more than
-                // MaxBuryM off the terrain, no kink in the bank).
-                float excess = a - MaxBank, allow = MaxBuryM / half;
-                float want = excess <= 0f ? a : excess >= allow ? a : MaxBank + excess * (float)Smoothstep(excess / allow);
-                want = Math.Min(MaxSteepBank, want);
-                bank[k] = raw < 0 ? -want : want;
+                float camber = CamberFor(tmp[k]);
+                float kappa = CurvatureAt(c, c.AlongAtArc(k * p.Step));
+                float super = kappa == 0f ? 0f : Math.Min(MaxBank, speed * speed * Math.Abs(kappa) / 225f);
+                float sb = kappa > 0f ? -super : super; // a left turn (positive curvature) falls to the left (positive offset)
+                float b = sb + camber * Math.Max(0f, 1f - Math.Abs(sb) / Camber);
+                bank[k] = Math.Max(-MaxBank, Math.Min(MaxBank, b));
             }
             Smooth(bank, n, BankSmoothingM / p.Step, p.B, sc);
-            // The banked plane through the terrain across the carriageway at its highest point (five points), so no
-            // column is buried, but never more than MaxDishM above the centre (a strongly concave cross-section, a road
-            // along a gully, is dished by the per-vertex floor instead of floating the whole road).
+            for (int k = 0; k < n; k++) p.B[k] = Math.Max(-MaxBank, Math.Min(MaxBank, p.B[k]));
+            // The level (banked) section balanced on the natural terrain across the carriageway (five points): the terrain
+            // carve cuts what lies above it and fills what lies below.
             for (int k = 0; k < n; k++)
             {
                 float b = p.B[k], shift = offs[2 * k], half = offs[2 * k + 1];
                 float q0 = h0[k] - (shift - half) * b, q1 = h1[k] - (shift - 0.5f * half) * b, q2 = h2[k] - shift * b;
                 float q3 = h3[k] - (shift + 0.5f * half) * b, q4 = h4[k] - (shift + half) * b;
-                float top = Math.Max(Math.Max(q0, q1), Math.Max(q2, Math.Max(q3, q4)));
-                bas[k] = Math.Min(top, q2 + MaxDishM) + lift;
+                bas[k] = 0.1f * (q0 + q4) + 0.2f * (q1 + q3) + 0.4f * q2 + lift;
             }
             // Low-pass inside the band, then cap the grade changes (still inside the band).
             Array.Copy(bas, p.P, n);
-            double sigma = SmoothingM(r.RoadClass) / p.Step;
-            for (int it = 0; it < 4; it++)
+            if (_o.SmoothProfile)
             {
-                Smooth(p.P, n, sigma, tmp, sc);
-                for (int k = 0; k < n; k++) p.P[k] = Math.Max(bas[k] - BandM, Math.Min(bas[k] + BandM, tmp[k]));
-            }
-            float cap = (float)(MaxGradeChangePerM * p.Step * p.Step);
-            for (int it = 0; it < 8; it++)
-            {
-                bool changed = false;
-                for (int k = 1; k + 1 < n; k++)
+                double sigma = SmoothingM(r.RoadClass) / p.Step;
+                for (int it = 0; it < 4; it++)
                 {
-                    float d2 = p.P[k - 1] - 2f * p.P[k] + p.P[k + 1];
-                    if (Math.Abs(d2) <= cap) continue;
-                    float target = p.P[k] + 0.5f * (d2 - Math.Sign(d2) * cap);
-                    float v = Math.Max(bas[k] - BandM, Math.Min(bas[k] + BandM, target));
-                    if (v != p.P[k])
-                    {
-                        p.P[k] = v;
-                        changed = true;
-                    }
+                    Smooth(p.P, n, sigma, tmp, sc);
+                    for (int k = 0; k < n; k++) p.P[k] = Math.Max(bas[k] - BandM, Math.Min(bas[k] + BandM, tmp[k]));
                 }
-                if (!changed) break;
+                float cap = (float)(MaxGradeChangePerM * p.Step * p.Step);
+                for (int it = 0; it < 8; it++)
+                {
+                    bool changed = false;
+                    for (int k = 1; k + 1 < n; k++)
+                    {
+                        float d2 = p.P[k - 1] - 2f * p.P[k] + p.P[k + 1];
+                        if (Math.Abs(d2) <= cap) continue;
+                        float target = p.P[k] + 0.5f * (d2 - Math.Sign(d2) * cap);
+                        float v = Math.Max(bas[k] - BandM, Math.Min(bas[k] + BandM, target));
+                        if (v != p.P[k])
+                        {
+                            p.P[k] = v;
+                            changed = true;
+                        }
+                    }
+                    if (!changed) break;
+                }
             }
-            // Pins: the seams and the lift (or absolute deck height) each one meets.
-            if (r.HasPrevContext) p.AddPin(new Pin { L = 0, Fade = PinFadeM, Rel = lift });
-            if (r.HasNextContext) p.AddPin(new Pin { L = len, Fade = PinFadeM, Rel = lift });
+            // Pins: the seams and the lift (or absolute deck height) each one meets. Tile-border cuts and knees: level at
+            // the natural terrain of the centre point (both sides sample the same point), flat over the seam landing.
+            if (r.HasPrevContext) p.AddPin(new Pin { L = 0, Fade = PinFadeM, Land = SeamLandingM, Abs = true, AbsY = NaturalTerrain(c.X[0], c.Z[0]) + lift });
+            if (r.HasNextContext)
+                p.AddPin(new Pin { L = len, Fade = PinFadeM, Land = SeamLandingM, Abs = true, AbsY = NaturalTerrain(c.X[c.Count - 1], c.Z[c.Count - 1]) + lift });
             RoadKnee ks = Layout.Knees[2 * i], ke = Layout.Knees[2 * i + 1];
-            if (ks.Has) p.AddPin(new Pin { L = 0, Fade = PinFadeM, Rel = RoadMesher.LiftOf(Tile.Roads[ks.LiftRoad], _o) });
-            if (ke.Has) p.AddPin(new Pin { L = len, Fade = PinFadeM, Rel = RoadMesher.LiftOf(Tile.Roads[ke.LiftRoad], _o) });
+            if (ks.Has)
+            {
+                p.AddPin(new Pin
+                {
+                    L = 0, Fade = PinFadeM, Abs = true, AbsY = NaturalTerrain(c.X[0], c.Z[0]) + RoadMesher.LiftOf(Tile.Roads[ks.LiftRoad], _o),
+                    Bank = KneeBank(i, ks, c, 0),
+                });
+            }
+            if (ke.Has)
+            {
+                p.AddPin(new Pin
+                {
+                    L = len, Fade = PinFadeM, Abs = true,
+                    AbsY = NaturalTerrain(c.X[c.Count - 1], c.Z[c.Count - 1]) + RoadMesher.LiftOf(Tile.Roads[ke.LiftRoad], _o),
+                    Bank = KneeBank(i, ke, c, c.Count - 1),
+                });
+            }
             RoadCut[] cuts = Layout.Cuts[i];
             int[] tops = Layout.CutTops[i];
             if (cuts != null)
@@ -641,7 +767,19 @@ namespace Ghumante.Core.Meshing
                 {
                     int top = tops != null && g < tops.Length ? tops[g] : -1;
                     float pinLift = top >= 0 ? RoadMesher.LiftOf(Tile.Roads[top], _o) + JunctionMesher.CapExtraLiftM : lift;
-                    p.AddPin(new Pin { L = c.ArcAt(cuts[g].S), Fade = PinFadeM, Rel = pinLift });
+                    // Drawn on the carved terrain under the end row, as the cap or ring is; the carve's bench is the
+                    // junction platform's plane.
+                    RoadCut cut = cuts[g];
+                    int pad = Pads.PadOfCut(i, cut.S);
+                    float benchY, benchBank = 0f;
+                    if (pad >= 0)
+                    {
+                        RoadPad pd = Pads.Pads[pad];
+                        benchY = pd.Height(cut.CX, cut.CZ) + pinLift;
+                        benchBank = (float)(pd.Gx * cut.UX + pd.Gz * cut.UZ);
+                    }
+                    else benchY = NaturalTerrain(cut.CX, cut.CZ) + pinLift;
+                    p.AddPin(new Pin { L = c.ArcAt(cut.S), Fade = PinFadeM, Rel = pinLift, BenchY = benchY, BenchBank = benchBank });
                 }
             }
             // Free ends on a deck: ramp to the deck height.
@@ -670,6 +808,70 @@ namespace Ghumante.Core.Meshing
                 }
             }
             return p;
+        }
+
+        /// <summary>
+        /// The cross-fall both pieces of a knee meet with at their shared point, from what both see alike: the shared
+        /// curvature (signed by each piece's own direction, so the surface is the same plane), the faster of the two design
+        /// speeds and the natural cross slope over the knee's shared width.
+        /// </summary>
+        private float KneeBank(int road, in RoadKnee knee, RoadCentreline c, int k)
+        {
+            double ux = -c.Tz[k], uz = c.Tx[k], h = Math.Max(0.5, 0.5 * knee.WidthM);
+            float t = (float)((NaturalTerrain(c.X[k] + ux * h, c.Z[k] + uz * h) - NaturalTerrain(c.X[k] - ux * h, c.Z[k] - uz * h)) / (2 * h));
+            float speed = Math.Max(DesignSpeedKmh(Tile.Roads[road].RoadClass), knee.Other >= 0 && knee.Other < Tile.Roads.Count ? DesignSpeedKmh(Tile.Roads[knee.Other].RoadClass) : 0f);
+            float kappa = c.Curv != null ? c.Curv[k] : 0f;
+            float super = kappa == 0f ? 0f : Math.Min(MaxBank, speed * speed * Math.Abs(kappa) / 225f);
+            float sb = kappa > 0f ? -super : super;
+            float camber = CamberFor(t);
+            float b = sb + camber * Math.Max(0f, 1f - Math.Abs(sb) / Camber);
+            return Math.Max(-MaxBank, Math.Min(MaxBank, b));
+        }
+
+        /// <summary>
+        /// Normal camber for a natural cross slope <paramref name="t"/> (left minus right rise per metre across the
+        /// carriageway): on gentle ground the road leans with it (up to <see cref="Camber"/>); from 3 % to 10 % it turns
+        /// over to fall <see cref="Camber"/> toward the hill (inward, to the side drain, as Nepal's hill roads are built).
+        /// </summary>
+        public static float CamberFor(float t)
+        {
+            float a = Math.Abs(t), c;
+            if (a <= Camber) c = a;
+            else if (a >= 0.10f) c = -Camber;
+            else c = Camber - (a - Camber) * (2f * Camber / (0.10f - Camber));
+            return t < 0 ? -c : c;
+        }
+
+        /// <summary>Design speed (km/h) for superelevation by class: e = v² / (225 R), capped at <see cref="MaxBank"/>.</summary>
+        public static float DesignSpeedKmh(RoadClass c)
+        {
+            switch (c)
+            {
+                case RoadClass.Motorway:
+                case RoadClass.Trunk:
+                case RoadClass.Primary: return 40f;
+                case RoadClass.Secondary:
+                case RoadClass.Tertiary: return 30f;
+                case RoadClass.Footway:
+                case RoadClass.Path:
+                case RoadClass.Steps:
+                case RoadClass.Cycleway:
+                case RoadClass.Bridleway:
+                case RoadClass.Pedestrian: return 0f;
+                default: return 20f;
+            }
+        }
+
+        /// <summary>Signed curvature of the smoothed centreline at raw along <paramref name="s"/> (linear between points).</summary>
+        private static float CurvatureAt(RoadCentreline c, double s)
+        {
+            if (c.Count < 2 || c.Curv == null) return 0f;
+            int k = c.SegmentAt(s);
+            double ds = c.S[k + 1] - c.S[k];
+            double f = ds > 1e-12 ? (s - c.S[k]) / ds : 0.0;
+            f = f < 0 ? 0 : f > 1 ? 1 : f;
+            float a = c.Curv[k], b = c.Curv[k + 1];
+            return (float)(a + (b - a) * f);
         }
 
         private static bool OnOwnDeck(Piece p, int k)
