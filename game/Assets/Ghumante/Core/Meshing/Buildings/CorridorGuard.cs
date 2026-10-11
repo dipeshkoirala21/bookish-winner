@@ -467,6 +467,23 @@ namespace Ghumante.Core.Meshing
             }
         }
 
+        /// <summary>
+        /// A record that is not one of the guard's own houses (a sacred outline the house grammar draws as a compound,
+        /// <c>SacredSelector.FallbackHouse</c>) trimmed out of the corridors as a house would be: the record itself, a
+        /// trimmed copy (its front and corner edges re-found on the new ring), or null when it stands in the road.
+        /// </summary>
+        internal BuildingRecord TrimLikeHouse(BuildingRecord b, out int front, out int second)
+        {
+            front = second = -1;
+            if (_q == null || b == null || b.Rings == null || b.Rings.Length == 0) return b;
+            BuildingRecord trimmed;
+            byte why;
+            byte s = Guard(_tile, b, _q, new Work(), out trimmed, out front, out second, out why);
+            if (s == DroppedState) return null;
+            if (s != TrimmedState) front = second = -1;
+            return s == TrimmedState ? trimmed : b;
+        }
+
         /// <summary>Why a building was dropped: 1 too little left, 2 the trimmed ring self-intersects, 3 still in a
         /// road, 4 degenerate (0 = kept or trimmed).</summary>
         internal byte DropReason(int index)

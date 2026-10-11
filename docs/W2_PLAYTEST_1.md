@@ -51,3 +51,31 @@ world material set with a broken script link.
 | 10 | Sprint lock (cruise) | controls |
 | 11 | Drive cars, buses and trucks from parked ones; fly planes from the airport apron | play (ground vehicles), controls (aircraft) |
 | 12 | Himalayan peaks on the horizon, more life and detail, solid physics | sky, stable |
+
+## Follow-up (same day): roads on slopes
+
+16. Fix the roads in slope. Make it flat like how they make cutting the hills.. See everything is distorted here.. Dog looks like its sleeping in Air, Half of the motorcycle is in Air. Fix this everywhere where the roads are in the hills.
+
+Screenshot at Gaurighat Hanuman Mandir (Bagmati riverbank near Pashupati): the carriageway tilts sideways with the
+hillside, so a parked scooter and a dog float above it. The cause is deliberate: RoadGrade banks hill roads with the
+slope (MaxBank 0.25, MaxSteepBank 1.0). Owner decision: roads stay level across (normal camber and superelevation),
+and the terrain is cut and filled to meet them, with cut slopes, embankments, gabion or stone retaining walls and
+guard rails. Package: cutfill. Every placer and the ground query read the one carved surface.
+
+## Follow-up: heritage monuments must look exactly as in real life
+
+17. National Heritage and Monuments sites should look exactly as in real life. Pashupatinath had no detail.. It did not look pashupatinath at all. Looked like some random ass temple. Fix that. Search multiple pictures, Open source maps, videos, and display it as accurately as possble with all the details. Do same for the Basantapur Durbar Square. Creating a bare minimum buildings wont cut out. This applies for every single monuments that there is in Nepal. Make sure to depict it as real as possble. For that, do a indepth research about the places, Pull up the pictures from the internet. Try to draw how each of these monuments looks from each angle and carefull design the 3D model of it. Monuments are one thing that we cannot absolutely slack off on these
+
+Cause: every hero landmark (Core/Generators/Sacred/HeroCatalog.cs, about 35 heroes) is built from a parametric
+template, `Pagoda(...)`, stupa or shikhara, with a few numbers changed, not from a bespoke model. The monuments
+pipeline (research, then model, then two judges, then fix) replaces them site by site with bespoke models of every
+structure, under `Core/Generators/Sacred/Heroes/<Site>/`, placed at the true OSM footprints. Each site's brief is in
+`docs/research/heritage/<site>.md`.
+
+* **Batch 1:** Pashupatinath temple and courtyard; Pashupatinath river front (ghats, east bank, Guhyeshwari, Gaurighat);
+  Kathmandu Durbar Square palace complex; Kathmandu Durbar Square temples and square; Swayambhunath; Boudhanath.
+* **Batch 2:** Patan Durbar Square and the Golden Temple, Kumbheshwar and Mahaboudha; Bhaktapur Durbar Square, Taumadhi
+  and Dattatreya; Changu Narayan; other Kathmandu monuments (Rani Pokhari, Ghantaghar, Singha Durbar, Narayanhiti,
+  Kathesimbhu, Seto Machhindranath, Akash Bhairav, Dharahara).
+* **Later:** the rest of Nepal (Lumbini, Gorkha Durbar, Janakpur, Muktinath, Tansen and others), region by region as
+  their map packs arrive.

@@ -56,6 +56,14 @@ namespace Ghumante.Core.Generators.Sacred
             return _q.SignedDistance(_x0 + x, _z0 + z);
         }
 
+        /// <summary>Signed distance (m) from a tile-local point to the nearest drawn carriageway's edge (negative on it):
+        /// the road surfaces as drawn (<see cref="SacredDrawnRoads"/>), which a squeezed footpath keeps narrower than its
+        /// corridor.</summary>
+        public double DrawnDistance(double x, double z)
+        {
+            return SacredDrawnRoads.For(_tile).SignedDistance(x, z);
+        }
+
         /// <summary>True when a round prop of <paramref name="radius"/> at a tile-local point stays out of every corridor.</summary>
         public bool Clear(double x, double z, double radius)
         {
@@ -201,6 +209,131 @@ namespace Ghumante.Core.Generators.Sacred
                 if (d < -depthM) depthM = -d;
             }
             return depthM > 0;
+        }
+    }
+}
+
+namespace Ghumante.Core.Generators.Sacred
+{
+    /// <summary>
+    /// The drawn carriageways of a tile in tile-local metres (heritage package): every road the road mesher draws (not a
+    /// passage), its centreline (<see cref="RoadLayout.Centres"/>) moved by its carriageway shift and half its drawn width
+    /// (<see cref="RoadWidthProfile.DrawnAt"/>) either side, junction caps left out. Where the pipeline squeezed a footpath
+    /// between protected outlines (RSTR SQUEEZED) the drawn path is narrower than <see cref="IRoadCorridorQuery"/>'s
+    /// corridor floor, and a hero standing beside it fits to what is drawn. Distances are clamped to
+    /// <see cref="FarM"/>. Built once per tile (cached) and immutable.
+    /// </summary>
+    internal sealed class SacredDrawnRoads
+    {
+        public const double FarM = 8.0;
+        private const double CellM = 16.0;
+        private static readonly ConditionalWeakTable<TileData, SacredDrawnRoads> Cache = new ConditionalWeakTable<TileData, SacredDrawnRoads>();
+
+        private readonly int _n;
+        private readonly int[] _start, _idx;
+        private readonly double[] _ax, _az, _bx, _bz, _ha, _hb;
+
+        public static SacredDrawnRoads For(TileData t)
+        {
+            if (t == null) throw new ArgumentNullException(nameof(t));
+            return Cache.GetValue(t, k => new SacredDrawnRoads(k));
+        }
+
+        private SacredDrawnRoads(TileData t)
+        {
+            _n = Math.Max(1, (int)Math.Ceiling(t.Tile.Size / CellM));
+            var ax = new System.Collections.Generic.List<double>();
+            var az = new System.Collections.Generic.List<double>();
+            var bx = new System.Collections.Generic.List<double>();
+            var bz = new System.Collections.Generic.List<double>();
+            var ha = new System.Collections.Generic.List<double>();
+            var hb = new System.Collections.Generic.List<double>();
+            if (t.Roads.Count > 0)
+            {
+                RoadLayout layout = RoadLayout.For(t);
+                var o = new RoadOptions();
+                for (int i = 0; i < t.Roads.Count; i++)
+                {
+                    if (!RoadMesher.IsDrawn(t, i, o) || layout.IsPassage(i)) continue;
+                    RoadCentreline c = layout.Centres[i];
+                    RoadWidthProfile p = layout.Profiles[i];
+                    if (c == null || p == null || c.Count < 2) continue;
+                    double px = 0, pz = 0, ph = 0;
+                    for (int k = 0; k < c.Count; k++)
+                    {
+                        double sh = p.ShiftAt(c.S[k]);
+                        double x = c.X[k] - c.Tz[k] * sh, z = c.Z[k] + c.Tx[k] * sh, h = 0.5 * p.DrawnAt(c.S[k]);
+                        if (k > 0)
+                        {
+                            ax.Add(px);
+                            az.Add(pz);
+                            bx.Add(x);
+                            bz.Add(z);
+                            ha.Add(ph);
+                            hb.Add(h);
+                        }
+                        px = x;
+                        pz = z;
+                        ph = h;
+                    }
+                }
+            }
+            _ax = ax.ToArray();
+            _az = az.ToArray();
+            _bx = bx.ToArray();
+            _bz = bz.ToArray();
+            _ha = ha.ToArray();
+            _hb = hb.ToArray();
+            int segs = _ax.Length;
+            var counts = new int[_n * _n + 1];
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int[] fill = pass == 1 ? new int[_n * _n] : null;
+                for (int k = 0; k < segs; k++)
+                {
+                    double pad = Math.Max(_ha[k], _hb[k]) + FarM;
+                    int i0 = Cell(Math.Min(_ax[k], _bx[k]) - pad), i1 = Cell(Math.Max(_ax[k], _bx[k]) + pad);
+                    int j0 = Cell(Math.Min(_az[k], _bz[k]) - pad), j1 = Cell(Math.Max(_az[k], _bz[k]) + pad);
+                    for (int j = j0; j <= j1; j++)
+                    for (int i = i0; i <= i1; i++)
+                    {
+                        int c = j * _n + i;
+                        if (pass == 0) counts[c + 1]++;
+                        else _idx[_start[c] + fill[c]++] = k;
+                    }
+                }
+                if (pass == 0)
+                {
+                    for (int c = 0; c < _n * _n; c++) counts[c + 1] += counts[c];
+                    _start = counts;
+                    _idx = new int[counts[_n * _n]];
+                }
+            }
+        }
+
+        private int Cell(double v)
+        {
+            int c = (int)Math.Floor(v / CellM);
+            return c < 0 ? 0 : c >= _n ? _n - 1 : c;
+        }
+
+        /// <summary>Signed distance (m) from a tile-local point to the nearest drawn carriageway edge (negative on it),
+        /// clamped to ±<see cref="FarM"/>.</summary>
+        public double SignedDistance(double x, double z)
+        {
+            if (x < -FarM || z < -FarM || x > _n * CellM + FarM || z > _n * CellM + FarM) return FarM;
+            int c = Cell(z) * _n + Cell(x);
+            double best = FarM;
+            for (int q = _start[c]; q < _start[c + 1]; q++)
+            {
+                int k = _idx[q];
+                double dx = _bx[k] - _ax[k], dz = _bz[k] - _az[k], l2 = dx * dx + dz * dz;
+                double f = l2 > 0 ? Math.Max(0, Math.Min(1, ((x - _ax[k]) * dx + (z - _az[k]) * dz) / l2)) : 0;
+                double qx = _ax[k] + dx * f - x, qz = _az[k] + dz * f - z;
+                double d = Math.Sqrt(qx * qx + qz * qz) - (_ha[k] + (_hb[k] - _ha[k]) * f);
+                if (d < best) best = d;
+            }
+            return Math.Max(-FarM, best);
         }
     }
 }
