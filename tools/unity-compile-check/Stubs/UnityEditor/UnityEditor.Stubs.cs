@@ -66,6 +66,7 @@ namespace UnityEditor
     {
         public static T LoadAssetAtPath<T>(string assetPath) where T : UnityEngine.Object { throw null; }
         public static string AssetPathToGUID(string path) { throw null; }
+        public static bool DeleteAsset(string path) { throw null; }
         public static UnityEngine.Object[] LoadAllAssetsAtPath(string assetPath) { throw null; }
         public static void CreateAsset(UnityEngine.Object asset, string path) { throw null; }
         public static void SaveAssets() { throw null; }
