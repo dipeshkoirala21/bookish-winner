@@ -82,6 +82,7 @@ namespace UnityEngine.InputSystem
         public KeyControl tKey { get { throw null; } }
         public KeyControl pKey { get { throw null; } }
         public KeyControl f3Key { get { throw null; } }
+        public KeyControl f12Key { get { throw null; } }
         public KeyControl leftShiftKey { get { throw null; } }
         public KeyControl rightShiftKey { get { throw null; } }
         public KeyControl leftBracketKey { get { throw null; } }

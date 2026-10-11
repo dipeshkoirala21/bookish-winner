@@ -5,6 +5,7 @@
         "Ghumante.Core",
         "Ghumante.Vehicles",
         "Ghumante.World",
+        "Ghumante.Platform",
         "Unity.InputSystem"
     ],
     "includePlatforms": [],
