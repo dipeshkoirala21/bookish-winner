@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Ghumante.Core.Data;
 using Ghumante.Core.Generators.Placement;
+using Ghumante.Core.Generators.Props;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Bridges;
@@ -141,7 +142,7 @@ namespace Ghumante.Core.Tests
                     // Walk from the prop towards the road it serves (lamps and signals face it: +Z of the yaw) and compare
                     // its base with the first drawn surface met.
                     double yaw = p.YawDeg * Math.PI / 180, dx = Math.Sin(yaw), dz = Math.Cos(yaw);
-                    if (p.Kind == StreetPropKind.TrafficSignal) dx = dz = 0;
+                    if (StreetPropMesher.IsSignal(p.Kind)) dx = dz = 0;
                     for (double d = 0; d <= 4.0; d += 0.25)
                     {
                         RoadSurfaceHit hit;
@@ -170,7 +171,7 @@ namespace Ghumante.Core.Tests
                 foreach (StreetProp p in s.Props)
                 {
                     if (!p.Osm) continue;
-                    if (p.Kind != StreetPropKind.TrafficSignal && p.Kind != StreetPropKind.BusStop && p.Kind != StreetPropKind.TaxiStand &&
+                    if (!StreetPropMesher.IsSignal(p.Kind) && p.Kind != StreetPropKind.BusStop && p.Kind != StreetPropKind.TaxiStand &&
                         !PropPlacement.IsLampPost(p.Kind) && p.Kind != StreetPropKind.Bench && p.Kind != StreetPropKind.BusShelter) continue;
                     furniture++;
                     RoadSurfaceHit hit;
@@ -231,8 +232,12 @@ namespace Ghumante.Core.Tests
                     Assert.That(again[i].YawDeg, Is.EqualTo(s.Props[i].YawDeg));
                     Assert.That(again[i].Kind, Is.EqualTo(s.Props[i].Kind));
                 }
-                int mappable = s.Tile.Props.Count(p => { StreetPropKind k; return PropPlacement.KindOf(p.Kind, out k); });
-                Assert.That(s.Props.Count(p => p.Osm), Is.EqualTo(mappable));
+                // Every mappable OSM object but signals (one per approach of their junction) and gates too narrow
+                // for their drawn road.
+                int mappable = s.Tile.Props.Count(p => { StreetPropKind k; return PropPlacement.KindOf(p.Kind, out k) && k != StreetPropKind.TrafficSignal; });
+                int gates = s.Tile.Props.Count(p => p.Kind == ObjectKind.Gate);
+                int kept = s.Props.Count(p => p.Osm && !StreetPropMesher.IsSignal(p.Kind));
+                Assert.That(kept, Is.InRange(mappable - gates, mappable));
             }
         }
     }

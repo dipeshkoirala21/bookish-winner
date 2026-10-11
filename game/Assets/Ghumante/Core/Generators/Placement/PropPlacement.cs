@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
+using Ghumante.Core.Driving;
 using Ghumante.Core.Generators.Props;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Bridges;
@@ -41,6 +42,17 @@ namespace Ghumante.Core.Generators.Placement
 
         /// <summary>A two-pole H-frame carrying a distribution transformer.</summary>
         TransformerPole = 22,
+
+        /// <summary>The long mast-arm signal (<see cref="TrafficSignal"/> with a 5.6 m arm instead of 2.8 m) for wide
+        /// approaches.</summary>
+        TrafficSignalLong = 23,
+
+        /// <summary><see cref="TrafficSignal"/> mirrored: the head faces -X, for a pole on the traffic's right (a median
+        /// or the far kerb) with the arm reaching left over the lanes.</summary>
+        TrafficSignalMirrored = 24,
+
+        /// <summary><see cref="TrafficSignalLong"/> mirrored (see <see cref="TrafficSignalMirrored"/>).</summary>
+        TrafficSignalLongMirrored = 25,
     }
 
     /// <summary>One placed street prop (tile-local metres, absolute Y; yaw clockwise from north).</summary>
@@ -57,24 +69,31 @@ namespace Ghumante.Core.Generators.Placement
 
     /// <summary>
     /// Street props (W2_DESIGN 4.5, 4.7, 2.6; detail pass: docs/research/w2/ref_props.md): every real PROP object, then
-    /// generated street lamps where OSM has none within 15 m, and signal heads at JNCT SIGNALS junctions without OSM
-    /// signals. Everything stands on what is drawn (<see cref="RoadSurfaceQuery"/>): the footpath or kerb next to a
+    /// generated street lamps where OSM has none within 15 m, then the mast-arm traffic signals of every signalised
+    /// junction. Everything stands on what is drawn (<see cref="RoadSurfaceQuery"/>): the footpath or kerb next to a
     /// road, a bridge or flyover deck at its parapet line (never the river bed or the ground under the deck), the
-    /// terrain elsewhere.
+    /// terrain elsewhere; and nothing stands in what is drawn for traffic (owner playtest #7, docs/W2_PLAYTEST_1.md):
+    /// no prop's footprint (every collider of <see cref="StreetPropColliders"/>, so also what makes it solid) lies on a
+    /// drawn motor carriageway, junction cap or roundabout ring.
     /// <para>
-    /// OSM objects keep their position unless they stand on a drawn carriageway (signals and stops are mapped on road
-    /// nodes): road furniture then moves to the nearest kerb, out of every carriageway (a signal to the corner of its
-    /// junction), and turns to face the road when the object has no mapped direction; gates on a road turn so traffic
-    /// passes through them. About one urban OSM power pole in six becomes an H-frame transformer.
+    /// OSM objects keep their position unless they stand on a drawn carriageway (stops, lamps and poles are mapped on
+    /// road nodes): road furniture then moves out of every carriageway, a pole or lamp on a divided road onto the median
+    /// when it was mapped on the median side, anything else to the nearest kerb (on the footpath when there is one), and
+    /// turns to face the road when the object has no mapped direction; anything still in the road moves to the nearest
+    /// clear spot within 10 m (or is not drawn). Gates on a road turn so traffic passes through them and widen until
+    /// their pillars stand outside the carriageway (a road too wide for a gate gets none). About one urban OSM power
+    /// pole in six becomes an H-frame transformer. Mapped signals do not stand where mapped: each signalised junction
+    /// gets one cantilever per approach (Ctx.PlaceSignals), its head hanging over the approach lanes.
     /// </para>
     /// <para>
     /// Generated lamps: arterial 10-12 m every 30-35 m, local 9-10 m every 25-30 m, alternating sides at the kerb (on
-    /// the footpath when there is one), never in old cores (shared lanes) and never on a road or building; about a
-    /// third of the roads (by way id) carry solar lamps; the named heritage streets (<see cref="HeritageStreets"/>)
-    /// carry the black-and-gold lantern lamps about every 20 m on both sides. On a deck a lamp stands at the parapet
-    /// line, and a lit bridge (which draws its own lamp posts) gets none; a generated prop whose base would be more than
-    /// <see cref="MaxOffSurfaceM"/> off the drawn road surface beside it (an embankment, a cutting, a river bank under a
-    /// deck) or whose pole would reach a deck overhead is skipped. Deterministic. Returns the props added.
+    /// the footpath when there is one; on a divided road's median on its median side), never in old cores (shared
+    /// lanes) and never on a road or building; about a third of the roads (by way id) carry solar lamps; the named
+    /// heritage streets (<see cref="HeritageStreets"/>) carry the black-and-gold lantern lamps about every 20 m on both
+    /// sides. On a deck a lamp stands at the parapet line, and a lit bridge (which draws its own lamp posts) gets none; a
+    /// generated prop whose base would be more than <see cref="MaxOffSurfaceM"/> off the drawn road surface beside it
+    /// (an embankment, a cutting, a river bank under a deck) or whose pole would reach a deck overhead is skipped.
+    /// Deterministic. Returns the props added.
     /// </para>
     /// </summary>
     public static class PropPlacement
@@ -106,11 +125,17 @@ namespace Ghumante.Core.Generators.Placement
             int before = output.Count;
             var ctx = new Ctx(t, h, roads);
             var osmLamps = new List<double>();
-            bool anySignals = false;
+            var osmSignals = new List<PropRecord>();
             foreach (PropRecord p in t.Props)
             {
                 StreetPropKind kind;
                 if (!KindOf(p.Kind, out kind)) continue;
+                if (kind == StreetPropKind.TrafficSignal && ctx.Layout != null)
+                {
+                    // Signals hang over their approaches from the junction's corners (PlaceSignals below).
+                    osmSignals.Add(p);
+                    continue;
+                }
                 double x = p.XCm / 100.0, z = p.ZCm / 100.0;
                 float hgt = p.HeightDm > 0 ? p.HeightDm / 10f : DefaultHeight(kind);
                 float yaw = p.YawDeg;
@@ -119,15 +144,19 @@ namespace Ghumante.Core.Generators.Placement
                     kind = StreetPropKind.TransformerPole;
                     hgt = Math.Max(hgt, 8.5f);
                 }
-                ctx.FitOsm(kind, p.Has(PropFlags.Yaw), p.Has(PropFlags.OnRoad), p.OsmRef, ref x, ref z, ref yaw);
-                float y = ctx.BaseY(x, z, hgt);
-                output.Add(new StreetProp { X = (float)x, Y = y, Z = (float)z, YawDeg = yaw, HeightM = hgt, Kind = kind, Osm = true, OsmRef = p.OsmRef });
+                if (!ctx.FitOsm(kind, p.Has(PropFlags.Yaw), p.Has(PropFlags.OnRoad), p.OsmRef, ref x, ref z, ref yaw, ref hgt)) continue;
+                var prop = new StreetProp { X = (float)x, Y = ctx.BaseY(x, z, hgt), Z = (float)z, YawDeg = yaw, HeightM = hgt, Kind = kind, Osm = true, OsmRef = p.OsmRef };
+                // Its whole footprint (every collider) off the drawn carriageways, caps and rings, or moved to the
+                // nearest spot where it is; an object with no free spot within 10 m is not drawn.
+                if (!ctx.FootprintClear(prop) && (kind == StreetPropKind.Gate || !ctx.Relocate(ref prop))) continue;
+                x = prop.X;
+                z = prop.Z;
+                output.Add(prop);
                 if (IsLampPost(kind))
                 {
                     osmLamps.Add(x);
                     osmLamps.Add(z);
                 }
-                if (kind == StreetPropKind.TrafficSignal) anySignals = true;
             }
             if (t.Roads.Count == 0) return output.Count - before;
             RoadLayout layout = ctx.Layout;
@@ -167,24 +196,12 @@ namespace Ghumante.Core.Generators.Placement
                     if (NearAny(osmLamps, x, z, 15.0)) continue;
                     RoadCut c = layout.CutAt(t, ri, s);
                     double yaw = Math.Atan2(-side * c.UX, -side * c.UZ) * 180 / Math.PI; // the arm reaches over the road
-                    output.Add(new StreetProp
-                    {
-                        X = (float)x, Y = y, Z = (float)z, YawDeg = (float)(yaw < 0 ? yaw + 360 : yaw), HeightM = pole, Kind = kind,
-                    });
+                    var lamp = new StreetProp { X = (float)x, Y = y, Z = (float)z, YawDeg = (float)(yaw < 0 ? yaw + 360 : yaw), HeightM = pole, Kind = kind };
+                    if (!ctx.FootprintClear(lamp)) continue;
+                    output.Add(lamp);
                 }
             }
-            if (!anySignals)
-            {
-                foreach (JunctionRecord j in t.Junctions)
-                {
-                    if (j.Kind != JunctionKind.Signals) continue;
-                    double x, z, yaw;
-                    if (!ctx.Corner(j.XCm / 100.0, j.ZCm / 100.0, (uint)(j.OsmNodeId ^ (j.OsmNodeId >> 32)), out x, out z, out yaw)) continue;
-                    float y;
-                    if (!ctx.GeneratedBase(x, z, 4.5f, out y)) continue;
-                    output.Add(new StreetProp { X = (float)x, Y = y, Z = (float)z, YawDeg = (float)yaw, HeightM = 4.5f, Kind = StreetPropKind.TrafficSignal });
-                }
-            }
+            ctx.PlaceSignals(osmSignals, output);
             return output.Count - before;
         }
 
@@ -390,9 +407,12 @@ namespace Ghumante.Core.Generators.Placement
                 if (deck) return !BridgeDrawsLamps(ri) && DeckSpot(ri, s, c, side, pole, out x, out z, out y);
                 double foot = side > 0 ? p.FootpathLeftM : p.FootpathRightM;
                 double off = c.Shift + side * (c.Half + (foot > 0 ? (heritage ? 0.45 : 0.6) : 0.8 + p.ShoulderM));
+                // The right side of a divided road's piece is its half of the median: the lamp stands on the median's
+                // centre line (Kantipath, the Ring Road), never in the other carriageway.
+                if (side < 0 && Layout.Profiles[ri].Dual) off = c.Shift - (c.Half + 0.5 * Math.Max(RoadWidthModel.MinMedianM, p.MedianM));
                 x = c.CX + c.UX * off;
                 z = c.CZ + c.UZ * off;
-                if (!Inside(x, z) || InBuilding(x, z) || OnCarriageway(x, z)) return false;
+                if (!Inside(x, z) || InBuilding(x, z) || !Clear(x, z, 0.35)) return false;
                 return GeneratedBase(x, z, pole, ri, s, out y);
             }
 
@@ -490,14 +510,17 @@ namespace Ghumante.Core.Generators.Placement
             }
 
             /// <summary>
-            /// Road furniture mapped on or right next to a carriageway (a signal or stop on a road node) moves to the
-            /// nearest kerb, out of every carriageway (a signal to a corner of its junction); objects without a mapped
-            /// direction turn to the road (signs face the oncoming traffic, lamps reach over the road, shelters and
-            /// benches open to it); gates on a road turn so traffic passes through them.
+            /// Road furniture mapped on or right next to a carriageway (a stop, a lamp or a pole on a road node) moves out
+            /// of every drawn carriageway, junction cap and ring: a utility pole or lamp on a divided road onto the median
+            /// when it was mapped on the median side, anything else to the nearest kerb (on the footpath when there is
+            /// one); objects without a mapped direction turn to the road (signs face the oncoming traffic, lamps reach
+            /// over the road, shelters and benches open to it). A gate on a road turns so traffic passes through it and
+            /// is centred on the drawn carriageway and widened until its pillars stand outside it (false: the road is too
+            /// wide for a gate, which is then not drawn). Signals are placed by <see cref="PlaceSignals"/>.
             /// </summary>
-            public void FitOsm(StreetPropKind kind, bool hasYaw, bool onRoad, ulong osmRef, ref double x, ref double z, ref float yaw)
+            public bool FitOsm(StreetPropKind kind, bool hasYaw, bool onRoad, ulong osmRef, ref double x, ref double z, ref float yaw, ref float height)
             {
-                if (Layout == null || !RoadFurniture(kind)) return;
+                if (Layout == null || !RoadFurniture(kind)) return true;
                 // The road the object stands on (or the nearest one), its along and lateral position.
                 int ri;
                 double s, rel;
@@ -513,42 +536,47 @@ namespace Ghumante.Core.Generators.Placement
                 else
                 {
                     double lat, d;
-                    if (!NearestRoad(x, z, 25, out ri, out s, out lat, out d)) return;
+                    if (!NearestRoad(x, z, 25, out ri, out s, out lat, out d))
+                    {
+                        // On a junction cap or ring with no ribbon near: out to the nearest free spot.
+                        if (onCarriageway && kind != StreetPropKind.Gate) NearestFreeSpot(ref x, ref z);
+                        return true;
+                    }
                     rel = lat - Layout.DrawnCutAt(_t, ri, s).Shift;
                 }
                 RoadCut c = Layout.DrawnCutAt(_t, ri, s);
                 double tx = c.UZ, tz = -c.UX; // travel direction: the left normal U turned clockwise
                 int side = rel > 0.05 ? 1 : rel < -0.05 ? -1 : ((osmRef >> 2) & 1) == 0 ? 1 : -1;
-                if (kind == StreetPropKind.Gate)
-                {
-                    if (onRoad || Math.Abs(rel) < c.Half) yaw = Deg(tx, tz);
-                    return;
-                }
+                if (kind == StreetPropKind.Gate) return FitGate(onRoad, onCarriageway, c, rel, tx, tz, ref x, ref z, ref yaw, ref height);
                 bool moved = false;
-                if (kind == StreetPropKind.TrafficSignal && onCarriageway)
-                {
-                    double cx, cz, cy;
-                    if (Corner(x, z, (uint)(osmRef ^ (osmRef >> 32)), out cx, out cz, out cy))
-                    {
-                        x = cx;
-                        z = cz;
-                        if (!hasYaw) yaw = (float)cy;
-                        return;
-                    }
-                }
-                double depth = kind == StreetPropKind.BusShelter ? 2.3 : kind == StreetPropKind.Bench ? 0.5 : 0.45;
+                double depth = kind == StreetPropKind.BusShelter ? 2.3 : kind == StreetPropKind.Bench ? 0.5 : kind == StreetPropKind.TransformerPole ? 0.6 : 0.45;
                 if (onCarriageway || Math.Abs(rel) < c.Half + depth - 0.2)
                 {
+                    RoadProfile p = Layout.ProfileAt(ri, s);
+                    // A pole or lamp mapped on the median side of a divided road stands on the median (Ring Road,
+                    // Kantipath): its centre line is half the median beyond the right edge of the piece.
+                    bool pole = kind == StreetPropKind.PowerPole || kind == StreetPropKind.TransformerPole || kind == StreetPropKind.StreetLamp;
+                    if (pole && side < 0 && Layout.Profiles[ri].Dual)
+                    {
+                        double mid = c.Half + 0.5 * Math.Max(RoadWidthModel.MinMedianM, p.MedianM);
+                        double nx = c.CX + c.UX * (c.Shift - mid), nz = c.CZ + c.UZ * (c.Shift - mid);
+                        if (Inside(nx, nz) && !InBuilding(nx, nz) && Clear(nx, nz, 0.2))
+                        {
+                            x = nx;
+                            z = nz;
+                            moved = true;
+                        }
+                    }
                     // Out to the kerb on the object's side, further out when that is still a carriageway (a junction cap,
                     // a road alongside), then the other side.
-                    RoadProfile p = Layout.ProfileAt(ri, s);
                     for (int attempt = 0; attempt < 12 && !moved; attempt++)
                     {
                         int sd = attempt < 6 ? side : -side;
+                        if (sd < 0 && Layout.Profiles[ri].Dual) continue; // the median side: handled above
                         double foot = sd > 0 ? p.FootpathLeftM : p.FootpathRightM;
                         double want = c.Half + Math.Max(depth, foot > 0 ? Math.Min(foot * 0.5, 1.2) : 0.6 + p.ShoulderM) + 0.9 * (attempt % 6);
                         double nx = c.CX + c.UX * (c.Shift + sd * want), nz = c.CZ + c.UZ * (c.Shift + sd * want);
-                        if (!Inside(nx, nz) || InBuilding(nx, nz) || OnCarriageway(nx, nz)) continue;
+                        if (!Inside(nx, nz) || InBuilding(nx, nz) || !Clear(nx, nz, 0.25)) continue;
                         x = nx;
                         z = nz;
                         side = sd;
@@ -561,12 +589,11 @@ namespace Ghumante.Core.Generators.Placement
                         if (Layout.Centres[ri].Nearest(x, z, out seg, out a, out lat, out d)) side = lat - c.Shift >= 0 ? 1 : -1;
                     }
                 }
-                if (hasYaw) return;
+                if (hasYaw) return true;
                 switch (kind)
                 {
                     case StreetPropKind.BusStop:
                     case StreetPropKind.TaxiStand:
-                    case StreetPropKind.TrafficSignal:
                         // Left-hand traffic: the near lane runs along the travel direction when the sign is on its left
                         // (side > 0); the sign faces the traffic coming towards it.
                         yaw = side > 0 ? Deg(-tx, -tz) : Deg(tx, tz);
@@ -575,6 +602,100 @@ namespace Ghumante.Core.Generators.Placement
                         yaw = Deg(-side * c.UX, -side * c.UZ); // towards the road
                         break;
                 }
+                return true;
+            }
+
+            /// <summary>Half the gate's clear opening at its default height (pillar inner faces at ±2.65 m).</summary>
+            private const double GateHalfOpeningM = 2.65;
+
+            /// <summary>The most a gate is widened (with its height) to clear a wide carriageway.</summary>
+            private const double GateMaxScale = 1.7;
+
+            private bool FitGate(bool onRoad, bool onCarriageway, in RoadCut c, double rel, double tx, double tz, ref double x, ref double z, ref float yaw,
+                                 ref float height)
+            {
+                if (!onRoad && !onCarriageway && Math.Abs(rel) >= c.Half) return true;
+                yaw = Deg(tx, tz);
+                if (!onCarriageway) return true;
+                // Centred on the drawn carriageway, its pillars outside both edges with a hand's breadth to spare.
+                double scale = Math.Max(height / StreetPropMesher.DefaultHeight(StreetPropKind.Gate), (c.Half + 0.15) / GateHalfOpeningM);
+                if (scale > GateMaxScale) return false;
+                x = c.CX + c.UX * c.Shift;
+                z = c.CZ + c.UZ * c.Shift;
+                height = (float)(scale * StreetPropMesher.DefaultHeight(StreetPropKind.Gate));
+                return true;
+            }
+
+            private readonly StructureColliders _footprint = new StructureColliders();
+
+            /// <summary>
+            /// True when no collider of <paramref name="p"/> (<see cref="StreetPropColliders"/>: what makes it solid,
+            /// so also where it stands) blocks a body on a drawn motor carriageway, junction cap or ring at the prop's
+            /// level: every cylinder's centre and rim, every box's corners, edges and centre.
+            /// </summary>
+            public bool FootprintClear(in StreetProp p)
+            {
+                if (_q == null) return true;
+                _footprint.Clear();
+                StreetPropColliders.Append(p, _footprint);
+                foreach (ColliderCylinder y in _footprint.Cylinders)
+                    for (int k = -1; k < 8; k++)
+                    {
+                        double a = k * Math.PI / 4, r = k < 0 ? 0 : y.Radius + 0.05;
+                        if (BlocksRoad(y.CX + r * Math.Sin(a), y.CZ + r * Math.Cos(a), y.Bottom, y.Top)) return false;
+                    }
+                foreach (OrientedBox b in _footprint.Boxes)
+                {
+                    double c = Math.Cos(b.YawRad), sn = Math.Sin(b.YawRad);
+                    for (int k = 0; k < 9; k++)
+                    {
+                        double u = (k % 3 - 1) * (b.HalfX + 0.05), w = (k / 3 - 1) * (b.HalfZ + 0.05);
+                        if (BlocksRoad(b.CX + u * c - w * sn, b.CZ + u * sn + w * c, b.Bottom, b.Top)) return false;
+                    }
+                }
+                return true;
+            }
+
+            /// <summary>A drawn motor carriageway, cap or ring at tile-local (x, z) whose surface lies within the span
+            /// <paramref name="bottom"/>..<paramref name="top"/> of a solid there (a body on it would hit the solid).</summary>
+            private bool BlocksRoad(double x, double z, float bottom, float top)
+            {
+                RoadSurfaceHit hit;
+                if (!_q.TrySample(_x0 + x, _z0 + z, bottom + 1.0f, out hit) || !MotorCarriageway(hit)) return false;
+                float feet = hit.Y + 0.25f;
+                return feet > bottom - 0.25f && feet < top;
+            }
+
+            /// <summary>Moves <paramref name="p"/> to the nearest spot round it (rings of 16 directions every 0.75 m
+            /// out to 10 m) on the tile, out of buildings, where its footprint is clear; false when there is none.</summary>
+            public bool Relocate(ref StreetProp p)
+            {
+                for (double r = 0.75; r <= 10.0; r += 0.75)
+                    for (int k = 0; k < 16; k++)
+                    {
+                        double a = k * Math.PI / 8, nx = p.X + r * Math.Sin(a), nz = p.Z + r * Math.Cos(a);
+                        if (!Inside(nx, nz) || InBuilding(nx, nz)) continue;
+                        StreetProp q = p;
+                        q.X = (float)nx;
+                        q.Z = (float)nz;
+                        q.Y = BaseY(nx, nz, p.HeightM);
+                        if (!FootprintClear(q)) continue;
+                        p = q;
+                        return true;
+                    }
+                return false;
+            }
+
+            /// <summary>No drawn motor carriageway, cap or ring at (x, z) nor within <paramref name="r"/> of it.</summary>
+            private bool Clear(double x, double z, double r)
+            {
+                if (OnCarriageway(x, z)) return false;
+                for (int k = 0; k < 8; k++)
+                {
+                    double a = k * Math.PI / 4;
+                    if (OnCarriageway(x + r * Math.Sin(a), z + r * Math.Cos(a))) return false;
+                }
+                return true;
             }
 
             private static bool RoadFurniture(StreetPropKind k)
@@ -584,7 +705,6 @@ namespace Ghumante.Core.Generators.Placement
                     case StreetPropKind.StreetLamp:
                     case StreetPropKind.BusStop:
                     case StreetPropKind.BusShelter:
-                    case StreetPropKind.TrafficSignal:
                     case StreetPropKind.Gate:
                     case StreetPropKind.Bench:
                     case StreetPropKind.WaterTap:
@@ -603,58 +723,300 @@ namespace Ghumante.Core.Generators.Placement
                 return (float)(a < 0 ? a + 360 : a);
             }
 
-            /// <summary>
-            /// A signal head's spot at the junction near (jx, jz): on the near-left corner (left-hand traffic) of the
-            /// widest arm's approach, set back past the crossing roads, outside every carriageway and building, facing
-            /// the approaching traffic. False when no arm is near or no corner is free.
-            /// </summary>
-            public bool Corner(double jx, double jz, uint seed, out double x, out double z, out double yaw)
+            // ---------------------------------------------------------------------------------------------------------
+            // Traffic signals (owner playtest #7: "traffic lights should be hanging on top").
+
+            /// <summary>One approach of a signalised junction or crossing: road <see cref="Road"/>, the along value
+            /// <see cref="CutS"/> where its ribbon meets the junction (or the crossing), and <see cref="Out"/> = +1 when
+            /// the road leaves the junction towards increasing along (traffic approaching runs the other way).</summary>
+            private struct Approach
             {
-                x = jx;
-                z = jz;
-                yaw = 0;
-                if (Layout == null) return false;
+                public int Road, Out;
+                public double CutS;
+            }
+
+            /// <summary>Most a mapped signal lies from a junction cap or ring (it is often mapped on an approach before
+            /// the stop line) to belong to it.</summary>
+            private const double SignalSiteM = 22.0;
+
+            /// <summary>Pole offsets behind the kerb tried for a signal (along the approach from the junction edge).</summary>
+            private static readonly double[] SignalBack = { 1.2, 2.4, 3.6, 5.0, 6.5, 8.0, 10.0, 12.5, 15.0 };
+
+            private static readonly StreetPropKind[] SignalKinds = { StreetPropKind.TrafficSignal, StreetPropKind.TrafficSignalLong };
+
+            private static readonly StreetPropKind[] MirroredKinds = { StreetPropKind.TrafficSignalMirrored, StreetPropKind.TrafficSignalLongMirrored };
+
+            /// <summary>
+            /// The signals of the tile's signalised junctions (caps and rings within <see cref="SignalSiteM"/> of a mapped
+            /// signal, or matched by a JNCT record of kind Signals) and of mapped signals elsewhere (a signalised
+            /// crossing on a straight road): one mast-arm signal per approach, its pole on the footpath (or verge) at the
+            /// approaching traffic's LEFT kerb just before the junction (Nepal drives on the left), the arm reaching over
+            /// the approach lanes so the head hangs over their middle (two-way roads: never over the opposing lanes;
+            /// one-way pieces: over the carriageway), facing the traffic, its bottom more than the 4.5 m overhead
+            /// clearance above the road. Out of every carriageway, cap, ring and building. The short (2.8 m) or long
+            /// (5.6 m) arm is picked for the road's width. A mapped signal gives its OSM id to the approach nearest to it
+            /// (several on one approach are one signal); approaches without one are generated.
+            /// </summary>
+            public void PlaceSignals(List<PropRecord> osm, List<StreetProp> output)
+            {
+                if (Layout == null) return;
+                int caps = Layout.Caps.Count, sites = caps + Layout.Rings.Count;
+                var signalised = new bool[sites];
+                var siteOf = new int[osm.Count];
+                for (int i = 0; i < osm.Count; i++)
+                {
+                    siteOf[i] = NearestSite(osm[i].XCm / 100.0, osm[i].ZCm / 100.0, SignalSiteM);
+                    if (siteOf[i] >= 0) signalised[siteOf[i]] = true;
+                }
+                foreach (JunctionRecord j in _t.Junctions)
+                {
+                    if (j.Kind != JunctionKind.Signals) continue;
+                    int site = NearestSite(j.XCm / 100.0, j.ZCm / 100.0, 8.0);
+                    if (site >= 0) signalised[site] = true;
+                }
+                var approaches = new List<Approach>();
+                var poles = new List<double>();
+                for (int si = 0; si < sites; si++)
+                {
+                    if (!signalised[si]) continue;
+                    approaches.Clear();
+                    if (si < caps) CapApproaches(Layout.Caps[si], approaches);
+                    else RingApproaches(Layout.Rings[si - caps], approaches);
+                    PlaceApproaches(approaches, osm, siteOf, si, poles, output);
+                }
+                // Mapped signals away from every junction: a signalised crossing on the nearest motor road, one signal per
+                // direction of travel just before it.
+                for (int i = 0; i < osm.Count; i++)
+                {
+                    if (siteOf[i] >= 0) continue;
+                    double x = osm[i].XCm / 100.0, z = osm[i].ZCm / 100.0;
+                    int ri;
+                    double s, lat, d;
+                    if (!NearestSignalRoad(x, z, 15.0, out ri, out s, out lat, out d)) continue;
+                    approaches.Clear();
+                    bool oneway = (_t.Roads[ri].Flags & RoadFlags.Oneway) != 0;
+                    // Traffic along +s meets the crossing from smaller s: that approach leaves the crossing towards -s.
+                    approaches.Add(new Approach { Road = ri, CutS = s - 1.5, Out = -1 });
+                    if (!oneway) approaches.Add(new Approach { Road = ri, CutS = s + 1.5, Out = 1 });
+                    siteOf[i] = -2 - i; // a site of its own
+                    PlaceApproaches(approaches, osm, siteOf, -2 - i, poles, output);
+                }
+            }
+
+            /// <summary>Places one signal per approach and hands the OSM ids of the site's mapped signals to the nearest.</summary>
+            private void PlaceApproaches(List<Approach> approaches, List<PropRecord> osm, int[] siteOf, int site, List<double> poles, List<StreetProp> output)
+            {
+                for (int a = 0; a < approaches.Count; a++)
+                {
+                    StreetProp prop;
+                    if (!SignalFor(approaches[a], poles, out prop)) continue;
+                    // The OSM id of the site's mapped signal nearest to this approach's junction edge (each used once).
+                    RoadCut cut = Layout.DrawnCutAt(_t, approaches[a].Road, approaches[a].CutS);
+                    double best = double.MaxValue;
+                    int pick = -1;
+                    for (int i = 0; i < osm.Count; i++)
+                    {
+                        if (siteOf[i] != site) continue;
+                        double dx = osm[i].XCm / 100.0 - cut.CX, dz = osm[i].ZCm / 100.0 - cut.CZ, d2 = dx * dx + dz * dz;
+                        if (d2 < best)
+                        {
+                            best = d2;
+                            pick = i;
+                        }
+                    }
+                    if (pick >= 0)
+                    {
+                        prop.Osm = true;
+                        prop.OsmRef = osm[pick].OsmRef;
+                        siteOf[pick] = int.MinValue; // used
+                    }
+                    output.Add(prop);
+                    poles.Add(prop.X);
+                    poles.Add(prop.Z);
+                }
+            }
+
+            /// <summary>The cap or ring (index: caps first, then rings) nearest (x, z) within <paramref name="maxDist"/>
+            /// of its outline, or -1.</summary>
+            private int NearestSite(double x, double z, double maxDist)
+            {
                 int best = -1;
-                double bestHalf = 0, bestS = 0, otherHalf = 0;
+                double bestD = maxDist;
+                for (int i = 0; i < Layout.Caps.Count; i++)
+                {
+                    JunctionCap cap = Layout.Caps[i];
+                    double d = PolygonDistance(cap.PolyX, cap.PolyZ, cap.Count, x, z);
+                    if (d <= bestD)
+                    {
+                        bestD = d;
+                        best = i;
+                    }
+                }
+                for (int i = 0; i < Layout.Rings.Count; i++)
+                {
+                    RoadRing ring = Layout.Rings[i];
+                    double dx = x - ring.X, dz = z - ring.Z, d = Math.Max(0, Math.Sqrt(dx * dx + dz * dz) - ring.OuterRadiusM);
+                    if (d <= bestD)
+                    {
+                        bestD = d;
+                        best = Layout.Caps.Count + i;
+                    }
+                }
+                return best;
+            }
+
+            private static double PolygonDistance(double[] px, double[] pz, int n, double x, double z)
+            {
+                bool inside = false;
+                double best = double.MaxValue;
+                for (int i = 0, j = n - 1; i < n; j = i++)
+                {
+                    if ((pz[i] > z) != (pz[j] > z) && x < (px[j] - px[i]) * (z - pz[i]) / (pz[j] - pz[i]) + px[i]) inside = !inside;
+                    double t;
+                    best = Math.Min(best, RoadCorridorIndex.SegDistance(x, z, px[j], pz[j], px[i], pz[i], out t));
+                }
+                return inside ? 0 : best;
+            }
+
+            /// <summary>True for the roads that get signals: drawn motor roads, not service roads or tracks.</summary>
+            private bool SignalRoad(int ri)
+            {
+                RoadRecord r = _t.Roads[ri];
+                return Layout.DrawsRibbon(ri) && RoadWidthModel.IsMotor(r.RoadClass) && r.RoadClass != RoadClass.Track && r.RoadClass != RoadClass.Service &&
+                       (r.Flags & RoadFlags.Tunnel) == 0;
+            }
+
+            private void CapApproaches(JunctionCap cap, List<Approach> into)
+            {
+                for (int k = 0; k < cap.ArmRoads.Length; k++)
+                {
+                    int ri = cap.ArmRoads[k];
+                    if (!SignalRoad(ri)) continue;
+                    int o = cap.ArmForward[k] ? 1 : -1;
+                    // A one-way arm carrying traffic away from the junction has no approach (one-way runs with the points).
+                    if ((_t.Roads[ri].Flags & RoadFlags.Oneway) != 0 && o > 0) continue;
+                    into.Add(new Approach { Road = ri, CutS = cap.ArmCutS[k], Out = o });
+                }
+            }
+
+            private void RingApproaches(RoadRing ring, List<Approach> into)
+            {
+                foreach (RingArm arm in ring.Arms)
+                {
+                    if (!arm.Entry || !SignalRoad(arm.Road)) continue;
+                    into.Add(new Approach { Road = arm.Road, CutS = arm.Cut.S, Out = arm.AtStart ? 1 : -1 });
+                }
+            }
+
+            /// <summary>The motor road (signal roads only) whose drawn centreline is nearest (x, z).</summary>
+            private bool NearestSignalRoad(double x, double z, double maxDist, out int road, out double along, out double lateral, out double dist)
+            {
+                road = -1;
+                along = lateral = 0;
+                dist = maxDist;
                 for (int i = 0; i < _t.Roads.Count; i++)
                 {
-                    RoadCentreline cl = Layout.Centres[i];
-                    if (cl == null || cl.Count < 2 || !Layout.DrawsRibbon(i) || !RoadWidthModel.IsMotor(_t.Roads[i].RoadClass)) continue;
+                    RoadCentreline c = Layout.Centres[i];
+                    if (c == null || c.Count < 2 || !SignalRoad(i)) continue;
                     int seg;
                     double a, l, d;
-                    if (!cl.Nearest(jx, jz, out seg, out a, out l, out d) || d > 3.0) continue;
-                    double half = Layout.DrawnCutAt(_t, i, a).Half;
-                    if (half > bestHalf)
-                    {
-                        otherHalf = Math.Max(otherHalf, bestHalf);
-                        bestHalf = half;
-                        best = i;
-                        bestS = a;
-                    }
-                    else otherHalf = Math.Max(otherHalf, half);
+                    if (!c.Nearest(x, z, out seg, out a, out l, out d) || d >= dist) continue;
+                    road = i;
+                    along = a;
+                    lateral = l;
+                    dist = d;
                 }
-                if (best < 0) return false;
-                double len = Layout.Profiles[best].LengthM;
-                // The approach comes from the longer side of the widest arm (either side when both are long).
-                int dir = bestS < 0.5 * len ? 1 : -1;
-                if ((seed & 1) == 1 && bestS > 12 && len - bestS > 12) dir = -dir;
-                double back = Math.Max(4.0, otherHalf + 2.5);
-                for (int tries = 0; tries < 5; tries++, back += 1.5)
+                return road >= 0;
+            }
+
+            /// <summary>Farthest a signal pole stands behind the kerb (on a wide footpath or the verge).</summary>
+            private const double SignalPoleMaxM = 3.5;
+
+            private readonly List<double> _cand = new List<double>();
+
+            /// <summary>
+            /// The mast-arm signal of one approach: walking back from the junction edge, the first section where an arm
+            /// (short or long) and a pole offset put the head over the approach lanes of this road (not the junction box,
+            /// never over the opposing lanes of a two-way road), as near their middle as the pole's free spots allow:
+            /// preferably with the pole behind the traffic's LEFT kerb (on the footpath, else the verge) and the arm
+            /// reaching right; where that kerb has no room (another carriageway alongside, a wall), with the pole on the
+            /// traffic's right (the median of a divided road, or the far kerb) and a mirrored arm reaching left. The
+            /// pole is clear of every carriageway, cap, ring, building and the other signal poles, and the head clears
+            /// the road by the overhead clearance.
+            /// </summary>
+            private bool SignalFor(in Approach a, List<double> poles, out StreetProp prop)
+            {
+                prop = default(StreetProp);
+                RoadRecord r = _t.Roads[a.Road];
+                bool oneway = (r.Flags & RoadFlags.Oneway) != 0;
+                bool dual = Layout.Profiles[a.Road].Dual;
+                double len = Layout.Profiles[a.Road].LengthM;
+                foreach (double back in SignalBack)
                 {
-                    double s = bestS + dir * back;
-                    if (s < 0 || s > len || Layout.InGap(best, s) && tries < 4) continue;
-                    RoadCut c = Layout.DrawnCutAt(_t, best, s);
-                    double tx = c.UZ, tz = -c.UX;
-                    // Traffic towards the node runs along -dir; its left side is the kerb (left-hand traffic).
-                    double hx = -dir * tx, hz = -dir * tz;
-                    double lx = -hz, lz = hx;
-                    double off = c.Half + 0.7;
-                    double px = c.CX + c.UX * c.Shift + lx * off, pz = c.CZ + c.UZ * c.Shift + lz * off;
-                    if (!Inside(px, pz) || InBuilding(px, pz) || OnCarriageway(px, pz)) continue;
-                    x = px;
-                    z = pz;
-                    yaw = Deg(-hx, -hz); // face the approaching traffic
-                    return true;
+                    double s = a.CutS + a.Out * back;
+                    if (s < 0 || s > len) break;
+                    if (Layout.InGap(a.Road, s)) continue;
+                    RoadCut c = Layout.DrawnCutAt(_t, a.Road, s);
+                    RoadProfile p = Layout.ProfileAt(a.Road, s);
+                    // Traffic approaching runs against Out; its left (left-hand traffic: the kerb it keeps to). w is the
+                    // lateral position towards the traffic's left from the carriageway centre: the left kerb at +Half.
+                    double tx = -a.Out * c.UZ, tz = a.Out * c.UX;
+                    double lx = -tz, lz = tx;
+                    int side = lx * c.UX + lz * c.UZ > 0 ? 1 : -1;
+                    if (side < 0 && dual) return false; // a median on the traffic's left: a wrong-way piece
+                    // Head positions allowed and wanted, as w.
+                    double wMax = c.Half - 0.6, wMin = oneway ? -c.Half + 0.6 : 0.4, wWant = oneway ? c.Half - Math.Min(c.Half, 4.5) : 0.5 * c.Half - 0.2;
+                    if (wMax < wMin) return false;
+                    _cand.Clear();
+                    for (int right = 0; right < 2; right++)
+                    {
+                        double foot = (side > 0) == (right == 0) ? p.FootpathLeftM : p.FootpathRightM;
+                        double pFoot = right == 1 && dual ? 0.55 : foot > 0 ? Math.Max(0.55, foot - 0.35) : 0.55;
+                        for (int ki = 0; ki < SignalKinds.Length; ki++)
+                        {
+                            StreetPropKind k = right == 0 ? SignalKinds[ki] : MirroredKinds[ki];
+                            StreetPropMesher.SignalHead head;
+                            StreetPropMesher.TryHangingHead(k, out head);
+                            for (double po = 0.55; po <= SignalPoleMaxM + 1e-9; po += 0.25)
+                            {
+                                // Left: pole at w = Half + po, head at pole - F; right: pole at w = -Half - po, head at pole + F.
+                                double w = right == 0 ? c.Half + po - head.ForwardM : -c.Half - po + head.ForwardM;
+                                if (w < wMin - 1e-6 || w > wMax + 1e-6) continue;
+                                _cand.Add(Math.Abs(w - wWant) + 0.6 * Math.Max(0, po - pFoot) + 0.3 * ki + 1.5 * right);
+                                _cand.Add(right * SignalKinds.Length + ki);
+                                _cand.Add(po);
+                            }
+                        }
+                    }
+                    if (_cand.Count == 0) return false;
+                    while (_cand.Count > 0)
+                    {
+                        int best = 0;
+                        for (int i = 3; i < _cand.Count; i += 3)
+                            if (_cand[i] < _cand[best]) best = i;
+                        int code = (int)_cand[best + 1];
+                        double off = _cand[best + 2];
+                        _cand.RemoveRange(best, 3);
+                        bool right = code >= SignalKinds.Length;
+                        StreetPropKind kind = right ? MirroredKinds[code - SignalKinds.Length] : SignalKinds[code];
+                        StreetPropMesher.SignalHead hd;
+                        StreetPropMesher.TryHangingHead(kind, out hd);
+                        double wPole = right ? -c.Half - off : c.Half + off, wHead = right ? wPole + hd.ForwardM : wPole - hd.ForwardM;
+                        double px = c.CX + c.UX * (c.Shift + side * wPole), pz = c.CZ + c.UZ * (c.Shift + side * wPole);
+                        double hx = c.CX + c.UX * (c.Shift + side * wHead), hz = c.CZ + c.UZ * (c.Shift + side * wHead);
+                        if (!Inside(px, pz) || InBuilding(px, pz) || !Clear(px, pz, 0.35) || NearAny(poles, px, pz, 1.5)) continue;
+                        float height = StreetPropMesher.DefaultHeight(kind), y;
+                        if (!GeneratedBase(px, pz, height, a.Road, s, out y)) continue;
+                        RoadSurfaceHit hit;
+                        if (!_q.TrySample(_x0 + hx, _z0 + hz, y + 0.5f, out hit) || !hit.OnCarriageway || hit.Road != a.Road || hit.OnJunction) continue;
+                        if (y + hd.BottomM - hit.Y < RoadClearance.MinOverheadClearanceM + 0.1) continue;
+                        // The arm reaches from the pole towards the head: right of the traffic from the left kerb, left of it
+                        // from the right side.
+                        float yaw = right ? Deg(lx, lz) : Deg(-lx, -lz);
+                        prop = new StreetProp { X = (float)px, Y = y, Z = (float)pz, YawDeg = yaw, HeightM = height, Kind = kind };
+                        if (!FootprintClear(prop)) continue;
+                        return true;
+                    }
                 }
                 return false;
             }

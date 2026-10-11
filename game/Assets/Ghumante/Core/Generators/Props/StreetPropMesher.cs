@@ -30,7 +30,7 @@ namespace Ghumante.Core.Generators.Props
         public static readonly int[] Budget = { 400, 180, 72 };
 
         /// <summary>Number of kinds with a mesh (every <see cref="StreetPropKind"/>).</summary>
-        public const int Kinds = (int)StreetPropKind.TransformerPole + 1;
+        public const int Kinds = (int)StreetPropKind.TrafficSignalLongMirrored + 1;
 
         /// <summary>Height (metres) a kind's mesh is built at; an instance of height h is scaled by h / this.</summary>
         public static float DefaultHeight(StreetPropKind k)
@@ -42,7 +42,10 @@ namespace Ghumante.Core.Generators.Props
                 case StreetPropKind.StreetLampHeritage: return 6f;
                 case StreetPropKind.BusStop: return 2.7f;
                 case StreetPropKind.BusShelter: return 4.05f;
-                case StreetPropKind.TrafficSignal: return 4.5f;
+                case StreetPropKind.TrafficSignal:
+                case StreetPropKind.TrafficSignalLong:
+                case StreetPropKind.TrafficSignalMirrored:
+                case StreetPropKind.TrafficSignalLongMirrored: return (float)SignalPoleTop;
                 case StreetPropKind.Gate: return 3.2f;
                 case StreetPropKind.StorageTank: return 2.6f;
                 case StreetPropKind.Bench: return 0.85f;
@@ -86,7 +89,16 @@ namespace Ghumante.Core.Generators.Props
                     Falcha(m, lod);
                     rayDistance = 1.2f;
                     break;
-                case StreetPropKind.TrafficSignal: Signal(m, lod); break;
+                case StreetPropKind.TrafficSignal: Signal(m, lod, SignalReachM); break;
+                case StreetPropKind.TrafficSignalLong: Signal(m, lod, SignalLongReachM); break;
+                case StreetPropKind.TrafficSignalMirrored:
+                    Signal(m, lod, SignalReachM);
+                    MirrorX(m, v0, i0);
+                    break;
+                case StreetPropKind.TrafficSignalLongMirrored:
+                    Signal(m, lod, SignalLongReachM);
+                    MirrorX(m, v0, i0);
+                    break;
                 case StreetPropKind.Gate: CompoundGate(m, lod); break;
                 case StreetPropKind.StorageTank: Tank(m, lod); break;
                 case StreetPropKind.Bench:
@@ -118,6 +130,77 @@ namespace Ghumante.Core.Generators.Props
                 ShapeAo.Bake(m, v0, m.VertexCount - v0, i0, m.IndexCount - i0, s);
             }
             return m.TriangleCount - t0;
+        }
+
+        /// <summary>Where a traffic signal kind carries its main head, in the kind's frame at its default height.</summary>
+        public struct SignalHead
+        {
+            /// <summary>Head centre ahead (+Z) of and right (+X) of the pole axis.</summary>
+            public double ForwardM, RightM;
+
+            /// <summary>Bottom and top of the head housing above the base.</summary>
+            public double BottomM, TopM;
+
+            /// <summary>Where the lenses face, clockwise from the kind's +Z (90 = +X).</summary>
+            public double FacingDeg;
+        }
+
+        /// <summary>True for the signal kinds (a mast arm with a head hanging over the lanes).</summary>
+        public static bool IsSignal(StreetPropKind k)
+        {
+            return k == StreetPropKind.TrafficSignal || k == StreetPropKind.TrafficSignalLong || k == StreetPropKind.TrafficSignalMirrored ||
+                   k == StreetPropKind.TrafficSignalLongMirrored;
+        }
+
+        /// <summary>True for the mirrored signal kinds (head facing -X).</summary>
+        public static bool IsMirroredSignal(StreetPropKind k)
+        {
+            return k == StreetPropKind.TrafficSignalMirrored || k == StreetPropKind.TrafficSignalLongMirrored;
+        }
+
+        /// <summary>Arm reach (pole axis to arm tip, metres at the default height) of a signal kind; 0 for other kinds.</summary>
+        public static double SignalReach(StreetPropKind k)
+        {
+            switch (k)
+            {
+                case StreetPropKind.TrafficSignal:
+                case StreetPropKind.TrafficSignalMirrored: return SignalReachM;
+                case StreetPropKind.TrafficSignalLong:
+                case StreetPropKind.TrafficSignalLongMirrored: return SignalLongReachM;
+                default: return 0;
+            }
+        }
+
+        /// <summary>The main head of a signal kind at its default height: its centre <see cref="SignalHead.ForwardM"/>
+        /// along the arm (+Z), the bottom of the arrow unit under it and the top of the housing, lenses facing +X (the
+        /// traffic it serves comes from +X: left-hand traffic with the pole on its left kerb), or -X for the mirrored
+        /// kinds (the pole on the traffic's right, on a median or the far kerb). False for other kinds.</summary>
+        public static bool TryHangingHead(StreetPropKind k, out SignalHead head)
+        {
+            head = default(SignalHead);
+            if (!IsSignal(k)) return false;
+            head = new SignalHead
+            {
+                ForwardM = SignalReach(k) - SignalHeadInset, RightM = 0, BottomM = SignalArrowBottom, TopM = SignalHeadTop, FacingDeg = IsMirroredSignal(k) ? 270 : 90,
+            };
+            return true;
+        }
+
+        /// <summary>Mirrors the vertices from <paramref name="v0"/> and triangles from <paramref name="i0"/> across the
+        /// YZ plane (x → -x), keeping the winding outward.</summary>
+        private static void MirrorX(MeshData m, int v0, int i0)
+        {
+            for (int v = v0; v < m.VertexCount; v++)
+            {
+                m.Positions[3 * v] = -m.Positions[3 * v];
+                m.Normals[3 * v] = -m.Normals[3 * v];
+            }
+            for (int i = i0; i + 2 < m.IndexCount; i += 3)
+            {
+                int t = m.Indices[i + 1];
+                m.Indices[i + 1] = m.Indices[i + 2];
+                m.Indices[i + 2] = t;
+            }
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -194,7 +277,7 @@ namespace Ghumante.Core.Generators.Props
         /// faces, no caps. Concrete poles, carved posts, pillars.
         /// </summary>
         internal static void Prism(MeshData m, in Affine3 xf, in ShapeBrush b, double w0, double d0, double w1, double d1, double h, double chamfer,
-                                   bool capTop = false)
+                                   bool capTop = false, bool capBottom = false)
         {
             int n = chamfer > 0 ? 8 : 4;
             double[] px = ShapeEmit.Scratch(0, 16), pz = ShapeEmit.Scratch(1, 16);
@@ -237,6 +320,12 @@ namespace Ghumante.Core.Generators.Props
             {
                 int v = m.VertexCount;
                 for (int i = 0; i < n; i++) ShapeEmit.Vertex(m, xf, b, px[i] * 0.5 * w1, h, pz[i] * 0.5 * d1, 0, 1, 0);
+                for (int i = 1; i + 1 < n; i++) ShapeEmit.TriOriented(m, v, v + i, v + i + 1);
+            }
+            if (capBottom)
+            {
+                int v = m.VertexCount;
+                for (int i = 0; i < n; i++) ShapeEmit.Vertex(m, xf, b, px[i] * 0.5 * w0, 0, pz[i] * 0.5 * d0, 0, -1, 0);
                 for (int i = 1; i + 1 < n; i++) ShapeEmit.TriOriented(m, v, v + i, v + i + 1);
             }
         }
