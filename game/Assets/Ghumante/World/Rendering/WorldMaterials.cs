@@ -423,7 +423,11 @@ namespace Ghumante.World.Rendering
         /// <item>Outlines, Mid and High: the plain building material (the explorer and their vehicle are copies of it),
         /// traffic (instanced), people, animals and aircraft (instancedTint) and the hero replicas (landmarks). High adds the
         /// street props (props) and the near building band (B0, inside the outline range). Never: the ground layers,
-        /// trees and the B1/B2/B3 bands (the B1 band reaches 200-250 m, far past the outline). Low: none.</item>
+        /// trees and the B1/B2/B3 bands (the B1 band reaches 200-250 m, far past the outline). Low: none. The life
+        /// presenters draw their far and parked batches (far traffic at LOD2, every parked vehicle, the tinted block-outs
+        /// and boxes, the far crowd) with outline-free copies of instanced and instancedTint
+        /// (<see cref="CreateOutlineFree"/>), so only the near vehicles and the skinned people pay the outline's
+        /// second draw.</item>
         /// <item>Occluder fade: near buildings (B0, B1, B1 full), heroes, trees, props, people and animals, and the bridge
         /// layer (decks, railings, piers, flyover ramps and trench walls) whole. Roads, terrain, areas, markings, the far
         /// bands, the explorer and traffic never fade (the bus a passenger rides stays solid); the road layer holds only
@@ -487,6 +491,32 @@ namespace Ghumante.World.Rendering
         public static void ApplyLookSuperset(WorldMaterialSet set)
         {
             ApplyLook(set, false, DeviceTier.High);
+        }
+
+        /// <summary>
+        /// A runtime copy of <paramref name="source"/> (a ToonLit material of the set) with the outline pass off on every
+        /// tier and everything else as the source has it (occluder fade, instancing, the instance-tint keyword): the far
+        /// and parked look of the life presenters (W2 perf pass: parked vehicles, far traffic at LOD2 and the far crowd
+        /// draw no outline, which cost a second draw for each of their batches and is invisible at their distances). The
+        /// copy keeps its role across tier changes (the look roles that change per tier are only the outlines). The caller
+        /// owns it and destroys it with <see cref="DestroyRuntime"/>; null when <paramref name="source"/> is null. Main
+        /// thread.
+        /// </summary>
+        public static Material CreateOutlineFree(Material source, string name)
+        {
+            if (source == null) return null;
+            var m = new Material(source) { name = name, hideFlags = HideFlags.DontSave };
+            m.SetFloat(WorldShaders.OutlineWidth, 0f);
+            m.SetShaderPassEnabled(ToonLitLayout.OutlinePassLightMode, false);
+            return m;
+        }
+
+        /// <summary>Destroys a material made at runtime (<see cref="CreateOutlineFree"/>); assets are left alone.</summary>
+        public static void DestroyRuntime(Material m)
+        {
+            if (m == null || (m.hideFlags & HideFlags.DontSave) == 0) return;
+            if (Application.isPlaying) Object.Destroy(m);
+            else Object.DestroyImmediate(m);
         }
 
         /// <summary>Applies one look role to a ToonLit material.</summary>
