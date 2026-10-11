@@ -140,6 +140,17 @@ namespace Ghumante.World.Life
             get { return _air != null; }
         }
 
+        /// <summary>The player taxis, takes off or lands near the airport (flight package): the ambient traffic keeps off
+        /// the runway (<see cref="AirTrafficSim.HoldRunwayForPlayer"/>; thread-safe, read by the worker's next step).</summary>
+        public bool HoldRunwayForPlayer
+        {
+            get { return _air != null && _air.HoldRunwayForPlayer; }
+            set
+            {
+                if (_air != null) _air.HoldRunwayForPlayer = value;
+            }
+        }
+
         /// <summary>Last step's failure (the sims stop stepping), or null.</summary>
         public Exception Error
         {
