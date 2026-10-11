@@ -53,6 +53,11 @@ namespace Ghumante.Core.Generators.Sacred
         /// so a large generic structure keeps its LOD0 form within the generic ceiling.</summary>
         public float DetailScale;
 
+        /// <summary>The roads the stupa's plan keeps off (heroes, null: none): its terraces, drum and dome shrink
+        /// together, by at most <see cref="StupaGenerator.MaxFitShrink"/>, until no part of the plan stands on a drawn
+        /// carriageway (<see cref="SacredClearance.DrawnDistance"/>; heritage package).</summary>
+        public SacredClearance Clearance;
+
         public static StupaParams Defaults(float domeDiameter, int terraces)
         {
             return new StupaParams
@@ -101,6 +106,55 @@ namespace Ghumante.Core.Generators.Sacred
             _pw = new double[64];
         }
 
+        /// <summary>
+        /// The scale (1, or down to 1 − <see cref="MaxFitShrink"/>) at which a stupa's plan, its lowest terrace's outline
+        /// (or its drum, without terraces), keeps <see cref="SacredSelector.CorridorMarginM"/> off every drawn carriageway
+        /// of <see cref="StupaParams.Clearance"/>, sampled every 0.25 m round the outline; the smallest scale when even
+        /// that does not clear.
+        /// </summary>
+        private static double FitScale(in StupaParams p, in KitFrame kf, int terraces, bool boudha)
+        {
+            double a0 = terraces > 0 && p.TerraceWidths != null && p.TerraceWidths.Length > 0
+                ? 0.5 * p.TerraceWidths[0]
+                : 0.5 * (p.DrumDiameterM > 0 ? p.DrumDiameterM : 1.06 * Math.Max(0.5, p.DomeDiameterM));
+            if (!(a0 > 0)) return 1.0;
+            double[] pu = new double[64], pw = new double[64];
+            for (int step = 0; step <= 16; step++)
+            {
+                double s = 1.0 - MaxFitShrink * step / 16.0;
+                if (FitsDrawn(p.Clearance, kf, a0 * s, terraces > 0, boudha, pu, pw)) return s;
+            }
+            return 1.0 - MaxFitShrink;
+        }
+
+        private static bool FitsDrawn(SacredClearance cl, in KitFrame kf, double a, bool terraced, bool boudha, double[] pu, double[] pw)
+        {
+            int n;
+            if (!terraced)
+            {
+                n = 48;
+                for (int i = 0; i < n; i++)
+                {
+                    pu[i] = a * Math.Cos(2 * Math.PI * i / n);
+                    pw[i] = a * Math.Sin(2 * Math.PI * i / n);
+                }
+            }
+            else n = boudha ? MandalaLocal(a, pu, pw) : TwentyCornerLocal(a, pu, pw);
+            for (int i = 0; i < n; i++)
+            {
+                int j = i + 1 == n ? 0 : i + 1;
+                double len = Math.Sqrt((pu[j] - pu[i]) * (pu[j] - pu[i]) + (pw[j] - pw[i]) * (pw[j] - pw[i]));
+                int steps = Math.Max(1, (int)Math.Ceiling(len / 0.25));
+                for (int q = 0; q < steps; q++)
+                {
+                    double u = pu[i] + (pu[j] - pu[i]) * q / steps, w = pw[i] + (pw[j] - pw[i]) * q / steps, x, y, z;
+                    kf.ToWorld(u, 0, w, out x, out y, out z);
+                    if (cl.DrawnDistance(x, z) < SacredSelector.CorridorMarginM) return false;
+                }
+            }
+            return true;
+        }
+
         /// <summary>A square of half size a with a stepped projection in the middle of each side: 20 corners,
         /// counter-clockwise in the frame's (u, w) plane, written as world X/Z.</summary>
         public static int TwentyCorner(in KitFrame f, double a, double[] x, double[] z)
@@ -119,6 +173,50 @@ namespace Ghumante.Core.Generators.Sacred
                 Array.Reverse(z, 0, n);
             }
             return n;
+        }
+
+        /// <summary>The steps of Boudhanath's twenty-cornered terraces as fractions of a terrace's half size a (its OSM
+        /// terrace ways 56688295 and 235084185 measured on the sample: each arm runs out to a over the middle half of a
+        /// side, then the corner steps back to <see cref="MandalaStep2"/> a and again to <see cref="MandalaStep1"/> a;
+        /// docs/research/w2/ref_heritage.md §5).</summary>
+        public const double MandalaStep1 = 0.5, MandalaStep2 = 0.82;
+
+        /// <summary>
+        /// Boudhanath's twenty-cornered mandala plan in local (u, w), counter-clockwise: a cross whose arms reach the half
+        /// size a over |t| ≤ <see cref="MandalaStep1"/> a and whose corners step back twice, to
+        /// <see cref="MandalaStep2"/> a and to <see cref="MandalaStep1"/> a (five corners per quadrant). The deep
+        /// stepped corners are what keeps the real terraces, and these, off the kora street that circles them.
+        /// </summary>
+        public static int MandalaLocal(double a, double[] pu, double[] pw)
+        {
+            double s1 = MandalaStep1 * a, s2 = MandalaStep2 * a;
+            int n = 0;
+            for (int side = 0; side < 4; side++)
+            for (int k = 0; k < 5; k++)
+            {
+                // One quadrant from the +u arm round to the +w arm, turned a quarter at a time.
+                double u = k == 0 ? a : k <= 2 ? s2 : s1, w = k <= 1 ? s1 : k <= 3 ? s2 : a;
+                for (int r = 0; r < side; r++)
+                {
+                    double t = u;
+                    u = -w;
+                    w = t;
+                }
+                pu[n] = u;
+                pw[n] = w;
+                n++;
+            }
+            return n;
+        }
+
+        /// <summary>The walkable colliders of a mandala terrace (<see cref="MandalaLocal"/>): its two arms and its inner
+        /// square, so its stepped corners stay open (one square box would stand where the corners leave the street).</summary>
+        private static void MandalaColliders(GenColliders c, in KitFrame kf, double cx, double cz, double y0, double y1, double a)
+        {
+            double s1 = MandalaStep1 * a, s2 = MandalaStep2 * a;
+            c.AddBox(cx, cz, y0, y1, a, s1, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+            c.AddBox(cx, cz, y0, y1, s1, a, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+            c.AddBox(cx, cz, y0, y1, s2, s2, kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
         }
 
         /// <summary>The twenty-cornered mandala plan in local (u, w): a square of half size a whose sides each step out
@@ -184,6 +282,10 @@ namespace Ghumante.Core.Generators.Sacred
             return Build(p, f, lod, m, c, null);
         }
 
+        /// <summary>Most a stupa's plan shrinks to keep off a drawn carriageway (<see cref="StupaParams.Clearance"/>): 4%,
+        /// a few decimetres on Boudhanath's 81.5 m terrace or Swayambhu's 28 m drum.</summary>
+        public const double MaxFitShrink = 0.04;
+
         public static int Build(in StupaParams p, in GenFrame f, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
             if (m == null) throw new ArgumentNullException(nameof(m));
@@ -191,17 +293,20 @@ namespace Ghumante.Core.Generators.Sacred
             int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
             KitFrame kf = f.Kit;
             Affine3 k = SacredDraw.Xf(kf);
-            double dia = Math.Max(0.5, p.DomeDiameterM), r = 0.5 * dia;
+            bool boudha = p.Style == StupaStyle.Boudha, sway = p.Style == StupaStyle.Swayambhu;
+            int terraces = Math.Max(0, p.Terraces);
+            // The plan keeps off the drawn roads beside it (a hero's terrace arm or drum edge on a kora street).
+            double fit = p.Clearance != null ? FitScale(p, kf, terraces, boudha) : 1.0;
+            double dia = Math.Max(0.5, p.DomeDiameterM) * fit, r = 0.5 * dia;
             double cx, cy, cz;
             kf.ToWorld(0, 0, 0, out cx, out cy, out cz);
-            int terraces = Math.Max(0, p.Terraces);
             double[] widths = new double[terraces], tops = new double[terraces];
             double[] defaultRatio = terraces == 3 ? new[] { 2.4, 1.9, 1.5 } : terraces == 1 ? new[] { 1.5 } : new[] { 2.4, 1.9, 1.5, 1.3 };
             double y = 0;
             for (int i = 0; i < terraces; i++)
             {
-                widths[i] = p.TerraceWidths != null && i < p.TerraceWidths.Length ? p.TerraceWidths[i] : defaultRatio[Math.Min(i, defaultRatio.Length - 1)] * dia;
-                y = p.TerraceTops != null && i < p.TerraceTops.Length ? p.TerraceTops[i] : y + p.TerraceRiseFrac * dia;
+                widths[i] = p.TerraceWidths != null && i < p.TerraceWidths.Length ? p.TerraceWidths[i] * fit : defaultRatio[Math.Min(i, defaultRatio.Length - 1)] * dia;
+                y = p.TerraceTops != null && i < p.TerraceTops.Length ? p.TerraceTops[i] : y + p.TerraceRiseFrac * Math.Max(0.5, p.DomeDiameterM);
                 tops[i] = y;
             }
             double baseTop = terraces > 0 ? tops[terraces - 1] : 0;
@@ -221,13 +326,16 @@ namespace Ghumante.Core.Generators.Sacred
             }
             double yDrum = baseTop, yDome = yDrum + drumH, yHarm = yDome + domeRise * 0.94, ySpire = yHarm + harmH;
             double yParasol = ySpire + spireH, yFinial = yParasol + parasolH, top = yFinial + finialH;
-            bool boudha = p.Style == StupaStyle.Boudha, sway = p.Style == StupaStyle.Swayambhu;
             ShapeBrush white = Looks.Whitewash, cream = Looks.Of(SacredPalette.Cream, MaterialChannel.Plaster);
             if (lod >= 3)
             {
-                // Box terraces, a coarse dome and a gilt cone (≤ 200 triangles).
+                // Box terraces, a coarse dome and a gilt cone (≤ 200 triangles). A mandala terrace is its inner square
+                // (out to its stepped corners), never the full square that would stand in the kora street.
                 for (int i = 0; i < terraces; i++)
-                    SacredDraw.Box(m, k, -0.5 * widths[i], 0.5 * widths[i], i == 0 ? -0.3 : tops[i - 1], tops[i], -0.5 * widths[i], 0.5 * widths[i], white, BoxFaces.All & ~BoxFaces.Bottom);
+                {
+                    double hb = 0.5 * widths[i] * (boudha ? MandalaStep2 : 1.0);
+                    SacredDraw.Box(m, k, -hb, hb, i == 0 ? -0.3 : tops[i - 1], tops[i], -hb, hb, white, BoxFaces.All & ~BoxFaces.Bottom);
+                }
                 Shapes.Dome(m, SacredDraw.At(k, 0, yDome, 0), white, r, domeRise, 8);
                 Shapes.Cone(m, SacredDraw.At(k, 0, yHarm, 0), Looks.Gilt, Math.Max(0.3, 0.5 * p.SpireBaseFrac * dia), top - yHarm, 4, 0, 0, false);
                 if (stats != null)
@@ -247,7 +355,9 @@ namespace Ghumante.Core.Generators.Sacred
             for (int i = 0; i < terraces; i++)
             {
                 double y0 = i == 0 ? 0 : tops[i - 1], y1 = tops[i];
-                int n = TwentyCornerLocal(0.5 * widths[i], _pu, _pw);
+                // Boudhanath's terraces are the real twenty-cornered mandala with deep stepped corners; other terraced
+                // stupas keep the square with stepped projections.
+                int n = boudha ? MandalaLocal(0.5 * widths[i], _pu, _pw) : TwentyCornerLocal(0.5 * widths[i], _pu, _pw);
                 Mould mo = SacredDraw.M;
                 double rise = y1 - y0;
                 if (lod >= 2) mo.Add(0, y0 - (i == 0 ? 0.5 : 0), white).Add(0, y1);
@@ -263,16 +373,18 @@ namespace Ghumante.Core.Generators.Sacred
                     pp.Add(-0.25, y1, white).Add(-0.25, y1 + 0.55).Add(-0.45, y1 + 0.55, cream).Add(-0.65, y1 + 0.55).Add(-0.65, y1, white);
                     SacredDraw.Ring(m, k, _pu, _pw, n, pp);
                 }
-                if (c != null) c.AddBox(cx, cz, f.GroundY + y0 - (i == 0 ? 0.5 : 0), f.GroundY + y1, 0.5 * widths[i], 0.5 * widths[i], kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
+                if (c != null && boudha) MandalaColliders(c, kf, cx, cz, f.GroundY + y0 - (i == 0 ? 0.5 : 0), f.GroundY + y1, 0.5 * widths[i]);
+                else if (c != null) c.AddBox(cx, cz, f.GroundY + y0 - (i == 0 ? 0.5 : 0), f.GroundY + y1, 0.5 * widths[i], 0.5 * widths[i], kf.UX, kf.UZ, GenColliderFlags.Walkable, GenColliders.Stone);
                 double run = i == 0 ? rise / Math.Tan(36 * Math.PI / 180) : Math.Max(0.6, 0.5 * (widths[i - 1] - widths[i]) - 0.1);
-                double face = 0.5 * widths[i] + 2 * 0.035 * 0.5 * widths[i];
+                // The stair climbs the middle of the door side: the arm's face on a mandala, the outer step otherwise.
+                double face = boudha ? 0.5 * widths[i] : 0.5 * widths[i] + 2 * 0.035 * 0.5 * widths[i];
                 double stairW = Math.Min(4.0, 0.08 * widths[i] + 1.0);
                 steps += SacredParts.Stair(m, c, kf, k, 0.5 * stairW, face, run, y0, y1, lod <= 1 && rise > 1.0 ? 0.45 : 0, 0.5, Looks.StoneLight, white, lod,
                                            GenColliders.Stone);
                 if (boudha && lod == 0)
                 {
-                    // Small chortens on the outer corners of the terrace.
-                    double a = 0.5 * widths[i] - 1.2;
+                    // Small chortens on the outer corners of the terrace (the mandala's stepped corners).
+                    double a = MandalaStep2 * 0.5 * widths[i] - 1.2;
                     for (int q = 0; q < 4; q++)
                         Chorten(m, SacredDraw.At(k, (q % 2 == 0 ? 1 : -1) * a, y1, (q < 2 ? 1 : -1) * a), Math.Min(2.6, 0.035 * widths[i] + 0.6), lod);
                 }
@@ -281,13 +393,15 @@ namespace Ghumante.Core.Generators.Sacred
             // 2. Prayer-wheel niches round the foot (147 at Boudha, groups of four wheels).
             if (p.WheelNiches && lod <= 1)
             {
-                int niches = WheelNiches(m, k, terraces > 0 ? 0.5 * widths[0] : 0.5 * p.DrumDiameterM + 0.6, boudha ? 147 : 0, lod);
+                int niches = boudha && terraces > 0
+                    ? WheelNiches(m, k, _pu, _pw, MandalaLocal(0.5 * widths[0], _pu, _pw), 147, lod)
+                    : WheelNiches(m, k, terraces > 0 ? 0.5 * widths[0] : 0.5 * p.DrumDiameterM + 0.6, boudha ? 147 : 0, lod);
                 if (stats != null) stats.Niches = niches;
             }
 
             // 3. Base rings and the dome.
             int seg = lod == 0 ? (dia >= 25 && p.DetailScale < 1.6f ? 48 : dia >= 9 ? 32 : 20) : lod == 1 ? 24 : 12;
-            double drumR = 0.5 * (p.DrumDiameterM > 0 ? p.DrumDiameterM : 1.06 * dia);
+            double drumR = 0.5 * (p.DrumDiameterM > 0 ? p.DrumDiameterM * fit : 1.06 * dia);
             Profile2 pr = Prof;
             pr.Add(0, yDrum - 0.05).Add(drumR, yDrum - 0.05, true);
             if (lod <= 1 && drumR > r + 0.3)
@@ -399,7 +513,19 @@ namespace Ghumante.Core.Generators.Sacred
                 Gate(m, k, Math.Max(p.GateDistM, foot + 4.5), lod);
             }
 
-            if (c != null) c.AddBox(cx, cz, f.GroundY + yDrum, f.GroundY + top, drumR, drumR, kf.UX, kf.UZ, GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, GenColliders.Stone);
+            if (c != null)
+            {
+                // The round drum and dome as round solids (a square box round them reached 41% further out at its
+                // corners, into the kora path that circles the dome): the drum and the dome's lower half, its upper half,
+                // then the harmika and spire.
+                double yMid = yDome + 0.55 * domeRise, harmR = Math.Max(0.3, 0.75 * Math.Max(0.3, p.HarmikaWFrac * dia));
+                // The square inscribed in the drum keeps a box in every set (the B0 cells register a set by its boxes).
+                c.AddBox(cx, cz, f.GroundY + yDrum - (terraces == 0 ? 0.3 : 0), f.GroundY + yMid, 0.7 * drumR, 0.7 * drumR, kf.UX, kf.UZ,
+                         GenColliderFlags.NoClimb, GenColliders.Stone);
+                c.AddCylinder(cx, cz, f.GroundY + yDrum - (terraces == 0 ? 0.3 : 0), f.GroundY + yMid, drumR);
+                c.AddCylinder(cx, cz, f.GroundY + yMid, f.GroundY + yHarm, 0.84 * r);
+                c.AddCylinder(cx, cz, f.GroundY + yHarm, f.GroundY + top, harmR);
+            }
             if (stats != null)
             {
                 stats.Terraces = terraces;
@@ -833,6 +959,60 @@ namespace Ghumante.Core.Generators.Sacred
                 }
             }
             return count;
+        }
+
+        /// <summary>
+        /// The prayer-wheel niches round the foot of a terrace whose plan is the polygon (<paramref name="pu"/>,
+        /// <paramref name="pw"/>) (counter-clockwise): <paramref name="n"/> niches shared among its walls by their
+        /// length (clear of the corners) and spaced evenly along each; LOD 1 draws a gilt band along each wall instead.
+        /// Returns the niche count.
+        /// </summary>
+        private static int WheelNiches(MeshData m, in Affine3 k, double[] pu, double[] pw, int count, int n, int lod)
+        {
+            const double cornerM = 0.6;
+            double usable = 0;
+            for (int e = 0; e < count; e++)
+            {
+                int j = e + 1 == count ? 0 : e + 1;
+                usable += Math.Max(0, Math.Sqrt((pu[j] - pu[e]) * (pu[j] - pu[e]) + (pw[j] - pw[e]) * (pw[j] - pw[e])) - 2 * cornerM);
+            }
+            if (usable <= 0 || n <= 0) return 0;
+            ShapeBrush red = Looks.PaintRed, dark = Looks.Of(MeshColor.FromHex(0x2A1E14), MaterialChannel.Plain, 0.6f);
+            ShapeBrush gilt = Looks.Of(SacredPalette.GiltLo, MaterialChannel.Gilt);
+            double nw = Math.Min(2.2, 0.9 * usable / n), acc = 0;
+            int drawn = 0;
+            for (int e = 0; e < count; e++)
+            {
+                int j = e + 1 == count ? 0 : e + 1;
+                double du = pu[j] - pu[e], dw = pw[j] - pw[e], len = Math.Sqrt(du * du + dw * dw);
+                if (len < 1e-6) continue;
+                // A frame on the wall: x along it, z out of the plan (right of travel round a counter-clockwise plan).
+                double nu = dw / len, nwv = -du / len, h = 0.5 * len;
+                Affine3 side = SacredDraw.Turn(k, 0.5 * (pu[e] + pu[j]), 0, 0.5 * (pw[e] + pw[j]), Math.Atan2(-nu, nwv));
+                if (lod == 1)
+                {
+                    SacredDraw.Panel(m, side, -h, 0.5, h, 1.3, 0.14, gilt);
+                    continue;
+                }
+                double use = Math.Max(0, len - 2 * cornerM);
+                acc += use;
+                int here = (int)Math.Round(acc / usable * n) - drawn;
+                if (here <= 0) continue;
+                double pitch = use / here, w = Math.Min(nw, 0.9 * pitch);
+                for (int q = 0; q < here; q++)
+                {
+                    double x = -h + cornerM + (q + 0.5) * pitch;
+                    SacredDraw.Panel(m, side, x - 0.5 * w, 0.45, x + 0.5 * w, 1.45, 0.06, dark);
+                    SacredDraw.Box(m, side, x - 0.5 * w - 0.08, x + 0.5 * w + 0.08, 1.45, 1.6, 0.02, 0.24, red, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Top);
+                    for (int b = 0; b < 4; b++)
+                    {
+                        double wu = x - 0.5 * w + w * (b + 0.5) / 4;
+                        Shapes.Cylinder(m, SacredDraw.At(side, wu, 0.55, 0.14), b % 2 == 0 ? Looks.Gilt : red, Math.Min(0.11, 0.1 * w), 0.8, 5, 0, 0, false, false);
+                    }
+                }
+                drawn += here;
+            }
+            return n;
         }
 
         /// <summary>A small white chorten on a terrace corner: stepped base, dome, gilt spire.</summary>
