@@ -38,7 +38,7 @@ namespace Ghumante.Characters.Cameras
     /// and, when seated, the mount).</summary>
     public struct CameraTarget
     {
-        /// <summary>The controlled body's ground point, scene space.</summary>
+        /// <summary>The controlled body's ground point, scene space (a vehicle's point under its rear axle).</summary>
         public Vector3 Ground;
 
         public float HeadingRad;
@@ -56,55 +56,58 @@ namespace Ghumante.Characters.Cameras
         public bool HasMount;
 
         public CameraMount Mount;
+
+        /// <summary>With <see cref="HasBody"/>: the middle of the body ahead of <see cref="Ground"/>, metres
+        /// (<see cref="ChaseCamera.BodyAheadOf"/>); the chase camera orbits the middle of a bus, not its rear axle.</summary>
+        public float BodyAheadM;
+
+        public bool HasBody;
+
+        /// <summary>An aircraft (for the flight package): the chase rig is <see cref="CameraRigTable.ForAircraft"/> of
+        /// <see cref="AircraftLengthM"/> and the view banks with a little of <see cref="BankRad"/>.</summary>
+        public bool Aircraft;
+
+        public float AircraftLengthM;
+        public float BankRad;
     }
 
     /// <summary>
-    /// The Explore camera (M1 track D, W2 detail pass; ARCHITECTURE.md 7.10a): a chase camera that trails the explorer
-    /// with spring smoothing, tilts up the road with speed while keeping the explorer in the lower part of the frame, and
-    /// frames by class, view and orientation (<see cref="ChaseRigProfile"/>, <see cref="CameraViews"/>); or a mounted
-    /// camera on the handlebar, the bonnet or the driver's seat (inside a closed body the vehicle shows a stand-in
-    /// cockpit, <see cref="Rides.DrivenVehicleView.UpdateCockpit"/>), or leaning out of a passenger's window.
+    /// The Explore camera (M1 track D, W2 detail pass, playtest-fix round; ARCHITECTURE.md 7.10a): the Unity driver of
+    /// the engine-free <see cref="ChaseCamera"/> (docs/research/w2/ref_camera.md), plus the mounted cameras on the
+    /// handlebar, the bonnet or the driver's seat (inside a closed body the vehicle shows a stand-in cockpit,
+    /// <see cref="Rides.DrivenVehicleView.UpdateCockpit"/>), or leaning out of a passenger's window.
     /// <list type="bullet">
+    /// <item><b>Chase views</b> (near, far, over the shoulder, low cinematic, high chase): <see cref="ChaseCamera"/> places
+    /// the camera with exact critically damped springs, follows the body's middle and heading (never its suspension, lean
+    /// or bumps), and sweeps a predictive, hysteretic boom against <see cref="Obstacles"/>.</item>
     /// <item><b>Views</b>: each class remembers its view in <see cref="Views"/> (<see cref="CameraViewMemory"/>, saved);
     /// a change of view or class blends over <see cref="CameraViews.BlendSeconds"/>, a rotation over 0.3 s.</item>
-    /// <item><b>Collision</b>: the boom is swept against <see cref="Obstacles"/> (<see cref="ChaseBoom"/>): it pulls in
-    /// at once, never inside or behind a wall, eases back out, lifts over low walls and goes steeper in narrow lanes; the
-    /// over-the-shoulder pivot is kept out of walls too. With no room behind the player at all (backed against a house)
-    /// the camera rises over the player's head and looks down the way ahead (the boom's overhead fallback).</item>
-    /// <item><b>Reversing</b> (<see cref="ReverseFraming"/>): the camera rises and shortens so the lane behind shows,
-    /// then swings round to look along the travel.</item>
-    /// <item><b>Lens</b>: the vertical field of view keeps the view's minimum horizontal FOV at any aspect
-    /// (<see cref="CameraFov"/>), plus a small speed kick; the near plane is 0.4 m behind the player and 0.1 m on board.</item>
+    /// <item><b>Lens</b>: landscape keeps the rig's minimum vertical FOV (Hor+), portrait its minimum horizontal FOV
+    /// (<see cref="CameraRigTable.VerticalFovDeg"/>), plus a slow speed kick; the near plane is 0.4 m behind the player and
+    /// 0.1 m on board.</item>
     /// <item><b>Player input</b>: zoom (wheel, pinch, shoulders), pitch and look-around (right-drag, two-finger drag,
     /// right stick); riding, looking around springs back behind the explorer when let go.</item>
     /// </list>
-    /// It never dips under the ground, and follows floating-origin shifts. Clip planes come from
-    /// <see cref="WorldRoot.ConfigureCamera"/> (far = the tier's view radius plus margin). A plain class driven by its
-    /// owner: <see cref="Attach"/>, then <see cref="Tick(float, in CameraTarget, in ControlFrame, IGroundQuery, WorldPos)"/>
-    /// every LateUpdate, then <see cref="Detach"/> (restores the camera). No allocation per frame.
+    /// Clip planes come from <see cref="WorldRoot.ConfigureCamera"/> (far = the tier's view radius plus margin). A plain
+    /// class driven by its owner: <see cref="Attach"/>, then <see cref="Tick(float, in CameraTarget, in ControlFrame, IGroundQuery, WorldPos)"/>
+    /// every LateUpdate with the same (smoothed) frame time the explorer moved by (<see cref="CameraClock"/>), then
+    /// <see cref="Detach"/> (restores the camera). No allocation per frame.
     /// </summary>
     public sealed class ChaseCameraRig
     {
         public const float NearClipM = CameraViews.ChaseNearClipM;
-        public const float OrientationBlendSeconds = 0.3f;
-        public const float ModeBlendSeconds = 0.45f;
-        public const float MinZoom = 0.55f, MaxZoom = 2.6f;
-        public const float MinPitchOffsetDeg = -9f, MaxPitchOffsetDeg = 40f;
+        public const float OrientationBlendSeconds = ChaseCamera.OrientationBlendSeconds;
+        public const float MinZoom = ChaseCamera.MinZoom, MaxZoom = ChaseCamera.MaxZoom;
+        public const float MinPitchOffsetDeg = ChaseCamera.MinPitchOffsetDeg, MaxPitchOffsetDeg = ChaseCamera.MaxPitchOffsetDeg;
 
         /// <summary>Mounted views: the player may tilt the view this far up or down, degrees.</summary>
         public const float MountedPitchLimitDeg = 40f;
 
         /// <summary>Lowest the camera may get above the ground.</summary>
-        public const float GroundClearanceM = 0.8f;
+        public const float GroundClearanceM = ChaseCamera.GroundClearanceM;
 
         /// <summary>Seconds after the last look input before the camera swings back behind the rider.</summary>
-        public const float LookReturnDelayS = 1.4f;
-
-        /// <summary>On foot the camera swings in behind only while the walker heads within this angle of its view.</summary>
-        public const float WalkFollowConeDeg = 35f;
-
-        /// <summary>Share of <see cref="ReverseFraming.FootRaise"/> used in landscape (the view is short there).</summary>
-        public const float LandscapeFootRaiseShare = 0.35f;
+        public const float LookReturnDelayS = ChaseCamera.LookReturnDelayS;
 
         /// <summary>Head-bone jitter (gait, bumps) is smoothed out of the eye views over about this long.</summary>
         public const float EyeSmoothingS = 0.06f;
@@ -116,28 +119,17 @@ namespace Ghumante.Characters.Cameras
         private float _savedNear;
         private bool _snap = true;
 
-        private float _portrait;
+        private readonly ChaseCamera _chase = new ChaseCamera();
         private RigClass _rigClass = RigClass.TwoWheeler;
         private CameraView _view = CameraView.Near;
         private bool _mounted;
-        private ChaseRigProfile _profile = ChaseRigProfile.RideLandscape;
-        private float _zoomLog;
-        private float _pitchOffset;
+        private float _mountPitch;
         private float _orbit;
         private float _lookIdle = 999f;
-        private float _yaw;
-        private float _yawVelocity;
-        private Vector3 _aim;
-        private Vector3 _aimVelocity;
-        private float _footY;
         private float _fov;
-        private float _shoulder;
         private Vector3 _eyeLocal;
         private bool _eyeValid;
         private float _cameraYawDeg;
-
-        private readonly ChaseBoom _boom = new ChaseBoom();
-        private readonly ReverseFraming _reverse = new ReverseFraming();
 
         // Pose blend after a change of view or class: the old pose relative to the target's ground and heading.
         private bool _blending;
@@ -161,7 +153,7 @@ namespace Ghumante.Characters.Cameras
         /// <summary>0 in landscape, 1 in portrait (blending between them after a rotation).</summary>
         public float PortraitBlend
         {
-            get { return _portrait; }
+            get { return _chase.Portrait01; }
         }
 
         /// <summary>No roll, speed FOV kick or shake (Settings, Reduce motion).</summary>
@@ -192,16 +184,22 @@ namespace Ghumante.Characters.Cameras
             get { return _mounted; }
         }
 
+        /// <summary>The engine-free chase camera this rig drives (springs, framing, boom), for diagnostics and tests.</summary>
+        public ChaseCamera Chase
+        {
+            get { return _chase; }
+        }
+
         /// <summary>The boom (pull-in, lift, lane mode), for diagnostics and tests.</summary>
         public ChaseBoom Boom
         {
-            get { return _boom; }
+            get { return _chase.Boom; }
         }
 
         /// <summary>The reversing frame, for diagnostics and tests.</summary>
         public ReverseFraming Reverse
         {
-            get { return _reverse; }
+            get { return _chase.Reverse; }
         }
 
         /// <summary>The driver rig of the vehicle ridden along: <see cref="RigClass.Passenger"/> orbits at 1.2× it
@@ -222,7 +220,7 @@ namespace Ghumante.Characters.Cameras
             _savedNear = camera.nearClipPlane;
             WorldRoot.ConfigureCamera(camera, config);
             camera.nearClipPlane = NearClipM;
-            _snap = true;
+            Snap();
         }
 
         /// <summary>Gives the camera back as it was before <see cref="Attach"/>.</summary>
@@ -239,13 +237,14 @@ namespace Ghumante.Characters.Cameras
         public void Snap()
         {
             _snap = true;
+            _chase.Snap();
         }
 
         /// <summary>The floating origin moved by <paramref name="delta"/> (new − old): shift the smoothed state.</summary>
         public void ShiftOrigin(WorldPos delta)
         {
+            _chase.ShiftOrigin(delta.X, delta.Y, delta.Z);
             var d = new Vector3((float)delta.X, delta.Y, (float)delta.Z);
-            _aim -= d;
             if (_camera != null) _camera.transform.position -= d;
         }
 
@@ -271,7 +270,8 @@ namespace Ghumante.Characters.Cameras
         /// Places the camera for this frame. <paramref name="target"/> carries the explorer's ground point (scene space),
         /// heading, signed speed, lean, rig class and, when seated, the mount; <paramref name="controls"/> carries zoom and
         /// look input; <paramref name="ground"/> with <paramref name="origin"/> keeps the camera above the terrain and
-        /// turns scene positions into the game metres <see cref="Obstacles"/> answers in.
+        /// turns scene positions into the game metres <see cref="Obstacles"/> answers in. <paramref name="dt"/> must be the
+        /// time the explorer moved by this frame (the same <see cref="CameraClock"/> tick).
         /// </summary>
         public void Tick(float dt, in CameraTarget target, in ControlFrame controls, IGroundQuery ground, WorldPos origin)
         {
@@ -279,7 +279,6 @@ namespace Ghumante.Characters.Cameras
             if (!(dt >= 0f) || float.IsInfinity(dt)) dt = 0f;
             dt = Mathf.Min(dt, 0.1f);
             RigClass rigClass = target.Rig;
-            bool riding = rigClass != RigClass.Walk;
             PassengerOf = target.PassengerOf;
 
             // The view: the class's remembered choice; a mounted view needs a seat (else the class default).
@@ -294,100 +293,56 @@ namespace Ghumante.Characters.Cameras
             if (!_snap && (mounted != _mounted || mounted && chosen != _view)) BeginBlend(target);
             _view = chosen;
             _mounted = mounted;
+            _rigClass = rigClass;
             if (_snap) _blending = false;
 
-            // Rig blends: orientation from the camera's own aspect (what the framing is for), class and chase view from the
-            // controller and the memory.
-            float portraitTarget = _camera.aspect < 1f ? 1f : 0f;
-            _portrait = _snap ? portraitTarget : Mathf.MoveTowards(_portrait, portraitTarget, dt / OrientationBlendSeconds);
-            CameraView chaseView = mounted ? CameraViews.Default(rigClass) : chosen;
-            ChaseRigProfile want = ChaseRigProfile.For(rigClass, Smooth(_portrait), PassengerOf, chaseView);
-            float blendS = rigClass == RigClass.Walk ? 0.35f : ModeBlendSeconds;
-            _rigClass = rigClass;
-            _profile = _snap ? want : ChaseRigProfile.Lerp(_profile, want, 1f - Mathf.Exp(-3f * dt / blendS));
-            ChaseRigProfile rig = _profile;
-
-            // Player zoom (log scale, so each notch feels the same), pitch and look-around. Riding, looking around is a
-            // glance that swings back behind the rider; on foot it turns the camera for good (walking is relative to it).
-            _zoomLog = Mathf.Clamp(_zoomLog - controls.ZoomSteps * 0.12f, Mathf.Log(MinZoom), Mathf.Log(MaxZoom));
-            _pitchOffset = Mathf.Clamp(_pitchOffset + controls.LookPitchDeg, mounted ? -MountedPitchLimitDeg : MinPitchOffsetDeg,
-                                       mounted ? MountedPitchLimitDeg : MaxPitchOffsetDeg);
-            bool looking = controls.LookYawDeg != 0f || controls.Looking;
-            if (looking) _lookIdle = 0f;
-            else _lookIdle += dt;
-            if (riding)
-            {
-                _orbit = Mathf.Repeat(_orbit + controls.LookYawDeg + 180f, 360f) - 180f;
-                if (_lookIdle > LookReturnDelayS) _orbit *= Mathf.Exp(-2.5f * dt);
-            }
-            else
-            {
-                _yaw += controls.LookYawDeg;
-                _orbit *= Mathf.Exp(-6f * dt);
-            }
-
-            // Follow the heading: tightly riding. On foot only while walking roughly away from the camera, so walking
-            // towards it or sideways (the stick is camera-relative) never sends camera and walker chasing each other.
-            float headingDeg = target.HeadingRad * Mathf.Rad2Deg;
-            float speedMps = target.SpeedMps;
-            if (_snap)
-            {
-                _yaw = headingDeg;
-                _yawVelocity = 0f;
-            }
-            else if (riding)
-            {
-                _yaw = Mathf.SmoothDampAngle(_yaw, headingDeg, ref _yawVelocity, rig.FollowSeconds, Mathf.Infinity, dt);
-            }
-            else if (!looking && Mathf.Abs(speedMps) > 0.4f && Mathf.Abs(Mathf.DeltaAngle(_yaw, headingDeg)) < WalkFollowConeDeg)
-            {
-                _yaw = Mathf.SmoothDampAngle(_yaw, headingDeg, ref _yawVelocity, rig.FollowSeconds, 90f, dt);
-            }
-            else
-            {
-                _yawVelocity = 0f;
-            }
-
-            // Reversing a vehicle the player drives: raise, shorten, then swing round (chase views only).
-            if (_snap) _reverse.Reset();
-            bool drives = riding && rigClass != RigClass.Passenger && !mounted;
-            _reverse.Update(dt, drives ? speedMps : 0f, drives && !looking && _lookIdle > LookReturnDelayS);
-
-            // The pivot follows the explorer with a little lag (always behind it, never ahead).
-            Vector3 pivot = target.Ground + new Vector3(0f, rig.AimHeightM, 0f);
-            if (_snap)
-            {
-                _aim = pivot;
-                _aimVelocity = Vector3.zero;
-            }
-            else
-            {
-                _aim = Vector3.SmoothDamp(_aim, pivot, ref _aimVelocity, 0.06f, Mathf.Infinity, dt);
-            }
-
-            // Vertical FOV from the view's minimum horizontal FOV at this aspect, plus a little speed kick riding.
-            float fovH = mounted ? spec.MinHFovDeg : rig.MinHorizontalFovDeg;
-            float kick = !ReducedMotion && riding ? CameraRigTable.FovKick(CameraRigTable.For(rigClass, _portrait > 0.5f, PassengerOf), speedMps) : 0f;
+            // The chase camera runs every frame (also behind a mounted view), so leaving the seat finds it warm.
             float aspect = Mathf.Max(0.1f, _camera.aspect);
-            float fov = CameraFov.VerticalFromHorizontal(Mathf.Clamp(fovH + kick, 1f, 179f), aspect);
-            _fov = _snap ? fov : Mathf.Lerp(_fov, fov, 1f - Mathf.Exp(-8f * dt));
+            CameraView chaseView = mounted ? CameraViews.Default(rigClass) : chosen;
+            var chaseTarget = new ChaseTarget
+            {
+                Ground = new V3(target.Ground.x, target.Ground.y, target.Ground.z), HeadingRad = target.HeadingRad, SpeedMps = target.SpeedMps,
+                LeanRad = target.LeanRad, Rig = rigClass, PassengerOf = target.PassengerOf, BodyAheadM = target.BodyAheadM, HasBody = target.HasBody,
+                Aircraft = target.Aircraft, AircraftLengthM = target.AircraftLengthM, BankRad = target.BankRad,
+            };
+            var look = new ChaseControls
+            {
+                ZoomSteps = controls.ZoomSteps, LookYawDeg = mounted ? 0f : controls.LookYawDeg, LookPitchDeg = mounted ? 0f : controls.LookPitchDeg,
+                Looking = !mounted && controls.Looking,
+            };
+            _chase.Obstacles = Obstacles;
+            _chase.ReducedMotion = ReducedMotion;
+            ChasePose chase = _chase.Tick(dt, chaseTarget, chaseView, look, aspect, ground, origin.X, origin.Y, origin.Z);
 
+            float fov;
             Vector3 position;
             Quaternion rotation;
             float near;
             if (mounted)
             {
+                // Mounted: the player's glance and tilt are the view's own (they spring back after a pause).
+                bool looking = controls.LookYawDeg != 0f || controls.Looking;
+                _lookIdle = looking ? 0f : _lookIdle + dt;
+                _orbit = Mathf.Repeat(_orbit + controls.LookYawDeg + 180f, 360f) - 180f;
+                if (_lookIdle > LookReturnDelayS) _orbit *= Mathf.Exp(-2.5f * dt);
+                _mountPitch = Mathf.Clamp(_mountPitch + controls.LookPitchDeg, -MountedPitchLimitDeg, MountedPitchLimitDeg);
                 float windowYaw;
                 MountedPose(dt, target, spec, origin, out position, out rotation, out windowYaw);
                 near = spec.NearClipM;
                 _cameraYawDeg = target.Mount.HeadingDeg + _orbit + windowYaw;
+                fov = CameraFov.VerticalFromHorizontal(Mathf.Clamp(spec.MinHFovDeg, 1f, 179f), aspect);
             }
             else
             {
-                ChasePose(dt, target, rig, riding, rigClass, origin, ground, out position, out rotation);
+                _orbit = 0f;
+                _mountPitch = 0f;
+                position = new Vector3(chase.Position.X, chase.Position.Y, chase.Position.Z);
+                rotation = new Quaternion(chase.Rotation.X, chase.Rotation.Y, chase.Rotation.Z, chase.Rotation.W);
                 near = NearClipM;
-                _cameraYawDeg = _yaw + _orbit + _reverse.SwingYawDeg;
+                _cameraYawDeg = chase.YawDeg;
+                fov = chase.VerticalFovDeg;
             }
+            _fov = _snap ? fov : Mathf.Lerp(_fov, fov, 1f - Mathf.Exp(-8f * dt));
 
             // A change of view or class: ease from the old pose (kept relative to the explorer) to the new one.
             if (_blending)
@@ -400,7 +355,7 @@ namespace Ghumante.Characters.Cameras
                 else
                 {
                     float s = Smooth(_blendT);
-                    Quaternion frame = Quaternion.Euler(0f, headingDeg, 0f);
+                    Quaternion frame = Quaternion.Euler(0f, target.HeadingRad * Mathf.Rad2Deg, 0f);
                     Vector3 from = target.Ground + frame * _blendFromLocal;
                     Quaternion fromRot = frame * _blendFromRot;
                     position = Vector3.Lerp(from, position, s);
@@ -413,86 +368,6 @@ namespace Ghumante.Characters.Cameras
             if (!Mathf.Approximately(_camera.nearClipPlane, near)) _camera.nearClipPlane = near;
             _camera.transform.SetPositionAndRotation(position, rotation);
             _snap = false;
-        }
-
-        /// <summary>The chase camera: boom behind the (shoulder) pivot, reversing frame, collision, ground clamp, then the
-        /// view that pins the explorer's ground point on screen (or looks through the pivot).</summary>
-        private void ChasePose(float dt, in CameraTarget target, in ChaseRigProfile rig, bool riding, RigClass rigClass, WorldPos origin,
-                               IGroundQuery ground, out Vector3 position, out Quaternion rotation)
-        {
-            float speedMps = target.SpeedMps;
-            float yaw = _yaw + _orbit + _reverse.SwingYawDeg;
-            float pitch = Mathf.Clamp(rig.PitchDeg + _pitchOffset + _reverse.PitchAddDeg, -5f, 75f);
-            float distance = rig.DistanceM * Mathf.Exp(_zoomLog) * _reverse.DistanceScale;
-            IViewObstacleQuery obstacles = Obstacles;
-
-            // Over the shoulder: the pivot steps right, but never into a wall beside the walker.
-            Vector3 pivot = _aim;
-            float shoulderWant = rig.ShoulderM;
-            if (shoulderWant > 1e-3f)
-            {
-                float yawRad = yaw * Mathf.Deg2Rad;
-                double rx = Math.Cos(yawRad), rz = -Math.Sin(yawRad);
-                float reach = _boom.Reach(obstacles, pivot.x + origin.X, pivot.y + origin.Y, pivot.z + origin.Z, rx, 0.0, rz, shoulderWant);
-                _shoulder = _snap || reach < _shoulder ? reach : Mathf.MoveTowards(_shoulder, reach, dt * 1.5f);
-                pivot += new Vector3((float)rx, 0f, (float)rz) * _shoulder;
-            }
-            else
-            {
-                _shoulder = 0f;
-            }
-
-            if (_snap) _boom.Snap();
-            float min = Mathf.Min(rig.MinDistanceM > 0f ? rig.MinDistanceM : (riding ? 4f : 2.5f), distance);
-            _boom.Solve(obstacles, pivot.x + origin.X, pivot.y + origin.Y, pivot.z + origin.Z, yaw, pitch, distance, min, dt);
-            double ox, oy, oz;
-            _boom.CameraOffset(yaw, out ox, out oy, out oz);
-            position = pivot + new Vector3((float)ox, (float)oy, (float)oz);
-
-            // Never under the ground (a hillside behind, a dip): lift and keep framing the explorer.
-            GroundSample s;
-            if (ground != null && ground.TrySample(position.x + origin.X, position.z + origin.Z, out s))
-            {
-                float floor = s.Height - origin.Y + GroundClearanceM;
-                if (position.y < floor) position.y = floor;
-            }
-
-            // Face the explorer and pitch so its (smoothed) ground point stands at the framing height; the reversing frame
-            // lifts it so the lane behind shows underneath. The shoulder view looks through its pivot instead.
-            // (Landscape's short vertical view raises it less, so the rider stays in frame.)
-            float footY = Mathf.Min(0.2f, rig.FootScreenY(speedMps) + _reverse.FootRaise * Mathf.Lerp(LandscapeFootRaiseShare, 1f, _portrait));
-            _footY = _snap ? footY : Mathf.Lerp(_footY, footY, 1f - Mathf.Exp(-3f * dt));
-            Quaternion look = Quaternion.Euler(_boom.PitchDeg, yaw, 0f);
-            float footX = _aim.x - position.x;
-            float footZ = _aim.z - position.z;
-            float horizontal = Mathf.Sqrt(footX * footX + footZ * footZ);
-            Quaternion pin = look;
-            if (horizontal > 1e-3f)
-            {
-                float aboveFoot = position.y - (_aim.y - rig.AimHeightM);
-                float viewPitch = ChaseRigProfile.ViewPitchDeg(aboveFoot, horizontal, _footY, _fov);
-                float viewYaw = Mathf.Atan2(footX, footZ) * Mathf.Rad2Deg;
-                pin = Quaternion.Euler(Mathf.Clamp(viewPitch, -80f, 89f), viewYaw, 0f);
-            }
-            rotation = pin;
-            if (rig.Aim01 > 1e-3f)
-            {
-                Vector3 toPivot = pivot - position;
-                Quaternion through = toPivot.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(toPivot, Vector3.up) : look;
-                rotation = Quaternion.Slerp(pin, through, Mathf.Clamp01(rig.Aim01));
-            }
-            // No room behind (backed against a house): the boom's overhead fallback looks down the way ahead from over
-            // the player's head instead of at the player from inside them.
-            float overhead = _boom.OverheadLook01;
-            if (overhead > 1e-3f)
-            {
-                Quaternion down = Quaternion.Euler(ChaseBoom.OverheadLookDownDeg(_portrait), yaw, 0f);
-                rotation = Quaternion.Slerp(rotation, down, overhead);
-            }
-            if (!ReducedMotion && (rigClass == RigClass.TwoWheeler || rigClass == RigClass.Bicycle))
-            {
-                rotation *= Quaternion.Euler(0f, 0f, -target.LeanRad * Mathf.Rad2Deg * 0.12f);
-            }
         }
 
         /// <summary>The eye, bonnet and window views: rigid to the body (heading and pitch, part of its roll), the head
@@ -523,7 +398,8 @@ namespace Ghumante.Characters.Cameras
                 {
                     Vector3 from = m.Origin + body * local;
                     Vector3 dir = body * new Vector3(side, 0f, 0f);
-                    float reach = _boom.Reach(obstacles, from.x + origin.X, from.y + origin.Y, from.z + origin.Z, dir.x, dir.y, dir.z, Mathf.Abs(x - local.x));
+                    float reach = _chase.Boom.Reach(obstacles, from.x + origin.X, from.y + origin.Y, from.z + origin.Z, dir.x, dir.y, dir.z,
+                                                    Mathf.Abs(x - local.x));
                     x = local.x + side * reach;
                 }
                 local.x = x;
@@ -540,8 +416,8 @@ namespace Ghumante.Characters.Cameras
             _eyeValid = true;
             position = m.Origin + body * _eyeLocal;
             float roll = ReducedMotion ? 0f : m.RollDeg * spec.RollShare;
-            float lookDown = CameraViews.LookDownDeg(spec, _portrait);
-            rotation = Quaternion.Euler(-m.PitchDeg + lookDown + _pitchOffset, m.HeadingDeg + _orbit + yawAddDeg, roll);
+            float lookDown = CameraViews.LookDownDeg(spec, _chase.Portrait01);
+            rotation = Quaternion.Euler(-m.PitchDeg + lookDown + _mountPitch, m.HeadingDeg + _orbit + yawAddDeg, roll);
         }
 
         private void BeginBlend(in CameraTarget target)

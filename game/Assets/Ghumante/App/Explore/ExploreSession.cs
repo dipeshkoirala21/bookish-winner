@@ -137,6 +137,11 @@ namespace Ghumante.App.Explore
         private WorldRoot _world;
         private ExplorerController _explorer;
         private readonly ChaseCameraRig _rig = new ChaseCameraRig();
+
+        // One even frame time for the explorer and its camera (playtest #5: the camera must move by exactly what the
+        // explorer moved by, and an uneven measured frame time must not judder the world). It smooths the unscaled frame
+        // time; Time.timeScale still applies on top (nothing sets it today; a pause would).
+        private readonly CameraClock _clock = new CameraClock();
         private GameObject _ownCamera;
         private ExplorerInput _input;
         private TouchControlsVisibility _touchVisibility;
@@ -483,7 +488,7 @@ namespace Ghumante.App.Explore
         private void Update()
         {
             if (_screen == null) return;
-            float dt = Time.deltaTime;
+            float dt = _clock.Tick(Time.unscaledDeltaTime) * Time.timeScale;
             switch (_phase)
             {
                 case Phase.Spawning:
@@ -587,8 +592,14 @@ namespace Ghumante.App.Explore
                 Ground = ground, HeadingRad = heading, SpeedMps = speed, LeanRad = lean, Rig = _explorer.Rig, PassengerOf = _explorer.PassengerRig,
             };
             target.HasMount = _explorer.TryGetCameraMount(out target.Mount);
+            // The chase camera orbits the middle of the body (a bus's, not its rear axle's).
+            Characters.Rides.PlayerVehicle ridden = _explorer.CurrentVehicle;
+            int alongVariant = _explorer.Mode == ExplorerMode.Passenger ? _explorer.Ride.Variant : -1;
+            if (ridden != null) target.BodyAheadM = ChaseCamera.BodyAheadOf(ridden.Entry);
+            else if (alongVariant >= 0 && alongVariant < VehicleCatalog.Count) target.BodyAheadM = ChaseCamera.BodyAheadOf(VehicleCatalog.At(alongVariant));
+            target.HasBody = ridden != null || alongVariant >= 0 && alongVariant < VehicleCatalog.Count;
             _rig.Obstacles = ViewObstacles();
-            _rig.Tick(Time.deltaTime, target, _frame, _world.Ground, _world.Origin);
+            _rig.Tick(_clock.Dt * Time.timeScale, target, _frame, _world.Ground, _world.Origin);
             // The driver's eye inside a closed body: the vehicle shows its stand-in cockpit (no outline hull around us).
             bool eyeView = _rig.Mounted && CameraViews.Spec(_rig.View).Kind == CameraViewKind.Eye;
             _explorer.UpdateCockpit(eyeView, _rig.Camera.transform.position);
