@@ -214,13 +214,16 @@ namespace Ghumante.Core.Tests
                 return up;
             }
 
-            /// <summary>Frames until nothing is left to build or upload for a camera at (x, z).</summary>
+            /// <summary>Frames until nothing is left to build or upload for a camera at (x, z), for 1.5 s on end (a camera that
+            /// was moving takes about a second to count as standing: its lead shrinks, and the cells follow it).</summary>
             public void Settle(double x, double z, long budgetBytes = long.MaxValue, int maxFrames = 20000)
             {
+                int quiet = 0;
                 for (int f = 0; f < maxFrames; f++)
                 {
                     Frame(x, z, budgetBytes);
-                    if (Set.Settled && f > 2) break;
+                    quiet = Set.Settled ? quiet + 1 : 0;
+                    if (quiet >= 45) break;
                 }
                 Set.Update(x, z);
                 Assert.IsTrue(Set.Settled, "B0 settled within " + maxFrames + " frames");
@@ -327,7 +330,8 @@ namespace Ghumante.Core.Tests
 
         /// <summary>
         /// Each house is drawn once, by one cell, at one level: the near level for the houses whose centroid lies within
-        /// the near radius (Mid and High), the lite or flat level beyond, nothing richer than flat on Low; every house
+        /// the near radius (Mid and High), the lite or flat level beyond, nothing richer than flat on Low (a house is drawn
+        /// poorer than its distance asks only where the raise would not fit the band's budget); every house
         /// that only B0 draws (nearer than its fade into B1) is drawn; and the shown cells meet B0.
         /// </summary>
         [Test]
@@ -339,7 +343,7 @@ namespace Ghumante.Core.Tests
                 double x, z;
                 At(Asan, out x, out z);
                 var seen = new HashSet<long>();
-                int near = 0, lite = 0, flat = 0;
+                int near = 0, lite = 0, flat = 0, capped = 0;
                 foreach (B0Tile t in b.Tiles.Values)
                 {
                     double cx = x - t.Id.X0, cz = z - t.Id.Z0;
@@ -354,8 +358,16 @@ namespace Ghumante.Core.Tests
                             Assert.IsTrue(seen.Add((long)t.Id.Key * 65536 + i), "house " + i + " of " + t.Id + " drawn twice");
                             Assert.IsTrue(t.Index.Meets(i, b.Bands.B0OuterM, cx, cz, b.Bands.B0BuildPadM), "a shown house meets B0 and the build pad");
                             double d = t.Index.CentroidDistance(i, cx, cz);
-                            int level = c.Live.Levels[k];
-                            Assert.AreEqual(b.Bands.B0Level(d, t.Index.Street(i), -1), level, TierName[tier] + ": house " + i + " at " + d.ToString("0.0") + " m");
+                            int level = c.Live.Levels[k], want = b.Bands.B0Level(d, t.Index.Street(i), -1);
+                            Assert.GreaterOrEqual(level, want, TierName[tier] + ": house " + i + " at " + d.ToString("0.0") + " m is never richer than its distance asks");
+                            if (level != want)
+                            {
+                                // Poorer only where the raise does not fit the band's budget (B0CellSet.RaiseCapTris).
+                                capped++;
+                                double raise = b.Set.EstimatedTris(want) - c.Live.HouseTris(k);
+                                Assert.Greater(b.Set.ShownTris + raise, b.Set.RaiseCapTris,
+                                               TierName[tier] + ": house " + i + " at " + d.ToString("0.0") + " m is drawn at level " + level + ", not " + want + ", only for the budget");
+                            }
                             if (level == BandConfig.LevelNear) near++;
                             else if (level == BandConfig.LevelLite) lite++;
                             else flat++;
@@ -369,7 +381,8 @@ namespace Ghumante.Core.Tests
                                 if (t.Index.Meets(i, b.Bands.B0OuterM, cx, cz, -BandConfig.FadeM))
                                     Assert.IsTrue(seen.Contains((long)t.Id.Key * 65536 + i), TierName[tier] + ": house " + i + " of " + t.Id + " only B0 draws is shown");
                 }
-                TestContext.WriteLine("{0} at Asan: {1} houses near, {2} lite, {3} flat", TierName[tier], near, lite, flat);
+                TestContext.WriteLine("{0} at Asan: {1} houses near, {2} lite, {3} flat ({4} poorer than their distance asks, for the budget; {5} B0 tris of {6})", TierName[tier],
+                                      near, lite, flat, capped, b.Set.ShownTris, b.Bands.B0BudgetTris);
                 if (tier == 0) Assert.AreEqual(0, near + lite, "Low draws its whole B0 radius at the flat level");
                 else Assert.Greater(near, 5, TierName[tier] + ": the houses around the camera are drawn at the near level");
                 Assert.Greater(near + lite + flat, 60);
@@ -614,6 +627,68 @@ namespace Ghumante.Core.Tests
                                   perSlice, 100 * b.Set.WorkMs / elapsed, elapsed);
             Assert.LessOrEqual(perSlice, B0CellSet.WorkerDuty * b.TickMs + 1.0, "a quarter of a 30 fps frame (and one house)");
             Assert.LessOrEqual(b.Set.WorkMs, B0CellSet.WorkerDuty * elapsed + 50, "the worker is busy a quarter of the time at most");
+        }
+
+        /// <summary>
+        /// Owner playtest #4 ("Buildings constantly flickers"): a cell being rebuilt keeps drawing its old version, whole,
+        /// until every chunk of the new one is on the GPU, and the two swap in the same frame; a half-uploaded version is
+        /// never drawn, and no frame draws both or neither. High at Asan, riding 24 m east at 4 m/s with one chunk uploaded
+        /// per frame, so the multi-chunk rebuilds of the near level take several frames to come up.
+        /// </summary>
+        [Test]
+        public void ARebuiltCellShowsItsOldVersionUntilTheNewOneIsWhollyUp()
+        {
+            var b = new Bench(2);
+            double x, z;
+            At(Asan, out x, out z);
+            b.AddTilesAround(x, z);
+            b.Settle(x, z);
+            int partial = 0, swaps = 0, frames = 0;
+            var lastLive = new Dictionary<B0CellSet.Cell, B0CellSet.Version>();
+            for (int f = 0; f < 600; f++)
+            {
+                double px = x + Math.Min(24.0, f * 4.0 * b.TickMs / 1000.0);
+                b.Frame(px, z, 1); // one chunk a frame
+                frames++;
+                foreach (B0Tile t in b.Tiles.Values)
+                    foreach (B0CellSet.Cell c in t.Cells.Values)
+                    {
+                        B0CellSet.Version live = c.Live, pending = c.Pending;
+                        if (pending != null && pending.Handles != null)
+                        {
+                            if (pending.Uploaded > 0 && pending.Uploaded < pending.Chunks.Count) partial++;
+                            for (int k = 0; k < pending.Uploaded; k++)
+                                Assert.IsFalse(((Sink.Chunk)pending.Handles[k]).Shown, "a version still uploading is never drawn");
+                        }
+                        if (c.Shown)
+                        {
+                            Assert.IsNotNull(live);
+                            Assert.AreEqual(live.Chunks.Count, live.Uploaded, "a shown cell's version is whole on the GPU");
+                            for (int k = 0; k < live.Uploaded; k++)
+                                Assert.IsTrue(((Sink.Chunk)live.Handles[k]).Shown, "every chunk of a shown cell is drawn");
+                        }
+                        else if (live != null && live.Handles != null)
+                            for (int k = 0; k < live.Uploaded; k++)
+                                Assert.IsFalse(((Sink.Chunk)live.Handles[k]).Shown, "a hidden cell draws nothing");
+                        B0CellSet.Version before;
+                        if (lastLive.TryGetValue(c, out before) && before != live && before != null && live != null)
+                        {
+                            swaps++;
+                            Assert.IsNull(before.Handles, "the old version is freed in the frame the new one is shown");
+                        }
+                        lastLive[c] = live;
+                    }
+                if (f > 200 && b.Set.Settled) break;
+            }
+            b.Set.Update(x + 24, z);
+            int drawnChunks = 0;
+            foreach (Sink.Chunk ch in b.Sink.Live)
+                if (ch.Shown) drawnChunks++;
+            TestContext.WriteLine("High at Asan, 24 m east: {0} frames, {1} rebuilt cells swapped, {2} cell-frames with a version half uploaded; {3} chunks drawn", frames, swaps,
+                                  partial, drawnChunks);
+            Assert.Greater(swaps, 0, "the ride rebuilds cells");
+            Assert.Greater(partial, 0, "some rebuilds take several frames to upload");
+            Assert.AreEqual(b.Set.ShownChunks, drawnChunks, "every drawn chunk belongs to a shown cell's version");
         }
 
         /// <summary>

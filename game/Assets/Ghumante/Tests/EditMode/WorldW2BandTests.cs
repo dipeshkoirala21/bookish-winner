@@ -360,11 +360,13 @@ namespace Ghumante.Tests.EditMode
                         TileData t = SampleRegion.Pack.ReadTile(id);
                         if (t != null && t.HasDetail) set.Add(id, t, TileHeightSampler.ForArea(t, id, 1), null);
                     }
-                for (int f = 0; f < 20000 && !(set.Settled && f > 2); f++)
+                // Settled for 1.5 s on end (nothing left to build or upload), as the core bench waits.
+                for (int f = 0, quiet = 0; f < 20000 && quiet < 45; f++)
                 {
                     set.Update(cx, cz);
                     set.Upload(1L << 20, true);
                     now += 33.3;
+                    quiet = set.Settled ? quiet + 1 : 0;
                 }
                 set.Update(cx, cz);
                 Assert.IsTrue(set.Settled, "tier " + tier + ": B0 settled");

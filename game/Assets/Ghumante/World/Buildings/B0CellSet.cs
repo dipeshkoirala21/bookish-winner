@@ -90,8 +90,13 @@ namespace Ghumante.World.Buildings
     /// <see cref="JobBudgetMs"/> of estimated work (<see cref="EstimateMs"/>): houses the cell lacks are built at the flat
     /// level beyond it and level changes wait for the next rebuild, so an urgent build never waits long. The last slice
     /// splits the cell into chunks of at most <see cref="ChunkVertices"/> vertices with 16-bit indices.</item>
+    /// <item><b>Budget</b>: a house is built at, or raised to, the near or lite level only while the band (every wanted
+    /// cell's live version and the builds on their way) stays within <see cref="RaiseCapTris"/> of the tier's budget with
+    /// the raise (<see cref="EstimatedTris"/>, learnt from the houses built); otherwise it is drawn at the flat level until
+    /// houses leaving the band make room, so a rider circling a dense chowk never gathers near-level houses on every side.</item>
     /// <item><b>Uploads</b> go chunk by chunk through <see cref="Upload"/> within the bytes the caller gives (the
-    /// streamer shares its per-frame upload cap between tiles and B0).</item>
+    /// streamer shares its per-frame upload cap between tiles and B0); a build the worker finished is queued for upload as
+    /// soon as the main thread looks, so a build dispatched in one frame is on screen the next.</item>
     /// <item><b>Cache</b>: uploaded cells stay resident up to <see cref="BandConfig.CellCacheBytes"/> of GPU mesh, the
     /// least recently needed evicted first; cells needed this frame are never evicted.</item>
     /// <item><b>Colliders</b> (pikha aprons, flat roofs, stair cabins, temple plinths) of a shown cell are registered with
@@ -194,6 +199,16 @@ namespace Ghumante.World.Buildings
             public Exception Error;
             public double WorkMs;
 
+            /// <summary>How many triangles the band gains when this version replaces the cell's live one: estimated when it
+            /// is dispatched (<see cref="EstimatedTris"/>), exact once built.</summary>
+            public double Delta;
+
+            /// <summary>Triangles of position <paramref name="k"/>'s house in this version (0 before it is built).</summary>
+            public int HouseTris(int k)
+            {
+                return Ranges == null || Next <= k && !Built ? 0 : (Ranges[6 * k + 7] - Ranges[6 * k + 1]) / 3;
+            }
+
             /// <summary>True when position <paramref name="p"/> (in the cell's house list) is drawn by this version.</summary>
             public bool Has(int p)
             {
@@ -219,6 +234,28 @@ namespace Ghumante.World.Buildings
         /// <summary>Share of the tier's B0 budget (<see cref="BandConfig.B0BudgetTris"/>) above which cells shed the houses
         /// they no longer need before any level is raised.</summary>
         public const double PruneShare = 0.85;
+
+        /// <summary>
+        /// Triangles of the tier's B0 budget kept free of raised levels: a house is built at, or raised to, the near or
+        /// lite level only while the band's triangles (the wanted cells, shown or about to be, plus the builds on their
+        /// way, <see cref="Version.Delta"/>) stay within <see cref="RaiseCapTris"/> with the raise
+        /// (<see cref="EstimatedTris"/>); otherwise it is drawn at the flat level until houses leaving the band make room
+        /// (a rider circling the densest chowk would otherwise gather near-level houses on every side of their path). The
+        /// headroom takes the houses riding brings in at the band's edge before the cells behind shed theirs: rolling to
+        /// and fro by Asan on Mid brings about 7 k (the band peaks at 100.7 k of its 105.75 k budget; 108.5 k with 4 k of
+        /// headroom, 127 k without the gate), at the cost of 11 of the 229 houses by Asan drawn one level poorer than
+        /// their distance asks on Mid while the rider stands there, none on High (core-tests
+        /// MeshingBuildingB0StabilityTests, MeshingBuildingB0CellTests). Levels are never lowered for the budget: a house near the rider never pops to a
+        /// poorer level while it stays near.
+        /// </summary>
+        public const int RaiseHeadroomTris = 10000;
+
+        /// <summary>The band's triangles up to which levels are raised: the budget less <see cref="RaiseHeadroomTris"/>,
+        /// and at least 80% of it.</summary>
+        public double RaiseCapTris
+        {
+            get { return Math.Max(0.8 * _bands.B0BudgetTris, _bands.B0BudgetTris - (double)RaiseHeadroomTris); }
+        }
 
         private readonly BandConfig _bands;
         private readonly BuildingOptions _shared;
@@ -251,6 +288,9 @@ namespace Ghumante.World.Buildings
         private int _bestX, _bestZ, _bestReason;
         private double _bestScore;
         private bool _hasLast, _overBudget;
+        private double _projectedTris;
+        private readonly double[] _levelTris = new double[3];
+        private readonly int[] _levelSamples = new int[3];
         private double _lastX, _lastZ, _lastMs, _vx, _vz, _needX, _needZ, _buildX, _buildZ;
         private bool _disposed;
 
@@ -274,6 +314,17 @@ namespace Ghumante.World.Buildings
             _fine = bands.B0FineCells;
             _runSlice = RunSlice;
             _runIndex = RunIndex;
+            _levelTris[BandConfig.LevelNear] = Math.Max(1000, 0.6 * bands.B0CapTris);
+            _levelTris[BandConfig.LevelLite] = 450;
+            _levelTris[BandConfig.LevelFlat] = 380;
+        }
+
+        /// <summary>The triangles a house is expected to take at a level: the mean of the houses built at that level so far
+        /// (the latest 64), from a first guess per tier (near: 60% of the tier's cap; lite and flat: what the old core's
+        /// houses take). Decides whether a raise fits the budget (<see cref="RaiseCapTris"/>).</summary>
+        public double EstimatedTris(int level)
+        {
+            return _levelTris[level];
         }
 
         /// <summary>Triangles of the cells shown this frame.</summary>
@@ -407,6 +458,7 @@ namespace Ghumante.World.Buildings
             _frame++;
             double now = _clockMs();
             _overBudget = ShownTris > PruneShare * _bands.B0BudgetTris;
+            _projectedTris = WantedTris() + PendingDelta();
             if (_hasLast) _sliceMs = Math.Max(SliceMs, Math.Min(MaxSliceMs, WorkerDuty * (now - _lastMs)));
             Track(camX, camZ, now);
             ShownTris = 0;
@@ -607,10 +659,10 @@ namespace Ghumante.World.Buildings
             urgency = BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz);
             int richest;
             bool poorer, nearPoorer;
-            Levels(idx, live, cx, cz, out richest, out poorer, out nearPoorer);
+            double cheapest;
+            Levels(idx, live, cx, cz, out richest, out poorer, out nearPoorer, out cheapest);
             if (nearPoorer) reason = ReasonLeaveNear;
-            else if (richest == BandConfig.LevelNear) reason = ReasonNear;
-            else if (richest == BandConfig.LevelLite) reason = ReasonLite;
+            else if (richest >= 0 && cheapest <= RaiseRoom(idx, live, houses, cx, cz, nx, nz, bx, bz)) reason = richest == BandConfig.LevelNear ? ReasonNear : ReasonLite;
             else
             {
                 // Waste, once the centre has moved on: a third of the houses no longer needed, or any while the band is
@@ -624,26 +676,75 @@ namespace Ghumante.World.Buildings
             return true;
         }
 
-        /// <summary>The richest level a house of a version wants above the one it is built at (-1: none), whether any wants
-        /// a poorer one, and whether a house built at the near level (the costly one) does.</summary>
-        private void Levels(B0HouseIndex idx, Version v, double cx, double cz, out int richest, out bool poorer, out bool nearPoorer)
+        /// <summary>The richest level a house of a version wants above the one it is built at (-1: none), the triangles the
+        /// cheapest of those raises would add (<paramref name="cheapest"/>), whether any house wants a poorer level, and
+        /// whether a house built at the near level (the costly one) does.</summary>
+        private void Levels(B0HouseIndex idx, Version v, double cx, double cz, out int richest, out bool poorer, out bool nearPoorer, out double cheapest)
         {
             richest = -1;
             poorer = false;
             nearPoorer = false;
+            cheapest = double.MaxValue;
             int[] houses = idx.Houses(_fine, v.Cell.X, v.Cell.Z);
             for (int k = 0; k < v.Positions.Length; k++)
             {
                 int i = houses[v.Positions[k]];
                 int built = v.Levels[k];
                 int want = _bands.B0Level(idx.CentroidDistance(i, cx, cz), idx.Street(i), built);
-                if (want < built && (richest < 0 || want < richest)) richest = want;
+                if (want < built)
+                {
+                    if (richest < 0 || want < richest) richest = want;
+                    cheapest = Math.Min(cheapest, Math.Max(0, _levelTris[want] - v.HouseTris(k)));
+                }
                 else if (want > built)
                 {
                     poorer = true;
                     if (built == BandConfig.LevelNear) nearPoorer = true;
                 }
             }
+        }
+
+        /// <summary>
+        /// The triangles a rebuild of a cell may add by raising levels and stay within <see cref="RaiseCapTris"/>: the band's projected triangles (the wanted cells and the builds on their way), less the houses the
+        /// rebuild drops, plus the houses it adds at the flat level. <see cref="Reason"/> asks for a raise only when the
+        /// cheapest one fits this, and <see cref="AssignLevels"/> starts from the same room (adding what its demotions
+        /// free), so a raise asked for is always made: no rebuild that changes nothing.
+        /// </summary>
+        private double RaiseRoom(B0HouseIndex idx, Version live, int[] houses, double cx, double cz, double nx, double nz, double bx, double bz)
+        {
+            double room = RaiseCapTris - _projectedTris;
+            for (int p = 0; p < houses.Length; p++)
+            {
+                bool has = live != null && live.Has(p), inBuild = InBuild(idx, houses[p], cx, cz, nx, nz, bx, bz);
+                if (has && !inBuild) room += live.HouseTris(Array.BinarySearch(live.Positions, p));
+                else if (!has && inBuild) room -= _levelTris[BandConfig.LevelFlat];
+            }
+            return room;
+        }
+
+        /// <summary>What the band draws once no block stands in: the live versions of the cells wanted last frame (called
+        /// after <see cref="Update"/> counted this frame), as they are now (a version swapped in by <see cref="Upload"/> since then counted as itself, no longer as a pending
+        /// <see cref="Version.Delta"/>, so the projection never dips at a swap).</summary>
+        private double WantedTris()
+        {
+            double t = 0;
+            for (int i = 0; i < _all.Count; i++)
+            {
+                Cell c = _all[i];
+                if (c.Tile != null && c.Tile.Visible && c.WantedFrame == _frame - 1 && c.Live != null && !c.Failed) t += c.Live.Tris;
+            }
+            return t;
+        }
+
+        /// <summary>Triangles the builds not yet shown add to the band when they replace their cells' versions.</summary>
+        private double PendingDelta()
+        {
+            double d = 0;
+            for (int i = 0; i < _ready.Count; i++)
+                if (!_ready[i].Abandoned) d += _ready[i].Delta;
+            for (int lane = 0; lane < _jobs.Length; lane++)
+                if (_jobs[lane] != null && !_jobs[lane].Abandoned) d += _jobs[lane].Delta; // a finished job leaves _jobs for _ready
+            return d;
         }
 
         /// <summary>True when house <paramref name="i"/> goes into a build: within the build pad of the fade around the
@@ -833,7 +934,7 @@ namespace Ghumante.World.Buildings
             nv.Levels = new byte[n];
             nv.From = new int[n];
             nv.Ranges = new int[6 * (n + 1)];
-            AssignLevels(idx, nv, houses, live, cx, cz);
+            AssignLevels(idx, nv, houses, live, cx, cz, RaiseRoom(idx, live, houses, cx, cz, nx, nz, bx, bz));
             bool reusable = live != null && live.Data != null && live.Ranges != null;
             for (int k = 0; k < n; k++)
             {
@@ -848,7 +949,9 @@ namespace Ghumante.World.Buildings
                 nv.From[k] = from;
                 if (from < 0) HousesBuilt++;
                 else HousesReused++;
+                nv.Delta += from >= 0 ? live.HouseTris(from) : _levelTris[nv.Levels[k]];
             }
+            if (live != null) nv.Delta -= live.Tris;
             if (reusable)
             {
                 nv.Reuse = live;
@@ -863,13 +966,13 @@ namespace Ghumante.World.Buildings
         }
 
         /// <summary>
-        /// The level of each house of a new version, within <see cref="JobBudgetMs"/> of estimated work: a house the cell
-        /// has keeps its level (copied) unless it wants another, a house it lacks is built at its level while the budget
-        /// allows and at the flat level beyond it (a later rebuild refines it); level changes go while the budget allows,
-        /// demotions first (cheap, and they hold the budget), then upgrades nearest first; the others wait for the next
-        /// rebuild.
+        /// The level of each house of a new version, within <see cref="JobBudgetMs"/> of estimated work and the band's
+        /// triangle budget (<paramref name="room"/>, <see cref="RaiseRoom"/>): a house the cell has keeps its level (copied)
+        /// unless it wants another; a house it lacks is built at the flat level at least; demotions go first (cheap, and
+        /// they make room), then the raises nearest first, each made while the work and the room allow it (a near house
+        /// that does not fit may still fit at the lite level when it fronts a street); the others wait for a later rebuild.
         /// </summary>
-        private void AssignLevels(B0HouseIndex idx, Version nv, int[] houses, Version live, double cx, double cz)
+        private void AssignLevels(B0HouseIndex idx, Version nv, int[] houses, Version live, double cx, double cz, double room)
         {
             int n = nv.Positions.Length;
             double cost = 0;
@@ -877,14 +980,14 @@ namespace Ghumante.World.Buildings
             for (int k = 0; k < n; k++)
             {
                 int i = houses[nv.Positions[k]];
-                int current = -1;
-                if (live != null && live.Has(nv.Positions[k])) current = live.Levels[Array.BinarySearch(live.Positions, nv.Positions[k])];
+                int current = Current(live, nv.Positions[k]);
                 int want = _bands.B0Level(idx.CentroidDistance(i, cx, cz), idx.Street(i), current);
                 if (current < 0)
                 {
-                    int level = want == BandConfig.LevelFlat || cost + EstimateMs[want] <= JobBudgetMs ? want : BandConfig.LevelFlat;
-                    nv.Levels[k] = (byte)level;
-                    cost += EstimateMs[level];
+                    // Every house the cell lacks is drawn, at the flat level at least (RaiseRoom counted it so).
+                    nv.Levels[k] = BandConfig.LevelFlat;
+                    cost += EstimateMs[BandConfig.LevelFlat];
+                    if (want < BandConfig.LevelFlat) nv.Levels[k] = undecided;
                 }
                 else if (want == current)
                 {
@@ -902,8 +1005,8 @@ namespace Ghumante.World.Buildings
                     if (nv.Levels[k] != undecided) continue;
                     int h = houses[nv.Positions[k]];
                     double d = idx.CentroidDistance(h, cx, cz);
-                    int was = live.Levels[Array.BinarySearch(live.Positions, nv.Positions[k])];
-                    double key = _bands.B0Level(d, idx.Street(h), was) > was ? -1e6 - d : d;
+                    int was = Current(live, nv.Positions[k]);
+                    double key = was >= 0 && _bands.B0Level(d, idx.Street(h), was) > was ? -1e6 - d : d;
                     if (key < bestKey)
                     {
                         bestKey = key;
@@ -912,19 +1015,40 @@ namespace Ghumante.World.Buildings
                 }
                 if (best < 0) return;
                 int i = houses[nv.Positions[best]];
-                int current = live.Levels[Array.BinarySearch(live.Positions, nv.Positions[best])];
+                int current = Current(live, nv.Positions[best]);
                 int want = _bands.B0Level(idx.CentroidDistance(i, cx, cz), idx.Street(i), current);
-                if (cost + EstimateMs[want] <= JobBudgetMs)
+                // What the house costs now: its triangles in the live version, or the flat level it is built at otherwise.
+                int from = current >= 0 ? current : BandConfig.LevelFlat;
+                double now = current >= 0 ? live.HouseTris(Array.BinarySearch(live.Positions, nv.Positions[best])) : _levelTris[BandConfig.LevelFlat];
+                double ms = current >= 0 ? 0 : -EstimateMs[BandConfig.LevelFlat]; // a new house is already charged at flat
+                int level = from;
+                if (want > from)
                 {
-                    nv.Levels[best] = (byte)want;
-                    cost += EstimateMs[want];
+                    // A demotion: always made while the work allows; it frees room for the raises.
+                    if (cost + ms + EstimateMs[want] <= JobBudgetMs) level = want;
                 }
                 else
                 {
-                    nv.Levels[best] = (byte)current;
-                    cost += CopyEstimateMs;
+                    for (int l = want; l < from && level == from; l++)
+                    {
+                        if (l == BandConfig.LevelLite && !(idx.Street(i) && _bands.B0LiteOuterM > 0f)) continue;
+                        if (cost + ms + EstimateMs[l] <= JobBudgetMs && _levelTris[l] - now <= room) level = l;
+                    }
                 }
+                nv.Levels[best] = (byte)level;
+                if (level != from)
+                {
+                    cost += ms + EstimateMs[level];
+                    room -= _levelTris[level] - now;
+                }
+                else if (current >= 0) cost += CopyEstimateMs;
             }
+        }
+
+        /// <summary>The level position <paramref name="p"/>'s house is drawn at in <paramref name="live"/> (-1: not in it).</summary>
+        private static int Current(Version live, int p)
+        {
+            return live != null && live.Has(p) ? live.Levels[Array.BinarySearch(live.Positions, p)] : -1;
         }
 
         private void Run(Action work)
@@ -1001,6 +1125,24 @@ namespace Ghumante.World.Buildings
             {
                 v.WorkMs += _clockMs() - start;
                 Finished(start);
+            }
+        }
+
+        /// <summary>
+        /// Queues the builds the worker has finished for upload as soon as the main thread looks (the streamer's upload in
+        /// <c>Tick</c> comes before the cells' <see cref="Update"/>): a build dispatched in one frame is on screen the next,
+        /// not a frame later, which is what the lead (<see cref="BandConfig.B0LeadM"/>) has to cover. Builds of a cell no
+        /// longer wanted are left to <see cref="Dispatch"/>, which drops them.
+        /// </summary>
+        private void Harvest()
+        {
+            if (_running || _disposed) return;
+            for (int lane = 0; lane < _jobs.Length; lane++)
+            {
+                Version v = _jobs[lane];
+                if (v == null || v.Abandoned || v.Cell.Tile == null || v.Cell.Pending != v || !(v.Built || v.Error != null)) continue;
+                _jobs[lane] = null;
+                Finish(v);
             }
         }
 
@@ -1118,17 +1260,26 @@ namespace Ghumante.World.Buildings
                 Drop(v);
                 return;
             }
+            v.Delta = v.Tris - (c.Live != null ? c.Live.Tris : 0);
+            for (int k = 0; k < v.Positions.Length; k++)
+            {
+                if (v.From[k] >= 0) continue;
+                int level = v.Levels[k], n = Math.Min(++_levelSamples[level], 64);
+                _levelTris[level] += (v.HouseTris(k) - _levelTris[level]) / n;
+            }
             _ready.Add(v);
         }
 
         // ------------------------------------------------------------------------------------------------------------
         // Uploads
 
-        /// <summary>GPU bytes of the next chunk waiting for upload (0 when none).</summary>
+        /// <summary>GPU bytes of the next chunk waiting for upload (0 when none), a build the worker finished since the last
+        /// <see cref="Update"/> included (main thread).</summary>
         public long NextUploadBytes
         {
             get
             {
+                Harvest();
                 for (int i = 0; i < _ready.Count; i++)
                 {
                     Version v = _ready[i];
@@ -1146,6 +1297,7 @@ namespace Ghumante.World.Buildings
         /// </summary>
         public long Upload(long budgetBytes, bool atLeastOne)
         {
+            Harvest();
             long used = 0;
             while (_ready.Count > 0)
             {

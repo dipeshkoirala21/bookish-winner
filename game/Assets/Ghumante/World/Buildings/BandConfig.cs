@@ -84,7 +84,8 @@ namespace Ghumante.World.Buildings
         public bool B0FineCells;
 
         /// <summary>The triangles of all shown B0 cells this tier allows (<see cref="B0ShownBudgetTris"/>): near it, the cells
-        /// shed the houses they no longer need before raising any level.</summary>
+        /// shed the houses they no longer need before raising any level, and a level is raised only while the raise fits
+        /// (B0CellSet.RaiseCapTris; a house that does not fit is drawn at the flat level until houses leaving make room).</summary>
         public int B0BudgetTris;
 
         /// <summary>GPU bytes of B0 cell meshes kept resident, shown and cached (25 / 50 / 80 MB; the cells shown at
@@ -164,9 +165,10 @@ namespace Ghumante.World.Buildings
             return k == 0 ? LowB0ShownTris : (int)(BuildingBandTable.B0ShareTris(k) / InViewShare);
         }
 
-        /// <summary>Low's B0 budget, whole shown cells (see <see cref="B0ShownBudgetTris"/>): 27.6 k at Asan at rest, and up to
-        /// 32.4 k riding from Thamel to Asan at 10 m/s, at the large hotels of Dabali Marga, where the houses inside the
-        /// 35 m band alone come to about 29.5 k at the flat level (core-tests MeshingBuildingB0StabilityTests).</summary>
+        /// <summary>Low's B0 budget, whole shown cells (see <see cref="B0ShownBudgetTris"/>): 26.1 k at Asan at rest, and up to
+        /// 31.4 k riding from Thamel to Asan at 10 m/s, at the large hotels of Dabali Marga, where the houses inside the
+        /// 35 m band alone come to about 29.5 k at the flat level (core-tests MeshingBuildingB0CellTests and
+        /// MeshingBuildingB0StabilityTests).</summary>
         public const int LowB0ShownTris = 33000;
 
         /// <summary>B0 levels: 0 near (full grammar), 1 lite, 2 flat.</summary>

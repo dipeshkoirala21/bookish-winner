@@ -111,35 +111,54 @@ namespace Ghumante.Core.Tests
             }
         }
 
-        private static Street _thamelAsan;
+        private static readonly Dictionary<string, Street> Routes = new Dictionary<string, Street>();
+        private static RouteGraph _graph;
 
         /// <summary>The scooter's route from Thamel Chowk to Asan on the sample routing graph (A*, motorbike profile).</summary>
         internal static Street ThamelToAsan()
         {
-            lock (TierName)
+            return RouteOf("Thamel Chowk to Asan", 85.3110, 27.7150, 85.3122, 27.7074, Travel.Motorbike);
+        }
+
+        /// <summary>A car's route from Lainchaur down Kantipath and Durbar Marg to Maitighar Mandala (A*, car profile): the
+        /// main roads, driven at 50 km/h.</summary>
+        internal static Street LainchaurToMaitighar()
+        {
+            return RouteOf("Lainchaur to Maitighar", 85.3140, 27.7185, 85.3220, 27.6945, Travel.Car);
+        }
+
+        /// <summary>The route between two places on the sample routing graph (A*, <paramref name="travel"/>), cached.</summary>
+        internal static Street RouteOf(string name, double lon0, double lat0, double lon1, double lat1, Travel travel)
+        {
+            lock (Routes)
             {
-                if (_thamelAsan != null) return _thamelAsan;
-                string path = Path.Combine(GoldenFiles.RepoRoot, "shared", "sample-regions", "kathmandu_core", "kathmandu_core.route.ghrg");
-                RouteGraph g = RouteGraphReader.Read(File.ReadAllBytes(path));
+                Street st;
+                if (Routes.TryGetValue(name, out st)) return st;
+                if (_graph == null)
+                {
+                    string path = Path.Combine(GoldenFiles.RepoRoot, "shared", "sample-regions", "kathmandu_core", "kathmandu_core.route.ghrg");
+                    _graph = RouteGraphReader.Read(File.ReadAllBytes(path));
+                }
+                RouteGraph g = _graph;
                 double tx, tz, ax, az;
-                WorldFrame.LonLatToGame(85.3110, 27.7150, out tx, out tz); // Thamel Chowk
-                WorldFrame.LonLatToGame(85.3122, 27.7074, out ax, out az); // Asan
-                int src = new NearestNode(g, Travel.Motorbike, false).Find(tx, tz);
-                int dst = new NearestNode(g, Travel.Motorbike, true).Find(ax, az);
-                Route r = new AStar(g).FindRoute(src, dst, Travel.Motorbike);
-                Assert.IsNotNull(r, "a scooter route from Thamel to Asan");
-                var st = new Street();
+                WorldFrame.LonLatToGame(lon0, lat0, out tx, out tz);
+                WorldFrame.LonLatToGame(lon1, lat1, out ax, out az);
+                int src = new NearestNode(g, travel, false).Find(tx, tz);
+                int dst = new NearestNode(g, travel, true).Find(ax, az);
+                Route r = new AStar(g).FindRoute(src, dst, travel);
+                Assert.IsNotNull(r, "a " + travel + " route " + name);
+                st = new Street();
                 var names = new List<string>();
                 foreach (int e in r.Edges)
                 {
                     double[] p = g.EdgeGeometry(e);
                     for (int i = 0; i < p.Length / 2; i++) st.Add(p[2 * i], p[2 * i + 1]);
                     NameRecord n = g.EdgeNameRecord(e);
-                    string name = n != null ? (n.En.Length > 0 ? n.En : n.Default) : "";
-                    if (name.Length > 0 && (names.Count == 0 || names[names.Count - 1] != name)) names.Add(name);
+                    string label = n != null ? (n.En.Length > 0 ? n.En : n.Default) : "";
+                    if (label.Length > 0 && (names.Count == 0 || names[names.Count - 1] != label)) names.Add(label);
                 }
                 st.Names = string.Join(", ", names);
-                _thamelAsan = st;
+                Routes[name] = st;
                 return st;
             }
         }
@@ -205,6 +224,51 @@ namespace Ghumante.Core.Tests
                 {
                     s = stops[next];
                     stoppedFor = 0;
+                }
+            }
+            return frames;
+        }
+
+        /// <summary>
+        /// Frames of a rider dithering on one stretch of street: from <paramref name="s0"/> it rides
+        /// <paramref name="length"/> m on at <paramref name="speed"/> m/s, turns, rides back, and so on for
+        /// <paramref name="legs"/> legs, standing 1.5 s at each turn while the chase camera swings round behind it (a rider
+        /// looking for a lane, or the owner testing the flicker by rolling to and fro). The camera sways as in
+        /// <see cref="Ride"/>.
+        /// </summary>
+        internal static List<RideFrame> Shuttle(Street st, double s0, double length, double speed, int legs)
+        {
+            var frames = new List<RideFrame>();
+            double dt = FrameMs / 1000.0, t = 0, s = s0;
+            for (int leg = 0; leg < legs; leg++)
+            {
+                double dir = leg % 2 == 0 ? 1 : -1, end = s0 + (leg % 2 == 0 ? length : 0);
+                for (double turn = 0; turn < 1.5; turn += dt)
+                {
+                    double rx, rz, hx, hz;
+                    st.At(s, out rx, out rz);
+                    st.Heading(s, out hx, out hz);
+                    hx *= dir;
+                    hz *= dir;
+                    // The boom swings from the old heading round to the new one over the stand.
+                    double a = Math.PI * (1 - Math.Min(1, turn / 1.2)), ca = Math.Cos(a), sa = Math.Sin(a);
+                    double bx = leg == 0 ? hx : hx * ca - hz * sa, bz = leg == 0 ? hz : hx * sa + hz * ca;
+                    frames.Add(new RideFrame { T = t, RiderX = rx, RiderZ = rz, CamX = rx - bx * 4.5, CamZ = rz - bz * 4.5, Stopped = true, Stop = leg });
+                    t += dt;
+                }
+                while (dir > 0 ? s < end : s > end)
+                {
+                    s = dir > 0 ? Math.Min(end, s + speed * dt) : Math.Max(end, s - speed * dt);
+                    double rx, rz, hx, hz;
+                    st.At(s, out rx, out rz);
+                    st.Heading(s, out hx, out hz);
+                    hx *= dir;
+                    hz *= dir;
+                    double nx = hz, nz = -hx;
+                    double side = 0.8 * Math.Sin(2 * Math.PI * 0.4 * t) + 0.25 * Math.Sin(2 * Math.PI * 2.7 * t);
+                    double boom = 4.5 + 0.3 * Math.Sin(2 * Math.PI * 1.1 * t);
+                    frames.Add(new RideFrame { T = t, RiderX = rx, RiderZ = rz, CamX = rx - hx * boom + nx * side, CamZ = rz - hz * boom + nz * side, Stop = -1 });
+                    t += dt;
                 }
             }
             return frames;
@@ -358,10 +422,15 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>How far the band centre must move for a cell to hide and show again (out past the exit pad, back in
-        /// within the lead): a re-show after less is a toggle.</summary>
-        internal static double CellHysteresisM(BandConfig bands)
+        /// within the lead): a re-show after less is a toggle. Heading back towards the cell at <paramref name="speed"/>
+        /// m/s, the need lead (BandConfig.B0NeedLeadS of the speed) brings it in that much earlier on purpose, so its
+        /// build is up before its houses reach the band: that share is anticipation, not a toggle (the anchor's dead zone
+        /// is the least it can move).</summary>
+        internal static double CellHysteresisM(BandConfig bands, double speed = 0)
         {
-            return B0CellSet.ExitPadM + bands.B0BuildPadM - bands.B0LeadM;
+            double lead = speed * bands.B0NeedLeadS;
+            if (lead < 0.5) lead = 0; // B0CellSet.Lead: no lead while standing or creeping
+            return Math.Max(BandAnchor.DeadzoneM, B0CellSet.ExitPadM + bands.B0BuildPadM - bands.B0LeadM - Math.Min(lead, B0CellSet.MaxLeadM));
         }
 
         /// <summary>A key for something numbered <paramref name="n"/> (below 2^20) on a level-10 tile.</summary>
@@ -391,13 +460,26 @@ namespace Ghumante.Core.Tests
             public double NowMs, Intra, Last;
             private readonly Dictionary<B0CellSet.Version, int> _charged = new Dictionary<B0CellSet.Version, int>();
 
-            public StableBench(int tier)
+            /// <summary>Main-thread milliseconds (Stopwatch) of the last <see cref="Frame"/>'s upload and update, the build
+            /// slice excluded when <see cref="Deferred"/> runs it after them (as the game's worker does).</summary>
+            public double MainMs;
+
+            private readonly DeferredRunner _deferred;
+
+            public StableBench(int tier, bool deferred = false)
             {
                 Tier = tier;
                 Bands = BandConfig.ForTier(tier);
                 Settings = MeshingSettings.ForTier(tier);
                 Ground = new MeshingBuildingB0CellTests.Ground(Settings.Roads);
-                Set = new B0CellSet(Bands, Settings.DetailBuildings, Sink, Ground, new InlineJobRunner(), Clock);
+                _deferred = deferred ? new DeferredRunner() : null;
+                Set = new B0CellSet(Bands, Settings.DetailBuildings, Sink, Ground, _deferred ?? (ITileJobRunner)new InlineJobRunner(), Clock);
+            }
+
+            /// <summary>True when the slices run after the frame's main-thread work instead of inside it.</summary>
+            public bool Deferred
+            {
+                get { return _deferred != null; }
             }
 
             /// <summary>Frame time plus the modelled cost of the houses the running slice has processed.</summary>
@@ -434,9 +516,32 @@ namespace Ghumante.Core.Tests
             public void Frame(double x, double z)
             {
                 Intra = 0;
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 Set.Upload(1L << 20, true);
                 Set.Update(x, z);
+                MainMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                _deferred?.Drain();
                 NowMs += FrameMs;
+            }
+        }
+
+        /// <summary>Runs the one job the cell set started in a frame after the frame's main-thread work (the game's
+        /// worker thread, without the thread).</summary>
+        internal sealed class DeferredRunner : ITileJobRunner
+        {
+            private Action _work;
+
+            public void Run(Action work)
+            {
+                Assert.IsNull(_work, "one B0 job at a time");
+                _work = work;
+            }
+
+            public void Drain()
+            {
+                Action w = _work;
+                _work = null;
+                w?.Invoke();
             }
         }
 
@@ -483,9 +588,10 @@ namespace Ghumante.Core.Tests
 
         /// <summary>Rides the cell set along the frames on a tier, the band centred where <paramref name="centre"/> says
         /// (the streamer's choice), and counts what the bands draw.</summary>
-        internal static Tally RideCells(int tier, List<RideFrame> frames, Func<RideFrame, double[]> centre, Action<int, StableBench, double[]> onFrame = null)
+        internal static Tally RideCells(int tier, List<RideFrame> frames, Func<RideFrame, double[]> centre, Action<int, StableBench, double[]> onFrame = null,
+                                        bool deferred = false)
         {
-            var b = new StableBench(tier);
+            var b = new StableBench(tier, deferred);
             var tally = new Tally();
             var drawable = new Drawable(b.Bands, b.Settings.DetailBuildings);
             double[] c0 = centre(frames[0]);
@@ -561,8 +667,9 @@ namespace Ghumante.Core.Tests
                         {
                             // A cell shown again before the centre moved the cell hysteresis since it hid (out past the exit
                             // pad, back within the lead): a toggle. Riding away and turning back is not.
+                            double speed = Math.Sqrt(b.Set.VelocityX * b.Set.VelocityX + b.Set.VelocityZ * b.Set.VelocityZ);
                             if (cell.Shown && hiddenAt.ContainsKey(ck) &&
-                                Math.Sqrt(Math.Pow(c[0] - hiddenWhere[ck].x, 2) + Math.Pow(c[1] - hiddenWhere[ck].z, 2)) < CellHysteresisM(b.Bands))
+                                Math.Sqrt(Math.Pow(c[0] - hiddenWhere[ck].x, 2) + Math.Pow(c[1] - hiddenWhere[ck].z, 2)) < CellHysteresisM(b.Bands, speed))
                             {
                                 tally.Reshows++;
                                 if (b.NowMs - hiddenAt[ck] < 2000) tally.QuickReshows++;
@@ -643,7 +750,8 @@ namespace Ghumante.Core.Tests
                         if (blockMode.TryGetValue(bk, out before) && before != full && !first)
                         {
                             tally.BlockFlips++;
-                            if (tally.FirstFlip == null) tally.FirstFlip = "block " + k + " of " + t.Id + " at " + fr.T.ToString("0.0") + " s";
+                            if (tally.FirstFlip == null)
+                                tally.FirstFlip = "block " + k + " of " + t.Id + " at " + fr.T.ToString("0.0") + " s" + (full ? " standing in: " + WhyStandIn(b, t, k, c[0], c[1]) : " handed over");
                         }
                         blockMode[bk] = full;
                     }
@@ -688,6 +796,49 @@ namespace Ghumante.Core.Tests
                                        string.Join("/", b.Set.BuildsByReason), b.Set.HousesBuilt, b.Set.HousesReused, b.Set.Slices, b.Set.WorkMs);
             b.Set.Dispose();
             return tally;
+        }
+
+        /// <summary>Why block <paramref name="k"/> of a tile stands in: each house the band draws in it that its cell's shown
+        /// version lacks, with the state of that cell (diagnostics for a failing ride).</summary>
+        private static string WhyStandIn(StableBench b, B0Tile t, int k, double x, double z)
+        {
+            var sb = new System.Text.StringBuilder();
+            double cx = x - t.Id.X0, cz = z - t.Id.Z0;
+            int per = t.Index.PerSide(b.Bands.B0FineCells);
+            double v = Math.Sqrt(b.Set.VelocityX * b.Set.VelocityX + b.Set.VelocityZ * b.Set.VelocityZ);
+            sb.Append("v ").Append(v.ToString("0.0")).Append(" m/s, ready ").Append(b.Set.Busy ? "busy" : "idle").Append("; ");
+            int shown = 0;
+            for (int iz = 0; iz < per; iz++)
+                for (int ix = 0; ix < per; ix++)
+                {
+                    int[] houses = t.Index.Houses(b.Bands.B0FineCells, ix, iz);
+                    B0CellSet.Cell cell;
+                    t.Cells.TryGetValue(iz * 4096 + ix, out cell);
+                    for (int p = 0; p < houses.Length; p++)
+                    {
+                        int i = houses[p];
+                        if (!t.Index.Meets(i, b.Bands.B0OuterM, cx, cz, 0)) continue;
+                        int kx0, kz0, kx1, kz1;
+                        t.Index.HouseBlocks(i, t.BlocksPerSide, out kx0, out kz0, out kx1, out kz1);
+                        if (k % t.BlocksPerSide < kx0 || k % t.BlocksPerSide > kx1 || k / t.BlocksPerSide < kz0 || k / t.BlocksPerSide > kz1) continue;
+                        bool has = cell != null && cell.Live != null && cell.Live.Has(p);
+                        if (has || shown >= 3) continue;
+                        shown++;
+                        sb.Append("house ").Append(i).Append(" at ").Append(t.Index.Distance(i, cx, cz).ToString("0.0")).Append(" m in cell ").Append(ix).Append(',').Append(iz);
+                        if (cell == null) sb.Append(" (no cell)");
+                        else
+                        {
+                            sb.Append(cell.WantedFrame == b.Set.Frame ? " wanted" : " unwanted").Append(cell.Failed ? " failed" : "");
+                            sb.Append(cell.Live == null ? ", no live" : ", live of " + cell.Live.Positions.Length + " built " +
+                                                                       BandConfig.NearestDistance(cx, cz, cx, cz, cell.Live.CamX, cell.Live.CamZ).ToString("0.0") + " m back");
+                            if (cell.Pending != null)
+                                sb.Append(", pending ").Append(cell.Pending.Built ? "built" : "building " + cell.Pending.Next + "/" + cell.Pending.Positions.Length)
+                                  .Append(" up ").Append(cell.Pending.Uploaded).Append('/').Append(cell.Pending.Chunks.Count).Append(cell.Pending.Has(p) ? " with it" : " without it");
+                        }
+                        sb.Append("; ");
+                    }
+                }
+            return sb.ToString();
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -1341,18 +1492,120 @@ namespace Ghumante.Core.Tests
                 TestContext.WriteLine("     peak: {0}; first reversal {1}; first re-show {2}", t.PeakNote, t.FirstReversal, t.FirstReshow);
                 TestContext.WriteLine("     worker: {0}", t.Work);
             }
+            for (int tier = 0; tier <= 2; tier++) AssertStable(tallies[tier], TierName[tier]);
+        }
+
+        /// <summary>
+        /// The same on the main roads by car at 50 km/h (Lainchaur, Kantipath, Durbar Marg, Maitighar), the old ring cells
+        /// first: the lead (BandConfig.B0NeedLeadS and B0BuildLeadS of the centre's velocity, capped at
+        /// B0CellSet.MaxLeadM) keeps the band built ahead at speed, so no B1 block stands in and no house is missing or
+        /// drawn twice.
+        /// </summary>
+        [Test]
+        public void B0CellsStayStableDrivingKantipathAt50()
+        {
+            Street st = LainchaurToMaitighar();
+            TestContext.WriteLine("Lainchaur to Maitighar: {0:0} m along {1}", st.Length, st.Names);
+            Assert.That(st.Length, Is.InRange(2000.0, 4000.0));
+            Assert.That(st.Names, Does.Contain("Durbar Marg"));
+            List<RideFrame> frames = Ride(st, 50.0 / 3.6);
+            var tallies = new Tally[3];
             for (int tier = 0; tier <= 2; tier++)
             {
+                Tally old = OldRings.Ride(tier, frames);
+                TestContext.WriteLine("{0,-4} old rings: {1}", TierName[tier], old);
+                var anchor = new BandAnchor();
+                tallies[tier] = RideCells(tier, frames, f =>
+                {
+                    anchor.Follow(f.CamX, f.CamZ, f.RiderX, f.RiderZ, true);
+                    return new[] { anchor.X, anchor.Z };
+                });
                 Tally t = tallies[tier];
-                Assert.AreEqual(0, t.GapFrames, TierName[tier] + ": no frame shows a hole in a house (" + t.FirstGap + ")");
-                Assert.AreEqual(0, t.DoubleFrames, TierName[tier] + ": no frame draws a house twice (" + t.FirstDouble + ")");
-                Assert.AreEqual(0, t.BlockFlips, TierName[tier] + ": no B1 block flips while riding (" + t.FirstFlip + ")");
-                Assert.AreEqual(0, t.Reshows, TierName[tier] + ": no cell shows again after it hid");
-                Assert.AreEqual(0, t.LevelReversals, TierName[tier] + ": no house switches level back and forth");
-                Assert.AreEqual(0, t.StopBuilds, TierName[tier] + ": nothing is rebuilt while the rider stands still");
-                Assert.AreEqual(0, t.ColliderMismatches, TierName[tier] + ": colliders match what is drawn");
-                Assert.LessOrEqual(t.PeakShownTris, BandConfig.B0ShownBudgetTris(tier), TierName[tier] + ": the ride stays within the B0 budget");
+                TestContext.WriteLine("{0,-4} cells:     {1}; first gap {2}; first double {3}; first flip {4}", TierName[tier], t, t.FirstGap, t.FirstDouble, t.FirstFlip);
+                TestContext.WriteLine("     peak: {0}; first re-show {1}; first reversal {2}", t.PeakNote, t.FirstReshow, t.FirstReversal);
+                TestContext.WriteLine("     worker: {0}", t.Work);
+                Assert.Greater(old.BlockFlips + old.DoubleFrames + old.GapFrames, 0, TierName[tier] + ": the old rings flicker on the main road too");
             }
+            for (int tier = 0; tier <= 2; tier++) AssertStable(tallies[tier], TierName[tier]);
+        }
+
+        /// <summary>
+        /// A rider rolling to and fro on Thahity Jyatha Marg (30 m each way at 5 m/s, six legs, the chase camera swinging
+        /// round at each turn): the cells' hysteresis (B0CellSet.ExitPadM beyond the build pad, BandConfig.B0LevelHysteresisM
+        /// on levels) keeps every cell shown and every level put, so nothing pops in or out as the rider dithers.
+        /// </summary>
+        [Test]
+        public void B0CellsStayStableRollingToAndFro()
+        {
+            Street st = ThamelToAsan();
+            List<RideFrame> frames = Shuttle(st, 0.75 * st.Length, 30.0, 5.0, 6);
+            var tallies = new Tally[3];
+            for (int tier = 0; tier <= 2; tier++)
+            {
+                Tally old = OldRings.Ride(tier, frames);
+                var anchor = new BandAnchor();
+                tallies[tier] = RideCells(tier, frames, f =>
+                {
+                    anchor.Follow(f.CamX, f.CamZ, f.RiderX, f.RiderZ, true);
+                    return new[] { anchor.X, anchor.Z };
+                });
+                TestContext.WriteLine("{0,-4} old rings: {1}", TierName[tier], old);
+                TestContext.WriteLine("{0,-4} cells:     {1}; first re-show {2}; first reversal {3}; peak {4}", TierName[tier], tallies[tier], tallies[tier].FirstReshow,
+                                      tallies[tier].FirstReversal, tallies[tier].PeakNote);
+            }
+            for (int tier = 0; tier <= 2; tier++) AssertStable(tallies[tier], TierName[tier]);
+        }
+
+        /// <summary>
+        /// The "stutters" half of owner playtest #4: the B0 cells' main-thread work per frame on the Thamel to Asan ride
+        /// (selection with its hysteresis, the stand-in fixed point, show and hide, collider registration, the upload
+        /// bookkeeping and eviction; the builds run on a worker, here after the frame) stays a small slice of a frame on
+        /// every tier, and the ride is as stable with the builds off the frame as with them inline.
+        /// </summary>
+        [Test]
+        public void B0MainThreadWorkPerFrameIsSmall()
+        {
+            List<RideFrame> frames = Ride(ThamelToAsan(), 10.0);
+            for (int tier = 0; tier <= 2; tier++)
+            {
+                var anchor = new BandAnchor();
+                var ms = new List<double>(frames.Count);
+                Tally t = RideCells(tier, frames, f =>
+                {
+                    anchor.Follow(f.CamX, f.CamZ, f.RiderX, f.RiderZ, true);
+                    return new[] { anchor.X, anchor.Z };
+                }, (f, b, c) => ms.Add(b.MainMs), true);
+                var slow = new List<string>();
+                for (int f = 0; f < ms.Count; f++)
+                    if (ms[f] > 2.0 && slow.Count < 6) slow.Add(f + ": " + ms[f].ToString("0.0"));
+                int over = 0;
+                foreach (double m in ms)
+                    if (m > 2.0) over++;
+                ms.Sort();
+                double sum = 0;
+                foreach (double m in ms) sum += m;
+                double p50 = ms[ms.Count / 2], p99 = ms[(int)(ms.Count * 0.99)], max = ms[ms.Count - 1];
+                TestContext.WriteLine("{0,-4} main thread per frame: mean {1:0.000} ms, median {2:0.000}, p99 {3:0.000}, max {4:0.000} ({5} frames, {6} over 2 ms: {7}); {8}",
+                                      TierName[tier], sum / ms.Count, p50, p99, max, ms.Count, over, string.Join(", ", slow), t);
+                AssertStable(t, TierName[tier]);
+                // Wall-clock times on a shared test machine: the median and the mean are asserted (preemption by other
+                // processes shows in the tail, which is reported).
+                Assert.Less(p50, 0.5, TierName[tier] + ": B0's main-thread work is a sliver of the frame");
+                Assert.Less(sum / ms.Count, 1.0, TierName[tier] + ": on average too");
+            }
+        }
+
+        private static void AssertStable(Tally t, string tier)
+        {
+            Assert.AreEqual(0, t.GapFrames, tier + ": no frame shows a hole in a house (" + t.FirstGap + ")");
+            Assert.AreEqual(0, t.DoubleFrames, tier + ": no frame draws a house twice (" + t.FirstDouble + ")");
+            Assert.AreEqual(0, t.BlockFlips, tier + ": no B1 block flips while riding (" + t.FirstFlip + ")");
+            Assert.AreEqual(0, t.Reshows, tier + ": no cell shows again after it hid (" + t.FirstReshow + ")");
+            Assert.AreEqual(0, t.LevelReversals, tier + ": no house switches level back and forth (" + t.FirstReversal + ")");
+            Assert.AreEqual(0, t.StopBuilds, tier + ": nothing is rebuilt while the rider stands still");
+            Assert.AreEqual(0, t.ColliderMismatches, tier + ": colliders match what is drawn");
+            int k = Array.IndexOf(TierName, tier);
+            Assert.LessOrEqual(t.PeakShownTris, BandConfig.B0ShownBudgetTris(k), tier + ": the ride stays within the B0 budget (" + t.PeakNote + ")");
         }
     }
 }
