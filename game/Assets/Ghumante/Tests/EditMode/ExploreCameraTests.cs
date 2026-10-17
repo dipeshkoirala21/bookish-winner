@@ -192,6 +192,57 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void AnUnevenFrameClockNeverShakesTheChaseCamera()
+        {
+            // Owner playtest #5 ("it constantly keeps moving"): a car at 9 m/s on a straight road, frames of 29-37 ms with a
+            // 16.7 ms frame and a 50 ms hitch now and then. Once settled, the camera's offset from the car is the same every
+            // frame (exact springs: the frame clock does not show), the view never turns and the lens holds.
+            _rig.Snap();
+            float z = 0f;
+            Vector3 settled = Vector3.zero;
+            Quaternion rotation = Quaternion.identity;
+            float fov = 0f;
+            for (int i = 0; i < 320; i++)
+            {
+                float dt = i % 97 == 96 ? 0.05f : i % 13 == 12 ? 1f / 60f : 1f / 30f + ((i * 7919) % 9 - 4) * 0.001f;
+                z += 9f * dt;
+                var ground = new Vector3(0f, 0f, z);
+                Tick(dt, ground, 0f, 9f, RigClass.Car);
+                Vector3 offset = _camera.transform.position - ground;
+                if (i == 220)
+                {
+                    settled = offset;
+                    rotation = _camera.transform.rotation;
+                    fov = _camera.fieldOfView;
+                }
+                else if (i > 220)
+                {
+                    Assert.Less(Vector3.Distance(offset, settled), 0.005f, "frame " + i + ": the camera moved against the car");
+                    Assert.Less(Quaternion.Angle(rotation, _camera.transform.rotation), 0.05f, "frame " + i + ": the view turned");
+                    Assert.AreEqual(fov, _camera.fieldOfView, 0.01f, "frame " + i + ": the lens breathed");
+                }
+            }
+            Assert.Less(settled.z, -6f, "behind the car");
+            Assert.That(settled.y, Is.InRange(1.8f, 3.2f), "low over the roof (ref_camera.md §5)");
+        }
+
+        [Test]
+        public void TheChaseViewIsTheEngineFreeCamera()
+        {
+            // The Unity rig is a driver: what it shows is ChaseCamera's pose (which the core tests drive over real streets).
+            var core = new ChaseCamera();
+            _rig.Snap();
+            for (int i = 0; i < 90; i++)
+            {
+                var ground = new Vector3(0f, 0f, i * 0.25f);
+                Tick(1f / 30f, ground, 0.1f * i * Mathf.Deg2Rad, 7.5f, RigClass.TwoWheeler);
+                var t = new ChaseTarget { Ground = new V3(0f, 0f, i * 0.25f), HeadingRad = 0.1f * i * Mathf.Deg2Rad, SpeedMps = 7.5f, Rig = RigClass.TwoWheeler, PassengerOf = RigClass.Car };
+                ChasePose p = core.Tick(1f / 30f, t, CameraView.Near, new ChaseControls(), _camera.aspect, _ground, 0, 0, 0);
+                Assert.Less(Vector3.Distance(_camera.transform.position, new Vector3(p.Position.X, p.Position.Y, p.Position.Z)), 1e-3f, "frame " + i);
+            }
+        }
+
+        [Test]
         public void RidingAlongTheCameraLeansOutOfTheWindow()
         {
             var memory = new CameraViewMemory();

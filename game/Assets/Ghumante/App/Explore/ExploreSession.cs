@@ -60,7 +60,7 @@ namespace Ghumante.App.Explore
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("")]
-    public sealed class ExploreSession : MonoBehaviour
+    public sealed partial class ExploreSession : MonoBehaviour
     {
         /// <summary>Morning light for the first ride (local solar hours).</summary>
         public const float StartHours = 8.5f;
@@ -159,6 +159,11 @@ namespace Ghumante.App.Explore
         private WorldRoot _world;
         private ExplorerController _explorer;
         private readonly ChaseCameraRig _rig = new ChaseCameraRig();
+
+        // One even frame time for the explorer and its camera (playtest #5: the camera must move by exactly what the
+        // explorer moved by, and an uneven measured frame time must not judder the world). It smooths the unscaled frame
+        // time; Time.timeScale still applies on top (nothing sets it today; a pause would).
+        private readonly CameraClock _clock = new CameraClock();
         private GameObject _ownCamera;
         private ExplorerInput _input;
         private TouchControlsVisibility _touchVisibility;
@@ -247,6 +252,7 @@ namespace Ghumante.App.Explore
             if (_phase == Phase.Closed) return;
             _phase = Phase.Closed;
             _routeToken++;
+            CloseFlight();
             if (_cts != null)
             {
                 // Cancelled, not disposed: the open in flight may still pass its token around while it unwinds.
@@ -508,7 +514,7 @@ namespace Ghumante.App.Explore
         private void Update()
         {
             if (_screen == null) return;
-            float dt = Time.deltaTime;
+            float dt = _clock.Tick(Time.unscaledDeltaTime) * Time.timeScale;
             switch (_phase)
             {
                 case Phase.Spawning:
@@ -554,7 +560,7 @@ namespace Ghumante.App.Explore
             {
                 if (frame.Search) _screen.OpenSearch(frame.Device == ControlDevice.Gamepad);
                 if (frame.Map) _screen.ShowToast(_localizer.Get("menu.map_soon"), "gh-toast__icon--map");
-                if (frame.CameraCycle) CycleCamera();
+                if (frame.CameraCycle && !Flying) CycleCamera();
             }
             blocked = _screen.BlocksGameplay;
             _blockedLastFrame = blocked;
@@ -569,16 +575,17 @@ namespace Ghumante.App.Explore
             _explorer.ReducedMotion = _motion.ReduceMotion;
             _rig.ReducedMotion = _motion.ReduceMotion;
             ExplorerContext context = BuildContext(dt);
-            _explorer.Tick(dt, frame, _rig.YawRad, blocked, context);
-            WorldPos position = _explorer.Position;
+            bool flying = FlightFrame(dt, ref frame, blocked); // ExploreSession.Flight.cs: boarding and flying from TIA
+            if (!flying) _explorer.Tick(dt, frame, _rig.YawRad, blocked, context);
+            WorldPos position = flying ? _aircraft.Position : _explorer.Position;
             PostToLife();
-            UpdateHud();
+            if (!flying) UpdateHud();
             UpdateListener(dt, position);
             _world.Focus = position;
             _screen.Search.SetPlayerPosition(position.X, position.Z);
 
             HapticKind kind;
-            if (!blocked && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode != ExplorerMode.Walk,
+            if (!blocked && !flying && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode != ExplorerMode.Walk,
                                                       _explorer.Active.Vehicle.LastLandingSpeedMps, out kind))
             {
                 _haptics.Play(kind);
@@ -604,6 +611,7 @@ namespace Ghumante.App.Explore
         private void LateUpdate()
         {
             if (_phase != Phase.Playing || _explorer == null) return;
+            if (FlightLateUpdate()) return;
             Vector3 ground;
             float heading, speed, lean;
             _explorer.GetCameraTarget(out ground, out heading, out speed, out lean);
@@ -612,8 +620,14 @@ namespace Ghumante.App.Explore
                 Ground = ground, HeadingRad = heading, SpeedMps = speed, LeanRad = lean, Rig = _explorer.Rig, PassengerOf = _explorer.PassengerRig,
             };
             target.HasMount = _explorer.TryGetCameraMount(out target.Mount);
+            // The chase camera orbits the middle of the body (a bus's, not its rear axle's).
+            Characters.Rides.PlayerVehicle ridden = _explorer.CurrentVehicle;
+            int alongVariant = _explorer.Mode == ExplorerMode.Passenger ? _explorer.Ride.Variant : -1;
+            if (ridden != null) target.BodyAheadM = ChaseCamera.BodyAheadOf(ridden.Entry);
+            else if (alongVariant >= 0 && alongVariant < VehicleCatalog.Count) target.BodyAheadM = ChaseCamera.BodyAheadOf(VehicleCatalog.At(alongVariant));
+            target.HasBody = ridden != null || alongVariant >= 0 && alongVariant < VehicleCatalog.Count;
             _rig.Obstacles = ViewObstacles();
-            _rig.Tick(Time.deltaTime, target, _frame, _world.Ground, _world.Origin);
+            _rig.Tick(_clock.Dt * Time.timeScale, target, _frame, _world.Ground, _world.Origin);
             // The driver's eye inside a closed body: the vehicle shows its stand-in cockpit (no outline hull around us).
             bool eyeView = _rig.Mounted && CameraViews.Spec(_rig.View).Kind == CameraViewKind.Eye;
             _explorer.UpdateCockpit(eyeView, _rig.Camera.transform.position);
@@ -693,7 +707,7 @@ namespace Ghumante.App.Explore
 
         private void ToggleMode()
         {
-            if (_explorer == null || _phase != Phase.Playing) return;
+            if (_explorer == null || _phase != Phase.Playing || Flying) return;
             _explorer.ToggleMode();
         }
 
@@ -1007,6 +1021,7 @@ namespace Ghumante.App.Explore
             ControlLayout layout = _explorer.Layout;
             if (layout != _screen.Layout) _screen.SetLayout(layout);
             PlayerVehicleHorn();
+            if (ShowBoardPrompt()) return;
             switch (_explorer.Prompt)
             {
                 case ExplorerPrompt.HopOn:
@@ -1262,7 +1277,7 @@ namespace Ghumante.App.Explore
         /// <summary>Development builds and the editor: jump to a search hit (snapped onto the nearest road).</summary>
         private void TeleportTo(SearchEntry entry)
         {
-            if (entry == null || _phase != Phase.Playing) return;
+            if (entry == null || _phase != Phase.Playing || Flying) return;
             if (!Application.isEditor && !Debug.isDebugBuild) return;
             SpawnPoint spawn;
             if (!ExploreSpawn.TryRoadSpawn(_world.Routes, _planner != null ? _planner.Starts : null, entry.X, entry.Z, out spawn))
