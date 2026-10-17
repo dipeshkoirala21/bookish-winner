@@ -27,6 +27,8 @@ namespace Ghumante.Core.Generators.Sacred
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (anchorTile == null) throw new ArgumentNullException(nameof(anchorTile));
             if (m == null) throw new ArgumentNullException(nameof(m));
+            // Bespoke heritage sites (Heroes/<Site>/): structure-by-structure models instead of the parametric forms.
+            if (Heroes.KdsTemples.KdsTemplesSite.Handles(r.Id)) return Heroes.KdsTemples.KdsTemplesSite.Build(r, anchorTile, lod, m, c, stats);
             HeroRecipe recipe = Merge(r);
             double x, z;
             int building;
@@ -228,6 +230,14 @@ namespace Ghumante.Core.Generators.Sacred
                 case HeritageFinish.GiltAll: x.Finish = RoofFinish.GiltAll; break;
                 case HeritageFinish.GiltTop: x.Finish = RoofFinish.GiltTop; break;
                 case HeritageFinish.Tile: x.Finish = RoofFinish.Tile; break;
+            }
+            // A bespoke site's measured geometry (HeroRecipe.Measured) wins over the curated DB's estimates.
+            if (baseRecipe != null && baseRecipe.Measured)
+            {
+                x.HeightM = baseRecipe.HeightM;
+                x.YawDeg = baseRecipe.YawDeg;
+                x.PlanW = baseRecipe.PlanW;
+                x.PlanD = baseRecipe.PlanD;
             }
             return x;
         }

@@ -26,6 +26,9 @@ namespace Ghumante.Core.Generators.Sacred
         KumariGhar = 16,
         GoldenTemple = 17,
         PeacockWindow = 18,
+
+        /// <summary>A structure group of a bespoke heritage site (Heroes/&lt;Site&gt;/), built by the site's own code.</summary>
+        Bespoke = 19,
     }
 
     /// <summary>
@@ -47,6 +50,11 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Centrepiece heroes use the class A budget (25,000 / 8,000 / 2,000 / 200), the others class B
         /// (12,000 / 3,000 / 800 / 200; W2_DESIGN 3.2).</summary>
         public bool Centrepiece;
+
+        /// <summary>A part of a bespoke heritage site built as its own hero (its own LODs in the hero allocator): the id of
+        /// the curated hero it belongs to. World/Sacred/HeroSet adds it, anchored in the same tile, whenever the region's
+        /// curated DB holds that hero (Pashupatinath: the gates, the Mukti Mandap and the courtyard groups).</summary>
+        public string SiteOf;
 
         public float CoreFrac, TierShrink, VahanaDistM;
         public bool VahanaGaruda, Pataka, NoStair, GiltBalcony, Figures;
@@ -97,6 +105,17 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Upper storey width as a fraction of its eave (0 = derived; Kasthamandap's wide hall 0.86).</summary>
         public float UpperWallFrac;
 
+        /// <summary>A bespoke heritage site (Heroes/&lt;Site&gt;/): its measured height, yaw and plan win over the curated DB
+        /// (<see cref="HeroBuilder.Merge"/>).</summary>
+        public bool Measured;
+
+        /// <summary>Per-LOD triangle ceilings of a bespoke site (LOD0..3; null = class A or B).</summary>
+        public int[] BudgetTris;
+
+        /// <summary>Extra OSM refs ("w123") of the buildings a bespoke site rebuilds: hidden from the house bands with the
+        /// curated DB's hide zones (World/Sacred/HeroSet).</summary>
+        public string[] Hide;
+
         public HeroRecipe Clone()
         {
             return (HeroRecipe)MemberwiseClone();
@@ -106,6 +125,7 @@ namespace Ghumante.Core.Generators.Sacred
         public int Budget(int lod)
         {
             lod = lod < 0 ? 0 : lod > 3 ? 3 : lod;
+            if (BudgetTris != null && BudgetTris.Length == 4) return BudgetTris[lod];
             return Centrepiece ? BudgetA[lod] : BudgetB[lod];
         }
 
@@ -301,6 +321,10 @@ namespace Ghumante.Core.Generators.Sacred
                 Id = "her.ktm.gaddi_baithak", Name = "Gaddi Baithak", Osm = "w247501389", Form = HeroForm.PalaceRana, Kind = HeritageKind.Palace,
                 PlanW = 46.4f, PlanD = 36.3f, Storeys = 3, HeightM = 14f, YawDeg = float.NaN, Lat = 27.70420, Lon = 85.30745,
             });
+            // The bespoke Kathmandu Durbar Square temples and square (Heroes/KdsTemples, docs/research/heritage/kds-temples.md):
+            // its six curated heroes are measured now (Kal Bhairav on its true footprint, facing north) and its other
+            // structures are parts of Kasthamandap's site.
+            Heroes.KdsTemples.KdsTemplesSite.Apply(l);
 
             // --- Asan and Thamel ------------------------------------------------------------------------------------
             HeroRecipe annapurna = Pagoda("her.ktm.annapurna_asan", "Annapurna (Asan Ajima)", "n3569849497", 7f, 7f, 3, 1, 0.45f, 12f, 180f);
