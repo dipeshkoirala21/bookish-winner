@@ -103,7 +103,8 @@ namespace Ghumante.Core.Meshing
                 float t0 = (float)i / n, t1 = (float)(i + 1) / n, tm = 0.5f * (t0 + t1);
                 float w = Math.Abs(wa + (wb - wa) * tm);
                 if (w < 0.5f) continue;
-                float e0 = Ext(e, side, t0), e1 = Ext(e, side, t1);
+                // A breast wall stands where the cut slope starts (beyond the verge), a fill wall at the drawn edge.
+                float e0 = Ext(e, side, t0) + (cutSideOf(wa, wb) ? _verge[e] : 0f), e1 = Ext(e, side, t1) + (cutSideOf(wa, wb) ? _verge[e] : 0f);
                 float b0 = EdgeBench(e, side, t0), b1 = EdgeBench(e, side, t1);
                 double fx0, fz0, fx1, fz1;
                 At(e, t0, side, e0, out fx0, out fz0);
@@ -126,6 +127,11 @@ namespace Ghumante.Core.Meshing
                              jitter);
                 }
             }
+        }
+
+        private static bool cutSideOf(float wa, float wb)
+        {
+            return wa + wb > 0f;
         }
 
         private static uint WallHash(int e, int side, int i)
@@ -212,7 +218,7 @@ namespace Ghumante.Core.Meshing
             {
                 if (k == 0 && (_flags[e] & ClipStart) == 0 && e > 0) { } // posts at segment starts are shared with the previous end
                 float t = (float)k / n;
-                float ext = Ext(e, side, t) - VergeM + 0.45f;
+                float ext = Ext(e, side, t) - 0.2f;
                 float bench = EdgeBench(e, side, t);
                 double px, pz;
                 At(e, t, side, ext, out px, out pz);

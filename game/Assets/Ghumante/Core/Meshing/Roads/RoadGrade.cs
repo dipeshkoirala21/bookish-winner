@@ -168,6 +168,8 @@ namespace Ghumante.Core.Meshing
 
         private readonly IHeightSampler _h;
         private readonly TileHeightSampler _ths;
+        private readonly bool _sourceHeights;
+        private int _carveState; // 0 unknown, 1 carved, -1 not
         private readonly double _x0, _z0, _size;
         private readonly Piece[] _pieces;
         private readonly RoadOptions _o;
@@ -232,6 +234,7 @@ namespace Ghumante.Core.Meshing
             Layout = RoadLayout.For(t);
             _h = h;
             _ths = h as TileHeightSampler;
+            _sourceHeights = TerrainGrid.HasHeights(t) && _ths != null && _ths.HasHeights;
             _o = new RoadOptions
             {
                 LiftM = o.LiftM, ClassLiftStepM = o.ClassLiftStepM, PieceLiftStepM = o.PieceLiftStepM, PieceLiftLevels = o.PieceLiftLevels,
@@ -287,13 +290,29 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>The natural (uncarved) terrain at tile-local metres, clamped onto the tile: what the profile, the
-        /// junction platforms and the cut and fill are measured from. Samplers other than <see cref="TileHeightSampler"/>
-        /// carry no carve, so it is <see cref="Terrain"/> for them.</summary>
+        /// junction platforms and the cut and fill are measured from. It is the tile's full-resolution (8 m) surface whatever
+        /// the sampler's step, so every tier draws, carves and stands on the same road surface (and the lane graph, built on
+        /// the full-resolution sampler, agrees with it). Samplers other than <see cref="TileHeightSampler"/> carry no carve,
+        /// so it is <see cref="Terrain"/> for them.</summary>
         public float NaturalTerrain(double lx, double lz)
         {
-            if (_ths == null) return Terrain(lx, lz);
-            float v;
-            return _ths.TryNaturalHeightClamped(_x0 + lx, _z0 + lz, out v) ? v : 0f;
+            if (_ths == null || !_sourceHeights) return Terrain(lx, lz);
+            return TerrainGrid.SourceSurface(Tile, _x0 + lx, _z0 + lz);
+        }
+
+        /// <summary>True when the sampler draws the road cut and fill (<see cref="TileHeightSampler.Carve"/>): the terrain
+        /// then meets the level carriageway, so the profile is never lifted off it (no clamp to the terrain).</summary>
+        public bool Carved
+        {
+            get
+            {
+                if (_carveState != 0) return _carveState > 0;
+                if (_ths == null) return false;
+                if (TerrainCarve.Building) return false; // the carve being built reads the bench, not the clamp
+                bool c = _ths.Carve != null;
+                _carveState = c ? 1 : -1;
+                return c;
+            }
         }
 
         /// <summary>Terrain shading normal at tile-local metres (the terrain mesh's own smooth normal when the sampler is a
@@ -469,7 +488,7 @@ namespace Ghumante.Core.Meshing
         {
             if (!r.Valid) return Terrain(x, z) + _o.LiftM;
             float y = r.P + (float)off * r.B;
-            bool needTer = r.Clamp || r.PinW > 0f && !r.PinAbs;
+            bool needTer = r.Clamp && !Carved || r.PinW > 0f && !r.PinAbs;
             float ter = needTer ? Terrain(x, z) : 0f;
             if (r.PinW > 0f)
             {
@@ -477,7 +496,7 @@ namespace Ghumante.Core.Meshing
                 y += (target - y) * r.PinW;
             }
             if (r.DeckW > 0f) y += (r.DeckY - y) * r.DeckW;
-            if (r.Clamp)
+            if (r.Clamp && !Carved)
             {
                 float floor = ter + r.Lift - MaxBuryM;
                 if (y < floor) y = floor;
@@ -777,6 +796,13 @@ namespace Ghumante.Core.Meshing
                         RoadPad pd = Pads.Pads[pad];
                         benchY = pd.Height(cut.CX, cut.CZ) + pinLift;
                         benchBank = (float)(pd.Gx * cut.UX + pd.Gz * cut.UZ);
+                        if (pd.Hill)
+                        {
+                            // A junction on a hillside: the terrain is carved to its levelled plane, the cap lies in it,
+                            // and so does the end row (level across within the plane's 6 %).
+                            p.AddPin(new Pin { L = c.ArcAt(cut.S), Fade = PinFadeM, Abs = true, AbsY = benchY, Bank = benchBank });
+                            continue;
+                        }
                     }
                     else benchY = NaturalTerrain(cut.CX, cut.CZ) + pinLift;
                     p.AddPin(new Pin { L = c.ArcAt(cut.S), Fade = PinFadeM, Rel = pinLift, BenchY = benchY, BenchBank = benchBank });

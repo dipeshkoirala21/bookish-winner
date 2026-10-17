@@ -68,6 +68,15 @@ namespace Ghumante.Core.Meshing
             return new TileHeightSampler(source, area, step, neighbours, true);
         }
 
+        /// <summary>As <see cref="ForArea(TileData, TileId, int)"/>, carving the road cut and fill only when
+        /// <paramref name="carve"/> (the streamer carves the tiles it draws roads on; a terrain-only tile keeps the natural
+        /// ground, as its terrain mesh with <see cref="TerrainOptions.Carve"/> off does).</summary>
+        public static TileHeightSampler ForArea(TileData source, TileId area, int step, bool carve)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            return new TileHeightSampler(source, area, step, TileNeighbours.None, carve);
+        }
+
         /// <summary>A sampler of the natural (uncarved) terrain of an area: what the terrain was before any road was cut
         /// into it (diagnostics, the carve's own tests). Everything the game draws and stands on uses the carved
         /// samplers.</summary>

@@ -104,15 +104,17 @@ namespace Ghumante.Core.Meshing
             CropLand crop = o.Detail && bn > 0 && source.Areas.Count > 0 ? CropLand.For(source) : null;
             // Micro-relief: hummocks of about 30 m, full strength on 8-16 m grids, gone by 48 m (it would alias there).
             float relief = o.MicroRelief * 0.9f * (float)Math.Max(0.0, Math.Min(1.0, (48.0 - g.CellM) / 32.0));
+            TerrainCarve carve = o.Carve && !g.SubSample ? TileHeightSampler.ForArea(source, area, o.Step, o.Neighbours).Carve : null;
             for (int k = 0; k <= q; k++)
             {
                 float pz = (float)(k * g.CellM);
                 for (int l = 0; l <= q; l++)
                 {
                     float px = (float)(l * g.CellM);
-                    float h = g.VertexHeight(source, k, l);
+                    float h = carve != null ? carve.CoarseVertex(k, l) : g.VertexHeight(source, k, l);
                     double gx, gz;
-                    g.VertexGradient(source, k, l, out gx, out gz);
+                    if (carve != null && LoweredNear(carve, k, l, q)) CoarseGradient(carve, k, l, q, g.CellM, out gx, out gz);
+                    else g.VertexGradient(source, k, l, out gx, out gz);
                     Biome biome;
                     if (bn == 0) biome = Biome.None;
                     else if (!g.SubSample)
@@ -142,7 +144,6 @@ namespace Ghumante.Core.Meshing
                 }
             }
 
-            TerrainCarve carve = o.Carve && !g.SubSample ? TileHeightSampler.ForArea(source, area, o.Step, o.Neighbours).Carve : null;
             if (carve == null)
             {
                 for (int k = 0; k < q; k++)
@@ -166,6 +167,22 @@ namespace Ghumante.Core.Meshing
                 return;
             }
             CarvedCells(source, area, g, carve, o, crop, bn, n, relief, baseV, skirt, m);
+        }
+
+        /// <summary>True when coarse vertex (k, l) or one of its four neighbours was lowered under a gentle street.</summary>
+        private static bool LoweredNear(TerrainCarve carve, int k, int l, int q)
+        {
+            if (carve.IsLowered(k, l)) return true;
+            if (k > 0 && carve.IsLowered(k - 1, l) || k < q && carve.IsLowered(k + 1, l)) return true;
+            return l > 0 && carve.IsLowered(k, l - 1) || l < q && carve.IsLowered(k, l + 1);
+        }
+
+        /// <summary>Central differences of the lowered coarse heights (one-sided on the border).</summary>
+        private static void CoarseGradient(TerrainCarve carve, int k, int l, int q, double cell, out double gx, out double gz)
+        {
+            int l0 = Math.Max(0, l - 1), l1 = Math.Min(q, l + 1), k0 = Math.Max(0, k - 1), k1 = Math.Min(q, k + 1);
+            gx = (carve.CoarseVertex(k, l1) - carve.CoarseVertex(k, l0)) / ((l1 - l0) * cell);
+            gz = (carve.CoarseVertex(k1, l) - carve.CoarseVertex(k0, l)) / ((k1 - k0) * cell);
         }
 
         private sealed class CarveScratch
@@ -336,7 +353,7 @@ namespace Ghumante.Core.Meshing
                 }
                 carved = false;
                 double du, dv;
-                return (float)G.Surface(Source, gi / (double)r, gj / (double)r, out du, out dv);
+                return (float)Carve.CoarseSurface(gi / (double)r, gj / (double)r, out du, out dv);
             }
 
             public int V(int gi, int gj)
@@ -347,7 +364,7 @@ namespace Ghumante.Core.Meshing
                 bool carved;
                 float h = Height(gi, gj, out carved);
                 double du, dv;
-                float nat = (float)G.Surface(Source, gi / (double)r, gj / (double)r, out du, out dv);
+                float nat = (float)Carve.CoarseSurface(gi / (double)r, gj / (double)r, out du, out dv);
                 int v;
                 if (gi % r == 0 && gj % r == 0 && Math.Abs(h - nat) < 1e-4f) v = BaseV + gj / r * Side + gi / r;
                 else v = Emit(gi, gj, h, nat);

@@ -31,8 +31,14 @@ namespace Ghumante.Core.Meshing
         /// <summary>A roundabout (else a junction cap).</summary>
         public readonly bool Ring;
 
-        internal RoadPad(double cx, double cz, float h0, float gx, float gz, double[][] px, double[][] pz, int top, bool ring)
+        /// <summary>The junction sits on a hillside (<see cref="RoadPads.IsHillside"/>): the terrain is carved to its plane
+        /// exactly and the arms' end rows lie in that plane; else it lies on the natural ground of a gentle street corner and
+        /// the arms meet the ground under them.</summary>
+        public readonly bool Hill;
+
+        internal RoadPad(double cx, double cz, float h0, float gx, float gz, double[][] px, double[][] pz, int top, bool ring, bool hill)
         {
+            Hill = hill;
             CX = cx;
             CZ = cz;
             H0 = h0;
@@ -116,6 +122,16 @@ namespace Ghumante.Core.Meshing
         {
             int p;
             return _cutPad.TryGetValue(CutKey(road, s), out p) ? p : -1;
+        }
+
+        /// <summary>
+        /// A junction sits on a hillside (rather than a gentle street corner, or the bumps of the city's surface model) when
+        /// the natural ground departs from its levelled plane by at least <see cref="TerrainCarve.CarveStartM"/> and the
+        /// ground itself falls at least 8 % across it.
+        /// </summary>
+        public static bool IsHillside(double deviationM, double naturalGrade)
+        {
+            return deviationM >= TerrainCarve.CarveStartM && naturalGrade >= 0.08;
         }
 
         /// <summary>The pads of a layout over the natural terrain <paramref name="natural"/> (tile-local metres in, height
@@ -209,13 +225,36 @@ namespace Ghumante.Core.Meshing
                 gz = 0;
             }
             double g = Math.Sqrt(gx * gx + gz * gz);
+            double g0x = gx, g0z = gz; // before the clamp: the hillside's own gradient
             if (g > MaxGrade)
             {
                 gx *= MaxGrade / g;
                 gz *= MaxGrade / g;
             }
             double h0 = n > 0 ? (sh - gx * sx - gz * sz) / s1 : natural(cx, cz);
-            return new RoadPad(cx, cz, (float)h0, (float)gx, (float)gz, px, pz, top, ring);
+            // How far the natural ground departs from the levelled plane over the outline and the centre.
+            double dev = 0;
+            for (int p = -1; p < px.Length; p++)
+            {
+                int count = p < 0 ? 1 : px[p].Length;
+                for (int k = 0; k < count; k++)
+                {
+                    double x = p < 0 ? cx : px[p][k], z = p < 0 ? cz : pz[p][k];
+                    dev = Math.Max(dev, Math.Abs(natural(x, z) - (h0 + gx * (x - cx) + gz * (z - cz))));
+                    if (p < 0) continue;
+                    double mx = 0.5 * (x + cx), mz = 0.5 * (z + cz);
+                    dev = Math.Max(dev, Math.Abs(natural(mx, mz) - (h0 + gx * (mx - cx) + gz * (mz - cz))));
+                }
+            }
+            // The hillside's fall over the outline and HillSpanM beyond (the surface model's building bumps average out).
+            double reach = 0;
+            for (int p = 0; p < px.Length; p++)
+                for (int k = 0; k < px[p].Length; k++)
+                    reach = Math.Max(reach, Math.Sqrt((px[p][k] - cx) * (px[p][k] - cx) + (pz[p][k] - cz) * (pz[p][k] - cz)));
+            double span = reach + TerrainCarve.HillSpanM;
+            double fx = (natural(cx + span, cz) - natural(cx - span, cz)) / (2 * span), fz = (natural(cx, cz + span) - natural(cx, cz - span)) / (2 * span);
+            bool hill = IsHillside(dev, Math.Min(Math.Sqrt(g0x * g0x + g0z * g0z), Math.Sqrt(fx * fx + fz * fz)));
+            return new RoadPad(cx, cz, (float)h0, (float)gx, (float)gz, px, pz, top, ring, hill);
         }
     }
 }
