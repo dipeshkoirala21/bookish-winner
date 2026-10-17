@@ -41,13 +41,50 @@ namespace Ghumante.Core.Driving
             new Station(-7.0, 2.36, 0.24, 0.28, 2.4), new Station(-7.6, 2.46, 0.06, 0.08, 2.2),
         };
 
-        private static readonly Station[] HeliStations =
+        private static readonly Station[] HeliStations = HeliSections();
+
+        /// <summary>The far helicopter's sections: every other nose section (the bubble keeps its outline, LOD2 its budget).</summary>
+        private static readonly Station[] HeliStationsFar = EveryOtherNoseSection(HeliStations, 10);
+
+        /// <summary>
+        /// The H125-class pod and boom: a smooth bubble nose (ref_flight.md §4: the "Ecureuil" cabin is a rounded bubble,
+        /// the windscreen curving down to a full painted chin) sampled densely so the glazing grid follows it without
+        /// dipping under the skin, then the cabin, the rear fuselage rising under the engine and the thin tail boom.
+        /// Nose: 2.95 m ahead of the mast (the real three-view), the roof (2.32 m) rounds down along a quarter ellipse to
+        /// the tip at 1.2 m, the belly (0.58 m, over the skids' cross tubes) stays low and rounds up late (a superellipse,
+        /// exponent 3), the width tapers on an exponent-2.5 curve.
+        /// </summary>
+        private static Station[] HeliSections()
         {
-            new Station(2.42, 1.08, 0.05, 0.05), new Station(2.3, 1.12, 0.42, 0.42), new Station(2.0, 1.2, 0.72, 0.68),
-            new Station(1.45, 1.3, 0.9, 0.84), new Station(0.7, 1.34, 0.96, 0.9), new Station(-0.4, 1.36, 0.95, 0.92),
-            new Station(-1.3, 1.44, 0.82, 0.82), new Station(-1.95, 1.62, 0.5, 0.52), new Station(-2.4, 1.72, 0.32, 0.34),
-            new Station(-4.6, 1.86, 0.24, 0.24), new Station(-6.6, 1.98, 0.17, 0.17), new Station(-6.95, 2.0, 0.08, 0.08),
-        };
+            const int nose = 10;
+            const double zCabin = 0.75, length = 2.2, tipY = 1.2, roof = 2.32, belly = 0.58, half = 0.96;
+            var list = new Station[nose + 1 + 7];
+            for (int k = 0; k <= nose; k++)
+            {
+                double u = Math.Sin(0.5 * Pi * (nose - k) / nose); // tip first (u = 1), denser near the tip
+                double top = tipY + (roof - tipY) * Math.Sqrt(Math.Max(0.0, 1.0 - u * u));
+                double bottom = tipY - (tipY - belly) * Math.Pow(Math.Max(0.0, 1.0 - u * u * u), 1.0 / 3.0);
+                double a = half * Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(u, 2.5)), 1.0 / 2.5);
+                list[k] = new Station(zCabin + length * u, 0.5 * (top + bottom), Math.Max(0.04, a), Math.Max(0.04, 0.5 * (top - bottom)));
+            }
+            int i = nose + 1;
+            list[i++] = new Station(-0.4, 1.45, 0.95, 0.87);
+            list[i++] = new Station(-1.3, 1.52, 0.82, 0.78);
+            list[i++] = new Station(-1.95, 1.64, 0.5, 0.52);
+            list[i++] = new Station(-2.4, 1.74, 0.32, 0.34);
+            list[i++] = new Station(-4.6, 1.86, 0.24, 0.24);
+            list[i++] = new Station(-6.6, 1.98, 0.17, 0.17);
+            list[i] = new Station(-6.95, 2.0, 0.08, 0.08);
+            return list;
+        }
+
+        private static Station[] EveryOtherNoseSection(Station[] st, int nose)
+        {
+            var list = new System.Collections.Generic.List<Station>(st.Length);
+            for (int i = 0; i < st.Length; i++)
+                if (i > nose || i % 2 == 0) list.Add(st[i]);
+            return list.ToArray();
+        }
 
         private static Station[] StationsOf(FlightCraft c)
         {
@@ -66,7 +103,7 @@ namespace Ghumante.Core.Driving
         private static void BuildBody(FlightCraft c, Kit k)
         {
             FlightLiveries.Livery v = k.Liv;
-            Station[] st = StationsOf(c);
+            Station[] st = c == FlightCraft.Helicopter && k.Lod >= 2 ? HeliStationsFar : StationsOf(c);
             var paint = new FuselagePaint { Body = v.Body, Belly = v.Belly, Stripe = v.Stripe, Tail = v.Tail };
             ShapeBrush body = Kit.B(v.Body, MaterialChannel.Paint), belly = Kit.B(v.Belly, MaterialChannel.Paint);
             ShapeBrush dark = Kit.B(DarkMetal, MaterialChannel.Metal), door = Kit.B(Shade(v.Body, 0.9), MaterialChannel.Paint);
@@ -100,8 +137,8 @@ namespace Ghumante.Core.Driving
                     Fuselage(k, st, ring, paint);
                     Band(k, st, 8.75, -8.2, -0.36, -0.16, 0.3, stripe);
                     FlightDeck(k, st, 8.55, 0.35, 8.0, 0.6, 0.6, 1.12);
-                    // Big oval windows (the Jetstream's look).
-                    Windows(k, st, k.Lod == 0 ? 10 : 7, 5.2, -2.6, 0.22, 0.42, 0.56, 0.2);
+                    // Big round-cornered oval windows (the Jetstream's look in the photos).
+                    Windows(k, st, k.Lod == 0 ? 10 : 7, 5.2, -2.6, 0.22, 0.44, 0.52, 0.85);
                     // Ventral fairing over the wing box under the floor.
                     Shapes.Superellipsoid(k.M, Affine3.Translation(0, 0.98, 0.0), belly, 1.0, 0.36, 2.9, 0.5, 0.5, k.Lod == 0 ? 20 : 10, k.SL);
                     if (k.Lod == 0)
@@ -134,27 +171,38 @@ namespace Ghumante.Core.Driving
                 }
                 case FlightCraft.Helicopter:
                 {
-                    // Big bubble windscreen and door windows (glass), the body colour with a belly band.
+                    // The bubble: windscreen and the front doors' windows (glass) down to the full painted chin.
                     paint.StripeLow = paint.StripeHigh = 2.0;
                     paint.BellyBelow = -0.72;
+                    if (k.Lod >= 2)
+                    {
+                        // Far away the bubble is painted on the coarse skin (an overlay patch of one quad would sink into it).
+                        paint.ScreenZ0 = 1.25;
+                        paint.ScreenZ1 = 3.5;
+                        paint.ScreenAbove = -0.3;
+                    }
                     Fuselage(k, st, ring, paint);
-                    // The bubble canopy down to the chin, with the centre and door posts.
-                    FlightDeck(k, st, 2.37, 0.04, 0.95, 0.3, 0.95, 1.95);
-                    Band(k, st, 0.35, -2.2, -0.58, -0.4, 0.45, Kit.B(v.Stripe, MaterialChannel.Paint));
+                    if (k.Lod < 2) FlightDeck(k, st, 2.92, 0.22, 1.2, 0.3, 0.95, 1.92, true);
+                    Band(k, st, 0.6, -2.2, -0.6, -0.42, 0.45, Kit.B(v.Stripe, MaterialChannel.Paint));
                     if (k.Lod <= 1)
                     {
+                        ShapeBrush glass = Kit.B(Glass, MaterialChannel.Glass);
                         for (int s = -1; s <= 1; s += 2)
                         {
-                            Pane(k, st, -0.02, s * AngleAtHeight(0.3), 0.6, 0.75, 0.16, Kit.B(Glass, MaterialChannel.Glass));
-                            Pane(k, st, -0.82, s * AngleAtHeight(0.3), 0.62, 0.7, 0.14, Kit.B(Glass, MaterialChannel.Glass));
+                            // The rear (sliding) door's big rounded window, and the small window low in each front door.
+                            Pane(k, st, -0.25, s * AngleAtHeight(0.28), 1.05, 0.9, 0.3, glass);
+                            Pane(k, st, 1.75, s * AngleAtHeight(-0.5), 0.46, 0.34, 0.45, glass);
                         }
                     }
-                    // Engine and transmission cowling on the roof, the exhaust behind it.
-                    Shapes.Superellipsoid(k.M, Affine3.Translation(0, 2.32, -0.55), body, 0.62, 0.42, 1.55, 0.45, 0.45, k.Lod == 0 ? 20 : 10, k.SL);
+                    // Engine and transmission cowling on the roof, the exhaust behind it on the right.
+                    // Streamlined, narrower than the cabin, from the mast fairing back to the exhaust.
+                    Shapes.Superellipsoid(k.M, Affine3.Translation(0, 2.3, -0.6), body, 0.55, 0.36, 1.5, 0.6, 0.55, k.Lod == 0 ? 20 : 10, k.SL);
+                    Shapes.Superellipsoid(k.M, Affine3.Translation(0, 2.38, 0.35), body, 0.42, 0.3, 0.6, 0.8, 0.8, k.Lod == 0 ? 14 : 8, k.SL);
                     if (k.Lod <= 1)
                         Shapes.Cylinder(k.M, Affine3.Translation(0.42, 2.38, -1.75) * Affine3.RotationX(-Pi / 2 - 0.25), dark, 0.16, 0.5, k.Ring(10), 0.02, 1,
                                         true, true, k.SL);
                     Light(k, 0xFF3030, 0, 2.78, -1.2, 0.07);
+                    Light(k, 0xF4F1E6, 0, 0.64, 2.35, 0.07); // landing light under the chin
                     break;
                 }
                 default:
@@ -267,18 +315,27 @@ namespace Ghumante.Core.Driving
                         Surface(k, body, 0, 1.82, -5.0, 0.62, 0.14, s * 1.2, 1.84, -5.05, 0.5, 0.12, 0, 1);
                         Surface(k, Kit.B(v.Stripe, MaterialChannel.Paint), s * 1.2, 1.62, -4.95, 0.62, 0.1, s * 1.2, 2.14, -5.0, 0.55, 0.1, 1, 0);
                     }
-                    // Skids: two tubes turned up at the front, on cross tubes.
+                    // Skids: two tubes turned up at the front, on two arched cross tubes (the H125's look).
                     ShapeBrush skid = Kit.B(0x3B4046, MaterialChannel.Metal);
                     for (int s = -1; s <= 1; s += 2)
                     {
                         k.Path.Clear();
                         k.Path.Add(s * 1.1, 0.07, -1.85).Add(s * 1.1, 0.07, 1.25).Add(s * 1.1, 0.12, 1.65).Add(s * 1.08, 0.3, 1.9);
                         Shapes.Tube(k.M, Affine3.Identity, skid, k.Path, 0.055, k.Ring(10), true, false, k.SL);
-                        Strut(k, skid, s * 1.1, 0.07, 0.95, s * 0.55, 0.62, 0.95, 0.05);
-                        Strut(k, skid, s * 1.1, 0.07, -1.05, s * 0.55, 0.65, -1.05, 0.05);
                     }
-                    Strut(k, skid, -0.55, 0.62, 0.95, 0.55, 0.62, 0.95, 0.05);
-                    Strut(k, skid, -0.55, 0.65, -1.05, 0.55, 0.65, -1.05, 0.05);
+                    int arch = k.Lod == 0 ? 10 : k.Lod == 1 ? 6 : 4;
+                    for (int c2 = 0; c2 < 2; c2++)
+                    {
+                        double z = c2 == 0 ? 0.95 : -1.05, top = c2 == 0 ? 0.6 : 0.72;
+                        k.Path.Clear();
+                        for (int i = 0; i <= arch; i++)
+                        {
+                            // A boxy arch from one skid over to the other, under the belly.
+                            double a3 = -0.5 * Pi + Pi * i / arch, sx = Math.Sin(a3), cy = Math.Cos(a3);
+                            k.Path.Add(1.1 * Math.Sign(sx) * Math.Pow(Math.Abs(sx), 0.6), 0.07 + (top - 0.07) * Math.Pow(Math.Abs(cy), 0.45), z);
+                        }
+                        Shapes.Tube(k.M, Affine3.Identity, skid, k.Path, 0.05, k.Ring(10), true, false, k.SL);
+                    }
                     Light(k, 0xFF3030, -1.25, 1.84, -5.05, 0.05);
                     Light(k, 0x30E060, 1.25, 1.84, -5.05, 0.05);
                     break;

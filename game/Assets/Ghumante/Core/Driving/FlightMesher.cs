@@ -349,6 +349,28 @@ namespace Ghumante.Core.Driving
             }
         }
 
+        /// <summary>
+        /// <see cref="SkinPoint"/> with the skin's full 3D normal: the section's own normal tilted by the loft's slope along
+        /// the fuselage (dA/dz, dB/dz, dYc/dz). On a tapering nose or tail cone the section normal alone points sideways
+        /// while the skin faces forward; anything offset along it then lies flat on the skin and the fuselage's facets poke
+        /// through (the helicopter's chin did, before).
+        /// </summary>
+        private static void SkinPoint3(Station[] st, double z, double t, out double x, out double y, out double nx, out double ny, out double nz)
+        {
+            SkinPoint(st, z, t, out x, out y, out nx, out ny);
+            const double h = 0.03;
+            Station f = SectionAt(st, z + h), b = SectionAt(st, z - h);
+            double sx = Math.Sin(t), cy = Math.Cos(t), e = 2.0 / SectionAt(st, z).N;
+            double fx = Math.Sign(sx) * Math.Pow(Math.Abs(sx), e), fy = Math.Sign(cy) * Math.Pow(Math.Abs(cy), e);
+            double dxdz = (f.A - b.A) * fx / (2 * h), dydz = ((f.Yc - b.Yc) + (f.B - b.B) * fy) / (2 * h);
+            // The normal is perpendicular to the section tangent (in the section plane) and to dP/dz = (dxdz, dydz, 1).
+            nz = -(nx * dxdz + ny * dydz);
+            double l = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            nx /= l;
+            ny /= l;
+            nz /= l;
+        }
+
         /// <summary>The section angle on the right side where the skin reaches height fraction <paramref name="h"/>
         /// (−1 belly … +1 crown).</summary>
         private static double AngleAtHeight(double h)
@@ -375,34 +397,58 @@ namespace Ghumante.Core.Driving
 
         /// <summary>
         /// One pane (window, door) hugging the skin at station z, section angle t: a rounded-rectangle outline sampled on
-        /// the fuselage (so it follows the curvature) 2 cm proud of it, fanned from its centre (8 points at LOD0, 4 beyond).
-        /// <paramref name="round"/> (0–1) rounds the corners (0 a rectangle, 1 an ellipse).
+        /// the fuselage (so it follows the curvature) 2.2 cm proud of it along the skin's 3D normal, filled with concentric
+        /// rings fanned from its centre. A big pane on a tight section (the helicopter's door windows) gets more rings and
+        /// outline points, so its flat facets never dip under the skin (a single fan did: the body colour showed through as
+        /// an "I" across each window). <paramref name="round"/> (0–1) rounds the corners (0 a rectangle, 1 an ellipse).
         /// </summary>
         private static void Pane(Kit k, Station[] st, double z, double t, double w, double h, double round, in ShapeBrush brush)
         {
             MeshData m = k.M;
-            double xc, yc, nxc, nyc;
-            SkinPoint(st, z, t, out xc, out yc, out nxc, out nyc);
+            double xc, yc, nxc, nyc, nzc;
+            SkinPoint3(st, z, t, out xc, out yc, out nxc, out nyc, out nzc);
             Station sec = SectionAt(st, z);
             // Angle per metre of skin around the section (a local estimate of the section's radius there).
             double rr = Math.Max(0.2, Math.Sqrt(xc * xc + (yc - sec.Yc) * (yc - sec.Yc)));
             double dt = 0.5 * h / rr;
-            int pts = k.Lod == 0 ? 8 : 4;
+            // How far a chord across the pane would sink under the skin: rings and points until it stays under 8 mm.
+            double sag = rr * (1.0 - Math.Cos(Math.Min(dt, 1.2)));
+            // A big pane on a tight skin keeps its LOD0 fill at LOD1 too (the coarser one sinks into the skin there).
+            bool fine = k.Lod == 0 || k.Lod == 1 && sag > 0.02;
+            int rings = fine ? Clamp((int)Math.Ceiling(Math.Sqrt(sag / 0.008)), 1, 3) : 1;
+            int pts = fine ? (sag > 0.01 ? 16 : 8) : k.Lod == 1 ? 8 : 4;
             double e = 2.0 / (2.0 + 6.0 * (1.0 - Math.Max(0.0, Math.Min(1.0, round)))); // superellipse exponent: 1 ellipse … 0.25 boxy
             uint rgba = (brush.Color & 0xFFFFFF00u) | (brush.Color & 0xFFu);
             float u = (float)brush.Channel;
-            int c = m.AddVertex((float)(xc + nxc * 0.022), (float)(yc + nyc * 0.022), (float)z, (float)nxc, (float)nyc, 0f, rgba, u, 1f);
+            const double lift = 0.022;
+            int c = m.AddVertex((float)(xc + nxc * lift), (float)(yc + nyc * lift), (float)(z + nzc * lift), (float)nxc, (float)nyc, (float)nzc, rgba, u, 1f);
             int first = m.VertexCount;
-            for (int i = 0; i < pts; i++)
+            for (int r = 1; r <= rings; r++)
             {
-                double a = 2 * Pi * (i + 0.5) / pts;
-                double ca = Math.Cos(a), sa = Math.Sin(a);
-                double pz = z + 0.5 * w * Math.Sign(ca) * Math.Pow(Math.Abs(ca), e), pt = t + dt * Math.Sign(sa) * Math.Pow(Math.Abs(sa), e);
-                double x, y, nx, ny;
-                SkinPoint(st, pz, pt, out x, out y, out nx, out ny);
-                m.AddVertex((float)(x + nx * 0.022), (float)(y + ny * 0.022), (float)pz, (float)nx, (float)ny, 0f, rgba, u, 1f);
+                double f = (double)r / rings;
+                for (int i = 0; i < pts; i++)
+                {
+                    double a = 2 * Pi * (i + 0.5) / pts;
+                    double ca = Math.Cos(a), sa = Math.Sin(a);
+                    double pz = z + f * 0.5 * w * Math.Sign(ca) * Math.Pow(Math.Abs(ca), e), pt = t + f * dt * Math.Sign(sa) * Math.Pow(Math.Abs(sa), e);
+                    double x, y, nx, ny, nz;
+                    SkinPoint3(st, pz, pt, out x, out y, out nx, out ny, out nz);
+                    m.AddVertex((float)(x + nx * lift), (float)(y + ny * lift), (float)(pz + nz * lift), (float)nx, (float)ny, (float)nz, rgba, u, 1f);
+                }
             }
-            for (int i = 0; i < pts; i++) TriOut(m, c, first + i, first + (i + 1) % pts, 0, sec.Yc, z);
+            // Facing out: away from a point a metre inside the skin under the pane's centre.
+            double ox = xc - nxc, oy = yc - nyc, oz = z - nzc;
+            for (int i = 0; i < pts; i++) TriOut(m, c, first + i, first + (i + 1) % pts, ox, oy, oz);
+            for (int r = 1; r < rings; r++)
+            {
+                int inner = first + (r - 1) * pts, outer = first + r * pts;
+                for (int i = 0; i < pts; i++)
+                {
+                    int i1 = (i + 1) % pts;
+                    TriOut(m, inner + i, outer + i, outer + i1, ox, oy, oz);
+                    TriOut(m, inner + i, outer + i1, inner + i1, ox, oy, oz);
+                }
+            }
         }
 
         /// <summary>
@@ -426,9 +472,9 @@ namespace Ghumante.Core.Driving
                     for (int row = 0; row < 2; row++)
                     {
                         double h = Math.Min(0.98, (row == 0 ? hLow : hHigh) + lift);
-                        double x, y, nx, ny;
-                        SkinPoint(st, z, side * AngleAtHeight(h), out x, out y, out nx, out ny);
-                        m.AddVertex((float)(x + nx * 0.015), (float)(y + ny * 0.015), (float)z, (float)nx, (float)ny, 0f, rgba, u, 1f);
+                        double x, y, nx, ny, nz;
+                        SkinPoint3(st, z, side * AngleAtHeight(h), out x, out y, out nx, out ny, out nz);
+                        m.AddVertex((float)(x + nx * 0.015), (float)(y + ny * 0.015), (float)(z + nz * 0.015), (float)nx, (float)ny, (float)nz, rgba, u, 1f);
                     }
                 }
                 for (int i = 0; i < segs; i++)
@@ -447,18 +493,25 @@ namespace Ghumante.Core.Driving
         /// windscreen pane (section angles 0.05–<paramref name="split"/>) and a side window (split + 0.08 – <paramref name="tMax"/>),
         /// each a patch of the skin 2 cm proud of it between a front edge at station <paramref name="zFront"/> −
         /// <paramref name="slopeFront"/>·|t| and a back edge at <paramref name="zBack"/> − <paramref name="slopeBack"/>·|t|
-        /// (the glazing sweeps back down the sides, like the real cockpits). Every LOD (a 4 × 2 grid per pane at LOD0, one
-        /// quad at LOD2).
+        /// (the glazing sweeps back down the sides, like the real cockpits). Every LOD: a grid fine enough to follow the
+        /// skin's curve at LOD0 (rows every ~0.18 m along the fuselage, snapped onto the stations' knees, columns every
+        /// ~0.24 rad around it), coarser at LOD1 (unless <paramref name="fineAtLod1"/>: a bubble that fills the view keeps
+        /// its LOD0 grid), one quad per pane at LOD2. A coarse grid's flat facets dip under a strongly
+        /// curved skin and the body colour pokes through as a saw-tooth (the helicopter's bubble did, before).
         /// </summary>
-        private static void FlightDeck(Kit k, Station[] st, double zFront, double slopeFront, double zBack, double slopeBack, double split, double tMax)
+        private static void FlightDeck(Kit k, Station[] st, double zFront, double slopeFront, double zBack, double slopeBack, double split, double tMax,
+                                       bool fineAtLod1 = false)
         {
             MeshData m = k.M;
-            int nu = k.Lod == 0 ? 4 : k.Lod == 1 ? 2 : 1, nv = k.Lod == 0 ? 3 : 1;
+            double len = Math.Max(Math.Abs(zFront - zBack), Math.Abs((zFront - slopeFront * tMax) - (zBack - slopeBack * tMax)));
+            int lod = fineAtLod1 && k.Lod == 1 ? 0 : k.Lod;
+            int nv = lod == 0 ? Clamp((int)Math.Ceiling(len / 0.18), 3, 12) : lod == 1 ? Clamp((int)Math.Ceiling(len / 0.5), 1, 4) : 1;
             uint rgba = (Glass << 8) | 0xFF;
             float u = (float)MaterialChannel.Glass;
             for (int pane = 0; pane < 2; pane++)
             {
                 double a = pane == 0 ? 0.05 : split + 0.08, b = pane == 0 ? split : tMax;
+                int nu = lod == 0 ? Clamp((int)Math.Ceiling((b - a) / 0.24), 2, 8) : lod == 1 ? 2 : 1;
                 for (int side = -1; side <= 1; side += 2)
                 {
                     int first = m.VertexCount;
@@ -466,11 +519,24 @@ namespace Ghumante.Core.Driving
                     {
                         double t = a + (b - a) * i / nu;
                         double zf = zFront - slopeFront * t, zb = zBack - slopeBack * t;
+                        double half = 0.5 * Math.Abs(zf - zb) / nv;
                         for (int j = 0; j <= nv; j++)
                         {
-                            double z = zb + (zf - zb) * j / nv, x, y, nx, ny;
-                            SkinPoint(st, z, side * t, out x, out y, out nx, out ny);
-                            m.AddVertex((float)(x + nx * 0.02), (float)(y + ny * 0.02), (float)z, (float)nx, (float)ny, 0f, rgba, u, 1f);
+                            double z = zb + (zf - zb) * j / nv, x, y, nx, ny, nz;
+                            // Inner rows snap onto a station within half a row: the patch then bends where the skin does.
+                            if (lod == 0 && j > 0 && j < nv)
+                            {
+                                for (int s = 0; s < st.Length; s++)
+                                {
+                                    if (Math.Abs(st[s].Z - z) < half)
+                                    {
+                                        z = st[s].Z;
+                                        break;
+                                    }
+                                }
+                            }
+                            SkinPoint3(st, z, side * t, out x, out y, out nx, out ny, out nz);
+                            m.AddVertex((float)(x + nx * 0.02), (float)(y + ny * 0.02), (float)(z + nz * 0.02), (float)nx, (float)ny, (float)nz, rgba, u, 1f);
                         }
                     }
                     for (int i = 0; i < nu; i++)
@@ -675,6 +741,11 @@ namespace Ghumante.Core.Driving
             double mx = (ax + p[b * 3] + p[c * 3]) / 3 - ox, my = (ay + p[b * 3 + 1] + p[c * 3 + 1]) / 3 - oy, mz = (az + p[b * 3 + 2] + p[c * 3 + 2]) / 3 - oz;
             if (nx * mx + ny * my + nz * mz >= 0) m.AddTriangle(a, b, c);
             else m.AddTriangle(a, c, b);
+        }
+
+        private static int Clamp(int v, int lo, int hi)
+        {
+            return v < lo ? lo : v > hi ? hi : v;
         }
     }
 }

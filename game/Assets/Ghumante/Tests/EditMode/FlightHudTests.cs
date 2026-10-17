@@ -52,10 +52,10 @@ namespace Ghumante.Tests.EditMode
         {
             var hud = new AircraftHud(_hudRoot, _localizer, new NullHaptics());
             Assert.AreEqual(_hudRoot.IndexOf(_hudRoot.Q("hud-controls")) + 1, _hudRoot.IndexOf(hud.Root), "just above the explorer's controls");
-            Assert.AreEqual(DisplayStyle.None, hud.Root.style.display.value, "hidden on foot");
+            Assert.IsTrue(hud.Root.style.display == DisplayStyle.None, "hidden on foot");
             hud.Show(true, FlightCraft.Turboprop);
             Assert.IsTrue(hud.Visible);
-            Assert.AreEqual(DisplayStyle.None, _speedo.style.display.value, "the km/h speedometer hides while flying");
+            Assert.IsTrue(_speedo.style.display == DisplayStyle.None, "the km/h speedometer hides while flying");
             hud.Show(false);
             Assert.AreEqual(StyleKeyword.Null, _speedo.style.display.keyword, "and comes back on foot");
             hud.Dispose();
@@ -133,6 +133,7 @@ namespace Ghumante.Tests.EditMode
             touch = new FlightTouch { Throttle = -1f };
             input.Read(0.016f, frame, touch, out view, out exit);
             Assert.AreEqual(0.8f, input.Lever, 1e-4f, "and it stays there when let go");
+            input.Dispose();
         }
 
         [Test]

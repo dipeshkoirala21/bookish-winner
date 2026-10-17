@@ -178,7 +178,7 @@ namespace Ghumante.Characters.Rides
             {
                 RefreshStandGround(dt, world);
                 WorldPos at = explorer.Position;
-                FlightStand s;
+                FlightStand s = default(FlightStand);
                 float d;
                 _offered = !blocked && explorer.Mode == ExplorerMode.Walk && !explorer.IsHopping && _stands.TryBoardable(at.X, at.Z, out s, out d);
                 if (_offered) _offer = s;
@@ -266,6 +266,7 @@ namespace Ghumante.Characters.Rides
             _model.PlaceOnGround(s.X, s.Z, s.HeadingRad);
             _model.EngineRunning = true;
             _input.Lever = 0f;
+            _input.Enabled = true;
             _view = FlightView.Chase;
             _camera.Snap();
             // The explorer climbs in: hide the avatar (it rides along in the cockpit for the audio listener).
@@ -293,6 +294,7 @@ namespace Ghumante.Characters.Rides
             }
             _model = null;
             _standIndex = -1;
+            _input.Enabled = false;
             if (_avatarRoot != null) _avatarRoot.gameObject.SetActive(true);
             _avatarRoot = null;
             BindWorld(world);
@@ -577,6 +579,7 @@ namespace Ghumante.Characters.Rides
                 if (m != null) UnityEngine.Object.Destroy(m);
             _meshes.Clear();
             _model = null;
+            _input.Dispose();
         }
     }
 }

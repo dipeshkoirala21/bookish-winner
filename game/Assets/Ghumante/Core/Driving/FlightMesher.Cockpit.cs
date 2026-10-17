@@ -44,8 +44,8 @@ namespace Ghumante.Core.Driving
             }
 
             // Instrument panel with displays, the glareshield over it, and the pedestal between the seats.
-            double pz = ez + (heli ? 0.75 : 0.95), py = ey - (heli ? 0.55 : 0.42);
-            double halfW = heli ? 0.8 : Math.Min(1.0, SectionAt(st, ez).A * 0.82);
+            double pz = ez + (heli ? 0.55 : 0.95), py = ey - (heli ? 0.55 : 0.42);
+            double halfW = heli ? Math.Min(0.8, SectionAt(st, pz).A * 0.92) : Math.Min(1.0, SectionAt(st, ez).A * 0.82);
             Shapes.RoundedBox(k.M, Affine3.Translation(0, py, pz) * Affine3.RotationX(-0.35), panel, halfW * 2, 0.52, 0.12, 0.05, 2, k.SL);
             Shapes.RoundedBox(k.M, Affine3.Translation(0, py + 0.3, pz + 0.05), Kit.B(0x1E2125, MaterialChannel.Fabric), halfW * 2 + 0.1, 0.07, 0.42, 0.03, 2,
                               k.SL);

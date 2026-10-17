@@ -79,7 +79,7 @@ Reference photos (Openverse, open licences; reference only, never copied): conta
 | Dash 8-400 | longer, pointier nose, **long nacelles reaching past the trailing edge** with the twin main wheels under them on tall legs, upright T-tail fin, 18 windows | as above | "PAL Airlines Dash 8 Q400" Karly Barker CC BY-SA 4.0; "Dash 8 Q400 YL-BAQ" Gerard van der Schaaf CC BY 2.0 |
 | Jetstream 41 | **low wing with dihedral**, ventral wing-box fairing, over-wing nacelles close to the fuselage, **five-blade props**, **cruciform tail** (stabiliser half way up the fin), big oval windows, forward airstair door | as above | "Jetstream 41 G-MAJL" Ronnierob CC BY-SA 2.0; "ZS-NRK Jetstream 41" Aeroprints.com CC BY-SA 3.0 |
 | Twin Otter | **boxy cabin** (superellipse sections), long baggage nose, **rectangular high wing with a strut each side**, slim nacelles, **three-blade props**, fixed gear with splayed main legs, square windows, big rear cargo door, cockpit doors both sides | white with stripe and tail colour | "Twin Otter aircraft on Lukla airstrip" markhorrell CC BY-NC-SA 2.0; "DHC-6 Twin Otter N63119" Asylumkid CC BY-SA 2.0 |
-| H125 | **bubble cabin with big glazing**, engine cowling hump on the roof, thin tail boom, fin above and below, stabiliser with end plates, tail rotor on the left, **three-blade main rotor**, skids on cross tubes | red / yellow / blue body with a white or dark belly band (no medical crosses) | "F-HADE AS 350 B3" Laurent Quérité CC BY-NC-SA 2.0; "G-TVGB H125" James CC BY-SA 2.0 |
+| H125 | **round bubble cabin** (nose 2.95 m ahead of the mast, roof 2.32 m, belly 0.58 m over the skids), **big two-piece windscreen curving down to a full painted chin** with a landing light, front-door glazing joined to the windscreen, a big rounded rear-door window and a small window low in each front door, streamlined engine cowling and mast fairing on the roof, exhaust on the right, thin tail boom, fin above and below, stabiliser with end plates, tail rotor on the left, **three-blade main rotor**, skids on **two arched cross tubes** | red / yellow / blue body with a white or dark belly band (no medical crosses) | "F-HADE AS 350 B3" Laurent Quérité CC BY-NC-SA 2.0; "G-TVGB H125" James CC BY-SA 2.0 |
 
 Cockpit view: dark glareshield over a panel with four glowing displays (ATR/Dash 8/Jetstream glass cockpits; the
 Twin Otter's is analogue in reality, drawn the same for simplicity), yokes, the nose in the body colour ahead and the
@@ -91,7 +91,7 @@ window posts (Dash 8 cockpit photos by Markusnl, CC BY-NC-SA 2.0).
   button boards it as pilot; the walker is placed in the cockpit, engines start, the aircraft's stand is free.
   Getting out: stand still on the ground, then hold E (or the HUD's Get out button): the pilot steps out by the main
   door on the left and the aircraft stays parked there.
-* **Controls** (keyboard): W / S pitch (W pushes the nose down, S pulls it up, as in every flight game), A / D roll, Q
+* **Controls** (keyboard; the pilot's own Input System action map in `AircraftInput`, enabled only while flying): W / S pitch (W pushes the nose down, S pulls it up, as in every flight game), A / D roll, Q
   / E yaw (rudder and nose-wheel steering), Shift / Ctrl throttle up / down (the lever stays where it is put), F / V
   flaps down / up, Space brakes, C chase or cockpit view. Gamepad: left stick pitch / roll, triggers throttle, shoulders
   rudder, D-pad flaps. Touch (`UI/Hud/AircraftHud.cs`): a floating flight stick on the left (pitch / roll, steering on
@@ -127,6 +127,24 @@ was a one-vertex-row paint band that read as a thin smear; it is now a crisp str
 the tail. The Twin Otter-class was 1 m too long (fin trailing edge behind a too-long tail cone): fin, fillet and
 stabiliser moved forward and the cone shortened to the real 15.77 m. Remaining simplifications: windows are fewer and
 rounder than the real rows, the ATR's sponsons are rounder, no registration or name anywhere (generic liveries).
+
+### Round 2 (playtest round, after the first Unity playtest)
+
+* **Helicopter** (`compare_Helicopter.jpg`, render 3/4 and side next to ref_07 and ref_00): the bubble's glazing showed
+  the body colour through it as a saw-tooth and as red "petals" on the nose, and each door window had a red "I" across
+  it. Causes: (1) the glazing and window patches were lifted 2 cm along the *section* normal only, which on a tapering
+  nose points sideways while the skin faces forward, so the patch lay flat on the skin; (2) the nose was a sharp knee
+  between two stations that the glazing grid's rows straddled, so its chords cut 7 cm inside it; (3) a window was one
+  fan from its centre, whose chords sink under a tightly curved skin. Fixes: the skin's full 3D normal
+  (`FlightMesher.SkinPoint3`, used by the glazing, windows and cheat-lines of every type), a smooth bubble nose of ten
+  sections (`HeliSections`), and windows filled with rings and more outline points where the skin curves
+  (`Pane`). Then, to the photos: the cabin is 0.45 m longer (nose 2.95 m ahead of the mast, the real three-view), the
+  belly higher over arched skid cross tubes, the windscreen recedes into a painted chin with a landing light, the rear
+  door window is the big rounded one, a small window low in each front door, a slimmer cowling and a mast fairing; far
+  away (LOD2) the bubble is painted on the coarse skin, since a one-quad patch sank into it.
+* **Jetstream windows** are the round-cornered ovals of the photos (they were near-rectangles).
+* **Cockpit eye**: every type's pilot eye is checked inside its cabin (walls, roof 0.15–1.2 m above, floor); the
+  helicopter's moved to the right seat 1.82 m up, 1.95 m ahead of the mast (it was 0.13 m under the roof).
 
 ## 7. Open questions [V]
 

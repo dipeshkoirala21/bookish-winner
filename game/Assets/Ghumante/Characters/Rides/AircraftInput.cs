@@ -24,7 +24,7 @@ namespace Ghumante.Characters.Rides
     /// get out        hold E at a stop    hold A at a stop     Get out button
     /// </code>
     /// </summary>
-    public sealed class AircraftInput
+    public sealed class AircraftInput : IDisposable
     {
         /// <summary>Throttle lever travel per second while Shift / Ctrl or a trigger is held.</summary>
         public const float LeverRatePerS = 0.5f;
@@ -33,6 +33,31 @@ namespace Ghumante.Characters.Rides
         public bool PushForNoseDown = true;
 
         private float _lever;
+        private bool _disposed;
+#if GHUMANTE_INPUT_SYSTEM
+        // The pilot's own action map (the explore map has no rudder, lever or flaps): bindings through the Input System's
+        // control paths, enabled only while flying (Enabled).
+        private readonly InputActionMap _map;
+        private readonly InputAction _rudder, _rudderPad, _lever1, _lever2, _leverPad, _flapsDown, _flapsUp;
+#endif
+
+        public AircraftInput()
+        {
+#if GHUMANTE_INPUT_SYSTEM
+            _map = new InputActionMap("Aircraft");
+            _rudder = Axis("Rudder", "<Keyboard>/q", "<Keyboard>/e");
+            _rudderPad = Axis("RudderPad", "<Gamepad>/leftShoulder", "<Gamepad>/rightShoulder");
+            _lever1 = Axis("Lever", "<Keyboard>/leftCtrl", "<Keyboard>/leftShift");
+            _lever2 = Axis("LeverRight", "<Keyboard>/rightCtrl", "<Keyboard>/rightShift");
+            _leverPad = Axis("LeverPad", "<Gamepad>/leftTrigger", "<Gamepad>/rightTrigger");
+            _flapsDown = _map.AddAction("FlapsDown", InputActionType.Button);
+            _flapsDown.AddBinding("<Keyboard>/f");
+            _flapsDown.AddBinding("<Gamepad>/dpad/up");
+            _flapsUp = _map.AddAction("FlapsUp", InputActionType.Button);
+            _flapsUp.AddBinding("<Keyboard>/v");
+            _flapsUp.AddBinding("<Gamepad>/dpad/down");
+#endif
+        }
 
         /// <summary>The throttle lever (0–1).</summary>
         public float Lever
@@ -41,7 +66,30 @@ namespace Ghumante.Characters.Rides
             set { _lever = Mathf.Clamp01(float.IsNaN(value) ? 0f : value); }
         }
 
-        /// <summary>The flight input for this frame; <paramref name="flapsDown"/> etc. are the one-shot taps.</summary>
+        /// <summary>True while the pilot's keys and pad buttons are read (the ride enables them while flying).</summary>
+        public bool Enabled
+        {
+            get
+            {
+#if GHUMANTE_INPUT_SYSTEM
+                return !_disposed && _map.enabled;
+#else
+                return false;
+#endif
+            }
+            set
+            {
+                if (_disposed) return;
+#if GHUMANTE_INPUT_SYSTEM
+                if (value == _map.enabled) return;
+                if (value) _map.Enable();
+                else _map.Disable();
+#endif
+            }
+        }
+
+        /// <summary>The flight input for this frame; <paramref name="view"/> and <paramref name="exitTap"/> are the
+        /// one-shot taps of View (C, right-stick press, the HUD's View) and the HUD's Get out.</summary>
         public FlightInput Read(float dt, in ControlFrame frame, in FlightTouch touch, out bool view, out bool exitTap)
         {
             float stickX, stickY;
@@ -57,24 +105,12 @@ namespace Ghumante.Characters.Rides
             view = frame.CameraCycle || touch.View;
             exitTap = touch.Exit;
 #if GHUMANTE_INPUT_SYSTEM
-            Keyboard k = Keyboard.current;
-            if (k != null)
+            if (!_disposed && _map.enabled)
             {
-                if (k.qKey.isPressed) yaw -= 1f;
-                if (k.eKey.isPressed) yaw += 1f;
-                if (k.leftShiftKey.isPressed || k.rightShiftKey.isPressed) throttleRate += 1f;
-                if (k.leftCtrlKey.isPressed || k.rightCtrlKey.isPressed) throttleRate -= 1f;
-                if (k.fKey.wasPressedThisFrame) flapsDown = true;
-                if (k.vKey.wasPressedThisFrame) flapsUp = true;
-            }
-            Gamepad g = Gamepad.current;
-            if (g != null)
-            {
-                throttleRate += g.rightTrigger.ReadValue() - g.leftTrigger.ReadValue();
-                if (g.rightShoulder.isPressed) yaw += 1f;
-                if (g.leftShoulder.isPressed) yaw -= 1f;
-                if (g.dpad.up.wasPressedThisFrame) flapsDown = true;
-                if (g.dpad.down.wasPressedThisFrame) flapsUp = true;
+                yaw += _rudder.ReadValue<float>() + _rudderPad.ReadValue<float>();
+                throttleRate += _lever1.ReadValue<float>() + _lever2.ReadValue<float>() + _leverPad.ReadValue<float>();
+                if (_flapsDown.WasPressedThisFrame()) flapsDown = true;
+                if (_flapsUp.WasPressedThisFrame()) flapsUp = true;
             }
 #endif
             if (touch.Throttle >= 0f) _lever = Mathf.Clamp01(touch.Throttle);
@@ -88,9 +124,29 @@ namespace Ghumante.Characters.Rides
             return input;
         }
 
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+#if GHUMANTE_INPUT_SYSTEM
+            _map.Disable();
+            _map.Dispose();
+#endif
+        }
+
         private static float Strong(float a, float b)
         {
             return Math.Abs(b) > Math.Abs(a) ? b : a;
         }
+
+#if GHUMANTE_INPUT_SYSTEM
+        /// <summary>A −1…+1 axis from two buttons (or triggers): <paramref name="negative"/> and <paramref name="positive"/>.</summary>
+        private InputAction Axis(string name, string negative, string positive)
+        {
+            InputAction action = _map.AddAction(name, InputActionType.Value, expectedControlLayout: "Axis");
+            action.AddCompositeBinding("1DAxis").With("Negative", negative).With("Positive", positive);
+            return action;
+        }
+#endif
     }
 }

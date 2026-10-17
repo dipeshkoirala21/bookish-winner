@@ -183,8 +183,8 @@ namespace Ghumante.Core.Driving
                         MassKg = 2000f, WingAreaM2 = 0f, StallCleanMps = 0f, StallFullMps = 0f, RotateMps = 0f, MaxSpeedMps = 135 * Kt,
                         StaticThrustN = 0f, SpoolS = 6f, RollRate = 60 * Deg, PitchRate = 45 * Deg, RudderRate = 50 * Deg,
                         MaxBank = 28 * Deg, MaxPitchUp = 18 * Deg, MaxPitchDown = 22 * Deg, WheelbaseM = 3.2f, TrackM = 2.2f,
-                        TailStrike = 20 * Deg, FixedGear = true, Rotorcraft = true, EyeX = 0.35f, EyeY = 1.95f, EyeZ = 1.55f, DoorX = -1.05f,
-                        DoorZ = 0.6f,
+                        TailStrike = 20 * Deg, FixedGear = true, Rotorcraft = true, EyeX = 0.35f, EyeY = 1.82f, EyeZ = 1.95f, DoorX = -1.05f,
+                        DoorZ = 1.1f,
                     };
                 default:
                     return new FlightSpec
