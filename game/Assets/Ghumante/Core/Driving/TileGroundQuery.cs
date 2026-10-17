@@ -272,7 +272,8 @@ namespace Ghumante.Core.Driving
             _inlineSolids = true;
             try
             {
-                Add(tile.Tile, new TileHeightSampler(tile, step), BuildRoadIndex(tile));
+                var sampler = new TileHeightSampler(tile, step);
+                Add(tile.Tile, sampler, BuildRoadIndex(tile, sampler, null));
             }
             finally
             {
@@ -289,7 +290,8 @@ namespace Ghumante.Core.Driving
             _inlineSolids = true;
             try
             {
-                Add(area, TileHeightSampler.ForArea(source, area, step), area == source.Tile ? BuildRoadIndex(source) : null);
+                TileHeightSampler sampler = TileHeightSampler.ForArea(source, area, step);
+                Add(area, sampler, area == source.Tile ? BuildRoadIndex(source, sampler, null) : null);
             }
             finally
             {
@@ -352,13 +354,7 @@ namespace Ghumante.Core.Driving
         /// solids and decks (its houses are solid on the streaming path too); null only when the tile has neither.</summary>
         public RoadSpatialIndex BuildRoadIndex(TileData tile)
         {
-            if (tile == null) throw new ArgumentNullException(nameof(tile));
-            var idx = new RoadSpatialIndex(tile, _roadOptions);
-            idx.Solids = BuildSolids(tile, idx.SegmentCount > 0 ? idx : null);
-            idx.Decks = DeckFactory != null ? DeckFactory(tile) : null;
-            idx.Prepared = true;
-            if (idx.SegmentCount == 0 && idx.Solids == null && idx.Decks == null) return null;
-            return idx;
+            return BuildRoadIndex(tile, null, null);
         }
 
         /// <summary>
@@ -367,15 +363,24 @@ namespace Ghumante.Core.Driving
         /// the streamer meshed with <see cref="RoadMesher.Build"/> on <paramref name="sampler"/> (tile-local positions, absolute
         /// indices: call it before the layer is split into upload chunks), or, when that is null, meshed here on
         /// <paramref name="sampler"/>. Pass the sampler the area is added with (<see cref="Add(TileId, TileHeightSampler, RoadSpatialIndex)"/>).
-        /// Worker-safe like the other overload.
+        /// The drawn surface comes first, so the tile's solids keep off it (<see cref="TileSolids"/>: a retaining wall
+        /// opens where a road is drawn across its line). Worker-safe like the other overload; a null sampler builds the
+        /// index without a drawn surface (the ground query meshes one when the area is added).
         /// </summary>
         public RoadSpatialIndex BuildRoadIndex(TileData tile, TileHeightSampler sampler, MeshData roadsLayer)
         {
-            RoadSpatialIndex idx = BuildRoadIndex(tile);
-            if (idx == null || idx.SegmentCount == 0 || sampler == null) return idx;
-            idx.DrawnSurface = roadsLayer != null ? DrawnRoadSurface.FromMesh(roadsLayer, tile.Tile.X0, tile.Tile.Z0)
-                : DrawnRoadSurface.Build(tile, sampler, _roadOptions);
-            idx.DrawnSampler = sampler;
+            if (tile == null) throw new ArgumentNullException(nameof(tile));
+            var idx = new RoadSpatialIndex(tile, _roadOptions);
+            if (idx.SegmentCount > 0 && sampler != null)
+            {
+                idx.DrawnSurface = roadsLayer != null ? DrawnRoadSurface.FromMesh(roadsLayer, tile.Tile.X0, tile.Tile.Z0)
+                    : DrawnRoadSurface.Build(tile, sampler, _roadOptions);
+                idx.DrawnSampler = sampler;
+            }
+            idx.Solids = BuildSolids(tile, idx.SegmentCount > 0 ? idx : null);
+            idx.Decks = DeckFactory != null ? DeckFactory(tile) : null;
+            idx.Prepared = true;
+            if (idx.SegmentCount == 0 && idx.Solids == null && idx.Decks == null) return null;
             return idx;
         }
 

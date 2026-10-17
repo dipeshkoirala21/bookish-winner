@@ -206,11 +206,14 @@ namespace Ghumante.Core.Driving
                     for (int ring = 1; ring < dr.Rings.Length; ring++)
                     {
                         // Courtyards stay as drawn, except one that opens onto a road: filled, so no wall of it stands in
-                        // the road.
+                        // the road. A courtyard the trimmed outline cuts through is filled too: its part beyond the trimmed
+                        // wall would otherwise count as inside the outline (an invisible wall on the open ground where the
+                        // house was cut back).
                         int[] pts = dr.Rings[ring];
                         if (pts == null || pts.Length < 6) continue;
                         int hn = Ring(t, pts, ref hx, ref hz);
                         if (guard != null && guard.Intrudes(hx, hz, hn)) continue;
+                        if (!RingInside(hx, hz, hn, xs, zs, n)) continue;
                         double depth;
                         if (corridors != null && corridors.Overlaps(hx, hz, hn, out depth) && depth > FootprintGuard.ClearM) continue;
                         b.AddRing(hx, hz, hn, WallHalfM, bottom, top, SolidFlags.None);
@@ -276,6 +279,14 @@ namespace Ghumante.Core.Driving
                 if (under) clear = Math.Min(clear, (float)passages[q + 4]);
             }
             return !float.IsPositiveInfinity(clear);
+        }
+
+        /// <summary>True when every point of ring (hx, hz) lies inside ring (x, z).</summary>
+        private static bool RingInside(double[] hx, double[] hz, int hn, double[] x, double[] z, int n)
+        {
+            for (int k = 0; k < hn; k++)
+                if (!InRing(x, z, n, hx[k], hz[k])) return false;
+            return true;
         }
 
         private static bool InRing(double[] x, double[] z, int n, double px, double pz)
@@ -420,10 +431,22 @@ namespace Ghumante.Core.Driving
             }
 
             /// <summary>The next station (x, z) with the wall's bottom and top there; a piece joins it to the previous
-            /// station when either of them needs a wall.</summary>
+            /// station when both need a wall. Where only one of them does (a road joins or crosses at the other), the wall
+            /// runs from the one that needs it half way to the other, at that station's own height, so it never reaches
+            /// into the road at the open station.</summary>
             public void Add(double x, double z, float bottom, float top, bool raised)
             {
-                if (_havePrev && (raised || _pRaised)) Piece(_px, _pz, _pb, _pt, x, z, bottom, top);
+                if (_havePrev && raised && _pRaised) Piece(_px, _pz, _pb, _pt, x, z, bottom, top);
+                else if (_havePrev && _pRaised)
+                {
+                    Piece(_px, _pz, _pb, _pt, 0.5 * (_px + x), 0.5 * (_pz + z), _pb, _pt);
+                    Flush();
+                }
+                else if (_havePrev && raised)
+                {
+                    Flush();
+                    Piece(0.5 * (_px + x), 0.5 * (_pz + z), bottom, top, x, z, bottom, top);
+                }
                 else Flush();
                 _px = x;
                 _pz = z;
@@ -497,7 +520,8 @@ namespace Ghumante.Core.Driving
         {
             var run = new RailRun(b);
             double[] xs = new double[16], zs = new double[16], along = new double[16];
-            float[] ys = new float[16];
+            float[] ys = new float[16], levels = new float[8];
+            Meshing.Roads.DrawnRoadSurface drawn = roads.DrawnSurface;
             for (int ri = 0; ri < t.Roads.Count; ri++)
             {
                 bool elevated = roads.IsElevated(ri);
@@ -582,6 +606,7 @@ namespace Ghumante.Core.Driving
                                 // road joins the cutting at its level and kept under a road that passes over it.
                                 bool cut = ground + lift - y > TileGroundQuery.HardEdgeM;
                                 float top = Math.Max(y + rail, ground + RetainingParapetM);
+                                if (cut) ClearDrawnLevels(drawn, qx, qz, y, levels, ref cut, ref top);
                                 RoadHit other;
                                 float otherY;
                                 if (cut && roads.TryCoveringOther(qx, qz, ri, ground, out other, out otherY))
@@ -595,6 +620,30 @@ namespace Ghumante.Core.Driving
                     }
                     run.End();
                 }
+            }
+        }
+
+        /// <summary>
+        /// A retaining-wall station of a lowered road against the road surface drawn there (<paramref name="drawn"/>, the
+        /// tile's roads layer; owner playtest #1: no solid where a road is drawn): a drawn level at most
+        /// <see cref="AtGradeM"/> above the cutting's own surface <paramref name="y"/> (a street joining the cutting, a
+        /// junction cap, the corner of a kerb return) opens the wall; a higher one (a street over the cutting's edge) keeps
+        /// its top <see cref="CrossingUndersideM"/> under that street.
+        /// </summary>
+        private static void ClearDrawnLevels(Meshing.Roads.DrawnRoadSurface drawn, double x, double z, float y, float[] levels, ref bool cut,
+                                             ref float top)
+        {
+            if (drawn == null || !drawn.InBounds(x, z)) return;
+            int n = drawn.Levels(x, z, levels);
+            for (int k = 0; k < n; k++)
+            {
+                float l = levels[k];
+                if (l <= y + AtGradeM)
+                {
+                    cut = false;
+                    return;
+                }
+                top = Math.Min(top, l - CrossingUndersideM);
             }
         }
 

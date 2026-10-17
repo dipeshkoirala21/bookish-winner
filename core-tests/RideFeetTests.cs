@@ -24,7 +24,7 @@ namespace Ghumante.Core.Tests
         private static readonly TileId[] FeetTiles = { new TileId(10, 516, 161), new TileId(10, 517, 161), new TileId(10, 514, 161), new TileId(10, 516, 162) };
 
         /// <summary>A small grid over the up-facing triangles of an uploaded roads layer (tile-local x/z, absolute y).</summary>
-        private sealed class Drawn
+        internal sealed class Drawn
         {
             private readonly MeshData _m;
             private readonly Dictionary<long, List<int>> _cells = new Dictionary<long, List<int>>();
@@ -90,11 +90,12 @@ namespace Ghumante.Core.Tests
         }
 
         private static TileGroundQuery _ground;
-        private static List<(TileData tile, Drawn drawn)> _tiles;
+        private static List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> _tiles;
 
         /// <summary>The feet tiles streamed as the game does at High tier (TileBuild.Execute: roads, bridges, ornaments;
-        /// the ground query wired as WorldRoot.Build), with their roads layers as uploaded.</summary>
-        private static void Stream(out TileGroundQuery ground, out List<(TileData tile, Drawn drawn)> tiles)
+        /// the ground query wired as WorldRoot.Build), with their roads layers as uploaded and their samplers (shared with
+        /// <see cref="DrivableTests"/>).</summary>
+        internal static void Stream(out TileGroundQuery ground, out List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> tiles)
         {
             if (_ground == null)
             {
@@ -104,14 +105,14 @@ namespace Ghumante.Core.Tests
                 settings.DrawInstances = false;
                 settings.DrawRoadDecals = false;
                 var g = StreamingScene.Ground(settings);
-                var list = new List<(TileData, Drawn)>();
+                var list = new List<(TileData, Drawn, TileHeightSampler)>();
                 foreach (TileId id in FeetTiles)
                 {
                     TileBuild b = StreamingScene.Build(id, settings, g, 2);
                     Assert.That(b.Error, Is.Null);
                     g.Add(id, b.Sampler, b.Roads);
                     Assert.That(b.Roads.DrawnSurface, Is.Not.Null, "the streamer hands the drawn surface to the ground query");
-                    list.Add((b.Source, new Drawn(StreamingScene.Layer(b, TileLayers.Roads), b.Source.Tile.X0, b.Source.Tile.Z0)));
+                    list.Add((b.Source, new Drawn(StreamingScene.Layer(b, TileLayers.Roads), b.Source.Tile.X0, b.Source.Tile.Z0), b.Sampler));
                 }
                 _ground = g;
                 _tiles = list;
@@ -128,14 +129,14 @@ namespace Ghumante.Core.Tests
         public void FeetStandOnTheDrawnRoadSurface()
         {
             TileGroundQuery g;
-            List<(TileData tile, Drawn drawn)> tiles;
+            List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> tiles;
             Stream(out g, out tiles);
             long samples = 0, over3 = 0, sunk = 0, decks = 0, blocked = 0;
             double worst = 0;
             string where = "", blockedAt = "";
             var hist = new long[5];
             double[] edges = { 0.01, 0.03, 0.1, 0.3, double.MaxValue };
-            foreach ((TileData t, Drawn d) in tiles)
+            foreach ((TileData t, Drawn d, TileHeightSampler _) in tiles)
             {
                 for (double lz = 0.31; lz < t.Tile.Size; lz += 1.0)
                 for (double lx = 0.17; lx < t.Tile.Size; lx += 1.0)
@@ -188,7 +189,7 @@ namespace Ghumante.Core.Tests
         public void WalkersFeetStayOnTheDrawnSurface()
         {
             TileGroundQuery g;
-            List<(TileData tile, Drawn drawn)> tiles;
+            List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> tiles;
             Stream(out g, out tiles);
             long steps = 0, over3 = 0;
             double worst = 0;
@@ -196,7 +197,7 @@ namespace Ghumante.Core.Tests
             var hist = new long[5];
             double[] edges = { 0.01, 0.03, 0.1, 0.3, double.MaxValue };
             int walks = 0;
-            foreach ((TileData t, Drawn d) in tiles.Take(2))
+            foreach ((TileData t, Drawn d, TileHeightSampler _) in tiles.Take(2))
             {
                 RoadLayout layout = RoadLayout.For(t);
                 var paths = new List<(double ax, double az, double bx, double bz)>();
