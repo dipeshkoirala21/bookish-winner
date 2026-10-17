@@ -95,8 +95,10 @@ namespace Ghumante.World.Buildings
     /// the raise (<see cref="EstimatedTris"/>, learnt from the houses built); otherwise it is drawn at the flat level until
     /// houses leaving the band make room, so a rider circling a dense chowk never gathers near-level houses on every side.</item>
     /// <item><b>Uploads</b> go chunk by chunk through <see cref="Upload"/> within the bytes the caller gives (the
-    /// streamer shares its per-frame upload cap between tiles and B0); a build the worker finished is queued for upload as
-    /// soon as the main thread looks, so a build dispatched in one frame is on screen the next.</item>
+    /// streamer shares its per-frame upload cap between tiles and B0, <see cref="B0UploadShare"/>); a build the worker
+    /// finished is queued for upload as soon as the main thread looks, so a build dispatched in one frame is on screen the
+    /// next. Urgent builds (a missing house) start even while level builds wait for upload, go up before them, and before
+    /// the tiles (<see cref="UrgentUploadWaiting"/>), so a tile streaming in never makes a house late.</item>
     /// <item><b>Cache</b>: uploaded cells stay resident up to <see cref="BandConfig.CellCacheBytes"/> of GPU mesh, the
     /// least recently needed evicted first; cells needed this frame are never evicted.</item>
     /// <item><b>Colliders</b> (pikha aprons, flat roofs, stair cabins, temple plinths) of a shown cell are registered with
@@ -122,7 +124,8 @@ namespace Ghumante.World.Buildings
         /// upload cap, so a chunk and a tile chunk share a frame.</summary>
         public const int ChunkVertices = 12288;
 
-        /// <summary>Built cells waiting for upload before no new build starts.</summary>
+        /// <summary>Built cells waiting for upload before no new build starts (urgent builds count only the urgent ones
+        /// waiting: they upload first, so a level build waiting for a starved upload never holds back a missing house).</summary>
         public const int MaxReady = 2;
 
         /// <summary>A cell holding at least a third of houses it no longer needs is rebuilt (lazily) once the centre has
@@ -202,6 +205,10 @@ namespace Ghumante.World.Buildings
             /// <summary>How many triangles the band gains when this version replaces the cell's live one: estimated when it
             /// is dispatched (<see cref="EstimatedTris"/>), exact once built.</summary>
             public double Delta;
+
+            /// <summary>Built because a house the band draws, or will within the lead, was missing: its upload goes before
+            /// the tiles' (<see cref="UrgentUploadWaiting"/>).</summary>
+            public bool Urgent;
 
             /// <summary>Triangles of position <paramref name="k"/>'s house in this version (0 before it is built).</summary>
             public int HouseTris(int k)
@@ -877,8 +884,9 @@ namespace Ghumante.World.Buildings
                 }
             }
             if (now < _nextSliceMs) return;
-            // An urgent build runs first; a missing house starts one even while a level build is half done (it pauses).
-            bool urgent = _bestTile != null && _bestReason <= ReasonEdge && _ready.Count < MaxReady;
+            // An urgent build runs first; a missing house starts one even while a level build is half done (it pauses), and
+            // while level builds wait for upload (only urgent builds waiting hold it back: they upload first).
+            bool urgent = _bestTile != null && _bestReason <= ReasonEdge && ReadyCount(true) < MaxReady;
             if (_jobs[0] != null || !urgent && _jobs[1] != null)
             {
                 _job = _jobs[0] ?? _jobs[1];
@@ -896,7 +904,7 @@ namespace Ghumante.World.Buildings
                 return;
             }
 
-            if (_ready.Count >= MaxReady || _bestTile == null) return;
+            if (_bestTile == null || !urgent && _ready.Count >= MaxReady) return;
             if (!urgent && _jobs[1] != null) return;
             BuildsByReason[_bestReason]++;
             B0Tile bt = _bestTile;
@@ -958,6 +966,7 @@ namespace Ghumante.World.Buildings
                 nv.ReuseData = live.Data;
             }
             nv.Data.Clear();
+            nv.Urgent = urgent;
             cell.Pending = nv;
             _jobs[urgent ? 0 : 1] = nv;
             _job = nv;
@@ -1132,17 +1141,30 @@ namespace Ghumante.World.Buildings
         /// Queues the builds the worker has finished for upload as soon as the main thread looks (the streamer's upload in
         /// <c>Tick</c> comes before the cells' <see cref="Update"/>): a build dispatched in one frame is on screen the next,
         /// not a frame later, which is what the lead (<see cref="BandConfig.B0LeadM"/>) has to cover. Builds of a cell no
-        /// longer wanted are left to <see cref="Dispatch"/>, which drops them.
+        /// longer wanted are left to <see cref="Dispatch"/>, which drops them. A queued build wholly up (one without
+        /// geometry at once) is swapped in. Called only from the upload side (<see cref="NextUploadBytes"/>,
+        /// <see cref="UrgentUploadWaiting"/>, <see cref="Upload"/>), before the frame's <see cref="Update"/>.
         /// </summary>
         private void Harvest()
         {
-            if (_running || _disposed) return;
-            for (int lane = 0; lane < _jobs.Length; lane++)
+            if (_disposed) return;
+            if (!_running)
+                for (int lane = 0; lane < _jobs.Length; lane++)
+                {
+                    Version v = _jobs[lane];
+                    if (v == null || v.Abandoned || v.Cell.Tile == null || v.Cell.Pending != v || !(v.Built || v.Error != null)) continue;
+                    _jobs[lane] = null;
+                    Finish(v);
+                }
+            // A finished build with nothing left to upload (its houses make no geometry: heroes and dropped outlines)
+            // replaces its cell's version at once: it never waits behind the chunks of other builds, nor for a frame in
+            // which B0 has bytes to upload (the streamer uploads B0 only then).
+            for (int i = _ready.Count - 1; i >= 0; i--)
             {
-                Version v = _jobs[lane];
-                if (v == null || v.Abandoned || v.Cell.Tile == null || v.Cell.Pending != v || !(v.Built || v.Error != null)) continue;
-                _jobs[lane] = null;
-                Finish(v);
+                Version v = _ready[i];
+                if (v.Abandoned || v.Cell.Tile == null || v.Cell.Pending != v || v.Uploaded < v.Chunks.Count) continue;
+                _ready.RemoveAt(i);
+                Swap(v.Cell, v);
             }
         }
 
@@ -1290,6 +1312,35 @@ namespace Ghumante.World.Buildings
             }
         }
 
+        /// <summary>Finished builds waiting for upload (only the urgent ones with <paramref name="urgentOnly"/>).</summary>
+        private int ReadyCount(bool urgentOnly)
+        {
+            int n = 0;
+            for (int i = 0; i < _ready.Count; i++)
+                if (!_ready[i].Abandoned && (!urgentOnly || _ready[i].Urgent)) n++;
+            return n;
+        }
+
+        /// <summary>
+        /// True when a finished build waiting for upload was started for a house the band draws, or will within the lead,
+        /// that its cell lacks (B1 stands in for it until the build is up, or will in a few frames): the streamer then
+        /// uploads B0 before its tiles (<see cref="B0UploadShare"/>), so a tile streaming in never makes a house riding
+        /// brings in late. Main thread.
+        /// </summary>
+        public bool UrgentUploadWaiting
+        {
+            get
+            {
+                Harvest();
+                for (int i = 0; i < _ready.Count; i++)
+                {
+                    Version v = _ready[i];
+                    if (v.Urgent && !v.Abandoned && v.Cell.Pending == v && v.Uploaded < v.Chunks.Count) return true;
+                }
+                return false;
+            }
+        }
+
         /// <summary>
         /// Uploads finished cells chunk by chunk while they fit in <paramref name="budgetBytes"/> (with
         /// <paramref name="atLeastOne"/>, one chunk even when it does not); a cell whose last chunk is up replaces its old
@@ -1301,18 +1352,26 @@ namespace Ghumante.World.Buildings
             long used = 0;
             while (_ready.Count > 0)
             {
-                Version v = _ready[0];
+                // Urgent builds (a house the band draws now, or will within the lead) go up first.
+                int at = 0;
+                for (int i = 0; i < _ready.Count; i++)
+                    if (_ready[i].Urgent && !_ready[i].Abandoned)
+                    {
+                        at = i;
+                        break;
+                    }
+                Version v = _ready[at];
                 Cell c = v.Cell;
                 if (v.Abandoned || c.Tile == null || c.Pending != v)
                 {
-                    _ready.RemoveAt(0);
+                    _ready.RemoveAt(at);
                     if (c.Pending == v) c.Pending = null;
                     Drop(v);
                     continue;
                 }
                 if (v.Uploaded >= v.Chunks.Count)
                 {
-                    _ready.RemoveAt(0);
+                    _ready.RemoveAt(at);
                     Swap(c, v);
                     continue;
                 }

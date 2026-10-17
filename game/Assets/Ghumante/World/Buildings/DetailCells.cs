@@ -138,6 +138,12 @@ namespace Ghumante.World.Buildings
             get { return _set.NextUploadBytes; }
         }
 
+        /// <summary>True when a build the band needs now waits for upload (it goes before the tiles').</summary>
+        public bool UrgentUploadWaiting
+        {
+            get { return !_disposed && _set.UrgentUploadWaiting; }
+        }
+
         /// <summary>Uploads finished cell chunks within <paramref name="budgetBytes"/> (one at least with
         /// <paramref name="atLeastOne"/>); returns the bytes uploaded.</summary>
         public long Upload(long budgetBytes, bool atLeastOne)

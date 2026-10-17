@@ -130,9 +130,11 @@ namespace Ghumante.World.Streaming
 
         /// <summary>
         /// One frame: stream around <paramref name="focus"/>. The upload budget follows the frame rate target (1.5 ms at
-        /// 60 fps, 2 ms at 30 fps). Tiles and B0 cells share the scheduler's per-frame byte cap: B0 chunks (about half a
-        /// megabyte) take what the tile uploads left, and when they found no room for <see cref="B0StarvedTicks"/> frames
-        /// in a row they go first (up to half the cap) and the tiles get the rest, so neither starves.
+        /// 60 fps, 2 ms at 30 fps). Tiles and B0 cells share the scheduler's per-frame byte cap (<see cref="B0UploadShare"/>):
+        /// B0 chunks (about half a megabyte) take what the tile uploads left, and go first (up to half the cap) when a
+        /// build the band needs now is waiting (a house riding brings in) or when they found no room for
+        /// <see cref="B0UploadShare.StarvedTicks"/> frames in a row, so neither starves and a tile streaming in never
+        /// makes a house late.
         /// </summary>
         public void Tick(WorldPos focus)
         {
@@ -145,21 +147,22 @@ namespace Ghumante.World.Streaming
             long cap = _uploadCapBytes, b0 = 0;
             bool b0Waiting = _cells.NextUploadBytes > 0;
             double start = NowMs();
-            if (b0Waiting && _b0Starved >= B0StarvedTicks) b0 = _cells.Upload(cap / 2, true);
+            long first = _b0Share.First(cap, b0Waiting, b0Waiting && _cells.UrgentUploadWaiting);
+            if (first > 0) b0 = _cells.Upload(first, true);
             double b0Ms = NowMs() - start;
             _scheduler.UploadBudgetBytes = Math.Max(1, cap - b0);
             _scheduler.UploadBudgetMs = Math.Max(0.1, budget - b0Ms);
             _tickUploadBytes = 0;
             _scheduler.Tick(focus.X, focus.Z);
             StreamingStats st = _scheduler.Stats;
-            long used = b0 + _tickUploadBytes;
-            if (b0 == 0 && b0Waiting && budget - b0Ms - st.UploadMs > 0.25) b0 = _cells.Upload(cap - used, false);
-            _b0Starved = b0Waiting && b0 == 0 ? _b0Starved + 1 : 0;
+            long after = _b0Share.After(cap, b0 + _tickUploadBytes, b0Waiting, first > 0, budget - b0Ms - st.UploadMs);
+            if (after > 0) b0 += _cells.Upload(after, false);
+            _b0Share.EndFrame(b0Waiting, b0);
             _scheduler.UploadBudgetBytes = cap;
         }
 
-        /// <summary>Frames B0 cells wait behind tile uploads before they upload first.</summary>
-        private const int B0StarvedTicks = 3;
+        /// <summary>How tiles and B0 cells share the frame's upload cap.</summary>
+        private readonly B0UploadShare _b0Share = new B0UploadShare();
 
         /// <summary>Where the building bands are measured from (the player while the camera chases it; owner playtest #4).</summary>
         private readonly BandAnchor _bandAnchor = new BandAnchor();
@@ -169,7 +172,6 @@ namespace Ghumante.World.Streaming
 
         private readonly long _uploadCapBytes;
         private long _tickUploadBytes;
-        private int _b0Starved;
 
         /// <summary>Re-place every view for a new floating origin (exact: computed from the doubles each time).</summary>
         public void Rebase(WorldPos origin)

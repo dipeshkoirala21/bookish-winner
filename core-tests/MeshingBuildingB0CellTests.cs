@@ -692,6 +692,33 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
+        /// The streamer's upload policy (WorldStreamer.Tick through B0UploadShare): B0 goes before the tiles, with half
+        /// the cap, when a build the band needs now waits, or after three frames in which it had something waiting and
+        /// uploaded nothing; otherwise it takes what the tiles leave, when there is time left.
+        /// </summary>
+        [Test]
+        public void UploadShareGoesFirstForUrgentOrStarvedB0()
+        {
+            const long cap = 1L << 20;
+            var s = new B0UploadShare();
+            Assert.AreEqual(0, s.First(cap, false, false), "nothing waiting: nothing first");
+            Assert.AreEqual(cap / 2, s.First(cap, true, true), "a missing house goes first, with half the cap");
+            for (int f = 0; f < B0UploadShare.StarvedTicks; f++)
+            {
+                Assert.AreEqual(0, s.First(cap, true, false), "a level build waits behind the tiles (frame " + f + ")");
+                Assert.AreEqual(0, s.After(cap, cap, true, false, 0.0), "the tiles took the whole cap");
+                s.EndFrame(true, 0);
+            }
+            Assert.AreEqual(B0UploadShare.StarvedTicks, s.Starved);
+            Assert.AreEqual(cap / 2, s.First(cap, true, false), "starved for three frames: it goes first");
+            s.EndFrame(true, 400000);
+            Assert.AreEqual(0, s.Starved);
+            Assert.AreEqual(cap - 300000, s.After(cap, 300000, true, false, 1.0), "after the tiles: what they left");
+            Assert.AreEqual(0, s.After(cap, 300000, true, true, 1.0), "not twice in a frame");
+            Assert.AreEqual(0, s.After(cap, 300000, true, false, B0UploadShare.MinAfterMs), "not without upload time left");
+        }
+
+        /// <summary>
         /// Each shown cell registers its own collider set under the quadtree tile it coincides with (level 15 for the
         /// 32 m cells of a level-10 tile); moving the camera re-registers only the cells that changed, never a tile's set.
         /// </summary>

@@ -283,8 +283,19 @@ namespace Ghumante.Core.Tests
             public int Frames, GapFrames, DoubleFrames, BlockFlips, Reshows, QuickReshows, LevelReversals, StopBuilds, ColliderMismatches, Handovers;
             public long GapParts, DoubleParts;
             public int PeakShownTris, PeakMovingTris, PeakInViewTris, BlocksStandingIn;
+            public long MostUploadBytes;
             public readonly HashSet<long> GapHouses = new HashSet<long>(), DoubleHouses = new HashSet<long>();
             public string FirstGap, FirstDouble, FirstFlip, PeakNote, FirstReversal, FirstReshow, Work;
+
+            /// <summary>Per frame, what showed: 1 a gap, 2 a double, 4 a block flip, 8 a cell re-show (the ride timeline
+            /// preview, <see cref="DumpRideTimelines"/>).</summary>
+            public readonly List<byte> Timeline = new List<byte>();
+
+            /// <summary>Records one frame's events in the <see cref="Timeline"/> (counts before the frame given).</summary>
+            public void Mark(bool gap, bool dbl, int flipsBefore, int reshowsBefore)
+            {
+                Timeline.Add((byte)((gap ? 1 : 0) | (dbl ? 2 : 0) | (BlockFlips > flipsBefore ? 4 : 0) | (Reshows > reshowsBefore ? 8 : 0)));
+            }
 
             public override string ToString()
             {
@@ -512,12 +523,37 @@ namespace Ghumante.Core.Tests
                     }
             }
 
+            /// <summary>The streamer's upload policy (WorldStreamer.Tick) with tiles streaming in every frame and taking all
+            /// of the cap they are given (<see cref="RideCells"/> with <c>tilesStream</c>); null: B0 has the whole 1 MB cap.</summary>
+            public B0UploadShare Share;
+
+            /// <summary>With <see cref="Share"/>: false to ignore <see cref="B0CellSet.UrgentUploadWaiting"/> (the streamer
+            /// before this package's playtest round: B0 went first only after three starved frames).</summary>
+            public bool UrgentFirst = true;
+
+            /// <summary>B0 bytes uploaded by the last <see cref="Frame"/>, and the most in one frame.</summary>
+            public long FrameUploadBytes, MostUploadBytes;
+
             /// <summary>One frame as the streamer runs it: uploads (Tick), then the cells' update (UpdateView).</summary>
             public void Frame(double x, double z)
             {
                 Intra = 0;
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                Set.Upload(1L << 20, true);
+                if (Share == null) FrameUploadBytes = Set.Upload(1L << 20, true);
+                else
+                {
+                    // WorldStreamer.Tick, the tiles taking every byte and millisecond they are left.
+                    const long cap = 1L << 20;
+                    bool waiting = Set.NextUploadBytes > 0;
+                    long first = Share.First(cap, waiting, UrgentFirst && waiting && Set.UrgentUploadWaiting), b0 = 0;
+                    if (first > 0) b0 = Set.Upload(first, true);
+                    long tiles = cap - b0;
+                    long after = Share.After(cap, b0 + tiles, waiting, first > 0, 0.0);
+                    if (after > 0) b0 += Set.Upload(after, false);
+                    Share.EndFrame(waiting, b0);
+                    FrameUploadBytes = b0;
+                }
+                MostUploadBytes = Math.Max(MostUploadBytes, FrameUploadBytes);
                 Set.Update(x, z);
                 MainMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 _deferred?.Drain();
@@ -589,7 +625,7 @@ namespace Ghumante.Core.Tests
         /// <summary>Rides the cell set along the frames on a tier, the band centred where <paramref name="centre"/> says
         /// (the streamer's choice), and counts what the bands draw.</summary>
         internal static Tally RideCells(int tier, List<RideFrame> frames, Func<RideFrame, double[]> centre, Action<int, StableBench, double[]> onFrame = null,
-                                        bool deferred = false)
+                                        bool deferred = false, bool tilesStream = false, bool urgentFirst = true)
         {
             var b = new StableBench(tier, deferred);
             var tally = new Tally();
@@ -602,6 +638,13 @@ namespace Ghumante.Core.Tests
                 if (b.Set.Settled && f > 2) break;
             }
             Assert.IsTrue(b.Set.Settled, TierName[tier] + ": B0 settles at the start");
+            if (tilesStream)
+            {
+                // From the start of the ride, tiles stream in every frame (the settle above is the loading screen).
+                b.Share = new B0UploadShare();
+                b.UrgentFirst = urgentFirst;
+                b.MostUploadBytes = 0;
+            }
 
             var blockMode = new Dictionary<long, bool>();
             var shownState = new Dictionary<long, bool>();
@@ -620,7 +663,7 @@ namespace Ghumante.Core.Tests
             {
                 double[] c = centre(fr);
                 b.AddTilesAround(c[0], c[1]);
-                int builds = b.Set.Builds;
+                int builds = b.Set.Builds, flipsBefore = tally.BlockFlips, reshowsBefore = tally.Reshows;
                 b.Frame(c[0], c[1]);
                 tally.Frames++;
                 if (!fr.Stopped) tally.PeakMovingTris = Math.Max(tally.PeakMovingTris, b.Set.ShownTris);
@@ -788,12 +831,15 @@ namespace Ghumante.Core.Tests
                 }
                 if (gapFrame) tally.GapFrames++;
                 if (dblFrame) tally.DoubleFrames++;
+                tally.Mark(gapFrame, dblFrame, flipsBefore, reshowsBefore);
                 tally.BlocksStandingIn = Math.Max(tally.BlocksStandingIn, standing);
                 first = false;
                 onFrame?.Invoke(tally.Frames - 1, b, c);
             }
-            tally.Work = string.Format("{0} builds by reason {1}, {2} houses built, {3} copied, {4} slices, {5:0} ms of work", b.Set.Builds,
-                                       string.Join("/", b.Set.BuildsByReason), b.Set.HousesBuilt, b.Set.HousesReused, b.Set.Slices, b.Set.WorkMs);
+            tally.Work = string.Format("{0} builds by reason {1}, {2} houses built, {3} copied, {4} slices, {5:0} ms of work; at most {6:0.00} MB uploaded in a frame",
+                                       b.Set.Builds, string.Join("/", b.Set.BuildsByReason), b.Set.HousesBuilt, b.Set.HousesReused, b.Set.Slices, b.Set.WorkMs,
+                                       b.MostUploadBytes / 1048576.0);
+            tally.MostUploadBytes = b.MostUploadBytes;
             b.Set.Dispose();
             return tally;
         }
@@ -1117,6 +1163,7 @@ namespace Ghumante.Core.Tests
                 bool first = true;
                 foreach (RideFrame fr in frames)
                 {
+                    int flipsBefore = tally.BlockFlips, reshowsBefore = tally.Reshows;
                     o.AddTilesAround(fr.CamX, fr.CamZ);
                     o.Update(fr.CamX, fr.CamZ, now);
                     now += FrameMs;
@@ -1186,6 +1233,7 @@ namespace Ghumante.Core.Tests
                     }
                     if (gapFrame) tally.GapFrames++;
                     if (dblFrame) tally.DoubleFrames++;
+                    tally.Mark(gapFrame, dblFrame, flipsBefore, reshowsBefore);
                     first = false;
                     onFrame?.Invoke(tally.Frames - 1, o);
                 }
@@ -1349,6 +1397,40 @@ namespace Ghumante.Core.Tests
                 scene.Write("b0flicker/new_" + (f - flip + 1));
                 Context(scene, fr, "new_" + (f - flip + 1));
             });
+        }
+
+        /// <summary>
+        /// The ride's timeline for the preview chart (set <c>GHUMANTE_PREVIEW_DIR</c>): per frame of the Thamel to Asan ride
+        /// and per tier, what the old ring cells and the B0 cells showed (gap, double, block flip, re-show), written to
+        /// <c>b0timeline/thamel_asan.csv</c> with whether the rider stands (the chart in the perf-cells previews).
+        /// </summary>
+        [Test]
+        public void DumpRideTimelines()
+        {
+            if (!ObjDump.Enabled) Assert.Pass("set " + ObjDump.EnvVar + " to dump the ride timeline");
+            List<RideFrame> frames = Ride(ThamelToAsan(), 10.0);
+            var cols = new List<List<byte>>();
+            for (int tier = 0; tier <= 2; tier++)
+            {
+                cols.Add(OldRings.Ride(tier, frames).Timeline);
+                var anchor = new BandAnchor();
+                cols.Add(RideCells(tier, frames, f =>
+                {
+                    anchor.Follow(f.CamX, f.CamZ, f.RiderX, f.RiderZ, true);
+                    return new[] { anchor.X, anchor.Z };
+                }).Timeline);
+            }
+            var sb = new System.Text.StringBuilder("frame,t,stopped,low_old,low_new,mid_old,mid_new,high_old,high_new\n");
+            for (int f = 0; f < frames.Count; f++)
+            {
+                sb.Append(f).Append(',').Append(frames[f].T.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(frames[f].Stopped ? 1 : 0);
+                foreach (List<byte> c in cols) sb.Append(',').Append(f < c.Count ? c[f] : 0);
+                sb.Append('\n');
+            }
+            string path = Path.Combine(ObjDump.Dir, "b0timeline", "thamel_asan.csv");
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, sb.ToString());
+            TestContext.WriteLine("timeline: " + path);
         }
 
         /// <summary>Terrain and roads around the frame, and the chase camera's eye and look (home tile frame, Unity axes).</summary>
@@ -1592,6 +1674,45 @@ namespace Ghumante.Core.Tests
                 // processes shows in the tail, which is reported).
                 Assert.Less(p50, 0.5, TierName[tier] + ": B0's main-thread work is a sliver of the frame");
                 Assert.Less(sum / ms.Count, 1.0, TierName[tier] + ": on average too");
+            }
+        }
+
+        /// <summary>
+        /// The rides with tiles streaming in every frame and taking all the upload room they are left (the worst the
+        /// streamer gives B0, WorldStreamer.Tick through <see cref="B0UploadShare"/>): Thamel to Asan at 10 m/s and
+        /// Kantipath at 50 km/h. Before this round B0 went first only after three starved frames, a level build waiting
+        /// for upload held back the build of a missing house (MaxReady) and uploads went first come, first served: a house
+        /// riding brings in reached the band before its build was up, so its B1 block stood in and the whole block popped
+        /// to boxes and back (Thamel to Asan: 36 / 160 / 116 block flips and 13 / 316 / 70 cell re-shows on Low / Mid /
+        /// High). Now a build the band needs now (<see cref="B0CellSet.UrgentUploadWaiting"/>) is started past waiting
+        /// level builds, uploaded first and before the tiles: the rides are as stable as with the whole cap, and B0 takes
+        /// at most half the cap in a frame. The streamer's old policy (starved frames only) is ridden for comparison.
+        /// </summary>
+        [Test]
+        public void B0CellsStayStableWhileTilesStreamIn()
+        {
+            List<RideFrame> frames = Ride(ThamelToAsan(), 10.0), drive = Ride(LainchaurToMaitighar(), 50.0 / 3.6);
+            var tallies = new List<(string name, Tally t)>();
+            for (int tier = 0; tier <= 2; tier++)
+            {
+                for (int pass = 0; pass < 3; pass++)
+                {
+                    var anchor = new BandAnchor();
+                    Tally t = RideCells(tier, pass == 2 ? drive : frames, f =>
+                    {
+                        anchor.Follow(f.CamX, f.CamZ, f.RiderX, f.RiderZ, true);
+                        return new[] { anchor.X, anchor.Z };
+                    }, null, false, true, pass > 0);
+                    string name = TierName[tier] + (pass == 0 ? " Thamel-Asan, starved-only" : pass == 1 ? " Thamel-Asan, urgent-first" : " Kantipath at 50, urgent-first");
+                    TestContext.WriteLine("{0}: {1}; first flip {2}; first gap {3}", name, t, t.FirstFlip, t.FirstGap);
+                    TestContext.WriteLine("     worker: {0}", t.Work);
+                    if (pass > 0) tallies.Add((name, t));
+                }
+            }
+            foreach ((string name, Tally t) in tallies)
+            {
+                AssertStable(t, name.Substring(0, name.IndexOf(' ')));
+                Assert.LessOrEqual(t.MostUploadBytes, 1L << 19, name + ": B0 takes at most half the frame's cap");
             }
         }
 

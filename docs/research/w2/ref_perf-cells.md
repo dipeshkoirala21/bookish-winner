@@ -6,8 +6,8 @@
 > rider sees of the houses along real streets, and what must therefore never change while riding or standing.
 >
 > Photos: Openverse (Flickr, open licences), the buildings package's set under `/home/user/wt/refs/buildings/asan/`
-> and `/home/user/wt/refs/buildings/thamel/` (an Openverse search for Thahiti and Asan failed on 2026-10-17, so these
-> were reused). **Reference only: nothing from them is copied into the repository.** Credits in §5. Labels: **[photo]**
+> and `/home/user/wt/refs/buildings/thamel/` (Openverse searches for Thahiti, Asan and Thamel streets failed on
+> 2026-10-17, twice, so these were reused). **Reference only: nothing from them is copied into the repository.** Credits in §5. Labels: **[photo]**
 > seen in the cited photographs, **[src]** a cited source, **[est]** an estimate, **[measured]** from the core tests on
 > the `kathmandu_core` sample.
 
@@ -33,6 +33,9 @@
 5. **Colliders are what is drawn**: a shown cell registers exactly its version's set, a hidden one none.
 6. **The budget holds while riding**, without lowering a level near the rider: levels are raised only while the raise
    leaves 10 k triangles of the tier's B0 budget free for the houses riding brings in (`B0CellSet.RaiseCapTris`).
+7. **A tile streaming in never makes a house late**: the build for a house about to enter the band goes up before
+   level builds and before tile chunks (`B0UploadShare`, `B0CellSet.UrgentUploadWaiting`), within half the frame's
+   upload cap, so the B1 block never has to stand in for it.
 
 ## 3. Measured before and after (core-tests `MeshingBuildingB0StabilityTests`, 30 fps, worker cost model)
 
@@ -55,11 +58,39 @@ Also 0 level reversals, 0 rebuilds while the rider stands and 0 collider mismatc
 main-thread work per frame (selection, stand-in fixed point, show and hide, colliders, upload bookkeeping; the builds
 on a worker) has a median of 0.03 / 0.07 / 0.09 ms on Low / Mid / High (desktop Debug build).
 
+**While tiles stream in** (core-tests `B0CellsStayStableWhileTilesStreamIn`): the rides above give B0 the whole 1 MB
+upload cap every frame. In the game the streamer shares that cap with tile chunks (`WorldStreamer.Tick`); the worst case
+is a new tile streaming in every frame and taking all the room it is left, so B0 uploads only when it goes first. Ridden
+through the very policy the game runs (`B0UploadShare`):
+
+| Ride, tiles streaming every frame | Tier | Before this round: block flips / cell re-shows | After |
+|---|---|---|---|
+| Thamel Chowk to Asan at 10 m/s | Low | 36 / 13 | 0 / 0 |
+| | Mid | 160 / 316 | 0 / 0 |
+| | High | 116 / 70 | 0 / 0 |
+| Lainchaur to Maitighar at 50 km/h | Low / Mid / High | (not ridden before) | 0 / 0, 0 / 0, 0 / 0 |
+
+Before: B0 went first only after three starved frames, a level build waiting for upload held back the build of a
+missing house (`MaxReady` counted every waiting build), uploads went first come, first served, and a build whose houses
+make no geometry (a hero's outline) waited for a frame in which B0 had bytes to upload; a house riding brought in
+reached the band before its build was up, so its 128 m B1 block stood in and the whole block popped to boxes and back.
+After: a build for a missing house starts past waiting level builds, uploads before them and before the tiles
+(`B0CellSet.UrgentUploadWaiting`), and an empty build swaps in at once; B0 takes at most half the cap in a frame. The
+ride timeline (`round3/ride_timeline_thamel_asan.png`) shows every frame of the whole-cap ride, old rings against
+cells, per tier. The same tile-streaming ride runs in Unity's EditMode tests against the World assembly as Unity
+compiles it (`Tests/EditMode/WorldB0StabilityTests`: no toggle, flip, double, hole, half-uploaded version, collider
+mismatch, budget overrun or rebuild while standing at Asan, on every tier; checked headless here before commit).
+
 ## 4. What the renders and the rides showed that the numbers alone did not
 
 * **Old rings, 11.00 s to 11.03 s on Amrit Marg (High)**: the house closing the street view turns into a flat B1 box
-  for a frame while a ring cell of its block rebuilds (render `flicker_before_after.png`, top row); this is the
-  flicker the owner saw. The B0 cells keep it a house in both frames (bottom row).
+  for a frame while a ring cell of its block rebuilds (render `round3/flicker_before_after.png` under
+  `/home/user/wt/previews/perf-cells/`, top row); this is the flicker the owner saw. The B0 cells keep it a house in both
+  frames (bottom row). `round3/street_vs_photo.png` puts the same street beside two Asan photos: walls of 4-6 storey
+  houses close the view a few dozen metres ahead, so any house that pops is seen at once.
+* **Tiles streaming at 50 km/h on Kantipath (Low, Mid)**: with the urgent-first policy alone, 2 and 8 block flips
+  remained; the house behind them (a hero outline with no B0 geometry) had a finished build with nothing to upload, which
+  waited because the streamer uploads B0 only when it has bytes waiting. Such builds now swap in when they are harvested.
 * **Low at 50 km/h on a turn** (first run of the car ride): a house on the outside of the turn reached the band edge
   2 frames after its build was dispatched, the 0.5 m lead covering only 1.5 frames at 9.6 m/s; its 128 m block stood in
   for 2 frames (8 flips). Finished builds are now harvested at the next upload (`B0CellSet.Harvest`), so a build

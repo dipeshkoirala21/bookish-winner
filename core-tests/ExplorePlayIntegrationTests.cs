@@ -446,7 +446,10 @@ namespace Ghumante.Core.Tests
             string code = RuntimeCode();
             bool bridges = code.Contains("BridgeMesher.") && code.Contains("DeckFactory");
             bool decor = code.Contains("RoundaboutDecorator.");
-            bool statueColliders = code.Contains("Cylinders.AddRange") || code.Contains(".AddCylinder(") || code.Contains(".AddAll(");
+            // (or the streamer registers the hero collider set, cylinders included, with the ground as it is: perf-cells gave
+            // the B0 cells their own sets, so the heroes' set is no longer merged with them through AddAll).
+            bool statueColliders = code.Contains("Cylinders.AddRange") || code.Contains(".AddCylinder(") || code.Contains(".AddAll(") ||
+                                   code.Contains("HeroColliders") && code.Contains("_ground.Register(");
             TestContext.WriteLine("wired: bridges " + bridges + ", roundabout decor " + decor + ", statue colliders " + statueColliders);
             Assert.That(ReadmeStep(readme, 6).Contains(NeedsWorldIntegration), Is.EqualTo(!bridges), "step 6: bridges and the flyover");
             Assert.That(ReadmeStep(readme, 7).Contains(NeedsWorldIntegration), Is.EqualTo(!decor), "step 7: Maitighar Mandala and Shahid Gate");
