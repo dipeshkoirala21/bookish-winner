@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using Ghumante.Core.Characters;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Generators.Placement;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Roads;
+using Ghumante.Core.Traffic;
 
 namespace Ghumante.World.Instancing
 {
@@ -177,6 +179,47 @@ namespace Ghumante.World.Instancing
             // Scratch for the body test.
             public readonly double[] Px = new double[32], Pz = new double[32];
 
+            // The classes the lane graph lets drive on each road (TrafficTables.LaneClassesOf), filled on first ask; bit 31
+            // marks a road already asked about.
+            private readonly uint[] _laneClasses;
+            private const uint Asked = 1u << 31;
+
+            // The way out of every yard vehicle placed so far (centre x, z, forward x, z, half length, half width per run):
+            // nothing else stands in it.
+            private readonly List<double> _runs = new List<double>();
+
+            /// <summary>Keeps the oriented rectangle (centre, forward, half length, half width) clear of later vehicles.</summary>
+            public void AddRun(double cx, double cz, double fx, double fz, double hl, double hw)
+            {
+                _runs.Add(cx);
+                _runs.Add(cz);
+                _runs.Add(fx);
+                _runs.Add(fz);
+                _runs.Add(hl);
+                _runs.Add(hw);
+            }
+
+            /// <summary>True when the tile-local point lies in a yard vehicle's way out.</summary>
+            public bool InRun(double x, double z)
+            {
+                for (int i = 0; i + 5 < _runs.Count; i += 6)
+                {
+                    double dx = x - _runs[i], dz = z - _runs[i + 1];
+                    if (Math.Abs(dx * _runs[i + 2] + dz * _runs[i + 3]) <= _runs[i + 4] && Math.Abs(dx * _runs[i + 3] - dz * _runs[i + 2]) <= _runs[i + 5])
+                        return true;
+                }
+                return false;
+            }
+
+            /// <summary>True when the lanes of road <paramref name="road"/> carry vehicle class <paramref name="c"/> (the
+            /// player can drive a vehicle of that class off it, and the traffic would).</summary>
+            public bool Carries(int road, VehicleClass c)
+            {
+                uint m = _laneClasses[road];
+                if ((m & Asked) == 0) _laneClasses[road] = m = TrafficTables.LaneClassesOf(T, road, Layout) | Asked;
+                return (m & VehicleClasses.Bit(c)) != 0;
+            }
+
             public Site(TileData t, IHeightSampler h, RoadOptions roads, List<TreeInstance> trees, List<StreetProp> props, List<ParkedVehicle> output,
                         int first)
             {
@@ -188,6 +231,7 @@ namespace Ghumante.World.Instancing
                 Mask = new FootprintGrid(t);
                 Markets = MarketIndex.For(t);
                 Areas = new AreaMask(t);
+                _laneClasses = new uint[t.Roads.Count];
                 Output = output;
                 First = first;
                 Size = t.Tile.Size;
@@ -257,7 +301,8 @@ namespace Ghumante.World.Instancing
         /// <summary>The body grid's four corners.</summary>
         private static readonly int[] Corners = { 0, 2, 12, 14 };
 
-        private static bool TryStand(Site s, int variant, double cx, double cz, double fx, double fz, double corridorGap, float roadY, ulong key)
+        private static bool TryStand(Site s, int variant, double cx, double cz, double fx, double fz, double corridorGap, float roadY, ulong key,
+                                     double gap = KerbGapM, double exitM = 0.0)
         {
             VehicleCatalogEntry e = VehicleCatalog.At(variant);
             double hl = 0.5 * e.LengthM, hw = 0.5 * e.WidthM;
@@ -296,7 +341,7 @@ namespace Ghumante.World.Instancing
                     if (s.Corridors.SignedDistance(x0 + s.Px[k], z0 + s.Pz[k]) < corridorGap)
                         return false;
             for (int k = 0; k < n; k++)
-                if (s.Areas.Forbidden(s.Px[k], s.Pz[k]))
+                if (s.Areas.Forbidden(s.Px[k], s.Pz[k]) || s.InRun(s.Px[k], s.Pz[k]))
                     return false;
             if (s.HitsSolid(cx, cz, fx, fz, hl, hw, SolidGapM)) return false;
             // Level ground: the terrain at the four corners.
@@ -325,8 +370,30 @@ namespace Ghumante.World.Instancing
                 Id = WorldHash.Fnv1a(key, 0),
             };
             for (int k = s.First; k < s.Output.Count; k++)
-                if (Overlap(s.Output[k], v, KerbGapM))
+                if (Overlap(s.Output[k], v, gap))
                     return false;
+            // A yard vehicle's way out (exitM metres ahead of its nose, its own width plus a margin): no building, trunk,
+            // pole or other vehicle in it, so it can be driven straight out onto its road.
+            if (exitM > 0.0)
+            {
+                double ew = hw + ExitMarginM;
+                for (double d = 0.3; d <= exitM; d += 0.5)
+                    for (int b = -1; b <= 1; b++)
+                    {
+                        double px = cx + fx * (hl + d) + rx * ew * b, pz = cz + fz * (hl + d) + rz * ew * b;
+                        if (px < 0 || pz < 0 || px >= s.Size || pz >= s.Size) continue;
+                        if (s.Mask.Inside(px, pz) || s.InRun(px, pz)) return false;
+                        for (int k = s.First; k < s.Output.Count; k++)
+                            if (InBody(s.Output[k], px, pz, 0.2))
+                                return false;
+                    }
+                if (s.HitsSolid(cx + fx * (hl + 0.5 * exitM), cz + fz * (hl + 0.5 * exitM), fx, fz, 0.5 * exitM, ew, 0.0)) return false;
+            }
+            // A drivable four-wheeler keeps its driver's door free (or the other side, where the player may climb in by the
+            // passenger door): no building, trunk, pole or other vehicle where the player stands to climb in.
+            double doorX = 0, doorZ = 0;
+            bool hasDoor = e.PlayerDrivable && !VehicleRoles.IsTwoWheeler(e.Shape);
+            if (hasDoor && !DoorFree(s, variant, ox, oz, fx, fz, rx, rz, out doorX, out doorZ)) return false;
             // Last (it is the dearest test): off the drawn surface itself wherever a corner comes near a corridor, should a
             // piece be drawn wider than its corridor.
             if (s.Surface != null)
@@ -339,7 +406,78 @@ namespace Ghumante.World.Instancing
                         return false;
                 }
             s.Output.Add(v);
+            // Nothing parks later where the player stands to climb in.
+            if (hasDoor) s.AddRun(doorX, doorZ, fx, fz, DoorRoomM, 0.25 + DoorRoomM);
+            if (exitM > 0.0) s.AddRun(cx + fx * (hl + 0.5 * exitM), cz + fz * (hl + 0.5 * exitM), fx, fz, 0.5 * exitM, hw + ExitMarginM);
             return true;
+        }
+
+        /// <summary>Room (metres) kept round the spot where the player stands to climb in: the walker's radius and a margin.</summary>
+        public const double DoorRoomM = 0.45;
+
+        /// <summary>True when the driver's entry spot of a vehicle with its rear-axle origin at (ox, oz) (tile-local),
+        /// forward (fx, fz) and right (rx, rz), or its alternate on the other side, is free of buildings, trunks, poles and
+        /// other parked vehicles (<see cref="MountPlan"/> also looks half a metre further out); the spot used comes back in
+        /// (<paramref name="doorX"/>, <paramref name="doorZ"/>).</summary>
+        private static bool DoorFree(Site s, int variant, double ox, double oz, double fx, double fz, double rx, double rz, out double doorX, out double doorZ)
+        {
+            SeatSocket[] seats = VehicleRoles.Seats(variant);
+            SeatSocket seat = seats[0];
+            for (int i = 0; i < seats.Length; i++)
+                if (seats[i].Kind == SeatKind.Driver)
+                {
+                    seat = seats[i];
+                    break;
+                }
+            float lx = seat.EntryX;
+            bool free = SpotFree(s, ox, oz, fx, fz, rx, rz, lx, seat.EntryZ);
+            if (!free && seat.HasAlternate)
+            {
+                lx = seat.AltEntryX;
+                free = SpotFree(s, ox, oz, fx, fz, rx, rz, lx, seat.EntryZ);
+            }
+            double l = lx + (lx >= 0f ? 0.25 : -0.25);
+            doorX = ox + rx * l + fx * seat.EntryZ;
+            doorZ = oz + rz * l + fz * seat.EntryZ;
+            return free;
+        }
+
+        private static bool SpotFree(Site s, double ox, double oz, double fx, double fz, double rx, double rz, float lx, float lz)
+        {
+            double outward = lx >= 0f ? 1.0 : -1.0;
+            for (int k = 0; k < 2; k++)
+            {
+                double l = lx + outward * 0.5 * k;
+                double px = ox + rx * l + fx * lz, pz = oz + rz * l + fz * lz;
+                if (px < 0 || pz < 0 || px >= s.Size || pz >= s.Size) return false;
+                for (int a = 0; a < 4; a++)
+                {
+                    double ang = a * Math.PI * 0.5;
+                    if (s.Mask.Inside(px + Math.Cos(ang) * DoorRoomM, pz + Math.Sin(ang) * DoorRoomM)) return false;
+                }
+                if (s.Mask.Inside(px, pz) || s.HitsSolid(px, pz, fx, fz, 0.0, 0.0, DoorRoomM)) return false;
+                for (int j = s.First; j < s.Output.Count; j++)
+                    if (InBody(s.Output[j], px, pz, DoorRoomM))
+                        return false;
+            }
+            return true;
+        }
+
+        /// <summary>Margin (metres) each side of a yard vehicle's way out.</summary>
+        public const double ExitMarginM = 0.4;
+
+        /// <summary>Least gap (metres) between two vehicles in a yard: room to open a door and climb in.</summary>
+        public const double YardGapM = 1.4;
+
+        /// <summary>True when the tile-local point lies within <paramref name="pad"/> of parked vehicle
+        /// <paramref name="v"/>'s plan rectangle.</summary>
+        public static bool InBody(in ParkedVehicle v, double x, double z, double pad)
+        {
+            VehicleCatalogEntry e = VehicleCatalog.At(v.Variant);
+            double yaw = v.YawDeg * Math.PI / 180.0, fx = Math.Sin(yaw), fz = Math.Cos(yaw);
+            double c = 0.5 * e.LengthM - e.RearOverhangM;
+            double dx = x - (v.X + fx * c), dz = z - (v.Z + fz * c);
+            return Math.Abs(dx * fx + dz * fz) <= 0.5 * e.LengthM + pad && Math.Abs(dx * fz - dz * fx) <= 0.5 * e.WidthM + pad;
         }
 
         /// <summary>The road edge beside road <paramref name="road"/> at raw along <paramref name="at"/> on side
@@ -409,7 +547,8 @@ namespace Ghumante.World.Instancing
             ulong way = r.OsmWayId * 31UL + (ulong)road;
             float min, max;
             TwoWheelerSpacing(area, out min, out max);
-            bool cars = (area == AreaType.Urban || area == AreaType.PeriUrban) && r.RoadClass != RoadClass.Service;
+            // Cars only beside a street a car can be driven off on (the lane graph carries cars there: not a galli).
+            bool cars = (area == AreaType.Urban || area == AreaType.PeriUrban) && r.RoadClass != RoadClass.Service && s.Carries(road, VehicleClass.Car);
             for (int sideIx = 0; sideIx < 2; sideIx++)
             {
                 double side = sideIx == 0 ? 1.0 : -1.0;
@@ -443,6 +582,7 @@ namespace Ghumante.World.Instancing
                     if (s.Layout.InGap(road, here)) continue;
                     float u = WorldHash.Unit(key, PurposeKind + 2);
                     int variant = u < 0.5f ? VehicleCatalog.Hatchback : u < 0.68f ? VehicleCatalog.Taxi : u < 0.85f ? VehicleCatalog.Suv : VehicleCatalog.Ev;
+                    if (!s.Carries(road, VehicleCatalog.At(variant).TrafficClass)) variant = VehicleCatalog.Hatchback;
                     TryParallel(s, road, here, side, variant, key, true);
                 }
             }
@@ -533,7 +673,12 @@ namespace Ghumante.World.Instancing
                 Centroid(a.Vertices, out cx, out cz);
                 AddSite(siteX, siteZ, siteKey, cx, cz, a.OsmRef);
             }
-            for (int k = 0; k < siteX.Count; k++) ParkInYard(s, siteX[k], siteZ[k], siteKey[k], SiteKind.BusPark, BusParkReachM, -1);
+            for (int k = 0; k < siteX.Count; k++)
+            {
+                int placed = ParkInYard(s, siteX[k], siteZ[k], siteKey[k], SiteKind.BusPark, BusParkReachM, -1);
+                // A station with no open yard (a roadside stand, as at Chabahil): its vehicles wait at the kerb beside it.
+                if (placed < BusParkVehicles) ParkAtStand(s, siteX[k], siteZ[k], siteKey[k], BusParkVehicles - placed, placed);
+            }
             // 2. Depots and works yards: a lorry, a tipper, a tanker or a pickup in every industrial area.
             for (int i = 0; i < t.Areas.Count; i++)
             {
@@ -555,6 +700,8 @@ namespace Ghumante.World.Instancing
                 bool rural = a.Area == AreaType.Rural || a.Area == AreaType.Hill;
                 float per100;
                 SiteKind kind;
+                // Every four-wheeler stands beside a road a four-wheeler can be driven off on (its lanes carry cars).
+                if (!s.Carries(i, VehicleClass.Car)) continue;
                 if ((rural || a.Area == AreaType.PeriUrban) && (HomeStreet(r.RoadClass) || r.RoadClass == RoadClass.Track) && NearFarm(farms, r))
                 {
                     per100 = rural ? RuralTractorPer100M : PeriUrbanTractorPer100M;
@@ -576,7 +723,10 @@ namespace Ghumante.World.Instancing
                 {
                     ulong key = way * 2654435761UL + (ulong)c;
                     double side = (WorldHash.Fnv1a(key, PurposeHeavySlot + 1) & 1) == 0 ? 1.0 : -1.0;
-                    int variant = PickHeavy(kind, key, 0);
+                    int variant = PickHeavy(kind, key, 1);
+                    // A lorry, micro or tempo stands only beside a street wide enough for its class (the lanes carry it):
+                    // lorries on the wide streets, micros and tempos on the middling ones, pickups on any car street.
+                    if (kind == SiteKind.Street && !s.Carries(i, VehicleCatalog.At(variant).TrafficClass)) continue;
                     // A few tries along the street for a place with room beside it.
                     for (int tryIx = 0; tryIx < 4; tryIx++)
                     {
@@ -683,17 +833,77 @@ namespace Ghumante.World.Instancing
             }
         }
 
+        /// <summary>A yard vehicle's road: the centre line of a road whose lanes carry its class (else cars: every
+        /// four-wheeler fits a car road) lies within this distance (metres) of the body's centre, and the nose points at
+        /// it, so it can be driven straight out.</summary>
+        public const double YardRoadReachM = 30.0;
+
+        /// <summary>The nearest point (tile-local) within <paramref name="reach"/> of (x, z) on the rendered centre line of
+        /// one of <paramref name="roads"/> whose lanes carry class <paramref name="c"/>.</summary>
+        private static bool NearestCarried(Site s, List<int> roads, double x, double z, VehicleClass c, double reach, out double px, out double pz)
+        {
+            px = pz = 0;
+            double best = reach * reach;
+            bool found = false;
+            for (int q = 0; q < roads.Count; q++)
+            {
+                int i = roads[q];
+                if (!s.Carries(i, c)) continue;
+                RoadRecord r = s.T.Roads[i];
+                int first, last;
+                RoadSpatialIndex.RenderedRange(r, out first, out last);
+                for (int k = first; k < last; k++)
+                {
+                    double ax = r.Points[2 * k] / 100.0, az = r.Points[2 * k + 1] / 100.0;
+                    double dx = r.Points[2 * k + 2] / 100.0 - ax, dz = r.Points[2 * k + 3] / 100.0 - az, l2 = dx * dx + dz * dz;
+                    double u = l2 > 1e-9 ? Math.Max(0.0, Math.Min(1.0, ((x - ax) * dx + (z - az) * dz) / l2)) : 0.0;
+                    double qx = ax + dx * u, qz = az + dz * u, d = (qx - x) * (qx - x) + (qz - z) * (qz - z);
+                    if (d >= best) continue;
+                    best = d;
+                    px = qx;
+                    pz = qz;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>The roads of the tile with a point within <paramref name="reach"/> of (x, z) (raised or graded ones too:
+        /// a yard's vehicle may drive out onto any road with lanes).</summary>
+        private static List<int> RoadsNear(Site s, double x, double z, double reach)
+        {
+            var list = new List<int>();
+            for (int i = 0; i < s.T.Roads.Count; i++)
+            {
+                RoadRecord r = s.T.Roads[i];
+                if (r.Points == null || r.PointCount < 2) continue;
+                double x0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, z1 = double.MinValue;
+                for (int k = 0; k < r.PointCount; k++)
+                {
+                    double px = r.Points[2 * k] / 100.0, pz = r.Points[2 * k + 1] / 100.0;
+                    if (px < x0) x0 = px;
+                    if (px > x1) x1 = px;
+                    if (pz < z0) z0 = pz;
+                    if (pz > z1) z1 = pz;
+                }
+                if (x < x0 - reach || x > x1 + reach || z < z0 - reach || z > z1 + reach) continue;
+                list.Add(i);
+            }
+            return list;
+        }
+
         /// <summary>
         /// Parks a site's vehicles in the open ground around (x, z) (a bus park's yard, a depot's yard), searching rings
         /// outwards to <paramref name="reach"/>: each nose to the nearest road (so it can drive out), 0.5 m clear of every
         /// road's corridor, building and other vehicle. A depot's vehicles stand inside its area (<paramref name="area"/>
         /// ≥ 0).
         /// </summary>
-        private static void ParkInYard(Site s, double x, double z, ulong key, SiteKind kind, double reach, int area)
+        private static int ParkInYard(Site s, double x, double z, ulong key, SiteKind kind, double reach, int area)
         {
             int want = kind == SiteKind.BusPark ? BusParkVehicles : 1;
             int placed = 0, slot = 0;
             double x0 = s.T.Tile.X0, z0 = s.T.Tile.Z0;
+            List<int> roads = RoadsNear(s, x, z, reach + YardRoadReachM);
             const double step = 3.5;
             for (double r = 0; r <= reach && placed < want; r += step)
             {
@@ -707,26 +917,105 @@ namespace Ghumante.World.Instancing
                     if (area >= 0 && !AreaMask.Contains(s.T.Areas[area], cx, cz)) continue;
                     double d0 = s.Corridors.SignedDistance(x0 + cx, z0 + cz);
                     if (d0 < 2.0 || d0 > 40.0) continue; // on a road, or far from every road
-                    // Nose to the road: down the corridor distance's gradient.
-                    double gx = s.Corridors.SignedDistance(x0 + cx + 0.5, z0 + cz) - s.Corridors.SignedDistance(x0 + cx - 0.5, z0 + cz);
-                    double gz = s.Corridors.SignedDistance(x0 + cx, z0 + cz + 0.5) - s.Corridors.SignedDistance(x0 + cx, z0 + cz - 0.5);
-                    double gl = Math.Sqrt(gx * gx + gz * gz);
-                    if (gl < 1e-6) continue;
-                    double fx = -gx / gl, fz = -gz / gl;
                     ulong slotKey = key * 31UL + (ulong)slot;
-                    int variant = PickHeavy(kind, slotKey, placed);
-                    VehicleCatalogEntry e = VehicleCatalog.At(variant);
                     slot++;
-                    // The nose stops short of the road: move the body back until its front clears the corridor.
-                    double ahead = 0.5 * e.LengthM + 0.6 - d0;
-                    if (ahead > 0)
+                    // The nose points at the road it drives out on: the nearest whose lanes carry its class, else the nearest
+                    // car road (a bus park's own lanes).
+                    int variant = PickHeavy(kind, slotKey, placed);
+                    double px, pz;
+                    if (!NearestCarried(s, roads, cx, cz, VehicleCatalog.At(variant).TrafficClass, YardRoadReachM, out px, out pz) &&
+                        !NearestCarried(s, roads, cx, cz, VehicleClass.Car, YardRoadReachM, out px, out pz))
+                        continue;
+                    double fx = px - cx, fz = pz - cz, fl = Math.Sqrt(fx * fx + fz * fz);
+                    if (fl < 1e-6) continue;
+                    fx /= fl;
+                    fz /= fl;
+                    VehicleCatalogEntry e = VehicleCatalog.At(variant);
+                    // The nose stops short of every road: move the body back until its front clears the corridors.
+                    for (int it = 0; it < 4; it++)
                     {
-                        cx -= fx * ahead;
-                        cz -= fz * ahead;
+                        double ahead = 0.6 - s.Corridors.SignedDistance(x0 + cx + fx * 0.5 * e.LengthM, z0 + cz + fz * 0.5 * e.LengthM);
+                        if (ahead <= 0) break;
+                        cx -= fx * (ahead + 0.05);
+                        cz -= fz * (ahead + 0.05);
                     }
-                    if (TryStand(s, variant, cx, cz, fx, fz, 0.5, float.NaN, slotKey)) placed++;
+                    // Its way out runs from the nose to the road's carriageway (2 m short of its centre line).
+                    double nx = px - (cx + fx * 0.5 * e.LengthM), nz = pz - (cz + fz * 0.5 * e.LengthM);
+                    double exit = Math.Max(1.0, Math.Sqrt(nx * nx + nz * nz) - 2.0);
+                    if (TryStand(s, variant, cx, cz, fx, fz, 0.5, float.NaN, slotKey, YardGapM, Math.Min(exit, YardRoadReachM))) placed++;
                 }
             }
+            return placed;
+        }
+
+        /// <summary>A bus station's stand reaches this far (metres) along the kerb either way from the station.</summary>
+        public const double StandReachM = 45.0;
+
+        /// <summary>
+        /// Parks up to <paramref name="want"/> of a bus station's vehicles at the kerb beside the roads round it (a roadside
+        /// stand): parallel, just outside the clear corridor of the nearest roads whose lanes carry buses (else cars), facing
+        /// the way that side's traffic flows, within <see cref="StandReachM"/> along the kerb of the station.
+        /// </summary>
+        private static void ParkAtStand(Site s, double x, double z, ulong key, int want, int slotFrom)
+        {
+            List<int> roads = RoadsNear(s, x, z, BusParkReachM);
+            var order = new List<KeyValuePair<double, int>>();
+            for (int q = 0; q < roads.Count; q++)
+            {
+                int i = roads[q];
+                if (!s.Carries(i, VehicleClass.Car) || !Grounded(s.T, i) || s.Layout.IsPassage(i)) continue;
+                double along, d;
+                ProjectAlong(s, i, x, z, out along, out d);
+                if (d > BusParkReachM) continue;
+                // Bus roads first, then the nearest.
+                order.Add(new KeyValuePair<double, int>(d + (s.Carries(i, VehicleClass.Bus) ? 0.0 : 1000.0), i));
+            }
+            order.Sort((a, b) => a.Key != b.Key ? a.Key.CompareTo(b.Key) : a.Value.CompareTo(b.Value));
+            int placed = 0, slot = slotFrom;
+            for (int o = 0; o < order.Count && placed < want; o++)
+            {
+                int i = order[o].Value;
+                double length = s.Layout.AlongAt(i, s.T.Roads[i].PointCount - 1), along0, d;
+                ProjectAlong(s, i, x, z, out along0, out d);
+                for (double off = 0; off <= StandReachM && placed < want; off += 4.0)
+                    for (int sign = 1; sign >= -1 && placed < want; sign -= 2)
+                    {
+                        if (off == 0 && sign < 0) continue;
+                        double at = along0 + sign * off;
+                        if (at < 8 || at > length - 8 || s.Layout.InGap(i, at)) continue;
+                        for (int sideIx = 0; sideIx < 2 && placed < want; sideIx++)
+                        {
+                            ulong slotKey = key * 31UL + 0x5354UL + (ulong)slot;
+                            int variant = PickHeavy(SiteKind.BusPark, slotKey, slot);
+                            if (!s.Carries(i, VehicleCatalog.At(variant).TrafficClass) && !s.Carries(i, VehicleClass.Car)) continue;
+                            if (TryParallel(s, i, at, sideIx == 0 ? 1.0 : -1.0, variant, slotKey, false))
+                            {
+                                placed++;
+                                slot++;
+                            }
+                        }
+                    }
+            }
+        }
+
+        /// <summary>The along distance of the point of road <paramref name="road"/> nearest (x, z), and how far that is.</summary>
+        private static void ProjectAlong(Site s, int road, double x, double z, out double along, out double dist)
+        {
+            RoadRecord r = s.T.Roads[road];
+            double best = double.MaxValue;
+            along = 0;
+            for (int k = 0; k + 1 < r.PointCount; k++)
+            {
+                double ax = r.Points[2 * k] / 100.0, az = r.Points[2 * k + 1] / 100.0;
+                double dx = r.Points[2 * k + 2] / 100.0 - ax, dz = r.Points[2 * k + 3] / 100.0 - az, l2 = dx * dx + dz * dz;
+                double u = l2 > 1e-9 ? Math.Max(0.0, Math.Min(1.0, ((x - ax) * dx + (z - az) * dz) / l2)) : 0.0;
+                double qx = ax + dx * u - x, qz = az + dz * u - z, d = qx * qx + qz * qz;
+                if (d >= best) continue;
+                best = d;
+                double a0 = s.Layout.AlongAt(road, k), a1 = s.Layout.AlongAt(road, k + 1);
+                along = a0 + (a1 - a0) * u;
+            }
+            dist = Math.Sqrt(best);
         }
 
         // ---- Shared tests -------------------------------------------------------------------------------------------

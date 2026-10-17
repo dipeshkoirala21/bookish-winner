@@ -1053,6 +1053,7 @@ namespace Ghumante.App.Explore
                     break;
             }
             _screen.SetPassengerOffered(_explorer.PassengerOffered && _explorer.Mode == ExplorerMode.Walk);
+            _screen.SetSprintLocked(_explorer.SprintLocked);
         }
 
         private void PlayerVehicleHorn()

@@ -60,6 +60,9 @@ namespace Ghumante.UI.Screens
         public const string LoadingHiddenClass = "gh-loading--hidden";
         public const string PauseOpenClass = "gh-sheet-layer--open";
 
+        /// <summary>On the touch stick while the sprint is locked (playtest #10): a gold rim so the hands-free run shows.</summary>
+        public const string StickLockedClass = "gh-stick--locked";
+
         private static readonly string[] ConfettiClasses =
         {
             "gh-particle--confetti-red", "gh-particle--confetti-yellow", "gh-particle--confetti-cyan",
@@ -67,6 +70,7 @@ namespace Ghumante.UI.Screens
         };
 
         private readonly TouchControls _touch;
+        private readonly VisualElement _stick;
         private readonly SearchSheet _search;
         private readonly SettingsSheet _settings;
         private readonly HudToast _toast;
@@ -218,7 +222,7 @@ namespace Ghumante.UI.Screens
                 Controls = _controls,
                 Pad = Required<VisualElement>("hud-pad"),
                 StickZone = Required<VisualElement>("hud-stick-zone"),
-                Stick = Required<VisualElement>("hud-stick"),
+                Stick = _stick = Required<VisualElement>("hud-stick"),
                 StickKnob = Required<VisualElement>("hud-stick-knob"),
                 DriveZone = Required<VisualElement>("hud-drive-zone"),
                 DriveMarker = Required<VisualElement>("hud-drive-marker"),
@@ -606,6 +610,14 @@ namespace Ghumante.UI.Screens
             _hornKey = key;
             _hornLabel.text = Localizer.Get(key);
             if (_horn != null) _horn.tooltip = Localizer.Get(key); // hover name matches the label ("Bell" on a bicycle)
+        }
+
+        /// <summary>Marks the touch stick while the sprint is locked on foot (<c>Characters.SprintLock</c>): the stick's rim
+        /// turns gold and stays lit while the explorer runs hands-free.</summary>
+        public void SetSprintLocked(bool locked)
+        {
+            if (_stick.ClassListContains(StickLockedClass) == locked) return;
+            _stick.EnableInClassList(StickLockedClass, locked);
         }
 
         /// <summary>Shows the small "Ride as passenger" button (a passenger seat is offered).</summary>

@@ -22,7 +22,8 @@ namespace Ghumante.Core.Tests
     /// layered ground with the tile's solids, the dressing and the other parked vehicles registered as
     /// <c>WorldStreamer</c> and <c>ExploreSession</c> do), and driven off with its own handling
     /// (<see cref="VehicleCatalogEntry.Spec"/>, as <c>PlayerVehicle</c> builds it) onto the nearest lane its class may use
-    /// and 20 m along it, by a plain rider that steers at the lane and backs up when it meets a wall. Each lands on the
+    /// (else the nearest car lane: the player drives where the body fits) and 20 m along it, by a plain rider that steers
+    /// at the lane and backs up when it meets a wall. Each lands on the
     /// camera rig of its class (<see cref="VehicleRoles.RigOf"/>: bus, lorry, tractor, van, car).
     /// </summary>
     public class ExplorePlayDriveAwayTests
@@ -220,11 +221,30 @@ namespace Ghumante.Core.Tests
                         // Standing a step outside the door (a wall right beside it sends the player round, MountPlan.Alternate).
                         MountPlan.TryPlan(e.TrafficClass, seat, frame, ex + Math.Cos(yaw) * Math.Sign(seat.EntryX), ez - Math.Sin(yaw) * Math.Sign(seat.EntryX), ground, out plan);
 
+            if (!o.Mounted)
+            {
+                // Why: each door's ground and what blocks it (diagnostics for the report).
+                var why = new StringBuilder();
+                foreach (float lx in new[] { seat.EntryX, seat.HasAlternate ? seat.AltEntryX : seat.EntryX })
+                    foreach (float outw in new[] { 0f, 0.5f })
+                    {
+                        double wx, wz;
+                        frame.ToWorld(lx + Math.Sign(lx) * outw, seat.EntryZ, out wx, out wz);
+                        GroundSample g;
+                        bool ok = ground.TrySample(wx, wz, out g);
+                        why.Append(string.Format("[{0:0.0},{1:0.0}] ground {2} dy {3:0.00} blocked {4}; ", lx, outw, ok, ok ? g.Height - p.Y : 0f,
+                                                 ok && ground.IsBlocked(wx, wz, g.Height)));
+                    }
+                o.Why = why.ToString();
+            }
             // The road: the nearest lane the class may use, from the nose, and on along its successors for 40 m.
             double fx = Math.Sin(yaw), fz = Math.Cos(yaw), front = e.LengthM - e.RearOverhangM;
             LaneId lane;
             float along;
-            if (!lanes.TryNearestLane(x + fx * front, z + fz * front, e.TrafficClass, 60.0, out lane, out along))
+            // The player drives where the vehicle fits, not where the traffic of its class is routed: a lane of its own
+            // class, else a car lane (a bus park's own lanes, a farm lane for a tractor).
+            if (!lanes.TryNearestLane(x + fx * front, z + fz * front, e.TrafficClass, 60.0, out lane, out along) &&
+                !lanes.TryNearestLane(x + fx * front, z + fz * front, VehicleClass.Car, 60.0, out lane, out along))
             {
                 o.Why = "no lane within 60 m";
                 return o;

@@ -557,6 +557,13 @@
     background-color: rgba(255, 246, 227, 0.42);
 }
 
+/* Sprint locked (playtest #10): the explorer runs hands-free; the rim turns gold and stays lit. */
+.gh-stick--locked {
+    opacity: 1;
+    border-color: var(--gh-yellow);
+    border-top-width: 10px;
+}
+
 .gh-stick__knob {
     width: 108px;
     height: 108px;

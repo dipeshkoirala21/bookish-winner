@@ -177,6 +177,31 @@ namespace Ghumante.Core.Tests
             Assert.That(onBuilding, Is.EqualTo(0));
             Assert.That(overlapping, Is.EqualTo(0));
         }
+        [Test, Explicit("diagnostics: lane classes of the roads round a bus park")]
+        public void ProbeLaneClassesRoundABusPark([Values("Ratna Park bus station", "Naya Bus Park, Gongabu", "Chabahil bus station", "Nagdesh")] string query)
+        {
+            SearchEntry hit = Find(query);
+            TileId id = TileId.At(10, hit.X, hit.Z);
+            TileData t = StreamingSampleRegion.Tile(id);
+            RoadLayout lay = RoadLayout.For(t);
+            double x = hit.X - id.X0, z = hit.Z - id.Z0;
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                RoadRecord r = t.Roads[i];
+                double best = double.MaxValue;
+                for (int k = 0; k < r.PointCount; k++)
+                {
+                    double dx = r.Points[2 * k] / 100.0 - x, dz = r.Points[2 * k + 1] / 100.0 - z;
+                    best = Math.Min(best, dx * dx + dz * dz);
+                }
+                if (best > 120 * 120) continue;
+                uint m = Ghumante.Core.Traffic.TrafficTables.LaneClassesOf(t, i, lay);
+                RoadWidthProfile prof = lay.Profiles[i];
+                TestContext.WriteLine(string.Format("road {0} {1} {2} {3:0} m: access {4} minW {5:0.0} real {6:0.0} lanes 0x{7:X} grounded {8} name {9}", i, r.RoadClass,
+                    r.OsmWayId, Math.Sqrt(best), r.Access, prof.Count > 0 ? prof.MinWidth : 0f, prof.RealM, m, ParkedPlacement.Grounded(t, i), t.Name(r.NameRef)?.Default));
+            }
+        }
+
         /// <summary>Diagnostics for game/README.md's "where to find them" table: every named bus station and works yard of
         /// the sample with the heavy vehicles parked within 100 m of it.</summary>
         [Test, Explicit("diagnostics: lists the bus parks and depots with their parked heavy vehicles")]
