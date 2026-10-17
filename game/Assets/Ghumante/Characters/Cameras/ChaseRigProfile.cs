@@ -4,11 +4,12 @@ using Ghumante.Core.Characters;
 namespace Ghumante.Characters.Cameras
 {
     /// <summary>
-    /// Framing of the chase camera for one mode and orientation (ARCHITECTURE.md 7.10a, ADR-017): how far behind and how
-    /// steeply it sits, how high above the ground it pivots, where on screen the explorer stands and how that shifts with
-    /// speed (the look-ahead), and the rig's minimum horizontal field of view (CameraFov: driving 62°, walking 55°). In
-    /// portrait the camera rises and pulls back with a steeper pitch and a longer look-ahead, so the road ahead stays on
-    /// the tall screen. Engine-free.
+    /// Framing of the chase camera for one class, view and orientation, read from <see cref="CameraRigTable"/> (the
+    /// numbers of docs/research/w2/ref_camera.md; ARCHITECTURE.md 7.10a, ADR-017): how far behind and how steeply it sits,
+    /// how high above the ground it pivots, where on screen the explorer stands and how that shifts with speed (the
+    /// look-ahead), and the rig's minimum horizontal and vertical field of view. In portrait the camera sits higher and
+    /// steeper with a longer look-ahead, so the road ahead fills the tall screen. Engine-free. The camera itself is
+    /// <see cref="ChaseCamera"/>; this struct is the HUD's and the tests' view of the same numbers.
     /// <para>The camera's position is anchored on the explorer (<see cref="AimHeightM"/>, <see cref="DistanceM"/>,
     /// <see cref="PitchDeg"/>); the look-ahead only tilts the view up the road, by pinning the explorer's ground point at
     /// <see cref="FootScreenY"/> on screen. So the explorer stays in the lower part of the frame at any speed and aspect
@@ -54,31 +55,21 @@ namespace Ghumante.Characters.Cameras
         /// (over the shoulder). Blends between views.</summary>
         public float Aim01;
 
-        public static readonly ChaseRigProfile RideLandscape = new ChaseRigProfile
-        {
-            DistanceM = 8.0f, PitchDeg = 13f, AimHeightM = 1.0f, LookAheadS = 0.45f, LookAheadMaxM = 9f,
-            FootScreenYRest = -0.48f, FootScreenYFast = -0.6f, MinHorizontalFovDeg = 62f, FollowSeconds = 0.28f, MinDistanceM = 4f,
-        };
+        /// <summary>Minimum vertical field of view on a wide (landscape) screen, degrees (0: none).</summary>
+        public float MinVerticalFovDeg;
 
-        public static readonly ChaseRigProfile RidePortrait = new ChaseRigProfile
-        {
-            DistanceM = 9.2f, PitchDeg = 21f, AimHeightM = 1.0f, LookAheadS = 0.9f, LookAheadMaxM = 16f,
-            FootScreenYRest = -0.45f, FootScreenYFast = -0.6f, MinHorizontalFovDeg = 62f, FollowSeconds = 0.32f, MinDistanceM = 4f,
-        };
+        /// <summary>The scooter and motorbike rig in landscape (<see cref="CameraRigTable"/>).</summary>
+        public static readonly ChaseRigProfile RideLandscape = For(RigClass.TwoWheeler, false);
 
-        public static readonly ChaseRigProfile WalkLandscape = new ChaseRigProfile
-        {
-            DistanceM = 8.4f, PitchDeg = 12f, AimHeightM = 1.0f, LookAheadS = 0.3f, LookAheadMaxM = 2.5f,
-            FootScreenYRest = -0.58f, FootScreenYFast = -0.62f, MinHorizontalFovDeg = 55f, FollowSeconds = 0.9f, MinDistanceM = 2.5f,
-        };
+        /// <summary>The scooter and motorbike rig in portrait.</summary>
+        public static readonly ChaseRigProfile RidePortrait = For(RigClass.TwoWheeler, true);
 
-        /// <summary>W2 change (W2_DESIGN 6.4): 6.8 m / 20° / 0.9 m instead of 8.6 / 22 / 1.0, so the player grows from
-        /// about 187 px to about 240 px on a 1080 × 2340 portrait phone.</summary>
-        public static readonly ChaseRigProfile WalkPortrait = new ChaseRigProfile
-        {
-            DistanceM = 6.8f, PitchDeg = 20f, AimHeightM = 0.9f, LookAheadS = 0.6f, LookAheadMaxM = 4.5f,
-            FootScreenYRest = -0.42f, FootScreenYFast = -0.5f, MinHorizontalFovDeg = 55f, FollowSeconds = 1.0f, MinDistanceM = 2.5f,
-        };
+        /// <summary>The walking rig in landscape.</summary>
+        public static readonly ChaseRigProfile WalkLandscape = For(RigClass.Walk, false);
+
+        /// <summary>The walking rig in portrait (closer and steeper than landscape: the walker reads big on the tall
+        /// screen).</summary>
+        public static readonly ChaseRigProfile WalkPortrait = For(RigClass.Walk, true);
 
         /// <summary>The rig of a class in landscape or portrait from <see cref="CameraRigTable"/> (W2_DESIGN 6.4), with
         /// the framing heights of the walk and ride rigs.</summary>
@@ -99,14 +90,11 @@ namespace Ghumante.Characters.Cameras
         public static ChaseRigProfile For(RigClass rig, bool portrait, RigClass passengerOf, CameraView view)
         {
             RigParams r = CameraViews.Chase(rig, view, portrait, passengerOf);
-            bool walk = rig == RigClass.Walk;
             return new ChaseRigProfile
             {
                 DistanceM = r.DistanceM, PitchDeg = r.PitchDeg, AimHeightM = r.PivotM, LookAheadS = r.LookAheadS, LookAheadMaxM = r.LookAheadMaxM,
-                MinHorizontalFovDeg = r.MinHFovDeg, FollowSeconds = r.FollowS, MinDistanceM = r.MinDistanceM, ShoulderM = r.ShoulderM,
-                Aim01 = r.AimAtPivot ? 1f : 0f,
-                FootScreenYRest = walk ? (portrait ? -0.42f : -0.58f) : (portrait ? -0.45f : -0.48f),
-                FootScreenYFast = walk ? (portrait ? -0.5f : -0.62f) : -0.6f,
+                MinHorizontalFovDeg = r.MinHFovDeg, MinVerticalFovDeg = r.MinVFovDeg, FollowSeconds = r.FollowS, MinDistanceM = r.MinDistanceM,
+                ShoulderM = r.ShoulderM, Aim01 = r.AimAtPivot ? 1f : 0f, FootScreenYRest = r.FootRestNdc, FootScreenYFast = r.FootFastNdc,
             };
         }
 
@@ -143,6 +131,7 @@ namespace Ghumante.Characters.Cameras
                 FootScreenYRest = a.FootScreenYRest + (b.FootScreenYRest - a.FootScreenYRest) * t,
                 FootScreenYFast = a.FootScreenYFast + (b.FootScreenYFast - a.FootScreenYFast) * t,
                 MinHorizontalFovDeg = a.MinHorizontalFovDeg + (b.MinHorizontalFovDeg - a.MinHorizontalFovDeg) * t,
+                MinVerticalFovDeg = a.MinVerticalFovDeg + (b.MinVerticalFovDeg - a.MinVerticalFovDeg) * t,
                 FollowSeconds = a.FollowSeconds + (b.FollowSeconds - a.FollowSeconds) * t,
                 MinDistanceM = a.MinDistanceM + (b.MinDistanceM - a.MinDistanceM) * t,
                 ShoulderM = a.ShoulderM + (b.ShoulderM - a.ShoulderM) * t,
@@ -156,6 +145,14 @@ namespace Ghumante.Characters.Cameras
             ChaseRigProfile walk = Lerp(WalkLandscape, WalkPortrait, portrait01);
             ChaseRigProfile ride = Lerp(RideLandscape, RidePortrait, portrait01);
             return Lerp(walk, ride, ride01);
+        }
+
+        /// <summary>The vertical field of view the camera uses at <paramref name="aspect"/> (width / height) with a speed
+        /// <paramref name="kickDeg"/> (<see cref="CameraRigTable.VerticalFovDeg"/>).</summary>
+        public float VerticalFovDeg(float aspect, float kickDeg = 0f)
+        {
+            var r = new RigParams { MinHFovDeg = MinHorizontalFovDeg, MinVFovDeg = MinVerticalFovDeg };
+            return CameraRigTable.VerticalFovDeg(r, aspect, kickDeg);
         }
 
         /// <summary>Camera height above the explorer's ground point (flat ground, no user zoom or pitch).</summary>
