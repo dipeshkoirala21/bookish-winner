@@ -19,7 +19,9 @@ namespace Ghumante.Core.Tests
     /// sharpest turn, for the scooter the narrowest lane), dumps the street there as the streamer builds it (tier High,
     /// tile-local OBJ) with the ridden vehicle placed on its recorded pose, and writes where the old and the new camera
     /// were at that frame of the ride, landscape and portrait (<c>rides/poses.txt</c>: name, orientation, before/after,
-    /// eye, look and vertical field of view in tile-local Unity coordinates, for <c>render.py --unity</c>).
+    /// eye, look and vertical field of view in tile-local Unity coordinates, for <c>render.py --unity</c>). The far view
+    /// ("far") is written alongside, and one more moment per ride shows where its boom dipped lowest (under an upper floor
+    /// or an overbridge) in portrait.
     /// </summary>
     public class CharactersCameraPreviewDumps
     {
@@ -50,8 +52,10 @@ namespace Ghumante.Core.Tests
                 List<CamSample> newL = CharactersCameraRideTests.RunNew(c, frames, Landscape);
                 List<CamSample> oldP = CharactersCameraRideTests.RunLegacy(c, frames, Portrait);
                 List<CamSample> newP = CharactersCameraRideTests.RunNew(c, frames, Portrait);
+                List<CamSample> farL = CharactersCameraRideTests.RunNew(c, frames, CameraView.Far, c.Rig, c.Rig, Landscape);
+                List<CamSample> farP = CharactersCameraRideTests.RunNew(c, frames, CameraView.Far, c.Rig, c.Rig, Portrait);
                 string ride = c.Name.Split(' ')[0];
-                foreach (Moment m in Moments(c, frames, oldL))
+                foreach (Moment m in Moments(c, frames, oldL, farP))
                 {
                     RideFrame f = frames[m.Frame];
                     TileId id = TileId.At(10, f.X, f.Z);
@@ -78,6 +82,8 @@ namespace Ghumante.Core.Tests
                     Pose(poses, name, "landscape", "after", newL[m.Frame], id);
                     Pose(poses, name, "portrait", "before", oldP[m.Frame], id);
                     Pose(poses, name, "portrait", "after", newP[m.Frame], id);
+                    Pose(poses, name, "landscape", "far", farL[m.Frame], id);
+                    Pose(poses, name, "portrait", "far", farP[m.Frame], id);
                 }
                 File.WriteAllText(path, poses.ToString());
             }
@@ -94,13 +100,15 @@ namespace Ghumante.Core.Tests
 
         /// <summary>A straight at cruise, the sharpest turn and (two-wheelers) the narrowest lane: frames at least 120 m
         /// inside their tile so the dumped street surrounds the camera.</summary>
-        private static IEnumerable<Moment> Moments(CharactersCameraRideTests.RideCase c, List<RideFrame> f, List<CamSample> old)
+        private static IEnumerable<Moment> Moments(CharactersCameraRideTests.RideCase c, List<RideFrame> f, List<CamSample> old, List<CamSample> far)
         {
             int n = f.Count;
             var t = new double[n];
             for (int i = 1; i < n; i++) t[i] = t[i - 1] + f[i].Dt;
-            int straight = -1, turn = -1, lane = -1;
-            double bestMargin = 0, bestRate = 0, shortest = double.MaxValue;
+            int straight = -1, turn = -1, lane = -1, dip = -1;
+            double bestMargin = 0, bestRate = 0, shortest = double.MaxValue, lowest = double.MaxValue, usual = 0;
+            for (int i = 1; i < n; i++) usual += far[i].Y - f[i].Y;
+            usual /= Math.Max(1, n - 1);
             for (int i = 1; i < n; i++)
             {
                 if (t[i] < 12.0) continue;
@@ -126,6 +134,17 @@ namespace Ghumante.Core.Tests
                     lane = i;
                 }
             }
+            for (int i = 1; i < n; i++)
+            {
+                // (Nearer the tile's edge than the others: the dip happens where it happens; the street above is in the tile.)
+                if (t[i] < 12.0 || Margin(f[i]) < 40.0) continue;
+                if (f[i].SpeedMps > 2f && far[i].Y - f[i].Y < lowest)
+                {
+                    lowest = far[i].Y - f[i].Y;
+                    dip = i;
+                }
+            }
+            if (dip >= 0 && lowest < usual - 1.0) yield return new Moment { Name = "fardip", Frame = dip };
             if (straight >= 0) yield return new Moment { Name = "straight", Frame = straight };
             if (turn >= 0) yield return new Moment { Name = "turn", Frame = turn };
             if (lane >= 0) yield return new Moment { Name = "lane", Frame = lane };

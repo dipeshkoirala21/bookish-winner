@@ -371,8 +371,10 @@ on **Stats** to see the frame rate.
 4. **Looking around.** Right-drag (right stick) to look to the side, let go: after 1.4 s the view springs back
    behind you in about half a second.
 5. **Old lanes.** Teleport to **Indra Chowk**, take the scooter and ride the lanes to Asan. Where houses close in, the
-   camera rises over the eaves first and then shortens smoothly; it never jumps, never goes into a house, and the lane
-   mode (4° steeper, 10% closer) does not flicker at gaps between houses.
+   camera sees the corner coming (it looks where the bike and its own swing will be in about 0.35 s), changes its
+   pitch first (over a low wall, or under an upper floor that juts over the lane) and then shortens smoothly, never
+   faster than 3 % of its length a frame; it never jumps, never goes into a house, and the lane mode (4° steeper, 10%
+   closer) does not flicker at gaps between houses.
 6. **Bus.** Teleport to **Maitighar Mandala**, take a community-fleet bus (green key tag) and drive east towards
    Baneshwor: high and far behind, the whole bus and the road in view, as steady as the car.
 7. **Frame rate.** **Settings → Frame rate** 30 and 60 (or a busy street at 30 fps): the camera keeps the same
@@ -380,12 +382,16 @@ on **Stats** to see the frame rate.
 8. **Portrait and landscape.** Rotate the Device Simulator mid-ride: the view blends in 0.3 s; landscape shows more
    to the sides (minimum vertical field of view), portrait sits higher and keeps the minimum horizontal one.
 9. The other angles (**C**: *Far*, *Low cinematic*, *Handlebar*, *Bonnet*, *Driver's view*, *Driver's seat*, *Window
-   seat*, *Over the shoulder*) work as before.
+   seat*, *Over the shoulder*) work as before and are as steady on straight roads. In portrait, the car's *Far* view
+   dips under structures over the road (an overbridge, a jutting upper floor) instead of pulling in, and comes back up
+   after it; in the narrowest gallis of the old core the *Far* view's long boom still gets cut at a corner it could not
+   see now and then (about once a minute) — report it if it feels worse than that.
 
 Headless: `dotnet test core-tests --filter CharactersCamera` drives a hatchback, a scooter and a bus over real streets of
 the sample (Thamel to Ratna Park, Indra Chowk to Asan, Maitighar to Baneshwor) on a phone-like uneven frame clock and
-checks the camera's jerk, how fast it turns on straight roads and in turns, its boom steps in the lanes and that the old
-camera failed the same rides (`CharactersCameraRideTests`; the numbers are in `ref_camera.md` §7).
+checks the camera's jerk, how fast it turns on straight roads and in turns, its boom steps in the lanes, the same for
+every other chase angle, the boom's cost (sphere sweeps a frame) and that the old camera failed the same rides
+(`CharactersCameraRideTests`, `CharactersCameraBoomTests`; the numbers are in `ref_camera.md` §7 and §7.1).
 
 What to report: any moment the view moves while you drive straight at a steady speed, a turn where the camera lags
 too much or too little for that vehicle, a frame inside or behind a house, or a class whose framing hides the road

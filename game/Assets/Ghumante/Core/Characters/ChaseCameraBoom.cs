@@ -15,9 +15,13 @@ namespace Ghumante.Core.Characters
     /// (<see cref="InSeconds"/>), so a wall coming up is met smoothly before it would cut the boom. It lengthens again only
     /// after <see cref="HoldSeconds"/> and once the room exceeds the boom by <see cref="OutMarginM"/> (hysteresis), over
     /// about <see cref="OutSeconds"/>.</item>
-    /// <item><b>Raise rather than pull in</b>: when the boom is cut short by more than <see cref="RaiseWhenShortShare"/>,
-    /// steeper booms are tried in <see cref="LiftStepDeg"/> steps and the camera rises over a low wall, a parked truck or a
-    /// railing instead of coming in; the lift drops back only after <see cref="LiftHoldSeconds"/> of room.</item>
+    /// <item><b>Raise (or lower) rather than pull in</b>: when the boom, now or where the pivot will be in
+    /// <see cref="PredictS"/>, is cut short by more than <see cref="RaiseWhenShortShare"/>, steeper booms
+    /// (<see cref="LiftStepDeg"/> steps) and flatter ones (<see cref="LowerStepDeg"/> steps) are tried, smallest change
+    /// first and none that moves the camera more than <see cref="MaxPitchSwingM"/>: it rises over a low wall, a parked
+    /// truck or a railing, or passes under an overhanging upper floor or a foot overbridge, instead of coming in, but
+    /// shortens at a tall corner; the change goes back only after <see cref="LiftHoldSeconds"/> of room. A long boom looks
+    /// further ahead and turns more slowly (<see cref="LongBoomScale"/>).</item>
     /// <item><b>Lanes</b>: walls within <see cref="LaneProbeM"/> on both sides for <see cref="LaneEnterS"/> blend in the
     /// lane frame (<see cref="LanePitchDeg"/> steeper, <see cref="LaneDistanceScale"/> as long) over
     /// <see cref="LaneBlendSeconds"/>; it leaves only after <see cref="LaneExitS"/> without them, so the gaps between
@@ -65,6 +69,18 @@ namespace Ghumante.Core.Characters
         /// <summary>Sweeps also run from where the pivot (and the boom's yaw) will be this far ahead.</summary>
         public const float PredictS = 0.35f;
 
+        /// <summary>For a wall the boom never shortens faster than this share of its length per second (2.8 % in a 1/30 s
+        /// frame): a longer step in one frame is a snap. Only the hard limit (a wall the early look did not see) may cut it
+        /// faster.</summary>
+        public const float MaxLengthSharePerS = 0.85f;
+
+        /// <summary>Booms longer than this (the far views, buses) look further ahead and change their pitch more slowly,
+        /// by √(length / this) up to <see cref="MaxLongBoomScale"/>: the camera at the end of a long boom moves that much
+        /// farther for the same change of angle, so it needs the warning earlier to move as gently.</summary>
+        public const float LongBoomM = 8f;
+
+        public const float MaxLongBoomScale = 1.8f;
+
         /// <summary>A boom cut short is first raised in <see cref="LiftSteps"/> steps of this many degrees (45° in all:
         /// steeper, a short boom over the player's head frames worse than the overhead fallback).</summary>
         public const float LiftStepDeg = 11.25f;
@@ -72,14 +88,35 @@ namespace Ghumante.Core.Characters
         public const int LiftSteps = 4;
         public const float MaxPitchDeg = 78f;
 
-        /// <summary>Steeper booms are tried when the free boom is shorter than this share of the wanted one.</summary>
+        /// <summary>... or lowered by up to <see cref="LowerSteps"/> steps of this many degrees, under an overhang: an
+        /// upper floor or a balcony over the street (above <c>RoadClearance.MinOverheadClearanceM</c>), a foot overbridge
+        /// or a flyover deck cuts a high boom (portrait, the far view), and a flatter one passes beneath it.</summary>
+        public const float LowerStepDeg = 7.5f;
+
+        public const int LowerSteps = 2;
+
+        /// <summary>A lowered boom stays at least this steep (the camera above the pivot, the ground clamp idle).</summary>
+        public const float MinLoweredPitchDeg = 4f;
+
+        /// <summary>Steeper (or flatter) booms are tried when the free boom, now or where the pivot will be in
+        /// <see cref="PredictS"/>, is shorter than this share of the wanted one.</summary>
         public const float RaiseWhenShortShare = 0.85f;
 
-        /// <summary>A lift is good enough when it frees this share of the wanted boom.</summary>
+        /// <summary>A change of pitch is good enough when it frees this share of the wanted boom, now and where the pivot
+        /// will be.</summary>
         public const float RaiseGoodShare = 0.92f;
 
-        /// <summary>Lift smoothing: rising, falling (seconds), and the hold before it falls.</summary>
+        /// <summary>A change of pitch may move the camera at most this far (the arc the boom's end swings through, metres):
+        /// 4 steps of 11.25° on a 6 m walking boom, 2 on a scooter's or a car's, 1 on a far view's; beyond that the boom
+        /// shortens instead, so a long boom never swoops up and over a tall corner.</summary>
+        public const float MaxPitchSwingM = 4f;
+
+        /// <summary>Lift smoothing: away from the rig's pitch, back to it (seconds), and the hold before it goes back.</summary>
         public const float LiftUpSeconds = 0.22f, LiftDownSeconds = 0.9f, LiftHoldSeconds = 0.6f;
+
+        // The pitch offsets tried (LowerSteps flatter, LiftSteps steeper), smallest change first, lowering first at equal
+        // size: -7.5, +11.25, -15, +22.5, +33.75, +45 degrees.
+        private static readonly float[] LiftOffsets = PitchOffsets();
 
         public const float LaneProbeM = 3f;
         public const float LanePitchDeg = 4f;
@@ -167,7 +204,7 @@ namespace Ghumante.Core.Characters
             get { return _overhead || _over > 0f; }
         }
 
-        /// <summary>Extra pitch to clear a low wall, degrees (smoothed).</summary>
+        /// <summary>Pitch added to clear a low wall (positive) or to pass under an overhang (negative), degrees (smoothed).</summary>
         public float LiftDeg
         {
             get { return _lift.Value; }
@@ -181,6 +218,10 @@ namespace Ghumante.Core.Characters
 
         /// <summary>Free length along this frame's boom direction (with the skin taken off).</summary>
         public float ClearM { get; private set; }
+
+        /// <summary>The length the boom is heading for this frame (the nearer of this frame's room and the room where the
+        /// pivot will be), metres, for diagnostics and tests.</summary>
+        public float TargetM { get; private set; }
 
         /// <summary>Something cut the boom short this frame.</summary>
         public bool Blocked { get; private set; }
@@ -229,8 +270,9 @@ namespace Ghumante.Core.Characters
         /// <summary>
         /// As <see cref="Solve(IViewObstacleQuery, double, double, double, float, float, float, float, float)"/>, with
         /// where the pivot moves (<paramref name="leadX"/>, <paramref name="leadZ"/>, metres) and how far the boom's yaw
-        /// turns (<paramref name="leadYawDeg"/>) over the next <see cref="PredictS"/>: the boom then shortens early and
-        /// smoothly for a wall that is about to cut it.
+        /// turns (<paramref name="leadYawDeg"/>) over the next <see cref="PredictS"/> (times <see cref="LongBoomScale"/> of
+        /// the wanted length): the boom then changes its pitch, or shortens, early and smoothly for a wall that is about
+        /// to cut it.
         /// </summary>
         public void Solve(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float wantedM,
                           float minM, float dt, float leadX, float leadZ, float leadYawDeg)
@@ -249,36 +291,98 @@ namespace Ghumante.Core.Characters
             float pitch = Math.Min(MaxPitchDeg, pitchDeg + LanePitchDeg * lane);
             float want = wantedM * (1f + (LaneDistanceScale - 1f) * lane);
             float min = Math.Min(Math.Max(0f, minM), want);
+            float longScale = LongBoomScale(want);
 
-            // Raise rather than pull in: a steeper boom that keeps (most of) the length beats a shorter one.
-            float clear0 = query != null ? Clear(query, px, py, pz, yawDeg, pitch, want) : want;
-            float wantedLift = 0f;
-            if (query != null && clear0 < want * RaiseWhenShortShare)
+            // Where the pivot and the boom's yaw will be shortly: walls to come are met early (the lift below and the
+            // length's spring both look there). Only from a pivot the body can reach: a lead that runs into a wall is cut
+            // short of it, so a house beside a bend never collapses the boom early.
+            bool predict = false;
+            double lpx = px, lpz = pz;
+            float lyaw = yawDeg;
+            if (query != null && (leadX * leadX + leadZ * leadZ > 0.04f || Math.Abs(leadYawDeg) > 1f))
             {
-                float best = clear0, bestLift = 0f, good = 0f;
-                bool found = false;
-                for (int k = 1; k <= LiftSteps; k++)
+                float lead = MathF.Sqrt(leadX * leadX + leadZ * leadZ);
+                float free = 1f;
+                if (lead > 0.2f)
                 {
-                    float p = Math.Min(MaxPitchDeg, pitch + k * LiftStepDeg);
-                    if (p <= pitch + 1e-3f) break;
-                    float c = Clear(query, px, py, pz, yawDeg, p, want);
-                    if (c > best + 0.25f)
+                    Casts++;
+                    double hit;
+                    if (query.SphereCast(px, py, pz, leadX / lead, 0.0, leadZ / lead, CoreRadiusM, lead, out hit))
+                        free = (float)Math.Max(0.0, (hit - ProbeRadiusM) / lead);
+                }
+                if (free > 0.05f)
+                {
+                    predict = true;
+                    lpx = px + leadX * free;
+                    lpz = pz + leadZ * free;
+                    lyaw = yawDeg + leadYawDeg;
+                }
+            }
+
+            // Change the pitch rather than pull in: a steeper boom over a low wall, a parked truck or a railing, or a flatter
+            // one under an overhang, that keeps (most of) the length beats a shorter one. Decided on this frame's boom and
+            // the predicted one together, so the pitch starts to move before the wall arrives instead of the length.
+            float clear0 = query != null ? Clear(query, px, py, pz, yawDeg, pitch, want) : want;
+            float soon0 = predict ? Clear(query, lpx, py, lpz, lyaw, pitch, want) : clear0;
+            float worst0 = Math.Min(clear0, soon0);
+            float wantedLift = 0f;
+            if (query != null && worst0 < want * RaiseWhenShortShare)
+            {
+                // The smallest change of pitch that frees (nearly) the whole boom, now and where the pivot will be, and
+                // moves the camera no farther than MaxPitchSwingM: a long boom does not swoop up 30° round a tall corner
+                // (it shortens there instead), a short one still rises over a wall.
+                float best = worst0, bestLift = 0f, good = 0f;
+                bool found = false;
+                float enough = Math.Max(min, want * RaiseGoodShare);
+                // The side the boom already leans to first: swinging over to the other side would sweep the camera through
+                // the obstacle it is avoiding (under an overhang, a steep boom clears it again once past its far edge).
+                float side = Math.Sign(_liftTarget);
+                for (int pass = side != 0f ? 0 : 1; pass < 2 && !found; pass++)
+                {
+                    for (int k = 0; k < LiftOffsets.Length; k++)
                     {
-                        best = c;
-                        bestLift = p - pitch;
-                    }
-                    if (c >= Math.Max(min, want * RaiseGoodShare))
-                    {
-                        good = p - pitch;
-                        found = true;
-                        break;
+                        float o = LiftOffsets[k];
+                        if (pass == 0 && Math.Sign(o) != side) continue;
+                        if (pass == 1 && side != 0f && Math.Sign(o) == side) continue;
+                        float p = o < 0f ? Math.Max(Math.Min(pitch, MinLoweredPitchDeg), pitch + o) : Math.Min(MaxPitchDeg, pitch + o);
+                        if (Math.Abs(p - pitch) < 0.5f * Math.Abs(o)) continue; // clamped away (too flat already, or too steep)
+                        if (want * Math.Abs(p - pitch) * (float)Deg2Rad > MaxPitchSwingM) continue;
+                        float c = Clear(query, px, py, pz, yawDeg, p, want);
+                        if (predict && c > best + 0.25f) c = Math.Min(c, Clear(query, lpx, py, lpz, lyaw, p, want));
+                        if (c > best + 0.25f)
+                        {
+                            best = c;
+                            bestLift = p - pitch;
+                        }
+                        if (c >= enough)
+                        {
+                            good = p - pitch;
+                            found = true;
+                            // Halfway back to the last smaller step the same way (or the rig's pitch) may be enough: the
+                            // smallest change moves the camera least.
+                            float prev = 0f;
+                            for (int j = k - 1; j >= 0; j--)
+                            {
+                                if (Math.Sign(LiftOffsets[j]) != Math.Sign(o)) continue;
+                                prev = LiftOffsets[j];
+                                break;
+                            }
+                            float half = 0.5f * (good + prev);
+                            if (Math.Abs(half) > 1f)
+                            {
+                                float ch = Clear(query, px, py, pz, yawDeg, pitch + half, want);
+                                if (predict && ch >= enough) ch = Math.Min(ch, Clear(query, lpx, py, lpz, lyaw, pitch + half, want));
+                                if (ch >= enough) good = half;
+                            }
+                            break;
+                        }
                     }
                 }
-                // Lift when it keeps the length, or (as before) when it at least restores the minimum.
+                // Change the pitch when it keeps the length, or when it at least restores the minimum.
                 if (found) wantedLift = good;
-                else if (clear0 < min - 1e-3f && best > clear0 + 0.25f) wantedLift = bestLift;
+                else if (worst0 < min - 1e-3f && best > worst0 + 0.25f) wantedLift = bestLift;
             }
-            // (Room at the plain pitch again: the lift is kept for LiftHoldSeconds below, so a gap in a wall never drops it.)
+            // (Room at the rig's pitch again: the lift is kept for LiftHoldSeconds below, so a gap in a wall never drops it.)
             if (snap)
             {
                 _liftTarget = wantedLift;
@@ -287,7 +391,10 @@ namespace Ghumante.Core.Characters
             }
             else
             {
-                if (wantedLift >= _liftTarget - 1e-3f)
+                // A bigger change, or one the other way, is needed now and taken at once; going back towards the rig's
+                // pitch waits for the hold.
+                bool relax = wantedLift * _liftTarget >= 0f && Math.Abs(wantedLift) < Math.Abs(_liftTarget) - 1e-3f;
+                if (!relax)
                 {
                     _liftTarget = wantedLift;
                     _liftDrop = 0f;
@@ -301,13 +408,15 @@ namespace Ghumante.Core.Characters
                         _liftDrop = 0f;
                     }
                 }
-                _lift.Step(_liftTarget, _liftTarget > _lift.Value ? LiftUpSeconds : LiftDownSeconds, 0f, dt);
-                if (_lift.Value < 0.01f && _liftTarget <= 0f) _lift.Reset(0f);
+                bool away = Math.Abs(_liftTarget) > Math.Abs(_lift.Value) || _liftTarget * _lift.Value < 0f;
+                _lift.Step(_liftTarget, (away ? LiftUpSeconds : LiftDownSeconds) * longScale, 0f, dt);
+                if (Math.Abs(_lift.Value) < 0.01f && _liftTarget == 0f) _lift.Reset(0f);
             }
 
-            float finalPitch = Math.Min(MaxPitchDeg, pitch + Math.Max(0f, _lift.Value));
+            float finalPitch = Math.Min(MaxPitchDeg, Math.Max(Math.Min(pitch, MinLoweredPitchDeg), pitch + _lift.Value));
+            bool pitched = Math.Abs(finalPitch - pitch) > 0.01f;
             float clearBase = clear0;
-            if (query != null && _lift.Value > 0.01f) clearBase = Clear(query, px, py, pz, yawDeg, finalPitch, want);
+            if (query != null && pitched) clearBase = Clear(query, px, py, pz, yawDeg, finalPitch, want);
 
             // The overhead fallback: no room for a boom behind the player. In at once, out after a short hold.
             UpdateOverhead(query != null, clearBase, want, dt, snap);
@@ -319,26 +428,18 @@ namespace Ghumante.Core.Characters
                 else rise = 0f;
             }
 
-            // Walls to come: the same boom from where the pivot and its yaw will be shortly.
-            // (Only from a pivot the body can reach: a lead that runs into a wall is cut short of it, so a house beside a
-            // bend never collapses the boom early.)
+            // Walls to come: the boom from where the pivot and its yaw will be shortly, at the pitch it is moving to (the lift
+            // spring gets most of the way there in that time, so a pitch change under way does not also pull the boom in).
             float soft = hard;
-            if (query != null && rise <= 0f && (leadX * leadX + leadZ * leadZ > 0.04f || Math.Abs(leadYawDeg) > 1f))
+            if (predict && rise <= 0f)
             {
-                float lead = MathF.Sqrt(leadX * leadX + leadZ * leadZ);
-                float free = 1f;
-                if (lead > 0.2f)
-                {
-                    Casts++;
-                    double hit;
-                    if (query.SphereCast(px, py, pz, leadX / lead, 0.0, leadZ / lead, CoreRadiusM, lead, out hit))
-                        free = (float)Math.Max(0.0, (hit - ProbeRadiusM) / lead);
-                }
-                if (free > 0.05f)
-                    soft = Math.Min(soft, Clear(query, px + leadX * free, py, pz + leadZ * free, yawDeg + leadYawDeg, finalPitch, want));
+                float soonPitch = Math.Min(MaxPitchDeg, Math.Max(Math.Min(pitch, MinLoweredPitchDeg), pitch + _liftTarget));
+                soft = Math.Min(soft, Math.Abs(soonPitch - pitch) > 0.01f ? Clear(query, lpx, py, lpz, lyaw, soonPitch, want) : soon0);
             }
 
             float target = Math.Min(want, soft);
+            TargetM = target;
+            float before = _len.Value, rateMax = MaxLengthSharePerS * Math.Max(1f, want);
             if (snap)
             {
                 _len.Reset(Math.Min(want, hard));
@@ -372,9 +473,17 @@ namespace Ghumante.Core.Characters
                     _len.Step(_len.Value, OutSeconds, 0f, dt);
                 }
             }
+            // Shortening for a wall: never faster than MaxLengthSharePerS of the boom per second (a change that big in one
+            // frame is a snap the player sees); only the hard limit below may cut it shorter. (A zoom is the player's own
+            // and follows at the spring's pace.)
+            if (!snap && dt > 0f && target < want - 1e-3f && before - _len.Value > rateMax * dt)
+            {
+                _len.Value = before - rateMax * dt;
+                _len.Velocity = -rateMax;
+            }
             if (_len.Value > hard && hard < want - 1e-3f)
             {
-                // The prediction missed a wall: never inside or behind it. The boom stops there (no velocity carried on
+                // The early look missed a wall: never inside or behind it. The boom stops there (no velocity carried on
                 // past the wall, so the hold that follows really holds).
                 Clamped = _len.Value - hard > 0.02f;
                 _len.Value = hard;
@@ -386,6 +495,28 @@ namespace Ghumante.Core.Characters
             DistanceM = _len.Value;
             PitchDeg = finalPitch;
             RiseM = rise;
+        }
+
+        private static float[] PitchOffsets()
+        {
+            var o = new float[LowerSteps + LiftSteps];
+            int n = 0;
+            for (int k = 1; k <= LowerSteps; k++) o[n++] = -k * LowerStepDeg;
+            for (int k = 1; k <= LiftSteps; k++) o[n++] = k * LiftStepDeg;
+            Array.Sort(o, (a, b) =>
+            {
+                int c = Math.Abs(a).CompareTo(Math.Abs(b));
+                return c != 0 ? c : a.CompareTo(b);
+            });
+            return o;
+        }
+
+        /// <summary>How much earlier and slower a boom of <paramref name="lengthM"/> reacts (<see cref="LongBoomM"/>): 1 up
+        /// to 8 m, √(length / 8 m) beyond, at most <see cref="MaxLongBoomScale"/>.</summary>
+        public static float LongBoomScale(float lengthM)
+        {
+            if (!(lengthM > LongBoomM)) return 1f;
+            return Math.Min(MaxLongBoomScale, MathF.Sqrt(lengthM / LongBoomM));
         }
 
         /// <summary>The camera's offset from the pivot this frame (game metres, absolute y): up by <see cref="RiseM"/>,

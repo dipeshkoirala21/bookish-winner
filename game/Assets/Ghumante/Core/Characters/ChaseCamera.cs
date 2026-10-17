@@ -79,8 +79,10 @@ namespace Ghumante.Core.Characters
     /// horizon stays level).</item>
     /// <item><b>Speed</b> effects (look-ahead, FOV kick, pull-back) read a speed smoothed over
     /// <see cref="SpeedSmoothS"/>, so they breathe slowly instead of pumping.</item>
-    /// <item><b>Collision</b> through <see cref="ChaseBoom"/>: predictive, hysteretic, raises before it pulls in, never
-    /// inside a wall; the ground clamp lifts the camera smoothly.</item>
+    /// <item><b>Collision</b> through <see cref="ChaseBoom"/>: predictive (it looks where the pivot and the yaw spring will
+    /// be, <see cref="ChaseBoom.PredictS"/>), hysteretic, raises or lowers before it pulls in and then pulls in no faster
+    /// than <see cref="ChaseBoom.MaxLengthSharePerS"/>, never inside a wall; the ground clamp lifts the camera
+    /// smoothly.</item>
     /// <item><b>Look-around</b> springs back behind the vehicle <see cref="LookReturnDelayS"/> after the player lets go.</item>
     /// </list>
     /// Floating-origin rebases shift the state (<see cref="ShiftOrigin"/>); a jump of the body by more than
@@ -131,6 +133,10 @@ namespace Ghumante.Core.Characters
         /// <summary>In a lane the yaw follows this much tighter (the boom swings less into the walls).</summary>
         public const float LaneFollowTighten = 0.4f;
 
+        /// <summary>The body's turn rate is smoothed over this long (a wall knock jolts the heading) before the boom uses it
+        /// to see where its yaw is going.</summary>
+        public const float TurnRateSmoothS = 0.12f;
+
         private readonly ChaseBoom _boom = new ChaseBoom();
         private readonly ReverseFraming _reverse = new ReverseFraming();
 
@@ -144,6 +150,8 @@ namespace Ghumante.Core.Characters
         private CameraSpring _orbitReturn;
         private float _lookIdle = 999f;
         private CameraAngleSpring _yaw;
+        private float _lastHeading, _headingRate;
+        private float _yawGoal, _yawGoalRate, _yawSmooth;
         private CameraSpring _ax, _ay, _az;
         private float _lastGoalY;
         private float _climb;
@@ -271,6 +279,11 @@ namespace Ghumante.Core.Characters
                 _climb = 0f;
                 _speed = Math.Max(0f, speedMps);
                 _yaw.Reset(headingDeg);
+                _lastHeading = headingDeg;
+                _headingRate = 0f;
+                _yawGoal = headingDeg;
+                _yawGoalRate = 0f;
+                _yawSmooth = rig.FollowS;
                 _orbit = 0f;
                 _orbitReturn.Reset(0f);
                 _reverse.Reset();
@@ -318,8 +331,12 @@ namespace Ghumante.Core.Characters
             }
 
             // Yaw: behind the body, with a gentle lag in turns, not swinging round below walking pace; tighter in a lane.
+            // (The goal, its turn rate and the smoothing are kept: the boom predicts where the yaw is going.)
             if (!_snap && dt > 0f)
             {
+                float turn = CharMath.Clamp(CameraAngleSpring.Delta(_lastHeading, headingDeg) / dt, -360f, 360f);
+                _headingRate += (turn - _headingRate) * (1f - MathF.Exp(-dt / TurnRateSmoothS));
+                _lastHeading = headingDeg;
                 if (riding)
                 {
                     float follow = 1f;
@@ -328,14 +345,17 @@ namespace Ghumante.Core.Characters
                     float goal = _yaw.Value + follow * CameraAngleSpring.Delta(_yaw.Value, headingDeg);
                     float smooth = rig.FollowS * (1f - LaneFollowTighten * _boom.Lane01);
                     _yaw.Step(goal, smooth, 0f, dt);
+                    SetYawGoal(goal, follow * _headingRate, smooth);
                 }
                 else if (!looking && Math.Abs(speedMps) > 0.4f && Math.Abs(CameraAngleSpring.Delta(_yaw.Value, headingDeg)) < WalkFollowConeDeg)
                 {
                     _yaw.Step(headingDeg, rig.FollowS, 0f, dt);
+                    SetYawGoal(headingDeg, _headingRate, rig.FollowS);
                 }
                 else
                 {
                     _yaw.Step(_yaw.Value, 0.3f, 0f, dt);
+                    SetYawGoal(_yaw.Value, 0f, 0.3f);
                 }
             }
 
@@ -377,8 +397,10 @@ namespace Ghumante.Core.Characters
             }
 
             float min = Math.Min(rig.MinDistanceM > 0f ? rig.MinDistanceM : (riding ? 4f : 2.5f), distance);
-            float leadX = _ax.Velocity * ChaseBoom.PredictS, leadZ = _az.Velocity * ChaseBoom.PredictS;
-            float leadYaw = CharMath.Clamp(_yaw.Velocity * ChaseBoom.PredictS, -45f, 45f);
+            // Where the pivot and the boom's yaw will be shortly (further ahead for a long boom), for the boom's early look.
+            float horizon = ChaseBoom.PredictS * ChaseBoom.LongBoomScale(distance);
+            float leadX = _ax.Velocity * horizon, leadZ = _az.Velocity * horizon;
+            float leadYaw = CharMath.Clamp(_yaw.PredictTurn(_yawGoal, _yawGoalRate, _yawSmooth, horizon), -60f, 60f);
             _boom.Solve(obstacles, pivot.X + ox, pivot.Y + oy, pivot.Z + oz, yaw, pitch, distance, min, dt, leadX, leadZ, leadYaw);
             double bx, by, bz;
             _boom.CameraOffset(yaw, out bx, out by, out bz);
@@ -427,6 +449,13 @@ namespace Ghumante.Core.Characters
             YawDeg = yaw;
             _snap = false;
             return new ChasePose { Position = position, Rotation = rotation, VerticalFovDeg = _fov, YawDeg = yaw };
+        }
+
+        private void SetYawGoal(float goalDeg, float rateDegPerS, float smoothS)
+        {
+            _yawGoal = goalDeg;
+            _yawGoalRate = rateDegPerS;
+            _yawSmooth = smoothS;
         }
 
         /// <summary>

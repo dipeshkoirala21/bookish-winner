@@ -153,6 +153,18 @@ namespace Ghumante.Core.Characters
             return Value;
         }
 
+        /// <summary>How far the angle will have turned in <paramref name="t"/> seconds (degrees, signed) while following a goal
+        /// that is at <paramref name="goalDeg"/> now and turns at <paramref name="goalRateDegPerS"/> (the exact solution;
+        /// the spring is not changed): the chase camera's boom looks where its yaw is going in a turn.</summary>
+        public float PredictTurn(float goalDeg, float goalRateDegPerS, float smoothTimeS, float t)
+        {
+            if (!(t > 0f) || float.IsInfinity(t) || float.IsNaN(goalDeg) || float.IsNaN(goalRateDegPerS) || float.IsInfinity(goalRateDegPerS)) return 0f;
+            float end = goalDeg + goalRateDegPerS * t;
+            float x = Delta(end, Value), v = Velocity;
+            CameraSpring.Advance(0f, goalRateDegPerS, smoothTimeS, 0f, t, ref x, ref v);
+            return Delta(Value, Wrap(end + x));
+        }
+
         /// <summary>Turns the goal and the value by <paramref name="deg"/> without motion (a hard re-aim).</summary>
         public void Rotate(float deg)
         {

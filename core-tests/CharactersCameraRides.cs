@@ -316,8 +316,30 @@ namespace Ghumante.Core.Tests
     {
         public double JerkP95, JerkP99, JerkMax;
         public double AngVelMax, AngVelStraightMax, AngVelStraightP95;
+
+        /// <summary>Share of the straight-road frames in which the view turns faster than
+        /// <see cref="StraightFastDegPerS"/>.</summary>
+        public double StraightFastShare;
+
+        public const double StraightFastDegPerS = 6.0;
         public double AngAccP99;
         public double BoomStepMax, OffsetStepMax;
+
+        /// <summary>The fastest change of the boom's length and of the camera's offset from the vehicle as a share of the
+        /// boom per 1/30 s (a frame at 30 fps; a long boom swings and moves farther for the same turn of the view, and a
+        /// 50 ms hitch frame moves farther at the same speed).</summary>
+        public double BoomStepRelMax, OffsetStepRelMax;
+
+        /// <summary>Frames in which the boom's length changed by more than <see cref="BoomJumpShare"/> of it per 1/30 s
+        /// (the hard limit cut it at a wall the early look did not see), and the minutes measured.</summary>
+        public int BoomJumps;
+
+        /// <summary>Runs of <see cref="BoomJumps"/> frames (one wall cutting the boom over a few frames is one cut).</summary>
+        public int BoomCuts;
+
+        public double Minutes;
+
+        public const double BoomJumpShare = 0.03;
         public double RollMaxDeg;
         public int Frames;
 
@@ -325,9 +347,13 @@ namespace Ghumante.Core.Tests
         {
             return "jerk p95 " + JerkP95.ToString("0.0") + " p99 " + JerkP99.ToString("0.0") + " max " + JerkMax.ToString("0") + " m/s³; ang vel max " +
                    AngVelMax.ToString("0.0") + " °/s, straight max " + AngVelStraightMax.ToString("0.00") + " p95 " + AngVelStraightP95.ToString("0.00") +
-                   " °/s; ang acc p99 " + AngAccP99.ToString("0") + " °/s²; boom step max " + BoomStepMax.ToString("0.00") + " m, offset step max " +
-                   OffsetStepMax.ToString("0.00") + " m; roll max " + RollMaxDeg.ToString("0.0") + "°; " + Frames + " frames";
+                   " °/s (" + (100 * StraightFastShare).ToString("0.00") + " % over 6); ang acc p99 " + AngAccP99.ToString("0") + " °/s²; boom step max " + BoomStepMax.ToString("0.00") + " m (" +
+                   (100 * BoomStepRelMax).ToString("0.0") + " %, " + BoomJumps + " jumps in " + BoomCuts + " cuts), offset step max " + OffsetStepMax.ToString("0.00") + " m (" +
+                   (100 * OffsetStepRelMax).ToString("0.0") + " %); roll max " + RollMaxDeg.ToString("0.0") + "°; " + Frames + " frames";
         }
+
+        /// <summary>Shares of the boom are taken of at least this length, metres (a boom pulled in close to the rider).</summary>
+        public const double MinBoomM = 4.0;
 
         /// <summary>Measures <paramref name="cam"/> (one sample per frame) after <paramref name="skipS"/> of warm-up. A frame
         /// counts as "straight" while the vehicle's heading moved less than 1.5° over the last 1.5 s.</summary>
@@ -342,6 +368,7 @@ namespace Ghumante.Core.Tests
             var angAcc = new List<double>();
             var m = new CamMotion();
             double prevW = double.NaN;
+            int lastJump = -100;
             for (int i = 3; i < n; i++)
             {
                 if (t[i - 3] < skipS) continue;
@@ -363,12 +390,24 @@ namespace Ghumante.Core.Tests
                 prevW = w;
                 if (IsStraight(cam, t, i, 1.5, 1.5f)) straight.Add(w);
 
-                m.BoomStepMax = Math.Max(m.BoomStepMax, Math.Abs(cam[i].BoomM - cam[i - 1].BoomM));
+                double boomStep = Math.Abs(cam[i].BoomM - cam[i - 1].BoomM), boom = Math.Max(MinBoomM, Math.Max(cam[i].BoomM, cam[i - 1].BoomM));
+                m.BoomStepMax = Math.Max(m.BoomStepMax, boomStep);
+                double perFrame = (1.0 / 30.0) / Math.Max(1e-3, cam[i].Dt);
+                m.BoomStepRelMax = Math.Max(m.BoomStepRelMax, boomStep / boom * perFrame);
+                if (boomStep / boom * perFrame > BoomJumpShare)
+                {
+                    m.BoomJumps++;
+                    if (i - lastJump > 3) m.BoomCuts++;
+                    lastJump = i;
+                }
+                m.Minutes += cam[i].Dt / 60.0;
                 // The camera's offset from the vehicle: a snap shows as a jump here.
                 double ox = (cam[i].X - ride[i].X) - (cam[i - 1].X - ride[i - 1].X);
                 double oy = (cam[i].Y - ride[i].Y) - (cam[i - 1].Y - ride[i - 1].Y);
                 double oz = (cam[i].Z - ride[i].Z) - (cam[i - 1].Z - ride[i - 1].Z);
-                m.OffsetStepMax = Math.Max(m.OffsetStepMax, Math.Sqrt(ox * ox + oy * oy + oz * oz));
+                double offsetStep = Math.Sqrt(ox * ox + oy * oy + oz * oz);
+                m.OffsetStepMax = Math.Max(m.OffsetStepMax, offsetStep);
+                m.OffsetStepRelMax = Math.Max(m.OffsetStepRelMax, offsetStep / boom * perFrame);
                 V3 right = cam[i].Rot * V3.Right;
                 m.RollMaxDeg = Math.Max(m.RollMaxDeg, Math.Abs(Math.Asin(Math.Max(-1f, Math.Min(1f, right.Y)))) * 180.0 / Math.PI);
             }
@@ -378,6 +417,10 @@ namespace Ghumante.Core.Tests
             m.AngVelMax = Pct(angs, 1.0);
             m.AngVelStraightMax = Pct(straight, 1.0);
             m.AngVelStraightP95 = Pct(straight, 0.95);
+            int fast = 0;
+            foreach (double w in straight)
+                if (w > StraightFastDegPerS) fast++;
+            m.StraightFastShare = straight.Count > 0 ? (double)fast / straight.Count : 0.0;
             m.AngAccP99 = Pct(angAcc, 0.99);
             return m;
         }

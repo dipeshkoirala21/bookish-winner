@@ -89,6 +89,15 @@ namespace Ghumante.Core.Tests
         internal static List<CamSample> RunNew(RideCase c, List<RideFrame> ride, float aspect = 2400f / 1080f, ChaseCamera cam = null,
                                                List<string> diag = null)
         {
+            return RunNew(c, ride, CameraViews.Default(c.Rig), c.Rig, RigClass.Car, aspect, cam, diag);
+        }
+
+        /// <summary>As <see cref="RunNew(RideCase, List{RideFrame}, float, ChaseCamera, List{string})"/> through
+        /// <paramref name="view"/> of <paramref name="rig"/> (riding along: <see cref="RigClass.Passenger"/> of
+        /// <paramref name="passengerOf"/>).</summary>
+        internal static List<CamSample> RunNew(RideCase c, List<RideFrame> ride, CameraView view, RigClass rig, RigClass passengerOf,
+                                               float aspect = 2400f / 1080f, ChaseCamera cam = null, List<string> diag = null, List<int> casts = null)
+        {
             cam = cam ?? new ChaseCamera();
             cam.Obstacles = CameraRides.Ground;
             var origin = new WorldPos(ride[0].X, 0f, ride[0].Z);
@@ -100,9 +109,10 @@ namespace Ghumante.Core.Tests
                 var t = new ChaseTarget
                 {
                     Ground = new V3((float)(f.X - origin.X), f.Y - origin.Y, (float)(f.Z - origin.Z)), HeadingRad = f.HeadingRad, SpeedMps = f.SpeedMps,
-                    LeanRad = f.LeanRad, Rig = c.Rig, PassengerOf = RigClass.Car, HasBody = true, BodyAheadM = bodyAhead,
+                    LeanRad = f.LeanRad, Rig = rig, PassengerOf = passengerOf, HasBody = true, BodyAheadM = bodyAhead,
                 };
-                ChasePose p = cam.Tick(f.Dt, t, CameraViews.Default(c.Rig), controls, aspect, CameraRides.Ground, origin.X, origin.Y, origin.Z);
+                ChasePose p = cam.Tick(f.Dt, t, view, controls, aspect, CameraRides.Ground, origin.X, origin.Y, origin.Z);
+                if (casts != null) casts.Add(cam.Boom.Casts);
                 output.Add(new CamSample
                 {
                     Dt = f.Dt, X = p.Position.X + origin.X, Y = p.Position.Y + origin.Y, Z = p.Position.Z + origin.Z, Rot = p.Rotation,
@@ -112,7 +122,7 @@ namespace Ghumante.Core.Tests
                 {
                     diag.Add("yaw " + p.YawDeg.ToString("0.0") + " head " + (f.HeadingRad * Quat.Rad2Deg).ToString("0.0") + " pitch " + cam.Boom.PitchDeg.ToString("0.0") +
                              " lift " + cam.Boom.LiftDeg.ToString("0.0") + " lane " + cam.Boom.Lane01.ToString("0.00") + " len " + cam.Boom.DistanceM.ToString("0.00") +
-                             " clear " + cam.Boom.ClearM.ToString("0.00") + " over " + cam.Boom.Overhead01.ToString("0.00") + " v " + f.SpeedMps.ToString("0.0") +
+                             " clear " + cam.Boom.ClearM.ToString("0.00") + " target " + cam.Boom.TargetM.ToString("0.00") + " over " + cam.Boom.Overhead01.ToString("0.00") + " v " + f.SpeedMps.ToString("0.0") +
                              " y " + f.Y.ToString("0.00") + " anchorY " + cam.Anchor.Y.ToString("0.00") + (cam.Boom.Clamped ? " CLAMPED" : "") +
                              (CameraRides.Ground.InsideSolid(cam.Anchor.X + origin.X, cam.Anchor.Z + origin.Z, cam.Anchor.Y + origin.Y) ? " PIVOT-IN-SOLID" : ""));
                 }
@@ -129,20 +139,49 @@ namespace Ghumante.Core.Tests
 
         // ---- Thresholds (docs/research/w2/ref_camera.md §6) ----------------------------------------------------------------
 
+        /// <summary>Limits per 1/30 s as a share of the boom (<see cref="CamMotion.OffsetStepRelMax"/>,
+        /// <see cref="CamMotion.BoomStepRelMax"/>): the camera's offset from the vehicle 6 % (0.5 m on the car's 8.5 m boom;
+        /// a far view's longer boom swings farther in the same turn), the boom's length 3 % (0.25 m on the scooter's 7.8 m).</summary>
         internal const double JerkP95Max = 60, JerkP99Max = 200, StraightMaxDegPerS = 6, StraightP95DegPerS = 4, AngVelMaxDegPerS = 90,
-                              AngAccP99Max = 250, OffsetStepMaxM = 0.5, LaneBoomStepMaxM = 0.25;
+                              AngAccP99Max = 250, LaneBoomStepMaxM = 0.25, OffsetStepRelMax = 0.06, BoomStepRelMax = 0.03;
 
-        /// <summary>What a camera fails of the thresholds over a ride ("" when it passes).</summary>
-        internal static string Failures(in CamMotion m)
+        /// <summary>The other chase views (far, low cinematic, high chase, riding along) may turn faster than
+        /// <see cref="StraightMaxDegPerS"/> on a straight road while their longer or higher boom passes under an upper floor
+        /// over the street or a foot overbridge (it dips under and comes back), in at most this share of the straight
+        /// frames and never faster than <see cref="AltStraightMaxDegPerS"/>.</summary>
+        internal const double AltStraightFastShareMax = 0.02, AltStraightMaxDegPerS = 30;
+
+        /// <summary>The other chase views' longer booms cannot see every corner coming (above all in a 4-6 m galli of the
+        /// old core): the hard limit may cut them short (faster than 3 % of the boom per 1/30 s) in at most this many cuts
+        /// per minute, never by more than <see cref="GalliCutShareMax"/> of the boom per 1/30 s; in the galli the jerk is
+        /// held at p95 only (each cut is a short jolt).</summary>
+        internal const double GalliCutsPerMinute = 3, GalliCutShareMax = 0.1;
+
+        /// <summary>What a camera fails of the thresholds over a ride ("" when it passes). <paramref name="alternative"/>:
+        /// an alternative chase view (<see cref="AltStraightFastShareMax"/>); <paramref name="galli"/>: one on the old
+        /// core's lanes (<see cref="GalliCutsPerMinute"/>).</summary>
+        internal static string Failures(in CamMotion m, bool alternative = false, bool galli = false)
         {
             string f = "";
+            galli &= alternative;
             if (m.JerkP95 > JerkP95Max) f += " jerk p95 " + m.JerkP95.ToString("0") + " > " + JerkP95Max + ";";
-            if (m.JerkP99 > JerkP99Max) f += " jerk p99 " + m.JerkP99.ToString("0") + " > " + JerkP99Max + ";";
-            if (m.AngVelStraightMax > StraightMaxDegPerS) f += " straight-road rotation " + m.AngVelStraightMax.ToString("0.0") + " °/s > " + StraightMaxDegPerS + ";";
+            if (!galli && m.JerkP99 > JerkP99Max) f += " jerk p99 " + m.JerkP99.ToString("0") + " > " + JerkP99Max + ";";
+            if (!alternative && m.AngVelStraightMax > StraightMaxDegPerS)
+                f += " straight-road rotation " + m.AngVelStraightMax.ToString("0.0") + " °/s > " + StraightMaxDegPerS + ";";
+            if (alternative && m.StraightFastShare > AltStraightFastShareMax)
+                f += " straight-road rotation over " + StraightMaxDegPerS + " °/s in " + (100 * m.StraightFastShare).ToString("0.00") + " % of the frames;";
+            if (alternative && m.AngVelStraightMax > AltStraightMaxDegPerS)
+                f += " straight-road rotation " + m.AngVelStraightMax.ToString("0.0") + " °/s > " + AltStraightMaxDegPerS + ";";
             if (m.AngVelStraightP95 > StraightP95DegPerS) f += " straight-road rotation p95 " + m.AngVelStraightP95.ToString("0.0") + " °/s > " + StraightP95DegPerS + ";";
             if (m.AngVelMax > AngVelMaxDegPerS) f += " rotation " + m.AngVelMax.ToString("0") + " °/s > " + AngVelMaxDegPerS + ";";
             if (m.AngAccP99 > AngAccP99Max) f += " angular acceleration p99 " + m.AngAccP99.ToString("0") + " °/s² > " + AngAccP99Max + ";";
-            if (m.OffsetStepMax > OffsetStepMaxM) f += " snap of " + m.OffsetStepMax.ToString("0.00") + " m in one frame;";
+            double offsetLimit = alternative ? GalliCutShareMax : OffsetStepRelMax, boomLimit = alternative ? GalliCutShareMax : BoomStepRelMax;
+            if (m.OffsetStepRelMax > offsetLimit)
+                f += " snap of " + m.OffsetStepMax.ToString("0.00") + " m (" + (100 * m.OffsetStepRelMax).ToString("0.0") + " % of the boom) in one frame;";
+            if (m.BoomStepRelMax > boomLimit)
+                f += " boom jump of " + m.BoomStepMax.ToString("0.00") + " m (" + (100 * m.BoomStepRelMax).ToString("0.0") + " %) in one frame;";
+            if (alternative && m.BoomCuts > GalliCutsPerMinute * Math.Max(1.0, m.Minutes))
+                f += " " + m.BoomCuts + " cuts in " + m.Minutes.ToString("0.0") + " min;";
             if (m.RollMaxDeg > 0.01) f += " roll " + m.RollMaxDeg.ToString("0.0") + "°;";
             return f;
         }
@@ -192,38 +231,157 @@ namespace Ghumante.Core.Tests
         [Test]
         public void InTheOldCoreLanesTheBoomNeverSnaps()
         {
-            // The scooter through Indra Chowk, Garcha Marg and the Himal Marg galli (4-6 m between houses): the boom never
-            // shortens or lengthens by more than 0.25 m in one frame, the camera is never inside a house, and the house
-            // fronts never come between the rider and the camera. Landscape and portrait.
+            // The scooter through Indra Chowk, Garcha Marg and the Himal Marg galli (4-6 m between houses, upper floors over
+            // the street): on the scooter's own view the boom never shortens or lengthens by more than 0.25 m in one frame;
+            // the other views (far, low cinematic, pillion) meet the same thresholds as on the open road except that their
+            // longer booms may be cut at an unseen corner a few times a minute (GalliCutsPerMinute). On every view the
+            // camera is never inside a house and the house fronts never come between the rider and the camera. Landscape
+            // and portrait.
             RideCase c = Rides[1];
             List<RideFrame> frames = Record(c);
             foreach (float aspect in new[] { 2400f / 1080f, 1080f / 2400f })
             {
-                var cam = new ChaseCamera();
-                List<CamSample> got = RunNew(c, frames, aspect, cam);
-                CamMotion m = CamMotion.Of(got, frames);
-                TestContext.WriteLine((aspect < 1f ? "portrait" : "landscape") + ": " + m);
-                Assert.LessOrEqual(m.BoomStepMax, LaneBoomStepMaxM, "boom step");
-                int inside = 0, hidden = 0, blocked = 0;
-                for (int i = 0; i < got.Count; i++)
+                for (int k = 0; k <= CameraViews.Count(c.Rig); k++)
                 {
-                    CamSample s = got[i];
-                    if (CameraRides.Ground.InsideSolid(s.X, s.Z, (float)s.Y - 0.2f)) inside++;
-                    double px = frames[i].X, py = frames[i].Y + 1.0, pz = frames[i].Z;
-                    for (double f = 0.15; f < 0.95; f += 0.1)
+                    bool passenger = k == CameraViews.Count(c.Rig);
+                    CameraView view = passenger ? CameraView.Near : CameraViews.At(c.Rig, k);
+                    if (CameraViews.IsMounted(view)) continue;
+                    var cam = new ChaseCamera();
+                    List<CamSample> got = RunNew(c, frames, view, passenger ? RigClass.Passenger : c.Rig, c.Rig, aspect, cam);
+                    CamMotion m = CamMotion.Of(got, frames);
+                    string what = (passenger ? "pillion" : CameraViews.Name(view)) + " (" + (aspect < 1f ? "portrait" : "landscape") + ")";
+                    TestContext.WriteLine(what + ": " + m);
+                    if (k == 0) Assert.LessOrEqual(m.BoomStepMax, LaneBoomStepMaxM, what + ": boom step");
+                    if (k == 0) Assert.LessOrEqual(m.BoomStepRelMax, BoomStepRelMax, what + ": boom step share");
+                    else Assert.That(Failures(m, true, true), Is.Empty, what);
+                    int inside = 0, hidden = 0, blocked = 0;
+                    for (int i = 0; i < got.Count; i++)
                     {
-                        if (CameraRides.Ground.InsideSolid(px + (s.X - px) * f, pz + (s.Z - pz) * f, (float)(py + (s.Y - py) * f) - 0.2f))
+                        CamSample s = got[i];
+                        if (CameraRides.Ground.InsideSolid(s.X, s.Z, (float)s.Y - 0.2f)) inside++;
+                        double px = frames[i].X, py = frames[i].Y + 1.0, pz = frames[i].Z;
+                        for (double f = 0.15; f < 0.95; f += 0.1)
                         {
-                            hidden++;
-                            break;
+                            if (CameraRides.Ground.InsideSolid(px + (s.X - px) * f, pz + (s.Z - pz) * f, (float)(py + (s.Y - py) * f) - 0.2f))
+                            {
+                                hidden++;
+                                break;
+                            }
+                        }
+                        if (s.BoomM < 3f) blocked++;
+                    }
+                    TestContext.WriteLine("  frames with the boom under 3 m: " + blocked + ", a house between: " + hidden + " of " + got.Count);
+                    Assert.AreEqual(0, inside, what + ": the camera inside a house");
+                    Assert.LessOrEqual(hidden, got.Count / 200, what + ": a house between the rider and the camera");
+                }
+            }
+        }
+
+        [Test]
+        public void TheBoomStaysCheapInTheLanes()
+        {
+            // The early look, the pitch search and the side probes cost sphere sweeps; on a phone the camera must stay a
+            // small part of the frame. Over the scooter's ride through the old core (the busiest case for the boom), on its
+            // own view and the far one, in both orientations: at most 5 sweeps a frame on average and 20 in the worst frame.
+            RideCase c = Rides[1];
+            List<RideFrame> frames = Record(c);
+            foreach (CameraView view in new[] { CameraView.Near, CameraView.Far })
+            {
+                foreach (float aspect in new[] { 2400f / 1080f, 1080f / 2400f })
+                {
+                    var casts = new List<int>(frames.Count);
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    RunNew(c, frames, view, c.Rig, c.Rig, aspect, null, null, casts);
+                    watch.Stop();
+                    double mean = 0;
+                    int worst = 0;
+                    foreach (int n in casts)
+                    {
+                        mean += n;
+                        worst = Math.Max(worst, n);
+                    }
+                    mean /= Math.Max(1, casts.Count);
+                    string what = CameraViews.Name(view) + " (" + (aspect < 1f ? "portrait" : "landscape") + ")";
+                    TestContext.WriteLine(what + ": " + mean.ToString("0.00") + " sweeps a frame on average, " + worst + " at most; " +
+                                          (watch.Elapsed.TotalMilliseconds * 1000.0 / frames.Count).ToString("0") + " µs a frame here");
+                    Assert.LessOrEqual(mean, 5.0, what);
+                    Assert.LessOrEqual(worst, 20, what);
+                }
+            }
+        }
+
+        [Test]
+        public void EveryChaseAngleStaysSteadyOnTheSameRides()
+        {
+            // Steady must not cost the alternative angles (W2 owner feedback: "add multiple camera angles for bike, cycle,
+            // car, bus"): every chase view each class offers (far, low cinematic, high chase) and riding along as a
+            // passenger, over the same recorded rides in both orientations, meet the same thresholds as the default view
+            // (on straight roads: AltStraightFastShareMax, for the boom dipping under upper floors and overbridges), and
+            // still frame as named: far sits farther back and higher, low cinematic lower and closer, a passenger farther
+            // back than the driver.
+            string failed = "";
+            foreach (RideCase c in Rides)
+            {
+                List<RideFrame> frames = Record(c);
+                foreach (float aspect in new[] { 2400f / 1080f, 1080f / 2400f })
+                {
+                    string orientation = aspect < 1f ? "portrait" : "landscape";
+                    double nearUp = 0, nearBack = 0;
+                    for (int k = 0; k <= CameraViews.Count(c.Rig); k++)
+                    {
+                        bool passenger = k == CameraViews.Count(c.Rig);
+                        CameraView view = passenger ? CameraView.Near : CameraViews.At(c.Rig, k);
+                        if (CameraViews.IsMounted(view)) continue;
+                        RigClass rig = passenger ? RigClass.Passenger : c.Rig;
+                        List<CamSample> got = RunNew(c, frames, view, rig, c.Rig, aspect);
+                        CamMotion m = CamMotion.Of(got, frames);
+                        double up, back;
+                        MeanOffset(got, frames, out up, out back);
+                        string what = c.Name + " " + (passenger ? "passenger" : CameraViews.Name(view)) + " (" + orientation + ")";
+                        TestContext.WriteLine(what + ": " + up.ToString("0.0") + " m up, " + back.ToString("0.0") + " m back; " + m);
+                        string f = Failures(m, k > 0, c.Name == Rides[1].Name);
+                        if (f.Length > 0) failed += "\n" + what + ":" + f;
+                        if (k == 0)
+                        {
+                            nearUp = up;
+                            nearBack = back;
+                        }
+                        else if (passenger)
+                        {
+                            Assert.Greater(back, nearBack + 0.5, what + ": a passenger rides farther back");
+                        }
+                        else if (view == CameraView.Far)
+                        {
+                            Assert.Greater(back, nearBack + 1.5, what + ": far is farther back");
+                            Assert.Greater(up, nearUp + 0.5, what + ": and higher");
+                        }
+                        else if (view == CameraView.LowCinematic)
+                        {
+                            Assert.Less(up, nearUp - 0.5, what + ": low cinematic is lower");
+                            Assert.Less(back, nearBack, what + ": and closer");
                         }
                     }
-                    if (s.BoomM < 3f) blocked++;
                 }
-                TestContext.WriteLine("  frames with the boom under 3 m: " + blocked + " of " + got.Count);
-                Assert.AreEqual(0, inside, "the camera inside a house");
-                Assert.LessOrEqual(hidden, got.Count / 200, "a house between the rider and the camera");
             }
+            Assert.That(failed, Is.Empty);
+        }
+
+        /// <summary>The camera's mean height over the vehicle's ground point and mean distance from it across the ground
+        /// over a ride (after the first 1.5 s), metres.</summary>
+        private static void MeanOffset(List<CamSample> cam, List<RideFrame> ride, out double up, out double back)
+        {
+            double t = 0, su = 0, sb = 0;
+            int n = 0;
+            for (int i = 0; i < cam.Count; i++)
+            {
+                t += ride[i].Dt;
+                if (t < 1.5) continue;
+                su += cam[i].Y - ride[i].Y;
+                sb += Math.Sqrt(Sq(cam[i].X - ride[i].X) + Sq(cam[i].Z - ride[i].Z));
+                n++;
+            }
+            up = n > 0 ? su / n : 0;
+            back = n > 0 ? sb / n : 0;
         }
 
         [Test]
