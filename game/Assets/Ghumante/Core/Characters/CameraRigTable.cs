@@ -4,7 +4,12 @@ using Ghumante.Core.Save;
 
 namespace Ghumante.Core.Characters
 {
-    /// <summary>The numbers of one chase-camera rig (W2_DESIGN 6.4).</summary>
+    /// <summary>
+    /// The numbers of one chase-camera rig (docs/research/w2/ref_camera.md §5, which supersedes W2_DESIGN 6.4 after owner
+    /// playtest #5). The boom hangs from a pivot over the <b>middle of the body</b> (the ground point moved forward by the
+    /// body-centre offset), its length and elevation give where the camera sits, and the view pins the body's ground point
+    /// at <see cref="FootRestNdc"/> on screen (lower with speed, so more road ahead shows).
+    /// </summary>
     public struct RigParams
     {
         /// <summary>Distance from the pivot to the camera, metres.</summary>
@@ -13,22 +18,27 @@ namespace Ghumante.Core.Characters
         /// <summary>Elevation of the camera above the pivot, degrees.</summary>
         public float PitchDeg;
 
-        /// <summary>Pivot height above the player's (or vehicle's) ground point.</summary>
+        /// <summary>Pivot height above the body's ground point, metres.</summary>
         public float PivotM;
 
-        /// <summary>Look-ahead: speed × this many seconds, up to <see cref="LookAheadMaxM"/>.</summary>
+        /// <summary>Look-ahead: speed × this many seconds, up to <see cref="LookAheadMaxM"/> (moves the body down the screen
+        /// from <see cref="FootRestNdc"/> towards <see cref="FootFastNdc"/>).</summary>
         public float LookAheadS, LookAheadMaxM;
 
-        /// <summary>Minimum horizontal field of view, degrees (walk 55°, drive 62°, bus and truck 64°).</summary>
+        /// <summary>Minimum horizontal field of view, degrees: binds on tall (portrait) screens.</summary>
         public float MinHFovDeg;
 
-        /// <summary>Heading follow smoothing, seconds.</summary>
+        /// <summary>Minimum vertical field of view, degrees: binds on wide (landscape) screens (Hor+: a wider phone sees
+        /// more to the sides, not less above and below). 0: none.</summary>
+        public float MinVFovDeg;
+
+        /// <summary>Yaw follow smoothing time, seconds (critically damped: lags a steady turn by rate × this).</summary>
         public float FollowS;
 
         /// <summary>Speed FOV kick, degrees, reached at <see cref="KickFullMps"/> (above <see cref="KickFromMps"/>).</summary>
         public float FovKickDeg, KickFromMps, KickFullMps;
 
-        /// <summary>Collision minimum distance (walk 2.5 m, vehicles 4 m).</summary>
+        /// <summary>Collision minimum distance (walk 2.5 m, vehicles 3–6 m).</summary>
         public float MinDistanceM;
 
         /// <summary>Sideways offset of the pivot, metres, right positive (0 except the over-the-shoulder view).</summary>
@@ -37,13 +47,35 @@ namespace Ghumante.Core.Characters
         /// <summary>The camera looks through the pivot instead of pinning the player's ground point on screen (the
         /// over-the-shoulder view, whose pivot is the shoulder).</summary>
         public bool AimAtPivot;
+
+        /// <summary>Screen height (NDC: −1 bottom, +1 top) of the body's ground point at rest and at full look-ahead.</summary>
+        public float FootRestNdc, FootFastNdc;
+
+        /// <summary>Smoothing of the followed point: across the ground (0.07–0.14 s, a slight trail at speed) and up and
+        /// down (0.2–0.4 s with the road's slope fed forward, so kerbs, seams and bumps never shake the view while hills
+        /// are followed without lag).</summary>
+        public float PositionS, HeightS;
+
+        /// <summary>The boom grows by this much at <see cref="PullFullMps"/> (smoothed speed): a little sense of speed.</summary>
+        public float PullBackM, PullFullMps;
+
+        /// <summary>Below <see cref="FollowFromMps"/> the camera does not swing round with the body (parking, turning on
+        /// the spot); from <see cref="FollowFullMps"/> it follows fully.</summary>
+        public float FollowFromMps, FollowFullMps;
+
+        /// <summary>The body's middle ahead of its ground point when the target does not say (vehicles stand on the rear
+        /// axle), metres.</summary>
+        public float BodyAheadM;
     }
 
     /// <summary>
-    /// The camera rig per class and orientation (W2_DESIGN 6.4): distance ≈ 6 + 1 × vehicle length in landscape, portrait
-    /// 10–15% farther with 8–10° more pitch and twice the look-ahead time. The portrait walking rig is 6.8 m / 20° / 0.9 m
-    /// (W2 change from 8.6 / 22 / 1.0) so the player grows from about 187 px to about 240 px on a 1080 × 2340 phone.
-    /// Passengers orbit at 1.2× the driver rig of their vehicle. Engine-free; the Unity rig reads it.
+    /// The chase rig per class and orientation (docs/research/w2/ref_camera.md §5): the camera sits low and close behind,
+    /// about a metre over the roof of a car (2.4 m up, 6.5 m behind its tail in landscape), looking nearly level so the
+    /// street runs to a horizon at about two thirds of the screen; two-wheelers 2.5 m up and 6.7 m behind the rear wheel;
+    /// buses and trucks 4.4 m up and 11.5 m behind. Landscape keeps a vertical FOV of 46–48° (Hor+), portrait a horizontal
+    /// FOV of 55–62° (the vertical then opens to about 100°), so portrait sits higher and steeper and shows more road.
+    /// Passengers orbit at 1.2× the driver rig of their vehicle. Engine-free; the Unity rig reads it through
+    /// <see cref="ChaseCamera"/>.
     /// </summary>
     public static class CameraRigTable
     {
@@ -55,40 +87,55 @@ namespace Ghumante.Core.Characters
         public static RigParams For(RigClass rig, bool portrait)
         {
             if (rig == RigClass.Passenger) return For(rig, portrait, RigClass.Car);
+            RigParams r;
             switch (rig)
             {
                 case RigClass.Walk:
-                    return portrait
-                        ? R(6.8f, 20f, 0.9f, 0.6f, 4.5f, 55f, 1.0f, 0f, 0f, 1f, 2.5f)
-                        : R(8.4f, 12f, 1.0f, 0.3f, 2.5f, 55f, 0.9f, 0f, 0f, 1f, 2.5f);
+                    r = portrait ? R(5.6f, 27.5f, 1.0f, -0.44f, 55f, 0f) : R(6.0f, 12.5f, 1.0f, -0.55f, 55f, 48f);
+                    Look(ref r, portrait ? 0.6f : 0.3f, portrait ? 4.5f : 2.5f, -0.04f);
+                    Smooth(ref r, 0.9f, 0.08f, 0.20f, 0f, 0f, 0f, 2.5f);
+                    return r;
                 case RigClass.Bicycle:
-                    return portrait
-                        ? R(8.5f, 20f, 1.0f, 0.8f, 10f, 62f, 0.30f, 3f, 3f, 8.3f, 4f)
-                        : R(7.5f, 12f, 1.0f, 0.4f, 6f, 62f, 0.30f, 3f, 3f, 8.3f, 4f);
+                    r = portrait ? R(6.6f, 28f, 1.0f, -0.40f, 62f, 0f) : R(7.2f, 10.5f, 1.0f, -0.46f, 62f, 46f);
+                    Look(ref r, portrait ? 0.8f : 0.4f, portrait ? 10f : 6f, -0.06f);
+                    Smooth(ref r, 0.32f, 0.07f, 0.24f, 0.55f, 0.6f, 8f, 3f);
+                    Kick(ref r, 3f, 3f, 8.3f);
+                    return r;
                 case RigClass.TwoWheeler:
-                    return portrait
-                        ? R(9.2f, 21f, 1.0f, 0.9f, 16f, 62f, 0.32f, 6f, 16.7f, 25f, 4f)
-                        : R(8.0f, 13f, 1.0f, 0.45f, 9f, 62f, 0.28f, 6f, 16.7f, 25f, 4f);
+                    r = portrait ? R(7.0f, 28.5f, 1.0f, -0.41f, 62f, 0f) : R(7.8f, 11f, 1.0f, -0.46f, 62f, 46f);
+                    Look(ref r, portrait ? 0.9f : 0.45f, portrait ? 16f : 9f, -0.08f);
+                    Smooth(ref r, 0.30f, 0.07f, 0.25f, 0.6f, 1.0f, 20f, 3f);
+                    Kick(ref r, 6f, 16.7f, 25f);
+                    return r;
                 case RigClass.Car:
-                    return portrait
-                        ? R(10.8f, 22f, 1.3f, 1.0f, 20f, 62f, 0.35f, 5f, 5f, 25f, 4f)
-                        : R(9.5f, 14f, 1.3f, 0.5f, 12f, 62f, 0.35f, 5f, 5f, 25f, 4f);
+                    r = portrait ? R(8.1f, 25.5f, 1.0f, -0.33f, 62f, 0f) : R(8.5f, 9f, 1.0f, -0.37f, 62f, 46f);
+                    Look(ref r, portrait ? 1.0f : 0.5f, portrait ? 20f : 12f, -0.08f);
+                    Smooth(ref r, 0.40f, 0.09f, 0.28f, 1.3f, 1.2f, 22f, 3.5f);
+                    Kick(ref r, 4f, 8f, 25f);
+                    return r;
                 case RigClass.Van:
-                    return portrait
-                        ? R(12.0f, 23f, 1.6f, 1.0f, 20f, 62f, 0.40f, 4f, 5f, 22f, 4f)
-                        : R(10.5f, 15f, 1.6f, 0.5f, 12f, 62f, 0.40f, 4f, 5f, 22f, 4f);
+                    r = portrait ? R(10.0f, 26.5f, 1.1f, -0.34f, 62f, 0f) : R(10.3f, 10f, 1.1f, -0.38f, 62f, 46f);
+                    Look(ref r, portrait ? 1.0f : 0.5f, portrait ? 20f : 12f, -0.08f);
+                    Smooth(ref r, 0.45f, 0.10f, 0.30f, 1.5f, 1.2f, 20f, 4f);
+                    Kick(ref r, 3f, 8f, 22f);
+                    return r;
                 case RigClass.Bus:
-                    return portrait
-                        ? R(18.5f, 25f, 2.6f, 1.2f, 28f, 64f, 0.60f, 2f, 5f, 17f, 4f)
-                        : R(16.5f, 17f, 2.6f, 0.6f, 18f, 64f, 0.60f, 2f, 5f, 17f, 4f);
+                    r = portrait ? R(15.9f, 22f, 1.8f, -0.29f, 64f, 0f) : R(16.9f, 9f, 1.8f, -0.32f, 64f, 48f);
+                    Look(ref r, portrait ? 1.2f : 0.6f, portrait ? 28f : 18f, -0.07f);
+                    Smooth(ref r, 0.60f, 0.14f, 0.38f, 2.6f, 1.5f, 16f, 6f);
+                    Kick(ref r, 2f, 5f, 17f);
+                    return r;
                 case RigClass.Truck:
-                    return portrait
-                        ? R(16.5f, 24f, 2.4f, 1.2f, 26f, 64f, 0.55f, 2f, 5f, 15f, 4f)
-                        : R(14.5f, 16f, 2.4f, 0.6f, 16f, 64f, 0.55f, 2f, 5f, 15f, 4f);
+                    r = portrait ? R(14.8f, 24.5f, 1.8f, -0.33f, 64f, 0f) : R(15.6f, 10f, 1.8f, -0.37f, 64f, 48f);
+                    Look(ref r, portrait ? 1.2f : 0.6f, portrait ? 26f : 16f, -0.07f);
+                    Smooth(ref r, 0.55f, 0.13f, 0.36f, 2.6f, 1.5f, 15f, 6f);
+                    Kick(ref r, 2f, 5f, 15f);
+                    return r;
                 case RigClass.Tractor:
-                    return portrait
-                        ? R(11.5f, 26f, 1.8f, 0.6f, 10f, 62f, 0.50f, 0f, 0f, 1f, 4f)
-                        : R(10.0f, 18f, 1.8f, 0.3f, 6f, 62f, 0.50f, 0f, 0f, 1f, 4f);
+                    r = portrait ? R(9.4f, 27.5f, 1.2f, -0.36f, 62f, 0f) : R(10.0f, 10.5f, 1.2f, -0.42f, 62f, 48f);
+                    Look(ref r, portrait ? 0.6f : 0.3f, portrait ? 10f : 6f, -0.05f);
+                    Smooth(ref r, 0.50f, 0.12f, 0.32f, 1.0f, 0.5f, 8f, 4f);
+                    return r;
                 default:
                     return Passenger(For(RigClass.Car, portrait));
             }
@@ -105,7 +152,7 @@ namespace Ghumante.Core.Characters
             return Passenger(For(passengerOf, portrait));
         }
 
-        /// <summary>The ride-along rig for a driver rig: 1.2× the distance, no look-ahead, no FOV kick.</summary>
+        /// <summary>The ride-along rig for a driver rig: 1.2× the distance, no look-ahead, no FOV kick, no pull-back.</summary>
         public static RigParams Passenger(in RigParams driver)
         {
             RigParams p = driver;
@@ -113,9 +160,37 @@ namespace Ghumante.Core.Characters
             p.LookAheadS = 0f;
             p.LookAheadMaxM = 0f;
             p.FovKickDeg = 0f;
+            p.PullBackM = 0f;
             p.FollowS = Math.Max(driver.FollowS, 0.6f);
             return p;
         }
+
+        /// <summary>
+        /// The chase rig of an aircraft <paramref name="lengthM"/> long (the flight package's camera; ref_camera.md §5.9):
+        /// about 7 m + 1.15 × the length behind, low over the tail, a wide 56° vertical FOV in landscape, the yaw following the
+        /// heading in 0.55 s. <see cref="ChaseCamera"/> keeps the horizon level apart from <see cref="AircraftBankShare"/> of
+        /// the bank and tilts the boom with half the flight-path angle.
+        /// </summary>
+        public static RigParams ForAircraft(float lengthM, bool portrait)
+        {
+            float l = float.IsNaN(lengthM) ? 8f : Math.Max(3f, Math.Min(80f, lengthM));
+            float d = 7f + 1.15f * l;
+            float pivot = Math.Max(1.2f, 0.18f * l);
+            RigParams r = portrait ? R(d * 1.08f, 16f, pivot, -0.26f, 64f, 0f) : R(d, 6.5f, pivot, -0.28f, 64f, 56f);
+            Look(ref r, 0f, 0f, 0f);
+            Smooth(ref r, 0.55f, 0.12f, 0.25f, 0f, 0.08f * l, 80f, 0f);
+            Kick(ref r, 4f, 40f, 80f);
+            r.MinDistanceM = Math.Min(d, 4f + 0.3f * l);
+            r.FollowFromMps = 0f;
+            r.FollowFullMps = 0f;
+            return r;
+        }
+
+        /// <summary>Share of an aircraft's bank the chase view rolls with (0 with reduced motion).</summary>
+        public const float AircraftBankShare = 0.2f;
+
+        /// <summary>Share of an aircraft's flight-path angle the boom tilts by (looks along a climb or a descent).</summary>
+        public const float AircraftPathShare = 0.5f;
 
         /// <summary>The FOV kick at a speed (none below the threshold, full at the top).</summary>
         public static float FovKick(in RigParams r, float speedMps)
@@ -125,14 +200,70 @@ namespace Ghumante.Core.Characters
             return r.FovKickDeg * CharMath.Clamp01(t);
         }
 
-        private static RigParams R(float d, float pitch, float pivot, float laS, float laMax, float fov, float follow, float kick, float kickFrom,
-                                   float kickFull, float minD)
+        /// <summary>The boom's speed pull-back at a (smoothed) speed, metres (eased in).</summary>
+        public static float PullBack(in RigParams r, float speedMps)
+        {
+            if (r.PullBackM <= 0f || !(r.PullFullMps > 0f)) return 0f;
+            return r.PullBackM * CharMath.SmoothStep(Math.Abs(speedMps) / r.PullFullMps);
+        }
+
+        /// <summary>
+        /// The vertical field of view of a rig at <paramref name="aspect"/> (width / height) plus a speed
+        /// <paramref name="kickDeg"/>: whichever is wider of the minimum horizontal FOV (as vertical) and the minimum
+        /// vertical FOV (landscape only), clamped to 100° (CameraFov).
+        /// </summary>
+        public static float VerticalFovDeg(in RigParams r, float aspect, float kickDeg)
+        {
+            if (!(aspect > 0f) || float.IsInfinity(aspect)) aspect = 1f;
+            float h = CharMath.Clamp(r.MinHFovDeg + kickDeg, 1f, 179f);
+            double v = 2.0 * Math.Atan(Math.Tan(h * Math.PI / 360.0) / aspect) * 180.0 / Math.PI;
+            if (aspect >= 1f && r.MinVFovDeg > 0f) v = Math.Max(v, r.MinVFovDeg + 0.7f * kickDeg);
+            return (float)Math.Min(100.0, Math.Max(1.0, v));
+        }
+
+        /// <summary>Where the body's ground point stands on screen (NDC y) at <paramref name="speedMps"/> (smoothed).</summary>
+        public static float FootNdc(in RigParams r, float speedMps)
+        {
+            float t = 0f;
+            if (r.LookAheadMaxM > 0f && speedMps > 0f) t = Math.Min(1f, speedMps * r.LookAheadS / r.LookAheadMaxM);
+            return r.FootRestNdc + (r.FootFastNdc - r.FootRestNdc) * t;
+        }
+
+        private static RigParams R(float d, float pitch, float pivot, float foot, float minH, float minV)
         {
             return new RigParams
             {
-                DistanceM = d, PitchDeg = pitch, PivotM = pivot, LookAheadS = laS, LookAheadMaxM = laMax, MinHFovDeg = fov, FollowS = follow,
-                FovKickDeg = kick, KickFromMps = kickFrom, KickFullMps = kickFull, MinDistanceM = minD,
+                DistanceM = d, PitchDeg = pitch, PivotM = pivot, FootRestNdc = foot, FootFastNdc = foot, MinHFovDeg = minH, MinVFovDeg = minV,
+                MinDistanceM = Math.Min(d, 3.5f), KickFullMps = 1f,
             };
+        }
+
+        private static void Look(ref RigParams r, float s, float maxM, float footShift)
+        {
+            r.LookAheadS = s;
+            r.LookAheadMaxM = maxM;
+            r.FootFastNdc = r.FootRestNdc + footShift;
+        }
+
+        private static void Smooth(ref RigParams r, float follow, float position, float height, float bodyAhead, float pullBack, float pullFull,
+                                   float minDistance)
+        {
+            r.FollowS = follow;
+            r.PositionS = position;
+            r.HeightS = height;
+            r.BodyAheadM = bodyAhead;
+            r.PullBackM = pullBack;
+            r.PullFullMps = pullFull;
+            r.MinDistanceM = Math.Min(r.DistanceM, minDistance);
+            r.FollowFromMps = 0.8f;
+            r.FollowFullMps = 3f;
+        }
+
+        private static void Kick(ref RigParams r, float deg, float from, float full)
+        {
+            r.FovKickDeg = deg;
+            r.KickFromMps = from;
+            r.KickFullMps = full;
         }
     }
 
@@ -720,381 +851,6 @@ namespace Ghumante.Core.Characters
             if (Raise01 > 1f - 1e-4f) Raise01 = 1f;
             float step = dt / SwingSeconds;
             Swing01 = _swung ? Math.Min(1f, Swing01 + step) : Math.Max(0f, Swing01 - step);
-        }
-    }
-
-    /// <summary>
-    /// The collision-aware boom of the chase camera (W2_DESIGN 6.4; owner feedback: "houses block the view", "camera view
-    /// gets blocked if I try to back up my motorbike in the narrower streets"). Each frame it sweeps a
-    /// <see cref="ProbeRadiusM"/> sphere from the pivot over the player towards where the camera wants to be
-    /// (<see cref="IViewObstacleQuery"/>, game metres with absolute heights; see <see cref="Reach"/>) and:
-    /// <list type="bullet">
-    /// <item>pulls in at once to stay <see cref="SkinM"/> short of the first hit, so the camera is never inside or behind a
-    /// wall, then eases back out over about <see cref="EaseOutSeconds"/> after a short <see cref="HoldSeconds"/>;</item>
-    /// <item>when that leaves less than the rig's minimum distance (a low wall right behind), tries steeper booms in
-    /// <see cref="LiftStepDeg"/> steps and lifts over the wall smoothly;</item>
-    /// <item>when even that leaves less than <see cref="FallbackClearM"/> (the player backed against a house, a scooter
-    /// stopped at the end of a dead-end lane), where any boom would sit inside the player's own body, switches to the
-    /// <b>overhead fallback</b>: the pivot rises straight up by up to <see cref="OverheadRiseM"/> (less under a ceiling)
-    /// over <see cref="OverheadSeconds"/>, the boom is swept again from there, and the camera looks down the way ahead
-    /// (<see cref="OverheadLook01"/>, <see cref="OverheadLookDownDeg"/>; over a low wall it looks back at the player);
-    /// it returns once the boom has <see cref="FallbackExitM"/> of room again;</item>
-    /// <item>in a lane with walls within <see cref="LaneProbeM"/> on both sides (old-core lanes, about 4.8 m wide) blends
-    /// to the lane frame: <see cref="LanePitchDeg"/> steeper and <see cref="LaneDistanceScale"/> as long, so it looks
-    /// over the eaves instead of into the walls.</item>
-    /// </list>
-    /// A sweep that starts inside or touching something is never taken as clear (<see cref="Reach"/>). The camera sits at
-    /// the pivot plus <see cref="CameraOffset"/>. Without a query it only eases towards the wanted length. Engine-free; no
-    /// allocation; usually one or two sweeps per frame (at most about sixteen while lifting into the fallback).
-    /// </summary>
-    public sealed class ChaseBoom
-    {
-        public const float ProbeRadiusM = 0.3f;
-
-        /// <summary>Every sweep starts this far back along its direction, on the player's side of its origin, so a wall
-        /// the origin is backed against (closer than <see cref="ProbeRadiusM"/>) is met, not started in.</summary>
-        public const float BackOffM = 0.35f;
-
-        /// <summary>When the backed-off sweep meets something before it reaches its origin, a thin sweep of this radius
-        /// from the origin itself (always clear of the player's 0.3 m body) tells a wall right behind from something on
-        /// the player's side.</summary>
-        public const float CoreRadiusM = 0.12f;
-
-        public const float SkinM = 0.1f;
-
-        /// <summary>A thin sweep that meets something within this of its start started inside it: blocked at once.</summary>
-        public const float StartInsideM = 0.02f;
-
-        public const float EaseOutSeconds = 0.6f;
-        public const float HoldSeconds = 0.2f;
-        public const float LiftStepDeg = 15f;
-        public const int LiftSteps = 3;
-        public const float MaxPitchDeg = 80f;
-
-        /// <summary>Lift rises and falls at these rates, per second (exponential approach).</summary>
-        public const float LiftRiseRate = 10f, LiftFallRate = 2.5f;
-
-        public const float LaneProbeM = 3f;
-        public const float LanePitchDeg = 15f;
-        public const float LaneDistanceScale = 0.85f;
-        public const float LaneBlendSeconds = 0.5f;
-
-        /// <summary>The side probes run at 10 Hz (the lane blend is slow anyway).</summary>
-        public const float LaneIntervalS = 0.1f;
-
-        /// <summary>The overhead fallback starts when the clear boom (after lifting) is shorter than this: about the
-        /// player's own size, where the camera would sit inside the rider.</summary>
-        public const float FallbackClearM = 1.2f;
-
-        /// <summary>... and ends once the boom from the pivot has this much room again for <see cref="FallbackExitS"/>.</summary>
-        public const float FallbackExitM = 1.8f;
-
-        public const float FallbackExitS = 0.25f;
-
-        /// <summary>The fallback raises the pivot this far straight up (less under a ceiling or an eave).</summary>
-        public const float OverheadRiseM = 2.4f;
-
-        /// <summary>The fallback blends in and out over this long.</summary>
-        public const float OverheadSeconds = 0.3f;
-
-        /// <summary>In the fallback the camera looks this far down from level along the boom's heading, degrees: the lane
-        /// ahead with the vehicle's front (landscape) or the whole rider (portrait's tall view) at the bottom.</summary>
-        public const float OverheadLookDownLandscapeDeg = 58f, OverheadLookDownPortraitDeg = 48f;
-
-        private const double Deg2Rad = Math.PI / 180.0;
-
-        private float _distance = -1f;
-        private float _lift;
-        private float _hold;
-        private float _lane;
-        private float _laneTimer;
-        private bool _laneWalls;
-        private bool _overhead;
-        private float _over;
-        private float _overExit;
-
-        /// <summary>The boom length this frame, metres (from the raised pivot in the fallback).</summary>
-        public float DistanceM { get; private set; }
-
-        /// <summary>The boom pitch this frame (wanted pitch + lane + lift), degrees.</summary>
-        public float PitchDeg { get; private set; }
-
-        /// <summary>How far the overhead fallback raised the pivot this frame, metres (0 outside it).</summary>
-        public float RiseM { get; private set; }
-
-        /// <summary>True while the overhead fallback is wanted (the boom has no room behind the player).</summary>
-        public bool Overhead
-        {
-            get { return _overhead; }
-        }
-
-        /// <summary>Overhead fallback blend, 0 to 1 (eased): the camera's aim turns to look down the way ahead.</summary>
-        public float Overhead01
-        {
-            get { return CharMath.SmoothStep(_over); }
-        }
-
-        /// <summary>How far the camera's aim turns to the overhead look (<see cref="OverheadLookDownDeg"/>), 0 to 1: the
-        /// fallback's blend, fading out again where the boom from the raised pivot finds room (backed against a low
-        /// garden wall the camera rises over it and looks back at the player as usual).</summary>
-        public float OverheadLook01
-        {
-            get { return Overhead01 * (1f - CharMath.Clamp01((DistanceM - 0.3f) / 1.5f)); }
-        }
-
-        /// <summary>True while the fallback is wanted or still blending: only then may the camera come closer to the
-        /// pivot than <see cref="FallbackClearM"/> (crossing over the rider's head).</summary>
-        public bool FallbackActive
-        {
-            get { return _overhead || _over > 0f; }
-        }
-
-        /// <summary>Extra pitch to clear a low wall, degrees (smoothed).</summary>
-        public float LiftDeg
-        {
-            get { return _lift; }
-        }
-
-        /// <summary>Lane frame blend, 0 to 1 (eased).</summary>
-        public float Lane01
-        {
-            get { return CharMath.SmoothStep(_lane); }
-        }
-
-        /// <summary>Free length along this frame's boom direction (with the skin taken off).</summary>
-        public float ClearM { get; private set; }
-
-        /// <summary>Something cut the boom short this frame.</summary>
-        public bool Blocked { get; private set; }
-
-        /// <summary>Sweeps made by the last <see cref="Solve"/>.</summary>
-        public int Casts { get; private set; }
-
-        /// <summary>The overhead fallback's downward look for an orientation blend (0 landscape, 1 portrait), degrees.</summary>
-        public static float OverheadLookDownDeg(float portrait01)
-        {
-            float t = CharMath.Clamp01(portrait01);
-            return OverheadLookDownLandscapeDeg + (OverheadLookDownPortraitDeg - OverheadLookDownLandscapeDeg) * t;
-        }
-
-        /// <summary>Next solve starts fresh (spawn, teleport): no smoothing from the old length, lift, lane or fallback.</summary>
-        public void Snap()
-        {
-            _distance = -1f;
-            _lift = 0f;
-            _hold = 0f;
-            _laneTimer = 0f;
-            _overhead = false;
-            _over = 0f;
-            _overExit = 0f;
-        }
-
-        /// <summary>
-        /// Places the boom for this frame: pivot (<paramref name="px"/>, <paramref name="py"/>, <paramref name="pz"/>) in
-        /// game metres, boom yaw (degrees, 0 = north, clockwise: the camera sits behind, at −forward) and pitch
-        /// (degrees, camera above the pivot), the wanted length and the rig's minimum. Read <see cref="CameraOffset"/>
-        /// (or <see cref="RiseM"/>, <see cref="DistanceM"/> and <see cref="PitchDeg"/>) afterwards.
-        /// </summary>
-        public void Solve(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float wantedM,
-                          float minM, float dt)
-        {
-            Casts = 0;
-            if (!(dt >= 0f) || float.IsInfinity(dt)) dt = 0f;
-            if (float.IsNaN(wantedM) || wantedM < 0f) wantedM = 0f;
-            if (float.IsNaN(pitchDeg)) pitchDeg = 0f;
-            bool snap = _distance < 0f;
-
-            UpdateLane(query, px, py, pz, yawDeg, dt, snap);
-            float lane = Lane01;
-            float pitch = Math.Min(MaxPitchDeg, pitchDeg + LanePitchDeg * lane);
-            float want = wantedM * (1f + (LaneDistanceScale - 1f) * lane);
-            float min = Math.Min(Math.Max(0f, minM), want);
-
-            float liftTarget = 0f;
-            float clear0 = query != null ? Clear(query, px, py, pz, yawDeg, pitch, want) : want;
-            if (query != null && clear0 < min - 1e-3f)
-            {
-                float best = clear0, bestLift = 0f;
-                for (int k = 1; k <= LiftSteps; k++)
-                {
-                    float p = Math.Min(MaxPitchDeg, pitch + k * LiftStepDeg);
-                    if (p <= pitch + 1e-3f) break;
-                    float c = Clear(query, px, py, pz, yawDeg, p, want);
-                    if (c > best + 0.25f)
-                    {
-                        best = c;
-                        bestLift = p - pitch;
-                    }
-                    if (c >= min) break;
-                }
-                liftTarget = bestLift;
-            }
-            if (snap) _lift = liftTarget;
-            else _lift = CharMath.Approach(_lift, liftTarget, liftTarget > _lift ? LiftRiseRate : LiftFallRate, dt);
-            if (_lift < 0.01f && liftTarget <= 0f) _lift = 0f;
-
-            float finalPitch = Math.Min(MaxPitchDeg, pitch + _lift);
-            float clearBase = clear0;
-            if (query != null && _lift > 0f) clearBase = Clear(query, px, py, pz, yawDeg, finalPitch, want);
-
-            // The overhead fallback: no room for a boom behind the player. In at once, out after a short hold.
-            UpdateOverhead(query != null, clearBase, want, dt, snap);
-            float rise = 0f, clear = clearBase;
-            if (_over > 0f && query != null)
-            {
-                rise = Reach(query, px, py, pz, 0.0, 1.0, 0.0, OverheadRiseM) * CharMath.SmoothStep(_over);
-                if (rise > 1e-3f) clear = Clear(query, px, py + rise, pz, yawDeg, finalPitch, want);
-                else rise = 0f;
-            }
-
-            float target = Math.Min(want, clear);
-            if (snap)
-            {
-                _distance = target;
-                _hold = 0f;
-            }
-            else if (target < _distance)
-            {
-                // In at once: never inside or behind a wall.
-                _distance = target;
-                _hold = HoldSeconds;
-            }
-            else if (_hold > 0f)
-            {
-                _hold -= dt;
-            }
-            else
-            {
-                _distance = CharMath.Approach(_distance, target, 3f / EaseOutSeconds, dt);
-                if (target - _distance < 1e-3f) _distance = target;
-            }
-            _distance = Math.Min(_distance, clear);
-            Blocked = clear < want - 1e-3f;
-            ClearM = clear;
-            DistanceM = _distance;
-            PitchDeg = finalPitch;
-            RiseM = rise;
-        }
-
-        /// <summary>The camera's offset from the pivot this frame (game metres, absolute y): up by <see cref="RiseM"/>,
-        /// then <see cref="DistanceM"/> along the boom at <paramref name="yawDeg"/> and <see cref="PitchDeg"/>.</summary>
-        public void CameraOffset(float yawDeg, out double ox, out double oy, out double oz)
-        {
-            double dx, dy, dz;
-            Direction(yawDeg, PitchDeg, out dx, out dy, out dz);
-            ox = dx * DistanceM;
-            oy = RiseM + dy * DistanceM;
-            oz = dz * DistanceM;
-        }
-
-        /// <summary>
-        /// Free length (minus <see cref="SkinM"/>) for a <see cref="ProbeRadiusM"/> sphere moved from a point along a unit
-        /// direction, up to <paramref name="length"/>. The sweep starts <see cref="BackOffM"/> back, on the player's side
-        /// of the point, so a wall the point is backed against is met instead of started in (a sphere that starts in a
-        /// solid ignores it, which would put the camera inside the house). When it meets something before reaching the
-        /// point, a thin <see cref="CoreRadiusM"/> sweep from the point itself decides: a wall right behind gives 0, a thing
-        /// on the player's side is ignored, and a thin sweep that starts inside something is blocked at once. Never
-        /// takes a start inside as clear.
-        /// </summary>
-        public float Reach(IViewObstacleQuery query, double ox, double oy, double oz, double dx, double dy, double dz, float length)
-        {
-            if (query == null || !(length > 0f)) return Math.Max(0f, length);
-            Casts++;
-            double hit;
-            const double back = BackOffM;
-            if (!query.SphereCast(ox - dx * back, oy - dy * back, oz - dz * back, dx, dy, dz, ProbeRadiusM, length + back + SkinM, out hit))
-                return length;
-            if (double.IsNaN(hit)) hit = 0.0;
-            if (hit >= back - 1e-6) return Free(hit - back, length);
-
-            // Contact before the probe reached the point: a wall closer behind it than the probe radius, or something on
-            // the player's side of it. The thin sweep from the point sees only what lies ahead along the direction.
-            Casts++;
-            const double widen = ProbeRadiusM - CoreRadiusM;
-            if (!query.SphereCast(ox, oy, oz, dx, dy, dz, CoreRadiusM, length + SkinM + widen, out hit)) return length;
-            if (double.IsNaN(hit) || hit < StartInsideM) return 0f;
-            return Free(hit - widen, length);
-        }
-
-        /// <summary>The camera offset from the pivot for a boom of unit length at (<paramref name="yawDeg"/>,
-        /// <paramref name="pitchDeg"/>): behind and above.</summary>
-        public static void Direction(float yawDeg, float pitchDeg, out double dx, out double dy, out double dz)
-        {
-            double yaw = yawDeg * Deg2Rad, pitch = pitchDeg * Deg2Rad;
-            double c = Math.Cos(pitch);
-            dx = -Math.Sin(yaw) * c;
-            dy = Math.Sin(pitch);
-            dz = -Math.Cos(yaw) * c;
-        }
-
-        private static float Free(double travelled, float length)
-        {
-            return (float)Math.Max(0.0, Math.Min(length, travelled - SkinM));
-        }
-
-        private float Clear(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float pitchDeg, float length)
-        {
-            double dx, dy, dz;
-            Direction(yawDeg, pitchDeg, out dx, out dy, out dz);
-            return Reach(query, px, py, pz, dx, dy, dz, length);
-        }
-
-        private void UpdateOverhead(bool hasQuery, float clearBase, float want, float dt, bool snap)
-        {
-            if (!hasQuery)
-            {
-                _overhead = false;
-                _overExit = 0f;
-            }
-            else if (!_overhead)
-            {
-                _overhead = clearBase < Math.Min(FallbackClearM, want - 1e-3f);
-                _overExit = 0f;
-            }
-            else if (clearBase < Math.Min(FallbackExitM, want - 1e-3f))
-            {
-                _overExit = 0f;
-            }
-            else
-            {
-                _overExit += dt;
-                if (_overExit >= FallbackExitS || snap) _overhead = false;
-            }
-            float goal = _overhead ? 1f : 0f;
-            if (snap) _over = goal;
-            else
-            {
-                float step = dt / OverheadSeconds;
-                _over = _over < goal ? Math.Min(goal, _over + step) : Math.Max(goal, _over - step);
-            }
-        }
-
-        private void UpdateLane(IViewObstacleQuery query, double px, double py, double pz, float yawDeg, float dt, bool snap)
-        {
-            if (query == null)
-            {
-                _laneWalls = false;
-            }
-            else
-            {
-                _laneTimer -= dt;
-                if (snap || _laneTimer <= 0f)
-                {
-                    _laneTimer = LaneIntervalS;
-                    double yaw = yawDeg * Deg2Rad;
-                    double rx = Math.Cos(yaw), rz = -Math.Sin(yaw);
-                    bool right = Reach(query, px, py, pz, rx, 0.0, rz, LaneProbeM) < LaneProbeM - 1e-3f;
-                    bool left = right && Reach(query, px, py, pz, -rx, 0.0, -rz, LaneProbeM) < LaneProbeM - 1e-3f;
-                    _laneWalls = right && left;
-                }
-            }
-            float goal = _laneWalls ? 1f : 0f;
-            if (snap) _lane = goal;
-            else
-            {
-                float step = dt / LaneBlendSeconds;
-                _lane = _lane < goal ? Math.Min(goal, _lane + step) : Math.Max(goal, _lane - step);
-            }
         }
     }
 }

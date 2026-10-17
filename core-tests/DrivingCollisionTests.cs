@@ -255,6 +255,14 @@ namespace Ghumante.Core.Tests
             t.Props.Add(new PropRecord { Kind = ObjectKind.Helipad, XCm = 22000, ZCm = 20000 });
             var g = new TileGroundQuery { HiddenBuildingRefs = new HashSet<ulong> { hidden.OsmRef } };
             g.Add(t);
+            // Street props (the statue, the helipad) are solid where the dressing draws them: the streamer registers
+            // their colliders (TileBuild.BuildInstances, StreetPropColliders) beside the tile's own solids (props
+            // package, playtest #7: no invisible solid left at a point the prop was moved away from).
+            var dressing = new List<Ghumante.Core.Generators.Placement.StreetProp>();
+            Ghumante.Core.Generators.Placement.PropPlacement.Place(t, new TileHeightSampler(t, 1), dressing);
+            var dressingSolids = new StructureColliders();
+            Ghumante.Core.Generators.Props.StreetPropColliders.AppendAll(dressing, dressingSolids);
+            g.Register(t.Tile.Key, dressingSolids);
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             float feet = (float)H;
             Assert.That(g.InsideSolid(x0 + 110, z0 + 110, feet), Is.True, "a house");
