@@ -799,7 +799,7 @@ namespace Ghumante.Core.Traffic
             target -= pending;
             // A full cap would starve the timetable: make room for a due bus by letting the farthest ambient lane ghost go
             // (out of view, beyond the full simulation radius), one per spawn interval.
-            if (pending > 0 && alive >= _s.MaxVehicles) RetireFarthestGhost();
+            if (pending > 0 && alive >= _s.MaxVehicles) RetireFarthest(true, 0.0);
             if (alive >= target)
             {
                 SpawnNearRider(hour, alive, target);
@@ -856,7 +856,9 @@ namespace Ghumante.Core.Traffic
             if (riders >= _s.NearRiders) return;
             if (alive >= _s.MaxVehicles)
             {
-                RetireFarthestGhost();
+                // The cap is full of traffic far off (on Low twelve vehicles spread over 180 m): the farthest ambient one out
+                // of view, well beyond the riders' circle, makes room.
+                RetireFarthest(false, _s.NearRiderRadiusM + 20.0);
                 return; // the slot frees for the next interval
             }
             uint bit = VehicleClasses.Bit(VehicleClass.TwoWheeler);
@@ -879,20 +881,30 @@ namespace Ghumante.Core.Traffic
                 // A rider of the street: the two-wheeler column of the lane's mix (scooter, commuter bike, cruiser, e-scooter).
                 int variant = TrafficTables.PickVariant(ref _rng, l.Class, l.Area, hour, bit);
                 if (variant < 0) continue;
+                // Close to the player the traffic is fully simulated and moving: leave a clear stretch behind the rider
+                // (NearRiderClearBehindM) so nothing coming along the lane has to brake harder than it can.
+                float rl = VehicleCatalog.At(variant).LengthM;
+                if (!Room(pick, Math.Min(l.Length, s + 10f), rl + 10f + NearRiderClearBehindM)) continue;
                 int id;
                 byte livery = VehicleCatalog.At(variant).PickLivery(_rng.NextU32());
                 if (SpawnOnLane(pick, s, variant, livery, out id, true)) return;
             }
         }
 
-        /// <summary>Removes the farthest ambient ghost (not routed, not pulling over, out of view), if any.</summary>
-        private void RetireFarthestGhost()
+        /// <summary>A rider started near the player has nothing on its lane this far (metres) behind it, nor 10 m ahead.</summary>
+        private const float NearRiderClearBehindM = 30f;
+
+        /// <summary>Removes the farthest ambient vehicle (not routed, not pulling over, out of view; with
+        /// <paramref name="ghostsOnly"/> a lane ghost) farther than <paramref name="minDistM"/> from the player, if any.</summary>
+        private void RetireFarthest(bool ghostsOnly, double minDistM)
         {
             int best = -1;
-            double bestD = 0;
+            double bestD = minDistM > 0.0 ? minDistM * minDistM : 0.0;
             for (int i = 0; i < _agents.Length; i++)
             {
-                if (!_agents[i].Alive || !_agents[i].Ghost || _agents[i].Route >= 0 || _agents[i].Pull != PullOverKind.None) continue;
+                if (!_agents[i].Alive || ghostsOnly && !_agents[i].Ghost || _agents[i].Route >= 0 || _agents[i].Pull != PullOverKind.None ||
+                    _agents[i].PullExternal)
+                    continue;
                 ref Agent a = ref _agents[i];
                 double dx = a.X - _focusX, dz = a.Z - _focusZ, d = dx * dx + dz * dz;
                 if (d <= bestD || InView(a.X, a.Z)) continue;
@@ -1637,9 +1649,11 @@ namespace Ghumante.Core.Traffic
                 double dx = b.X - ox, dz = b.Z - oz;
                 if (dx * dx + dz * dz > 400.0) continue;
                 // Inside a junction on our reservation, a body waiting at another arm's stop line (not on our way) only
-                // goes once we are through: waiting for its nose as well would hold both for ever.
-                if (mine.Kind == LaneKind.Connector && b.AtStopLine && !b.Committed && b.V < 0.5f && b.Lane != a.Lane && b.Lane != a.P0 &&
-                    b.Lane != a.P1 && b.Lane != a.P2 && b.Lane != a.P3)
+                // goes once we are through: waiting for its nose as well would hold both for ever. Not a body longer than
+                // the stub it waits on (a minibus at the second light of a junction cluster, its tail back across the
+                // first junction): that one stands in our way, and nothing drives through it.
+                if (mine.Kind == LaneKind.Connector && b.AtStopLine && !b.Committed && b.V < 0.5f && b.S >= b.Length && b.Lane != a.Lane &&
+                    b.Lane != a.P0 && b.Lane != a.P1 && b.Lane != a.P2 && b.Lane != a.P3)
                     continue;
                 double bfx = Math.Sin(b.Heading), bfz = Math.Cos(b.Heading);
                 double cos = fx * bfx + fz * bfz;
@@ -1736,6 +1750,23 @@ namespace Ghumante.Core.Traffic
             return next.Conflicts.Length > 0;
         }
 
+        /// <summary>A road lane shorter than this between two junctions' connectors lies inside one junction cluster.</summary>
+        private const float ClusterStubM = 6f;
+
+        /// <summary>True for a short road lane whose every predecessor is a junction connector: the stub between the nodes
+        /// of one junction cluster (W2 playtest #6: a Low-tier gridlock at New Baneshwor, where three lit nodes stand a metre
+        /// apart).</summary>
+        private bool InsideCluster(LaneGraph.Lane l)
+        {
+            if (l.Kind != LaneKind.Road || l.Length >= ClusterStubM || l.Prev.Length == 0) return false;
+            for (int k = 0; k < l.Prev.Length; k++)
+            {
+                LaneKind pk = _g.Lanes[l.Prev[k]].Kind;
+                if (pk != LaneKind.Connector && pk != LaneKind.UTurn) return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// May agent <paramref name="a"/> commit to connector <paramref name="next"/> now? The controller must allow its
         /// approach (police phase, signal green, roundabout gap, priority yield), no conflicting connector may be
@@ -1754,7 +1785,10 @@ namespace Ghumante.Core.Traffic
             {
                 case ControllerKind.Police:
                 case ControllerKind.Signal:
-                    return Green(c, cur.Approach);
+                    // Inside a junction cluster (a dual carriageway's two nodes a few metres apart, each with its own lights,
+                    // as at New Baneshwor) a vehicle on the stub between them has already entered on a green: it clears the
+                    // junction instead of stopping in the middle, where it would hold the crossing traffic up for good.
+                    return InsideCluster(cur) || Green(c, cur.Approach);
                 case ControllerKind.Roundabout:
                     return cur.Priority || RingGap(ref a, next);
                 case ControllerKind.Priority:

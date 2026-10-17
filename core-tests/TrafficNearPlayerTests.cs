@@ -194,6 +194,48 @@ namespace Ghumante.Core.Tests
                                  100.0 * s.Stopped / Math.Max(1, s.Near), 100.0 * s.StoppedAtJunction / Math.Max(1, s.Near), s.LongestStop);
         }
 
+        /// <summary>
+        /// Playtest #6 ("absolutely no traffic on the road ... show a few that follow the lanes properly") at every tier:
+        /// standing on a main road, a bazaar or a quiet side street, the player sees moving traffic round them (on average
+        /// at least <see cref="MinMean120"/> within 120 m, and something within 60 m most of the time), every vehicle on a
+        /// two-way road keeps to the LEFT lane of its direction, on its lane line (mean offset under 0.6 m), and nothing
+        /// in sight is jammed (stands still longer than <see cref="MaxStopS"/>: a police red can hold a queue a minute). Playtest #3: in the busy bazaars a moving motorbike or scooter is in view
+        /// (within 70 m) nearly all the time, two or three on average, instead of the parked ones.
+        /// </summary>
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void TrafficIsSeenRoundThePlayerKeepingLeftAtEveryTier(int tier)
+        {
+            var sb = new StringBuilder();
+            var fails = new List<string>();
+            foreach (Spot spot in Spots)
+            {
+                Seen s = Run(spot, Tier(tier), 17, 120f);
+                sb.AppendLine(Describe(spot, tier, s));
+                if (s.Mean120 < MinMean120) fails.Add(spot.Name + ": only " + s.Mean120.ToString("0.0") + " vehicles within 120 m");
+                if (s.Any60 < MinAny60) fails.Add(spot.Name + ": a vehicle within 60 m only " + (100 * s.Any60).ToString("0") + "% of the time");
+                if (s.WrongSide > 0) fails.Add(spot.Name + ": " + s.WrongSide + " samples on the right-hand lane");
+                if (s.MeanOff > 0.6) fails.Add(spot.Name + ": mean lane offset " + s.MeanOff.ToString("0.00") + " m");
+                // A red at a police junction holds a queue a minute or more (Baneshwor); a vehicle standing the whole two
+                // minutes is a jam.
+                if (s.LongestStop > MaxStopS) fails.Add(spot.Name + ": a vehicle stood still " + s.LongestStop.ToString("0") + " s in sight");
+                if (spot.Busy && (s.Rider70 < 0.9 || s.Riders70 < 1.5))
+                    fails.Add(spot.Name + ": riders within 70 m " + s.Riders70.ToString("0.0") + " (" + (100 * s.Rider70).ToString("0") + "% of the time)");
+            }
+            TestContext.WriteLine(sb.ToString());
+            Assert.That(fails, Is.Empty, string.Join("; ", fails));
+        }
+
+        /// <summary>Least mean count of moving vehicles within 120 m of the player.</summary>
+        private const double MinMean120 = 4.0;
+
+        /// <summary>Longest a vehicle within 120 m may stand still (the window is 120 s).</summary>
+        private const double MaxStopS = 100.0;
+
+        /// <summary>Least share of the time some vehicle is within 60 m.</summary>
+        private const double MinAny60 = 0.6;
+
         /// <summary>Diagnostics: every spot on every tier.</summary>
         [Test, Explicit("diagnostics: prints the traffic around the player at every spot and tier")]
         public void ProbeTrafficAroundThePlayer()
@@ -202,110 +244,6 @@ namespace Ghumante.Core.Tests
             for (int tier = 0; tier < 3; tier++)
                 foreach (Spot spot in Spots)
                     sb.AppendLine(Describe(spot, tier, Run(spot, Tier(tier), 17, 120f)));
-            TestContext.WriteLine(sb.ToString());
-        }
-        private static void Chain(TrafficSim sim, LaneGraph g, int agent, int depth, StringBuilder sb, HashSet<int> seen)
-        {
-            if (depth > 4 || !seen.Add(agent)) return;
-            string pad = new string(' ', 3 + 2 * depth);
-            string dsc = sim.Describe(agent);
-            if (depth > 0) sb.AppendLine(pad + dsc);
-            int pi = dsc.IndexOf(" plan ");
-            if (pi < 0) return;
-            pi += 6;
-            string[] plan = dsc.Substring(pi, dsc.IndexOf(' ', pi) - pi).Split(',');
-            int ci = dsc.IndexOf(" committed ") + 11;
-            string com = dsc.Substring(ci, dsc.IndexOf(' ', ci) - ci);
-            int conn = com != "-" ? int.Parse(com) : int.Parse(plan[0]);
-            if (conn < 0) return;
-            string lane = sim.DescribeLane(conn);
-            sb.AppendLine(pad + "-> " + lane.Substring(0, Math.Min(lane.Length, 260)));
-            // Holders of the reserved conflicts, and the first agent on the exit.
-            var ids = new List<int>();
-            int k = 0;
-            while ((k = lane.IndexOf("[", k)) >= 0)
-            {
-                int e = lane.IndexOf("]", k);
-                string[] part = lane.Substring(k + 1, e - k - 1).Split(' ');
-                if (part.Length >= 3 && int.Parse(part[2]) > 0)
-                {
-                    string other = sim.DescribeLane(int.Parse(part[0]));
-                    int q = 0;
-                    while ((q = other.IndexOf("| agent ", q)) >= 0)
-                    {
-                        q += 8;
-                        ids.Add(int.Parse(other.Substring(q, other.IndexOf(' ', q) - q)));
-                    }
-                }
-                k = e;
-            }
-            LaneInfo ci2 = g.Info(new LaneId(conn));
-            int exit = com != "-" ? int.Parse(plan[0]) : plan.Length > 1 ? int.Parse(plan[1]) : -1;
-            if (exit >= 0)
-            {
-                string ex = sim.DescribeLane(exit);
-                sb.AppendLine(pad + "exit " + ex.Substring(0, Math.Min(ex.Length, 200)));
-                int q = 0;
-                while ((q = ex.IndexOf("| agent ", q)) >= 0)
-                {
-                    q += 8;
-                    ids.Add(int.Parse(ex.Substring(q, ex.IndexOf(' ', q) - q)));
-                }
-            }
-            foreach (int id in ids) if (id != agent) Chain(sim, g, id, depth + 1, sb, seen);
-        }
-
-        [Test, Explicit("temp diag")]
-        public void TempDiagLongStops()
-        {
-            var sb = new StringBuilder();
-            foreach (var pair in new[] { (1, 1), (7, 1), (1, 2) })
-            {
-                Spot spot = Spots[pair.Item1];
-                LaneGraph g = TrafficData.Graph;
-                double x, z;
-                TrafficData.Game(new[] { spot.Lon, spot.Lat }, out x, out z);
-                SnapToRoad(g, ref x, ref z);
-                var sim = new TrafficSim(g, Tier(pair.Item2), 17) { Sacred = TrafficData.Zones };
-                var bus = new BusRouteRunner(TrafficData.Routes, g, sim);
-                sim.SetFocus(x, z, 0f);
-                var poses = new AgentPose[512];
-                var stoppedSince = new Dictionary<int, float>();
-                var told = new HashSet<int>();
-                const float dt = 0.1f;
-                sb.AppendLine("== " + spot.Name + " tier " + pair.Item2);
-                for (int step = 0; step < (int)(180f / dt); step++)
-                {
-                    float t = step * dt;
-                    int facing = (int)(t / 20f) % 4;
-                    sim.SetView(facing == 2 ? 1f : facing == 3 ? -1f : 0f, facing == 0 ? 1f : facing == 1 ? -1f : 0f);
-                    float hour = 8.5f + t / 3600f;
-                    bus.Step(dt, hour);
-                    sim.Step(dt, hour, 0f);
-                    if (step % 10 != 0) continue;
-                    int n = sim.CopyPoses(poses);
-                    for (int k = 0; k < n; k++)
-                    {
-                        AgentPose p = poses[k];
-                        if ((p.AnimState & (byte)AgentAnim.Ghost) != 0) continue;
-                        double dx = p.X - x, dz = p.Z - z;
-                        if (dx * dx + dz * dz > 120 * 120) continue;
-                        if (Math.Abs(p.SpeedMps) >= 0.3f) { stoppedSince.Remove(p.AgentId); continue; }
-                        float since;
-                        if (!stoppedSince.TryGetValue(p.AgentId, out since)) stoppedSince[p.AgentId] = since = t;
-                        if (t - since > 45f && told.Add(p.AgentId))
-                        {
-                            LaneId lane; float s, sp;
-                            sim.TryGetAgent(p.AgentId, out lane, out s, out sp);
-                            sb.AppendLine("t " + t.ToString("0") + " " + sim.Describe(p.AgentId));
-                            sb.AppendLine("   " + sim.DescribeLane(lane.Value));
-                            LaneInfo li = g.Info(lane);
-                            if (li.ControllerId >= 0) sb.AppendLine("   " + sim.DescribeController(li.ControllerId));
-                            Chain(sim, g, p.AgentId, 0, sb, new HashSet<int>());
-                        }
-                    }
-                }
-            }
             TestContext.WriteLine(sb.ToString());
         }
     }
