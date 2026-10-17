@@ -280,16 +280,21 @@ namespace Ghumante.Core.Generators.Props
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Traffic signal (§6): the cantilever of the valley's signalised junctions (Koteshwor, Tinkune, the
-        // Nepal-Japan Araniko Highway works): a galvanised round pole on the footpath corner, a straight mast arm
-        // reaching over the approach lanes (+Z) with a tie rod above it, and hanging under the arm a horizontal
-        // three-aspect head (green, amber, red from the pole outwards, red nearest the road centre) with tubular hoods,
-        // facing the approaching traffic (+X), a green-arrow unit under its outer end, a two-lens pedestrian head on the
-        // pole facing the crossing (+Z) and KMC's yellow push-button box. The head clears the road by more than the
-        // 4.5 m overhead rule (W2 decision 2): see SignalHeadOf.
+        // Traffic signal (§6): the Japanese-style cantilever of the valley's signalised junctions (installed with
+        // Japanese aid at Thapathali, Tripureshwor, Maitighar, New Baneshwor, Koteshwor, Satdobato and Kesharmahal; the
+        // Nepal-Japan Araniko Highway works at Koteshwor, Bijay Chaurasia's 2019 photo): a plain galvanised round pole
+        // on the footpath corner that runs on about a metre above the arm, a clamp band where a straight, slightly
+        // rising mast arm leaves it over the approach lanes (+Z), and hanging right under the arm's outer end a
+        // horizontal three-aspect head with rounded ends and tubular hoods (green, amber, red from the pole outwards:
+        // red nearest the road centre, as in Japan's left-hand traffic) facing the approaching traffic (+X), a
+        // green-arrow unit under its outer end, the signal cable sagging from the head back to the pole under the
+        // arm, a two-lens pedestrian head on the pole facing the crossing (+Z) and KMC's yellow push-button box (2025).
+        // No tie rod: the arm is a tapered cantilever. The head clears the road by more than the 4.5 m overhead rule
+        // (W2 decision 2): see TryHangingHead.
 
-        /// <summary>Signal geometry (metres): pole top, arm height, head housing span and the arrow unit's bottom.</summary>
-        private const double SignalPoleTop = 6.9, SignalArmY = 6.32, SignalHeadTop = 6.2, SignalHeadBottom = 5.78, SignalArrowBottom = 5.4;
+        /// <summary>Signal geometry (metres): pole top, arm height at the pole, head housing span and the arrow unit's
+        /// bottom.</summary>
+        private const double SignalPoleTop = 7.25, SignalArmY = 6.32, SignalHeadTop = 6.2, SignalHeadBottom = 5.78, SignalArrowBottom = 5.4;
 
         /// <summary>Head length along the arm, its depth and the distance from the arm tip to the head centre.</summary>
         private const double SignalHeadLength = 1.24, SignalHeadDepth = 0.26, SignalHeadInset = 0.62;
@@ -300,27 +305,44 @@ namespace Ghumante.Core.Generators.Props
         private static void Signal(MeshData m, int lod, double reach)
         {
             Affine3 I = Affine3.Identity;
+            bool longArm = reach > SignalReachM + 0.1;
             int radial = P(lod, 10, 6, 4);
             ShapeBrush steel = B(Galvanised, MaterialChannel.Metal), steelDark = B(GalvanisedDark, MaterialChannel.Metal), body = B(SignalBody, MaterialChannel.Metal);
-            double armTip = reach, headZ = reach - SignalHeadInset, headY = 0.5 * (SignalHeadTop + SignalHeadBottom), tipY = SignalArmY + 0.08;
-            double hh = SignalHeadTop - SignalHeadBottom;
+            double armTip = reach, headZ = reach - SignalHeadInset, headY = 0.5 * (SignalHeadTop + SignalHeadBottom), tipY = SignalArmY + 0.06;
+            double hh = SignalHeadTop - SignalHeadBottom, rRoot = longArm ? 0.075 : 0.065, rTip = longArm ? 0.05 : 0.045;
+            double arrowZ = headZ + 0.4, arrowY = 0.5 * (SignalHeadBottom - 0.03 + SignalArrowBottom), ah = SignalHeadBottom - 0.03 - SignalArrowBottom;
             if (lod >= 2)
             {
+                // Far: the pole, the arm, the dark head with its three lamps as dots and the arrow unit (the silhouette).
                 Shapes.Frustum(m, I, steel, 0.13, 0.09, SignalPoleTop, 4, 0, 0, false, false, L0);
-                Shapes.Bar(m, I, steel, 0, SignalArmY, 0, 0, tipY, armTip, 0.06, 4, L0);
+                Shapes.Bar(m, I, steel, 0, SignalArmY, 0, 0, tipY, armTip, rRoot, 4, L0);
                 Box(m, Affine3.Translation(0, headY, headZ), body, SignalHeadDepth, hh, SignalHeadLength);
-                Box(m, Affine3.Translation(SignalHeadDepth * 0.5 + 0.005, headY, headZ), B(LensAmber, MaterialChannel.Glass), 0.01, 0.22, SignalHeadLength - 0.18);
+                Box(m, Affine3.Translation(0, arrowY, arrowZ), body, SignalHeadDepth * 0.85, ah, 0.4);
+                double fx = 0.5 * SignalHeadDepth + 0.004;
+                for (int i = 0; i < 3; i++)
+                {
+                    double z = headZ + (i - 1) * 0.4;
+                    Quad(m, I, B(SignalLenses[2 - i], MaterialChannel.Glass), fx, headY - 0.11, z - 0.11, fx, headY - 0.11, z + 0.11, fx, headY + 0.11, z + 0.11,
+                         fx, headY + 0.11, z - 0.11, 1, 0, 0);
+                }
                 return;
             }
-            // Footing and the tapered pole with a capped top.
-            Shapes.Cylinder(m, I, B(Footing, MaterialChannel.Concrete), 0.27, 0.15, P(lod, 8, 6, 4), 0, 0, false, true, L0);
-            Shapes.Frustum(m, Affine3.Translation(0, 0.14, 0), steel, 0.13, 0.09, SignalPoleTop - 0.14, radial, 0, 0, false, true, L0);
-            // Mast arm, rising very slightly towards the tip, its clamp collar on the pole, and the tie rod above it.
+            // Footing and the tapered pole, running on about a metre above the arm, with a domed cap.
+            Shapes.Cylinder(m, I, B(Footing, MaterialChannel.Concrete), 0.27, 0.15, P(lod, 8, 6, 4), lod == 0 ? 0.03 : 0, 1, false, true, L0);
+            Shapes.Frustum(m, Affine3.Translation(0, 0.14, 0), steel, 0.13, 0.09, SignalPoleTop - 0.19, radial, 0, 0, false, lod > 0, L0);
+            if (lod == 0) Shapes.Dome(m, Affine3.Translation(0, SignalPoleTop - 0.05, 0), steelDark, 0.1, 0.05, 6, true, L0);
+            // The mast arm: a tapered tube rising very slightly to its capped tip; the clamp band on the pole and a
+            // lower band where the cable enters it.
             Path3 arm = PathA.Clear();
-            arm.Add(0, SignalArmY, -0.05).Add(0, tipY, armTip);
-            TubeAlong(m, I, steel, arm, 0.075, 0.055, P(lod, 8, 6, 4));
-            if (lod == 0) Shapes.Cylinder(m, Affine3.Translation(0, SignalArmY - 0.14, 0), steelDark, 0.14, 0.28, 8, 0, 0, false, false, L0);
-            Shapes.Bar(m, I, steel, 0, SignalPoleTop - 0.12, 0.06, 0, SignalArmY + 0.04 + 0.55 * (tipY - SignalArmY), 0.55 * armTip, 0.022, 4, L0);
+            arm.Add(0, SignalArmY, -0.04).Add(0, tipY, armTip);
+            TubeAlong(m, I, steel, arm, rRoot, rTip, P(lod, 8, 6, 4));
+            if (lod == 0)
+            {
+                Shapes.Cylinder(m, Affine3.Translation(0, SignalArmY - 0.16, 0), steelDark, 0.13, 0.3, radial, 0, 0, false, false, L0);
+                Shapes.Cylinder(m, Affine3.Translation(0, SignalArmY - 0.86, 0), steelDark, 0.12, 0.1, 8, 0, 0, false, false, L0);
+                // A short gusset under the root of the arm (the arm's base plate and its stiffener).
+                Shapes.Bar(m, I, steelDark, 0, SignalArmY - 0.55, 0.09, 0, SignalArmY - 0.02, longArm ? 0.75 : 0.55, 0.028, 4, L0);
+            }
             // Hangers and the horizontal head along the arm, lenses on +X.
             for (int i = 0; i < 2; i++)
             {
@@ -329,7 +351,7 @@ namespace Ghumante.Core.Generators.Props
                 else BoxSpan(m, I, steelDark, -0.025, 0.025, SignalHeadTop - 0.02, y, z - 0.025, z + 0.025);
             }
             Affine3 head = Affine3.Translation(0, headY, headZ);
-            // The housing: a long prism with chamfered edges along the arm (local Y of the prism = +Z).
+            // The housing: a long prism with chamfered (rounded-looking) edges along the arm (local Y of the prism = +Z).
             if (lod == 0)
                 Prism(m, Affine3.Translation(0, headY, headZ - 0.5 * SignalHeadLength) * Affine3.RotationX(90 * Deg), body, SignalHeadDepth, hh, SignalHeadDepth, hh,
                       SignalHeadLength, 0.35, true, true);
@@ -344,26 +366,27 @@ namespace Ghumante.Core.Generators.Props
                 if (lod == 0) Hood(m, lf, body, 0.16, 0.2);
             }
             // Green-arrow unit under the outer end of the head: a dark lens with the lit arrow pointing ahead (up).
-            Affine3 arrow = Affine3.Translation(0, 0.5 * (SignalHeadBottom - 0.03 + SignalArrowBottom), headZ + 0.4);
-            double ah = SignalHeadBottom - 0.03 - SignalArrowBottom;
+            Affine3 arrow = Affine3.Translation(0, arrowY, arrowZ);
             Box(m, arrow, body, SignalHeadDepth * 0.85, ah, 0.4);
             Affine3 af = arrow * Affine3.Translation(SignalHeadDepth * 0.425 - 0.01, 0, 0) * Affine3.RotationZ(-90 * Deg);
             Lens(m, af, SignalBody, 0.12, P(lod, 8, 6, 4));
-            if (lod == 0)
-            {
-                ShapeBrush lit = B(LensGreen, MaterialChannel.Glass);
-                double fx = SignalHeadDepth * 0.425 + 0.018, ay = arrow.M13, az = headZ + 0.4;
-                Quad(m, I, lit, fx, ay - 0.08, az - 0.018, fx, ay - 0.08, az + 0.018, fx, ay + 0.03, az + 0.018, fx, ay + 0.03, az - 0.018, 1, 0, 0);
-                Quad(m, I, lit, fx, ay + 0.0, az - 0.075, fx, ay + 0.0, az + 0.075, fx, ay + 0.075, az + 0.012, fx, ay + 0.075, az - 0.012, 1, 0, 0);
-                Hood(m, af, body, 0.145, 0.16);
-                // Pedestrian head on the pole facing the crossing (+Z): red standing figure over the green walking one;
-                // KMC's yellow push-button box below it (2025).
-                Affine3 ped = Affine3.Translation(0, 2.85, 0.19);
-                Box(m, ped, body, 0.24, 0.52, 0.2);
-                for (int i = 0; i < 2; i++)
-                    Lens(m, ped * Affine3.Translation(0, i == 0 ? 0.12 : -0.12, 0.095) * Affine3.RotationX(90 * Deg), i == 0 ? LensRed : LensGreen, 0.085, 6);
-                Box(m, Affine3.Translation(0, 1.12, 0.15), B(SignYellow, MaterialChannel.Paint), 0.14, 0.22, 0.09);
-            }
+            if (lod > 0) return;
+            ShapeBrush lit = B(LensGreen, MaterialChannel.Glass);
+            double fx2 = SignalHeadDepth * 0.425 + 0.018;
+            Quad(m, I, lit, fx2, arrowY - 0.08, arrowZ - 0.018, fx2, arrowY - 0.08, arrowZ + 0.018, fx2, arrowY + 0.03, arrowZ + 0.018, fx2, arrowY + 0.03, arrowZ - 0.018,
+                 1, 0, 0);
+            Quad(m, I, lit, fx2, arrowY, arrowZ - 0.075, fx2, arrowY, arrowZ + 0.075, fx2, arrowY + 0.075, arrowZ + 0.012, fx2, arrowY + 0.075, arrowZ - 0.012, 1, 0, 0);
+            Hood(m, af, body, 0.145, 0.16);
+            // The signal cable: from the back of the head's pole end, sagging under the arm, into the pole at the band.
+            Shapes.Wire(m, I, B(CableBlack, MaterialChannel.Rubber), -0.06, headY + 0.05, headZ - 0.5 * SignalHeadLength + 0.08, -0.05, SignalArmY - 0.8, 0.1,
+                        0.09, 0.014, 5, 3, L0);
+            // Pedestrian head on the pole facing the crossing (+Z): red standing figure over the green walking one;
+            // KMC's yellow push-button box below it (2025).
+            Affine3 ped = Affine3.Translation(0, 2.85, 0.19);
+            Box(m, ped, body, 0.24, 0.52, 0.2);
+            for (int i = 0; i < 2; i++)
+                Lens(m, ped * Affine3.Translation(0, i == 0 ? 0.12 : -0.12, 0.095) * Affine3.RotationX(90 * Deg), i == 0 ? LensRed : LensGreen, 0.085, 6);
+            Box(m, Affine3.Translation(0, 1.12, 0.15), B(SignYellow, MaterialChannel.Paint), 0.14, 0.22, 0.09);
         }
 
         /// <summary>A shallow domed lens (a cone fan) on a lens frame (+Y out of the lens).</summary>

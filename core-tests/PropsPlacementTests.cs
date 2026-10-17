@@ -232,12 +232,13 @@ namespace Ghumante.Core.Tests
                     Assert.That(again[i].YawDeg, Is.EqualTo(s.Props[i].YawDeg));
                     Assert.That(again[i].Kind, Is.EqualTo(s.Props[i].Kind));
                 }
-                // Every mappable OSM object but signals (one per approach of their junction) and gates too narrow
-                // for their drawn road.
+                // Every mappable OSM object but signals (one per approach of their junction), gates too narrow for
+                // their drawn road and road furniture with no free spot off the drawn carriageway within 10 m (at most
+                // 1 %: a lamp mapped on a galli junction where the houses meet the lane).
                 int mappable = s.Tile.Props.Count(p => { StreetPropKind k; return PropPlacement.KindOf(p.Kind, out k) && k != StreetPropKind.TrafficSignal; });
                 int gates = s.Tile.Props.Count(p => p.Kind == ObjectKind.Gate);
                 int kept = s.Props.Count(p => p.Osm && !StreetPropMesher.IsSignal(p.Kind));
-                Assert.That(kept, Is.InRange(mappable - gates, mappable));
+                Assert.That(kept, Is.InRange(mappable - gates - Math.Max(1, mappable / 100), mappable));
             }
         }
     }

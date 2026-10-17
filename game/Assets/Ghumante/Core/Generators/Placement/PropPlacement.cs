@@ -937,10 +937,11 @@ namespace Ghumante.Core.Generators.Placement
             /// <summary>
             /// The mast-arm signal of one approach: walking back from the junction edge, the first section where an arm
             /// (short or long) and a pole offset put the head over the approach lanes of this road (not the junction box,
-            /// never over the opposing lanes of a two-way road), as near their middle as the pole's free spots allow:
-            /// preferably with the pole behind the traffic's LEFT kerb (on the footpath, else the verge) and the arm
-            /// reaching right; where that kerb has no room (another carriageway alongside, a wall), with the pole on the
-            /// traffic's right (the median of a divided road, or the far kerb) and a mirrored arm reaching left. The
+            /// never over the opposing lanes of a two-way road), as near their middle as the pole's free spots allow,
+            /// with the pole behind the traffic's LEFT kerb (on the footpath, else the verge) and the arm reaching right;
+            /// only when no section up to 15 m back has room on that kerb (another carriageway alongside, a wall, houses
+            /// at the carriageway edge in the old core), with the pole on the traffic's right (the median of a divided
+            /// road, or the far kerb) and a mirrored arm reaching left. The
             /// pole is clear of every carriageway, cap, ring, building and the other signal poles, and the head clears
             /// the road by the overhead clearance.
             /// </summary>
@@ -951,71 +952,76 @@ namespace Ghumante.Core.Generators.Placement
                 bool oneway = (r.Flags & RoadFlags.Oneway) != 0;
                 bool dual = Layout.Profiles[a.Road].Dual;
                 double len = Layout.Profiles[a.Road].LengthM;
-                foreach (double back in SignalBack)
+                // Pass 0 walks back along the approach with the pole at the traffic's left kerb only; pass 1, only when
+                // no section had room there, with the pole on the traffic's right (the median or the far kerb).
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    double s = a.CutS + a.Out * back;
-                    if (s < 0 || s > len) break;
-                    if (Layout.InGap(a.Road, s)) continue;
-                    RoadCut c = Layout.DrawnCutAt(_t, a.Road, s);
-                    RoadProfile p = Layout.ProfileAt(a.Road, s);
-                    // Traffic approaching runs against Out; its left (left-hand traffic: the kerb it keeps to). w is the
-                    // lateral position towards the traffic's left from the carriageway centre: the left kerb at +Half.
-                    double tx = -a.Out * c.UZ, tz = a.Out * c.UX;
-                    double lx = -tz, lz = tx;
-                    int side = lx * c.UX + lz * c.UZ > 0 ? 1 : -1;
-                    if (side < 0 && dual) return false; // a median on the traffic's left: a wrong-way piece
-                    // Head positions allowed and wanted, as w.
-                    double wMax = c.Half - 0.6, wMin = oneway ? -c.Half + 0.6 : 0.4, wWant = oneway ? c.Half - Math.Min(c.Half, 4.5) : 0.5 * c.Half - 0.2;
-                    if (wMax < wMin) return false;
-                    _cand.Clear();
-                    for (int right = 0; right < 2; right++)
+                    foreach (double back in SignalBack)
                     {
-                        double foot = (side > 0) == (right == 0) ? p.FootpathLeftM : p.FootpathRightM;
-                        double pFoot = right == 1 && dual ? 0.55 : foot > 0 ? Math.Max(0.55, foot - 0.35) : 0.55;
-                        for (int ki = 0; ki < SignalKinds.Length; ki++)
+                        double s = a.CutS + a.Out * back;
+                        if (s < 0 || s > len) break;
+                        if (Layout.InGap(a.Road, s)) continue;
+                        RoadCut c = Layout.DrawnCutAt(_t, a.Road, s);
+                        RoadProfile p = Layout.ProfileAt(a.Road, s);
+                        // Traffic approaching runs against Out; its left (left-hand traffic: the kerb it keeps to). w is the
+                        // lateral position towards the traffic's left from the carriageway centre: the left kerb at +Half.
+                        double tx = -a.Out * c.UZ, tz = a.Out * c.UX;
+                        double lx = -tz, lz = tx;
+                        int side = lx * c.UX + lz * c.UZ > 0 ? 1 : -1;
+                        if (side < 0 && dual) return false; // a median on the traffic's left: a wrong-way piece
+                        // Head positions allowed and wanted, as w.
+                        double wMax = c.Half - 0.6, wMin = oneway ? -c.Half + 0.6 : 0.4, wWant = oneway ? c.Half - Math.Min(c.Half, 4.5) : 0.5 * c.Half - 0.2;
+                        if (wMax < wMin) return false;
+                        _cand.Clear();
+                        for (int right = pass; right == pass; right++)
                         {
-                            StreetPropKind k = right == 0 ? SignalKinds[ki] : MirroredKinds[ki];
-                            StreetPropMesher.SignalHead head;
-                            StreetPropMesher.TryHangingHead(k, out head);
-                            for (double po = 0.55; po <= SignalPoleMaxM + 1e-9; po += 0.25)
+                            double foot = (side > 0) == (right == 0) ? p.FootpathLeftM : p.FootpathRightM;
+                            double pFoot = right == 1 && dual ? 0.55 : foot > 0 ? Math.Max(0.55, foot - 0.35) : 0.55;
+                            for (int ki = 0; ki < SignalKinds.Length; ki++)
                             {
-                                // Left: pole at w = Half + po, head at pole - F; right: pole at w = -Half - po, head at pole + F.
-                                double w = right == 0 ? c.Half + po - head.ForwardM : -c.Half - po + head.ForwardM;
-                                if (w < wMin - 1e-6 || w > wMax + 1e-6) continue;
-                                _cand.Add(Math.Abs(w - wWant) + 0.6 * Math.Max(0, po - pFoot) + 0.3 * ki + 1.5 * right);
-                                _cand.Add(right * SignalKinds.Length + ki);
-                                _cand.Add(po);
+                                StreetPropKind k = right == 0 ? SignalKinds[ki] : MirroredKinds[ki];
+                                StreetPropMesher.SignalHead head;
+                                StreetPropMesher.TryHangingHead(k, out head);
+                                for (double po = 0.55; po <= SignalPoleMaxM + 1e-9; po += 0.25)
+                                {
+                                    // Left: pole at w = Half + po, head at pole - F; right: pole at w = -Half - po, head at pole + F.
+                                    double w = right == 0 ? c.Half + po - head.ForwardM : -c.Half - po + head.ForwardM;
+                                    if (w < wMin - 1e-6 || w > wMax + 1e-6) continue;
+                                    _cand.Add(Math.Abs(w - wWant) + 0.6 * Math.Max(0, po - pFoot) + 0.3 * ki + 1.5 * right);
+                                    _cand.Add(right * SignalKinds.Length + ki);
+                                    _cand.Add(po);
+                                }
                             }
                         }
-                    }
-                    if (_cand.Count == 0) return false;
-                    while (_cand.Count > 0)
-                    {
-                        int best = 0;
-                        for (int i = 3; i < _cand.Count; i += 3)
-                            if (_cand[i] < _cand[best]) best = i;
-                        int code = (int)_cand[best + 1];
-                        double off = _cand[best + 2];
-                        _cand.RemoveRange(best, 3);
-                        bool right = code >= SignalKinds.Length;
-                        StreetPropKind kind = right ? MirroredKinds[code - SignalKinds.Length] : SignalKinds[code];
-                        StreetPropMesher.SignalHead hd;
-                        StreetPropMesher.TryHangingHead(kind, out hd);
-                        double wPole = right ? -c.Half - off : c.Half + off, wHead = right ? wPole + hd.ForwardM : wPole - hd.ForwardM;
-                        double px = c.CX + c.UX * (c.Shift + side * wPole), pz = c.CZ + c.UZ * (c.Shift + side * wPole);
-                        double hx = c.CX + c.UX * (c.Shift + side * wHead), hz = c.CZ + c.UZ * (c.Shift + side * wHead);
-                        if (!Inside(px, pz) || InBuilding(px, pz) || !Clear(px, pz, 0.35) || NearAny(poles, px, pz, 1.5)) continue;
-                        float height = StreetPropMesher.DefaultHeight(kind), y;
-                        if (!GeneratedBase(px, pz, height, a.Road, s, out y)) continue;
-                        RoadSurfaceHit hit;
-                        if (!_q.TrySample(_x0 + hx, _z0 + hz, y + 0.5f, out hit) || !hit.OnCarriageway || hit.Road != a.Road || hit.OnJunction) continue;
-                        if (y + hd.BottomM - hit.Y < RoadClearance.MinOverheadClearanceM + 0.1) continue;
-                        // The arm reaches from the pole towards the head: right of the traffic from the left kerb, left of it
-                        // from the right side.
-                        float yaw = right ? Deg(lx, lz) : Deg(-lx, -lz);
-                        prop = new StreetProp { X = (float)px, Y = y, Z = (float)pz, YawDeg = yaw, HeightM = height, Kind = kind };
-                        if (!FootprintClear(prop)) continue;
-                        return true;
+                        if (_cand.Count == 0) break; // no arm and pole offset of this side fits the road: the other side
+                        while (_cand.Count > 0)
+                        {
+                            int best = 0;
+                            for (int i = 3; i < _cand.Count; i += 3)
+                                if (_cand[i] < _cand[best]) best = i;
+                            int code = (int)_cand[best + 1];
+                            double off = _cand[best + 2];
+                            _cand.RemoveRange(best, 3);
+                            bool right = code >= SignalKinds.Length;
+                            StreetPropKind kind = right ? MirroredKinds[code - SignalKinds.Length] : SignalKinds[code];
+                            StreetPropMesher.SignalHead hd;
+                            StreetPropMesher.TryHangingHead(kind, out hd);
+                            double wPole = right ? -c.Half - off : c.Half + off, wHead = right ? wPole + hd.ForwardM : wPole - hd.ForwardM;
+                            double px = c.CX + c.UX * (c.Shift + side * wPole), pz = c.CZ + c.UZ * (c.Shift + side * wPole);
+                            double hx = c.CX + c.UX * (c.Shift + side * wHead), hz = c.CZ + c.UZ * (c.Shift + side * wHead);
+                            if (!Inside(px, pz) || InBuilding(px, pz) || !Clear(px, pz, 0.35) || NearAny(poles, px, pz, 1.5)) continue;
+                            float height = StreetPropMesher.DefaultHeight(kind), y;
+                            if (!GeneratedBase(px, pz, height, a.Road, s, out y)) continue;
+                            RoadSurfaceHit hit;
+                            if (!_q.TrySample(_x0 + hx, _z0 + hz, y + 0.5f, out hit) || !hit.OnCarriageway || hit.Road != a.Road || hit.OnJunction) continue;
+                            if (y + hd.BottomM - hit.Y < RoadClearance.MinOverheadClearanceM + 0.1) continue;
+                            // The arm reaches from the pole towards the head: right of the traffic from the left kerb, left of it
+                            // from the right side.
+                            float yaw = right ? Deg(lx, lz) : Deg(-lx, -lz);
+                            prop = new StreetProp { X = (float)px, Y = y, Z = (float)pz, YawDeg = yaw, HeightM = height, Kind = kind };
+                            if (!FootprintClear(prop)) continue;
+                            return true;
+                        }
                     }
                 }
                 return false;
