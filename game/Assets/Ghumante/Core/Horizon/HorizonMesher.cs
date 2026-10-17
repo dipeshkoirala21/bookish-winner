@@ -15,19 +15,22 @@ namespace Ghumante.Core.Horizon
     /// the rest of the world, shades them from altitude (forest, alpine, rock, snow) and haze, and draws them at the
     /// handover distance so nearer streamed terrain stays in front.
     /// <para>
-    /// Vertex data: normal = a pseudo-normal that faces the eye and leans the way the silhouette falls (so each peak has
-    /// a lit and a shaded flank); colour R = rock exposure (steep silhouette ground), G = band index (0 nearest), B = 0,
-    /// A = 255; UV0 = (rib coordinate in metres, 0 at the top and 1 at the foot). The rib coordinate is the bearing of
-    /// the column from the field's anchor (<see cref="HorizonPanorama.AnchorX"/>) times a fixed radius per band, so the
-    /// shader's rib noise is continuous along a curtain and stays on the same ground when the ring is rebuilt for a new
-    /// eye (a column pair is doubled where a curtain crosses the anchor's south, the coordinate's seam). The ring is
-    /// drawn by its own shader, not ToonLit, so UV0 does not carry the material channel and AO of the detail-pass
-    /// contract.
+    /// Vertex data: every quad between two kept points has its own four vertices and one flat normal, the face that falls
+    /// from that piece of silhouette towards the eye (<see cref="EmitFacet"/>: each peak gets a lit and a shaded face);
+    /// colour R = rock exposure (steep silhouette ground), G = band index (0 nearest), B = 0, A = 255; UV0 = (rib
+    /// coordinate in metres, 0 at the top and 1 at the foot). The rib coordinate is the bearing of the point from the
+    /// field's anchor (<see cref="HorizonPanorama.AnchorX"/>) times a fixed radius per band, so the shader's rib noise is
+    /// continuous along a curtain and stays on the same ground when the ring is rebuilt for a new eye (unwrapped within
+    /// each quad, so the seam due south of the anchor is only a facet edge). The ring is drawn by its own shader, not
+    /// ToonLit, so UV0 does not carry the material channel and AO of the detail-pass contract.
     /// </para>
     /// </summary>
     public sealed class HorizonMesher
     {
         private double[] _az = new double[0], _el = new double[0];
+        private double[] _pAz = new double[0], _pEl = new double[0], _pDist = new double[0], _pAlt = new double[0], _pBottom = new double[0];
+        private double[] _pX = new double[0], _pZ = new double[0], _pBeta = new double[0];
+        private float[] _pSteep = new float[0], _pGx = new float[0], _pGz = new float[0];
         private int[] _src = new int[0];
         private bool[] _keep = new bool[0], _force = new bool[0];
         private int[] _stack = new int[64];
@@ -74,6 +77,7 @@ namespace Ghumante.Core.Horizon
             for (int band = 0; band < p.Bands; band++)
             {
                 FindRuns(p, band, n);
+                double ribRadius = Math.Sqrt(p.BandEdgesM[band] * p.BandEdgesM[band + 1]);
                 for (int r = 0; r < _runStarts.Count; r++)
                 {
                     int first = _runStarts[r], count = _runEnds[r] - first; // rays first .. first + count - 1 (wrapping)
@@ -82,13 +86,14 @@ namespace Ghumante.Core.Horizon
                     if (rays < 2) continue;
                     int len = Gather(p, band, first, rays, step);
                     Simplify(len, tol);
-                    int prevTop = -1, prevBottom = -1;
-                    double ribRadius = Math.Sqrt(p.BandEdgesM[band] * p.BandEdgesM[band + 1]), lastBeta = 0.0;
+                    // The kept points of the run: position, altitude, curtain foot, steepness and ground gradient.
+                    int kept = 0;
                     for (int k = 0; k < len; k++)
                     {
                         if (!_keep[k]) continue;
-                        double azDeg = _az[k], dist, alt, steep, lean;
-                        float px, pz, gx = 0f, gz = 0f;
+                        double dist, alt;
+                        float steep, gx = 0f, gz = 0f;
+                        double px, pz;
                         if (_src[k] >= 0)
                         {
                             int i = _src[k];
@@ -98,9 +103,8 @@ namespace Ghumante.Core.Horizon
                             alt = fa;
                             steep = fs;
                             double a = i * step * Math.PI / 180.0;
-                            px = (float)(Math.Sin(a) * dist);
-                            pz = (float)(Math.Cos(a) * dist);
-                            lean = SilhouetteSlope(p, band, i, n, step);
+                            px = Math.Sin(a) * dist;
+                            pz = Math.Cos(a) * dist;
                             p.GetGradient(band, i, out gx, out gz);
                         }
                         else
@@ -111,60 +115,109 @@ namespace Ghumante.Core.Horizon
                             p.GetSummit(sk, out sb, out saz, out sd, out sa, out sx, out sz);
                             dist = sd;
                             alt = sa;
-                            px = (float)(sx - p.EyeX);
-                            pz = (float)(sz - p.EyeZ);
+                            px = sx - p.EyeX;
+                            pz = sz - p.EyeZ;
                             int i0 = (int)Math.Floor(saz / step) % n;
                             float t0, d0, a0, s0;
                             p.TryGet(band, i0, out t0, out d0, out a0, out s0);
                             steep = s0;
-                            lean = 0.0;
                             summits++;
                         }
-                        double ar = azDeg * Math.PI / 180.0, dx = Math.Sin(ar), dz = Math.Cos(ar);
-                        double tx = Math.Cos(ar), tz = -Math.Sin(ar); // direction of growing azimuth
-                        double l = Math.Max(-2.0, Math.Min(2.0, lean)) * 0.8;
-                        // The face below the silhouette: the ground's own normal there (its aspect turns it to or from
-                        // the sun), leaning the way the silhouette falls, and turned towards the eye that sees it: steep, as the
-                        // faces of a range seen from afar are, so the sun lights one flank and the sky the other.
-                        double nx = -gx - tx * l - dx * 0.8, ny = 0.55, nz = -gz - tz * l - dz * 0.8;
-                        double nl = Math.Sqrt(nx * nx + ny * ny + nz * nz);
-                        nx /= nl;
-                        ny /= nl;
-                        nz /= nl;
                         double bottom = p.EyeAltitudeM + dist * dist * k2 - dist * tanBottom;
-                        bottom = Math.Min(bottom, alt - 200.0);
-                        byte rock = (byte)Math.Max(0, Math.Min(255, (int)Math.Round((steep - 0.35) / 0.6 * 255.0)));
-                        uint rgba = (uint)rock << 24 | (uint)band << 16 | 0xFFu;
+                        _pAz[kept] = _az[k];
+                        _pEl[kept] = _el[k];
+                        _pDist[kept] = dist;
+                        _pAlt[kept] = alt;
+                        _pBottom[kept] = Math.Min(bottom, alt - 200.0);
+                        _pX[kept] = px;
+                        _pZ[kept] = pz;
+                        _pSteep[kept] = steep;
+                        _pGx[kept] = gx;
+                        _pGz[kept] = gz;
                         // Rib coordinate: bearing from the anchor (seam due south of it) times the band's radius.
-                        double beta = Math.Atan2(px + p.EyeX - p.AnchorX, pz + p.EyeZ - p.AnchorZ);
-                        if (prevTop >= 0 && Math.Abs(beta - lastBeta) > Math.PI)
-                        {
-                            // Close the quad across the seam with the coordinate unwrapped, then start afresh.
-                            double unwrapped = beta + (beta < lastBeta ? 2.0 : -2.0) * Math.PI;
-                            int seamTop = m.AddVertex(px, (float)alt, pz, (float)nx, (float)ny, (float)nz, rgba, (float)(unwrapped * ribRadius), 0f);
-                            int seamBot = m.AddVertex(px, (float)bottom, pz, (float)nx, (float)ny, (float)nz, rgba, (float)(unwrapped * ribRadius), 1f);
-                            m.AddTriangle(prevTop, seamTop, seamBot);
-                            m.AddTriangle(prevTop, seamBot, prevBottom);
-                            prevTop = -1;
-                        }
-                        lastBeta = beta;
-                        float along = (float)(beta * ribRadius);
-                        int top = m.AddVertex(px, (float)alt, pz, (float)nx, (float)ny, (float)nz, rgba, along, 0f);
-                        int bot = m.AddVertex(px, (float)bottom, pz, (float)nx, (float)ny, (float)nz, rgba, along, 1f);
-                        if (prevTop >= 0)
-                        {
-                            // Front faces look at the eye (Unity winding, cross(b - a, c - a) towards the eye).
-                            m.AddTriangle(prevTop, top, bot);
-                            m.AddTriangle(prevTop, bot, prevBottom);
-                        }
-                        prevTop = top;
-                        prevBottom = bot;
-                        columns++;
+                        _pBeta[kept] = Math.Atan2(px + p.EyeX - p.AnchorX, pz + p.EyeZ - p.AnchorZ);
+                        kept++;
                     }
+                    columns += kept;
+                    for (int q = 0; q + 1 < kept; q++) EmitFacet(m, band, q, q + 1, ribRadius);
                 }
             }
             Columns = columns;
             SummitColumns = summits;
+        }
+
+        /// <summary>
+        /// One curtain quad between kept points <paramref name="a"/> and <paramref name="b"/> of a run, with its own four
+        /// vertices and one flat normal: the face that falls from this piece of silhouette towards the eye. A piece of
+        /// silhouette that rises to the right belongs to a face turned to the left and the other way round, so every peak
+        /// has a lit and a shaded face meeting in a crisp ridge line under the summit (gullies under the notches), as
+        /// the photos of the ranges from the valley show; the ground's own aspect at the silhouette turns it further.
+        /// </summary>
+        private void EmitFacet(MeshData m, int band, int a, int b, double ribRadius)
+        {
+            double am = 0.5 * (_pAz[a] + _pAz[b]) * Math.PI / 180.0;
+            double dAz = (_pAz[b] - _pAz[a]) * Math.PI / 180.0, dEl = (_pEl[b] - _pEl[a]) * Math.PI / 180.0;
+            double dm = 0.5 * (_pDist[a] + _pDist[b]);
+            // Along the silhouette (angular slope at the mean distance, so a jump between ridges at different distances
+            // does not tilt the face sideways) and down the face towards the eye.
+            double tx = Math.Cos(am) * dm * dAz, ty = dm * dEl, tz = -Math.Sin(am) * dm * dAz;
+            double ex = -Math.Sin(am), ez = -Math.Cos(am);
+            double steep = Math.Max(FaceSlopeMin, Math.Min(FaceSlopeMax, 0.5 * (_pSteep[a] + _pSteep[b]) * 1.2));
+            double fx = ex, fy = -steep, fz = ez;
+            double nx = ty * fz - tz * fy, ny = tz * fx - tx * fz, nz = tx * fy - ty * fx;
+            double nl = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            if (nl < 1e-9)
+            {
+                nx = ex;
+                ny = 1.0;
+                nz = ez;
+                nl = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            }
+            nx /= nl;
+            ny /= nl;
+            nz /= nl;
+            if (ny < 0)
+            {
+                nx = -nx;
+                ny = -ny;
+                nz = -nz;
+            }
+            double gx = Clamp(-0.5 * (_pGx[a] + _pGx[b]), 1.5), gz = Clamp(-0.5 * (_pGz[a] + _pGz[b]), 1.5);
+            nx += gx * AspectWeight;
+            nz += gz * AspectWeight;
+            nl = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            float fnx = (float)(nx / nl), fny = (float)(ny / nl), fnz = (float)(nz / nl);
+            double dBeta = _pBeta[b] - _pBeta[a];
+            if (dBeta > Math.PI) dBeta -= 2.0 * Math.PI;
+            if (dBeta < -Math.PI) dBeta += 2.0 * Math.PI;
+            float alongA = (float)(_pBeta[a] * ribRadius), alongB = (float)((_pBeta[a] + dBeta) * ribRadius);
+            uint ca = Rgba(_pSteep[a], band), cb = Rgba(_pSteep[b], band);
+            int topA = m.AddVertex((float)_pX[a], (float)_pAlt[a], (float)_pZ[a], fnx, fny, fnz, ca, alongA, 0f);
+            int topB = m.AddVertex((float)_pX[b], (float)_pAlt[b], (float)_pZ[b], fnx, fny, fnz, cb, alongB, 0f);
+            int botB = m.AddVertex((float)_pX[b], (float)_pBottom[b], (float)_pZ[b], fnx, fny, fnz, cb, alongB, 1f);
+            int botA = m.AddVertex((float)_pX[a], (float)_pBottom[a], (float)_pZ[a], fnx, fny, fnz, ca, alongA, 1f);
+            // Front faces look at the eye (Unity winding, cross(b - a, c - a) towards the eye); the top edge is the first
+            // two indices of each quad.
+            m.AddTriangle(topA, topB, botB);
+            m.AddTriangle(topA, botB, botA);
+        }
+
+        /// <summary>Slope (rise per metre) of the faces below the silhouette: the panorama's ground slope there, within
+        /// these bounds (forested rim hills about 30 degrees, high faces up to about 52).</summary>
+        public const double FaceSlopeMin = 0.6, FaceSlopeMax = 1.3;
+
+        /// <summary>How much the ground's own aspect at the silhouette turns the face (per unit of rise per metre).</summary>
+        public const double AspectWeight = 0.35;
+
+        private static uint Rgba(float steep, int band)
+        {
+            byte rock = (byte)Math.Max(0, Math.Min(255, (int)Math.Round((steep - 0.35) / 0.6 * 255.0)));
+            return (uint)rock << 24 | (uint)band << 16 | 0xFFu;
+        }
+
+        private static double Clamp(double v, double limit)
+        {
+            return v < -limit ? -limit : v > limit ? limit : v;
         }
 
         /// <summary>The points of one run: its rays in azimuth order with the band's summits merged in (forced).
@@ -251,15 +304,6 @@ namespace Ghumante.Core.Horizon
             }
         }
 
-        private static double SilhouetteSlope(HorizonPanorama p, int band, int i, int n, double stepDeg)
-        {
-            int a = (i - 2 + n) % n, b = (i + 2) % n;
-            double ea = p.ElevationDeg(band, a), eb = p.ElevationDeg(band, b);
-            if (double.IsNaN(ea)) ea = p.ElevationDeg(band, i);
-            if (double.IsNaN(eb)) eb = p.ElevationDeg(band, i);
-            return (eb - ea) / (4.0 * stepDeg);
-        }
-
         /// <summary>Douglas-Peucker on (azimuth, elevation) in degrees with the vertical deviation from the chord as
         /// the error; marks the points kept in <see cref="_keep"/>: both ends, every forced point, and whatever the
         /// tolerance needs between them.</summary>
@@ -316,6 +360,17 @@ namespace Ghumante.Core.Horizon
             _src = new int[len];
             _keep = new bool[len];
             _force = new bool[len];
+            _pAz = new double[len];
+            _pEl = new double[len];
+            _pDist = new double[len];
+            _pAlt = new double[len];
+            _pBottom = new double[len];
+            _pX = new double[len];
+            _pZ = new double[len];
+            _pBeta = new double[len];
+            _pSteep = new float[len];
+            _pGx = new float[len];
+            _pGz = new float[len];
         }
     }
 }

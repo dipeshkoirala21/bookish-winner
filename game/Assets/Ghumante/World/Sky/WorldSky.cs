@@ -18,7 +18,7 @@ namespace Ghumante.World.Sky
 
         /// <summary>Most of the terrain colour that may survive the fog at the edge of the streamed world
         /// (<see cref="ViewRadiusM"/>): the last ring then melts into the fog-coloured horizon band of the sky.</summary>
-        public const double EdgeTransmittance = 0.04;
+        public const double EdgeTransmittance = SkyPalette.EdgeTransmittance;
 
         /// <summary>The light turns once the sun moved more than 0.1 degrees (cos 0.1°).</summary>
         private const float LightStepCos = 0.9999985f;
@@ -158,8 +158,7 @@ namespace Ghumante.World.Sky
         /// </summary>
         public static float FogDensityFloor(double viewRadiusM)
         {
-            if (!(viewRadiusM > 0.0) || double.IsInfinity(viewRadiusM)) return 0f;
-            return (float)(System.Math.Sqrt(System.Math.Log(1.0 / EdgeTransmittance)) / viewRadiusM);
+            return SkyPalette.FogDensityFloor(viewRadiusM);
         }
 
         /// <summary>The state last applied.</summary>
@@ -269,7 +268,9 @@ namespace Ghumante.World.Sky
             }
 
             RenderSettings.fogColor = ToColor(s.Fog);
-            RenderSettings.fogDensity = Mathf.Max(s.FogDensity, FogDensityFloor(_viewRadiusM)) * fogDensityScale;
+            // The palette's haze, at least the valley's own haze (far ridges stand in it, as in the photos) and the floor
+            // that hides the end of the streamed world (SkyPalette.SceneFogDensity).
+            RenderSettings.fogDensity = SkyPalette.SceneFogDensity(s.FogDensity, _viewRadiusM) * fogDensityScale;
             // The air's own haze, without the floor: the skyline (Ghumante/Skyline) hazes sight lines that rise above
             // the valley haze with it, so the snow peaks stay clear on the tiers whose short world needs a dense floor.
             Shader.SetGlobalVector(SkyAirId, new Vector4(s.FogDensity * fogDensityScale, 0f, 0f, 0f));

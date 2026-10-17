@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using Ghumante.Core.Data;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Horizon;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Streaming;
 using Ghumante.World.Rendering;
+using Ghumante.World.Sky;
 using NUnit.Framework;
 
 namespace Ghumante.Core.Tests
@@ -236,6 +239,60 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
+        /// Where the ring stands above the streamed terrain on the same hill (the two silhouettes within 2 km), it draws
+        /// the hill's true crest that the decimated streamed terrain has lost (Nagarjun 4.5 km from Swayambhu: grid
+        /// 2 067 m, streamed 1 845 m). Measured round the horizon from the three viewpoints and reported; what the ring
+        /// can do about it is to continue the hill in the streamed terrain's own colours, so its forest band is
+        /// BiomePalette's October hill forest and subalpine forest, and the rise never exceeds what the height field
+        /// itself holds on the panorama's rays (no invented ridge).
+        /// </summary>
+        [Test]
+        public void RingTopsUpFlattenedHillsInTheirOwnColours()
+        {
+            Assert.AreEqual(BiomePalette.Rgba(Biome.HillForest, Season.Autumn) >> 8, HorizonLook.ForestHex, "hill forest = the streamed terrain's");
+            Assert.AreEqual(BiomePalette.Rgba(Biome.SubalpineForest, Season.Autumn) >> 8, HorizonLook.ConiferHex, "conifer = the streamed terrain's");
+            var invented = new List<string>();
+            foreach (int tier in Tiers)
+                foreach (HorizonViewpoint v in HorizonViewpoint.All)
+                {
+                    var scene = new HorizonScene(v, tier);
+                    var rises = new List<double>();
+                    // On the panorama's own rays (between them a notch narrower than the ray step is bridged: the tier's
+                    // azimuth resolution).
+                    double step = scene.Panorama.AzimuthStepDeg;
+                    for (double b = 0; b < 360; b += step)
+                    {
+                        HorizonRay near = scene.TerrainRay(b, HorizonScene.NearM, scene.Settings.HandoverM);
+                        HorizonRay ring = scene.RingRay(b);
+                        if (!near.Hit || !ring.Hit || Math.Abs(ring.DistanceM - near.DistanceM) > 2000.0) continue;
+                        double rise = ring.ElevationDeg - near.ElevationDeg;
+                        rises.Add(rise);
+                        if (rise <= 0.032) continue;
+                        // The ring's crest is the field's own ground: no higher than the field's highest sight along the
+                        // ray (within the simplification tolerance).
+                        double a = b * Math.PI / 180.0, fieldTop = -90.0;
+                        for (double d = scene.Settings.BandEdgesM[0]; d <= ring.DistanceM + 3000.0; d += 25.0)
+                        {
+                            float fh;
+                            if (!scene.Field.TryHeight(scene.X + Math.Sin(a) * d, scene.Z + Math.Cos(a) * d, out fh)) continue;
+                            fieldTop = Math.Max(fieldTop, Math.Atan2(fh - scene.EyeM - d * d * HorizonPanorama.InverseTwoEffectiveRadius, d) * 180.0 / Math.PI);
+                        }
+                        // (a simplified chord across a steep notch edge may stand up to about 0.1 degree, three pixels, above
+                        // it; an invented ridge would stand far more)
+                        if (ring.ElevationDeg > fieldTop + scene.Settings.SimplifyToleranceDeg + 0.15)
+                            invented.Add(string.Format("tier {0} {1} bearing {2:0.0}: ring {3:0.000} deg above the field's {4:0.000}", tier, v.Name, b,
+                                                       ring.ElevationDeg, fieldTop));
+                    }
+                    rises.Sort();
+                    int above = rises.FindAll(r => r > 0.032).Count;
+                    TestContext.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                                                        "tier {0} {1}: ring tops up the streamed hill on {2} of {3} bearings; rise median {4:0.00}, p90 {5:0.00}, max {6:0.00} deg",
+                                                        tier, v.Name, above, rises.Count, rises[rises.Count / 2], rises[rises.Count * 9 / 10], rises[rises.Count - 1]));
+                }
+            Assert.IsEmpty(invented, string.Join("\n", invented));
+        }
+
+        /// <summary>
         /// The ring replaces streamed terrain only beyond the handover, where the scene's fog has already taken most of it
         /// (so the swap is not a visible change), inside the camera's far clip; and for low sight lines its haze is the
         /// scene fog exactly, so a ridge crossing the handover keeps its colour.
@@ -248,19 +305,73 @@ namespace Ghumante.Core.Tests
                 HorizonSettings s = HorizonSettings.ForTier(tier);
                 StreamingConfig c = StreamingConfig.ForTier(tier);
                 double far = c.ViewRadiusM * 1.25 + 5000.0; // WorldRoot.ConfigureCamera
-                double floor = Math.Sqrt(Math.Log(1.0 / 0.04)) / c.ViewRadiusM; // WorldSky.FogDensityFloor
-                double rho = Math.Max(1.2e-5, floor);
+                double rho = SkyPalette.SceneFogDensity(SkyPalette.DayFogDensity, c.ViewRadiusM); // WorldSky.Apply by day
                 double t = Math.Exp(-(rho * s.HandoverM) * (rho * s.HandoverM));
                 Assert.LessOrEqual(t, 0.6, "tier " + tier + ": streamed terrain at the handover is mostly haze");
                 Assert.Less(s.HandoverM * 1.02, far, "tier " + tier + ": the ring is drawn inside the far clip");
                 Assert.Less(s.HandoverM, c.ViewRadiusM, "tier " + tier + ": the ring takes over inside the streamed world");
-                double low = HorizonLook.HazeTransmittance(s.HandoverM, 1300, 2200, rho, 1.2e-5);
+                double low = HorizonLook.HazeTransmittance(s.HandoverM, 1300, 2200, rho, SkyPalette.DayFogDensity);
                 Assert.AreEqual(t, low, 1e-9, "low sight lines: the scene fog");
-                double peak = HorizonLook.HazeTransmittance(65000, 1300, 7234, rho, 1.2e-5);
+                double peak = HorizonLook.HazeTransmittance(65000, 1300, 7234, rho, SkyPalette.DayFogDensity);
                 Assert.Greater(peak, Math.Exp(-(rho * 65000) * (rho * 65000)), "sight lines to the snow peaks run above the valley haze");
                 Assert.GreaterOrEqual(peak, HorizonLook.HazeTransmittance(65000, 1300, 7234, rho, rho) - 1e-12,
                                       "and are hazed by the air, not by the floor that hides the end of the streamed world");
             }
+        }
+
+        /// <summary>
+        /// The valley's haze (SkyPalette.ValleyHazeDensity) leaves the city clear and puts the far ridges in haze as the
+        /// photos show (about 40 % of their own colour at 45 km), on every tier.
+        /// </summary>
+        [Test]
+        public void ValleyHazeLeavesTheCityClearAndHazesFarRidges()
+        {
+            foreach (int tier in Tiers)
+            {
+                double rho = SkyPalette.SceneFogDensity(SkyPalette.DayFogDensity, StreamingConfig.ForTier(tier).ViewRadiusM);
+                Assert.Greater(Math.Exp(-(rho * 3000) * (rho * 3000)), 0.98, "tier " + tier + ": the city within 3 km");
+                Assert.Less(Math.Exp(-(rho * 45000) * (rho * 45000)), 0.45, "tier " + tier + ": a ridge 45 km away stands in haze");
+            }
+            double valley = SkyPalette.ValleyHazeDensity;
+            Assert.Greater(Math.Exp(-(valley * 5000) * (valley * 5000)), 0.98, "the valley haze alone leaves the city within 5 km clear");
+            Assert.AreEqual(3.6e-5, SkyPalette.FogDensityFloor(50000), 1e-6);
+            Assert.AreEqual(0f, SkyPalette.FogDensityFloor(0));
+        }
+
+        /// <summary>
+        /// Alpenglow: while the sun is the light, a summit sees it over the curve of the earth, so around sunrise and
+        /// sunset the snow peaks are lit (gold) while the valley floor is not; by day they get the same light as the
+        /// world. HorizonLook's sun curve is SkyPalette's.
+        /// </summary>
+        [Test]
+        public void SummitsCatchTheSunBeforeTheValley()
+        {
+            for (double e = -6; e <= 60; e += 0.5)
+                Assert.AreEqual(SkyPalette.SunIntensity((float)e), HorizonLook.SunIntensity(e), 1e-5, "twin of SkyPalette.SunIntensity at " + e);
+            Assert.AreEqual(1.45, HorizonLook.HorizonDipDeg(7000) - HorizonLook.HorizonDipDeg(1300), 0.05, "a 7 000 m summit sees 1.45 degrees further down");
+            // Find the morning hour when the sun stands 0.5 degree below the valley's horizon.
+            double dawn = 6.0;
+            for (double h = 4.0; h < 8.0; h += 0.01)
+            {
+                SkyState st = SkyPalette.Evaluate(h);
+                if (Math.Asin(st.SunY) * 180.0 / Math.PI >= -0.5)
+                {
+                    dawn = h;
+                    break;
+                }
+            }
+            HorizonLight dawnLight = HorizonPreviews.LightFor(SkyPalette.Evaluate(dawn), 2e-5);
+            double vr, vg, vb, pr, pg, pb;
+            HorizonLook.DirectLight(1400, 1300, dawnLight, out vr, out vg, out vb);
+            HorizonLook.DirectLight(7000, 1300, dawnLight, out pr, out pg, out pb);
+            TestContext.WriteLine("dawn " + dawn.ToString("0.00") + " h: valley " + vr.ToString("0.000") + ", summit " + pr.ToString("0.000"));
+            Assert.Less(vr, 0.05, "the valley is still in shadow");
+            Assert.Greater(pr, 0.2, "the summits glow");
+            Assert.Greater(pr, pb * 1.3, "in the warm light of the low sun");
+            HorizonLight noon = HorizonPreviews.LightFor(SkyPalette.Evaluate(12.0), 2e-5);
+            HorizonLook.DirectLight(7000, 1300, noon, out pr, out pg, out pb);
+            Assert.AreEqual(noon.LightR, pr, 0.01, "by day the same light as the world");
+            Assert.AreEqual(noon.LightB, pb, 0.01);
         }
 
         [Test]
@@ -312,10 +423,19 @@ namespace Ghumante.Core.Tests
                 p.Build(f, x + 250, z, 1340, s);
                 mesher.Build(p, s, m);
                 sw.Stop();
-                TestContext.WriteLine("tier " + tier + ": " + sw.Elapsed.TotalMilliseconds.ToString("0") + " ms, " + p.Samples + " height samples, " +
-                                      m.TriangleCount + " triangles, field " + f.Bytes / 1024 + " KB, tolerance " + mesher.ToleranceUsedDeg.ToString("0.000") + " deg");
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                var fw = Stopwatch.StartNew();
+                HorizonHeightField fresh = HorizonHeightField.FromPack(StreamingSampleRegion.Pack, s.GridSpacingM);
+                fw.Stop();
+                long fieldAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
+                TestContext.WriteLine("tier " + tier + ": rebuild " + sw.Elapsed.TotalMilliseconds.ToString("0") + " ms (worker), " + p.Samples + " height samples, " +
+                                      m.TriangleCount + " triangles, " + m.VertexCount + " vertices, mesh " + (m.VertexCount * 36 + m.IndexCount * 2) / 1024 +
+                                      " KB; field " + f.Bytes / 1024 + " KB built once in " + fw.Elapsed.TotalMilliseconds.ToString("0") + " ms (" +
+                                      fieldAlloc / 1024 + " KB allocated); tolerance " + mesher.ToleranceUsedDeg.ToString("0.000") + " deg");
                 Assert.Less(sw.Elapsed.TotalMilliseconds, 1500, "tier " + tier);
                 Assert.Less(p.Samples, 3000000, "tier " + tier);
+                Assert.AreEqual(f.Bytes, fresh.Bytes);
+                Assert.Less(m.VertexCount, 65536, "16-bit indices");
             }
         }
 
@@ -365,8 +485,8 @@ namespace Ghumante.Core.Tests
                 FogR = 0.4f, FogG = 0.55f, FogB = 0.75f, HorizonR = 0.45f, HorizonG = 0.7f, HorizonB = 0.92f, FogDensity = 1.5e-5f,
             };
             float lr, lg, lb, sr, sg, sb;
-            HorizonLook.Shade(7000, 0.1, 0.0, 0.0, 0.6, 0.6, -0.53, 65000, 1300, light, out lr, out lg, out lb);
-            HorizonLook.Shade(7000, 0.1, 0.0, 0.0, -0.6, 0.3, 0.75, 65000, 1300, light, out sr, out sg, out sb);
+            HorizonLook.Shade(7000, 0.1, 0.0, 0.0, 0.6, 0.6, -0.53, 0.0, 0.07, 1.0, 65000, 1300, light, out lr, out lg, out lb);
+            HorizonLook.Shade(7000, 0.1, 0.0, 0.0, -0.6, 0.3, 0.75, 0.0, 0.07, 1.0, 65000, 1300, light, out sr, out sg, out sb);
             Assert.Greater(lr + lg + lb, sr + sg + sb + 0.1f, "lit flank brighter than the shaded one");
             Assert.Greater(sb, sr, "shaded snow is bluish");
         }

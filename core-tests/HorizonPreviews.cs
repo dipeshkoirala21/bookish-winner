@@ -24,6 +24,9 @@ namespace Ghumante.Core.Tests
     {
         private const double Curv = HorizonPanorama.InverseTwoEffectiveRadius;
 
+        /// <summary>The skyline material's <c>_RibStrength</c> default.</summary>
+        internal const double RibStrength = 0.6;
+
         private struct Shot
         {
             public string Name;
@@ -40,19 +43,27 @@ namespace Ghumante.Core.Tests
             if (!ObjDump.Enabled) Assert.Ignore("set " + ObjDump.EnvVar + " to dump the skyline previews");
             string tierList = Environment.GetEnvironmentVariable("GHUMANTE_SKY_TIERS") ?? "2";
             string only = Environment.GetEnvironmentVariable("GHUMANTE_SKY_SHOTS");
+            bool before = Environment.GetEnvironmentVariable("GHUMANTE_SKY_BEFORE") == "1";
             var shots = new List<Shot>
             {
                 // Game-like views (62 degrees across in landscape) and telephoto views like the reference photos.
                 new Shot { Name = "basantapur_north", View = HorizonViewpoint.Basantapur, EyeAboveGround = 25f, Hours = 9.0, BearingDeg = 2, PitchDeg = 2.5, FovDeg = 37, Width = 1600, Height = 900 },
                 new Shot { Name = "basantapur_ganesh_tele", View = HorizonViewpoint.Basantapur, EyeAboveGround = 25f, Hours = 9.0, BearingDeg = 345, PitchDeg = 3.6, FovDeg = 4.5, Width = 1600, Height = 700 },
                 new Shot { Name = "boudha_north", View = HorizonViewpoint.Boudha, EyeAboveGround = 20f, Hours = 9.0, BearingDeg = 15, PitchDeg = 2.5, FovDeg = 37, Width = 1600, Height = 900 },
-                new Shot { Name = "boudha_east_tele", View = HorizonViewpoint.Boudha, EyeAboveGround = 20f, Hours = 9.0, BearingDeg = 62, PitchDeg = 3.0, FovDeg = 6, Width = 1600, Height = 700 },
+                new Shot { Name = "boudha_jugal_tele", View = HorizonViewpoint.Boudha, EyeAboveGround = 20f, Hours = 9.0, BearingDeg = 47, PitchDeg = 3.9, FovDeg = 3.0, Width = 1600, Height = 700 },
+                new Shot { Name = "boudha_gauri_tele", View = HorizonViewpoint.Boudha, EyeAboveGround = 20f, Hours = 9.0, BearingDeg = 74, PitchDeg = 2.7, FovDeg = 3.0, Width = 1600, Height = 700 },
                 new Shot { Name = "swayambhu_north", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 3f, Hours = 9.0, BearingDeg = 25, PitchDeg = 2.5, FovDeg = 37, Width = 1600, Height = 900 },
                 new Shot { Name = "swayambhu_langtang_tele", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 3f, Hours = 9.0, BearingDeg = 22, PitchDeg = 4.3, FovDeg = 4.5, Width = 1600, Height = 700 },
                 new Shot { Name = "swayambhu_golden", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 28f, Hours = 17.3, BearingDeg = 40, PitchDeg = 1.5, FovDeg = 37, Width = 1600, Height = 900 },
                 // Ganesh Himal from the top of Chandragiri (ref: "Ganesh Mountain Range seen from Chandragiri Hill", Saroj Pandey).
                 new Shot { Name = "chandragiri_ganesh_tele", View = new HorizonViewpoint("Chandragiri", 27.66625, 85.20525), EyeAboveGround = 5f, Hours = 10.0, BearingDeg = 349, PitchDeg = 1.6, FovDeg = 4.0, Width = 1600, Height = 1066 },
                 new Shot { Name = "basantapur_sunrise", View = HorizonViewpoint.Basantapur, EyeAboveGround = 25f, Hours = 6.0, BearingDeg = 2, PitchDeg = 2.5, FovDeg = 37, Width = 1600, Height = 900 },
+                // Rooftop at dusk towards Ganesh Himal (ref: "Ganesh Himal from Kathmandu", Zarniwoop und Zarquon).
+                new Shot { Name = "basantapur_ganesh_dusk", View = HorizonViewpoint.Basantapur, EyeAboveGround = 25f, Hours = 17.85, BearingDeg = 343, PitchDeg = 3.2, FovDeg = 14, Width = 1500, Height = 1000 },
+                // Nagarjun from Swayambhu: the near rim hill drawn by the streamed terrain and the ring together.
+                new Shot { Name = "swayambhu_nagarjun", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 3f, Hours = 9.0, BearingDeg = 316, PitchDeg = 4.0, FovDeg = 37, Width = 1600, Height = 900 },
+                // The Langtang-Jugal row over Swayambhu hill (ref: "Swyambhu and langtang", Mbiken).
+                new Shot { Name = "swayambhu_langtang_mid", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 3f, Hours = 9.5, BearingDeg = 32, PitchDeg = 4.3, FovDeg = 7, Width = 1600, Height = 1066 },
             };
             var sh = new System.Text.StringBuilder();
             sh.Append("#!/bin/bash\nR=${R:-tools/mesh-preview/render.py}\nD=$(dirname \"$0\")/..\nmkdir -p $D/png\n");
@@ -78,6 +89,18 @@ namespace Ghumante.Core.Tests
                                     "python3 $R --combine $D/{0}/sky.obj $D/{0}/terrain.obj $D/{0}/ring.obj -o $D/png/{7}_t{8}.png --unity --eye 0,0,0 " +
                                     "--look={1:0.###},{2:0.###},{3:0.###} --fov {4} --size {5} --height {6} --shading unlit --no-outline --no-shadows " +
                                     "--no-grid --backfaces show --no-header -q\n", dir, lx, ly, lz, s.FovDeg, s.Width, s.Height, s.Name, tier);
+                    if (before)
+                    {
+                        // The playtest: the streamed terrain alone out to the far clip, under the fog of that build (the
+                        // palette's haze or the tier's floor, no valley haze), no skyline ring.
+                        var old = new HorizonScene(view, tier, s.Hours, false);
+                        HorizonLight oldLight = LightFor(sky, Math.Max(old.AirDensity, SkyPalette.FogDensityFloor(old.Config.ViewRadiusM)));
+                        ObjDump.Write(Terrain(old, sky, oldLight, old.FarClipM, s.BearingDeg, halfAcross + 4.0, oldLight.FogDensity), dir + "/before_terrain.obj");
+                        sh.AppendFormat(CultureInfo.InvariantCulture,
+                                        "python3 $R --combine $D/{0}/sky.obj $D/{0}/before_terrain.obj -o $D/png/{7}_t{8}_before.png --unity --eye 0,0,0 " +
+                                        "--look={1:0.###},{2:0.###},{3:0.###} --fov {4} --size {5} --height {6} --shading unlit --no-outline --no-shadows " +
+                                        "--no-grid --backfaces show --no-header -q\n", dir, lx, ly, lz, s.FovDeg, s.Width, s.Height, s.Name, tier);
+                    }
                     TestContext.WriteLine(s.Name + " tier " + tier + ": ring " + scene.Ring.TriangleCount + " tris, fog " + scene.FogDensity.ToString("0.000e0"));
                 }
             }
@@ -101,9 +124,32 @@ namespace Ghumante.Core.Tests
             Lin(amb, 1f, out l.AmbientR, out l.AmbientG, out l.AmbientB);
             Lin(s.Fog, 1f, out l.FogR, out l.FogG, out l.FogB);
             Lin(s.Horizon, 1f, out l.HorizonR, out l.HorizonG, out l.HorizonB);
+            Lin(s.Zenith, 1f, out l.ZenithR, out l.ZenithG, out l.ZenithB);
+            Lin(s.Ground, 1f, out l.GroundR, out l.GroundG, out l.GroundB);
+            Lin(s.Light, 1f, out l.SunR, out l.SunG, out l.SunB); // WorldSky: _GhSunColor = the light colour
+            l.SunX = s.SunX;
+            l.SunY = s.SunY;
+            l.SunZ = s.SunZ;
+            l.Golden = s.Golden;
             l.FogDensity = (float)fogDensity;
             l.AirDensity = s.FogDensity;
             return l;
+        }
+
+        /// <summary>
+        /// Linear colour the skyline shader gives the ring at (<paramref name="bearingDeg"/>,
+        /// <paramref name="elevationDeg"/>) on <paramref name="p"/> (<see cref="HorizonScene.RingSurface"/>), with the
+        /// rib detail of a view whose pixels span <paramref name="pixelRad"/>.
+        /// </summary>
+        internal static void ShadeRing(HorizonScene scene, HorizonLight light, double bearingDeg, double elevationDeg, in RingPoint p, double pixelRad,
+                                       out float r, out float g, out float b)
+        {
+            double br = bearingDeg * Math.PI / 180.0, er = elevationDeg * Math.PI / 180.0;
+            double vx = Math.Sin(br) * Math.Cos(er), vy = Math.Sin(er), vz = Math.Cos(br) * Math.Cos(er);
+            double detail = HorizonLook.Detail(p.DistanceM * pixelRad);
+            double rx, ry, rz;
+            HorizonLook.RibNormal(p.NormalX, p.NormalY, p.NormalZ, Math.Cos(br), -Math.Sin(br), p.AlongM, p.AltitudeM, detail, RibStrength, out rx, out ry, out rz);
+            HorizonLook.Shade(p.AltitudeM, p.Rock, p.AlongM, detail, rx, ry, rz, vx, vy, vz, p.DistanceM, scene.EyeM, light, out r, out g, out b);
         }
 
         private static void Lin(SkyColor c, float k, out float r, out float g, out float b)
@@ -158,10 +204,11 @@ namespace Ghumante.Core.Tests
                         double rock = Lerp(ring.Colors[pt * 4], ring.Colors[top * 4], u) / 255.0;
                         double detail = HorizonLook.Detail(d * pixelRad);
                         double rx, ry, rz;
-                        HorizonLook.RibNormal(nx, ny, nz, Math.Cos(phi), -Math.Sin(phi), along, y, detail, 0.9, out rx, out ry, out rz);
+                        HorizonLook.RibNormal(nx, ny, nz, Math.Cos(phi), -Math.Sin(phi), along, y, detail, RibStrength, out rx, out ry, out rz);
                         float cr, cg, cb;
-                        HorizonLook.Shade(y, rock, along, detail, rx, ry, rz, d, scene.EyeM, light, out cr, out cg, out cb);
-                        m.AddVertex((float)x, (float)(y - scene.EyeM - d * d * Curv), (float)z, (float)nx, (float)ny, (float)nz, Srgb(cr, cg, cb));
+                        double vy = y - scene.EyeM - d * d * Curv, vl = Math.Sqrt(x * x + vy * vy + z * z);
+                        HorizonLook.Shade(y, rock, along, detail, rx, ry, rz, x / vl, vy / vl, z / vl, d, scene.EyeM, light, out cr, out cg, out cb);
+                        m.AddVertex((float)x, (float)vy, (float)z, (float)nx, (float)ny, (float)nz, Srgb(cr, cg, cb));
                     }
                 }
                 for (int c = 0; c < cols; c++)
@@ -193,8 +240,10 @@ namespace Ghumante.Core.Tests
 
         /// <summary>The streamed terrain nearer than <paramref name="maxM"/>, toon-lit and fogged like ToonLit, relative
         /// to the eye with curvature applied.</summary>
-        internal static MeshData Terrain(HorizonScene scene, SkyState sky, HorizonLight light, double maxM, double bearingDeg, double halfWindowDeg)
+        internal static MeshData Terrain(HorizonScene scene, SkyState sky, HorizonLight light, double maxM, double bearingDeg, double halfWindowDeg,
+                                         double fogDensity = -1.0)
         {
+            double rho = fogDensity >= 0 ? fogDensity : scene.FogDensity;
             var m = new MeshData();
             var piece = new MeshData();
             foreach (SelectedNode n in scene.Nodes)
@@ -217,7 +266,7 @@ namespace Ghumante.Core.Tests
                     double ndl = nx * light.LightX + ny * light.LightY + nz * light.LightZ;
                     double lit = ndl > 0.05 ? 1.0 : ndl > -0.05 ? (ndl + 0.05) / 0.1 : 0.0;
                     double cr = ar * (light.AmbientR + light.LightR * lit), cg = ag * (light.AmbientG + light.LightG * lit), cb = ab * (light.AmbientB + light.LightB * lit);
-                    double tf = Math.Exp(-(scene.FogDensity * d) * (scene.FogDensity * d));
+                    double tf = Math.Exp(-(rho * d) * (rho * d));
                     cr = light.FogR + (cr - light.FogR) * tf;
                     cg = light.FogG + (cg - light.FogG) * tf;
                     cb = light.FogB + (cb - light.FogB) * tf;

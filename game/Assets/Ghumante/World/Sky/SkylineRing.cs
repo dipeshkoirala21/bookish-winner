@@ -39,7 +39,7 @@ namespace Ghumante.World.Sky
         private readonly Material _material;
         private readonly HorizonPanorama _panorama = new HorizonPanorama();
         private readonly HorizonMesher _mesher = new HorizonMesher();
-        private readonly MeshData _data = new MeshData(4096, 12288);
+        private readonly MeshData _data = new MeshData(10240, 15360); // High: about 9 100 vertices, 13 700 indices
         private Task<HorizonHeightField> _fieldTask;
         private HorizonHeightField _field;
         private Task _build;

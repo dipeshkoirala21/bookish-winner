@@ -102,21 +102,146 @@ level-6 grid instead of 7 134 m).
   45 km, High 55 km) and draws after the opaque world: streamed terrain nearer than that stays in front; the flattened
   horizon terrain beyond it (already 50-70 % fog there) is replaced by the true silhouettes; the sky fills the rest.
   The far clip and the scene fog stay as they were (the ring needs neither).
-* **Look** (`HorizonLook`, the shader's C# twin): hill forest `#3B5636` below 2 600-2 900 m, conifer `#2F4438`,
-  alpine `#6C6A5A` from 3 500-4 000 m, rock `#545A68` up to the snow line (5 000 m, ±300 m from face to face, up to
-  400 m higher on rock-steep ground), snow `#F4F6F8` broken by rock ribs and gullies (more on steep ground); normals
-  from the DEM gradient at the silhouette, bent across the curtain by 150 m rib noise (snow flutings and ribs that
-  catch the light on one side), faded out where a rib would be narrower than three pixels so the wide view does not
-  shimmer; the rib coordinate is the bearing from a fixed anchor, so the detail stays on the ground between rebuilds;
-  steep face normals (a range seen from afar shows its faces, not its tops), two-tone light from the main light (sun,
-  or moon) plus sky ambient (sunlit snow just white and warm, shaded snow sky blue, as in the photos); the valley haze
-  only over the part of the sight line below 3 000 m, with the scene fog's density for lines that stay in it (so a
-  ridge crossing the handover keeps its colour) and the air's own density (`WorldSky` publishes the palette's haze,
-  without the floor that hides the end of the Low and Mid worlds) for lines that rise above it; clear-air aerial
-  perspective towards `WorldSky`'s horizon colour over 75 km at sea level, longer through the thinner air of high
-  sight lines (8 km scale height: about 125 km to a 7 000 m summit seen from the valley).
+* **Facets.** Every quad between two kept silhouette points has its own vertices and one flat normal: the face that
+  falls at 31-52 degrees (from the DEM slope) from that piece of silhouette towards the eye. A piece that rises to the
+  right belongs to a face turned left and the other way round, so each peak has a lit and a shaded face meeting in a
+  crisp ridge line under the summit, gullies under the notches, as in the Chandragiri and Lalitpur photos; the ground's
+  own aspect at the silhouette turns it further (0.35 per unit slope).
+* **Look** (`HorizonLook`, the shader's C# twin, same numbers):
+  * ground colour by altitude: hill forest `#3B5636` below 2 600-2 900 m, conifer `#2F4438`, dark alpine scrub `#55544A`
+    from the tree line (3 600-4 100 m), blue-grey rock `#4C5262` up to the snow line (5 000 m in October, ±300 m from
+    face to face, up to 400 m higher on steep rock), snow `#F4F6F8` above;
+  * the snow reaches ±350 m down the gullies and leaves the ribs bare (the white streaks on the dark foothills of the
+    Chandragiri photo); bare rock breaks it on the lower faces, more on steep ground, and thins out over the top
+    1.2 km so the summits read white, as in every photo;
+  * rib noise slants down the faces (150 m ribs over 520 m patches, no longer 2.5 km tall streaks), bends the normal
+    (strength 0.6) and fades out below three pixels per rib, so the wide view does not shimmer;
+  * light: a three-band toon ramp on N·L (edges 0.02 and 0.30, mid band 0.78 of the sun, dark band only the sky light,
+    ambient 0.55, sun 0.85): sunlit snow is the brightest thing in the scene, shaded snow a clear blue about 0.7 times
+    as bright as the sky behind it (photo: `#7B9DBE` against `#9DB5D5`), and grazing faces stay clearly above the sky;
+  * alpenglow: while the sun is the light, a point takes the sun at the elevation it sees over the curve of the earth
+    (a 7 000 m summit sees 1.45 degrees further down than the valley), so the peaks turn gold and pink before sunrise
+    and after sunset while the valley is in shadow (the dusk rooftop photo); by day nothing changes;
+  * air: the valley haze (the scene fog colour and density, only over the part of the sight line below 3 000 m; the
+    scene fog's floor weighs in only by the square of that part, so it never hazes the sight lines to the peaks), then
+    clear-air aerial perspective over 90 km at sea level (October air, near pure Rayleigh scattering; 8 km scale height:
+    about 150 km to a 7 000 m summit seen from the valley) that
+    fades the ranges into the sky right behind them (`Ghumante/SkyGradient`'s own gradient, glow and fog band), never
+    into a brighter horizon colour: a peak can no longer melt into the sky by being lifted to its brightness.
+* **Valley haze** (`SkyPalette.ValleyHazeDensity` = 2.1e-5, the scene fog's least density): ridges 30-55 km away stand
+  in haze in every photo (about 40 % of their own colour left at 45 km). Low (3.6e-5) and Mid (2.2e-5) already had
+  denser floors for the end of their worlds; on High (1.5e-5 before) it now hazes the streamed ridges just inside the
+  handover. The city within 5 km keeps over 98 %. The skyline hazes the sight lines above the haze with the palette's
+  own 1.2e-5 (`_GhSkyAir`), so the peaks are not dimmed by it.
 
-## 5. After
+## 5. After: renders beside the photos
 
-See `previews/sky/` for the renders from Basantapur, Boudha, Swayambhu and Chandragiri, each set beside the photos,
-and section 6 for the test numbers.
+`core-tests/HorizonPreviews` (set `GHUMANTE_PREVIEW_DIR`; `GHUMANTE_SKY_BEFORE=1` adds the playtest state) dumps the
+streamed terrain nearer than the handover, the ring and the game's sky from each place, coloured on the CPU with the
+shaders' own models (`HorizonLook` for the ring, a ToonLit-like copy for the terrain, SkyGradient for the dome), and
+`render.sh` renders them with `tools/mesh-preview`. The comparisons are in `/home/user/wt/previews/sky/compare/`
+(render left, photo right; photos are references only and never enter the repository):
+
+| Comparison | Render | Photo |
+|---|---|---|
+| `compare_basantapur_before_after.png` | Basantapur rooftop looking north at 9:00, the playtest build (left) and now (right) | - |
+| `compare_basantapur_dusk.png` | Basantapur rooftop at 17:51 towards Ganesh Himal: alpenglow on the peaks, the valley in shadow | "Ganesh Himal from Kathmandu", Zarniwoop und Zarquon, CC BY-SA 4.0 |
+| `compare_basantapur_ganesh.png` | Basantapur, telephoto on Ganesh (Pabil, Salasungo, Yangra) over the rim | "Ganesh Himāl seen from Lalitpur", Xiaojun Deng, CC BY 2.0 |
+| `compare_chandragiri_ganesh.png` | the top of Chandragiri, telephoto on Ganesh | "Ganesh Mountain Range seen from Chandragiri Hill", Saroj Pandey, CC BY-SA 4.0 |
+| `compare_swayambhu_langtang.png` | Swayambhu, telephoto on Langtang Lirung | "Swayambhunath Stupa and Langtang Mountain Range", Safalphotos, CC BY-SA 4.0 |
+| `compare_swayambhu_row.png` | Swayambhu, the Langtang-Jugal row at mid zoom | "Swyambhu and langtang", Mbiken, CC BY-SA 4.0 |
+| `compare_boudha_north.png` | Boudha looking north-north-east at game zoom | "View of the valley and the mountain range to the north-east of Nagarkot", shankar s., CC BY 2.0 (no open photo from Boudha itself was found) |
+
+What matches the photos now: the snow peaks at true scale, thin above dark rim hills; sunlit snow the brightest thing
+in the view and shaded faces a clear blue darker than the sky; lit and shaded faces meeting in ridge lines; rock breaking
+the lower faces and white summits; foothills in blue-grey layers; the gold-pink peaks over a dark valley at dusk. What
+is still the cartoon: the faces are flat facets with procedural ribs, not the real snow and rock pattern of each face.
+
+## 6. Numbers (core-tests, committed `kathmandu_core` sample)
+
+**Bearings and elevations** (`HorizonReproTests.PeaksDrawnAtTrueBearingAndElevation`, every tier). The drawn summit is
+the local maximum of the drawn skyline on the peak's range nearest to its true bearing; the true values come from the
+published coordinates and heights only. Same on Low, Mid and High:
+
+| From | Peak | True bearing | Drawn | Δ | True elevation | Drawn | Δ | km |
+|---|---|---|---|---|---|---|---|---|
+| Basantapur | Ganesh I (Yangra) | 346.54° | 346.54° | 0.00 | 4.17° | 4.17° | 0.00 | 78.2 |
+| Basantapur | Ganesh IV (Pabil) | 341.98° | 341.98° | 0.00 | 4.16° | 4.16° | 0.00 | 74.5 |
+| Basantapur | Ganesh III (Salasungo) | 344.78° | 344.78° | 0.00 | 4.27° | 4.27° | 0.00 | 72.2 |
+| Basantapur | Langtang Lirung | 17.82° | 17.82° | 0.00 | 4.99° | 4.99° | 0.00 | 64.7 |
+| Basantapur | Phurbi Chyachu (Jugal) | 48.87° | 48.87° | 0.00 | 3.90° | 3.90° | 0.00 | 72.9 |
+| Basantapur | Gauri Shankar | 73.90° | 73.90° | 0.00 | 2.77° | 2.77° | 0.00 | 105.0 |
+| Boudha | Ganesh I (Yangra) | 342.36° | 342.36° | 0.00 | 4.18° | 4.18° | 0.00 | 77.8 |
+| Boudha | Ganesh IV (Pabil) | 337.59° | 337.59° | 0.00 | 4.14° | 4.14° | 0.00 | 74.5 |
+| Boudha | Ganesh III (Salasungo) | 340.25° | 340.25° | 0.00 | 4.26° | 4.26° | 0.00 | 72.0 |
+| Boudha | Phurbi Chyachu (Jugal) | 47.16° | 47.16° | 0.00 | 4.22° | 4.22° | 0.00 | 67.6 |
+| Boudha | Gauri Shankar | 74.14° | 74.14° | 0.00 | 2.96° | 2.96° | 0.00 | 99.3 |
+| Swayambhu | Langtang Lirung | 19.59° | 19.59° | 0.00 | 4.95° | 4.95° | 0.00 | 64.1 |
+| Swayambhu | Gauri Shankar | 74.77° | 74.77° | 0.00 | 2.67° | 2.67° | 0.00 | 106.3 |
+
+(Allowed: 2° of bearing, 0.1° of elevation. The summits are exact because each curated summit on its band's silhouette
+gets a column of its own at its published position and height. `HorizonTests.PeaksStayTrueUntilTheNextRebuild` holds
+the same with the ring built the rebuild distance away in four directions.)
+
+**Clear enough to read**: mean absolute luminance contrast of the drawn summit area (top 0.1°, ±0.5° round the summit)
+against the game's sky behind it, shaded exactly as the skyline shader shades it, worst of 9:00, 12:00 and 15:00. At the
+playtest none of the 13 sightings was drawn at all on Low, and none true on Mid and High (section 3). Now (bar 0.15;
+Low 0.14):
+
+| Tier | Worst sighting | Range over the 13 |
+|---|---|---|
+| Low | Pabil from Boudha at 15:00, 0.148 | 0.15-0.40 |
+| Mid | Gauri Shankar from Boudha at 9:00, 0.18 | 0.18-0.35 |
+| High | Gauri Shankar from Boudha at 9:00, 0.18 | 0.18-0.35 |
+
+Before the look pass of this round the eastern peaks faded to the sky's own brightness in the morning (Phurbi Chyachu
+from Basantapur 0.04-0.05, Gauri Shankar 0.08-0.11 with the old metric): the clear air faded them into a horizon colour
+brighter than the sky behind them.
+
+**The rim** (`HorizonTests.RimHillsAtTheirTrueBearingsAndHeights`): Shivapuri, Phulchoki, Chandragiri and Nagarjun at
+their true bearings and summit elevations (within 0.1°) from Basantapur and Boudha on every tier.
+`RingTopsUpFlattenedHillsInTheirOwnColours`: the streamed terrain 4-12 km out is decimated (Nagarjun from Swayambhu:
+the field holds 2 067 m where the streamed surface draws 1 845 m), so on 60-80 % of the bearings the ring stands above
+the streamed hill on the same hill (median 0.11-0.19°, p90 0.40-0.92°, worst 2.0° at Nagarjun from Swayambhu). That is
+the true crest; it is drawn in the terrain's own October hill-forest colours, and nowhere higher than the field's own
+ground on the panorama's rays.
+
+**Air**: `ValleyHazeLeavesTheCityClearAndHazesFarRidges` (city within 3 km above 98 % on every tier, a ridge 45 km away
+below 45 %), `HandoverIsSeamless` (sight lines that stay in the haze get exactly the scene fog at the handover),
+`SummitsCatchTheSunBeforeTheValley` (at dawn, sun 0.5° below the valley's horizon: valley 0.03, 7 000 m summits 0.25 of
+full sun, by day equal).
+
+## 7. Cost per tier
+
+| | Low | Mid | High |
+|---|---|---|---|
+| Triangles (cap) | 1 846 (2 500) | 3 706 (5 000) | 4 564 (9 000) |
+| Vertices (4 per quad, flat facets) | 3 692 | 7 412 | 9 128 |
+| Mesh | 140 KB | 282 KB | 347 KB |
+| Sky + water slice (W2_DESIGN 10.4) | 4 k | 10 k | 20 k |
+| Draw calls | 1 (no shadows, no outline, never frustum-culled) | 1 | 1 |
+| Rebuild (worker, after moving) | 40-80 ms every 400 m | 90-160 ms every 300 m | 100-140 ms every 200 m |
+| Main thread per rebuild | one mesh upload | one mesh upload | one mesh upload |
+| Height samples per rebuild | 0.71 M | 1.38 M | 1.38 M |
+| Height field (once, worker) | 1.3 MB, 240-320 ms | 5.3 MB, 380-550 ms | 5.3 MB, 380-520 ms |
+| Allocation per warm rebuild | 40 bytes | 40 bytes | 40 bytes |
+
+GPU: the ring is drawn after the opaque world with the depth test, so only the band of screen near the horizon that no
+nearer terrain covers runs its fragment shader (a few noise lookups, the sky gradient and two exponentials).
+
+## 8. Open issues (outside this package)
+
+* **Streamed terrain flattens near hills** (streaming / perf-roads): Nagarjun 4.5 km from Swayambhu is drawn about
+  220 m low on High (terrain-quad budgets per tier, and the sample pack's coarse tiles there). The ring now tops it up
+  with the true crest in the terrain's colours; finer near terrain would remove the step.
+* **Streamed high ground 30-55 km away reads tan** (nature, `BiomePalette`): the alpine and bare classes are light
+  khaki, while every photo shows those ridges dark blue-green through the haze. The valley haze softens it on High.
+* **High tier's far look changed** (look): the valley-haze minimum (2.1e-5) puts the High tier's streamed ridges beyond
+  about 25 km into the same haze Mid already had; nearer than 5 km nothing changes.
+* **Season**: the ring's forest colours are the October palette (the world's default season); a world opened in
+  another season keeps them. A global for the season's colours would follow `BiomePalette`.
+* **Field build at world open** allocates about 50 MB transiently on the worker (decoding the horizon tiles), once.
+* **Shader on device**: `Ghumante/Skyline` is checked by the EditMode test (`isSupported`, queue) and by its C# twin
+  here; it still needs a look on the Mac and on a phone.
+* **Files outside the package touched minimally**: `World/WorldRoot.cs` (create, tick and dispose the ring, three
+  places), `World/README.md` (the shader row and the `Sky/` row).

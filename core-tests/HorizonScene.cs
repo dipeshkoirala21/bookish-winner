@@ -57,6 +57,14 @@ namespace Ghumante.Core.Tests
         public bool FromRing;
     }
 
+    /// <summary>A point of the ring's curtain as the skyline shader shades it: horizontal distance, altitude, the quad's
+    /// flat normal, the rib coordinate, rock exposure (0..1) and band.</summary>
+    internal struct RingPoint
+    {
+        public double DistanceM, AltitudeM, NormalX, NormalY, NormalZ, AlongM, Rock;
+        public int Band;
+    }
+
     /// <summary>
     /// What a player standing at a <see cref="HorizonViewpoint"/> sees on the horizon, rebuilt headlessly from the
     /// committed kathmandu_core sample: the streamed terrain exactly as the game selects and decimates it
@@ -128,10 +136,10 @@ namespace Ghumante.Core.Tests
             GroundM = g;
             EyeM = g + view.EyeAboveGroundM;
             FarClipM = _config.ViewRadiusM * 1.25 + 5000.0; // WorldRoot.ConfigureCamera
-            // WorldSky.Apply: the palette's haze, at least the floor that hides the end of the last ring.
-            double floor = Math.Sqrt(Math.Log(1.0 / 0.04)) / _config.ViewRadiusM;
+            // WorldSky.Apply: the palette's haze, at least the valley haze and the floor that hides the end of the last
+            // ring (SkyPalette.SceneFogDensity); the skyline's air is the palette's haze alone.
             AirDensity = SkyPalette.Evaluate(hours).FogDensity;
-            FogDensity = Math.Max(AirDensity, floor);
+            FogDensity = SkyPalette.SceneFogDensity((float)AirDensity, _config.ViewRadiusM);
             if (!withSkyline) return;
             // The skyline ring as the world builds it (SkylineRing): the tier's settings, the pack's horizon field, built
             // for an eye that may lie up to the rebuild distance away from where the camera is now.
@@ -155,22 +163,46 @@ namespace Ghumante.Core.Tests
         public readonly HorizonHeightField Field;
         public readonly HorizonPanorama Panorama;
 
-        private readonly List<double[]> _edges = new List<double[]>();
+        /// <summary>One quad of the ring seen from the scene's eye: its top edge (bearing, elevation, distance and altitude
+        /// at both ends), its vertices (top A, top B, bottom B, bottom A) and its band.</summary>
+        private sealed class RingQuad
+        {
+            public double B0, E0, D0, Y0, B1, E1, D1, Y1;
+            public int TopA, TopB, BotB, BotA, Band;
 
-        /// <summary>Top edges of the ring's curtains: each as {bearing0, elevation0, distance0, altitude0, bearing1, ...}
-        /// seen from this scene's eye.</summary>
+            /// <summary>Where <paramref name="bearingDeg"/> falls along the top edge (0..1), or -1 when outside.</summary>
+            public double At(double bearingDeg)
+            {
+                double span = B1 - B0;
+                if (span > 180) span -= 360;
+                if (span < -180) span += 360;
+                double off = bearingDeg - B0;
+                if (off > 180) off -= 360;
+                if (off < -180) off += 360;
+                if (Math.Abs(span) < 1e-9 || off * span < 0 || Math.Abs(off) > Math.Abs(span)) return -1.0;
+                return off / span;
+            }
+        }
+
+        private readonly List<RingQuad> _quads = new List<RingQuad>();
+
+        /// <summary>The ring's quads seen from this scene's eye.</summary>
         private void CollectRingEdges()
         {
             double ox = Panorama.EyeX, oz = Panorama.EyeZ;
             for (int t = 0; t + 5 < Ring.IndexCount; t += 6)
             {
-                // Triangle pairs (prevTop, top, bot), (prevTop, bot, prevBottom): the top edge is prevTop -> top.
-                int a = Ring.Indices[t], b = Ring.Indices[t + 1];
-                double b0, d0, e0, b1, d1, e1;
-                float y0 = Ring.Positions[a * 3 + 1], y1 = Ring.Positions[b * 3 + 1];
-                Sight(ox + Ring.Positions[a * 3], oz + Ring.Positions[a * 3 + 2], y0, out b0, out d0, out e0);
-                Sight(ox + Ring.Positions[b * 3], oz + Ring.Positions[b * 3 + 2], y1, out b1, out d1, out e1);
-                _edges.Add(new[] { b0, e0, d0, y0, b1, e1, d1, y1 });
+                // Triangle pairs (topA, topB, botB), (topA, botB, botA): the top edge is topA -> topB.
+                var q = new RingQuad
+                {
+                    TopA = Ring.Indices[t], TopB = Ring.Indices[t + 1], BotB = Ring.Indices[t + 2], BotA = Ring.Indices[t + 5],
+                };
+                q.Band = Ring.Colors[q.TopA * 4 + 1];
+                q.Y0 = Ring.Positions[q.TopA * 3 + 1];
+                q.Y1 = Ring.Positions[q.TopB * 3 + 1];
+                Sight(ox + Ring.Positions[q.TopA * 3], oz + Ring.Positions[q.TopA * 3 + 2], q.Y0, out q.B0, out q.D0, out q.E0);
+                Sight(ox + Ring.Positions[q.TopB * 3], oz + Ring.Positions[q.TopB * 3 + 2], q.Y1, out q.B1, out q.D1, out q.E1);
+                _quads.Add(q);
             }
         }
 
@@ -180,26 +212,57 @@ namespace Ghumante.Core.Tests
         {
             var best = new HorizonRay { ElevationDeg = -90.0 };
             if (Ring == null) return best;
-            foreach (double[] e in _edges)
+            foreach (RingQuad q in _quads)
             {
-                double span = e[4] - e[0];
-                if (span > 180) span -= 360;
-                if (span < -180) span += 360;
-                double off = bearingDeg - e[0];
-                if (off > 180) off -= 360;
-                if (off < -180) off += 360;
-                if (Math.Abs(span) < 1e-9 || off * span < 0 || Math.Abs(off) > Math.Abs(span)) continue;
-                double t = off / span;
-                double el = e[1] + (e[5] - e[1]) * t;
+                double t = q.At(bearingDeg);
+                if (t < 0) continue;
+                double el = q.E0 + (q.E1 - q.E0) * t;
                 if (el <= best.ElevationDeg) continue;
                 best.ElevationDeg = el;
-                best.DistanceM = e[2] + (e[6] - e[2]) * t;
-                best.AltitudeM = e[3] + (e[7] - e[3]) * t;
+                best.DistanceM = q.D0 + (q.D1 - q.D0) * t;
+                best.AltitudeM = q.Y0 + (q.Y1 - q.Y0) * t;
                 best.Hit = true;
                 best.FromRing = true;
             }
             if (best.Hit) best.Transmittance = HorizonLook.Transmittance(best.DistanceM, EyeM, best.AltitudeM, FogDensity, AirDensity);
             return best;
+        }
+
+        /// <summary>What the skyline shader draws at (<paramref name="bearingDeg"/>, <paramref name="elevationDeg"/>):
+        /// the nearest band whose curtain reaches that high there (nearer bands are drawn in front). False when no
+        /// curtain covers it.</summary>
+        public bool RingSurface(double bearingDeg, double elevationDeg, out RingPoint point)
+        {
+            point = default(RingPoint);
+            RingQuad hit = null;
+            double ht = 0;
+            foreach (RingQuad q in _quads)
+            {
+                double t = q.At(bearingDeg);
+                if (t < 0) continue;
+                double top = q.E0 + (q.E1 - q.E0) * t;
+                if (elevationDeg > top + 1e-9) continue;
+                if (hit != null && hit.Band <= q.Band) continue;
+                hit = q;
+                ht = t;
+            }
+            if (hit == null) return false;
+            double d = hit.D0 + (hit.D1 - hit.D0) * ht;
+            point.DistanceM = d;
+            point.AltitudeM = EyeM + d * Math.Tan(elevationDeg * Math.PI / 180.0) + d * d * EarthCurvature.InverseTwoEffectiveRadius;
+            point.NormalX = Ring.Normals[hit.TopA * 3];
+            point.NormalY = Ring.Normals[hit.TopA * 3 + 1];
+            point.NormalZ = Ring.Normals[hit.TopA * 3 + 2];
+            point.AlongM = Ring.Uv0[hit.TopA * 2] + (Ring.Uv0[hit.TopB * 2] - Ring.Uv0[hit.TopA * 2]) * ht;
+            point.Rock = (Ring.Colors[hit.TopA * 4] + (Ring.Colors[hit.TopB * 4] - Ring.Colors[hit.TopA * 4]) * ht) / 255.0;
+            point.Band = hit.Band;
+            return true;
+        }
+
+        /// <summary>The scene's fog density at another local solar time (WorldSky: SkyPalette.SceneFogDensity).</summary>
+        public double FogDensityAt(double hours)
+        {
+            return SkyPalette.SceneFogDensity(SkyPalette.Evaluate(hours).FogDensity, _config.ViewRadiusM);
         }
 
         public int Tier

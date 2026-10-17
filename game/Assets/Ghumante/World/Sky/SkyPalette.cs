@@ -76,6 +76,44 @@ namespace Ghumante.World.Sky
         /// shows through (exp(-(d·density)²)), 25 % at 100 km, so the Himalaya fade to blue but stay visible.</summary>
         public const float DayFogDensity = 1.2e-5f;
 
+        /// <summary>
+        /// Least exponential-squared density of the scene fog at any hour: the valley's own haze. Ridges 30-55 km away
+        /// stand in it in every photo from Kathmandu (about 40 % of their own colour left at 45 km; docs/research/w2/
+        /// ref_sky.md), while the city within 5 km keeps over 98 %. The skyline hazes the sight lines that rise above
+        /// the haze with the palette's <see cref="SkyState.FogDensity"/> alone, so the snow peaks stay clear.
+        /// </summary>
+        public const float ValleyHazeDensity = 2.1e-5f;
+
+        /// <summary>Share of the terrain left by the fog at the end of the streamed world (<see cref="FogDensityFloor"/>).</summary>
+        public const double EdgeTransmittance = 0.04;
+
+        /// <summary>
+        /// Exponential-squared fog density whose transmittance <c>exp(-(ρ·d)²)</c> is <see cref="EdgeTransmittance"/>
+        /// at <paramref name="viewRadiusM"/>: <c>sqrt(ln(1 / T)) / R</c>, about 1.79 / R (3.6e-5 at 50 km, 2.2e-5 at
+        /// 80 km, 1.5e-5 at 120 km). 0 when the radius is not positive.
+        /// </summary>
+        public static float FogDensityFloor(double viewRadiusM)
+        {
+            if (!(viewRadiusM > 0.0) || double.IsInfinity(viewRadiusM)) return 0f;
+            return (float)(Math.Sqrt(Math.Log(1.0 / EdgeTransmittance)) / viewRadiusM);
+        }
+
+        /// <summary>The scene fog density (before WorldSky's scale): the palette's haze <paramref name="paletteDensity"/>,
+        /// at least the valley haze and the floor that hides the end of a streamed world of radius
+        /// <paramref name="viewRadiusM"/> (0 = unknown).</summary>
+        public static float SceneFogDensity(float paletteDensity, double viewRadiusM)
+        {
+            return Math.Max(Math.Max(paletteDensity, ValleyHazeDensity), FogDensityFloor(viewRadiusM));
+        }
+
+        /// <summary>The sun's light intensity at elevation <paramref name="elevationDeg"/> (degrees above the horizon):
+        /// 0 from 1 degree below it, 0.7 at 4 degrees, 1.05 from 35 degrees up (<see cref="SkyState.LightIntensity"/>
+        /// while the sun is the light; the skyline uses it for the summits, which see the sun earlier and later).</summary>
+        public static float SunIntensity(float elevationDeg)
+        {
+            return SmoothStep(-1f, 4f, elevationDeg) * (0.7f + 0.35f * SmoothStep(4f, 35f, elevationDeg));
+        }
+
         private struct Key
         {
             public float Elevation;
@@ -189,7 +227,7 @@ namespace Ghumante.World.Sky
             if (e > -6f)
             {
                 s.LightIsMoon = false;
-                s.LightIntensity = SmoothStep(-1f, 4f, e) * (0.7f + 0.35f * SmoothStep(4f, 35f, e));
+                s.LightIntensity = SunIntensity(e);
                 s.ShadowStrength = 0.85f;
             }
             else
