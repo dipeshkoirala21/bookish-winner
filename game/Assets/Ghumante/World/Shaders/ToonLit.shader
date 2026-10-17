@@ -15,7 +15,8 @@
 // they never z-fight the ground. URP 17.3 Forward, SRP Batcher compatible (UnityPerMaterial in ToonLitInput.hlsl),
 // hand-written HLSL. W2: GPU instancing for the instanced dressing (Graphics.RenderMeshInstanced, GLES3-safe),
 // _INSTANCE_TINT (a per-instance colour on vertex-alpha-masked parts), _WIND (vertex sway for trees) and _BAND_FADE
-// (the dithered opaque cross-fade of the building bands, W2_DESIGN 2.4). Shader model 3.5 (GLES3, Metal, Vulkan).
+// (the dithered opaque cross-fade of the building bands, W2_DESIGN 2.4, handed over by stencil so a pixel shows exactly one
+// band's mesh: playtest #4). Shader model 3.5 (GLES3, Metal, Vulkan).
 Shader "Ghumante/ToonLit"
 {
     Properties
@@ -42,6 +43,12 @@ Shader "Ghumante/ToonLit"
         [Toggle(_OCCLUDER_FADE)] _OccluderFade("Fade between the camera and the player", Float) = 0
         [ToggleUI] _OccluderGround("Occluder fade: ground layer (only structures above the player's knees)", Float) = 0
         [Toggle(_BAND_FADE)] _BandFade("Building band fade", Float) = 0
+        // Band order (WorldMaterialDefaults.SetBandOrder): the stencil hand-off between building bands. Defaults: no stencil.
+        [HideInInspector] _BandStencilRef("Band order: stencil reference", Float) = 0
+        [HideInInspector] _BandStencilRead("Band order: stencil read mask", Float) = 0
+        [HideInInspector] _BandStencilWrite("Band order: stencil write mask", Float) = 0
+        [HideInInspector][Enum(UnityEngine.Rendering.CompareFunction)] _BandStencilComp("Band order: stencil test", Float) = 8
+        [HideInInspector][Enum(UnityEngine.Rendering.StencilOp)] _BandStencilPass("Band order: stencil op", Float) = 0
         [Toggle(_WIND)] _WindOn("Vertex wind", Float) = 0
         [Toggle(_INSTANCE_TINT)] _InstanceTintOn("Per-instance tint (instanced)", Float) = 0
     }
@@ -67,6 +74,16 @@ Shader "Ghumante/ToonLit"
             ZWrite On
             ZTest LEqual
             Offset [_OffsetFactor], [_OffsetUnits]
+            // Building bands hand over by stencil (ToonLitInput.hlsl GhBandClip): a band draws only where no inner band
+            // drew, and marks where it drew.
+            Stencil
+            {
+                Ref [_BandStencilRef]
+                ReadMask [_BandStencilRead]
+                WriteMask [_BandStencilWrite]
+                Comp [_BandStencilComp]
+                Pass [_BandStencilPass]
+            }
 
             HLSLPROGRAM
             #pragma target 3.5
@@ -99,6 +116,15 @@ Shader "Ghumante/ToonLit"
             ZWrite On
             ZTest LEqual
             Offset [_OffsetFactor], [_OffsetUnits]
+            // Tested like the lit pass but never marks: a hull behind a dithered-out inner face must not hide the outer band.
+            Stencil
+            {
+                Ref [_BandStencilRef]
+                ReadMask [_BandStencilRead]
+                WriteMask 0
+                Comp [_BandStencilComp]
+                Pass Keep
+            }
 
             HLSLPROGRAM
             #pragma target 3.5
@@ -214,6 +240,16 @@ Shader "Ghumante/ToonLit"
             ZWrite On
             ZTest LEqual
             Offset [_OffsetFactor], [_OffsetUnits]
+            // Building bands hand over by stencil (ToonLitInput.hlsl GhBandClip): a band draws only where no inner band
+            // drew, and marks where it drew.
+            Stencil
+            {
+                Ref [_BandStencilRef]
+                ReadMask [_BandStencilRead]
+                WriteMask [_BandStencilWrite]
+                Comp [_BandStencilComp]
+                Pass [_BandStencilPass]
+            }
 
             HLSLPROGRAM
             #pragma target 3.5

@@ -10,8 +10,9 @@ using UnityEngine;
 namespace Ghumante.Tests.EditMode
 {
     /// <summary>
-    /// Owner playtest #4 and #12 ("buildings constantly flicker and stutter... make them stable and solid"): the occluder
-    /// fade's sight gate as the game runs it (<see cref="ToonLook.OccluderGate"/>, <see cref="OccluderFadeGate"/>). Nothing
+    /// Owner playtest #4 and #12 ("buildings constantly flicker and stutter... make them stable and solid"): the building
+    /// bands' stencil hand-off (every pixel of a band edge shows exactly one band's mesh) and the occluder fade's sight gate
+    /// as the game runs it (<see cref="ToonLook.OccluderGate"/>, <see cref="OccluderFadeGate"/>). Nothing
     /// dissolves while the explorer is in plain view; a house that really hides the explorer fades in smoothly after a
     /// sustained moment and fades out after a sustained moment in sight (hysteresis), never flickering as the camera
     /// moves; the shader only clips while the gate is open. The full measurement on real streets is in
@@ -162,6 +163,83 @@ namespace Ghumante.Tests.EditMode
             {
                 ToonLook.Occluder = saved;
             }
+        }
+
+        [Test]
+        public void BandsHandOverByStencilFromInnerToOuter()
+        {
+            // Each band reads the marks of every band inside it and passes where none is set, marks its own bit (URP's
+            // user bits 0-3; B3, the last, marks nothing) and draws after every band inside it, before the overlays.
+            int inner = 0, queue = -1;
+            for (int order = ToonLitLayout.BandOrderNear; order <= ToonLitLayout.BandOrderB3; order++)
+            {
+                int reference, read, write;
+                ToonLitLayout.BandStencil(order, out reference, out read, out write);
+                Assert.AreEqual(inner, read, "band " + order + " reads every inner band's mark");
+                Assert.AreEqual(0, reference & read, "band " + order + " passes where no inner band drew");
+                Assert.AreEqual(0, write & read, "band " + order + " never masks itself");
+                Assert.AreEqual(0, write & ~0x0F, "band " + order + " marks only URP's user stencil bits");
+                Assert.AreEqual(write, reference & write, "band " + order + " marks with its reference");
+                int q = ToonLitLayout.BandQueue(order);
+                Assert.Greater(q, queue, "band " + order + " draws after the bands inside it");
+                Assert.Less(q, WorldMaterialDefaults.OverlayQueue, "band " + order + " is opaque geometry before the overlays");
+                queue = q;
+                inner |= write;
+            }
+            Assert.AreEqual(0x0F, inner, "near, lite, B1 and B2 each mark a bit");
+        }
+
+        [Test]
+        public void ABandMaterialAndItsCopiesKeepTheirPlaceInTheOrder()
+        {
+            Shader shader = Shader.Find(WorldShaders.ToonLit);
+            Assert.IsNotNull(shader);
+            foreach (string p in new[] { "_BandStencilRef", "_BandStencilRead", "_BandStencilWrite", "_BandStencilComp", "_BandStencilPass" })
+                Assert.GreaterOrEqual(shader.FindPropertyIndex(p), 0, p);
+            var plain = new Material(shader);
+            var lite = new Material(shader);
+            try
+            {
+                // Materials outside the bands leave the stencil alone.
+                Assert.AreEqual((float)UnityEngine.Rendering.CompareFunction.Always, plain.GetFloat(WorldShaders.BandStencilComp));
+                Assert.AreEqual((float)UnityEngine.Rendering.StencilOp.Keep, plain.GetFloat(WorldShaders.BandStencilPass));
+                Assert.AreEqual(0f, plain.GetFloat(WorldShaders.BandStencilWrite));
+                WorldMaterialDefaults.SetBandOrder(lite, ToonLitLayout.BandOrderLite);
+                Assert.AreEqual(2f, lite.GetFloat(WorldShaders.BandStencilRef));
+                Assert.AreEqual(1f, lite.GetFloat(WorldShaders.BandStencilRead));
+                Assert.AreEqual(2f, lite.GetFloat(WorldShaders.BandStencilWrite));
+                Assert.AreEqual((float)UnityEngine.Rendering.CompareFunction.Equal, lite.GetFloat(WorldShaders.BandStencilComp));
+                Assert.AreEqual((float)UnityEngine.Rendering.StencilOp.Replace, lite.GetFloat(WorldShaders.BandStencilPass));
+                Assert.AreEqual(ToonLitLayout.BandQueue(ToonLitLayout.BandOrderLite), lite.renderQueue);
+                // The streamer copies the band materials per range (new Material(source)): the copy keeps the order.
+                var copy = new Material(lite);
+                try
+                {
+                    Assert.AreEqual(lite.renderQueue, copy.renderQueue);
+                    Assert.AreEqual(1f, copy.GetFloat(WorldShaders.BandStencilRead));
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(copy);
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(plain);
+                UnityEngine.Object.DestroyImmediate(lite);
+            }
+        }
+
+        [Test]
+        public void TheBandShaderHandsOverInsteadOfDitheringBothSides()
+        {
+            string dir = Path.Combine(Application.dataPath, "Ghumante", "World", "Shaders");
+            string hlsl = File.ReadAllText(Path.Combine(dir, "ToonLitInput.hlsl"));
+            string shader = File.ReadAllText(Path.Combine(dir, "ToonLit.shader"));
+            StringAssert.Contains("float fadeIn = _BandRange.x <= 0.0 ? 1.0 : d - (_BandRange.x - h);", hlsl, "the incoming band fills its whole fade-in");
+            StringAssert.Contains("clip(min(fadeIn, fadeOut - GhBayer4(pixel)));", hlsl, "only the outgoing band dithers");
+            StringAssert.Contains("clip(min(d - inner, (_BandRange.y + h) - d));", hlsl, "shadow casters overlap over the shared fade");
+            Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Matches(shader, @"Pass \[_BandStencilPass\]").Count, "both lit passes mark");
         }
 
         [Test]

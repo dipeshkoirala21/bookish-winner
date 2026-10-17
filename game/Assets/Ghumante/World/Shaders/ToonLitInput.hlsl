@@ -102,34 +102,13 @@ float3 GhWind(float3 positionOS)
     return positionOS;
 }
 
-// Building band cross-fade (W2_DESIGN 2.4; playtest #4): the incoming band of an edge draws GH_BAND_OVERLAP of the 4 m
-// fade beyond the complement of the outgoing band (GhBandClip), and inside its fade-in it sits GH_BAND_PUSH of the camera
-// distance behind (3 mm at 30 m, 8 mm at 80 m). The two bands draw different meshes of a house (the near ring recesses
-// its windows and shop fronts, the lite ring and B1 lay them on the wall), so at one pixel their fragments lie at
-// different distances: with exact complements both could be discarded (a hole into the house, sparkling in a ring that
-// moves with the camera); with the overlap one of them always draws, and where both draw on the same wall the outgoing
-// band wins the depth test instead of z-fighting. C# twin: ToonLitLayout.BandOverlap / BandPush.
-#define GH_BAND_OVERLAP 0.12
-#define GH_BAND_PUSH 0.0001
-
-// The world position every pass draws at: wind, object to world, earth curvature, depth pull, and the incoming band's
-// push. One function, so the depth prepass and the colour pass produce the same depth.
+// The world position every pass draws at: wind, object to world, earth curvature, depth pull. One function, so the
+// depth prepass and the colour pass produce the same depth.
 float3 GhToonWorldPosition(float3 positionOS)
 {
     float3 positionWS = TransformObjectToWorld(GhWind(positionOS));
     positionWS = GhEarthCurvature(positionWS, _Curvature);
-    positionWS = GhViewPull(positionWS, _ViewPull);
-#if defined(_BAND_FADE)
-    UNITY_BRANCH
-    if (_BandRange.x > 0.0)
-    {
-        // Full push up to the end of this band's fade-in, gone 1 m later (per vertex: continuous across triangles).
-        float d = distance(positionWS.xz, _GhBandCentre.xz);
-        float push = saturate((_BandRange.x + 0.5 * _BandRange.z + 1.0 - d));
-        positionWS = GhViewPull(positionWS, -GH_BAND_PUSH * push);
-    }
-#endif
-    return positionWS;
+    return GhViewPull(positionWS, _ViewPull);
 }
 
 // The vertex albedo (linear): sRGB vertex colour, the per-instance tint on alpha-masked parts, the material tint.
@@ -143,10 +122,16 @@ half3 GhVertexAlbedo(half4 color)
     return albedo * _BaseColor.rgb;
 }
 
-// Building bands (W2_DESIGN 2.4): opaque dithered cross-fade over _BandRange.z at each edge. The fade-in uses the
-// complementary threshold of the fade-out plus GH_BAND_OVERLAP (see GhToonWorldPosition), so two adjacent bands cover
-// every pixel at least once even where their meshes differ in depth. C# twin: Ghumante.World.Buildings.BandConfig.Opacity
-// (without the overlap).
+// Building bands (W2_DESIGN 2.4; playtest #4 "buildings flicker"): opaque cross-fade over _BandRange.z at each edge,
+// handed over by stencil (WorldMaterialDefaults.SetBandOrder: bands draw inner to outer, each draws only where no inner band
+// drew and marks where it drew). The outgoing (inner) band dithers out over the fade; the incoming (outer) band draws
+// its whole fade-in undithered and fills exactly the pixels the outgoing band left. The two bands draw different meshes
+// of a house (the near ring recesses windows and shop fronts, the lite ring and B1 lay them on the wall), so at one pixel
+// their fragments lie at different distances: complementary dithers of both, evaluated at those two distances, left
+// holes into the house and drew both on the same wall (z-fighting), sparkling in a ring that moved with the camera. Now
+// every pixel of the ring shows one band. Along a view ray the distance from the band centre (the camera) only grows, so
+// an inner band's fragment is in front of an outer band's everywhere outside the shared ring: the mask never hides what
+// should show. C# twins: Ghumante.World.Buildings.BandConfig.Opacity (the outgoing side) and ToonLitLayout.BandStencil*.
 // 4x4 Bayer matrix.
 static const float GhBayerTable[16] = { 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 };
 
@@ -161,20 +146,23 @@ void GhBandClip(float3 positionWS, float2 pixel)
 #if defined(_BAND_FADE)
     float d = distance(positionWS.xz, _GhBandCentre.xz);
     float h = 0.5 * _BandRange.z;
-    float fadeIn = _BandRange.x <= 0.0 ? 1.0 : saturate((d - (_BandRange.x - h)) / max(_BandRange.z, 1e-3) + GH_BAND_OVERLAP);
+    // Incoming side: everything from the start of the fade-in (the stencil leaves it the outgoing band's pixels).
+    float fadeIn = _BandRange.x <= 0.0 ? 1.0 : d - (_BandRange.x - h);
+    // Outgoing side: the screen door thins out over the fade.
     float fadeOut = saturate(((_BandRange.y + h) - d) / max(_BandRange.z, 1e-3));
-    float b = GhBayer4(pixel);
-    clip(min(fadeIn - (1.0 - b), fadeOut - b));
+    clip(min(fadeIn, fadeOut - GhBayer4(pixel)));
 #endif
 }
 
-// Shadow casters cut each band at the middle of its fades (no dither: shadow maps have their own resolution).
+// Shadow casters: both bands cast over the whole shared fade (shadow maps have their own resolution and no stencil; a
+// shadow cast twice is the same shadow, a cut at one distance let light through where the two meshes differ).
 void GhBandClipHard(float3 positionWS)
 {
 #if defined(_BAND_FADE)
     float d = distance(positionWS.xz, _GhBandCentre.xz);
-    float inner = _BandRange.x <= 0.0 ? -1.0 : _BandRange.x;
-    clip(min(d - inner, _BandRange.y - d));
+    float h = 0.5 * _BandRange.z;
+    float inner = _BandRange.x <= 0.0 ? -1.0 : _BandRange.x - h;
+    clip(min(d - inner, (_BandRange.y + h) - d));
 #endif
 }
 

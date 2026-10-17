@@ -247,6 +247,45 @@ of faded houses stay.
 Project Setup stores the High roles (the superset) in the material assets; `WorldMaterialSet.Load` and `ToonLook` apply
 the tier in use at runtime (before the streamer clones the band materials when a world opens).
 
+**Stable, solid buildings** (owner playtest #4 "buildings constantly flicker and stutter... make them stable and solid",
+#12 "make the buildings very solid"; measured on the `kathmandu_core` sample at Hiti Pokhari, Asan and Kalopul from the
+rides' chase camera, `core-tests/WorldRendering*`, previews in `/home/user/wt/previews/stable/`, brief
+`docs/research/w2/ref_stable.md`):
+
+* **Band hand-off by stencil** (`ToonLitInput.hlsl GhBandClip`, `WorldMaterialDefaults.SetBandOrder`,
+  `ToonLitLayout.BandStencil`): the building bands draw inner to outer (queues 2000-2004: near ring, lite ring, B1, B2,
+  B3); each marks one of URP's user stencil bits where it draws and draws only where no inner band marked. The outgoing
+  band dithers out over the 4 m fade; the incoming band draws its whole fade-in undithered and fills exactly the pixels the
+  outgoing one left. The two bands are different meshes of a house (the near ring recesses windows, the lite ring and B1
+  lay them on the wall), so complementary dithers evaluated at their two depths left holes into the houses (0.5-1.6% of
+  the ring's wall pixels) and, with the first fix's 12% overlap, drew both on one wall (z-fighting on 7-9%). Now no pixel
+  draws both, and the holes left (0.03-0.4%) are places where two bands' meshes disagree by more than the ring (open
+  issue). Shadow casters of both bands overlap over the whole fade (a shadow cast twice is the same shadow; a cut at one
+  distance let light through where the meshes differ). The outline pass tests the stencil but never marks (a hull behind
+  a dithered-out face must not hide the outer band). The source materials get their order in `ApplyExtras`, the B0 rings'
+  copies in `DetailCells.RingMaterial` and the streamer's band copies in `WorldStreamer.BandMaterial`.
+* **Z-fighting** (`core-tests/WorldRenderingZFightTests`, a coplanar scan in double precision relative to each mesh,
+  shading compared at the overlap): 13 132 visibly different coplanar pairs over 517 m² on the near-ring houses at the
+  three spots, 6 372 of them exactly coplanar. Fixed at the source with minimal offsets in the house kit: balcony slabs
+  1 cm deeper than the floor band they cross (both were the same 0.16 m course), the floor band 5 mm under the floor line
+  and at 0.9 of its free depth (no longer one plane with pilasters clipped to the same depth), the gable soffits only
+  between the wall lines (the eave strips are the slopes' own soffits), weathering patches each on its own layer
+  (4.5 / 6.5 / 8.5 mm) above the streaks (2.5 mm), signs 9.5 cm proud (11 cm for an upper fascia) clear of the 9 cm window
+  ledges, Newar shop posts from the wall plane (sunk 2 cm they overlapped the reveal), blade-sign lettering 4 mm off the
+  blade (was 1 mm). What is left is grammar overlap (a sign across a lattice window, two shop boxes at a corner): open
+  issue. Surfaces closer than 1 mm count: exactly coplanar faces fight on every depth buffer, and GLES3 (no reversed Z)
+  resolves about 0.15 mm at the near ring's 32 m with the 0.4 m near plane.
+* **Shadows per tier** (`ProjectSetup.TierProfile`, EditMode `WorldRenderingSetupTests`): the reach is spent on the streets
+  around the camera, about 9-15 cm per texel near the camera on every tier (Low 50 m, 1 cascade 512; Mid 80 m, 1 cascade
+  1024, soft Low quality; High 150 m, 2 cascades 1024 split at 20%), the last 20% of the reach fades out (cascade
+  border), the conservative enclosing sphere keeps casters at the cascade corners, biases explicit (1, 1 texel). URP fits
+  cascades stable (texel snapped), so camera motion does not crawl the edges; the sun turning does (open issue, sky).
+* **Solid walls** (`core-tests/WorldRenderingSolidityTests`): rays over the chase camera's view whose first hit on a house
+  is a culled back face, i.e. the street or sky shows through the house. The end pilasters of modern fronts are closed on
+  both sides (4 mm inside the plot end); a two-sided panel (awning canvas, hood soffit) no longer counts its back quad
+  when the front quad lies in the same plane. 0.1-0.5% of house pixels are left (shop boxes deeper than the house behind
+  them, side walls next to party walls that are not drawn): open issue.
+
 **Audio** (decision 7): the crowd walla beds are off by default (`AudioDirector.CrowdWallaEnabled`, `AmbienceInputs
 .CrowdWalla`); the bank does not even bake them, and the temple-courtyard bed is now quiet air and pigeons without
 walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN 7.1 level targets.
@@ -262,6 +301,19 @@ walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN
   in the debug HUD for the Wave 3 device pass.
 - **Inspector-assigned material sets**: a `WorldRoot` with a set assigned in the inspector skips `WorldMaterialSet.Load`, so
   its band clones keep the asset's High roles (B0 outlined on Mid) until the next open after `ToonLook` applied the tier.
+- **Band meshes that disagree beyond the fade ring** (buildings): B1 extrudes the raw footprint while B0 is trimmed to the
+  road corridor and set back, so at the B0/B1 edge a B1 facade can stand more than 2 m in front of the B0 one; the stencil
+  hand-off cannot fill such a pixel (Kalopul 0.43% of the ring's wall pixels). Trim B1 like B0 (`CorridorGuard`).
+- **Z-fighting left in the house grammar** (buildings): about 1-2% of the old coplanar area at the three spots (labelled by
+  emitter with `CoplanarScan`): ground-floor signs across Newar lattice windows and roller shutters, two `ShopInterior`
+  boxes meeting at a corner shop, `ModernWindow` reveals of overlapping holes on side facades (a window hole overlapping
+  the balcony door on narrow fronts), floor bands under signs.
+- **Shell gaps** (buildings): `ShopInterior` boxes 1.4 m deep on houses shallower than that at the opening poke out of the
+  side wall (seen from behind); side walls drawn by `SideFacade` are seen from inside where the plot's neighbour wall is
+  not drawn (Hiti Pokhari osm 478100038, Asan osm 1813422468, Kalopul osm 479929266).
+- **Sun steps** (sky): `WorldSky` turns the light every 0.1° (about every 0.8 s at the default day length), and every turn
+  re-rasterises every shadow edge on the facades. Fewer, larger steps hidden in a short cross-fade, or a stepped sun only
+  while the camera moves, would keep them still.
 - `ToonLook.Occluder` now takes `Ghumante.Core.Synth.Look.OccluderFadeSettings` (moved to Core so the capsule is tested
   by the core tests); `ToonLook.SetOccluderTarget` is unchanged.
 

@@ -209,6 +209,8 @@ namespace Ghumante.World.Streaming
             _bands.Range(band, b1Full, out inner, out outer);
             m.SetVector(WorldShaders.BandRange, new Vector4(inner, outer, BandConfig.FadeM, 0f));
             m.EnableKeyword(WorldShaders.KeywordBandFade);
+            // Stencil hand-off and queue (playtest #4): B0 innermost, then B1, B2, B3.
+            WorldMaterialDefaults.SetBandOrder(m, band == BuildingBandLayer.B0 ? ToonLitLayout.BandOrderNear : (int)band + 1);
             return m;
         }
 

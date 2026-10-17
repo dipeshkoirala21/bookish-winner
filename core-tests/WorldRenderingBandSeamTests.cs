@@ -14,85 +14,106 @@ namespace Ghumante.Core.Tests
 {
     /// <summary>
     /// The dithered cross-fade between two building bands drawn as different meshes (owner playtest #4: houses
-    /// flickering): at a band edge the inner band fades out and the outer band fades in with the complementary threshold of
-    /// the same 4 × 4 screen door, so for one surface every pixel shows exactly one of them. The two meshes of a house are
-    /// not the same surface though (the near ring has recessed windows and shop fronts, the lite ring and B1 lay them on
-    /// the wall), so at one pixel the inner band's fragment and the outer band's fragment lie at different distances from
-    /// the camera and can both be discarded: a hole into the house, sparkling in a 4 m ring that moves with the camera.
-    /// Measured on the real houses at the owner's spots from the chase camera of the rides, at the near/lite edge and the
+    /// flickering). The two meshes of a house are not the same surface (the near ring has recessed windows and shop
+    /// fronts, the lite ring and B1 lay them on the wall), so at one pixel the inner band's fragment and the outer band's
+    /// lie at different distances from the camera. With complementary dithers evaluated at those two distances both could
+    /// be discarded (a hole into the house) or both drawn on one wall (z-fighting), sparkling in a 4 m ring that moves with
+    /// the camera. The shader now hands over by stencil (ToonLitInput.hlsl GhBandClip, WorldMaterialDefaults.SetBandOrder):
+    /// measured on the real houses at the owner's spots from the rides' chase camera, at the near/lite edge and the
     /// B0/B1 edge on High.
     /// </summary>
     public class WorldRenderingBandSeamTests
     {
-        /// <summary>The share of the fade the incoming band draws beyond its complement (GH_BAND_OVERLAP in
-        /// ToonLitInput.hlsl, ToonLitLayout.BandOverlap).</summary>
-        public const float BandOverlap = 0.12f;
 
         [Test]
-        public void BandCrossFadesLeaveNoHolesInTheHouses()
+        public void BandCrossFadesShowExactlyOneBandPerPixel()
         {
             var report = new StringBuilder();
-            double worst = 0;
+            double worstHoles = 0, worstDoubles = 0, beforeHoles = 0;
+            var tooMany = new StringBuilder();
             foreach (OccluderSpot spot in WorldRenderingOccluderSpotsTests.Spots)
             {
                 OccluderSpotScene scene = OccluderSpotScene.Load(spot);
                 BandConfig bands = BandConfig.ForTier(2);
-                var overlaps = new[] { 0f, BandOverlap };
-                BandSeam[] nearLite = scene.MeasureSeam(scene.Houses, scene.LiteHouses, bands.B0NearOuterM, overlaps);
-                BandSeam[] b0b1 = scene.MeasureSeam(scene.LiteHouses, scene.B1Houses, bands.B0OuterM, overlaps);
-                for (int o = 0; o < overlaps.Length; o++)
+                BandSeam nearLite = scene.MeasureSeam(scene.Houses, scene.LiteHouses, bands.B0NearOuterM);
+                BandSeam b0b1 = scene.MeasureSeam(scene.LiteHouses, scene.B1Houses, bands.B0OuterM);
+                report.Append(spot.Name).Append(" near/lite at ").Append(bands.B0NearOuterM).Append(" m: ").Append(nearLite).Append('\n');
+                report.Append(spot.Name).Append(" B0/B1 at ").Append(bands.B0OuterM).Append(" m: ").Append(b0b1).Append('\n');
+                foreach (BandSeam seam in new[] { nearLite, b0b1 })
                 {
-                    string label = overlaps[o] > 0f ? "shader" : "no overlap (before)";
-                    report.Append(spot.Name).Append(" near/lite at ").Append(bands.B0NearOuterM).Append(" m, ").Append(label).Append(": ").Append(nearLite[o]).Append('\n');
-                    report.Append(spot.Name).Append(" B0/B1 at ").Append(bands.B0OuterM).Append(" m, ").Append(label).Append(": ").Append(b0b1[o]).Append('\n');
-                    if (overlaps[o] > 0f) worst = Math.Max(worst, Math.Max(nearLite[o].HoleShare, b0b1[o].HoleShare));
+                    worstHoles = Math.Max(worstHoles, seam.HoleShare(2));
+                    worstDoubles = Math.Max(worstDoubles, seam.DoubleShare(2));
+                    beforeHoles = Math.Max(beforeHoles, seam.HoleShare(0));
+                    // What is left are places where the two meshes disagree by more than the 4 m ring (open issue).
+                    if (seam.HoleShare(2) > 0.4 * seam.HoleShare(0) + 0.0005) tooMany.Append(spot.Name).Append(' ');
                 }
             }
             TestContext.WriteLine(report.ToString());
             OccluderSpotScene.WriteReport("band_seams.txt", report.ToString());
-            Assert.That(worst, Is.LessThan(0.002), "share of fade-ring wall pixels where neither band draws (see-through):\n" + report);
+            Assert.That(beforeHoles, Is.GreaterThan(0.005), "the repro: the old complementary dithers left holes\n" + report);
+            Assert.That(tooMany.ToString(), Is.Empty, "the hand-off must remove most holes at every edge:\n" + report);
+            Assert.That(worstHoles, Is.LessThan(0.005), "share of fade-ring wall pixels where no band draws (see-through):\n" + report);
+            Assert.That(worstDoubles, Is.EqualTo(0.0), "share where both bands draw one wall (z-fighting):\n" + report);
         }
 
         [Test]
-        public void TheShaderAndItsTwinAgreeOnTheOverlap()
+        public void TheShaderHandsOverByStencil()
         {
             string root = GoldenFiles.RepoRoot;
-            string hlsl = File.ReadAllText(Path.Combine(root, "game", "Assets", "Ghumante", "World", "Shaders", "ToonLitInput.hlsl"));
-            string layout = File.ReadAllText(Path.Combine(root, "game", "Assets", "Ghumante", "World", "Rendering", "ToonLitLayout.cs"));
-            Assert.That(Number(hlsl, @"#define GH_BAND_OVERLAP ([\d.]+)"), Is.EqualTo(BandOverlap).Within(1e-6));
-            Assert.That(Number(layout, @"BandOverlap = ([\d.]+)f"), Is.EqualTo(BandOverlap).Within(1e-6));
-            Assert.That(Number(hlsl, @"#define GH_BAND_PUSH ([\d.]+)"), Is.EqualTo(Number(layout, @"BandPush = ([\d.]+)f")).Within(1e-9));
-            // The overlap only ever widens the incoming band, and the push covers every place both bands may draw: at
-            // 80 m it is 8 mm, many depth steps even on a 24-bit buffer (d² / (0.4 m · 2^24) ≈ 1 mm).
-            Assert.That(hlsl, Does.Contain("+ GH_BAND_OVERLAP);"));
-            double push80 = Number(hlsl, @"#define GH_BAND_PUSH ([\d.]+)") * 80.0;
-            Assert.That(push80, Is.GreaterThan(4.0 * 80.0 * 80.0 / (0.4 * 16777216.0)));
-        }
-
-        private static double Number(string text, string pattern)
-        {
-            Match m = Regex.Match(text, pattern);
-            Assert.That(m.Success, pattern);
-            return double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+            string dir = Path.Combine(root, "game", "Assets", "Ghumante", "World");
+            string hlsl = File.ReadAllText(Path.Combine(dir, "Shaders", "ToonLitInput.hlsl"));
+            string shader = File.ReadAllText(Path.Combine(dir, "Shaders", "ToonLit.shader"));
+            string materials = File.ReadAllText(Path.Combine(dir, "Rendering", "WorldMaterials.cs"));
+            string cells = File.ReadAllText(Path.Combine(dir, "Buildings", "DetailCells.cs"));
+            string streamer = File.ReadAllText(Path.Combine(dir, "Streaming", "WorldStreamer.cs"));
+            // The incoming band draws its whole fade-in (no dither), the outgoing one dithers out.
+            Assert.That(hlsl, Does.Contain("float fadeIn = _BandRange.x <= 0.0 ? 1.0 : d - (_BandRange.x - h);"));
+            Assert.That(hlsl, Does.Contain("clip(min(fadeIn, fadeOut - GhBayer4(pixel)));"));
+            Assert.That(hlsl, Does.Not.Contain("GH_BAND_OVERLAP"));
+            // Shadow casters overlap over the whole shared fade.
+            Assert.That(hlsl, Does.Contain("float inner = _BandRange.x <= 0.0 ? -1.0 : _BandRange.x - h;"));
+            Assert.That(hlsl, Does.Contain("clip(min(d - inner, (_BandRange.y + h) - d));"));
+            // Both lit passes test and mark, the outline pass only tests.
+            Assert.That(Regex.Matches(shader, @"Pass \[_BandStencilPass\]").Count, Is.EqualTo(2));
+            Assert.That(Regex.Matches(shader, @"WriteMask 0\s+Comp \[_BandStencilComp\]\s+Pass Keep").Count, Is.EqualTo(1));
+            // Every band material is put in the order, the B0 rings by the detail cells.
+            Assert.That(materials, Does.Contain("SetBandOrder(bands[i], orders[i]);"));
+            Assert.That(streamer, Does.Contain("WorldMaterialDefaults.SetBandOrder(m, band == BuildingBandLayer.B0 ? ToonLitLayout.BandOrderNear : (int)band + 1);"));
+            Assert.That(cells, Does.Contain("WorldMaterialDefaults.SetBandOrder(m, layer == NearLayer ? ToonLitLayout.BandOrderNear : ToonLitLayout.BandOrderLite);"));
         }
     }
 
-    /// <summary>What a band edge's cross-fade shows on the inner band's wall patches in its 4 m fade ring.</summary>
-    internal struct BandSeam
+    /// <summary>What a band edge's cross-fade shows on the inner band's wall patches in its 4 m fade ring, per scheme
+    /// (0 complementary, 1 with the 12% overlap, 2 stencil hand-off).</summary>
+    internal sealed class BandSeam
     {
         public int Cameras, Patches;
         public double AreaM2;
 
-        /// <summary>Area-weighted share of pixels where neither band draws (the screen door discards both fragments).</summary>
-        public double HoleShare;
+        /// <summary>Area-weighted pixels where no band draws (the screen door discards every fragment).</summary>
+        public readonly double[] Holes = new double[3];
 
-        /// <summary>Area-weighted share where both draw at the same depth (within 3 mm: they would z-fight).</summary>
-        public double CoplanarDoubleShare;
+        /// <summary>Area-weighted pixels where both draw at the same depth (within 3 mm: they z-fight).</summary>
+        public readonly double[] Doubles = new double[3];
+
+        public double HoleShare(int scheme)
+        {
+            return AreaM2 > 0 ? Holes[scheme] / AreaM2 : 0;
+        }
+
+        public double DoubleShare(int scheme)
+        {
+            return AreaM2 > 0 ? Doubles[scheme] / AreaM2 : 0;
+        }
 
         public override string ToString()
         {
-            return string.Format(CultureInfo.InvariantCulture, "{0} cameras, {1} wall patches ({2:0.0} m²) in the fade ring: holes {3:0.000%}, coplanar double draws {4:0.000%}",
-                                 Cameras, Patches, AreaM2, HoleShare, CoplanarDoubleShare);
+            var sb = new StringBuilder();
+            sb.AppendFormat(CultureInfo.InvariantCulture, "{0} cameras, {1} wall patches ({2:0.0} m²) in the fade ring", Cameras, Patches, AreaM2);
+            string[] names = { "complementary (before)", "+12% overlap", "stencil hand-off (now)" };
+            for (int i = 0; i < 3; i++)
+                sb.AppendFormat(CultureInfo.InvariantCulture, "; {0}: holes {1:0.000%}, coplanar double draws {2:0.000%}", names[i], HoleShare(i), DoubleShare(i));
+            return sb.ToString();
         }
     }
 }

@@ -88,11 +88,12 @@ namespace Ghumante.Core.Meshing
                     f.ToWorld(u, p.RidgeV - 0.22, -half, out fx2, out fy2, out fz2);
                     MeshKit.Quad(m, x0, y0 + 0.06, z0, x1, y1 + 0.06, z1, fx2, fy2, fz2, ex, ey, ez, side * f.UX, 0, side * f.UZ, MeshColor.Scale(p.Wood, 1.1f));
                 }
-                // Soffit of the gable overhang.
+                // Soffit of the gable overhang between the wall lines: the eave strips outside them are the slopes' own
+                // soffits (Slope), and a second quad there z-fought with them (playtest #4).
                 double uIn = e == 0 ? p.U0 : p.U1;
-                MeshKit.QuadLocal(m, f, Math.Min(u, uIn), top - dF * tan - Slab, dF, Math.Max(u, uIn), top - dF * tan - Slab, dF,
+                MeshKit.QuadLocal(m, f, Math.Min(u, uIn), top - Slab, 0, Math.Max(u, uIn), top - Slab, 0,
                                   Math.Max(u, uIn), p.RidgeV - Slab, -half, Math.Min(u, uIn), p.RidgeV - Slab, -half, 0, -1, 0.2, under);
-                MeshKit.QuadLocal(m, f, Math.Min(u, uIn), top - dB * tan - Slab, -D - dB, Math.Max(u, uIn), top - dB * tan - Slab, -D - dB,
+                MeshKit.QuadLocal(m, f, Math.Min(u, uIn), top - Slab, -D, Math.Max(u, uIn), top - Slab, -D,
                                   Math.Max(u, uIn), p.RidgeV - Slab, -half, Math.Min(u, uIn), p.RidgeV - Slab, -half, 0, -1, -0.2, under);
             }
             KitPaint.Of(MaterialChannel.Wood, 0.8f).Apply(m, vs);

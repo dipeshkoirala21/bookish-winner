@@ -414,7 +414,7 @@ namespace Ghumante.Core.Tests
             return r.RoadClass.ToString().ToLowerInvariant();
         }
 
-        private bool NearRides(BuildingRecord b, float reach)
+        internal bool NearRides(BuildingRecord b, float reach)
         {
             float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
             if (b.Rings == null || b.Rings.Length == 0) return false;
@@ -1016,28 +1016,28 @@ namespace Ghumante.Core.Tests
 
         /// <summary>
         /// The cross-fade at a band edge <paramref name="edgeM"/> from the camera between an inner band's mesh (fading out)
-        /// and an outer band's (fading in), as the band shader dithers them: for wall patches of the inner mesh in the
-        /// 4 m fade ring seen from the rides' chase camera (every 2 s), the share of the 16 Bayer levels at which neither
-        /// band's fragment on the patch's pixel survives (a hole into the house) and at which both do at the same depth.
-        /// <paramref name="overlaps"/>: the shares of the fade the incoming band draws beyond its complement (one result
-        /// each, from the same rays).
+        /// and an outer band's (fading in), as the band shader draws them: for wall patches of the inner mesh in the 4 m
+        /// fade ring seen from the rides' chase camera (every 2 s), the share of the 16 Bayer levels at which no band's
+        /// fragment on the patch's pixel survives (a hole into the house) and at which both do within 3 mm (z-fighting),
+        /// under three schemes: complementary dithers (the shader before playtest #4), complementary plus a 12% overlap of
+        /// the incoming band (the first attempt) and the stencil hand-off (ToonLitInput.hlsl GhBandClip: the outgoing band
+        /// dithers out, the incoming band draws its whole fade-in where the outgoing one did not draw). Back faces are
+        /// culled, so only front-facing outer fragments within 3 m behind the patch count.
         /// </summary>
-        public BandSeam[] MeasureSeam(MeshData inner, MeshData outer, float edgeM, float[] overlaps)
+        public BandSeam MeasureSeam(MeshData inner, MeshData outer, float edgeM)
         {
             TriGrid gi = GridOf(inner), go = GridOf(outer);
-            var seams = new BandSeam[overlaps.Length];
-            var holes = new double[overlaps.Length];
-            var doubles = new double[overlaps.Length];
-            int cameras = 0, patches = 0;
-            double areaM2 = 0;
+            var seam = new BandSeam();
             float h = 0.5f * BandConfig.FadeM;
             var pieces = new List<float>();
+            var outerT = new float[6];
+            var outerD = new float[6];
             foreach (OccluderRide ride in Rides)
             {
                 Run(ride, new GateOccluderModel(), (i, f) =>
                 {
                     if (i % 60 != 30) return;
-                    cameras++;
+                    seam.Cameras++;
                     for (int t = 0; t < inner.IndexCount / 3; t++)
                     {
                         float bx, by, bz, br;
@@ -1061,47 +1061,243 @@ namespace Ghumante.Core.Tests
                             float ex2 = pieces[k + 6] - pieces[k], ey2 = pieces[k + 7] - pieces[k + 1], ez2 = pieces[k + 8] - pieces[k + 2];
                             float qx = ey1 * ez2 - ez1 * ey2, qy = ez1 * ex2 - ex1 * ez2, qz = ex1 * ey2 - ey1 * ex2;
                             float area = 0.5f * (float)Math.Sqrt(qx * qx + qy * qy + qz * qz);
-                            // The pixel's ray through the patch, a little past it.
+                            // The pixel's ray through the patch.
                             float rx = px - f.Cx, ry = py - f.Cy, rz = pz - f.Cz;
                             float len = (float)Math.Sqrt(rx * rx + ry * ry + rz * rz);
                             float ux = rx / len, uy = ry / len, uz = rz / len;
-                            float tA, tB;
+                            float tA;
                             if (gi.FirstHit(f.Cx, f.Cy, f.Cz, ux, uy, uz, len + 0.02f, out tA) < 0) continue;
                             if (tA < len - 0.05f) continue; // the patch is hidden behind the inner band's own surfaces
-                            if (go.FirstHit(f.Cx, f.Cy, f.Cz, ux, uy, uz, len + 3f, out tB) < 0)
-                                continue; // nothing of the outer band behind: the inner band's detail fades out as intended
                             float hz = (float)Math.Sqrt(ux * ux + uz * uz);
-                            float fa = Clamp01((edgeM + h - hz * tA) / BandConfig.FadeM), fb = Clamp01((edgeM + h - hz * tB) / BandConfig.FadeM);
-                            patches++;
-                            areaM2 += area;
-                            for (int o = 0; o < overlaps.Length; o++)
+                            // The outer band's front faces along the ray, to 3 m behind the patch.
+                            int no = 0;
+                            float from = 0f;
+                            while (no < outerT.Length)
+                            {
+                                float tB;
+                                int tri = go.FirstHit(f.Cx + ux * from, f.Cy + uy * from, f.Cz + uz * from, ux, uy, uz, len + 3f - from, out tB);
+                                if (tri < 0) break;
+                                tB += from;
+                                float onx, ony, onz;
+                                go.Normal(tri, out onx, out ony, out onz);
+                                if (onx * ux + ony * uy + onz * uz < 0f)
+                                {
+                                    outerT[no] = tB;
+                                    outerD[no] = hz * tB;
+                                    no++;
+                                }
+                                from = tB + 0.001f;
+                            }
+                            if (no == 0) continue; // nothing of the outer band behind: the inner band's detail fades out as intended
+                            float fa = Clamp01((edgeM + h - hz * tA) / BandConfig.FadeM);
+                            seam.Patches++;
+                            seam.AreaM2 += area;
+                            for (int scheme = 0; scheme < 3; scheme++)
                             {
                                 int hole = 0, both = 0;
                                 for (int lvl = 0; lvl < 16; lvl++)
                                 {
                                     float b = (lvl + 0.5f) / 16f;
-                                    // The outer band's fade-in draws `overlap` of the fade more than its complement (GhBandClip).
-                                    bool aShows = fa - b >= 0f, bShows = Clamp01(1f - fb + overlaps[o]) - (1f - b) >= 0f;
-                                    if (!aShows && !bShows) hole++;
-                                    if (aShows && bShows) both++;
+                                    bool aShows = b < fa;
+                                    bool anyOuter = false, coplanar = false;
+                                    for (int o = 0; o < no; o++)
+                                    {
+                                        float fo = Clamp01((edgeM + h - outerD[o]) / BandConfig.FadeM);
+                                        bool shows = scheme == 2
+                                            ? !aShows && outerD[o] >= edgeM - h // stencil: fills what the inner band left
+                                            : b >= fo - (scheme == 1 ? 0.12f : 0f); // dithered fade-in, complementary (+ overlap)
+                                        if (!shows) continue;
+                                        anyOuter = true;
+                                        if (Math.Abs(outerT[o] - tA) < 0.003f) coplanar = true;
+                                    }
+                                    if (!aShows && !anyOuter) hole++;
+                                    if (aShows && coplanar) both++;
                                 }
-                                holes[o] += area * hole / 16.0;
-                                if (Math.Abs(tA - tB) < 0.003f) doubles[o] += area * both / 16.0;
+                                seam.Holes[scheme] += area * hole / 16.0;
+                                seam.Doubles[scheme] += area * both / 16.0;
                             }
                         }
                     }
                 });
             }
-            for (int o = 0; o < overlaps.Length; o++)
-            {
-                seams[o] = new BandSeam { Cameras = cameras, Patches = patches, AreaM2 = areaM2 };
-                if (areaM2 > 0)
+            return seam;
+        }
+
+        /// <summary>One building of the spot's tile as the near ring draws it (High).</summary>
+        public MeshData House(int i)
+        {
+            var m = new MeshData();
+            m.HasUv0 = true;
+            BuildingDetailMesher.One(Tile, i, _sampler, BuildingBandTable.NearOptions(2, _settings.DetailBuildings), m, null);
+            return m;
+        }
+
+        /// <summary>The chase-camera frame (every 2 s of every ride) with the most front-facing house wall area of
+        /// <paramref name="m"/> in the 4 m fade ring around <paramref name="edgeM"/> and in view.</summary>
+        public CameraFrame FrameWithMostRing(MeshData m, float edgeM)
+        {
+            TriGrid g = GridOf(m);
+            float h = 0.5f * BandConfig.FadeM;
+            var best = new CameraFrame();
+            double bestArea = -1;
+            foreach (OccluderRide ride in Rides)
+                Run(ride, new GateOccluderModel(), (i, f) =>
                 {
-                    seams[o].HoleShare = holes[o] / areaM2;
-                    seams[o].CoplanarDoubleShare = doubles[o] / areaM2;
+                    if (i % 60 != 30) return;
+                    double area = 0, ax = 0, ay = 0, az = 0;
+                    for (int t = 0; t < m.IndexCount / 3; t++)
+                    {
+                        float bx, by, bz, br;
+                        g.Sphere(t, out bx, out by, out bz, out br);
+                        float d = (float)Math.Sqrt((bx - f.Cx) * (bx - f.Cx) + (bz - f.Cz) * (bz - f.Cz));
+                        if (Math.Abs(d - edgeM) > h || !InView(f, bx, by, bz)) continue;
+                        float nx, ny, nz;
+                        g.Normal(t, out nx, out ny, out nz);
+                        if (Math.Abs(ny) > 0.3f || nx * (f.Cx - bx) + ny * (f.Cy - by) + nz * (f.Cz - bz) <= 0f) continue;
+                        area += br * br;
+                        ax += br * br * bx;
+                        ay += br * br * by;
+                        az += br * br * bz;
+                    }
+                    if (area > bestArea)
+                    {
+                        bestArea = area;
+                        best = f;
+                        // Aim at the middle of that wall (Basis looks at F + 1 m up).
+                        best.Fx = (float)(ax / area);
+                        best.Fy = (float)(ay / area) - 1f;
+                        best.Fz = (float)(az / area);
+                    }
+                });
+            return best;
+        }
+
+        /// <summary>
+        /// Ray-traces <paramref name="frame"/> at 480 × 270 through the inner band's and the outer band's meshes and
+        /// writes a binary PPM: what each pixel shows under the band <paramref name="scheme"/> (0 complementary dithers, 2
+        /// stencil hand-off; see <see cref="MeasureSeam"/>), the 4 × 4 Bayer level taken from the pixel position as the
+        /// GPU does. Inner fragments warm, outer cool (shaded by a fixed sun), no band magenta where a band's house is
+        /// there but nothing draws, sky grey-blue. <paramref name="holes"/>: magenta pixels.
+        /// </summary>
+        public void TraceSeam(in CameraFrame frame, MeshData inner, MeshData outer, float edgeM, int scheme, string path, out int holes, float zoom = 1f)
+        {
+            const int W = 480, H = 270;
+            TriGrid gi = GridOf(inner), go = GridOf(outer);
+            float h = 0.5f * BandConfig.FadeM;
+            float fx, fy, fz, rx, rz, ux, uy, uz;
+            Basis(frame, out fx, out fy, out fz, out rx, out rz, out ux, out uy, out uz);
+            var px = new byte[W * H * 3];
+            holes = 0;
+            float lx = 0.45f, ly = 0.8f, lz = 0.4f;
+            float ll = (float)Math.Sqrt(lx * lx + ly * ly + lz * lz);
+            lx /= ll;
+            ly /= ll;
+            lz /= ll;
+            for (int r = 0; r < H; r++)
+            for (int c = 0; c < W; c++)
+            {
+                float sx = ((c + 0.5f) / W * 2f - 1f) * TanHalfX / zoom, sy = (1f - (r + 0.5f) / H * 2f) * TanHalfY / zoom;
+                float dx = fx + rx * sx + ux * sy, dy = fy + uy * sy, dz = fz + rz * sx + uz * sy;
+                float dl = (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                dx /= dl;
+                dy /= dl;
+                dz /= dl;
+                float hz = (float)Math.Sqrt(dx * dx + dz * dz);
+                float b = (Bayer[(c & 3) + 4 * (r & 3)] + 0.5f) / 16f;
+                // The nearest drawn fragment of each band along the ray (front faces only), under the scheme.
+                float tI = float.MaxValue, tO = float.MaxValue;
+                int triI = -1, triO = -1;
+                bool anyBand = false;
+                for (int band = 0; band < 2; band++)
+                {
+                    TriGrid g = band == 0 ? gi : go;
+                    float from = 0.4f;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        float t;
+                        int tri = g.FirstHit(frame.Cx + dx * from, frame.Cy + dy * from, frame.Cz + dz * from, dx, dy, dz, 150f - from, out t);
+                        if (tri < 0) break;
+                        t += from;
+                        from = t + 0.001f;
+                        float nx, ny, nz;
+                        g.Normal(tri, out nx, out ny, out nz);
+                        if (nx * dx + ny * dy + nz * dz >= 0f) continue;
+                        float d = hz * t;
+                        bool inRange = band == 0 ? d <= edgeM + h : d >= edgeM - h;
+                        if (!inRange) continue;
+                        anyBand = true;
+                        float fade = Clamp01((edgeM + h - d) / BandConfig.FadeM); // the inner band's fade-out at d
+                        bool draws = band == 0 ? b < fade : scheme == 2 ? true : b >= fade;
+                        if (!draws) continue;
+                        if (band == 0)
+                        {
+                            tI = t;
+                            triI = tri;
+                        }
+                        else
+                        {
+                            tO = t;
+                            triO = tri;
+                        }
+                        break;
+                    }
                 }
+                // Stencil: the outer band never draws where the inner one drew.
+                if (scheme == 2 && triI >= 0) triO = -1;
+                int shown = -1;
+                bool isInner = false;
+                if (triI >= 0 && (triO < 0 || tI <= tO))
+                {
+                    shown = triI;
+                    isInner = true;
+                }
+                else if (triO >= 0) shown = triO;
+                int o = 3 * (r * W + c);
+                if (shown < 0)
+                {
+                    if (anyBand)
+                    {
+                        holes++;
+                        px[o] = 255;
+                        px[o + 1] = 0;
+                        px[o + 2] = 255;
+                    }
+                    else
+                    {
+                        px[o] = 170;
+                        px[o + 1] = 190;
+                        px[o + 2] = 210;
+                    }
+                    continue;
+                }
+                MeshData m = isInner ? inner : outer;
+                TriGrid gs = isInner ? gi : go;
+                float snx, sny, snz;
+                gs.Normal(shown, out snx, out sny, out snz);
+                float lit = 0.45f + 0.55f * Math.Max(0f, snx * lx + sny * ly + snz * lz);
+                int v = m.Indices[3 * shown];
+                float cr = m.Colors[4 * v] / 255f, cg = m.Colors[4 * v + 1] / 255f, cb = m.Colors[4 * v + 2] / 255f;
+                // Tint: near warm, lite cool (subtle, so the house still reads).
+                if (isInner)
+                {
+                    cr = 0.75f * cr + 0.25f;
+                    cb = 0.85f * cb;
+                }
+                else
+                {
+                    cb = 0.75f * cb + 0.25f;
+                    cr = 0.85f * cr;
+                }
+                px[o] = (byte)Math.Min(255, (int)(255 * cr * lit));
+                px[o + 1] = (byte)Math.Min(255, (int)(255 * cg * lit));
+                px[o + 2] = (byte)Math.Min(255, (int)(255 * cb * lit));
             }
-            return seams;
+            using (var fs = File.Create(path))
+            {
+                byte[] head = Encoding.ASCII.GetBytes("P6\n" + W + " " + H + "\n255\n");
+                fs.Write(head, 0, head.Length);
+                fs.Write(px, 0, px.Length);
+            }
         }
 
         private static float Clamp01(float v)
@@ -1116,7 +1312,7 @@ namespace Ghumante.Core.Tests
         /// the street or the sky behind the house shows), split into those within 1.5 m of the lens (the camera brushing a
         /// house's skin) and those beyond (gaps and open shells in the mesh).
         /// </summary>
-        public SeeThrough MeasureSeeThrough(MeshData m, int every, int cols, int rows, float maxM)
+        public SeeThrough MeasureSeeThrough(MeshData m, int every, int cols, int rows, float maxM, Action<int> onBackHit = null)
         {
             TriGrid g = GridOf(m);
             var st = new SeeThrough();
@@ -1151,6 +1347,7 @@ namespace Ghumante.Core.Tests
                         else
                         {
                             st.FarBack++;
+                            onBackHit?.Invoke(tri);
                             int v = m.Indices[3 * tri];
                             int ch = m.HasUv0 ? (int)Math.Round(m.Uv0[2 * v]) : -1;
                             channels[ch] = (channels.TryGetValue(ch, out int n) ? n : 0) + 1;
@@ -1603,11 +1800,13 @@ namespace Ghumante.Core.Tests
 
         /// <summary>The first triangle a ray from (o) along the unit direction (d) hits within <paramref name="max"/>
         /// (either side), or -1: walks the grid cells the ray crosses in order (Amanatides-Woo) and stops at the first
-        /// cell whose far side lies beyond the nearest hit.</summary>
+        /// cell whose far side lies beyond the nearest hit. Of two hits within 0.5 mm (a two-sided panel: two quads in one
+        /// plane facing opposite ways) the one facing the ray wins, as the rasterizer would show it.</summary>
         public int FirstHit(float ox, float oy, float oz, float dx, float dy, float dz, float max, out float hitDist)
         {
             hitDist = max;
             int best = -1;
+            bool bestFront = false;
             float tMin = 0f, tMax = max;
             if (!Slab(ox, dx, _x0, _x0 + _nx * _cell, ref tMin, ref tMax) || !Slab(oz, dz, _z0, _z0 + _nz * _cell, ref tMin, ref tMax)) return -1;
             _query++;
@@ -1627,10 +1826,15 @@ namespace Ghumante.Core.Tests
                         if (_stamp[tri] == _query) continue;
                         _stamp[tri] = _query;
                         float t;
-                        if (RayTri(tri, ox, oy, oz, dx, dy, dz, out t) && t >= 0f && t < hitDist)
+                        if (!RayTri(tri, ox, oy, oz, dx, dy, dz, out t) || t < 0f || t >= hitDist + 0.0005f) continue;
+                        float tnx, tny, tnz;
+                        Normal(tri, out tnx, out tny, out tnz);
+                        bool front = tnx * dx + tny * dy + tnz * dz < 0f;
+                        if (t < hitDist - 0.0005f || (front && !bestFront))
                         {
                             hitDist = t;
                             best = tri;
+                            bestFront = front;
                         }
                     }
                 float exit = Math.Min(Math.Min(nextX, nextZ), tMax);

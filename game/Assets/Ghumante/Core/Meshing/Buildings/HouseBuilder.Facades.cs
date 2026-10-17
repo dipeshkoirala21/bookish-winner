@@ -797,8 +797,10 @@ namespace Ghumante.Core.Meshing
                     Fixed(ref h, f, m, vp, MaterialChannel.WoodCarved);
                     continue;
                 }
-                KitRound.BoxV(m, f, o.U0 - 0.14, o.U0, o.V0, o.V1, -0.02, 0.83 * pd, 0.025, seg, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right, p.Wood);
-                KitRound.BoxV(m, f, o.U1, o.U1 + 0.14, o.V0, o.V1, -0.02, 0.83 * pd, 0.025, seg, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right, p.Wood);
+                // From the wall plane out: sunk 2 cm into it, a post's inner face overlapped the opening's reveal side in its
+                // own plane (z-fighting, playtest #4).
+                KitRound.BoxV(m, f, o.U0 - 0.14, o.U0, o.V0, o.V1, 0, 0.83 * pd, 0.025, seg, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right, p.Wood);
+                KitRound.BoxV(m, f, o.U1, o.U1 + 0.14, o.V0, o.V1, 0, 0.83 * pd, 0.025, seg, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right, p.Wood);
                 KitRound.BoxU(m, f, o.U0 - 0.32, o.U1 + 0.32, o.V1, o.V1 + 0.16, 0, pd, 0.03, seg, BoxFaces.All & ~BoxFaces.Back, MeshColor.Scale(p.Wood, 1.12f));
                 Fixed(ref h, f, m, vp, MaterialChannel.WoodCarved);
             }
@@ -1158,8 +1160,11 @@ namespace Ghumante.Core.Meshing
                 int v0 = m.VertexCount;
                 uint col = p.ExposedBrick ? BuildingGrammar.Concrete : MeshColor.Scale(p.Front, 0.93f);
                 double cd = Proud(ref h, f, u0, u1, 0, 0.07, 0.03);
-                KitRound.BoxV(m, f, u0, u0 + 0.26, g0 - 0.1, p.Top + p.Parapet, 0, cd, 0.4 * cd, h.Det.Segs > 0 ? 1 : 0, BoxFaces.Front | BoxFaces.Right, col);
-                KitRound.BoxV(m, f, u1 - 0.26, u1, g0 - 0.1, p.Top + p.Parapet, 0, cd, 0.4 * cd, h.Det.Segs > 0 ? 1 : 0, BoxFaces.Front | BoxFaces.Left, col);
+                // Both sides closed: at an exposed plot end (a corner, a gap to the next house) the open side showed the
+                // pilaster from behind, see-through (playtest #12 "make the buildings very solid"); 4 mm inside the plot end,
+                // so a cantilevered floor's side wall in that plane hides it instead of z-fighting it.
+                KitRound.BoxV(m, f, u0 + 0.004, u0 + 0.26, g0 - 0.1, p.Top + p.Parapet, 0, cd, 0.4 * cd, h.Det.Segs > 0 ? 1 : 0, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right, col);
+                KitRound.BoxV(m, f, u1 - 0.26, u1 - 0.004, g0 - 0.1, p.Top + p.Parapet, 0, cd, 0.4 * cd, h.Det.Segs > 0 ? 1 : 0, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right, col);
                 Fixed(ref h, f, m, v0, p.ExposedBrick ? MaterialChannel.Concrete : p.FrontCh == MaterialChannel.BrickGlazed ? MaterialChannel.Paint : p.FrontCh);
             }
             if (p.Storeys <= 1) return;
@@ -1224,7 +1229,10 @@ namespace Ghumante.Core.Meshing
                 if (h.Det.Bands)
                 {
                     int v0 = m.VertexCount;
-                    FacadeKit.Band(m, fu, u0 - 0.03, u1 + 0.03, b0 - 0.16, 0.16, Proud(ref h, fu, u0, u1, b0 - 0.16, 0.06, 0.03), 0.035, 0, trim);
+                    // 5 mm under the floor line, inside a balcony slab it crosses, and 0.9 of its free depth, so where the road
+                    // clips it and the end pilasters to the same depth their fronts no longer lie in one plane (both z-fought,
+                    // playtest #4).
+                    FacadeKit.Band(m, fu, u0 - 0.03, u1 + 0.03, b0 - 0.165, 0.16, 0.9 * Proud(ref h, fu, u0, u1, b0 - 0.16, 0.06, 0.03), 0.035, 0, trim);
                     Fixed(ref h, fu, m, v0, p.FrontCh == MaterialChannel.BrickGlazed || p.ExposedBrick ? MaterialChannel.Concrete : MaterialChannel.Paint);
                 }
                 // Thamel and bazaar lanes: blade signs on the lower upper floors (one or two per floor in Thamel).
@@ -1475,7 +1483,9 @@ namespace Ghumante.Core.Meshing
             if (h.Det.Lite)
             {
                 // A slab and a railing panel: painted bars read as a darker screen at 30 m.
-                MeshKit.Box(m, f, a, b, floorV - 0.16, floorV, 0, d, slab, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+                // 1 cm deeper than the 0.16 m course, so the floor band it crosses (5 mm under the floor line) lies inside it:
+                // equal courses z-fought (playtest #4).
+                MeshKit.Box(m, f, a, b, floorV - 0.17, floorV, 0, d, slab, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
                 Fixed(ref h, f, m, v0, MaterialChannel.Concrete);
                 v0 = m.VertexCount;
                 uint screen = style == 3 ? p.Front : style == 2 ? MeshColor.FromHex(0xF2EFE8) : MeshColor.Scale(rail, 1.1f);
@@ -1485,7 +1495,7 @@ namespace Ghumante.Core.Meshing
                 Fixed(ref h, f, m, v0, style == 3 ? (p.FrontCh == MaterialChannel.BrickGlazed ? MaterialChannel.Paint : p.FrontCh) : style == 2 ? MaterialChannel.Concrete : MaterialChannel.Metal);
                 return;
             }
-            FacadeKit.Band(m, f, a, b, floorV - 0.16, 0.16, d, 0.05, 3, slab);
+            FacadeKit.Band(m, f, a, b, floorV - 0.17, 0.17, d, 0.05, 3, slab); // encloses the floor band (see the lite slab)
             Fixed(ref h, f, m, v0, MaterialChannel.Concrete);
             double top = floorV + 1.0;
             v0 = m.VertexCount;
@@ -1713,7 +1723,9 @@ namespace Ghumante.Core.Meshing
                     b = a + seg - 0.1;
                 }
                 double y = v + (k / 2) * 0.95;
-                double d = Allow(ref h, f, a, b, y, 0.09);
+                // 9.5 cm (11 cm for an upper fascia): clear of the 9 cm window ledges and frames a board can overlap, and of
+                // a ground-floor board on the same wall (equal depths z-fought, playtest #4).
+                double d = Allow(ref h, f, a, b, y, fixedH > 0 ? 0.11 : 0.095);
                 d = Math.Max(0.012, d);
                 int v0 = m.VertexCount;
                 MeshKit.Box(m, f, a, b, y, y + hgt, 0, d, col, h.Det.Lite ? BoxFaces.Front | BoxFaces.Bottom : BoxFaces.All & ~BoxFaces.Back);
@@ -1775,7 +1787,7 @@ namespace Ghumante.Core.Meshing
             uint ink = col == BuildingGrammar.Sign[4] || col == BuildingGrammar.Sign[1] ? MeshColor.FromHex(0x1E1E1E) : MeshColor.FromHex(0xFFFFFF);
             for (int side = -1; side <= 1; side += 2)
             {
-                double uu = u + side * 0.031;
+                double uu = u + side * 0.034; // 4 mm off the blade's faces (u ± 0.03): 1 mm z-fought (playtest #4)
                 int letters = (int)(tall / 0.32);
                 for (int i = 0; i < letters; i++)
                 {

@@ -32,6 +32,11 @@ namespace Ghumante.World.Rendering
         public static readonly int InstanceTint = Shader.PropertyToID("_InstanceTint");
         public static readonly int InstanceColor = Shader.PropertyToID("_InstanceColor");
         public static readonly int BandCentre = Shader.PropertyToID("_GhBandCentre");
+        public static readonly int BandStencilRef = Shader.PropertyToID("_BandStencilRef");
+        public static readonly int BandStencilRead = Shader.PropertyToID("_BandStencilRead");
+        public static readonly int BandStencilWrite = Shader.PropertyToID("_BandStencilWrite");
+        public static readonly int BandStencilComp = Shader.PropertyToID("_BandStencilComp");
+        public static readonly int BandStencilPass = Shader.PropertyToID("_BandStencilPass");
         public static readonly int NightLights = Shader.PropertyToID("_GhNightLights");
         public const string KeywordBandFade = "_BAND_FADE";
         public const string KeywordWind = "_WIND";
@@ -335,6 +340,7 @@ namespace Ghumante.World.Rendering
                 set.decals.SetFloat(WorldShaders.OffsetUnits, -3f);
             }
             Material[] bands = { set.bandB0, set.bandB1, set.bandB1Full, set.bandB2, set.bandB3 };
+            int[] orders = { ToonLitLayout.BandOrderNear, ToonLitLayout.BandOrderB1, ToonLitLayout.BandOrderB1, ToonLitLayout.BandOrderB2, ToonLitLayout.BandOrderB3 };
             for (int i = 0; i < bands.Length; i++)
             {
                 if (!Fresh(bands[i], onlyRuntime)) continue;
@@ -342,6 +348,8 @@ namespace Ghumante.World.Rendering
                 bands[i].EnableKeyword(WorldShaders.KeywordBandFade);
                 bands[i].SetFloat("_BandFade", 1f);
                 bands[i].SetVector(WorldShaders.BandRange, new Vector4(0f, 100000f, 4f, 0f));
+                // The per-range copies set it again (DetailCells.RingMaterial, WorldStreamer.BandMaterial).
+                SetBandOrder(bands[i], orders[i]);
             }
             if (Fresh(set.heroes, onlyRuntime)) Toon(set.heroes, 0f, 2000);
             // Bridge structures are solid geometry: no depth pull (the road ribbon on the deck keeps its own and wins).
@@ -376,6 +384,26 @@ namespace Ghumante.World.Rendering
         private static bool Fresh(Material m, bool onlyRuntime)
         {
             return m != null && (!onlyRuntime || (m.hideFlags & HideFlags.DontSave) != 0);
+        }
+
+        /// <summary>
+        /// Puts a building band material in the band order (owner playtest #4, "buildings constantly flicker"): its stencil
+        /// hand-off (<see cref="ToonLitLayout.BandStencil"/>: it draws only where no inner band drew and marks where it
+        /// drew) and its render queue (<see cref="ToonLitLayout.BandQueue"/>: after every band inside it). With
+        /// <c>GhBandClip</c> (the outgoing band dithers out, the incoming one fills what it leaves) every pixel of a band
+        /// edge shows exactly one band's mesh: never both (z-fighting) and never neither (a hole into the house).
+        /// </summary>
+        public static void SetBandOrder(Material m, int order)
+        {
+            if (m == null) return;
+            int reference, read, write;
+            ToonLitLayout.BandStencil(order, out reference, out read, out write);
+            m.SetFloat(WorldShaders.BandStencilRef, reference);
+            m.SetFloat(WorldShaders.BandStencilRead, read);
+            m.SetFloat(WorldShaders.BandStencilWrite, write);
+            m.SetFloat(WorldShaders.BandStencilComp, (float)UnityEngine.Rendering.CompareFunction.Equal);
+            m.SetFloat(WorldShaders.BandStencilPass, (float)UnityEngine.Rendering.StencilOp.Replace);
+            m.renderQueue = ToonLitLayout.BandQueue(order);
         }
 
         private static void Toon(Material m, float viewPull, int queue)

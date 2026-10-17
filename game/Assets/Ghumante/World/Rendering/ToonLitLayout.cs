@@ -19,7 +19,8 @@ namespace Ghumante.World.Rendering
         /// <summary>Properties that only drive render state or keywords (no shader variable).</summary>
         public static readonly string[] RenderStateOnly =
         {
-            "_Cull", "_OffsetFactor", "_OffsetUnits", "_BandFade", "_WindOn", "_InstanceTintOn",
+            "_Cull", "_OffsetFactor", "_OffsetUnits", "_BandFade", "_WindOn", "_InstanceTintOn", "_BandStencilRef", "_BandStencilRead",
+            "_BandStencilWrite", "_BandStencilComp", "_BandStencilPass",
         };
 
         /// <summary>Global (per-frame or startup) shader variables the look sets; never per material.</summary>
@@ -41,13 +42,46 @@ namespace Ghumante.World.Rendering
         /// <summary>Size of the channel arrays (<c>GH_CHANNEL_ARRAY_SIZE</c> = MaterialLooks.ArraySize).</summary>
         public const int ChannelArraySize = 32;
 
-        /// <summary>Share of the 4 m band fade the incoming building band draws beyond the complement of the outgoing one
-        /// (<c>GH_BAND_OVERLAP</c>), so the cross-fade between two different meshes of a house never leaves a hole.</summary>
-        public const float BandOverlap = 0.12f;
+        /// <summary>Band order of the near B0 ring (also the whole B0 band), the innermost building band.</summary>
+        public const int BandOrderNear = 0;
 
-        /// <summary>Inside its fade-in the incoming band sits this fraction of the camera distance behind
-        /// (<c>GH_BAND_PUSH</c>), so where both bands draw the outgoing one wins the depth test.</summary>
-        public const float BandPush = 0.0001f;
+        /// <summary>Band order of the lite B0 ring.</summary>
+        public const int BandOrderLite = 1;
+
+        /// <summary>Band order of B1 (also B1 drawn from the camera when B0 is off).</summary>
+        public const int BandOrderB1 = 2;
+
+        /// <summary>Band order of B2.</summary>
+        public const int BandOrderB2 = 3;
+
+        /// <summary>Band order of B3, the outermost building band.</summary>
+        public const int BandOrderB3 = 4;
+
+        /// <summary>Render queue of the innermost band; band order k draws at <c>BandQueueBase + k</c>, so every band is
+        /// drawn after all bands inside it (still opaque Geometry, before the overlay queues).</summary>
+        public const int BandQueueBase = 2000;
+
+        /// <summary>
+        /// The stencil hand-off between building bands (owner playtest #4: a band edge's cross-fade showed holes into the
+        /// houses and z-fought where both bands drew). Band order k (0 near ring ... 4 B3) marks bit k of the user stencil
+        /// bits where it draws (B3, the last, marks nothing) and draws only where no inner band marked
+        /// (<c>Comp Equal</c>: <c>(ref &amp; read) == (stencil &amp; read)</c> with <c>ref &amp; read == 0</c>). Bits 0-3
+        /// are URP's user stencil bits (StencilUsage.UserMask); the outline pass tests but never marks. Engine-free.
+        /// </summary>
+        public static void BandStencil(int order, out int reference, out int readMask, out int writeMask)
+        {
+            if (order < 0) order = 0;
+            if (order > BandOrderB3) order = BandOrderB3;
+            writeMask = order < BandOrderB3 ? 1 << order : 0;
+            readMask = (1 << order) - 1;
+            reference = writeMask;
+        }
+
+        /// <summary>Render queue of band order <paramref name="order"/>.</summary>
+        public static int BandQueue(int order)
+        {
+            return BandQueueBase + (order < 0 ? 0 : order > BandOrderB3 ? BandOrderB3 : order);
+        }
 
         /// <summary>Channels with a texture slice and a look (<c>GH_SLICE_COUNT</c> = MaterialTextures.SliceCount); the
         /// shader renders any other channel value as Plain.</summary>

@@ -50,6 +50,45 @@ object, so there are no photo sheets; the "reference" is the established practic
 The chase camera's boom (a 0.3 m sphere pulled in to the first solid) kept the explorer in sight on every ride at the
 three spots: the fade is needed only when something the boom cannot avoid hides the player.
 
+## Band cross-fades: exactly one band per pixel
+
+* A dithered (screen-door) LOD cross-fade draws the outgoing level with a threshold and the incoming level with the
+  complementary threshold, so for **one surface** every pixel shows exactly one of them (Unity's LODGroup cross-fade with
+  `LOD_FADE_CROSSFADE`, the "dithered LOD transition" of most engines). Two *different* meshes of a house are not one
+  surface: at one pixel their fragments lie at different distances, so a fade evaluated per fragment distance can discard
+  both (a hole) or keep both (z-fighting where they share a wall). Unity evaluates its cross-fade per object (`unity_LODFade`),
+  which the band chunks (many houses per mesh, faded by distance from the camera) cannot use.
+* **Stencil hand-off** (this package): the bands draw inner to outer, each marks a stencil bit where it drew and draws only
+  where no inner band marked; only the outgoing band dithers. Along a view ray the distance from the camera only grows, so
+  an inner band's fragment is in front of an outer band's everywhere outside the shared ring, and the mask never hides what
+  should show. URP leaves stencil bits 0-3 to the user (`StencilUsage.UserMask`).
+
+## Z-fighting: what the depth buffer can and cannot order
+
+* Two faces in one plane with different shading fight on every depth buffer (the depths are equal up to rounding, which
+  flips with the camera). Faces a little apart fight once the depth step reaches their gap: with a standard (not reversed)
+  depth buffer the step is about d² / (near · 2^24), 0.15 mm at 32 m and 1 mm at 80 m with the 0.4 m chase near plane
+  (GLES3); reversed-Z into the 32-bit float attachment ProjectSetup requests (Metal, Vulkan, D3D) is far finer. The owner's
+  Mac (Metal) shows only the exactly coplanar ones, which is what the fixes removed.
+* The fix belongs in the geometry (offset or enclose the smaller element), not in a depth bias: the house is one mesh and
+  one material, and a polygon offset would move every face.
+
+## What the sample showed (core-tests, kathmandu_core, High), this round
+
+| Measurement | Before | After |
+|---|---|---|
+| Visibly different coplanar house faces (gap ≤ 1 mm, near ring, 3 spots) | 13 132 pairs, 517 m² (6 372 exact) | see `zfight_houses.txt` (about 1-2% of the area left: grammar overlap, open issue) |
+| Band ring wall pixels with no band drawn, near/lite at 30 m (Hiti / Asan / Kalopul) | 0.55 / 0.46 / 0.96% | 0.09 / 0.05 / 0.12% |
+| ... B0/B1 at 80 m | 0.00 / 0.15 / 1.57% | 0.00 / 0.03 / 0.43% (meshes disagree by more than the ring: open issue) |
+| Ring wall pixels where both bands draw one wall (z-fight) with the first fix's 12% overlap | 7-9% | 0 (stencil) |
+| House pixels showing a culled back face (see-through), Hiti / Asan / Kalopul | 0.16 / 0.46 / 1.12% (old ray test) | 0.10 / 0.29 / 0.48% |
+
+Sources (this round):
+- [Unity manual: LOD Group cross-fade (dithered transitions, per-renderer fade factor)](https://docs.unity3d.com/Manual/class-LODGroup.html)
+- URP 17 source, `StencilUsage` (`UserMask` = bits 0-3; the upper bits are URP's for deferred lighting and decals)
+- [Depth precision visualized (NVIDIA)](https://developer.nvidia.com/content/depth-precision-visualized)
+- [Outerra: maximizing depth buffer range and precision](https://outerra.blogspot.com/2012/11/maximizing-depth-buffer-range-and.html)
+
 Sources:
 - [Camera object occlusion in 3rd person games (Unity Discussions)](https://discussions.unity.com/t/camera-object-occlusion-in-3rd-person-games/432872)
 - [Needle Engine SeeThrough component](https://engine.needle.tools/docs/api/@needle-tools/engine/5.0.10/classes/Built-in_Components.SeeThrough.html)

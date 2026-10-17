@@ -82,6 +82,7 @@ namespace Ghumante.World.Buildings
             var m = new Material(source) { name = source.name + (layer == NearLayer ? " (near)" : " (lite)"), hideFlags = HideFlags.DontSave };
             m.SetVector(WorldShaders.BandRange, new Vector4(inner, outer, BandConfig.FadeM, 0f));
             m.EnableKeyword(WorldShaders.KeywordBandFade);
+            WorldMaterialDefaults.SetBandOrder(m, layer == NearLayer ? ToonLitLayout.BandOrderNear : ToonLitLayout.BandOrderLite); // stencil hand-off (playtest #4)
             return m;
         }
 
