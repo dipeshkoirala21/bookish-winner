@@ -44,6 +44,7 @@
     <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroSet.cs" LinkBase="World/Sacred" />
     <Compile Include="../game/Assets/Ghumante/World/Sacred/HeroLodBudget.cs" LinkBase="World/Sacred" />
     <Compile Include="../game/Assets/Ghumante/World/Rendering/EarthCurvature.cs" LinkBase="World/Rendering" />
+    <Compile Include="../game/Assets/Ghumante/World/Sky/SkyPalette.cs" LinkBase="World/Sky" />
     <Compile Include="../game/Assets/Ghumante/World/Life/LifeLod.cs" LinkBase="World/Life" />
     <Compile Include="../game/Assets/Ghumante/World/Life/LifeHost.cs" LinkBase="World/Life" />
     <Compile Include="../game/Assets/Ghumante/World/Life/LifeDraws.cs" LinkBase="World/Life" />
