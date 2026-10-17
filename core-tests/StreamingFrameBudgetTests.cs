@@ -193,6 +193,67 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
+        /// Owner playtest #4 ("stutters"), the time side: <see cref="StreamingScheduler.UploadBudgetMs"/> is the frame's
+        /// whole streaming budget, so the tick's own work before the uploads (the selection, about 0.25 ms of this desktop
+        /// and 0.8 to 1 ms of a Low phone every 4 m, and collecting finished builds) counts against it. Repro: the budget
+        /// clock used to start at the first upload, so a phone frame that reselected could spend the selection and then
+        /// the whole budget on chunks (StreamingRideTests saw 1.01 ms of selection in one desktop frame). Now a tick whose
+        /// own work already spent the budget uploads its first chunk only (streaming never stalls), and a tick with time
+        /// left uploads several.
+        /// </summary>
+        [Test]
+        public void TheTicksOwnWorkCountsAgainstTheUploadTime()
+        {
+            var sink = new CountingSink();
+            double x, z, now = 0, jumpMs = 0;
+            int reads = 0;
+            var meshing = MeshingSettings.ForTier(StreamingConfig.TierLow);
+            StreamingConfig config = StreamingConfig.ForTier(StreamingConfig.TierLow);
+            WorldFrame.LonLatToGame(85.3122, 27.7074, out x, out z); // Asan
+            // Every clock read advances 0.05 ms; the second read of a tick (the end of the selection) jumps by jumpMs, as a
+            // slow selection would.
+            Func<double> clock = () =>
+            {
+                if (++reads == 2 && jumpMs > 0)
+                {
+                    now += jumpMs;
+                    jumpMs = 0;
+                }
+                return now += 0.05;
+            };
+            using (var s = new StreamingScheduler(StreamingSampleRegion.Pack, config, TileSelector.ForPack(config, StreamingSampleRegion.Pack),
+                                                  new TileGroundQuery(meshing.Roads), sink, new InlineJobRunner(), clock, meshing))
+            {
+                s.UploadBudgetBytes = 1L << 30; // only time limits a tick here
+                s.UploadBudgetMs = 1.0;
+                int guard = 0;
+                while (s.NextChunkBytes == 0)
+                {
+                    Assert.That(guard++, Is.LessThan(50));
+                    reads = 0;
+                    s.Tick(x, z, s.UploadBudgetBytes); // builds land, nothing uploads
+                }
+                reads = 0;
+                jumpMs = 1.5; // the tick's own work took longer than the whole budget
+                s.Tick(x, z);
+                Assert.That(s.Stats.TickUploadChunks, Is.EqualTo(1), "only the first chunk goes once the tick's own work spent the budget");
+                Assert.That(s.Stats.TickMs, Is.GreaterThan(1.5), "the whole tick is reported, so the B0 cells after it know nothing is left");
+                Assert.That(s.Stats.UploadMs, Is.LessThan(s.Stats.TickMs - 1.5 + 1e-9), "the upload time alone leaves the selection out");
+                reads = 0;
+                jumpMs = 0.6; // most of the budget gone before the uploads
+                s.Tick(x, z);
+                int part = s.Stats.TickUploadChunks;
+                reads = 0;
+                s.Tick(x, z);
+                int full = s.Stats.TickUploadChunks;
+                TestContext.WriteLine("chunks per tick: budget spent 1, 0.4 ms left " + part + ", whole budget " + full);
+                Assert.That(full, Is.GreaterThan(1), "a tick with time left uploads several chunks");
+                Assert.That(part, Is.LessThan(full), "less time left, fewer chunks");
+                Assert.That(part, Is.GreaterThanOrEqualTo(1));
+            }
+        }
+
+        /// <summary>
         /// The static dressing colliders of a dense tile are indexed by the build's worker
         /// (<see cref="TileExtras.PreparedColliders"/>), and the ground query answers the same with the prepared set as
         /// with the raw one registered on the main thread (what WorldStreamer.RegisterStatic did each time the tile

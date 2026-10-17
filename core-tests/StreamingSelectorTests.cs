@@ -250,13 +250,23 @@ namespace Ghumante.Core.Tests
                 b.Sort();
                 Assert.That(b, Is.Not.EqualTo(a), "without hysteresis the edge flips the selection");
 
-                // Beyond the margin the merge / detail drop happens.
+                // Beyond the margin the merge / detail drop happens, as in the plain selection. Only this edge's decision
+                // is compared: with Low's 450 m detail radius the focus also lies within the (wider) margins of coarser
+                // ring edges, which keep their earlier decision there as they should.
                 double far = edge == ringEdge ? 750 * 0.1 + 10 : detail * 0.1 + 10;
                 with.Select(edge - far * inward, zz, a);
                 pure.Select(edge - far * inward, zz, b);
-                a.Sort();
-                b.Sort();
-                Assert.That(a, Is.EqualTo(b), "beyond the margin the hysteresis selection matches the plain one");
+                AssertValidSelection(a, keys, cfg, edge - far * inward, zz, new Random(11), 300, "beyond the margin");
+                if (edge == ringEdge)
+                {
+                    Assert.That(a.Exists(n => n.Area == parent), Is.True, "beyond the margin the parent merges");
+                    Assert.That(b.Exists(n => n.Area == parent), Is.True, "as in the plain selection");
+                }
+                else
+                {
+                    Assert.That(a.Find(n => n.Area == leaf).DrawsDetail, Is.False, "beyond the margin the leaf drops its detail");
+                    Assert.That(b.Find(n => n.Area == leaf).DrawsDetail, Is.False, "as in the plain selection");
+                }
             }
 
             // Detail is kept inside the margin, and ResetHysteresis forgets it.

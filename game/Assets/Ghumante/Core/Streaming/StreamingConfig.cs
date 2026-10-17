@@ -73,17 +73,17 @@ namespace Ghumante.Core.Streaming
         /// (450 / 500 / 900 m) of the focus rather than across the whole near ring. The radius is the lead a rider gets:
         /// a dense tile takes 3 to 4.5 s to build on this desktop, about four times that on a Low or Mid phone (up to
         /// 18 s), so at 50 km/h the next tile must be asked for 250 m and more before its streets come within the B1
-        /// radius (120 / 200 / 250 m, where the full road kit and the B1 houses are drawn). Low's radius was 100 m until
-        /// the playtest-fix pass, and a rider entered a terrain-only tile whose roads and houses popped in seconds later;
-        /// it was 350 m until the first Unity playtest, when the heavier merged builds (4.3 s for the Asan tile) let the
-        /// rider reach a street of Asan 91 m away before its tile showed (StreamingRideTests rides Thamel, Asan and New
-        /// Road at 50 km/h, switches every road block as the streamer does and checks that none appears or vanishes
-        /// within the B1 radius). Below 500 m, hysteresis included, at most four detail tiles are resident at once (a
-        /// 1 km tile corner), so the larger radius does not raise the worst case that the budgets below hold. Measured on the sample's densest
-        /// tiles (StreamingConfigTests, radii stretched by the hysteresis margin; roads at their full kit, B1 for every
-        /// house), whole selections hold at most about 0.79 M / 1.10 M / 1.71 M triangles (56 / 77 / 121 MB of meshes,
-        /// both road copies included); the streamer draws only a fraction of that (the W2 bands, the road blocks and
-        /// the view: StreamingViewBudgetTests).
+        /// radius (120 / 200 / 250 m, where the full road kit and the B1 houses are drawn). Low's radius was 100 m in the
+        /// build of the first Unity playtest, and a rider entered a terrain-only tile whose roads and houses popped in
+        /// seconds later; 350 m, tried first in the perf pass, still let the rider reach a street of Asan 85 m away before
+        /// its tile showed once the merged builds got heavier (4.3 s for the Asan tile). StreamingRideTests rides Thamel,
+        /// Asan and New Road at 50 km/h, switches every road block as the streamer does and checks that none appears or
+        /// vanishes within the B1 radius. Below 500 m, hysteresis included, at most four detail tiles are resident at
+        /// once (a 1 km tile corner), so the larger radius does not raise the worst case that the budgets below hold.
+        /// Measured on the sample's densest tiles (StreamingConfigTests, radii stretched by the hysteresis margin; roads
+        /// at their full kit, B1 for every house), whole selections hold at most about 0.79 M / 1.10 M / 1.71 M
+        /// triangles (56 / 77 / 121 MB of meshes, both road copies included); the streamer draws only a fraction of
+        /// that (the W2 bands, the road blocks and the view: StreamingViewBudgetTests).
         /// </para>
         /// MaxResidentTiles is about 1.25 to 1.3 times the worst-case selection with the hysteresis margin
         /// (120 / 209 / 334 nodes).

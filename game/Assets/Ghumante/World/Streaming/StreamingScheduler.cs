@@ -108,6 +108,11 @@ namespace Ghumante.World.Streaming
         /// <summary>Of <see cref="ResolveMs"/>: milliseconds spent adding areas to and removing them from the ground query.</summary>
         public double GroundMs;
 
+        /// <summary>Main-thread milliseconds of the whole last tick (selection, collection, uploads, swap rule, dispatch):
+        /// what it took of the frame's streaming budget (<see cref="StreamingScheduler.UploadBudgetMs"/>), so a caller that
+        /// uploads after it (the B0 cells) knows what is left.</summary>
+        public double TickMs;
+
         public double WorstUploadMs;
 
         /// <summary>Worker milliseconds of the last finished build.</summary>
@@ -141,7 +146,8 @@ namespace Ghumante.World.Streaming
     /// <see cref="StreamingConfig.CacheBudgetBytes"/>);</item>
     /// <item>uploads finished builds chunk by chunk (<see cref="TileBuild.Chunks"/>, at most
     /// <see cref="TileBuild.UploadChunkVertices"/> vertices and <see cref="TileBuild.UploadChunkBytes"/> bytes each)
-    /// through the <see cref="ITileSink"/> until <see cref="UploadBudgetMs"/> is spent or the next chunk would exceed
+    /// through the <see cref="ITileSink"/> until <see cref="UploadBudgetMs"/> is spent (counted from the start of the
+    /// tick, the selection and collection included) or the next chunk would exceed
     /// <see cref="UploadBudgetBytes"/> less the bytes other uploaders reserved in the frame
     /// (<see cref="Tick(double, double, long)"/>; a chunk bigger than a whole frame goes alone after
     /// <see cref="MaxHeldTicks"/>, so streaming never stalls);</item>
@@ -254,7 +260,11 @@ namespace Ghumante.World.Streaming
         /// <summary>Finished builds allowed to wait for upload; dispatch pauses beyond it (bounds build memory).</summary>
         public int MaxPendingUploads = 2;
 
-        /// <summary>Main-thread milliseconds per tick for mesh uploads (2 ms at 30 fps, 1.5 ms at 60 fps).</summary>
+        /// <summary>Main-thread milliseconds per tick for streaming (2 ms at 30 fps, 1.5 ms at 60 fps; W2_DESIGN 10.4's
+        /// streaming upload line). The tick's own work before the uploads (the selection, collecting finished builds)
+        /// counts against it: no chunk after the first starts once the tick has run this long, so a frame that reselects
+        /// (0.8 to 1 ms of a Low phone every 4 m) uploads less instead of adding the selection on top of a full budget of
+        /// chunks (perf pass, owner playtest #4 "stutters").</summary>
         public double UploadBudgetMs = 2.0;
 
         /// <summary>Mesh bytes per frame: a chunk starts only while the frame's bytes including it stay within this (the
@@ -451,7 +461,7 @@ namespace Ghumante.World.Streaming
             }
             _stats.CollectMs = _clockMs() - t1;
 
-            Upload(reservedBytes > 0 ? reservedBytes : 0);
+            Upload(reservedBytes > 0 ? reservedBytes : 0, t0);
             double t2 = _clockMs();
             _stats.ResolveMs = 0;
             _stats.GroundMs = 0;
@@ -466,7 +476,9 @@ namespace Ghumante.World.Streaming
             double t3 = _clockMs();
             Dispatch();
             UpdateStats();
-            _stats.DispatchMs = _clockMs() - t3;
+            double t4 = _clockMs();
+            _stats.DispatchMs = t4 - t3;
+            _stats.TickMs = t4 - t0;
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -523,9 +535,10 @@ namespace Ghumante.World.Streaming
         }
 
         /// <summary>Whether the next chunk (<paramref name="chunkBytes"/>) may start in this tick: within the frame's bytes
-        /// (<see cref="UploadBudgetBytes"/> less <paramref name="reserved"/>) and, after the first, within the time budget;
-        /// a first chunk that does not fit is held (<see cref="MaxHeldTicks"/>).</summary>
-        private bool MayUpload(long chunkBytes, bool uploaded, long bytes, long reserved, double start)
+        /// (<see cref="UploadBudgetBytes"/> less <paramref name="reserved"/>) and, after the first, within the time budget
+        /// counted from <paramref name="tickStart"/> (the tick's own work included); a first chunk that does not fit is held
+        /// (<see cref="MaxHeldTicks"/>).</summary>
+        private bool MayUpload(long chunkBytes, bool uploaded, long bytes, long reserved, double tickStart)
         {
             if (!uploaded)
             {
@@ -533,10 +546,12 @@ namespace Ghumante.World.Streaming
                 _held = true;
                 return false;
             }
-            return reserved + bytes + chunkBytes <= UploadBudgetBytes && _clockMs() - start < UploadBudgetMs;
+            return reserved + bytes + chunkBytes <= UploadBudgetBytes && _clockMs() - tickStart < UploadBudgetMs;
         }
 
-        private void Upload(long reserved)
+        /// <summary>Uploads chunks within the frame's bytes (less <paramref name="reserved"/>) and the time left of the tick
+        /// that started at <paramref name="tickStart"/>.</summary>
+        private void Upload(long reserved, double tickStart)
         {
             double start = _clockMs();
             bool uploaded = false;
@@ -548,7 +563,7 @@ namespace Ghumante.World.Streaming
                 TileBuild b = _uploads[0];
                 if (b.RefreshMask != 0)
                 {
-                    int step = UploadRefresh(b, uploaded, bytes, reserved, start);
+                    int step = UploadRefresh(b, uploaded, bytes, reserved, tickStart);
                     if (step < 0) break;
                     if (step > 0)
                     {
@@ -576,7 +591,7 @@ namespace Ghumante.World.Streaming
                 }
                 if (b.NextChunk < b.Chunks.Count)
                 {
-                    if (!MayUpload(b.ChunkBytes(b.NextChunk), uploaded, bytes, reserved, start)) break;
+                    if (!MayUpload(b.ChunkBytes(b.NextChunk), uploaded, bytes, reserved, tickStart)) break;
                     try
                     {
                         _sink.Upload(b, b.NextChunk);
@@ -659,7 +674,7 @@ namespace Ghumante.World.Streaming
 
         /// <summary>One step of a refresh build's upload: -1 = the tick's budget is spent (stop), 1 = a chunk was staged,
         /// 0 = the build was committed or dropped (nothing uploaded).</summary>
-        private int UploadRefresh(TileBuild b, bool uploaded, long bytes, long reserved, double start)
+        private int UploadRefresh(TileBuild b, bool uploaded, long bytes, long reserved, double tickStart)
         {
             Content rc;
             if (!_content.TryGetValue(b.Node, out rc) || !rc.HasView || _refreshSink == null)
@@ -671,7 +686,7 @@ namespace Ghumante.World.Streaming
             }
             if (b.NextChunk < b.Chunks.Count)
             {
-                if (!MayUpload(b.ChunkBytes(b.NextChunk), uploaded, bytes, reserved, start)) return -1;
+                if (!MayUpload(b.ChunkBytes(b.NextChunk), uploaded, bytes, reserved, tickStart)) return -1;
                 try
                 {
                     _refreshSink.UploadRefresh(b, b.NextChunk);

@@ -620,6 +620,9 @@ namespace Ghumante.Core.Tests
             public int GapFrames;
             public string FirstGap, WorstFrame, WorstAllocFrame;
 
+            /// <summary>The frame of <see cref="WorstMainMs"/>, phase by phase.</summary>
+            public string WorstMainFrame;
+
             /// <summary>The road blocks over the ride (<see cref="RoadBlockWatch"/>): the nearest block whose road appeared
             /// or disappeared (m from the rider), how many did so inside the far radius, the frames x blocks within the
             /// near radius without their full kit, and the most blocks drawn at once with each copy.</summary>
@@ -650,6 +653,55 @@ namespace Ghumante.Core.Tests
             /// frame a GC paused), the shown-tile handlers left on the main thread (ms), and the bytes uploaded.</summary>
             public readonly List<float> FrameAlong = new List<float>(), FrameWorkMs = new List<float>(), FrameHandlerMs = new List<float>();
             public readonly List<long> FrameBytes = new List<long>();
+
+            /// <summary>Per frame: chunks uploaded and whether the selection ran (with <see cref="FrameBytes"/>, what a
+            /// frame did, to pair the frames of two rides that did the same work, <see cref="Merge"/>).</summary>
+            public readonly List<int> FrameChunks = new List<int>();
+
+            public readonly List<bool> FrameSelected = new List<bool>();
+
+            /// <summary>Frames of the two rides of a <see cref="Merge"/> that did different work (taken at their worse
+            /// time), and the worst merged frame.</summary>
+            public int UnpairedFrames;
+
+            public string WorstMergedFrame;
+
+            /// <summary>
+            /// The timing of two runs of the same ride, frame by frame: a frame that did the same work in both (the same
+            /// chunks and bytes, the selection or not) counts at the faster of its two times, so a frame that another
+            /// process on this shared 4-core machine slowed down (its caches flushed, its core shared) does not decide the
+            /// worst frame unless it was slow both times; a frame that did different work counts at the slower. Every
+            /// other figure is <paramref name="a"/>'s. Both rides are deterministic (virtual build times, the same route,
+            /// uploads limited by bytes only), so every frame pairs.
+            /// </summary>
+            public static RideResult Merge(RideResult a, RideResult b)
+            {
+                Assert.That(b.Frames, Is.EqualTo(a.Frames), "the same ride twice");
+                a.WorstWorkMs = a.WorstMainMs = 0;
+                a.UnpairedFrames = 0;
+                var work = new List<double>();
+                for (int i = 0; i < a.FrameWorkMs.Count; i++)
+                {
+                    bool paired = a.FrameBytes[i] == b.FrameBytes[i] && a.FrameChunks[i] == b.FrameChunks[i] && a.FrameSelected[i] == b.FrameSelected[i];
+                    if (!paired) a.UnpairedFrames++;
+                    float wa = a.FrameWorkMs[i], wb = b.FrameWorkMs[i]; // -1: a GC paused that frame
+                    float w = wa < 0 ? wb : wb < 0 ? wa : paired ? Math.Min(wa, wb) : Math.Max(wa, wb);
+                    float h = paired ? Math.Min(a.FrameHandlerMs[i], b.FrameHandlerMs[i]) : Math.Max(a.FrameHandlerMs[i], b.FrameHandlerMs[i]);
+                    a.FrameWorkMs[i] = w;
+                    a.FrameHandlerMs[i] = h;
+                    if (w < 0) continue;
+                    work.Add(w);
+                    if (w > a.WorstWorkMs)
+                        a.WorstMergedFrame = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "frame {0} at {1:0} m: {2:0.00} ms (runs {3:0.00} and {4:0.00}; {5} chunks, {6} B{7})",
+                            i, a.FrameAlong[i], w, wa, wb, a.FrameChunks[i], a.FrameBytes[i], a.FrameSelected[i] ? ", selection" : "");
+                    a.WorstWorkMs = Math.Max(a.WorstWorkMs, w);
+                    a.WorstMainMs = Math.Max(a.WorstMainMs, w + h);
+                }
+                work.Sort();
+                a.P999WorkMs = work.Count > 0 ? work[(int)(0.999 * (work.Count - 1))] : 0;
+                return a;
+            }
 
             public string Line()
             {
@@ -715,7 +767,12 @@ namespace Ghumante.Core.Tests
             using (var s = new StreamingScheduler(StreamingSampleRegion.Pack, cfg, selector, ground, sink, workers,
                                                   ThreadClock.Ms, meshing))
             {
-                s.UploadBudgetMs = fps >= 50 ? 1.5 : 2.0;
+                // Only the frame's bytes (1 MiB) limit the uploads here, not the scheduler's clock: this desktop never
+                // spends the 2 ms in a tick except when another process slows a frame down, and a frame cut short that way
+                // would make the two runs of RideResult.Merge do different work from then on. The frame work measured is
+                // therefore what a phone would do if its time budget never bound (it binds earlier there, so this is the
+                // worse case); the time budget itself is StreamingFrameBudgetTests.TheTicksOwnWorkCountsAgainstTheUploadTime.
+                s.UploadBudgetMs = 1e9;
                 // Arrival: settle at the start (the loading screen), unmeasured.
                 double t = 0;
                 sink.NowX = pts[0][0];
@@ -749,6 +806,7 @@ namespace Ghumante.Core.Tests
                     sink.NowZ = z;
                     int gc = GC.CollectionCount(0) + GC.CollectionCount(1) + GC.CollectionCount(2);
                     long alloc0 = GC.GetAllocatedBytesForCurrentThread();
+                    int selections0 = s.Stats.Selections;
                     double t0 = ThreadClock.Ms();
                     s.Tick(x, z);
                     double tick = ThreadClock.Ms() - t0;
@@ -789,10 +847,18 @@ namespace Ghumante.Core.Tests
                     r.FrameWorkMs.Add(collected ? -1f : (float)(sched + sink.CopyMs));
                     r.FrameHandlerMs.Add((float)sink.MainMs);
                     r.FrameBytes.Add(sink.FrameBytes);
+                    r.FrameChunks.Add(sink.FrameChunks);
+                    r.FrameSelected.Add(s.Stats.Selections != selections0);
                     if (!collected)
                     {
                         workMs.Add(sched + sink.CopyMs);
                         r.WorstWorkMs = Math.Max(r.WorstWorkMs, sched + sink.CopyMs);
+                        if (sched + sink.CopyMs + sink.MainMs > r.WorstMainMs)
+                            r.WorstMainFrame = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "frame {0} at {1:0} m: {2:0.00} ms = scheduler {3:0.00} (select {4:0.00}, collect {5:0.00}, resolve {6:0.00} less handlers, dispatch {7:0.00}) " +
+                                "+ copy {8:0.00} for {9} chunks + handlers left on the main thread {10:0.00} (zones {11:0.00}, audio join {12:0.00}, colliders {13:0.00})",
+                                frame, along, sched + sink.CopyMs + sink.MainMs, sched, s.Stats.SelectMs, s.Stats.CollectMs, s.Stats.ResolveMs - handlers,
+                                s.Stats.DispatchMs, sink.CopyMs, sink.FrameChunks, sink.MainMs, sink.ZonesMs, sink.AudioJoinMs, sink.CollidersMs);
                         r.WorstMainMs = Math.Max(r.WorstMainMs, sched + sink.CopyMs + sink.MainMs);
                     }
                     if (sched > r.WorstSchedulerMs)
@@ -906,20 +972,34 @@ namespace Ghumante.Core.Tests
             return times;
         }
 
+        /// <summary>
+        /// Owner playtest #4 ("stutters"): the ride at 50 km/h through Thamel, Asan and New Road, with builds as fast as
+        /// this desktop makes them and as slow as a phone (<see cref="PhoneFactor"/>). Every frame's streaming work on the
+        /// main thread (the scheduler's tick and the upload copy, CPU time of this thread times the tier's
+        /// <see cref="MainThreadFactor"/>) stays within W2_DESIGN 10.4's streaming budget (2 / 2 / 1.5 ms), the worst
+        /// frame included; each ride runs twice and a frame counts at the faster of its two identical runs
+        /// (<see cref="RideResult.Merge"/>), so the machine's other load does not decide. No frame uploads more than
+        /// 1 MiB, every street of the route within the B1 radius is drawn, and no road block appears, vanishes or lacks
+        /// its full kit within the B1 radius.
+        /// </summary>
         [Test]
         public void RideThroughThamelAsanAndNewRoadStaysWithinTheFrameBudget([Values(0, 1, 2)] int tier)
         {
             float nearM = BandConfig.ForTier(tier).B1OuterM;
             RideResult warm;
             Dictionary<string, double> times = TimesFor(tier, out warm); // also compiles every path once (no JIT below)
-            RideResult instant = Ride(tier, 0, new Dictionary<string, double>(), nearM);
+            // The warm-up ride is the same instant ride (its JIT frames lose to the second run's).
+            RideResult instant = RideResult.Merge(Ride(tier, 0, new Dictionary<string, double>(), nearM), warm);
             TestContext.WriteLine("instant builds: " + instant.Line());
-            TestContext.WriteLine("  worst frame: " + instant.WorstFrame);
+            TestContext.WriteLine("  worst frame (of the two runs): " + instant.WorstMergedFrame + "; " + instant.UnpairedFrames + " unpaired frames");
             TestContext.WriteLine("  " + instant.RoadLine());
-            RideResult phone = Ride(tier, PhoneFactor, times, nearM);
+            RideResult first = Ride(tier, PhoneFactor, times, nearM);
+            TestContext.WriteLine("phone builds, first run: worst frame " + first.WorstFrame);
+            TestContext.WriteLine("  worst frame with the handlers: " + first.WorstMainFrame);
+            TestContext.WriteLine("  most allocated: " + first.WorstAllocFrame);
+            RideResult phone = RideResult.Merge(first, Ride(tier, PhoneFactor, times, nearM));
             TestContext.WriteLine("phone builds:   " + phone.Line());
-            TestContext.WriteLine("  worst frame: " + phone.WorstFrame);
-            TestContext.WriteLine("  most allocated: " + phone.WorstAllocFrame);
+            TestContext.WriteLine("  worst frame (of the two runs): " + phone.WorstMergedFrame + "; " + phone.UnpairedFrames + " unpaired frames");
             TestContext.WriteLine("  " + phone.RoadLine());
             TestContext.WriteLine("  detail tiles:\n    " + string.Join("\n    ", phone.Timeline));
             double budgetMs = tier == StreamingConfig.TierHigh ? 1.5 : 2.0; // W2_DESIGN 10.4: streaming upload per frame
@@ -928,8 +1008,9 @@ namespace Ghumante.Core.Tests
                 Assert.That(r.WorstBytes, Is.LessThanOrEqualTo(1L << 20), "a frame uploads at most 1 MiB of tile meshes");
                 Assert.That(r.P999WorkMs * MainThreadFactor[tier], Is.LessThanOrEqualTo(budgetMs),
                             "the worst frames' streaming work (scheduler and upload copy, CPU ms of this thread) on the tier's phones");
-                Assert.That(r.WorstWorkMs * MainThreadFactor[tier], Is.LessThanOrEqualTo(budgetMs * 1.5),
-                            "no single frame far over it either");
+                Assert.That(r.WorstWorkMs * MainThreadFactor[tier], Is.LessThanOrEqualTo(budgetMs),
+                            "the worst frame's streaming work on the tier's phones: " + r.WorstMergedFrame);
+                Assert.That(r.UnpairedFrames, Is.EqualTo(0), "the two runs did the same work frame by frame");
                 Assert.That(r.NearestGapM, Is.GreaterThan(nearM), "every street of the route within the B1 radius (" + nearM + " m) is drawn");
                 Assert.That(r.NearestRoadPopInM, Is.GreaterThan(nearM), "no road block appears within the B1 radius: " + r.FirstRoadPopIn);
                 Assert.That(r.NearestRoadVanishM, Is.GreaterThan(nearM), "no road block disappears within the B1 radius: " + r.FirstRoadVanish);
@@ -958,7 +1039,7 @@ namespace Ghumante.Core.Tests
         /// <summary>
         /// Visual self-check (GHUMANTE_PREVIEW_DIR): the ride with phone-slow builds, and the roads exactly as the game
         /// draws them at five points of the route (<see cref="RoadBlockWatch.Snapshot"/>): every block's full kit and its
-        /// markings as built, the cheap far copy tinted orange, the terrain of the detail tiles, a red post at the rider
+        /// markings as built, the cheap far copy tinted blue, the terrain of the detail tiles, a red post at the rider
         /// and white rings at the near (B1) and far road radii (<c>rider.obj</c>, for the top view), in metres from the rider (<c>perf-roads/ride_&lt;tier&gt;/at_&lt;m&gt;.obj</c>);
         /// plus <c>perf-roads/ride_&lt;tier&gt;_frames.csv</c>, the per-frame streaming work and bytes for the charts.
         /// </summary>
@@ -972,8 +1053,9 @@ namespace Ghumante.Core.Tests
             Dictionary<string, double> times = TimesFor(tier, out warm);
             double length = warm.LengthM;
             var snaps = new List<RideSnapshot>();
-            RideResult phone = Ride(tier, PhoneFactor, times, nearM, null,
-                                    SnapshotTaker(new[] { 0.08 * length, 0.3 * length, 0.5 * length, 0.7 * length, 0.92 * length }, snaps));
+            RideResult phone = RideResult.Merge(Ride(tier, PhoneFactor, times, nearM, null,
+                                                     SnapshotTaker(new[] { 0.08 * length, 0.3 * length, 0.5 * length, 0.7 * length, 0.92 * length }, snaps)),
+                                                Ride(tier, PhoneFactor, times, nearM)); // the frame chart: the faster of two identical runs
             TestContext.WriteLine(phone.Line());
             TestContext.WriteLine("  worst frame: " + phone.WorstFrame);
             TestContext.WriteLine(phone.RoadLine());
@@ -993,8 +1075,9 @@ namespace Ghumante.Core.Tests
 
         /// <summary>
         /// Visual self-check of the pop-in fix (GHUMANTE_PREVIEW_DIR): the Low ride with every detail build as slow as in
-        /// <see cref="EvenSlowBuildsNeverLetARoadBlockPopInNearTheRider"/>, with the detail radius Low had at the first Unity
-        /// playtest (350 m) and now (450 m), snapshotted at the same point of the route, 280 m from Thamel Chowk, where with
+        /// <see cref="EvenSlowBuildsNeverLetARoadBlockPopInNearTheRider"/>, with the detail radius first tried in the perf
+        /// pass (350 m; the build of the first Unity playtest had 100 m) and now (450 m), snapshotted at the same point of
+        /// the route, 280 m from Thamel Chowk, where with
         /// 350 m the Asan tile's streets are still missing around the rider (<c>perf-roads/late_tile/r350</c> and
         /// <c>r450</c>).
         /// </summary>
@@ -1050,7 +1133,7 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>Writes one snapshot under <paramref name="dir"/>: roads.obj (every block's full kit as built, the cheap
-        /// copy tinted orange), decals.obj, terrain.obj (the detail tiles' terrain within the far radius) and rider.obj
+        /// copy tinted blue), decals.obj, terrain.obj (the detail tiles' terrain within the far radius) and rider.obj
         /// (a red post at the rider, white rings at the near and far road radii), in metres from the rider, with a chase
         /// eye 14 m behind and 7 m above, looking 60 m ahead. Returns the description line.</summary>
         internal static string WriteSnapshot(string dir, string title, int tier, RideSnapshot snap, float nearM, float farM)
@@ -1095,11 +1178,11 @@ namespace Ghumante.Core.Tests
                 {
                     cheap++;
                     MeshData far = StreamingScene.Layer(b, TileLayers.Roads, q => q == RoadBlocks.FarPart + block);
-                    for (int v = 0; v < far.VertexCount; v++)
+                    for (int v = 0; v < far.VertexCount; v++) // blue: no road surface is (brick paving reads orange)
                     {
-                        far.Colors[4 * v] = (byte)Math.Min(255, far.Colors[4 * v] / 2 + 130);
-                        far.Colors[4 * v + 1] = (byte)(far.Colors[4 * v + 1] / 2 + 40);
-                        far.Colors[4 * v + 2] = (byte)(far.Colors[4 * v + 2] / 3);
+                        far.Colors[4 * v] = (byte)(far.Colors[4 * v] / 4);
+                        far.Colors[4 * v + 1] = (byte)(far.Colors[4 * v + 1] / 3 + 60);
+                        far.Colors[4 * v + 2] = (byte)Math.Min(255, far.Colors[4 * v + 2] / 3 + 170);
                     }
                     ObjDump.Append(roads, far, dx, 0, dz);
                 }
@@ -1181,8 +1264,9 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
-        /// The repro of the pop-in, kept as a guard on the reasoning behind Low's detail radius: with the radius it had
-        /// until the playtest-fix pass (100 m) or until the first Unity playtest (350 m) and builds as slow as in
+        /// The repro of the pop-in, kept as a guard on the reasoning behind Low's detail radius: with the radius of the
+        /// build the owner played at the first Unity playtest (100 m), or the 350 m tried first in the perf pass, and
+        /// builds as slow as in
         /// <see cref="EvenSlowBuildsNeverLetARoadBlockPopInNearTheRider"/>, the rider reaches streets whose tile still
         /// draws terrain only (no roads, no houses) inside the B1 radius, and their road blocks pop in around the rider.
         /// If this ever stops failing, builds got fast enough to revisit <see cref="StreamingConfig.DetailRadiusM"/> on Low.
