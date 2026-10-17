@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
+using Ghumante.Core.Generators.Placement;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Roads;
 
@@ -381,6 +382,10 @@ namespace Ghumante.Core.Driving
             foreach (PropRecord p in t.Props)
             {
                 if (p.Has(PropFlags.OnRoad)) continue;
+                // Street props are solid where PropPlacement draws them (off the carriageways, signals at the corners),
+                // through the tile's dressing colliders (StreetPropColliders), not at their mapped points.
+                StreetPropKind placed;
+                if (PropPlacement.KindOf(p.Kind, out placed)) continue;
                 float r, height;
                 bool cam;
                 PropSize(p.Kind, out r, out height, out cam);

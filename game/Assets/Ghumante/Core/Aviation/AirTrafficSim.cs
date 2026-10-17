@@ -44,6 +44,23 @@ namespace Ghumante.Core.Aviation
         /// <summary>Keep the movement log (tests, debug); off in the game to avoid growth.</summary>
         public bool KeepLog;
 
+        private volatile bool _holdForPlayer;
+
+        /// <summary>
+        /// The player is taxiing, taking off or landing (flight package, docs/research/w2/ref_flight.md §7): no ambient
+        /// aircraft enters the runway. Departures hold short at the end of their taxi, arrivals not yet airborne wait,
+        /// and arrivals still more than <see cref="GoAroundM"/> from touchdown go around (climb out along the runway and
+        /// leave); whatever is already rolling finishes. Thread-safe to set from the main thread.
+        /// </summary>
+        public bool HoldRunwayForPlayer
+        {
+            get { return _holdForPlayer; }
+            set { _holdForPlayer = value; }
+        }
+
+        /// <summary>Arrivals closer than this to touchdown when the runway is held land anyway (they cannot stop).</summary>
+        public const float GoAroundM = 1500f;
+
         private struct Pending
         {
             public double SpawnAt;
@@ -66,6 +83,8 @@ namespace Ghumante.Core.Aviation
             public float Vapp, Vrot, Roll, TakeoffRoll;
             public bool Done;
             public float AirborneT;
+            public bool GoAround;
+            public float GoAroundY;
         }
 
         public AirTrafficSim(AviationConfig c, ulong regionSeed)
@@ -407,6 +426,7 @@ namespace Ghumante.Core.Aviation
             {
                 Pending p = _pending[i];
                 if (p.SpawnAt > _clock) continue;
+                if (_holdForPlayer && p.M.Arrival && p.M.Aircraft != AircraftClass.Helicopter) continue; // waits for the runway
                 _pending.RemoveAt(i);
                 i--;
                 Start(p.M);
@@ -482,6 +502,21 @@ namespace Ghumante.Core.Aviation
                 case FlightPhase.Approach:
                 {
                     f.Speed = SpeedOnPath(f.Path, f.S, f.Vapp, true, f.Heli);
+                    if (!f.Heli && !f.GoAround && _holdForPlayer && f.Path.Length - f.S > GoAroundM)
+                    {
+                        // The player has the runway: climb away and leave (a harmless, very TIA sight).
+                        f.GoAround = true;
+                        f.GoAroundY = f.Y;
+                    }
+                    if (f.GoAround)
+                    {
+                        f.Speed = Math.Max(f.Speed, f.Vapp * 1.2f);
+                        f.S += f.Speed * dt;
+                        f.GoAroundY += 0.06f * f.Speed * dt;
+                        f.Gear = Math.Max(0f, f.Gear - dt / 8f);
+                        if (f.S >= f.Path.Length + 8000f) f.Done = true;
+                        break;
+                    }
                     f.S += f.Speed * dt;
                     float rem = f.Path.Length - f.S;
                     if (!f.Heli && rem < 12000f) f.Gear = Math.Min(1f, f.Gear + dt / 8f);
@@ -529,6 +564,13 @@ namespace Ghumante.Core.Aviation
                 {
                     f.Speed = f.Phase == FlightPhase.Backtrack ? BacktrackMps : TaxiMps;
                     f.GroundS += f.Speed * dt;
+                    if (f.Phase == FlightPhase.TaxiOut && _holdForPlayer && f.GroundS >= f.GroundLen)
+                    {
+                        // Holding short of the runway while the player has it.
+                        f.GroundS = f.GroundLen;
+                        f.Speed = 0f;
+                        break;
+                    }
                     if (f.GroundS >= f.GroundLen)
                     {
                         if (f.Phase == FlightPhase.TaxiIn)
@@ -646,13 +688,27 @@ namespace Ghumante.Core.Aviation
                 {
                     double x, z;
                     float y, h, g;
+                    if (f.GoAround && f.S > f.Path.Length)
+                    {
+                        // Beyond the threshold: straight on along the runway heading, still climbing.
+                        f.Path.At(f.Path.Length, out x, out z, out y, out h, out g);
+                        double beyond = f.S - f.Path.Length;
+                        x += Math.Sin(h) * beyond;
+                        z += Math.Cos(h) * beyond;
+                        f.X = x;
+                        f.Z = z;
+                        f.Y = Math.Max(y, f.GoAroundY);
+                        heading = h;
+                        pitch = 6f * (float)(Math.PI / 180.0);
+                        break;
+                    }
                     f.Path.At(f.S, out x, out z, out y, out h, out g);
                     f.X = x;
                     f.Z = z;
-                    f.Y = y;
+                    f.Y = f.GoAround ? Math.Max(y, f.GoAroundY) : y;
                     heading = h;
-                    pitch = (float)Math.Atan(g);
-                    if (f.Phase == FlightPhase.Approach && !f.Heli && f.Path.Length - f.S < 300f) pitch += 3f * (float)(Math.PI / 180.0); // flare
+                    pitch = f.GoAround ? 6f * (float)(Math.PI / 180.0) : (float)Math.Atan(g);
+                    if (f.Phase == FlightPhase.Approach && !f.Heli && !f.GoAround && f.Path.Length - f.S < 300f) pitch += 3f * (float)(Math.PI / 180.0); // flare
                     break;
                 }
                 case FlightPhase.Hover:

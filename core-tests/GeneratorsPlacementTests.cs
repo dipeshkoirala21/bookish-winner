@@ -472,8 +472,14 @@ namespace Ghumante.Core.Tests
                 var props = new List<StreetProp>();
                 Assert.That(PropPlacement.Place(t, h, props), Is.EqualTo(props.Count));
                 var mask = new PlacementMask(t);
-                int expected = t.Props.Count(p => { StreetPropKind k; return PropPlacement.KindOf(p.Kind, out k); });
-                Assert.That(props.Count(p => p.Osm), Is.EqualTo(expected), id + ": every mappable OSM object");
+                // Every mappable OSM object, except that mapped signals become one mast-arm signal per approach of
+                // their junction (props package, playtest #7), a gate too narrow for its drawn road is not drawn, and
+                // road furniture with no free spot off the drawn carriageway within 10 m (a lamp mapped on a galli
+                // junction where the houses meet the lane) is not drawn either: at most 1 % of the tile's objects.
+                int expected = t.Props.Count(p => { StreetPropKind k; return PropPlacement.KindOf(p.Kind, out k) && k != StreetPropKind.TrafficSignal; });
+                int gates = t.Props.Count(p => p.Kind == ObjectKind.Gate);
+                Assert.That(props.Count(p => p.Osm && !Ghumante.Core.Generators.Props.StreetPropMesher.IsSignal(p.Kind)),
+                            Is.InRange(expected - gates - Math.Max(1, expected / 100), expected), id + ": every mappable OSM object");
                 foreach (StreetProp p in props)
                 {
                     if (p.Osm)
