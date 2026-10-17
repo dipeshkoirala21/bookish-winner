@@ -142,7 +142,26 @@ saved as `player.appearance` and `player.garage` and come back next time.
    stand in Koteshwor under the approach to runway 02.
 2. From 06:00 to midnight game time a movement comes every few real minutes: ATRs and jets descend over Koteshwor at
    50-100 m, touch down and roll out towards you; departures climb out over Boudha; helicopters lift off the domestic
-   apron. Use the debug slider (top right) or **T** to run time faster. Airside is fenced and not drivable.
+   apron. Use the debug slider (top right) or **T** to run time faster. Cars cannot drive airside; walk in.
+
+**6. Fly a plane or a helicopter from TIA**
+
+1. Teleport to **Tribhuvan International Airport** and walk onto the domestic apron. 11 aircraft stand at their real
+   stands: STOL planes, turboprops and a commuter at domestic stands D1-D7, two helicopters at D16 and D17, a
+   turboprop in front of international gate 10, and the charter helicopter on its helipad west of threshold 02 (outside
+   the sample; drawn only when that ground is loaded).
+2. Walk up to one (within 3.5 m); the prompt says **Board** and **E** (or the Action button) takes the pilot's seat.
+3. Keys: **W / S** nose down / up, **A / D** roll, **Q / E** rudder and nose-wheel steering, **Shift / Ctrl** throttle
+   up / down (the lever stays where you put it), **F / V** flaps down / up, **Space** brakes, **C** chase or cockpit
+   view. Gamepad: left stick, triggers for throttle, shoulders for rudder, D-pad for flaps. Touch: a flight stick on
+   the left, a throttle slider on the right edge, Brake, Flaps, Left / Right rudder, View and Get out. Helicopters:
+   **W / S** tilt, **A / D** sideways, **Q / E** turn, **Shift / Ctrl** lift (touch: stick to tilt, slider to lift).
+4. Take off: full power, roll down the runway and pull up gently at the speed the HUD shows. The strip under the top
+   bar shows airspeed, height, climb, heading, power, flaps and wheels; "Too slow!" warns of a stall.
+5. Nothing crashes: touching a hill, water, a building or the ground too hard gives a cartoon bounce, then the aircraft
+   is put back at the nearest runway end or safely in the air heading for the airport. Near the region's edge it banks
+   back by itself. While you fly at or near the airport, its traffic holds short or goes around.
+6. Get out: stop on the ground, then hold **E** (or Get out). The aircraft stays parked where you left it.
 
 **Portrait, landscape and touch (Device Simulator)**: **Window → General → Device Simulator**, pick an iPhone 15 or a
 Pixel and press Play. Mouse clicks act as touches:
