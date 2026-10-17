@@ -104,11 +104,11 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>The road layer as the streamer shows it for a camera at tile-local (x, z) (<see cref="RoadBlocks"/>): the
-        /// full kit of the blocks within the B1 radius, the cheap far copy of the others out to the B2 radius.</summary>
+        /// full kit of the blocks within the B1 radius, the cheap far copy of the others out to the tier's far radius.</summary>
         public static MeshData Roads(TileBuild b, int tier, double camX, double camZ)
         {
             float nearM, farM;
-            RoadBlocks.Radii(World.Buildings.BandConfig.ForTier(tier), out nearM, out farM);
+            RoadBlocks.Radii(World.Buildings.BandConfig.ForTier(tier), StreamingConfig.ForTier(tier), out nearM, out farM);
             return Layer(b, TileLayers.Roads, p =>
             {
                 double d = BlockDistance(b, p, camX, camZ);
@@ -120,7 +120,7 @@ namespace Ghumante.Core.Tests
         public static MeshData Decals(TileBuild b, int tier, double camX, double camZ)
         {
             float nearM, farM;
-            RoadBlocks.Radii(World.Buildings.BandConfig.ForTier(tier), out nearM, out farM);
+            RoadBlocks.Radii(World.Buildings.BandConfig.ForTier(tier), StreamingConfig.ForTier(tier), out nearM, out farM);
             return Layer(b, TileLayers.RoadDecals, p => BlockDistance(b, p, camX, camZ) <= nearM);
         }
 

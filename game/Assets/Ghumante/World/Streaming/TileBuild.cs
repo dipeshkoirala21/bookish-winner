@@ -680,6 +680,9 @@ namespace Ghumante.World.Streaming
                 TerrainMesher.Build(src, area, terrain, b.Layers[TileLayers.Terrain]);
             }
             b.Sampler = TileHeightSampler.ForArea(src, area, step);
+            // The paved areas the ground query indexes when an exact area joins it, indexed here rather than on the main
+            // thread in the frame the tile shows (perf pass).
+            if (ground != null && only == 0 && n.IsExact && b.Sampler.HasHeights) TileGroundQuery.PreparePaving(src);
 
             if (detail && b.Sampler.HasHeights)
             {
@@ -1365,8 +1368,8 @@ namespace Ghumante.World.Streaming
     /// layer holds two copies of every block: the full kit (part = block) and a cheap ribbon copy (part =
     /// <see cref="FarPart"/> + block, meshed with <see cref="FarOptions"/>: the light kit, no trails, no footpaths). The streamer
     /// (<c>WorldStreamer.UpdateBands</c>) shows a block's full copy and its markings while the block lies within the B1
-    /// radius (<see cref="Radii"/>: 120 / 200 / 250 m), the cheap copy beyond it out to the B2 radius (350 / 500 / 700 m),
-    /// and no road beyond that, where the B3 city blocks stand over the streets. Roads therefore stay smooth, wide and
+    /// radius (<see cref="Radii"/>: 120 / 200 / 250 m), the cheap copy beyond it out to 250 m on Low and the B2 radius
+    /// on Mid and High (500 / 700 m), and no road beyond that, where the B2 and B3 blocks stand over the streets. Roads therefore stay smooth, wide and
     /// fully detailed around the player, and only what is far or off-screen is cut.
     /// <para>
     /// Triangles crossing a block line are clipped at the line (<see cref="Append"/>), so the full copy of one block and
@@ -1400,12 +1403,14 @@ namespace Ghumante.World.Streaming
 
         /// <summary>The tier's radii (m, horizontal from the camera to the nearest point of a block): the full kit and the
         /// markings within <paramref name="nearM"/> (B1's outer radius), the cheap copy out to <paramref name="farM"/>
-        /// (B2's outer radius).</summary>
-        public static void Radii(BandConfig bands, out float nearM, out float farM)
+        /// (B2's outer radius, or the config's <see cref="StreamingConfig.RoadFarRadiusM"/> when that is nearer: Low's
+        /// 250 m; never inside the near radius).</summary>
+        public static void Radii(BandConfig bands, StreamingConfig config, out float nearM, out float farM)
         {
             if (bands == null) throw new ArgumentNullException(nameof(bands));
             nearM = bands.B1OuterM;
             farM = bands.B2OuterM;
+            if (config != null && config.RoadFarRadiusM > 0) farM = Math.Max(nearM, Math.Min(farM, config.RoadFarRadiusM));
         }
 
         /// <summary>The square of a block (tile-local metres).</summary>
@@ -1424,6 +1429,57 @@ namespace Ghumante.World.Streaming
         public static bool Inside(bool wasInside, double distanceM, float radiusM)
         {
             return distanceM <= (wasInside ? radiusM + HysteresisM : radiusM);
+        }
+
+        /// <summary>Blocks a view tracks in its masks (<see cref="UpdateMasks"/>): a 1 km tile has 8 × 8.</summary>
+        public const int MaxTrackedBlocks = 64;
+
+        /// <summary>
+        /// One frame's road-block rule for a detail view (the streamer's per-frame decision, shared with the ride harness
+        /// so both answer the same): bit k of <paramref name="near"/> is set while block k is within
+        /// <paramref name="nearM"/> of the camera at tile-local (<paramref name="cx"/>, <paramref name="cz"/>) (its full
+        /// road kit and markings show), bit k of <paramref name="far"/> while it is within <paramref name="farM"/> (some
+        /// road shows), each with <see cref="HysteresisM"/> against the masks passed in. Blocks past the 64th, which no
+        /// 1 km tile has, are not tracked (<see cref="BlockIn"/> measures them each time). No allocation.
+        /// </summary>
+        public static void UpdateMasks(double tileSizeM, double cx, double cz, float nearM, float farM, ref ulong near, ref ulong far)
+        {
+            int per = MeshParts.BlocksPerSide(tileSizeM, BlockM);
+            int blocks = Math.Min(per * per, MaxTrackedBlocks);
+            ulong n = 0, f = 0;
+            for (int k = 0; k < blocks; k++)
+            {
+                double x0, z0, x1, z1;
+                Square(k, tileSizeM, out x0, out z0, out x1, out z1);
+                double d = BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz);
+                ulong bit = 1UL << k;
+                if (Inside((near & bit) != 0, d, nearM)) n |= bit;
+                if (Inside((far & bit) != 0, d, farM)) f |= bit;
+            }
+            near = n;
+            far = f;
+        }
+
+        /// <summary>Whether block <paramref name="block"/> is within a radius by the mask <see cref="UpdateMasks"/> keeps
+        /// for it (blocks past <see cref="MaxTrackedBlocks"/> by their distance, without hysteresis).</summary>
+        public static bool BlockIn(ulong mask, int block, double tileSizeM, double cx, double cz, float radiusM)
+        {
+            if (block < MaxTrackedBlocks) return (mask & (1UL << block)) != 0;
+            double x0, z0, x1, z1;
+            Square(block, tileSizeM, out x0, out z0, out x1, out z1);
+            return BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz) <= radiusM;
+        }
+
+        /// <summary>Whether the road chunk of part <paramref name="part"/> shows: the full kit's within the near radius,
+        /// the cheap copy's between the near and the far radius, or the full kit's out to the far radius when the view
+        /// has no cheap copy (<paramref name="hasFarCopy"/> false). Road decals show with their block's full kit
+        /// (<see cref="BlockIn"/> with the near mask).</summary>
+        public static bool PartShown(int part, ulong near, ulong far, bool hasFarCopy, double tileSizeM, double cx, double cz, float nearM, float farM)
+        {
+            int block = BlockOfPart(part);
+            bool isNear = BlockIn(near, block, tileSizeM, cx, cz, nearM);
+            if (IsFar(part)) return !isNear && BlockIn(far, block, tileSizeM, cx, cz, farM);
+            return isNear || !hasFarCopy && BlockIn(far, block, tileSizeM, cx, cz, farM);
         }
 
         /// <summary>The options of the cheap far copy, a ribbon-only copy of <paramref name="near"/>: the light kit

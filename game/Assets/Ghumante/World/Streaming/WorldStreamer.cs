@@ -32,7 +32,7 @@ namespace Ghumante.World.Streaming
     /// </para>
     /// <para>
     /// Perf pass: the road and decal layers come per 128 m block (<see cref="RoadBlocks"/>): a block shows its full road
-    /// kit and its markings within the B1 radius, its cheap ribbon copy out to the B2 radius and no road beyond, so the
+    /// kit and its markings within the B1 radius, its cheap ribbon copy out to the far radius (the B2 radius; 250 m on Low) and no road beyond, so the
     /// camera frustum culls road blocks like band blocks and far streets cost a fraction of the near ones.
     /// </para>
     /// <para>
@@ -87,7 +87,7 @@ namespace Ghumante.World.Streaming
             _b1Full = BandMaterial(materials.bandB1Full, BuildingBandLayer.B1, true);
             _b2 = BandMaterial(materials.bandB2, BuildingBandLayer.B2, false);
             _b3 = BandMaterial(materials.bandB3, BuildingBandLayer.B3, false);
-            RoadBlocks.Radii(_bands, out _roadNearM, out _roadFarM);
+            RoadBlocks.Radii(_bands, config, out _roadNearM, out _roadFarM);
             var go = new GameObject("Tiles");
             _root = go.transform;
             if (parent != null) _root.SetParent(parent, false);
@@ -265,45 +265,26 @@ namespace Ghumante.World.Streaming
         // Road blocks (RoadBlocks): the full kit and the markings within the B1 radius, the cheap copy out to the B2
         // radius, nothing beyond; per 128 m block, with hysteresis kept in the view's block masks.
 
+        // The rules live in RoadBlocks (engine-free), so the ride harness (StreamingRideTests) checks the very decisions
+        // made here: no road block pops in or vanishes near the rider.
+
         private void UpdateRoadBlocks(TileView view, double cx, double cz)
         {
-            double size = view.Node.Area.Size;
-            int per = MeshParts.BlocksPerSide(size, RoadBlocks.BlockM);
-            int blocks = Math.Min(per * per, 64);
-            ulong near = 0, far = 0;
-            for (int k = 0; k < blocks; k++)
-            {
-                double x0, z0, x1, z1;
-                RoadBlocks.Square(k, size, out x0, out z0, out x1, out z1);
-                double d = BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz);
-                ulong bit = 1UL << k;
-                if (RoadBlocks.Inside((view.RoadNear & bit) != 0, d, _roadNearM)) near |= bit;
-                if (RoadBlocks.Inside((view.RoadFar & bit) != 0, d, _roadFarM)) far |= bit;
-            }
-            view.RoadNear = near;
-            view.RoadFar = far;
+            RoadBlocks.UpdateMasks(view.Node.Area.Size, cx, cz, _roadNearM, _roadFarM, ref view.RoadNear, ref view.RoadFar);
         }
 
-        /// <summary>Whether block <paramref name="block"/> of the view is within the near (B1) or the far (B2) radius, from
-        /// the masks <see cref="UpdateRoadBlocks"/> keeps (blocks past the 64th, which no 1 km tile has, without
-        /// hysteresis).</summary>
+        /// <summary>Whether block <paramref name="block"/> of the view is within the near (B1) or the far (B2) radius
+        /// (<see cref="RoadBlocks.BlockIn"/> over the masks <see cref="UpdateRoadBlocks"/> keeps).</summary>
         private bool RoadBlockIn(TileView view, int block, bool nearRadius, double cx, double cz)
         {
-            if (block < 64) return ((nearRadius ? view.RoadNear : view.RoadFar) & (1UL << block)) != 0;
-            double x0, z0, x1, z1;
-            RoadBlocks.Square(block, view.Node.Area.Size, out x0, out z0, out x1, out z1);
-            return BandConfig.NearestDistance(x0, z0, x1, z1, cx, cz) <= (nearRadius ? _roadNearM : _roadFarM);
+            return RoadBlocks.BlockIn(nearRadius ? view.RoadNear : view.RoadFar, block, view.Node.Area.Size, cx, cz,
+                                      nearRadius ? _roadNearM : _roadFarM);
         }
 
-        /// <summary>A road chunk is on when its copy is the one its block shows: the full kit within the near radius, the
-        /// cheap copy between the near and the far radius (the full kit out to the far radius for a view built without
-        /// the cheap copy).</summary>
+        /// <summary>A road chunk is on when its copy is the one its block shows (<see cref="RoadBlocks.PartShown"/>).</summary>
         private bool RoadShown(TileView view, int part, double cx, double cz)
         {
-            int block = RoadBlocks.BlockOfPart(part);
-            bool near = RoadBlockIn(view, block, true, cx, cz);
-            if (RoadBlocks.IsFar(part)) return !near && RoadBlockIn(view, block, false, cx, cz);
-            return near || !view.HasFarRoads && RoadBlockIn(view, block, false, cx, cz);
+            return RoadBlocks.PartShown(part, view.RoadNear, view.RoadFar, view.HasFarRoads, view.Node.Area.Size, cx, cz, _roadNearM, _roadFarM);
         }
 
         // ---------------------------------------------------------------------------------------------------------

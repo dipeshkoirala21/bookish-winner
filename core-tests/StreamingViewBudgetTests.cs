@@ -48,7 +48,9 @@ namespace Ghumante.Core.Tests
 
         internal const int Headings = 16;
 
-        /// <summary>W2_DESIGN 10.4: roads + decals per tier in view.</summary>
+        /// <summary>W2_DESIGN 10.4: roads + decals per tier in view. Held with the headroom the building slice check allows
+        /// (<see cref="BuildingBandTable.SliceHeadroom"/>, W2_DESIGN 2.4): the worst of 16 headings at the place, whole
+        /// chunks counted once their bounds meet the view, is a worst case, not a typical frame.</summary>
         internal static readonly int[] RoadSlice = { 8000, 20000, 30000 };
 
         /// <summary>W2_DESIGN 10.4: terrain per tier in view.</summary>
@@ -69,7 +71,7 @@ namespace Ghumante.Core.Tests
                 StreamingConfig cfg = StreamingConfig.ForTier(tier);
                 TileSelector sel = TileSelector.ForPack(cfg, StreamingSampleRegion.Pack);
                 float nearM, farM;
-                RoadBlocks.Radii(BandConfig.ForTier(tier), out nearM, out farM);
+                RoadBlocks.Radii(BandConfig.ForTier(tier), cfg, out nearM, out farM);
                 foreach (Place p in new[] { Asan, Chabahil })
                 {
                     double x, z;
@@ -133,7 +135,8 @@ namespace Ghumante.Core.Tests
                                         worstRoads, worstNear, worstDecals, worstBridges, worstDraws, whole);
                     TestContext.WriteLine(report.ToString());
                     report.Clear();
-                    if (worstRoads + worstDecals > RoadSlice[tier]) failures.Append(TierName[tier] + " " + p.Name + ": " + (worstRoads + worstDecals) + "; ");
+                    if (worstRoads + worstDecals > RoadSlice[tier] * BuildingBandTable.SliceHeadroom)
+                        failures.Append(TierName[tier] + " " + p.Name + ": " + (worstRoads + worstDecals) + "; ");
                     Assert.That(worstNear, Is.GreaterThan(0), "the full kit is drawn round the player");
                 }
             }
@@ -195,9 +198,12 @@ namespace Ghumante.Core.Tests
             for (int tier = 0; tier <= 2; tier++)
             {
                 BandConfig bands = BandConfig.ForTier(tier);
-                RoadBlocks.Radii(bands, out nearM, out farM);
+                RoadBlocks.Radii(bands, StreamingConfig.ForTier(tier), out nearM, out farM);
                 Assert.That(nearM, Is.EqualTo(new[] { 120f, 200f, 250f }[tier]), "full kit within the B1 radius");
-                Assert.That(farM, Is.EqualTo(bands.B2OuterM), "the cheap copy out to the B2 radius");
+                Assert.That(farM, Is.EqualTo(new[] { 250f, bands.B2OuterM, bands.B2OuterM }[tier]), "the cheap copy out to 250 m on Low, the B2 radius beyond");
+                float plainNear, plainFar;
+                RoadBlocks.Radii(bands, null, out plainNear, out plainFar);
+                Assert.That(plainFar, Is.EqualTo(bands.B2OuterM), "without a config, out to the B2 radius");
                 Assert.That(farM, Is.GreaterThan(nearM));
             }
             Assert.That(RoadBlocks.Inside(false, 120, 120f), Is.True);
@@ -368,7 +374,7 @@ namespace Ghumante.Core.Tests
                     var directives = new[] { "perf-roads " + p.Name + " " + TierName[tier] + ": camera at tile-local " + cx.ToString("0") + ", " + cz.ToString("0") };
                     MeshData near = StreamingScene.Roads(b, tier, cx, cz);
                     float nearM, farM;
-                    RoadBlocks.Radii(BandConfig.ForTier(tier), out nearM, out farM);
+                    RoadBlocks.Radii(BandConfig.ForTier(tier), cfg, out nearM, out farM);
                     MeshData nearOnly = StreamingScene.Layer(b, TileLayers.Roads, q => !RoadBlocks.IsFar(q) && BlockWithin(b, q, cx, cz, nearM));
                     MeshData farOnly = StreamingScene.Layer(b, TileLayers.Roads, q => RoadBlocks.IsFar(q) && !BlockWithin(b, q, cx, cz, nearM) && BlockWithin(b, q, cx, cz, farM));
                     Assert.That(near.TriangleCount, Is.EqualTo(nearOnly.TriangleCount + farOnly.TriangleCount));

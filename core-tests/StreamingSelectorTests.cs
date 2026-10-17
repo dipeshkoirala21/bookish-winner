@@ -204,7 +204,7 @@ namespace Ghumante.Core.Tests
         [Test]
         public void HysteresisStopsRingEdgeFlipping()
         {
-            StreamingConfig cfg = StreamingConfig.ForTier(StreamingConfig.TierLow); // L10 ring 750 m, detail 100 m
+            StreamingConfig cfg = StreamingConfig.ForTier(StreamingConfig.TierLow); // L10 ring 750 m, detail 450 m
             Assert.That(cfg.HysteresisFraction, Is.EqualTo(StreamingConfig.DefaultHysteresisFraction));
             double half = cfg.ViewRadiusM + 40000;
             List<TileId> tiles = FullCoverage(new[] { 5, 6, 7, 8, 9, 10 }, KtmX - half, KtmZ - half, KtmX + half, KtmZ + half);
@@ -213,7 +213,8 @@ namespace Ghumante.Core.Tests
             TileId leaf = TileId.At(10, KtmX, KtmZ);
             double z = parent.Z0 + parent.Size * 0.5;
             double ringEdge = parent.X0 + parent.Size + 750; // the parent splits within 750 m of its east edge
-            double detailEdge = leaf.X0 - 100;               // the leaf draws detail within 100 m of its west edge
+            double detail = cfg.DetailRadiusM;
+            double detailEdge = leaf.X0 - detail;            // the leaf draws detail within the detail radius of its west edge
 
             foreach (double edge in new[] { ringEdge, detailEdge })
             {
@@ -250,7 +251,7 @@ namespace Ghumante.Core.Tests
                 Assert.That(b, Is.Not.EqualTo(a), "without hysteresis the edge flips the selection");
 
                 // Beyond the margin the merge / detail drop happens.
-                double far = edge == ringEdge ? 750 * 0.1 + 10 : 100 * 0.1 + 10;
+                double far = edge == ringEdge ? 750 * 0.1 + 10 : detail * 0.1 + 10;
                 with.Select(edge - far * inward, zz, a);
                 pure.Select(edge - far * inward, zz, b);
                 a.Sort();

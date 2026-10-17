@@ -49,6 +49,13 @@ namespace Ghumante.Core.Streaming
         /// <see cref="LodRing.TerrainQuads"/>. 0: the ring's quads (<see cref="TerrainStep(SelectedNode, int)"/>).</summary>
         public int DetailTerrainQuads;
 
+        /// <summary>How far (m, to a 128 m road block's nearest point) the cheap far copy of the roads is drawn
+        /// (<c>RoadBlocks.Radii</c>); 0 draws it out to the B2 building radius. Low stops it at 250 m, one road block
+        /// beyond its 120 m B1 radius: the junction caps that keep the cheap copy hole-free cost two fifths of it, and out
+        /// to Low's B2 radius (350 m) the roads in view at the Chabahil chowk came to 9.9 k triangles against the 8 k road
+        /// slice (W2_DESIGN 10.4; StreamingViewBudgetTests); at 250 m they are 8.3 k, and Thamel's 8.5 k drop to 6.1 k.</summary>
+        public float RoadFarRadiusM;
+
         /// <summary>
         /// Settings for tier 0 (Low), 1 (Mid) or 2 (High). Near/mid/far radii are ARCHITECTURE 7.2's; the horizon
         /// levels 7, 6 and 5 reach 50 / 80 / 120 km. Terrain quads per area are sized against the W2 terrain slice in
@@ -63,14 +70,16 @@ namespace Ghumante.Core.Streaming
         /// <para>
         /// Roads, buildings and areas cost far more than terrain in town (a dense 1 km tile of Thamel is about 140 k
         /// building triangles), so they are drawn only for level-10 tiles within <see cref="DetailRadiusM"/>
-        /// (350 / 500 / 900 m) of the focus rather than across the whole near ring. The radius is the lead a rider gets:
-        /// a dense tile takes 3 to 5 s to build on this desktop, about four times that on a Low or Mid phone, so at
-        /// 50 km/h the next tile must be asked for 230 m and more before its streets come within the B1 radius
-        /// (120 / 200 / 250 m, where the full road kit and the B1 houses are drawn). Low's radius was 100 m until the
-        /// playtest-fix pass, and a rider entered a terrain-only tile whose roads and houses popped in seconds later
-        /// (StreamingRideTests rides Thamel, Asan and New Road at 50 km/h and checks it). Below 500 m at most four
-        /// detail tiles are resident at once (a 1 km tile corner), so the larger radius does not raise the worst case
-        /// that the budgets below hold. Measured on the sample's densest
+        /// (450 / 500 / 900 m) of the focus rather than across the whole near ring. The radius is the lead a rider gets:
+        /// a dense tile takes 3 to 4.5 s to build on this desktop, about four times that on a Low or Mid phone (up to
+        /// 18 s), so at 50 km/h the next tile must be asked for 250 m and more before its streets come within the B1
+        /// radius (120 / 200 / 250 m, where the full road kit and the B1 houses are drawn). Low's radius was 100 m until
+        /// the playtest-fix pass, and a rider entered a terrain-only tile whose roads and houses popped in seconds later;
+        /// it was 350 m until the first Unity playtest, when the heavier merged builds (4.3 s for the Asan tile) let the
+        /// rider reach a street of Asan 91 m away before its tile showed (StreamingRideTests rides Thamel, Asan and New
+        /// Road at 50 km/h, switches every road block as the streamer does and checks that none appears or vanishes
+        /// within the B1 radius). Below 500 m, hysteresis included, at most four detail tiles are resident at once (a
+        /// 1 km tile corner), so the larger radius does not raise the worst case that the budgets below hold. Measured on the sample's densest
         /// tiles (StreamingConfigTests, radii stretched by the hysteresis margin; roads at their full kit, B1 for every
         /// house), whole selections hold at most about 0.79 M / 1.10 M / 1.71 M triangles (56 / 77 / 121 MB of meshes,
         /// both road copies included); the streamer draws only a fraction of that (the W2 bands, the road blocks and
@@ -93,8 +102,9 @@ namespace Ghumante.Core.Streaming
                         },
                         MaxResidentTiles = 160,
                         CacheBudgetBytes = 30L << 20,
-                        DetailRadiusM = 350,
+                        DetailRadiusM = 450,
                         DetailTerrainQuads = 32,
+                        RoadFarRadiusM = 250,
                     };
                 case TierMid:
                     return new StreamingConfig
@@ -134,7 +144,7 @@ namespace Ghumante.Core.Streaming
             {
                 Rings = Rings == null ? null : (LodRing[])Rings.Clone(), MaxResidentTiles = MaxResidentTiles,
                 CacheBudgetBytes = CacheBudgetBytes, DetailRadiusM = DetailRadiusM, HysteresisFraction = HysteresisFraction,
-                DetailTerrainQuads = DetailTerrainQuads,
+                DetailTerrainQuads = DetailTerrainQuads, RoadFarRadiusM = RoadFarRadiusM,
             };
         }
 
@@ -174,6 +184,7 @@ namespace Ghumante.Core.Streaming
             if (!(DetailRadiusM >= 0)) throw new ArgumentException("DetailRadiusM must not be negative or NaN");
             if (!(HysteresisFraction >= 0) || HysteresisFraction > 1) throw new ArgumentException("HysteresisFraction must lie in [0, 1]");
             if (DetailTerrainQuads < 0) throw new ArgumentException("DetailTerrainQuads must not be negative");
+            if (!(RoadFarRadiusM >= 0)) throw new ArgumentException("RoadFarRadiusM must not be negative or NaN");
         }
 
         /// <summary>

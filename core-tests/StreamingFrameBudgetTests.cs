@@ -249,6 +249,76 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
+        /// Owner playtest #4 (stutters), main-thread work when a tile shows: every exact level-10 area joining the ground
+        /// query (the frame its tile showed, in the scheduler's swap rule; the terrain-only tiles of the near ring too)
+        /// indexed the tile's paved areas inside <see cref="TileGroundQuery.Add(TileId, TileHeightSampler, RoadSpatialIndex)"/>,
+        /// up to 0.12 ms of a desktop per tile. The tile build now prepares that index on its worker
+        /// (<see cref="TileGroundQuery.PreparePaving"/>), the main thread only looks it up, and the ground answers the same
+        /// over every detail tile of the sample.
+        /// </summary>
+        [Test]
+        public void PavingIndexedOnTheWorkerLeavesTheMainThreadOnlyALookup()
+        {
+            MeshingSettings settings = MeshingSettings.ForTier(StreamingConfig.TierMid);
+            PackReader pack = StreamingSampleRegion.Pack;
+            TileId first = StreamingSampleRegion.DensestLeaf();
+            TileData warmUp = pack.ReadTile(first);
+            TileGroundQuery.PreparePaving(warmUp); // compiles the indexing once
+            new TileGroundQuery(settings.Roads).Add(first, TileHeightSampler.ForArea(warmUp, first, 16), null);
+
+            double worstInline = 0, worstPrepared = 0, worstWorker = 0, sumInline = 0, sumPrepared = 0;
+            TileId worst = first;
+            int tiles = 0, probes = 0;
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                // As before the perf pass: a freshly decoded tile nobody prepared is indexed inside Add.
+                TileData cold = pack.ReadTile(id);
+                if (!cold.HasDetail) continue;
+                tiles++;
+                var inline = new TileGroundQuery(settings.Roads);
+                TileHeightSampler coldSampler = TileHeightSampler.ForArea(cold, id, 16);
+                double t0 = StreamingRideTests.ThreadClock.Ms();
+                inline.Add(id, coldSampler, null);
+                double inlineMs = StreamingRideTests.ThreadClock.Ms() - t0;
+
+                // Now: the build's worker prepared it (TileBuild.Execute), the main thread's Add looks it up.
+                TileData built = pack.ReadTile(id);
+                t0 = StreamingRideTests.ThreadClock.Ms();
+                TileGroundQuery.PreparePaving(built);
+                double workerMs = StreamingRideTests.ThreadClock.Ms() - t0;
+                var prepared = new TileGroundQuery(settings.Roads);
+                TileHeightSampler builtSampler = TileHeightSampler.ForArea(built, id, 16);
+                t0 = StreamingRideTests.ThreadClock.Ms();
+                prepared.Add(id, builtSampler, null);
+                double preparedMs = StreamingRideTests.ThreadClock.Ms() - t0;
+
+                for (double z = id.Z0 + 3; z < id.Z0 + id.Size; z += 11.3)
+                for (double x = id.X0 + 3; x < id.X0 + id.Size; x += 11.3)
+                {
+                    GroundSample a, b;
+                    Assert.That(prepared.TrySample(x, z, out b), Is.EqualTo(inline.TrySample(x, z, out a)));
+                    Assert.That(b.Foot, Is.EqualTo(a.Foot), id + " at " + x.ToString("0.0") + ", " + z.ToString("0.0"));
+                    Assert.That(b.Height, Is.EqualTo(a.Height));
+                    probes++;
+                }
+                sumInline += inlineMs;
+                sumPrepared += preparedMs;
+                if (inlineMs > worstInline)
+                {
+                    worstInline = inlineMs;
+                    worstPrepared = preparedMs;
+                    worstWorker = workerMs;
+                    worst = id;
+                }
+            }
+            TestContext.WriteLine("{0} detail tiles, {1} probes agree; Add on the main thread: {2:0.00} ms in all with the paving indexed inline, " +
+                                  "{3:0.00} ms prepared on the worker; worst tile {4}: {5:0.000} ms inline, {6:0.000} ms prepared (+ {7:0.000} ms on the worker)",
+                                  tiles, probes, sumInline, sumPrepared, worst, worstInline, worstPrepared, worstWorker);
+            Assert.That(tiles, Is.GreaterThan(3));
+            Assert.That(sumPrepared, Is.LessThan(sumInline * 0.5), "the main thread no longer indexes the paving");
+        }
+
+        /// <summary>
         /// The audio index of a shown tile is built on a worker (<see cref="PlaceAudioIndex.Prepare"/>, as
         /// WorldAudioPlace now does) and joins on the main thread; it answers exactly as the index built on the main
         /// thread did, over two dense tiles (Asan and Thamel).

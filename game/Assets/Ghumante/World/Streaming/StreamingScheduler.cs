@@ -113,6 +113,11 @@ namespace Ghumante.World.Streaming
         /// <summary>Worker milliseconds of the last finished build.</summary>
         public double LastBuildMs;
 
+        /// <summary>Build objects created so far. Builds are recycled through a pool (their grown mesh buffers with
+        /// them), so after the first few this stays put; each new one costs the main thread about half a megabyte of
+        /// fresh buffers and, once its grown buffers are dropped, the collector a few megabytes of garbage.</summary>
+        public int BuildsCreated;
+
         /// <summary>Finest level among visible nodes (-1 when none).</summary>
         public int FinestVisibleLevel;
 
@@ -768,7 +773,7 @@ namespace Ghumante.World.Streaming
                     i++; // another build is decoding this source; it will be cached shortly
                     continue;
                 }
-                TileBuild b = _pool.Count > 0 ? _pool.Pop() : new TileBuild();
+                TileBuild b = RentBuild();
                 b.Reset(this, n, cached ? source : null, _generation);
                 if (!cached) _decoding.Add(n.Source);
                 _residency.BeginLoad(n); // removes n from the queue
@@ -815,7 +820,7 @@ namespace Ghumante.World.Streaming
                 _stale.RemoveAt(best);
                 Content c = _content[n];
                 c.Refreshing = true;
-                TileBuild b = _pool.Count > 0 ? _pool.Pop() : new TileBuild();
+                TileBuild b = RentBuild();
                 b.Reset(this, n, cached ? source : null, _generation);
                 b.RefreshMask = _refreshMask;
                 b.SettingsVersion = _settingsVersion;
@@ -875,10 +880,21 @@ namespace Ghumante.World.Streaming
             _contentPool.Push(c);
         }
 
+        /// <summary>A recycled build, or a new one when the pool is empty (<see cref="StreamingStats.BuildsCreated"/>).</summary>
+        private TileBuild RentBuild()
+        {
+            if (_pool.Count > 0) return _pool.Pop();
+            _stats.BuildsCreated++;
+            return new TileBuild();
+        }
+
+        /// <summary>Recycles a build into the pool, which keeps as many as can be alive at once (in flight and waiting to
+        /// upload), so none is ever dropped with its grown buffers and riding creates no new ones (perf pass: with room
+        /// for one fewer, every fourth build went to the collector and a new one was made a moment later).</summary>
         private void ReturnToPool(TileBuild b)
         {
             b.Recycle();
-            if (_pool.Count < MaxConcurrentJobs + 1) _pool.Push(b);
+            if (_pool.Count < MaxConcurrentJobs + MaxPendingUploads) _pool.Push(b);
         }
 
         /// <summary>A short multi-line summary (allocates; for the debug HUD a few times a second).</summary>
