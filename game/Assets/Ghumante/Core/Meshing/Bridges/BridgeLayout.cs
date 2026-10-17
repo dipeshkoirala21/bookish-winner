@@ -204,6 +204,13 @@ namespace Ghumante.Core.Meshing.Bridges
         public readonly byte[] EndPost = { 2, 2, 2, 2 };
         public readonly List<BridgeStair> Stairs = new List<BridgeStair>();
 
+        /// <summary>Per flight of <see cref="Stairs"/> and side (index 2 × flight + (side &gt; 0 ? 1 : 0); the left side is
+        /// +(−Dz, Dx)): along intervals (pairs) where the flight's handrail stands. It opens where another flight or a
+        /// landing pad meets that side at the same level (a turn, a dog-leg, a chain of mapped steps), so the walking line
+        /// from one flight to the next is never closed off (owner playtest #15). <see cref="BridgeMesher"/> draws the
+        /// handrails and <see cref="BridgeColliders"/> makes them solid along exactly these runs.</summary>
+        public readonly List<List<double>> HandrailRuns = new List<List<double>>();
+
         /// <summary>Along intervals (pairs) where the deck structure (slab, kerbs, walkways, fill) is drawn.</summary>
         public readonly List<double> DeckRuns = new List<double>();
 
@@ -389,7 +396,10 @@ namespace Ghumante.Core.Meshing.Bridges
         /// <summary>Elevated spans (bridges, flyovers, foot overbridges) and mapped stairs.</summary>
         public readonly List<BridgeSpan> Spans = new List<BridgeSpan>();
 
-        /// <summary>Lowered underpass pieces with a trench (record kind Underpass with deck heights).</summary>
+        /// <summary>Lowered pieces with a trench: underpasses (record kind Underpass with deck heights) and the lowered
+        /// approach cuttings chained to them (kind None with <see cref="RoadStructureFlags.Lowered"/> and heights, the
+        /// Dhobi Khola riverside roads sinking under Ratopul and Setopul, the Kalanki cutting): one retaining wall system,
+        /// drawn by <see cref="BridgeMesher"/> and made solid by <see cref="BridgeColliders"/> along the same runs.</summary>
         public readonly List<BridgeSpan> Trenches = new List<BridgeSpan>();
 
         /// <summary>Decks from the tile's records that do not keep the clearance over a road below (left open; the
@@ -478,7 +488,11 @@ namespace Ghumante.Core.Meshing.Bridges
                 bool foot = BridgeStyle.IsFoot(r.RoadClass);
                 bool elevated = s.IsElevated;
                 bool approach = s.Kind == RoadStructureKind.None && foot; // a stair or ramp climbing to a deck
-                bool trench = s.Kind == RoadStructureKind.Underpass;
+                // A lowered approach cutting is part of the underpass it leads into: its retaining walls are drawn and
+                // made solid here too (owner playtest #2: road-based walls along the cuttings, drawn nowhere, stood across
+                // the riverside roads under Ratopul, Kalopul and Bhatkeko Pul where a side street joins them).
+                bool trench = s.Kind == RoadStructureKind.Underpass
+                              || s.Kind == RoadStructureKind.None && (s.Flags & RoadStructureFlags.Lowered) != 0 && !foot && !elevated;
                 if (!elevated && !approach && !trench) continue;
                 // One span per run of points with heights (a NaN height is a draped point).
                 int count = r.PointCount;
@@ -534,6 +548,81 @@ namespace Ghumante.Core.Meshing.Bridges
                 Spans.RemoveAll(bad.Contains);
             }
             foreach (BridgeSpan tr in Trenches) TrenchWalls(tr);
+            foreach (BridgeSpan sp in Spans) Handrails(sp);
+            _draws = new bool[t.Roads.Count];
+            foreach (BridgeSpan sp in Spans) _draws[sp.Road] = true;
+        }
+
+        private readonly bool[] _draws;
+
+        /// <summary>True when a span of this layout draws (part of) road <paramref name="road"/> as a deck or a stair:
+        /// its walkable surface is the deck index's (<see cref="BridgeDeckIndex"/>), not the road's structure heights.</summary>
+        public bool Draws(int road)
+        {
+            return road >= 0 && road < _draws.Length && _draws[road];
+        }
+
+        /// <summary>A stair handrail stands this far inside the flight's side (as drawn).</summary>
+        public const double HandrailInsetM = 0.05;
+
+        /// <summary>Shortest handrail piece kept between two openings.</summary>
+        private const double MinHandrailM = 0.3;
+
+        /// <summary>The handrail runs of every flight of <paramref name="sp"/> (<see cref="BridgeSpan.HandrailRuns"/>).</summary>
+        private void Handrails(BridgeSpan sp)
+        {
+            sp.HandrailRuns.Clear();
+            for (int i = 0; i < sp.Stairs.Count; i++)
+            {
+                BridgeStair st = sp.Stairs[i];
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var runs = new List<double>();
+                    sp.HandrailRuns.Add(runs);
+                    if (st.Steps <= 0 || st.Length < 0.2) continue;
+                    double nx = -st.Dz * side, nz = st.Dx * side, off = st.HalfWidth - HandrailInsetM;
+                    int n = Math.Max(2, (int)Math.Ceiling(st.Length / 0.1));
+                    double from = double.NaN, last = double.NaN;
+                    for (int j = 0; j <= n; j++)
+                    {
+                        double a = st.Length * j / n;
+                        bool open = Joins(sp, i, st.X + st.Dx * a + nx * off, st.Z + st.Dz * a + nz * off, st.SurfaceAt(a));
+                        if (!open)
+                        {
+                            if (double.IsNaN(from)) from = a;
+                            last = a;
+                        }
+                        if ((open || j == n) && !double.IsNaN(from))
+                        {
+                            if (last - from >= MinHandrailM)
+                            {
+                                runs.Add(from);
+                                runs.Add(last);
+                            }
+                            from = double.NaN;
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>True when (x, z) at walking height <paramref name="y"/> lies on another flight or landing pad of the
+        /// layout than flight <paramref name="index"/> of <paramref name="self"/>: the walking line continues there.</summary>
+        private bool Joins(BridgeSpan self, int index, double x, double z, float y)
+        {
+            const double Margin = 0.15;
+            foreach (BridgeSpan sp in Spans)
+                for (int k = 0; k < sp.Stairs.Count; k++)
+                {
+                    if (sp == self && k == index) continue;
+                    BridgeStair o = sp.Stairs[k];
+                    if (o.Steps < 0) continue;
+                    double px = x - o.X, pz = z - o.Z;
+                    double along = px * o.Dx + pz * o.Dz, across = -px * o.Dz + pz * o.Dx;
+                    if (along < -Margin || along > o.Length + Margin || Math.Abs(across) > o.HalfWidth + Margin) continue;
+                    if (Math.Abs(o.SurfaceAt(Math.Max(0, Math.Min(o.Length, along))) - y) < 0.6f) return true;
+                }
+            return false;
         }
 
         /// <summary>A trench needs a retaining wall where the ground behind it stands this far above the road.</summary>
@@ -577,7 +666,9 @@ namespace Ghumante.Core.Meshing.Bridges
                     float g = Math.Max(behind, sp.Lerp(sp.Ground, s[i]));
                     cut[i] = g - y >= TrenchWallMinCutM;
                     float top = Math.Max(y + 0.4f, behind) + 1.0f;
-                    clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude);
+                    // Another road's carriageway (not its footpaths: the road continuing this one keeps its wall line
+                    // there) at a level the wall would stand in: a street joining the cutting or crossing it at grade.
+                    clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude, true) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude, true);
                 }
                 List<double> runs = side > 0 ? sp.RailRunsL : sp.RailRunsR;
                 double from = double.NaN, last = double.NaN;

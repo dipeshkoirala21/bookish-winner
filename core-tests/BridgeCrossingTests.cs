@@ -15,10 +15,13 @@ namespace Ghumante.Core.Tests
     /// </summary>
     public class BridgeCrossingTests
     {
+        /// <summary>Tiles with bridges; BRIDGE_TILES = "tx,ty;tx,ty" narrows the probes to those tiles.</summary>
         private static IEnumerable<TileId> BridgeTiles()
         {
+            string only = Environment.GetEnvironmentVariable("BRIDGE_TILES");
             foreach (TileId id in StreamingSampleRegion.TilesAt(10))
             {
+                if (!string.IsNullOrEmpty(only) && !(";" + only + ";").Contains(";" + id.Tx + "," + id.Ty + ";")) continue;
                 TileData t = StreamingSampleRegion.Tile(id);
                 if (!t.HasDetail) continue;
                 BridgeLayout l = BridgeLayout.For(t);
@@ -44,6 +47,8 @@ namespace Ghumante.Core.Tests
             string mode = a.Length > 3 ? a[3] : "walk";
             BridgeWorld w = BridgeWorld.Around(new[] { id }, 1);
             TileData t = w.Tile(id);
+            int dbg = 0;
+            ArcadeVehicle.DebugLog = m => { if (dbg++ < 40) TestContext.WriteLine("DBG " + m); };
             foreach (BridgeSpan sp in BridgeLayout.For(t).Spans)
             {
                 if (sp.Record.OsmWayId != way) continue;
@@ -105,12 +110,13 @@ namespace Ghumante.Core.Tests
             BridgeWorld w = BridgeWorld.Around(BridgeTiles(), 1);
             var report = new StringBuilder();
             int flights = 0, upBad = 0, downBad = 0;
-            foreach (KeyValuePair<TileId, Ghumante.World.Streaming.TileBuild> kv in w.Builds)
+            foreach (TileId id in BridgeTiles())
             {
-                TileData t = kv.Value.Source;
-                if (!t.HasDetail) continue;
+                TileData t = w.Tile(id);
+                if (t == null || !t.HasDetail) continue;
                 foreach (BridgeSpan sp in BridgeLayout.For(t).Spans)
                 {
+                    if (!Wanted(sp)) continue;
                     for (int i = 0; i < sp.Stairs.Count; i++)
                     {
                         BridgeStair st = sp.Stairs[i];
@@ -126,7 +132,7 @@ namespace Ghumante.Core.Tests
                         report.Append(t.Tile).Append(' ').Append(Name(t, sp)).Append(" flight ").Append(i).Append(" rise ").Append((st.TopY - st.BottomY).ToString("F1"))
                               .Append(" steps ").Append(st.Steps).Append(" tread ").Append(st.Tread.ToString("F2")).Append(" riser ").Append(st.Rise.ToString("F2"))
                               .Append(" len ").Append(st.Length.ToString("F1")).Append(st.Mapped ? " mapped" : "").Append('\n');
-                        report.Append("   up   ").Append(ru).Append('\n').Append("   down ").Append(rd).Append('\n');
+                        report.Append("   up   ").Append(ru).Append('\n').Append(Why(w, ru)).Append("   down ").Append(rd).Append('\n').Append(Why(w, rd));
                     }
                 }
             }
@@ -266,6 +272,80 @@ namespace Ghumante.Core.Tests
             w.Dump(a[0], x, z, half);
         }
 
+        /// <summary>A road's profile: BRIDGE_PROFILE = "tx,ty,way[,lateral]": every 2 m along it the ground query (from the
+        /// structure height), and the highest drawn terrain, road and bridge surfaces.</summary>
+        [Test, Explicit]
+        public void ProfileRoad()
+        {
+            string spec = Environment.GetEnvironmentVariable("BRIDGE_PROFILE");
+            if (string.IsNullOrEmpty(spec)) Assert.Ignore("set BRIDGE_PROFILE");
+            string[] a = spec.Split(',');
+            var id = new TileId(10, int.Parse(a[0]), int.Parse(a[1]));
+            ulong way = ulong.Parse(a[2]);
+            double lateral = a.Length > 3 ? double.Parse(a[3]) : 0;
+            BridgeWorld w = BridgeWorld.Around(new[] { id }, 1);
+            TileData t = w.Tile(id);
+            RoadSpatialIndex idx = w.Ground.RoadIndexOf(id);
+            for (int ri = 0; ri < t.Roads.Count; ri++)
+            {
+                if (t.Roads[ri].OsmWayId != way) continue;
+                RoadRecord r = t.Roads[ri];
+                float[] sh = idx != null ? idx.SurfaceHeights(ri) : null;
+                TestContext.WriteLine("road #" + ri + " " + r.RoadClass + " points " + r.PointCount + " structure " + t.RoadStructureOf(ri).Kind + " heights " + (sh != null));
+                List<double> line = BridgeProbe.RoadAround(t, ri, r.Points[0] / 100.0, r.Points[1] / 100.0, 0, lateral);
+                double len = 0;
+                for (int k = 0; k + 1 < r.PointCount; k++)
+                {
+                    double dx = (r.Points[2 * k + 2] - r.Points[2 * k]) / 100.0, dz = (r.Points[2 * k + 3] - r.Points[2 * k + 1]) / 100.0;
+                    len += Math.Sqrt(dx * dx + dz * dz);
+                }
+                line = BridgeProbe.RoadAround(t, ri, r.Points[0] / 100.0, r.Points[1] / 100.0, len + 10, lateral);
+                for (int i = 0; i < line.Count / 2; i++)
+                {
+                    double x = line[2 * i], z = line[2 * i + 1];
+                    float terr = w.LayerTop(x, z, 0), area = w.LayerTop(x, z, 1), road = w.LayerTop(x, z, 2), br = w.LayerTop(x, z, 3);
+                    GroundSample g;
+                    float from = float.IsNaN(road) ? (float.IsNaN(terr) ? 2000f : terr) : road;
+                    bool got = w.Ground.TrySample(x, z, from + 0.3f, out g);
+                    TestContext.WriteLine("  (" + x.ToString("F1") + ", " + z.ToString("F1") + ") ground " + (got ? g.Height.ToString("F2") + (g.OnDeck ? "d" : "") + (g.OnRoad ? "r" : "") : "X")
+                                          + " drawn terrain " + terr.ToString("F2") + " areas " + area.ToString("F2") + " road " + road.ToString("F2") + " bridge " + br.ToString("F2"));
+                }
+            }
+        }
+
+        /// <summary>BRIDGE_WAYS = "way,way" narrows the probes to those spans.</summary>
+        private static bool Wanted(BridgeSpan sp)
+        {
+            string only = Environment.GetEnvironmentVariable("BRIDGE_WAYS");
+            return string.IsNullOrEmpty(only) || ("," + only + ",").Contains("," + sp.Record.OsmWayId + ",");
+        }
+
+        /// <summary>What stopped a run (the solids and colliders at the stop), or nothing when it arrived.</summary>
+        private static string Why(BridgeWorld w, ProbeRun r)
+        {
+            if (r.Reached) return "";
+            var sb = new StringBuilder();
+            sb.Append("      stop (").Append(r.StopX.ToString("F1")).Append(", ").Append(r.StopZ.ToString("F1")).Append(") y ").Append(r.StopY.ToString("F2"))
+              .Append(" heading (").Append(r.StopDirX.ToString("F2")).Append(", ").Append(r.StopDirZ.ToString("F2")).Append(") ground ahead:");
+            double firstX = double.NaN;
+            foreach (double a in new[] { 0.0, 0.3, 0.6, 1.0, 1.5 })
+            {
+                double x = r.StopX + r.StopDirX * a, z = r.StopZ + r.StopDirZ * a;
+                GroundSample g;
+                bool got = w.Ground.TrySample(x, z, r.StopY, out g);
+                if (!got && double.IsNaN(firstX)) firstX = a;
+                sb.Append(' ').Append(a.ToString("F1")).Append('=').Append(got ? g.Height.ToString("F2") + (g.OnDeck ? "d" : "") + (g.OnStructure ? "s" : "") + (g.OnFootpath ? "f" : "")
+                                                                             + (g.Ny < 0.766f ? "!ny" + g.Ny.ToString("F2") : "") : "X");
+            }
+            sb.Append('\n').Append(w.Blockers(r.StopX + r.StopDirX * 0.3, r.StopZ + r.StopDirZ * 0.3, r.StopY, 0.6));
+            double ea = double.IsNaN(firstX) ? 0.3 : firstX;
+            sb.Append(w.Explain(r.StopX + r.StopDirX * ea, r.StopZ + r.StopDirZ * ea, r.StopY, r.Body.HeightM));
+            float t, nx, nz;
+            bool hit = w.Ground.SweepBody(r.Body, r.StopX, r.StopZ, r.StopHeading, r.StopY, r.StopDirX * 0.3, r.StopDirZ * 0.3, out t, out nx, out nz);
+            sb.Append("   sweep 0.3 m ahead: ").Append(hit ? "hit t " + t.ToString("F2") + " n (" + nx.ToString("F2") + ", " + nz.ToString("F2") + ")" : "clear").Append('\n');
+            return sb.ToString();
+        }
+
         /// <summary>Feet this far inside a drawn bridge (or under the drawn surface while the deck carries them) is the
         /// owner's "sucked in".</summary>
         private const float DeepSinkM = 0.25f;
@@ -276,14 +356,14 @@ namespace Ghumante.Core.Tests
             BridgeWorld w = BridgeWorld.Around(BridgeTiles(), 1);
             var report = new StringBuilder();
             int spans = 0, walkBad = 0, rideBad = 0, underBad = 0, unders = 0;
-            foreach (KeyValuePair<TileId, Ghumante.World.Streaming.TileBuild> kv in w.Builds)
+            foreach (TileId id in BridgeTiles())
             {
-                TileData t = kv.Value.Source;
-                if (!t.HasDetail) continue;
+                TileData t = w.Tile(id);
+                if (t == null || !t.HasDetail) continue;
                 BridgeLayout l = BridgeLayout.For(t);
                 foreach (BridgeSpan sp in l.Spans)
                 {
-                    if (sp.Stair || sp.Overbridge || sp.Length < 8) continue;
+                    if (sp.Stair || sp.Overbridge || sp.Length < 8 || !Wanted(sp)) continue;
                     float rise = 0f;
                     for (int k = 0; k < sp.Count; k++) rise = Math.Max(rise, sp.Path.Y[k] - sp.Ground[k]);
                     if (rise < 1.0f && sp.Crossings.Count == 0) continue;
@@ -295,13 +375,13 @@ namespace Ghumante.Core.Tests
                     bool wOk = walk.Reached && walkBack.Reached && walk.BridgeSink < DeepSinkM && walkBack.BridgeSink < DeepSinkM;
                     if (!wOk) walkBad++;
                     report.Append(t.Tile).Append(' ').Append(Name(t, sp)).Append(" rise ").Append(rise.ToString("F1")).Append('\n');
-                    report.Append("   walk  ").Append(walk).Append(" | back ").Append(walkBack).Append('\n');
+                    report.Append("   walk  ").Append(walk).Append(" | back ").Append(walkBack).Append('\n').Append(Why(w, walk)).Append(Why(w, walkBack));
                     if (!sp.Foot)
                     {
                         ProbeRun ride = BridgeProbe.Follow(w, VehicleSpec.Motorbike(), BridgeProbe.Along(sp, t.Tile, BridgeProbe.Lane.LeftLane, before, after, false), 0.5f);
                         bool rOk = ride.Reached && ride.BridgeSink < DeepSinkM;
                         if (!rOk) rideBad++;
-                        report.Append("   ride  ").Append(ride).Append('\n');
+                        report.Append("   ride  ").Append(ride).Append('\n').Append(Why(w, ride));
                     }
                     foreach (BridgeCrossing c in sp.Crossings)
                     {
@@ -311,7 +391,7 @@ namespace Ghumante.Core.Tests
                         ProbeRun ur = BridgeProbe.Follow(w, VehicleSpec.Motorbike(), line, 0.5f, c.LowY + 0.3f);
                         bool uOk = uw.Reached && ur.Reached && !uw.EverOnDeck && !ur.EverOnDeck && uw.BridgeSink < DeepSinkM;
                         if (!uOk) underBad++;
-                        report.Append("   under ").Append(t.Roads[c.Road].OsmWayId).Append(" walk ").Append(uw).Append(" | ride ").Append(ur).Append('\n');
+                        report.Append("   under ").Append(t.Roads[c.Road].OsmWayId).Append(" walk ").Append(uw).Append(" | ride ").Append(ur).Append('\n').Append(Why(w, uw)).Append(Why(w, ur));
                     }
                 }
             }

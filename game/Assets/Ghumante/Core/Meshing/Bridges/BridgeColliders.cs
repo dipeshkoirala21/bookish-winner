@@ -90,7 +90,7 @@ namespace Ghumante.Core.Meshing.Bridges
             foreach (BridgeSpan sp in layout.Spans)
             {
                 c.Covered[sp.Road] = true;
-                foreach (BridgeStair st in sp.Stairs) c.Handrails(st);
+                for (int i = 0; i < sp.Stairs.Count; i++) c.Handrails(sp, i);
                 if (sp.Stair) continue;
                 for (int side = -1; side <= 1; side += 2)
                 {
@@ -307,23 +307,33 @@ namespace Ghumante.Core.Meshing.Bridges
             }
         }
 
-        /// <summary>Handrails along both sides of a flight (none along a flat landing pad, whose sides the flights
-        /// leave from).</summary>
-        private void Handrails(BridgeStair st)
+        /// <summary>Handrails along both sides of flight <paramref name="index"/> of <paramref name="sp"/> on its drawn
+        /// handrail runs (<see cref="BridgeSpan.HandrailRuns"/>: open where another flight or a landing pad meets the side;
+        /// none along a flat landing pad, whose sides the flights leave from).</summary>
+        private void Handrails(BridgeSpan sp, int index)
         {
+            BridgeStair st = sp.Stairs[index];
             if (st.Steps <= 0 || st.Length < 0.2) return;
-            double nx = -st.Dz, nz = st.Dx, off = st.HalfWidth + 0.04;
             for (int sgn = -1; sgn <= 1; sgn += 2)
             {
-                var line = new WallLine(Walls, 0.04f);
-                int n = Math.Max(1, (int)Math.Ceiling(st.Length / 0.3));
-                for (int i = 0; i <= n; i++)
+                int ri = 2 * index + (sgn > 0 ? 1 : 0);
+                if (ri >= sp.HandrailRuns.Count) continue;
+                List<double> runs = sp.HandrailRuns[ri];
+                // On the flight's outer edge (the drawn rail stands just inside it): the full tread width stays walkable.
+                double nx = -st.Dz * sgn, nz = st.Dx * sgn, off = st.HalfWidth + 0.04;
+                for (int r = 0; r + 1 < runs.Count; r += 2)
                 {
-                    double a = st.Length * i / n;
-                    float y = st.SurfaceAt(a);
-                    line.Add(st.X + st.Dx * a + nx * off * sgn, st.Z + st.Dz * a + nz * off * sgn, y - 0.3f, y + HandrailM);
+                    var line = new WallLine(Walls, 0.04f);
+                    double a0 = runs[r], a1 = runs[r + 1];
+                    int n = Math.Max(1, (int)Math.Ceiling((a1 - a0) / 0.3));
+                    for (int i = 0; i <= n; i++)
+                    {
+                        double a = a0 + (a1 - a0) * i / n;
+                        float y = st.SurfaceAt(a);
+                        line.Add(st.X + st.Dx * a + nx * off, st.Z + st.Dz * a + nz * off, y - 0.3f, y + HandrailM);
+                    }
+                    line.End();
                 }
-                line.End();
             }
         }
 

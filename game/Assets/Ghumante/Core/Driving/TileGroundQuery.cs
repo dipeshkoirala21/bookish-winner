@@ -623,6 +623,11 @@ namespace Ghumante.Core.Driving
                     if (hit.Road == null && Math.Abs(y - deckY) < 1.5f) hit = h;
                     continue;
                 }
+                // A deck the bridges package draws stands only where it is drawn: its record's heights (a straight line
+                // between the mapped points, where the drawn flights and landings may be fitted, extended or moved) are
+                // no walkable surface of their own (owner playtest #2 and #15: walkers floated or were blocked beside
+                // the drawn stairs).
+                if (DrawnByBridges(h.Tile, h.RoadIndex)) continue;
                 if (found && !(y > deckY)) continue;
                 deckY = y;
                 hit = h;
@@ -649,7 +654,7 @@ namespace Ghumante.Core.Driving
                         {
                             if (hit.Road == null) hit = lh;
                         }
-                        else if (!found || road > deckY)
+                        else if ((!found || road > deckY) && !DrawnByBridges(lh.Tile, lh.RoadIndex))
                         {
                             deckY = road;
                             hit = lh;
@@ -684,6 +689,17 @@ namespace Ghumante.Core.Driving
                 if (TryNearestRoad(x, z, RoadSpatialIndex.DeckKerbM, RoadFlags.None, RoadFlags.None, RoadLayer.Elevated, out eh)) hit = eh;
             }
             return found;
+        }
+
+        /// <summary>True when the bridges package's deck index of <paramref name="tile"/> draws road
+        /// <paramref name="road"/> (a deck or a stair of its layout): its walkable surface and its slab are the drawn ones
+        /// only (<see cref="BridgeLayout.Draws"/>).</summary>
+        private bool DrawnByBridges(TileData tile, int road)
+        {
+            Entry e;
+            if (tile == null || !_areas.TryGetValue(tile.Tile, out e)) return false;
+            var d = e.Decks as BridgeDeckIndex;
+            return d != null && d.Layout.Draws(road);
         }
 
         private static void SetRoad(ref GroundSample s, ref RoadHit hit)

@@ -396,6 +396,9 @@ namespace Ghumante.Core.Driving
             foreach (BridgeColliders.Column k in c.Columns) b.AddCylinder(x0 + k.CX, z0 + k.CZ, k.Radius, k.Bottom, k.Top, SolidFlags.None);
         }
 
+        public static Action<ulong, double, double> DebugRail;
+        public static bool DebugSkipLowered = Environment.GetEnvironmentVariable("DEBUG_SKIP_LOWERED") == "1";
+
         private static void Railings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, SolidBuilder b, bool[] covered)
         {
             var run = new RailRun(b);
@@ -404,6 +407,7 @@ namespace Ghumante.Core.Driving
             for (int ri = 0; ri < t.Roads.Count; ri++)
             {
                 if (covered != null && ri < covered.Length && covered[ri]) continue; // drawn and made solid by the bridges package
+                if (DebugSkipLowered && (t.RoadStructureOf(ri).Flags & RoadStructureFlags.Lowered) != 0) continue;
                 bool elevated = roads.IsElevated(ri);
                 float[] deck = roads.SurfaceHeights(ri);
                 if (!elevated && deck == null) continue;
@@ -484,6 +488,7 @@ namespace Ghumante.Core.Driving
                             {
                                 // A lowered road: a retaining wall where it runs below the hard edge.
                                 bool cut = ground + lift - y > TileGroundQuery.HardEdgeM;
+                                if (cut && DebugRail != null) DebugRail(t.Roads[ri].OsmWayId, qx, qz);
                                 run.Add(qx, qz, y - RailingBelowDeckM, Math.Max(y + rail, ground + RetainingParapetM), cut);
                             }
                         }

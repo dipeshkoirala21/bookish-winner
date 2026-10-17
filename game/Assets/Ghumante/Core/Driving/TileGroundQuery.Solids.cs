@@ -104,7 +104,9 @@ namespace Ghumante.Core.Driving
             for (int i = 0; i < _near.Count; i++)
             {
                 RoadSpatialIndex idx = _near[i].Roads;
-                if (idx.HasDecks && idx.SlabOverlaps(x, z, low, high)) return true;
+                // Where the bridges package draws the tile's decks, only the drawn slabs are overhead: the records'
+                // straight-line slabs stood across the drawn stairs and landings (owner playtest #15).
+                if (_near[i].Decks == null && idx.HasDecks && idx.SlabOverlaps(x, z, low, high)) return true;
                 if (DeckBlocks(_near[i].Decks, x, z, low, high)) return true;
             }
             return DeckBlocks(Decks, x, z, low, high);
@@ -329,7 +331,7 @@ namespace Ghumante.Core.Driving
             for (int i = 0; i < _near.Count; i++)
             {
                 RoadSpatialIndex idx = _near[i].Roads;
-                if (idx.HasDecks && idx.SlabOverlaps(x, z, low, high, r)) return true;
+                if (_near[i].Decks == null && idx.HasDecks && idx.SlabOverlaps(x, z, low, high, r)) return true;
                 if (DeckBlocks(_near[i].Decks, x, z, low, high)) return true;
             }
             return DeckBlocks(Decks, x, z, low, high);

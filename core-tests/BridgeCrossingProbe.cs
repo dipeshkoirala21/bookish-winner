@@ -31,8 +31,28 @@ namespace Ghumante.Core.Tests
         /// does; off (BRIDGE_NO_DRESSING=1) to look at the structures alone.</summary>
         public static bool WithDressing = Environment.GetEnvironmentVariable("BRIDGE_NO_DRESSING") != "1";
 
+        public static readonly List<KeyValuePair<ulong, double[]>> RailDebug = new List<KeyValuePair<ulong, double[]>>();
+
+        public static string RailOwner(double x, double z)
+        {
+            double best = 1.0;
+            ulong way = 0;
+            lock (RailDebug)
+                foreach (KeyValuePair<ulong, double[]> kv in RailDebug)
+                {
+                    double d = Math.Sqrt((kv.Value[0] - x) * (kv.Value[0] - x) + (kv.Value[1] - z) * (kv.Value[1] - z));
+                    if (d < best)
+                    {
+                        best = d;
+                        way = kv.Key;
+                    }
+                }
+            return way != 0 ? " RAIL-OF " + way : "";
+        }
+
         private BridgeWorld(int tier)
         {
+
             Settings = StreamingScene.Settings(tier, 10);
             Settings.DrawBuildings = false; // house solids come from the footprints (TileSolids); the meshes are not needed
             Ground = StreamingScene.Ground(Settings);
@@ -65,10 +85,29 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        private readonly HashSet<long> _bridgeSolids = new HashSet<long>();
+
+        private static long SolidKey(double x, double z)
+        {
+            return ((long)Math.Round(x * 20) << 32) ^ (long)Math.Round(z * 20);
+        }
+
+        /// <summary>True when a tile solid comes from the bridges package (<see cref="BridgeColliders"/>), by its start point.</summary>
+        public bool IsBridgeSolid(in SolidPrim p)
+        {
+            return _bridgeSolids.Contains(SolidKey(p.Ax, p.Az));
+        }
+
         private void AddTile(TileId id)
         {
             TileBuild b = StreamingScene.Build(id, Settings, Ground);
             Builds[id] = b;
+            if (b.Source.HasDetail)
+            {
+                BridgeColliders bc = BridgeColliders.For(BridgeLayout.For(b.Source));
+                foreach (BridgeColliders.Wall wl in bc.Walls) _bridgeSolids.Add(SolidKey(id.X0 + wl.X0, id.Z0 + wl.Z0));
+                foreach (BridgeColliders.Column cl in bc.Columns) _bridgeSolids.Add(SolidKey(id.X0 + cl.CX, id.Z0 + cl.CZ));
+            }
             Ground.Add(id, b.Sampler, b.Roads);
             if (b.HeroColliders != null && b.HeroColliders.Count > 0) Ground.Register(id.Key, b.HeroColliders);
             if (WithDressing && b.Colliders != null && b.Colliders.Count > 0) Ground.Register(id.Key | TileGroundQuery.StaticSetKeyBit, b.Colliders);
@@ -102,7 +141,8 @@ namespace Ghumante.Core.Tests
                     if (d > r || p.Top <= low || p.Bottom >= high) continue;
                     sb.Append("   solid ").Append(kv.Key).Append(" (").Append(p.Ax.ToString("F1")).Append(",").Append(p.Az.ToString("F1")).Append(")-(")
                       .Append(p.Bx.ToString("F1")).Append(",").Append(p.Bz.ToString("F1")).Append(") r ").Append(p.Radius.ToString("F2")).Append(" y ")
-                      .Append(p.Bottom.ToString("F2")).Append("..").Append(p.Top.ToString("F2")).Append(" grp ").Append(p.Group).Append(" d ").Append(d.ToString("F2")).Append('\n');
+                      .Append(p.Bottom.ToString("F2")).Append("..").Append(p.Top.ToString("F2")).Append(" grp ").Append(p.Group).Append(" d ").Append(d.ToString("F2"))
+                      .Append(IsBridgeSolid(in p) ? " [bridge]" : p.Group < 0 ? " " + LoweredNear(kv.Value.Source, Ground.RoadIndexOf(kv.Key), 0.5 * (p.Ax + p.Bx), 0.5 * (p.Az + p.Bz)) + RailOwner(p.Ax, p.Az) : "").Append('\n');
                 }
                 foreach (StructureColliders c in new[] { kv.Value.HeroColliders, kv.Value.Colliders })
                 {
@@ -131,6 +171,72 @@ namespace Ghumante.Core.Tests
                 }
             }
             sb.Append("   IsBlocked here: ").Append(Ground.IsBlocked(x, z, y)).Append('\n');
+            return sb.ToString();
+        }
+
+        /// <summary>The road with structure heights or an elevated deck whose centreline passes nearest (x, z) (the road a
+        /// railing or retaining wall there most likely follows), as "way@distance".</summary>
+        private static string LoweredNear(TileData t, RoadSpatialIndex idx, double x, double z)
+        {
+            if (idx == null) return "";
+            double best = double.MaxValue;
+            ulong way = 0;
+            for (int ri = 0; ri < t.Roads.Count; ri++)
+            {
+                if (idx.SurfaceHeights(ri) == null && !idx.IsElevated(ri)) continue;
+                int[] pt = t.Roads[ri].Points;
+                for (int k = 0; k + 3 < pt.Length; k += 2)
+                {
+                    double ax = t.Tile.X0 + pt[k] / 100.0, az = t.Tile.Z0 + pt[k + 1] / 100.0, bx = t.Tile.X0 + pt[k + 2] / 100.0, bz = t.Tile.Z0 + pt[k + 3] / 100.0;
+                    double qx, qz;
+                    SolidSet.Closest(ax, az, bx, bz, x, z, out qx, out qz);
+                    double d = Math.Sqrt((qx - x) * (qx - x) + (qz - z) * (qz - z));
+                    if (d < best)
+                    {
+                        best = d;
+                        way = t.Roads[ri].OsmWayId;
+                    }
+                }
+            }
+            return way != 0 ? "road " + way + "@" + best.ToString("F1") : "";
+        }
+
+        /// <summary>Why the ground query answers what it does at (x, z) for feet at <paramref name="y"/>: every tile's deck
+        /// index (the deck within reach, the deck seen from head height, the soffit over the step-up) and structure-height
+        /// slabs, the way <c>TileGroundQuery.CeilingBlocks</c> reads them (diagnostics).</summary>
+        public string Explain(double x, double z, float y, float bodyH = TileGroundQuery.BodyHeightM)
+        {
+            var sb = new StringBuilder();
+            GroundSample g;
+            bool got = Ground.TrySample(x, z, y, out g);
+            sb.Append("   explain (").Append(x.ToString("F2")).Append(", ").Append(z.ToString("F2")).Append(") feet ").Append(y.ToString("F2")).Append(": ground ")
+              .Append(got ? g.Height.ToString("F2") + (g.OnDeck ? " deck" : "") + (g.OnStructure ? " struct" : "") + (g.OnRoad ? " road" : "") : "none").Append('\n');
+            RoadHit rh;
+            if (Ground.TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out rh))
+            {
+                RoadSpatialIndex ri = Ground.RoadIndexOf(rh.Tile.Tile);
+                float sy = 0f, sg;
+                bool hs = ri != null && ri.TrySurfaceHeight(in rh, out sy, out sg);
+                sb.Append("   nearest ground-layer road ").Append(rh.Road.OsmWayId).Append(' ').Append(rh.Road.RoadClass).Append(" #").Append(rh.RoadIndex).Append(" seg ").Append(rh.Segment)
+                  .Append(" t ").Append(rh.T.ToString("F3")).Append(" edge ").Append(rh.EdgeDistanceM.ToString("F2")).Append(" lat ").Append(rh.LateralM.ToString("F2")).Append('/').Append(rh.HalfWidthM.ToString("F2"))
+                  .Append(" surface ").Append(hs ? sy.ToString("F2") : "-").Append('\n');
+            }
+            float low = y + TileGroundQuery.StepUpM, high = y + bodyH;
+            foreach (KeyValuePair<TileId, TileBuild> kv in Builds)
+            {
+                if (x < kv.Key.X0 - 40 || z < kv.Key.Z0 - 40 || x > kv.Key.X0 + kv.Key.Size + 40 || z > kv.Key.Z0 + kv.Key.Size + 40) continue;
+                BridgeDeckIndex d = BridgeDeckIndex.ForTile(kv.Value.Source);
+                float dy, nx, ny, nz, hy, under;
+                bool near = d.TryDeck(x, z, y, out dy, out nx, out ny, out nz);
+                bool head = d.TryDeck(x, z, high, out hy, out nx, out ny, out nz);
+                bool ceil = d.TryCeiling(x, z, low, out under);
+                if (near || head || ceil)
+                    sb.Append("   tile ").Append(kv.Key).Append(" deck@feet ").Append(near ? dy.ToString("F2") : "-").Append(" deck@head ").Append(head ? hy.ToString("F2") : "-")
+                      .Append(head && hy > low && hy - RoadSpatialIndex.DeckThicknessM < high ? " (BLOCKS)" : "").Append(" soffit>step ").Append(ceil ? under.ToString("F2") : "-")
+                      .Append(ceil && under < high ? " (BLOCKS)" : "").Append('\n');
+                RoadSpatialIndex idx = Ground.RoadIndexOf(kv.Key);
+                if (idx != null && idx.HasDecks && idx.SlabOverlaps(x, z, low, high)) sb.Append("   tile ").Append(kv.Key).Append(" structure-height slab BLOCKS\n");
+            }
             return sb.ToString();
         }
 
@@ -241,6 +347,12 @@ namespace Ghumante.Core.Tests
             return _drawn.FirstAbove(x, z, y, out hitY, out upFacing, out layer);
         }
 
+        /// <summary>The highest drawn surface of a layer (0 terrain, 1 areas, 2 roads, 3 bridges) at (x, z), NaN for none.</summary>
+        public float LayerTop(double x, double z, int layer)
+        {
+            return _drawn.LayerTop(x, z, layer);
+        }
+
         public bool DrawnBelow(double x, double z, float maxY, out float y)
         {
             int layer;
@@ -340,6 +452,21 @@ namespace Ghumante.Core.Tests
             return true;
         }
 
+        /// <summary>The highest surface of one layer at (x, z) (NaN: none).</summary>
+        public float LayerTop(double x, double z, int layer)
+        {
+            float best = float.NaN;
+            List<int> l;
+            if (!_cells.TryGetValue(Key((int)Math.Floor(x / Cell), (int)Math.Floor(z / Cell)), out l)) return best;
+            foreach (int t in l)
+            {
+                double h;
+                if (_layer[t] != layer || !At(t, x, z, out h)) continue;
+                if (float.IsNaN(best) || h > best) best = (float)h;
+            }
+            return best;
+        }
+
         public bool HighestBelow(double x, double z, float maxY, out float y, out int layer)
         {
             y = float.NegativeInfinity;
@@ -393,6 +520,13 @@ namespace Ghumante.Core.Tests
         public StepEvents Events;
         public double StopX, StopZ;
         public float StopY;
+
+        /// <summary>Unit direction towards the waypoint the run was heading for when it stopped.</summary>
+        public double StopDirX, StopDirZ;
+
+        /// <summary>Body heading at the stop and the body that was driven (for sweeping it again).</summary>
+        public float StopHeading;
+        public CollisionBody Body;
         public bool EverOnDeck;
 
         public override string ToString()
@@ -441,6 +575,7 @@ namespace Ghumante.Core.Tests
             int steps = (int)(maxSeconds / Dt);
             double lastProgressX = v.X, lastProgressZ = v.Z;
             float sinceProgress = 0f;
+            int stalls = 0;
             for (int i = 0; i < steps; i++)
             {
                 double tx = pts[2 * target], tz = pts[2 * target + 1];
@@ -463,8 +598,27 @@ namespace Ghumante.Core.Tests
                     break;
                 }
                 float want = (float)Math.Atan2(dx, dz);
-                run.Events |= v.Step(new DriveInput(throttle, 0f, v.SteerToward(want, Dt)), Dt, w.Ground, 0f);
+                double bx = v.X, bz = v.Z;
+                float by = v.Y;
+                StepEvents sev = v.Step(new DriveInput(throttle, 0f, v.SteerToward(want, Dt)), Dt, w.Ground, 0f);
+                run.Events |= sev;
                 run.Steps++;
+                if (trace != null && stalls < 6 && (v.X - bx) * (v.X - bx) + (v.Z - bz) * (v.Z - bz) < 1e-8 && i > 30)
+                {
+                    stalls++;
+                    trace.Append("STALL step ").Append(i).Append(" at (").Append(bx.ToString("F2")).Append(", ").Append(bz.ToString("F2")).Append(") y ").Append(by.ToString("F2"))
+                         .Append(" heading ").Append(v.HeadingRad.ToString("F2")).Append(" want ").Append(want.ToString("F2")).Append(" v ").Append(v.SpeedMps.ToString("F2"))
+                         .Append(" ev ").Append(sev).Append('\n');
+                    double ax = bx + Math.Sin(v.HeadingRad) * 0.001, az = bz + Math.Cos(v.HeadingRad) * 0.001;
+                    trace.Append(w.Explain(ax, az, by, v.Body.HeightM));
+                    float t, nx, nz;
+                    bool hit = w.Ground.SweepBody(v.Body, bx, bz, v.HeadingRad, by, Math.Sin(v.HeadingRad) * 0.1, Math.Cos(v.HeadingRad) * 0.1, out t, out nx, out nz);
+                    GroundSample ga;
+                    bool gotA = w.Ground.TrySample(ax, az, by, out ga);
+                    trace.Append("   sweep ").Append(hit ? "hit t " + t.ToString("F2") + " n (" + nx.ToString("F2") + ", " + nz.ToString("F2") + ")" : "clear")
+                         .Append(" ground ahead ").Append(gotA ? ga.Height.ToString("F2") + " n.y " + ga.Ny.ToString("F2") + (ga.OnDeck ? " deck" : "") : "none").Append('\n')
+                         .Append(w.Blockers(ax, az, by, 0.5));
+                }
                 if (v.Ground.OnDeck) run.EverOnDeck = true;
                 run.MaxY = Math.Max(run.MaxY, v.Y);
                 run.MinY = Math.Min(run.MinY, v.Y);
@@ -474,8 +628,8 @@ namespace Ghumante.Core.Tests
                     int layer, alayer;
                     bool up;
                     // Sunk: the first drawn surface straight above the feet faces up (the feet are inside the geometry under
-                    // its top) within a metre. Floating: the feet stand clear above everything drawn under them.
-                    float sink = w.FirstAbove(v.X, v.Z, v.Y + 0.02f, out above, out up, out alayer) && up && above - v.Y < 1.0f ? above - v.Y : 0f;
+                    // its top) within two metres (a whole body: the owner's "disappears"). Floating: the feet stand clear above everything drawn under them.
+                    float sink = w.FirstAbove(v.X, v.Z, v.Y + 0.02f, out above, out up, out alayer) && up && above - v.Y < 2.0f ? above - v.Y : 0f;
                     bool below = w.DrawnBelow(v.X, v.Z, v.Y + 0.02f, out top, out layer);
                     if (sink > 0f) layer = alayer;
                     if ((layer == 3 || v.Ground.OnDeck) && sink > run.BridgeSink) run.BridgeSink = sink;
@@ -521,6 +675,16 @@ namespace Ghumante.Core.Tests
             run.StopX = v.X;
             run.StopZ = v.Z;
             run.StopY = v.Y;
+            run.StopHeading = v.HeadingRad;
+            run.Body = v.Body;
+            {
+                double ddx = pts[2 * target] - v.X, ddz = pts[2 * target + 1] - v.Z, dl = Math.Sqrt(ddx * ddx + ddz * ddz);
+                if (dl > 1e-9)
+                {
+                    run.StopDirX = ddx / dl;
+                    run.StopDirZ = ddz / dl;
+                }
+            }
             if (trace != null && !run.Reached) trace.Append("blockers at the stop:\n").Append(w.Blockers(v.X, v.Z, v.Y));
             return run;
         }
@@ -621,6 +785,10 @@ namespace Ghumante.Core.Tests
                 xs.Add(r.Points[2 * k] / 100.0);
                 zs.Add(r.Points[2 * k + 1] / 100.0);
             }
+            // Beyond the road's ends the route carries on along the drawn road that continues it there (the one sharing
+            // the end point, most nearly straight on), as a player would follow the street, for as far as needed.
+            Continue(t, road, xs, zs, false, half + 10);
+            Continue(t, road, xs, zs, true, half + 10);
             // Along distance of the nearest point.
             double best = double.MaxValue, sBest = 0, acc = 0;
             var s = new double[xs.Count];
@@ -672,6 +840,80 @@ namespace Ghumante.Core.Tests
             }
             x = xs[n - 1];
             z = zs[n - 1];
+        }
+
+        /// <summary>Extends a centreline (tile-local metres) at its start or end along the roads of the tile that
+        /// continue it at that point (sharing the end point exactly), each time the one most nearly straight on, until
+        /// <paramref name="need"/> metres are added or no road continues.</summary>
+        private static void Continue(TileData t, int road, List<double> xs, List<double> zs, bool atStart, double need)
+        {
+            var used = new HashSet<int> { road };
+            double added = 0;
+            for (int hop = 0; hop < 6 && added < need && xs.Count >= 2; hop++)
+            {
+                int n = xs.Count;
+                double ex = atStart ? xs[0] : xs[n - 1], ez = atStart ? zs[0] : zs[n - 1];
+                double ix = atStart ? xs[0] - xs[1] : xs[n - 1] - xs[n - 2], iz = atStart ? zs[0] - zs[1] : zs[n - 1] - zs[n - 2];
+                double il = Math.Sqrt(ix * ix + iz * iz);
+                if (il < 1e-9) return;
+                int bestRoad = -1;
+                bool bestFromStart = false;
+                double bestCos = 0.5; // at most 60 degrees off straight on
+                for (int ri = 0; ri < t.Roads.Count; ri++)
+                {
+                    if (used.Contains(ri) || !RoadMesher.IsDrawn(t.Roads[ri], null)) continue;
+                    RoadRecord o = t.Roads[ri];
+                    int f, l;
+                    RoadSpatialIndex.RenderedRange(o, out f, out l);
+                    if (l <= f) continue;
+                    for (int end = 0; end < 2; end++)
+                    {
+                        int k = end == 0 ? f : l, k2 = end == 0 ? f + 1 : l - 1;
+                        double px = o.Points[2 * k] / 100.0, pz = o.Points[2 * k + 1] / 100.0;
+                        if (Math.Abs(px - ex) > 0.02 || Math.Abs(pz - ez) > 0.02) continue;
+                        double ox = o.Points[2 * k2] / 100.0 - px, oz = o.Points[2 * k2 + 1] / 100.0 - pz, ol = Math.Sqrt(ox * ox + oz * oz);
+                        if (ol < 1e-9) continue;
+                        double cos = (ix * ox + iz * oz) / (il * ol);
+                        if (cos > bestCos)
+                        {
+                            bestCos = cos;
+                            bestRoad = ri;
+                            bestFromStart = end == 0;
+                        }
+                    }
+                }
+                if (bestRoad < 0) return;
+                used.Add(bestRoad);
+                RoadRecord br = t.Roads[bestRoad];
+                int bf, bl;
+                RoadSpatialIndex.RenderedRange(br, out bf, out bl);
+                var px2 = new List<double>();
+                var pz2 = new List<double>();
+                for (int i = 1; i <= bl - bf; i++)
+                {
+                    int k = bestFromStart ? bf + i : bl - i;
+                    px2.Add(br.Points[2 * k] / 100.0);
+                    pz2.Add(br.Points[2 * k + 1] / 100.0);
+                }
+                double lx = ex, lz = ez;
+                for (int i = 0; i < px2.Count; i++)
+                {
+                    added += Math.Sqrt((px2[i] - lx) * (px2[i] - lx) + (pz2[i] - lz) * (pz2[i] - lz));
+                    lx = px2[i];
+                    lz = pz2[i];
+                    if (atStart)
+                    {
+                        xs.Insert(0, px2[i]);
+                        zs.Insert(0, pz2[i]);
+                    }
+                    else
+                    {
+                        xs.Add(px2[i]);
+                        zs.Add(pz2[i]);
+                    }
+                    if (added >= need) break;
+                }
+            }
         }
 
         public static void Extend(List<double> pts, double m, bool atStart)

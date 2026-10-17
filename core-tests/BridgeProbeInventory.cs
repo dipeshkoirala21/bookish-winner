@@ -51,5 +51,79 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine("tiles " + tiles + " with RSTR " + rstr);
         }
+
+        /// <summary>Roads whose name contains BRIDGE_NAME (comma-separated alternatives), over the whole sample.</summary>
+        [Test, Explicit]
+        public void FindNamed()
+        {
+            string spec = Environment.GetEnvironmentVariable("BRIDGE_NAME");
+            if (string.IsNullOrEmpty(spec)) Assert.Ignore("set BRIDGE_NAME");
+            string[] names = spec.Split(',');
+            foreach (TileId id in StreamingSampleRegion.TilesAt(10))
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                if (!t.HasDetail) continue;
+                for (int ri = 0; ri < t.Roads.Count; ri++)
+                {
+                    NameRecord n = t.Name(t.Roads[ri].NameRef);
+                    if (n == null || n.Default == null) continue;
+                    foreach (string q in names)
+                        if (n.Default.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                            TestContext.WriteLine(id + " way " + t.Roads[ri].OsmWayId + " '" + n.Default + "' " + t.Roads[ri].RoadClass + " " + t.Roads[ri].Flags + " kind " + t.RoadStructureOf(ri).Kind
+                                                  + " at (" + (t.Tile.X0 + t.Roads[ri].Points[0] / 100.0).ToString("F0") + ", " + (t.Tile.Z0 + t.Roads[ri].Points[1] / 100.0).ToString("F0") + ")");
+                }
+            }
+        }
+
+        /// <summary>Which roads' road-based retaining walls TileSolids builds in one tile (BRIDGE_TILE), by way (debug hook).</summary>
+        [Test, Explicit]
+        public void RailOwners()
+        {
+            string spec = Environment.GetEnvironmentVariable("BRIDGE_TILE");
+            if (string.IsNullOrEmpty(spec)) Assert.Ignore("set BRIDGE_TILE");
+            string[] a = spec.Split(',');
+            TileData t = StreamingSampleRegion.Tile(new TileId(10, int.Parse(a[0]), int.Parse(a[1])));
+            var count = new SortedDictionary<ulong, int>();
+            TileSolids.DebugRail = (w, x, z) => { int c; count.TryGetValue(w, out c); count[w] = c + 1; };
+            var q = new TileGroundQuery();
+            q.Add(t);
+            TileSolids.DebugRail = null;
+            foreach (KeyValuePair<ulong, int> kv in count) TestContext.WriteLine("way " + kv.Key + " retaining points " + kv.Value);
+        }
+
+        /// <summary>Roads of one tile (BRIDGE_TILE = "tx,ty") that carry structure heights or are elevated, with their record
+        /// kind and flags and whether the bridges package covers them (a span or a trench of the layout).</summary>
+        [Test, Explicit]
+        public void StructureRoads()
+        {
+            string spec = Environment.GetEnvironmentVariable("BRIDGE_TILE");
+            if (string.IsNullOrEmpty(spec)) Assert.Ignore("set BRIDGE_TILE");
+            string[] a = spec.Split(',');
+            TileData t = StreamingSampleRegion.Tile(new TileId(10, int.Parse(a[0]), int.Parse(a[1])));
+            var idx = new RoadSpatialIndex(t);
+            BridgeLayout l = BridgeLayout.For(t);
+            var span = new HashSet<int>();
+            var trench = new HashSet<int>();
+            foreach (BridgeSpan sp in l.Spans) span.Add(sp.Road);
+            foreach (BridgeSpan sp in l.Trenches) trench.Add(sp.Road);
+            for (int ri = 0; ri < t.Roads.Count; ri++)
+            {
+                float[] h = idx.SurfaceHeights(ri);
+                if (h == null && !idx.IsElevated(ri)) continue;
+                RoadRecord r = t.Roads[ri];
+                RoadStructureRecord st = t.RoadStructureOf(ri);
+                float lo = float.MaxValue, hi = float.MinValue;
+                if (h != null)
+                    foreach (float y in h)
+                        if (!float.IsNaN(y))
+                        {
+                            lo = Math.Min(lo, y);
+                            hi = Math.Max(hi, y);
+                        }
+                TestContext.WriteLine("#" + ri + " way " + r.OsmWayId + " " + r.RoadClass + " kind " + st.Kind + " flags " + st.Flags + " elevated " + idx.IsElevated(ri)
+                                      + " heights " + (h != null ? lo.ToString("F1") + ".." + hi.ToString("F1") : "-") + (span.Contains(ri) ? " SPAN" : "") + (trench.Contains(ri) ? " TRENCH" : "")
+                                      + " first (" + (t.Tile.X0 + r.Points[0] / 100.0).ToString("F1") + ", " + (t.Tile.Z0 + r.Points[1] / 100.0).ToString("F1") + ")");
+            }
+        }
     }
 }

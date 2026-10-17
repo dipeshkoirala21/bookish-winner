@@ -85,6 +85,7 @@ namespace Ghumante.Core.Driving
         private const double MinSlideShare = 0.2;
 
         private const float Deg2Rad = (float)(Math.PI / 180.0);
+        public static Action<string> DebugLog;
         private const float Pi = (float)Math.PI;
         private const float TwoPi = (float)(2.0 * Math.PI);
         private const float BumpCooldownS = 0.15f;
@@ -378,6 +379,7 @@ namespace Ghumante.Core.Driving
                 StepEvents e = SubStep(throttle, brake, steer, input.Boost, h, g, wet);
                 if (!IsFinite())
                 {
+                    if (DebugLog != null) DebugLog("NONFINITE X " + X + " Z " + Z + " Y " + Y + " v " + SpeedMps + " h " + HeadingRad + " vy " + _vy + " roll " + VisualRoll + " pitch " + VisualPitch);
                     Restore(ref snap);
                     SpeedMps = 0f;
                     _vy = 0f;
@@ -847,6 +849,12 @@ namespace Ghumante.Core.Driving
             }
             if (!ok)
             {
+                if (DebugLog != null)
+                {
+                    GroundSample dd;
+                    bool sg = Sample(g, px, pz, out dd);
+                    DebugLog("MOVEFAIL p " + px + "," + pz + " from " + X + "," + Z + " Y " + Y + " sample " + sg + " h " + dd.Height + " ny " + dd.Ny + " deck " + dd.OnDeck + " walkerBlocked " + (sg && WalkerBlocked(ref dd, SpeedMps)) + " tooHigh " + (sg && TooHigh(ref dd)));
+                }
                 LoseSpeed(SpeedMps, ref ev);
                 SpeedMps = 0f;
                 if (!Sample(g, X, Z, out s)) s = _ground;

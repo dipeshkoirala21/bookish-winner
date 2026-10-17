@@ -170,7 +170,7 @@ namespace Ghumante.Core.Meshing.Bridges
             int t0 = m.TriangleCount;
             if (sp.Stair)
             {
-                foreach (BridgeStair st in sp.Stairs) Stair(ref x, sp, st, m);
+                for (int i = 0; i < sp.Stairs.Count; i++) Stair(ref x, sp, i, m);
                 Mark("stairs", ref t0, m);
                 return true;
             }
@@ -195,7 +195,7 @@ namespace Ghumante.Core.Meshing.Bridges
             Mark("lamps", ref t0, m);
             if (sp.Overbridge && x.O.Roofs && x.Lod < 2 && (BridgeStyle.Hash(sp.GroupWay, 0x524F4F46) & 1) == 0) Roof(ref x, sp, m);
             Mark("roof", ref t0, m);
-            foreach (BridgeStair st in sp.Stairs) Stair(ref x, sp, st, m);
+            for (int i = 0; i < sp.Stairs.Count; i++) Stair(ref x, sp, i, m);
             Mark("stairs", ref t0, m);
             if (sp.Form == BridgeForm.Suspension) Suspension(ref x, sp, m);
             else if (sp.Form == BridgeForm.Arch) Arch(ref x, sp, m);
@@ -1454,9 +1454,12 @@ namespace Ghumante.Core.Meshing.Bridges
 
         /// <summary>A stair flight from its <see cref="BridgeStair"/> profile (risers, treads and landings exactly
         /// where <see cref="BridgeStair.SurfaceAt"/> puts the walkable surface), with side stringers, soffits,
-        /// handrails following the nosing line and columns under landings; a landing pad is a slab on a column.</summary>
-        private static void Stair(ref Ctx x, BridgeSpan sp, BridgeStair st, MeshData m)
+        /// handrails following the nosing line along the layout's handrail runs (open where another flight or a landing
+        /// pad meets the side, <see cref="BridgeSpan.HandrailRuns"/>) and columns under landings; a landing pad is a slab
+        /// on a column.</summary>
+        private static void Stair(ref Ctx x, BridgeSpan sp, int index, MeshData m)
         {
+            BridgeStair st = sp.Stairs[index];
             double dx = st.Dx, dz = st.Dz, nx = -dz, nz = dx, hw = st.HalfWidth;
             uint conc = BridgeStyle.Concrete, side = sp.Steel;
             if (st.Steps == 0)
@@ -1540,43 +1543,47 @@ namespace Ghumante.Core.Meshing.Bridges
                 BridgeKit.Quad(m, xa - nx * hw, ya - 0.3, za - nz * hw, xa + nx * hw, ya - 0.3, za + nz * hw, xb + nx * hw, yb - 0.3, zb + nz * hw, xb - nx * hw,
                                yb - 0.3, zb - nz * hw, 0, -1, 0, BridgeStyle.ConcreteSoffit, MaterialChannel.Concrete, 0.5f, 0.5f);
             }
-            // Handrails on both sides, 0.95 m over the walking line (through the landing corners).
-            int np = 0;
-            Tube3(4 + 2 * st.Landings + 4);
-            double at = 0;
+            // Handrails on both sides, 0.95 m over the walking line (through the landing corners), along the layout's
+            // handrail runs, with a baluster at each end of a run and about every 2.4 m between.
+            Tube3(8 + 2 * st.Landings + 4);
+            double inset = hw - BridgeLayout.HandrailInsetM;
             for (int pass = 0; pass < 2; pass++)
             {
-                double ox = nx * (hw - 0.05) * (pass == 0 ? -1 : 1), oz = nz * (hw - 0.05) * (pass == 0 ? -1 : 1);
-                np = 0;
-                at = 0;
-                AddRailPoint(st, ox, oz, 0, ref np);
-                for (int i = 0; i < st.Steps; i++)
+                int sgn = pass == 0 ? -1 : 1;
+                int ri = 2 * index + (sgn > 0 ? 1 : 0);
+                if (ri >= sp.HandrailRuns.Count) continue;
+                List<double> runs = sp.HandrailRuns[ri];
+                double ox = nx * inset * sgn, oz = nz * inset * sgn;
+                for (int r = 0; r + 1 < runs.Count; r += 2)
                 {
-                    double len = st.TreadLength(i);
-                    if (len > st.Tread + 1e-6)
+                    double a0 = runs[r], a1 = runs[r + 1];
+                    int np = 0;
+                    AddRailPoint(st, ox, oz, a0, ref np);
+                    double at = 0;
+                    for (int i = 0; i < st.Steps; i++)
                     {
-                        AddRailPoint(st, ox, oz, at + st.Tread, ref np);
-                        AddRailPoint(st, ox, oz, at + len, ref np);
+                        double len = st.TreadLength(i);
+                        if (len > st.Tread + 1e-6)
+                        {
+                            // The landing corners (where the nosing line turns flat and back) inside the run.
+                            if (at + st.Tread > a0 + 1e-3 && at + st.Tread < a1 - 1e-3) AddRailPoint(st, ox, oz, at + st.Tread, ref np);
+                            if (at + len > a0 + 1e-3 && at + len < a1 - 1e-3) AddRailPoint(st, ox, oz, at + len, ref np);
+                        }
+                        at += len;
                     }
-                    at += len;
-                }
-                if (np < 2 || Math.Abs(_tx[np - 1] - (st.X + dx * st.Length + ox)) + Math.Abs(_tz[np - 1] - (st.Z + dz * st.Length + oz)) > 1e-3)
-                    AddRailPoint(st, ox, oz, st.Length, ref np);
-                BridgeKit.Tube(m, _tx, _ty, _tz, np, 0.035, x.Lod == 0 ? 6 : 4, true, side, MaterialChannel.Metal, 0.95f);
-            }
-            // Balusters every 2.4 m.
-            double step = 2.4;
-            for (int pass = 0; pass < 2; pass++)
-            {
-                double ox = nx * (hw - 0.05) * (pass == 0 ? -1 : 1), oz = nz * (hw - 0.05) * (pass == 0 ? -1 : 1);
-                for (double t = 0.4; t < st.Length; t += step)
-                {
-                    double yy = st.SurfaceAt(t);
-                    _tx[0] = _tx[1] = st.X + dx * t + ox;
-                    _tz[0] = _tz[1] = st.Z + dz * t + oz;
-                    _ty[0] = yy - 0.05;
-                    _ty[1] = yy + 0.95;
-                    BridgeKit.Tube(m, _tx, _ty, _tz, 2, 0.025, 4, false, side, MaterialChannel.Metal, 0.9f);
+                    AddRailPoint(st, ox, oz, a1, ref np);
+                    BridgeKit.Tube(m, _tx, _ty, _tz, np, 0.035, x.Lod == 0 ? 6 : 4, true, side, MaterialChannel.Metal, 0.95f);
+                    int posts = Math.Max(1, (int)Math.Round((a1 - a0) / 2.4));
+                    for (int k = 0; k <= posts; k++)
+                    {
+                        double t = a0 + (a1 - a0) * k / posts;
+                        double yy = st.SurfaceAt(t);
+                        _tx[0] = _tx[1] = st.X + dx * t + ox;
+                        _tz[0] = _tz[1] = st.Z + dz * t + oz;
+                        _ty[0] = yy - 0.05;
+                        _ty[1] = yy + 0.95;
+                        BridgeKit.Tube(m, _tx, _ty, _tz, 2, 0.025, 4, false, side, MaterialChannel.Metal, 0.9f);
+                    }
                 }
             }
         }
