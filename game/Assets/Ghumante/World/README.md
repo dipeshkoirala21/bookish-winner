@@ -199,21 +199,38 @@ props, + B0 on High). Estimate against ARCHITECTURE 10 (only non-empty batches d
 batches, with a 60 k hero budget. Before this fix every B0 and B1 chunk to 200–250 m, every tree batch and every prop batch
 drew it on Mid too. To validate on device (Wave 3).
 
-**Occluder fade** (`_OCCLUDER_FADE`; the engine-free twin is `Core/Synth/Look/OccluderCapsule`, tested in
-`core-tests/SynthOccluderFadeTests`): surfaces between the camera and the player dissolve into a 4 × 4 Bayer screen door
-(18% left), so houses, walls, balconies, temples and bridge parts never block the view, also when the collision-aware
-camera is squeezed 1.5 m behind a motorbike backing down a galli. The capsule is four global vectors set once per camera;
-there is no per-object CPU work. It is fully faded within a radius growing from the camera end (at least 1 m, more when
-the view frustum 0.8 m in front of the lens is wider: landscape, wide FOV) to 1.3 m at the player, with no fade-in at the
-camera (a wall 0.1 m in front of the lens is gone), soft edges of 12% of the capsule (0.15–0.6 m) outside that radius,
-nothing at or beyond the plane through the player (the background stays), and a solid sphere of 0.5 m (at most a quarter
-of the capsule) around the player end. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a
-camera rig sets a better point that frame. Bridge, flyover and underpass structures (decks, railings, piers, parapets,
-ramps and trench walls) are their own tile layer with their own material, `bridges`, which fades whole; the road
-material (driving surface, kerbs, footpaths, also the carriageway on a deck) no longer fades, so road fragments carry no
-`clip()`. The ground mode (`_OccluderGround`: only above the player's knees, upward-facing surfaces only from 0.8 m above
-the player end) stays in the shader for any later ground layer. The plain building
-material (the explorer's own material is copied from it) and traffic never fade; shadows of faded houses stay.
+**Occluder fade** (`_OCCLUDER_FADE`; the engine-free twins are `Core/Synth/Look/OccluderCapsule` and
+`OccluderFadeGate`, tested in `core-tests/SynthOccluderFadeTests`, `WorldRenderingOccluderGateTests` and, on the real
+sample at the owner's spots, `WorldRenderingOccluderSpotsTests`): surfaces that really hide the player dissolve into a
+4 × 4 Bayer screen door (18% left at full strength). Playtest #4 ("buildings constantly flicker and stutter") found the
+first version dissolving every house surface near the camera-to-player line on every frame: walls beside the camera in a
+galli or between two houses at Hiti Pokhari dithered on and off as the camera moved while the player was in plain view
+(up to 21 m² of wall at once, over 1 800 wall patches flipping three times or more on one walk). Now:
+
+* **Sight gate** (`OccluderFadeGate`, run by `ToonLook` once per frame for the world camera): two 0.12 m sphere casts
+  from the camera to the player's chest and 0.6 m above it against the world's solids (`WorldRoot.GroundQuery`, the same
+  `IViewObstacleQuery` the chase camera's boom avoids: house solids, structures, statues, decks, terrain). The player is
+  hidden only when both are blocked; anything within 0.45 m of the body (the wall they lean on) does not count.
+* **Hysteresis**: the fade engages after 0.35 s of continuous hiding and releases after 0.6 s of continuous sight; a lamp
+  post, a corner or a balcony crossing the line never flickers anything. A camera or player jump of more than 12 m (a
+  teleport, a cut) starts over solid.
+* **Smooth strength** (`_GhOccluderB.w`): in over 0.3 s, out over 0.45 s (smoothstep), so the screen door thins and
+  thickens through the 16 Bayer levels instead of popping. While the strength is 0 the shader skips the clip entirely (a
+  uniform branch).
+* **A narrow cone**, not a wide capsule: fully faded within 0.35 m of the line at the camera, growing to 0.8 m at the
+  player, soft over 12% of its length (0.15–0.45 m); no frustum cover any more (`NearCoverM` = 0), so walls beside the
+  lens, the walls the player rides past and the wall they stand beside stay solid even while the fade is on. Nothing at
+  or beyond the plane through the player fades, and a 0.5 m sphere around the player end stays solid.
+
+When in doubt the camera moves (the boom keeps the line of sight clear; on the sample's rides the player was never
+hidden), never the houses. The player end is the world focus raised 1 m, or `ToonLook.SetOccluderTarget` when a camera rig
+sets a better point that frame; `ToonLook.OccluderGate` and `ToonLook.LastOccluder` expose the state for debug HUDs.
+Bridge, flyover and underpass structures (decks, railings, piers, parapets, ramps and trench walls) are their own tile
+layer with their own material, `bridges`, which fades whole; the road material (driving surface, kerbs, footpaths, also
+the carriageway on a deck) never fades, so road fragments carry no `clip()`. The ground mode (`_OccluderGround`: only
+above the player's knees, upward-facing surfaces only from 0.8 m above the player end) stays in the shader for any later
+ground layer. The plain building material (the explorer's own material is copied from it) and traffic never fade; shadows
+of faded houses stay.
 
 | Material | Outline (tier) | Occluder fade |
 |---|---|---|
@@ -230,6 +247,51 @@ material (the explorer's own material is copied from it) and traffic never fade;
 Project Setup stores the High roles (the superset) in the material assets; `WorldMaterialSet.Load` and `ToonLook` apply
 the tier in use at runtime (before the streamer clones the band materials when a world opens).
 
+**Stable, solid buildings** (owner playtest #4 "buildings constantly flicker and stutter... make them stable and solid",
+#12 "make the buildings very solid"; measured on the `kathmandu_core` sample at Hiti Pokhari, Asan and Kalopul from the
+rides' chase camera, `core-tests/WorldRendering*`, previews in `/home/user/wt/previews/stable/`, brief
+`docs/research/w2/ref_stable.md`):
+
+* **Band hand-off by stencil** (`ToonLitInput.hlsl GhBandClip`, `WorldMaterialDefaults.SetBandOrder`,
+  `ToonLitLayout.BandStencil`): the building bands draw inner to outer (queues 2000-2004: near ring, lite ring, B1, B2,
+  B3); each marks one of URP's user stencil bits where it draws and draws only where no inner band marked. The outgoing
+  band dithers out over the 4 m fade; the incoming band draws its whole fade-in undithered and fills exactly the pixels the
+  outgoing one left. The two bands are different meshes of a house (the near ring recesses windows, the lite ring and B1
+  lay them on the wall), so complementary dithers evaluated at their two depths left holes into the houses (0.5-1.6% of
+  the ring's wall pixels) and, with the first fix's 12% overlap, drew both on one wall (z-fighting on 7-9%). Now no pixel
+  draws both, and the holes left (0.03-0.4%) are places where two bands' meshes disagree by more than the ring (open
+  issue). Shadow casters of both bands overlap over the whole fade (a shadow cast twice is the same shadow; a cut at one
+  distance let light through where the meshes differ). The outline pass tests the stencil but never marks (a hull behind
+  a dithered-out face must not hide the outer band). The source materials get their order in `ApplyExtras`, the B0 rings'
+  copies in `DetailCells.RingMaterial` and the streamer's band copies in `WorldStreamer.BandMaterial`.
+* **Z-fighting** (`core-tests/WorldRenderingZFightTests`, a coplanar scan in double precision relative to each mesh,
+  shading compared at the overlap, area by material-channel pair in the report): on the playtest base (64155f3) the
+  near- and lite-ring houses at the three spots had 9 778 visibly different coplanar pairs over 405 m², 291 m² of them
+  exactly coplanar. Fixed at the source with minimal offsets in the house kit: balcony slabs 1 cm deeper than the floor
+  band they cross (both were the same 0.16 m course), the floor band 5 mm under the floor line and at 0.9 of its free depth
+  (no longer one plane with pilasters clipped to the same depth), the gable soffits only between the wall lines (the eave
+  strips are the slopes' own soffits), weathering patches each on its own layer (4.5 / 6.5 / 8.5 mm) above the streaks
+  (2.5 mm), signs 9.5 cm proud (11 cm for an upper fascia) clear of the 9 cm window ledges, and where a road clips a sign
+  (every clipped frame, ledge and band behind it ends on the same plane 2 cm short of the corridor) the board takes 8 mm
+  (12 mm) of that margin and stays in front, Newar shop posts from the wall plane (sunk 2 cm they overlapped the reveal),
+  blade-sign lettering 4 mm off the blade (was 1 mm), end pilasters 4 mm inside the plot end. Now 11.0 m² (2.7%) are left,
+  4.9 m² exactly coplanar (1.7%): grammar overlap (open issue). Surfaces closer than 1 mm count: exactly coplanar faces
+  fight on every depth buffer, and GLES3 (no reversed Z) resolves about 0.15 mm at the near ring's 32 m with the 0.4 m
+  near plane. The ground layers at the spots (roads, markings, areas, bridges and ornaments at LOD0; the bridge and
+  ornament layers hold every piece at each LOD, of which one draws) are clean but for 3.4 m² (roads and bridges, open
+  issue).
+* **Shadows per tier** (`ProjectSetup.TierProfile`, EditMode `WorldRenderingSetupTests`): the reach is spent on the streets
+  around the camera, about 9-15 cm per texel near the camera on every tier (Low 50 m, 1 cascade 512; Mid 80 m, 1 cascade
+  1024, soft Low quality; High 150 m, 2 cascades 1024 split at 20%), the last 20% of the reach fades out (cascade
+  border), the conservative enclosing sphere keeps casters at the cascade corners, biases explicit (1, 1 texel). URP fits
+  cascades stable (texel snapped), so camera motion does not crawl the edges; the sun turning does (open issue, sky).
+* **Solid walls** (`core-tests/WorldRenderingSolidityTests`): rays over the chase camera's view whose first hit on a house
+  is a culled back face, i.e. the street or sky shows through the house. The end pilasters of modern fronts are closed on
+  both sides (4 mm inside the plot end); a two-sided panel (awning canvas, hood soffit) no longer counts its back quad
+  when the front quad lies in the same plane. Hiti Pokhari 0.16% → 0.10%, Asan 0.31% → 0.29%, Kalopul 0.72% → 0.48% of
+  house pixels on the playtest base; what is left (shop boxes deeper than the house behind them, side walls next to
+  party walls that are not drawn) is an open issue.
+
 **Audio** (decision 7): the crowd walla beds are off by default (`AudioDirector.CrowdWallaEnabled`, `AmbienceInputs
 .CrowdWalla`); the bank does not even bake them, and the temple-courtyard bed is now quiet air and pigeons without
 walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN 7.1 level targets.
@@ -245,6 +307,32 @@ walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN
   in the debug HUD for the Wave 3 device pass.
 - **Inspector-assigned material sets**: a `WorldRoot` with a set assigned in the inspector skips `WorldMaterialSet.Load`, so
   its band clones keep the asset's High roles (B0 outlined on Mid) until the next open after `ToonLook` applied the tier.
+- **Band meshes that disagree beyond the fade ring** (buildings): B1 extrudes the raw footprint while B0 is trimmed to the
+  road corridor and set back, so at the B0/B1 edge a B1 facade can stand more than 2 m in front of the B0 one; the stencil
+  hand-off cannot fill such a pixel (Kalopul 0.43% of the ring's wall pixels). Trim B1 like B0 (`CorridorGuard`).
+- **Z-fighting left in the house grammar** (buildings): 11 m² at the three spots, 2.7% of the playtest base's 405 m²
+  (`WorldRenderingZFightTests` reports it by channel pair): awnings (Fabric) over carved windows, roller shutters and their
+  drum boxes (Metal) on carved lintels and brick pilasters, two lattice parts or two carved frames at one depth,
+  glazed-brick bands under signs, one balcony end on a side facade at Kalopul. The root is general: `Clearance.Depth`
+  clips every relief element a road reaches to the same plane (2 cm short of the corridor), so any two of them that
+  overlap fight; an order-preserving clip (deeper wanted depth, nearer the corridor, a few millimetres apart) would remove
+  the class.
+- **Ground layers** (roads, bridges): 2.5 m² of exactly coplanar road ribbon overlaps at Kalopul (junction pieces at the
+  tile edge) and 0.9 m² of bridge wall faces (an abutment and its wing wall, `zfight_ground.txt`).
+- **Near plane inside houses** (camera): the chase boom keeps a 0.3 m sphere plus 0.1 m skin off the solids, but the
+  near plane's corners reach 0.49 m from the lens at the 0.4 m near clip and the drawn relief (balconies, frames, signs)
+  stands proud of the solids, so walking between two houses at Hiti Pokhari the near plane cut into a house on 354 of 681
+  frames (the house beside the camera seen through, as in the owner's screenshot). Sweep with at least the near-plane
+  corner reach plus the relief depth, or lower the near clip in tight spaces.
+- **perf-cells merge**: its `DetailCells` draws every B0 house with the streamer's one B0 material (switched per house),
+  so `RingMaterial` and its `SetBandOrder` line go; `WorldStreamer.BandMaterial` already gives that material the B0
+  order. `WorldRenderingBandSeamTests.TheShaderHandsOverByStencil` checks the ring line only while `RingMaterial` exists.
+- **Shell gaps** (buildings): `ShopInterior` boxes 1.4 m deep on houses shallower than that at the opening poke out of the
+  side wall (seen from behind); side walls drawn by `SideFacade` are seen from inside where the plot's neighbour wall is
+  not drawn (Hiti Pokhari osm 478100038, Asan osm 1813422468, Kalopul osm 479929266).
+- **Sun steps** (sky): `WorldSky` turns the light every 0.1° (about every 0.8 s at the default day length), and every turn
+  re-rasterises every shadow edge on the facades. Fewer, larger steps hidden in a short cross-fade, or a stepped sun only
+  while the camera moves, would keep them still.
 - `ToonLook.Occluder` now takes `Ghumante.Core.Synth.Look.OccluderFadeSettings` (moved to Core so the capsule is tested
   by the core tests); `ToonLook.SetOccluderTarget` is unchanged.
 

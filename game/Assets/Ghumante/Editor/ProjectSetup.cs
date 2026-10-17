@@ -82,6 +82,12 @@ namespace Ghumante.EditorTools
         /// ARCHITECTURE.md section 10: URP Forward (never Forward+) on every tier, render scale 0.7 on Low,
         /// texture streaming budgets 200/350/450 MB, shadows 1 cascade 512 / 1 cascade 1024 / 2 cascades 1024.
         /// EditMode test ProjectTests.TierProfilesMatchArchitectureBudgets pins the values.
+        /// Shadow reach (playtest #4, "buildings constantly flicker"): every tier spends its map on the streets around the
+        /// camera, about 9-15 cm per shadow texel near the camera instead of 13-18 cm, so the edges on the houses stay
+        /// crisp and steady: Low 50 m, Mid 80 m (filtered, low-quality soft shadows), High 150 m with the first cascade
+        /// at 20% (30 m). The last 20% of the reach fades out (cascade border), so the shadow edge never sweeps over a
+        /// facade as a hard line; the conservative enclosing sphere keeps casters at the cascade corners (no shadows
+        /// popping at the screen edges as the camera turns). EditMode WorldRenderingSetupTests pins them.
         /// </summary>
         public sealed class TierProfile
         {
@@ -94,6 +100,12 @@ namespace Ghumante.EditorTools
             public int shadowCascades;
             public int mainLightShadowResolution;
             public bool softShadows;
+
+            /// <summary>Split of the first of two cascades (fraction of the shadow distance).</summary>
+            public float shadowCascade2Split;
+
+            /// <summary>URP SoftShadowQuality of the pipeline (1 Low: 4 taps, 2 Medium: 9 taps, 3 High).</summary>
+            public int softShadowQuality;
             public int maxAdditionalLights;
             public bool additionalLightsPerPixel;
             public RenderingMode renderingMode;
@@ -107,21 +119,24 @@ namespace Ghumante.EditorTools
             new TierProfile
             {
                 tier = DeviceTier.Low, qualityName = "Low", renderScale = 0.7f, msaa = 1, hdr = false,
-                shadowDistance = 60f, shadowCascades = 1, mainLightShadowResolution = 512, softShadows = false,
+                shadowDistance = 50f, shadowCascades = 1, mainLightShadowResolution = 512, softShadows = false,
+                shadowCascade2Split = 0.25f, softShadowQuality = 1,
                 maxAdditionalLights = 2, additionalLightsPerPixel = false, renderingMode = RenderingMode.Forward,
                 lodBias = 0.6f, textureStreamingBudgetMB = 200, particleRaycastBudget = 64,
             },
             new TierProfile
             {
                 tier = DeviceTier.Mid, qualityName = "Medium", renderScale = 1.0f, msaa = 2, hdr = false,
-                shadowDistance = 120f, shadowCascades = 1, mainLightShadowResolution = 1024, softShadows = false,
+                shadowDistance = 80f, shadowCascades = 1, mainLightShadowResolution = 1024, softShadows = true,
+                shadowCascade2Split = 0.25f, softShadowQuality = 1,
                 maxAdditionalLights = 4, additionalLightsPerPixel = true, renderingMode = RenderingMode.Forward,
                 lodBias = 1.0f, textureStreamingBudgetMB = 350, particleRaycastBudget = 256,
             },
             new TierProfile
             {
                 tier = DeviceTier.High, qualityName = "High", renderScale = 1.0f, msaa = 4, hdr = true,
-                shadowDistance = 180f, shadowCascades = 2, mainLightShadowResolution = 1024, softShadows = true,
+                shadowDistance = 150f, shadowCascades = 2, mainLightShadowResolution = 1024, softShadows = true,
+                shadowCascade2Split = 0.2f, softShadowQuality = 2,
                 maxAdditionalLights = 8, additionalLightsPerPixel = true, renderingMode = RenderingMode.Forward,
                 lodBias = 1.5f, textureStreamingBudgetMB = 450, particleRaycastBudget = 1024,
             },
@@ -362,6 +377,13 @@ namespace Ghumante.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
+        /// <summary>Fraction of the shadow distance over which shadows fade out (URP cascade border).</summary>
+        public const float ShadowCascadeBorder = 0.2f;
+
+        /// <summary>URP's default shadow biases, set explicitly (in shadow-map texels: they scale with the texel size, so a
+        /// shorter reach keeps acne off the walls without peter-panning).</summary>
+        public const float ShadowDepthBias = 1f, ShadowNormalBias = 1f;
+
         public static void ConfigurePipeline(UniversalRenderPipelineAsset pipeline, UniversalRendererData renderer,
             TierProfile p)
         {
@@ -371,6 +393,11 @@ namespace Ghumante.EditorTools
             pipeline.shadowDistance = p.shadowDistance;
             pipeline.shadowCascadeCount = p.shadowCascades;
             pipeline.mainLightShadowmapResolution = p.mainLightShadowResolution;
+            pipeline.cascade2Split = p.shadowCascade2Split;
+            pipeline.cascadeBorder = ShadowCascadeBorder;
+            pipeline.shadowDepthBias = ShadowDepthBias;
+            pipeline.shadowNormalBias = ShadowNormalBias;
+            pipeline.conservativeEnclosingSphere = true;
             pipeline.maxAdditionalLightsCount = p.maxAdditionalLights;
             // Nothing samples _CameraDepthTexture (no soft particles, SSAO or depth effects); requesting it costs a
             // depth prepass on GLES3 with MSAA or an MSAA depth resolve and copy elsewhere. A future consumer asks for
@@ -384,6 +411,7 @@ namespace Ghumante.EditorTools
             var so = new SerializedObject(pipeline);
             SetBool(so, "m_MainLightShadowsSupported", true);
             SetBool(so, "m_SoftShadowsSupported", p.softShadows);
+            SetInt(so, "m_SoftShadowQuality", p.softShadowQuality); // SoftShadowQuality: Low = 1, Medium = 2, High = 3
             SetBool(so, "m_AdditionalLightShadowsSupported", false);
             // LightRenderingMode: Disabled = 0, PerPixel = 1, PerVertex = 2.
             SetInt(so, "m_AdditionalLightsRenderingMode", p.additionalLightsPerPixel ? 1 : 2);

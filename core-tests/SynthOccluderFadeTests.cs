@@ -6,9 +6,10 @@ namespace Ghumante.Core.Tests
 {
     /// <summary>
     /// The occluder fade (World/README.md "Look", the owner's "camera view gets blocked if I try to back up my motorbike in
-    /// the narrower streets"): the engine-free twin of the shader's capsule clears everything between the camera and the
-    /// player for long and short camera distances alike, from the lens on, while the player's body, the background, the
-    /// side walls and the road surface stay.
+    /// the narrower streets"): the engine-free twin of the shader's cone clears the line from the camera to the player for
+    /// long and short camera distances alike, from the lens on, while the player's body, the background, the side walls
+    /// (beside the lens too, playtest #4) and the road surface stay. When it applies at all is the sight gate's decision
+    /// (core-tests/WorldRenderingOccluderGateTests, WorldRenderingOccluderSpotsTests).
     /// </summary>
     public class SynthOccluderFadeTests
     {
@@ -58,24 +59,22 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
-        public void AWallJustInFrontOfTheCameraFadesAcrossTheWholeView()
+        public void WallsBesideTheLensStaySolid()
         {
-            // Portrait and landscape phones: a wall 0.3 m in front of the lens fills the screen; every point of it inside the
-            // view frustum (corners included) dissolves. At 0.9 m the screen corners are at least mostly gone.
+            // Playtest #4: the old capsule covered the whole view frustum in front of the lens, so every wall the camera
+            // passed close to (a galli, the gap between two houses at Hiti Pokhari) dithered. The cone keeps only the line
+            // of sight: 0.9 m beside the lens, or at the screen corners 2 m ahead, a wall stays solid.
             foreach (float aspect in new[] { 9f / 16f, 16f / 9f, 20f / 9f })
-            foreach (float length in new[] { 1.5f, 2f, 6f })
+            foreach (float length in new[] { 2f, 6f, 8f })
             {
                 OccluderCapsule c = Chase(length, aspect);
-                for (int i = -4; i <= 4; i++)
-                for (int j = -4; j <= 4; j++)
-                {
-                    float near = 0.3f, far = 0.9f;
-                    float u = i / 4f * TanHalf60 * aspect, v = j / 4f * TanHalf60;
-                    Assert.That(AlongLine(c, near, u * near, v * near), Is.EqualTo(S.MinOpacity).Within(1e-4f),
-                                "0.3 m wall at (" + i + ", " + j + "), aspect " + aspect + ", capsule " + length);
-                    if (far < length - 0.75f)
-                        Assert.That(AlongLine(c, far, u * far, v * far), Is.LessThan(0.5f), "0.9 m wall at (" + i + ", " + j + "), aspect " + aspect);
-                }
+                Assert.That(c.CameraRadius, Is.EqualTo(S.CameraRadiusM).Within(1e-6f), "no frustum cover");
+                Assert.That(AlongLine(c, 0.3f, 0.9f, 0f), Is.EqualTo(1f), "0.9 m beside the lens, aspect " + aspect + ", capsule " + length);
+                Assert.That(AlongLine(c, 0.3f, 0f, 0.9f), Is.EqualTo(1f), "0.9 m above the lens");
+                float far = 2f;
+                if (far > length - 1f) continue;
+                float u = TanHalf60 * aspect, v = TanHalf60;
+                Assert.That(AlongLine(c, far, u * far, v * far), Is.EqualTo(1f), "the screen corner 2 m ahead, aspect " + aspect);
             }
         }
 
@@ -136,10 +135,16 @@ namespace Ghumante.Core.Tests
             Assert.That(longOne.Soft, Is.EqualTo(S.SoftMaxM).Within(1e-6f));
             Assert.That(shortOne.SolidRadius, Is.LessThanOrEqualTo(0.25f * 1.5f + 1e-5f), "the solid sphere never takes more than a quarter");
             Assert.That(longOne.SolidRadius, Is.EqualTo(S.SolidRadiusM));
-            Assert.That(Chase(6f, 9f / 16f).CameraRadius, Is.EqualTo(S.CameraRadiusM), "portrait: the minimum covers the frustum");
+            Assert.That(Chase(6f, 9f / 16f).CameraRadius, Is.EqualTo(S.CameraRadiusM), "portrait: the line of sight only");
             OccluderCapsule wide = Chase(6f, 20f / 9f, (float)Math.Tan(37.5 * Math.PI / 180.0));
-            Assert.That(wide.CameraRadius, Is.GreaterThan(S.CameraRadiusM), "a wide landscape view widens the camera end");
-            Assert.That(wide.CameraRadius, Is.LessThanOrEqualTo(S.MaxCameraRadiusM));
+            Assert.That(wide.CameraRadius, Is.EqualTo(S.CameraRadiusM), "a wide landscape view does not widen the camera end");
+            // The optional frustum cover still works when asked for (tuning), bounded by the maximum.
+            OccluderFadeSettings cover = S;
+            cover.NearCoverM = 0.8f;
+            OccluderCapsule covered = OccluderCapsule.From(cover, 0f, 3f, -6f, 0f, 1f, 0f, (float)Math.Tan(37.5 * Math.PI / 180.0), 20f / 9f);
+            Assert.That(covered.CameraRadius, Is.GreaterThan(S.CameraRadiusM));
+            Assert.That(covered.CameraRadius, Is.LessThanOrEqualTo(S.MaxCameraRadiusM));
+            Assert.That(longOne.Strength, Is.EqualTo(1f), "From gives full strength; the gate scales it");
             Assert.That(longOne.Length, Is.EqualTo(8f).Within(1e-4f));
             Assert.That(longOne.KeepY, Is.EqualTo(S.GroundKeepM).Within(1e-5f), "feet at y = 0");
             Assert.That(longOne.OverheadY, Is.EqualTo(1f + S.OverheadM).Within(1e-5f));
@@ -159,8 +164,9 @@ namespace Ghumante.Core.Tests
             Assert.That(Ground(0f, 1.6f, -3f, -1f), Is.EqualTo(S.MinOpacity).Within(1e-4f), "a beam's underside");
             // An upward-facing deck overhead (a flyover between a raised camera and the rider below) dissolves too.
             Assert.That(Ground(0f, 2.2f, -3.3f, 1f), Is.EqualTo(S.MinOpacity).Within(1e-4f), "deck top overhead");
-            // The same points on a structure layer fade whatever their height.
-            Assert.That(c.Opacity(0.4f, 0.15f, -1.5f, 0f, false), Is.LessThan(1f));
+            // A point below the knees inside the cone: kept on a ground layer, fading on a structure layer.
+            Assert.That(Ground(0f, 0.4f, -1.2f, 0f), Is.EqualTo(1f), "ground layer below the knees");
+            Assert.That(c.Opacity(0f, 0.4f, -1.2f, 0f, false), Is.LessThan(1f), "structure layer");
         }
 
         [Test]

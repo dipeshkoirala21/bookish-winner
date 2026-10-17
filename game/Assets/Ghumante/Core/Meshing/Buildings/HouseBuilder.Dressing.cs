@@ -276,8 +276,8 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// Weathering on a painted or plastered front (the metro, Asan, Thamel): two to four plaster patches of a slightly
-        /// different paint, and grey rain streaks under the sills of <paramref name="holes"/>, each a quad 3-4 mm proud
-        /// whose colour fades into the wall (vertex colours, no texture): 2 triangles each.
+        /// different paint (4.5, 6.5 and 8.5 mm proud), and grey rain streaks under the sills of <paramref name="holes"/>
+        /// (2.5 mm proud) whose colour fades into the wall (vertex colours, no texture): 2 triangles each.
         /// </summary>
         private static void Weathering(ref House h, ref Plot p, in KitFrame f, double u0, double u1, double v0w, double v1w, KitHole[] holes, int nh, GrammarRng rng,
                                        MeshData m)
@@ -295,7 +295,8 @@ namespace Ghumante.Core.Meshing
                     hit = holes[k].U0 < pu + pw + 0.05 && holes[k].U1 > pu - 0.05 && holes[k].V0 < pv + ph + 0.05 && holes[k].V1 > pv - 0.05;
                 if (hit) continue;
                 uint c = rng.Chance(0.5f) ? MeshColor.Lerp(p.Front, 0xFFFFFFFFu, 0.22f) : MeshColor.Lerp(p.Front, BuildingGrammar.Concrete, 0.55f);
-                MeshKit.Panel(m, f, pu, pv, pu + pw, pv + ph, 0.004, c);
+                // Each patch on its own layer, 2 mm clear of the streaks and of each other (equal offsets z-fought, playtest #4).
+                MeshKit.Panel(m, f, pu, pv, pu + pw, pv + ph, 0.0045 + 0.002 * i, c);
             }
             Fixed(ref h, f, m, v0, p.FrontCh == MaterialChannel.Paint ? MaterialChannel.Plaster : p.FrontCh);
             v0 = m.VertexCount;
@@ -305,7 +306,7 @@ namespace Ghumante.Core.Meshing
                 KitHole o = holes[k];
                 if (o.V0 - 0.1 <= v0w + 0.3 || !rng.Chance(0.6f)) continue;
                 double len = Math.Min(o.V0 - 0.1 - v0w, rng.Range(0.6f, 1.4f));
-                StreakQuad(m, f, o.U0 + 0.05, o.U1 - 0.05, o.V0 - 0.1 - len, o.V0 - 0.08, 0.0035, streak, p.Front);
+                StreakQuad(m, f, o.U0 + 0.05, o.U1 - 0.05, o.V0 - 0.1 - len, o.V0 - 0.08, 0.0025, streak, p.Front);
             }
             Fixed(ref h, f, m, v0, MaterialChannel.Plaster);
         }
