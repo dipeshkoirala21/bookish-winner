@@ -331,17 +331,38 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             SacredDraw.Bake(m, v0, i0, f.Level);
         }
 
-        /// <summary>One kings' pillar at site (a, b), its shaft <paramref name="shaft"/> m, the figure facing +b.</summary>
+        /// <summary>The naga behind a king (c_inner/c_01): rising from the back of the throne straight up behind the figure,
+        /// then hooking forward over its head, the body widening into the spread hood (y, z, half width, half depth).</summary>
+        private static readonly double[] NagaStations =
+        {
+            0.0, -0.36, 0.08, 0.08,
+            0.35, -0.4, 0.085, 0.085,
+            0.8, -0.41, 0.09, 0.085,
+            1.25, -0.39, 0.1, 0.08,
+            1.6, -0.32, 0.12, 0.07,
+            1.82, -0.18, 0.15, 0.06,
+            1.9, 0.0, 0.17, 0.055,
+            1.86, 0.15, 0.16, 0.055,
+            1.76, 0.26, 0.12, 0.055,
+            1.66, 0.3, 0.05, 0.04,
+        };
+
+        /// <summary>One kings' pillar at site (a, b), its shaft <paramref name="shaft"/> m, the figure facing +b
+        /// (c_inner/c_01): a two-step stone base, the dark octagonal-moulded shaft, the great grey lotus-bowl capital with
+        /// two rows of petals, the gilt throne with lions at its corners, the king kneeling with joined hands in a long
+        /// coat and plumed crown, and the gilt naga rising behind him and hooking over his head with its spread hood.</summary>
         private static void King(ref PashupatiFrame f, MeshData m, double a, double b, double shaft, int lod)
         {
             Affine3 x = f.Facing(a, 0, b, 0, 1);
+            ShapeBrush gold = PashupatiKit.GiltBright, shade = PashupatiKit.GiltRoof;
             if (lod >= 2)
             {
-                // Far: the shaft, the capital bowl and the gilt figure as one lump.
+                // Far: the shaft, the capital bowl, the gilt figure and the naga's hook as a few lumps.
                 PashupatiKit.Block(m, x, -0.5, 0.5, -0.1, 0.55, -0.5, 0.5, PashupatiKit.StonePlinth);
                 Shapes.Cylinder(m, SacredDraw.At(x, 0, 0.55, 0), PashupatiKit.StoneDark, 0.2, shaft, 5, 0, 0, false, false);
-                Shapes.Frustum(m, SacredDraw.At(x, 0, 0.55 + shaft, 0), PashupatiKit.StoneDark, 0.24, 0.55, 0.45, 5, 0, 0, false, true);
-                Shapes.Ellipsoid(m, SacredDraw.At(x, 0, 1.0 + shaft + 0.6, -0.05), PashupatiKit.GiltBright, 0.3, 0.62, 0.3, 4, false);
+                Shapes.Frustum(m, SacredDraw.At(x, 0, 0.55 + shaft, 0), PashupatiKit.StoneDark, 0.24, 0.6, 0.55, 5, 0, 0, false, true);
+                Shapes.Ellipsoid(m, SacredDraw.At(x, 0, 1.1 + shaft + 0.55, 0.02), gold, 0.28, 0.55, 0.3, 4, false);
+                Shapes.Bar(m, x, gold, 0, 1.1 + shaft + 0.2, -0.36, 0, 1.1 + shaft + 1.7, -0.25, 0.12, 4);
                 return;
             }
             PashupatiKit.Block(m, x, -0.62, 0.62, -0.1, 0.3, -0.62, 0.62, PashupatiKit.StonePlinth);
@@ -351,64 +372,99 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             PashupatiKit.LatheOf(m, SacredDraw.At(x, 0, 0.55, 0), stone,
                                  new[] { 0.0, 0.0, 0.3, 0.0, 0.3, 0.12, 0.24, 0.2, 0.19, 0.28, 0.18, shaft - 0.2, 0.24, shaft - 0.14, 0.24, shaft - 0.06, 0.2, shaft, 0.0, shaft },
                                  8, lod, 0b11_1110_0110);
-            // The lotus-bowl capital.
+            // The lotus-bowl capital: a narrow neck, the swelling bowl and its rim (c_inner/c_01: about as wide as the throne
+            // and a half), two rows of petals.
             PashupatiKit.LatheOf(m, SacredDraw.At(x, 0, c0, 0), stone,
-                                 new[] { 0.0, 0.0, 0.22, 0.0, 0.34, 0.07, 0.48, 0.18, 0.55, 0.3, 0.56, 0.38, 0.5, 0.43, 0.42, 0.45, 0.0, 0.45 }, 16, lod, 0b1_1100_0000);
+                                 new[] { 0.0, 0.0, 0.22, 0.0, 0.26, 0.05, 0.22, 0.1, 0.3, 0.14, 0.5, 0.24, 0.6, 0.36, 0.62, 0.46, 0.56, 0.53, 0.5, 0.55, 0.0, 0.55 }, 18, lod,
+                                 0b10_0000_0110);
             if (lod == 0)
             {
-                for (int q = 0; q < 12; q++)
+                for (int row = 0; row < 2; row++)
                 {
-                    double ang = 2 * Math.PI * (q + 0.5) / 12;
-                    Affine3 pf = Affine3.RotationY(-ang).Then(SacredDraw.At(x, 0.47 * Math.Sin(ang), c0 + 0.2, 0.47 * Math.Cos(ang)));
-                    Shapes.Ellipsoid(m, pf, PashupatiKit.Ao(stone, 0.9f), 0.13, 0.15, 0.06, 5, false);
+                    int n = row == 0 ? 12 : 14;
+                    for (int q = 0; q < n; q++)
+                    {
+                        // Each petal lies on the bowl (tilted with its surface: out and up below the belly, in above it).
+                        double ang = 2 * Math.PI * (q + 0.5 * row) / n, r = row == 0 ? 0.47 : 0.58;
+                        Affine3 pf = Affine3.RotationX(row == 0 ? 0.9 : -0.5).Then(Affine3.RotationY(-ang))
+                                            .Then(SacredDraw.At(x, r * Math.Sin(ang), c0 + (row == 0 ? 0.25 : 0.44), r * Math.Cos(ang)));
+                        Shapes.Ellipsoid(m, pf, PashupatiKit.Ao(stone, row == 0 ? 0.85f : 0.95f), 0.12, 0.12, 0.035, 6, false);
+                    }
                 }
             }
-            ShapeBrush gold = PashupatiKit.GiltBright, shade = PashupatiKit.GiltRoof;
-            double t0 = c0 + 0.45;
-            // The gilt throne.
-            Shapes.RoundedBox(m, SacredDraw.At(x, 0, t0 + 0.16, 0), shade, 0.72, 0.32, 0.72, 0.03, lod == 0 ? 2 : 1);
+            double t0 = c0 + 0.55;
+            // The gilt throne: a moulded base and a carved body with a seated lion at each corner.
+            Shapes.RoundedBox(m, SacredDraw.At(x, 0, t0 + 0.06, 0), shade, 0.86, 0.12, 0.86, 0.03, lod == 0 ? 2 : 1);
+            Shapes.RoundedBox(m, SacredDraw.At(x, 0, t0 + 0.24, 0), gold, 0.74, 0.26, 0.74, 0.03, lod == 0 ? 2 : 1);
+            Shapes.RoundedBox(m, SacredDraw.At(x, 0, t0 + 0.4, 0), shade, 0.8, 0.07, 0.8, 0.02, 1);
             if (lod == 0)
             {
-                for (int sg = -1; sg <= 1; sg += 2)
+                for (int c = 0; c < 4; c++)
                 {
-                    Shapes.Sphere(m, SacredDraw.At(x, sg * 0.3, t0 + 0.2, 0.36), gold, 0.08, 5);
-                    Shapes.Sphere(m, SacredDraw.At(x, sg * 0.3, t0 + 0.3, 0.38), gold, 0.055, 5);
+                    double cu = (c % 2 == 0 ? 1 : -1) * 0.36, cw = (c < 2 ? 1 : -1) * 0.36;
+                    Shapes.Ellipsoid(m, SacredDraw.At(x, cu, t0 + 0.22, cw), gold, 0.07, 0.11, 0.08, 5, false);
+                    Shapes.Sphere(m, SacredDraw.At(x, cu, t0 + 0.34, cw + 0.03 * Math.Sign(cw)), gold, 0.055, 5);
+                }
+                // Carved panels between the lions on the front and the sides.
+                for (int sd = 0; sd < 3; sd++)
+                {
+                    Affine3 face = sd == 0 ? SacredDraw.At(x, 0, 0, 0.37) : SacredDraw.Basis(x, sd == 1 ? 0.37 : -0.37, 0, 0, 0, 0, sd == 1 ? -1 : 1, 0, 1, 0);
+                    Shapes.Ellipsoid(m, SacredDraw.At(face, 0, t0 + 0.24, 0.0), shade, 0.13, 0.08, 0.025, 5, false);
                 }
             }
-            double y0 = t0 + 0.32;
-            int seg = lod == 0 ? 8 : 5;
-            // The kneeling figure: legs folded under, torso, head and crown, arms to the joined hands.
-            Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.12, 0.04), gold, 0.25, 0.13, 0.28, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.47, -0.04), gold, 0.19, 0.3, 0.14, seg, false);
-            Shapes.Sphere(m, SacredDraw.At(x, 0, y0 + 0.88, -0.01), gold, 0.1, seg);
-            Shapes.Frustum(m, SacredDraw.At(x, 0, y0 + 0.94, -0.02), shade, 0.1, 0.06, 0.12, seg, 0, 0, false, true);
-            Shapes.Cone(m, SacredDraw.At(x, 0, y0 + 1.06, -0.03), gold, 0.06, 0.14, 5, 0, 0, false);
+            double y0 = t0 + 0.44;
+            int seg = lod == 0 ? 10 : 6;
+            // The king kneeling on his heels, facing +b: the long coat spread round the folded legs, the torso, head,
+            // the crown with its plume, arms to the joined hands.
+            Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.13, 0.02), gold, 0.27, 0.15, 0.3, seg, false);
+            Shapes.Frustum(m, SacredDraw.At(x, 0, y0 + 0.1, -0.03), gold, 0.25, 0.19, 0.34, seg, 0, 0, false, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.56, -0.03), gold, 0.19, 0.24, 0.14, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.74, -0.03), gold, 0.21, 0.07, 0.13, seg, false);
+            Shapes.Sphere(m, SacredDraw.At(x, 0, y0 + 0.92, 0.0), gold, 0.11, seg);
+            // The crown: a round cap with a raised front and the bird-of-paradise plume sweeping back.
+            Shapes.Frustum(m, SacredDraw.At(x, 0, y0 + 0.97, -0.01), shade, 0.12, 0.1, 0.13, seg, 0.02, 1, false, true);
+            Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 1.08, 0.05), gold, 0.07, 0.07, 0.03, 5, false);
+            if (lod == 0)
+            {
+                Path3 pl = PashupatiKit.PathS;
+                pl.Add(0, y0 + 1.08, 0.0).Add(0, y0 + 1.22, -0.05).Add(0, y0 + 1.3, -0.16).Add(0, y0 + 1.28, -0.28);
+                Shapes.Tube(m, x, gold, pl, 0.03, 5, true, false, default, 0.012);
+                // Nose, the face's lit front.
+                Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.9, 0.1), gold, 0.025, 0.035, 0.03, 4, false);
+            }
             if (lod <= 1)
             {
                 for (int sg = -1; sg <= 1; sg += 2)
                 {
                     Path3 p = PashupatiKit.PathS;
-                    p.Add(sg * 0.17, y0 + 0.66, -0.05).Add(sg * 0.17, y0 + 0.48, 0.06).Add(sg * 0.05, y0 + 0.6, 0.15).Add(0, y0 + 0.63, 0.16);
-                    Shapes.Tube(m, x, gold, p, 0.045, 5, true, false, default, 0.035);
+                    p.Add(sg * 0.18, y0 + 0.7, -0.04).Add(sg * 0.19, y0 + 0.52, 0.06).Add(sg * 0.07, y0 + 0.62, 0.16).Add(0, y0 + 0.66, 0.17);
+                    Shapes.Tube(m, x, gold, p, 0.05, 5, true, false, default, 0.04);
                 }
-                Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.68, 0.16), gold, 0.035, 0.09, 0.04, 5, false);
+                // The joined palms, upright.
+                Shapes.Ellipsoid(m, SacredDraw.At(x, 0, y0 + 0.72, 0.18), gold, 0.04, 0.1, 0.05, 5, false);
             }
-            // The naga rising from the back of the throne over the head, its hood fanned forward.
-            Path3 n = PashupatiKit.PathS;
-            n.Add(0, t0 + 0.2, -0.3).Add(0.02, y0 + 0.4, -0.38).Add(0, y0 + 0.9, -0.34).Add(-0.02, y0 + 1.22, -0.24).Add(0, y0 + 1.36, -0.1);
-            Shapes.Tube(m, x, gold, n, 0.1, lod == 0 ? 6 : 4, true, false, default, 0.07);
-            Affine3 hood = Affine3.RotationX(0.45).Then(SacredDraw.At(x, 0, y0 + 1.36, -0.08));
-            Shapes.Ellipsoid(m, hood, gold, 0.34, 0.07, 0.3, seg, false);
+            // The naga: up from the back of the throne behind the king and hooked over his head, the spread hood with its
+            // small heads round the rim.
+            Affine3 nk = SacredDraw.At(x, 0, t0 + 0.3, 0);
+            PashupatiKit.LoftYZ(m, nk, gold, NagaStations, lod == 0 ? 12 : 6);
             if (lod == 0)
             {
-                // The small heads of the many-headed naga round the hood's front rim.
+                // Ring bands up the rising body (its belly scales), and five small heads on the front rim of the hood.
                 for (int q = 0; q < 5; q++)
                 {
-                    double ang = Math.PI * (0.15 + 0.7 * q / 4.0);
-                    Shapes.Sphere(m, SacredDraw.At(hood, 0.3 * Math.Cos(ang), 0.06, 0.26 * Math.Sin(ang)), gold, 0.055, 5);
+                    double t = (q + 0.5) / 5, ry = 0.25 + 1.0 * t;
+                    Affine3 band = Affine3.Scaling(1, 1, 0.82).Then(SacredDraw.At(nk, 0, ry, -0.405 + 0.02 * t));
+                    Shapes.Torus(m, band, shade, 0.09 + 0.012 * t, 0.014, 10, 3);
+                }
+                for (int q = 0; q < 5; q++)
+                {
+                    double ang = Math.PI * (0.1 + 0.8 * q / 4.0), hx = 0.16 * Math.Cos(ang);
+                    Affine3 hf = Affine3.RotationX(0.6).Then(SacredDraw.At(nk, hx, 1.82 + 0.06 * Math.Sin(ang), 0.24 - 0.05 * Math.Abs(Math.Cos(ang))));
+                    Shapes.Ellipsoid(m, hf, gold, 0.035, 0.035, 0.075, 6, false);
+                    Shapes.Sphere(m, SacredDraw.At(nk, hx, 1.86 + 0.06 * Math.Sin(ang), 0.24 - 0.05 * Math.Abs(Math.Cos(ang))), shade, 0.012, 3);
                 }
             }
-            f.Cylinder(a, b, 0, c0 + 0.45, 0.45);
+            f.Cylinder(a, b, 0, c0 + 0.55, 0.45);
         }
 
         /// <summary>
@@ -735,7 +791,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 Shapes.Frustum(m, SacredDraw.At(x, 0, c0 + 0.45 * (H - c0), 0), NeedlesLit, 1.6, 0.4, 0.55 * (H - c0), 6, 0, 0, false, true);
                 return;
             }
-            int whorls = lod == 0 ? 13 : 7, pads = lod == 0 ? 5 : 3, seg = lod == 0 ? 6 : 5;
+            int whorls = lod == 0 ? 12 : 7, pads = lod == 0 ? 4 : 3, seg = lod == 0 ? 6 : 5;
             for (int w = 0; w < whorls; w++)
             {
                 double t = (double)w / (whorls - 1), y = c0 + (H - 1.0 - c0) * t;
@@ -745,7 +801,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 {
                     double ang = spin + 2 * Math.PI * p / pads;
                     Affine3 pf = SacredDraw.Turn(x, 0.55 * r * Math.Cos(ang), y, 0.55 * r * Math.Sin(ang), ang);
-                    Shapes.Ellipsoid(m, pf, (w + p) % 3 == 0 ? NeedlesLit : Needles, 0.6 * r, 0.62, 0.45 * r, seg, false);
+                    // A rounded, drooping tuft of branchlets (cube-sphere: no faceted poles at LOD0).
+                    if (lod == 0) Shapes.Ellipsoid(m, pf, (w + p) % 3 == 0 ? NeedlesLit : Needles, 0.62 * r, 0.6, 0.48 * r, 2, true);
+                    else Shapes.Ellipsoid(m, pf, (w + p) % 3 == 0 ? NeedlesLit : Needles, 0.6 * r, 0.62, 0.45 * r, seg, false);
                 }
             }
             Shapes.Ellipsoid(m, SacredDraw.At(x, 0, H - 0.9, 0), NeedlesLit, 0.45, 0.9, 0.45, seg, false);

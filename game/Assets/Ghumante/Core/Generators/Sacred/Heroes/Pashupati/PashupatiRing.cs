@@ -487,7 +487,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 var r = new PRoof
                 {
                     EaveU = eu, EaveW = ew, EaveV = -0.25, TopU = h.Roof == RoofKind.Gable ? eu : Math.Max(0.15, eu - ew), TopW = 0.12, TopV = rise, Lift = 0.0,
-                    FasciaH = 0.14, SeamPitch = lod == 0 ? 0.55 : 0, CurlSize = 0, Roof = h.RoofB, Seam = h.RibB, Fascia = PashupatiKit.Ao(h.RoofB, 0.8f), Curl = h.RibB,
+                    FasciaH = 0.14, SeamPitch = lod == 0 ? 0.8 : 0, CurlSize = 0, Roof = h.RoofB, Seam = h.RibB, Fascia = PashupatiKit.Ao(h.RoofB, 0.8f), Curl = h.RibB,
                 };
                 PashupatiKit.Roof(m, rk, r, lod);
                 PashupatiKit.Skirt(m, rk, hu, hw, 0, eu - 0.05, ew - 0.05, -0.39, 1, 2);

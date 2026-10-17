@@ -3,6 +3,7 @@ using Ghumante.Core.Data;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Shapes;
+using Ghumante.Core.Streaming;
 
 namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 {
@@ -58,10 +59,59 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// <summary>The OSM outlines of the tile (site metres), when the build has a tile.</summary>
         public TileData Tile;
 
-        /// <summary>The tile's terrain (as streamed: after <see cref="PashupatiGround.Apply"/>), or null.</summary>
+        /// <summary>The tile's terrain as streamed (after <see cref="PashupatiGround.Apply"/>; see
+        /// <see cref="PashupatiGround.Prepared"/>), or null.</summary>
         public TileHeightSampler Terrain;
 
+        /// <summary>The prepared terrain as the streamer draws it (decimated: <see cref="DrawnSteps"/>), or null.</summary>
+        public TileHeightSampler[] Drawn;
+
+        /// <summary>The frame of a build on <paramref name="tile"/>, its terrain the prepared ground.</summary>
         public static PashupatiFrame For(TileData tile, int lod, GenColliders c)
+        {
+            PashupatiFrame f = Plain(tile, lod, c);
+            TileData ground = PashupatiGround.Prepared(tile);
+            if (!TerrainGrid.HasHeights(ground)) return f;
+            f.Terrain = new TileHeightSampler(ground);
+            int[] steps = DrawnSteps(ground);
+            f.Drawn = new TileHeightSampler[steps.Length];
+            for (int i = 0; i < steps.Length; i++) f.Drawn[i] = TileHeightSampler.ForArea(ground, ground.Tile, steps[i]);
+            return f;
+        }
+
+        /// <summary>The distinct terrain decimation steps the streamer draws <paramref name="tile"/> with on the three
+        /// tiers (the tile as its own area: <see cref="StreamingConfig.TerrainStep"/>).</summary>
+        public static int[] DrawnSteps(TileData tile)
+        {
+            int n = 0;
+            var steps = new int[3];
+            for (int tier = StreamingConfig.TierLow; tier <= StreamingConfig.TierHigh; tier++)
+            {
+                int s = StreamingConfig.ForTier(tier).TerrainStep(tile.Tile, tile.Tile, tile.HeightsN);
+                if (Array.IndexOf(steps, s, 0, n) < 0) steps[n++] = s;
+            }
+            Array.Resize(ref steps, n);
+            return steps;
+        }
+
+        /// <summary>The highest of the terrain surfaces at site (a, b) (every drawn decimation and the full grid) relative
+        /// to the courtyard level, or <paramref name="fallback"/> without heights: what a level floor must stay above to
+        /// keep the terrain from pushing through it on any tier.</summary>
+        public double TopGroundAt(double a, double b, double fallback)
+        {
+            if (Terrain == null) return fallback;
+            double top = GroundAt(a, b, fallback), x, z;
+            ToTile(a, b, out x, out z);
+            for (int i = 0; Drawn != null && i < Drawn.Length; i++)
+            {
+                float h;
+                if (Drawn[i].TryHeightClamped(Tile.Tile.X0 + x, Tile.Tile.Z0 + z, out h)) top = Math.Max(top, h - Level);
+            }
+            return top;
+        }
+
+        /// <summary>The frame without a terrain sampler (the transform only).</summary>
+        public static PashupatiFrame Plain(TileData tile, int lod, GenColliders c)
         {
             var f = new PashupatiFrame { Lod = lod, C = c, Tile = tile, Level = PashupatiSite.CourtyardLevelM };
             double r = PashupatiSite.AxisBearingDeg * Math.PI / 180.0;
@@ -73,7 +123,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             f.OX = PashupatiSite.CentreX - tile.Tile.X0;
             f.OZ = PashupatiSite.CentreZ - tile.Tile.Z0;
             f.Site = Affine3.FromBasis(f.AX, 0, f.AZ, 0, 1, 0, f.BX, 0, f.BZ, f.OX, f.Level, f.OZ);
-            if (tile.HeightsQ != null && tile.HeightsN >= 2) f.Terrain = new TileHeightSampler(tile);
             return f;
         }
 
@@ -241,12 +290,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// 150,000 triangles at LOD0, the monuments round's allowance for a site (a major temple up to about 60,000).</summary>
         private static readonly int[][] Budgets =
         {
-            new[] { 38000, 11400, 3000, 200 }, // temple, gajur, Nandi, floor, furniture
-            new[] { 32000, 9800, 2400, 200 }, // West Gate, flanks, forecourt, trident
-            new[] { 9000, 3000, 900, 200 }, // East Gate, stair, east wing
-            new[] { 9000, 3300, 900, 200 }, // Mukti Mandap, south-east block
-            new[] { 35000, 9600, 2600, 200 }, // south court
-            new[] { 27000, 7800, 2100, 200 }, // north court
+            new[] { 40750, 12300, 3200, 200 }, // temple, gajur, Nandi, floor, furniture
+            new[] { 31900, 10200, 2600, 200 }, // West Gate, flanks, forecourt, trident
+            new[] { 7350, 2600, 800, 200 }, // East Gate, stair, east wing
+            new[] { 8100, 3200, 800, 200 }, // Mukti Mandap, south-east block
+            new[] { 36100, 9600, 2600, 200 }, // south court
+            new[] { 25800, 7000, 2000, 200 }, // north court
         };
 
         /// <summary>The LOD0..3 triangle ceilings of a part (a fresh copy).</summary>
@@ -379,8 +428,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             int t0 = m.TriangleCount;
             ShapeAo.EnsureUv(m);
             m.HasUv0 = true;
-            // The site reads its own levelled ground (the streamer has already prepared the tile; idempotent).
-            PashupatiGround.Apply(tile);
+            // The site reads its levelled ground from the frame (PashupatiGround.Prepared): the tile is never altered.
             PashupatiFrame f = PashupatiFrame.For(tile, lod, lod == 0 ? c : null);
             switch (part)
             {

@@ -578,7 +578,28 @@ from the east bank they fill the frame (`cmp_eastbank.jpg`). This is a bigger er
    sacred Pagoda`); it should be a courtyard with five shrines and a three-storey sattal ring.
 5. **temples**: point POIs `TempleHindu` (n2322979162 etc.) are not drawn; `SacredSelector.TrySelectPoi` is unused.
 6. **heritage**: the hero's hide set covers only the temple and its parts; the bespoke site model needs the other
-   courtyard footprints replaced (PT-04..PT-13, PT-19, PT-21).
+   courtyard footprints replaced (PT-04..PT-13, PT-19, PT-21). (Done by the bespoke site: `HeroRecipe.Hide`.)
+7. **lead / integration**: the bespoke site adds shared hooks that the other monument packages may add in their own
+   form: `HeroRecipe.SiteOf`, `BudgetTris`, `Hide` and `HeroForm.Bespoke` (HeroCatalog), the part and hide wiring in
+   `World/Sacred/HeroSet`, `HeroBuilder.PrepareGround` and its one-line call in `World/Streaming/TileBuild` before the
+   terrain is meshed. Merge them into one mechanism for every bespoke site.
+8. **terrain / cutfill**: the height grid's 8 m cells cannot hold the forecourt's 0.6 m step at the West Gate, so the
+   terrain eases across the gate passage (hidden under the passage floor, which is a level walkway); a local carve at
+   heritage plinths and gate steps would let the drawn footway meet the floor exactly.
+9. **streaming / terrain**: the finest ring draws level-10 tiles at terrain step 2 (Mid, High) or 4 (Low), 16 m and
+   32 m cells, which cannot hold a 60 m level courtyard cut into rising ground. The site cuts the ground for one 16 m
+   cell round the paving and drapes the paving over what still rises (see §10), so on Low the courtyard's west strip
+   rises by up to 0.4 m toward the West Gate and the players, walkers and placers there stand on the coarse terrain a
+   few decimetres under the paving. A finer terrain step (or a terrain hole) under bespoke sites' level floors would
+   remove both.
+10. **heritage / tests**: `SacredFramingTests.NoSacredPlinthPlatformStepOrWallStandsOnADrawnRoad` measures hero colliders
+    against the raw sample tile's terrain, not the ground `HeroBuilder.PrepareGround` gives the streamed tile; at
+    Pashupati the raw surface model is metres above the levelled courtyard, so the check is weaker there than it reads.
+    (The test file is not this package's; the West Gate's passage ramps were split so they pass on either ground.)
+11. **mon-pashupati-river**: the ground cut extends to a = 51 m east of the courtyard north of the East Gate and to
+    23 m round the south court; it only lowers ground standing above the courtyard level, so the ghat walk and the
+    river are untouched, but a riverside ground prepared by the river package must run after it (or both become one
+    `PrepareGround` pass).
 
 ## 9. References and credits
 
@@ -646,7 +667,14 @@ so the hero LOD allocator can keep the temple at LOD0 while the far side of the 
 The parts are `HeroCatalog` recipes (`HeroForm.Bespoke`, `SiteOf` = the temple) that `World/Sacred/HeroSet` adds
 whenever the curated DB holds the temple; each recipe lists the OSM ways it rebuilds (`HeroRecipe.Hide`), which the house
 bands then skip. `HeroBuilder.PrepareGround` (called by `TileBuild` on every decoded tile) levels the courtyard to
-1310.15 m and the forecourt 0.6 m above it, blending into the surrounding surface model.
+1310.15 m and the forecourt 0.6 m above it, blending into the surrounding surface model. The streamer draws a level-10
+tile's terrain decimated (every second height sample on the Mid and High tiers, every fourth on Low), so a 16 m or
+32 m terrain cell reaching in from the higher ground north and west of the courtyard pushed through the paving (up to
+0.33 m on High, a 2.2 m hill on Low): the ground is also cut down to the courtyard level for 23 m round the paved zones
+(cuts never fill; east, toward the river, the ground already falls away), and the paving drapes 2 cm over the highest
+of the drawn terrain surfaces where one still rises through it (the strip at the West Gate's courtyard face, where the
+forecourt's step eases down across one coarse cell, and the north-east and north-west corners under the ring houses on
+Low). The models read a prepared copy of the ground (`PashupatiGround.Prepared`) and never alter a tile they are given.
 
 Modelling decisions against the photos (recorded where they differ from §3/§4):
 
@@ -658,9 +686,23 @@ Modelling decisions against the photos (recorded where they differ from §3/§4)
   of the Nandi). The inner buildings either side are trimmed to it: w913170311 ends at b −8.75 and w913170313 at
   b −5.9 (their OSM outlines overlap the gatehouse), and the brass queue rail runs from the passage mouth (a −32) along
   the Nandi's south side to the west flight.
-* **East Gate** on its OSM outline, door 2.0 m wide on the gatehouse centre (b 6.75); the stair runs 11° south of the
-  site axis to its mapped foot on the ghat walk (a 36.2), between its parapet walls, so neither stands on the drawn
-  steps or footways.
+* **East Gate** on its OSM outline, its door 2.3 m wide on the mapped steps way (centre b 6.65; the drawn way is 2.5 m
+  wide there, so the piers stand beside it, not on it); the stair runs 11° off the site axis toward the riverside walk
+  and ends at the walk's west edge (a 34.75), so its walls, rail and garlands stay off the drawn walk. The garlands hang
+  along the south wall and the brass bell hangs from it at the top of the stair (c_gje/c_01: both on the left looking up).
+* **West Gate passage floor** is a level walkway at the forecourt's height (ramp colliders, not a solid box; the first
+  piece lies along the footway's own end): the mapped footway w1328801417 ends inside the passage and the 8 m terrain
+  grid eases the 0.6 m step from the forecourt to the courtyard under it, so a solid floor stood 0.1-0.2 m proud of the
+  drawn footway. The three steps down into the courtyard end on the paving as draped there (0.3 m above the courtyard
+  level at the flight's foot), so they are 0.1 m risers instead of 0.2 m.
+* **Round 4-6 details** (render|photo pairs in `previews/mon-pashupati-temple/r4..r6`): the kings' naga rises as a
+  slim body behind the king and hooks over his head with its spread hood and small heads, the capital is the bulging
+  two-row lotus bowl (c_inner/c_01); the West Gate medallions carry a seated Ganesh (left) and a seated golden solar
+  deity (right) with the moon and sun faces above, the loggias are open through the gate with tall slender columns and
+  shallow arches, the lantern is about 3.5 m wide with three gilt bell finials (c_westgate/c_27); the temple's wall
+  panels are blackened repoussé with silver standing deities under gilt aureoles; the gajur has bell-shaped corner
+  pinnacles, a long slender stem under the parasol and a narrow streamer (c_area/c_27, c_28); the Nandi's horns are
+  long crescents and its neck strap carries seven round bells a side (c_inner/c_00).
 * **Vasuki** stands 0.7 m west of its OSM square so its 4.7 m lower eave clears the east wing wall behind it (c_inner/c_07
   shows the two touching).
 * **Small shrines.** The five other OSM squares carry white mini-shikharas (5.4, 4.6, 5.0, 4.3 m) and the white bell

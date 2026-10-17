@@ -36,10 +36,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         public static readonly ShapeBrush GiltBright = Br(0xE9CB62, MaterialChannel.Gilt);
         public static readonly ShapeBrush GiltShade = Br(0xA3832B, MaterialChannel.Gilt);
         public static readonly ShapeBrush Lattice = Br(0x1E1A18, MaterialChannel.WoodCarved, 0.75f);
-        public static readonly ShapeBrush LatticeBar = Br(0x4E4842, MaterialChannel.WoodCarved);
+        public static readonly ShapeBrush LatticeBar = Br(0x433D38, MaterialChannel.WoodCarved);
         public static readonly ShapeBrush StrutWood = Br(0x3A2518, MaterialChannel.WoodCarved);
-        public static readonly ShapeBrush PaintRed = Br(0x6E3026, MaterialChannel.Paint);
-        public static readonly ShapeBrush PaintGreen = Br(0x3C5240, MaterialChannel.Paint);
+        public static readonly ShapeBrush PaintRed = Br(0x5E3428, MaterialChannel.Paint);
+        public static readonly ShapeBrush PaintGreen = Br(0x3A4A3C, MaterialChannel.Paint);
         public static readonly ShapeBrush PaintGilt = Br(0xB08A3A, MaterialChannel.Gilt);
         public static readonly ShapeBrush Silver = Br(0xA9ACB0, MaterialChannel.Metal);
         public static readonly ShapeBrush SilverDark = Br(0x5E5B57, MaterialChannel.Metal);
@@ -425,7 +425,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             ShapeAo.EnsureUv(p);
             p.HasUv0 = true;
             Affine3 id = Affine3.Identity;
-            double w0 = corner ? 0.2 : 0.15, w1 = corner ? 0.24 : 0.18, th = corner ? 0.11 : 0.085;
+            double w0 = corner ? 0.2 : 0.17, w1 = corner ? 0.25 : 0.21, th = corner ? 0.11 : 0.09;
             // The board, slightly widening upward.
             SacredDraw.Quad(p, id, -w0, 0, th, w0, 0, th, w1, len, th, -w1, len, th, 0, 0, 1, StrutWood);
             SacredDraw.Quad(p, id, -w0, 0, -th, w0, 0, -th, w1, len, -th, -w1, len, -th, 0, 0, -1, StrutWood);
@@ -576,6 +576,43 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             Profile2 p = Prof;
             for (int i = 0; i < rh.Length / 2; i++) p.Add(rh[2 * i], rh[2 * i + 1], (creaseMask >> i & 1UL) != 0);
             Shapes.Lathe(m, xf, b, p, Seg(radial, lod));
+        }
+
+        /// <summary>
+        /// A smooth lofted limb along a path in the local y-z plane (x = <paramref name="x"/>): stations as (y, z, half
+        /// width across x, half depth in the plane), each an ellipse square to the path, the ends closed with fans (the
+        /// naga hoods of the kings' pillars, the Nandi's horns and similar tapering curved bodies). Returns its first
+        /// vertex.
+        /// </summary>
+        public static int LoftYZ(MeshData m, in Affine3 k, in ShapeBrush b, double[] st, int seg, double x = 0)
+        {
+            int ns = st.Length / 4, first = m.VertexCount, fi = m.IndexCount;
+            for (int i = 0; i < ns; i++)
+            {
+                int a = Math.Max(0, i - 1), c = Math.Min(ns - 1, i + 1);
+                double ty = st[4 * c] - st[4 * a], tz = st[4 * c + 1] - st[4 * a + 1], tl = Math.Sqrt(ty * ty + tz * tz);
+                // The in-plane normal of the path (tangent turned 90° in y-z).
+                double ny = tl > 1e-9 ? -tz / tl : 0, nz = tl > 1e-9 ? ty / tl : 1;
+                double y = st[4 * i], z = st[4 * i + 1], rx = st[4 * i + 2], rn = st[4 * i + 3];
+                for (int j = 0; j < seg; j++)
+                {
+                    double t = 2 * Math.PI * j / seg, cx = Math.Cos(t), sn = Math.Sin(t);
+                    SacredDraw.V(m, k, x + rx * cx, y + rn * sn * ny, z + rn * sn * nz, cx / Math.Max(1e-3, rx), sn * ny / Math.Max(1e-3, rn),
+                                 sn * nz / Math.Max(1e-3, rn), b);
+                }
+            }
+            SacredDraw.Grid(m, first, ns, seg, true, null);
+            for (int e = 0; e < 2; e++)
+            {
+                int i = e == 0 ? 0 : ns - 1, j2 = e == 0 ? 1 : ns - 2;
+                double dy = st[4 * i] - st[4 * j2], dz = st[4 * i + 1] - st[4 * j2 + 1], dl = Math.Sqrt(dy * dy + dz * dz);
+                if (dl < 1e-9) dl = 1;
+                int cv = SacredDraw.V(m, k, x, st[4 * i], st[4 * i + 1], 0, dy / dl, dz / dl, b);
+                int ring = first + i * seg;
+                for (int j = 0; j < seg; j++) SacredDraw.Tri(m, cv, ring + j, ring + (j + 1) % seg);
+            }
+            ShapeNoise.RecomputeNormals(m, first, m.VertexCount - first, fi, m.IndexCount - fi, true);
+            return first;
         }
 
         /// <summary>A brush with its AO scaled.</summary>

@@ -19,8 +19,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
     /// <item>the East Gate at the top of the river stair: a narrow pale-yellow plastered gate with white pilasters, the
     /// dark door, the blue lunette (Shiva and Parvati) in its green rim, the curved pediment with the clock roundel, a large
     /// gilt bell finial and two small ones, two dark stone lions on the top step; the stone stair (about 25 risers) down to
-    /// the ghat walk with a white wall on its south side, the brass handrail and marigold garlands on its north side and the
-    /// brass bell on its bracket (c_gje/c_01, c_03, c_04).</item>
+    /// the ghat walk with a white wall on its south side hung with marigold garlands and the brass bell on its bracket, and
+    /// the brass handrail on its north side (c_gje/c_01, c_03, c_04).</item>
     /// </list>
     /// </summary>
     internal static class PashupatiGates
@@ -33,13 +33,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// <summary>Finial tip above the courtyard (12.5 m above the forecourt [P], which stands 0.6 m higher).</summary>
         public const float WestGateTopM = 13.4f;
 
-        /// <summary>The East Gate: front face (site a), centre (site b) and half width; the stair's foot (site a) and half
-        /// width (OSM steps w112776516).</summary>
-        public const double EastFrontA = 24.2, EastB = 6.75, EastHalfWidth = 2.3, StairFootA = 36.2, StairHalfWidth = 1.75;
+        /// <summary>The East Gate: front face (site a), centre (site b) and half width; the west edge of the riverside walk
+        /// (footway 80913703) the stair comes down to, and the stair's half width (OSM steps w112776516). The gate stands
+        /// on its OSM outline with its door on the mapped steps way (centre b 6.65, the drawn way 2.5 m wide).</summary>
+        public const double EastFrontA = 24.2, EastB = 6.65, EastHalfWidth = 2.3, WalkEdgeA = 34.75, StairHalfWidth = 1.75;
 
-        /// <summary>The East Gate's door half width, and the stair's turn from the gate axis toward compound north (the
-        /// steps way runs 11° off it to the riverside walk).</summary>
-        public const double EastDoorHalf = 1.0, StairSkewRad = 0.192;
+        /// <summary>The East Gate's door half width (the opening as wide as the drawn steps way at the gate), and the stair's
+        /// turn from the gate axis toward compound north (the steps way runs 11° off it to the riverside walk).</summary>
+        public const double EastDoorHalf = 1.15, StairSkewRad = 0.192;
 
         private static readonly ShapeBrush Cream = PashupatiKit.Cream;
         private static readonly ShapeBrush CreamShade = PashupatiKit.Br(0xD9CFAE, MaterialChannel.Plaster);
@@ -102,10 +103,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             for (int face = -1; face <= 1; face += 2) GateFace(m, g, face, lod);
             UpperStorey(m, g, lod);
             GateRoof(m, g, lod);
-            // Three steps down into the courtyard from the passage (beyond the courtyard face).
+            // Three steps down into the courtyard from the passage (beyond the courtyard face), to the paving at their
+            // foot (draped a little where a coarse terrain cell from the forecourt's step reaches under it).
+            double foot = FlightFoot(ref f);
             for (int i = 1; i <= 3; i++)
             {
-                double top = -0.2 * i, w0 = -Hd - 0.32 * i, w1 = -Hd - 0.32 * (i - 1);
+                double top = -(rise - foot) * i / 3.0, w0 = -Hd - 0.32 * i, w1 = -Hd - 0.32 * (i - 1);
                 SacredDraw.Box(m, g, -Op - 0.3, Op + 0.3, -rise - 0.05, top + 0.2, w0, w1, PashupatiKit.Br(0x8E897F, MaterialChannel.Stone),
                                BoxFaces.Top | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             }
@@ -117,11 +120,29 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             const double B = WestB;
             f.Box(ga - Hd, ga + Hd, B + Op, B + Hw, rise - 0.6, rise + Eave, GenColliderFlags.NoClimb, GenColliders.Brick);
             f.Box(ga - Hd, ga + Hd, B - Hw, B - Op, rise - 0.6, rise + Eave, GenColliderFlags.NoClimb, GenColliders.Brick);
-            f.Box(ga - Hd - 0.2, ga + Hd, B - Op, B + Op, -0.3, rise, GenColliderFlags.Walkable, GenColliders.Stone);
-            f.Ramp(ga + Hd + 0.96, B, 0, ga + Hd, B, rise, Op, GenColliders.Stone);
+            // The passage floor is a level walkway at the forecourt's height (ramps, never a blocking solid): the mapped
+            // footway w1328801417 ends in the passage, and the terrain's 8 m grid eases from the forecourt to the courtyard
+            // under it. The first piece is the footway's own end (along it, over its drawn end cap). The flight down to
+            // the courtyard is a third ramp.
+            const double FootwayEnd = -38.6;
+            f.Ramp(ga - Hd - 0.2, B, rise, FootwayEnd, B, rise, Op, GenColliders.Stone);
+            f.Ramp(FootwayEnd, B, rise, ga + Hd, B, rise, Op, GenColliders.Stone);
+            f.Ramp(ga + Hd + 0.96, B, foot, ga + Hd, B, rise, Op, GenColliders.Stone);
             foreach (double cx in ColumnsU)
                 for (int face = -1; face <= 1; face += 2)
                     f.Cylinder(ga - face * (Hd + 0.32), B + cx, rise, rise + Ground, 0.32);
+        }
+
+        /// <summary>The courtyard paving's height under the foot of the West Gate's flight (above the courtyard): its
+        /// level, or the drape over the terrain's coarse grid (<see cref="PashupatiFrame.TopGroundAt"/>), at most a
+        /// step below the passage.</summary>
+        private static double FlightFoot(ref PashupatiFrame f)
+        {
+            double foot = 0.02;
+            for (int i = 0; i < 3; i++)
+                for (int j = -1; j <= 1; j++)
+                    foot = Math.Max(foot, f.TopGroundAt(WestA + WestHalfDepth + 0.96 * i, WestB + 1.8 * j, 0) + 0.02);
+            return Math.Min(foot, PashupatiSite.ForecourtRiseM - 0.3);
         }
 
         /// <summary>A face frame of the West Gate: z out of the forecourt face (+1) or the courtyard face (−1).</summary>
@@ -162,13 +183,26 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     // panel above it, the shelf under it and the blind black-arched niche below.
                     SacredDraw.Box(m, x, cu - 0.62, cu + 0.62, 1.9, 3.3, 0, 0.05, DeepBlue, BoxFaces.Front);
                     SacredParts.Torana(m, x, cu, 3.28, 0.02, 1.24, DeepBlue, Math.Max(1, lod));
-                    ShapeBrush deity = s < 0 ? Saffron : PashupatiKit.Br(0xD9762E, MaterialChannel.Paint);
-                    Shapes.Ellipsoid(m, SacredDraw.At(x, cu, 2.55, 0.08), deity, 0.38, 0.52, 0.06, 8, false);
-                    Shapes.Sphere(m, SacredDraw.At(x, cu, 3.05, 0.1), s < 0 ? Saffron : LotusRed, 0.17, 6);
+                    // Ganesh on the viewer's left (u > 0 in a face frame), a seated solar deity on the right (c_westgate/c_05).
+                    SeatedDeity(m, x, cu, 1.98, 0.06, 1.22, s > 0, lod);
                     SacredDraw.Box(m, x, cu - 0.45, cu + 0.45, 1.75, 1.92, 0, 0.12, LotusRed, BoxFaces.Wall);
                     SacredDraw.Box(m, x, cu - 0.42, cu + 0.42, 3.9, 4.6, 0, 0.04, DeepBlue, BoxFaces.Front);
-                    Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(SacredDraw.At(x, cu, 4.25, 0.06)), s < 0 ? Snow : OmOrange, 0.22, 0.02, 10, 0, 0, false,
+                    // The moon's white face over Ganesh, the sun's orange face with its rays over the other.
+                    Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(SacredDraw.At(x, cu, 4.25, 0.06)), s > 0 ? Snow : OmOrange, 0.2, 0.02, 10, 0, 0, false,
                                     true);
+                    if (s < 0 && lod == 0)
+                        for (int q = 0; q < 8; q++)
+                        {
+                            double ra = 2 * Math.PI * q / 8;
+                            Shapes.Bar(m, x, Saffron, cu + 0.22 * Math.Cos(ra), 4.25 + 0.22 * Math.Sin(ra), 0.07, cu + 0.31 * Math.Cos(ra), 4.25 + 0.31 * Math.Sin(ra), 0.07,
+                                       0.025, 3);
+                        }
+                    if (lod == 0)
+                    {
+                        // The face on the disc: eyes and mouth.
+                        for (int e = -1; e <= 1; e += 2) Shapes.Sphere(m, SacredDraw.At(x, cu + e * 0.07, 4.3, 0.08), PashupatiKit.Ink, 0.025, 4);
+                        Shapes.Bar(m, x, PashupatiKit.Ink, cu - 0.06, 4.17, 0.08, cu + 0.06, 4.17, 0.08, 0.012, 3);
+                    }
                     SacredDraw.Box(m, x, cu - 0.4, cu + 0.4, 0.3, 1.3, 0, 0.02, Black, BoxFaces.Front);
                     SacredParts.Torana(m, x, cu, 1.28, 0.01, 0.8, Black, 2);
                     SacredDraw.Box(m, x, cu - 0.6, cu + 0.6, 1.55, 1.7, 0, 0.25, PashupatiKit.WoodDark, BoxFaces.Wall | BoxFaces.Bottom);
@@ -218,11 +252,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             Shapes.RoundedBox(m, SacredDraw.At(at, 0, h - 0.06, 0), ColumnStone, 0.9, 0.12, 0.9, 0.02, 1);
         }
 
-        /// <summary>The upper storey: floor slab, side walls, the solid core carrying the painted reliefs (both faces)
-        /// between white vine panels, and on each side the loggias with their columns, wide arches and balustrades.</summary>
+        /// <summary>The upper storey (c_westgate/c_27, c_gje/c_00): floor slab, the end walls, the solid core carrying the
+        /// painted reliefs (both faces) between white vine panels, and either side of it an open loggia through the depth of
+        /// the gate: round cream columns at both faces, a wide round arch on each face with its filled spandrels, the
+        /// balustrade with its dark scrollwork, and the dark scroll frieze under the cornice.</summary>
         private static void UpperStorey(MeshData m, in Affine3 g, int lod)
         {
-            const double Hw = WestHalfWidth, Hd = WestHalfDepth, Floor = 6.3, Eave = 9.3, Core = 1.5;
+            const double Hw = WestHalfWidth, Hd = WestHalfDepth, Floor = 6.3, Eave = 9.3, Core = 1.5, ArchTop = Floor + 2.55, ArchRise = 0.45, Rail = 0.6;
             PashupatiKit.Block(m, g, -Hw - 0.1, Hw + 0.1, Floor - 0.05, Floor + 0.1, -Hd - 0.3, Hd + 0.3, Cream);
             PashupatiKit.Block(m, g, -Hw, -Hw + 0.35, Floor, Eave, -Hd, Hd, Cream);
             PashupatiKit.Block(m, g, Hw - 0.35, Hw, Floor, Eave, -Hd, Hd, Cream);
@@ -230,8 +266,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             for (int s = -1; s <= 1; s += 2)
             {
                 double u0 = s > 0 ? Core : -Hw + 0.35, u1 = s > 0 ? Hw - 0.35 : -Core;
-                // The loggias' back wall (shaded), recessed behind the arcade.
-                PashupatiKit.Block(m, g, u0, u1, Floor, Eave, -1.2, 1.2, PashupatiKit.Br(0x8C8268, MaterialChannel.Plaster, 0.7f));
+                // The loggia's ceiling (shaded) under the cornice band, its floor's lighter tiles.
+                SacredDraw.Box(m, g, u0, u1, ArchTop, Eave, -Hd + 0.3, Hd - 0.3, PashupatiKit.Br(0xB8AE90, MaterialChannel.Plaster, 0.6f), BoxFaces.Bottom);
+                SacredDraw.Box(m, g, u0, u1, Floor + 0.1, Floor + 0.11, -Hd + 0.3, Hd - 0.3, PashupatiKit.Br(0xC9C1B2, MaterialChannel.Flagstone, 0.8f), BoxFaces.Top);
                 for (int face = -1; face <= 1; face += 2)
                 {
                     Affine3 x = FaceFrame(g, face, Hd);
@@ -239,23 +276,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     double c0 = s * face > 0 ? Core + 0.2 : -Hw + 0.5, c1 = s * face > 0 ? Hw - 0.5 : -Core - 0.2;
                     foreach (double cu in new[] { c0, c1 })
                     {
-                        Affine3 at = SacredDraw.At(x, cu, Floor + 0.75, -0.25);
-                        if (lod >= 2) Shapes.Cylinder(m, at, Cream, 0.16, 1.85, 6, 0, 0, false, false);
+                        // Tall slender columns from the floor (c_westgate/c_27), the balustrade running between them.
+                        Affine3 at = SacredDraw.At(x, cu, Floor + 0.1, -0.25);
+                        double ch = ArchTop - ArchRise - Floor - 0.1;
+                        if (lod >= 2) Shapes.Cylinder(m, at, Cream, 0.16, ch, 6, 0, 0, false, false);
                         else
-                            PashupatiKit.LatheOf(m, at, Cream, new[] { 0.0, 0.0, 0.22, 0.0, 0.22, 0.12, 0.16, 0.2, 0.15, 1.55, 0.22, 1.7, 0.24, 1.85, 0.0, 1.85 }, 10, lod,
-                                                 0b1100_0110);
+                        {
+                            PashupatiKit.LatheOf(m, at, Cream, new[] { 0.0, 0.0, 0.22, 0.0, 0.22, 0.12, 0.16, 0.2, 0.15, ch - 0.22, 0.22, ch - 0.1, 0.24, ch, 0.0, ch }, 10,
+                                                 lod, 0b1100_0110);
+                        }
                     }
-                    double lo = Math.Min(c0, c1), hi = Math.Max(c0, c1), span = hi - lo, mid = 0.5 * (lo + hi);
-                    // The wide arch under the cornice, the spandrel above it and the balustrade with its dark scrolls.
-                    Shapes.Torus(m, Affine3.Scaling(1, 1, 0.42).Then(Affine3.RotationX(0.5 * Math.PI)).Then(SacredDraw.At(x, mid, Floor + 2.55, -0.25)), Cream,
-                                 0.5 * span - 0.12, 0.12, lod == 0 ? 16 : 8, 4, default, 90, 180, true);
-                    SacredDraw.Box(m, x, lo, hi, Floor + 2.55, Eave - 0.4, -0.4, -0.1, Cream, BoxFaces.Front | BoxFaces.Bottom);
-                    SacredDraw.Box(m, x, lo - 0.2, hi + 0.2, Floor, Floor + 0.75, -0.4, -0.1, Cream, BoxFaces.Wall);
+                    double lo = Math.Min(c0, c1), hi = Math.Max(c0, c1), span = hi - lo, mid = 0.5 * (lo + hi), R = 0.5 * span - 0.05;
+                    double spring = ArchTop - ArchRise;
+                    // The wide, shallow arch (c_westgate/c_27): its moulded soffit ring, and the filled spandrels up to the
+                    // cornice band.
+                    Shapes.Torus(m, Affine3.Scaling(1, 1, ArchRise / R).Then(Affine3.RotationX(0.5 * Math.PI)).Then(SacredDraw.At(x, mid, spring, -0.25)), Cream, R,
+                                 0.12, lod == 0 ? 18 : 9, 4, default, 90, 180, true);
+                    Spandrel(m, x, lo - 0.2, hi + 0.2, mid, spring, R + 0.1, ArchRise + 0.06, Eave - 0.4, -0.12, lod);
+                    // The balustrade: a low cream wall with dark scroll panels (two lions' tails of ironwork in the photos).
+                    SacredDraw.Box(m, x, lo - 0.2, hi + 0.2, Floor, Floor + Rail, -0.4, -0.1, Cream, BoxFaces.Wall | BoxFaces.Top);
                     if (lod == 0)
                         for (int q = 0; q < 3; q++)
                         {
                             double su = lo + span * (q + 0.5) / 3;
-                            Shapes.Torus(m, Affine3.RotationX(0.5 * Math.PI).Then(SacredDraw.At(x, su, Floor + 0.38, -0.08)), Scroll, 0.18, 0.025, 10, 3);
+                            SacredDraw.Box(m, x, su - 0.36, su + 0.36, Floor + 0.12, Floor + Rail - 0.1, -0.1, -0.09, PashupatiKit.Br(0xE3D6B0, MaterialChannel.Plaster),
+                                           BoxFaces.Front);
+                            Shapes.Torus(m, Affine3.RotationX(0.5 * Math.PI).Then(SacredDraw.At(x, su - 0.14, Floor + 0.31, -0.08)), Scroll, 0.11, 0.02, 10, 3, default, 0, 300, true);
+                            Shapes.Torus(m, Affine3.RotationX(0.5 * Math.PI).Then(SacredDraw.At(x, su + 0.14, Floor + 0.31, -0.08)), Scroll, 0.11, 0.02, 10, 3, default, 180, 300, true);
                         }
                 }
             }
@@ -273,13 +320,37 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                         Shapes.Bar(m, x, VineGreen, s * 1.1, Floor + 1.55, 0.06, s * 1.1, Floor + 2.4, 0.06, 0.025, 4);
                         Shapes.Sphere(m, SacredDraw.At(x, s * 1.1, Floor + 0.55, 0.06), LotusRed, 0.07, 5);
                         Shapes.Sphere(m, SacredDraw.At(x, s * 1.1 + 0.08, Floor + 2.1, 0.06), LotusRed, 0.06, 5);
+                        for (int q = 0; q < 3; q++)
+                        {
+                            double ly = Floor + 1.7 + 0.25 * q, lx = s * 1.1 + (q % 2 == 0 ? 0.1 : -0.1);
+                            Shapes.Ellipsoid(m, SacredDraw.At(x, lx, ly, 0.065), VineGreen, 0.07, 0.035, 0.015, 4, false);
+                        }
                     }
+                    // The cream pilaster between the white panel and the loggia.
+                    SacredDraw.Box(m, x, s * 1.5 - 0.16, s * 1.5 + 0.16, Floor + 0.1, Eave - 0.4, 0, 0.12, CreamShade, BoxFaces.Wall);
                 }
             }
             // The cornice and its dark scroll frieze under the eaves.
             PashupatiKit.Band(m, g, 0, 0, Hw, Hd, new[] { 0.0, Eave - 0.4, 0.08, Eave - 0.35, 0.08, Eave - 0.08, 0.2, Eave }, Cream, false, Cream);
             if (lod <= 1)
                 SacredDraw.Box(m, g, -Hw - 0.05, Hw + 0.05, Eave - 0.33, Eave - 0.12, -Hd - 0.09, Hd + 0.09, Scroll, BoxFaces.Front | BoxFaces.Back);
+        }
+
+        /// <summary>The spandrels of an elliptical arch on face frame x: the wall from the arch's extrados (centre mid,
+        /// springing line <paramref name="spring"/>, half span r, rise h) up to <paramref name="top"/>, between u0 and u1,
+        /// at depth z, facing +z.</summary>
+        private static void Spandrel(MeshData m, in Affine3 x, double u0, double u1, double mid, double spring, double r, double h, double top, double z, int lod)
+        {
+            int n = lod == 0 ? 12 : 6;
+            for (int i = 0; i < n; i++)
+            {
+                double t0 = Math.PI * i / n, t1 = Math.PI * (i + 1) / n;
+                double xa = mid - r * Math.Cos(t0), ya = spring + h * Math.Sin(t0), xb = mid - r * Math.Cos(t1), yb = spring + h * Math.Sin(t1);
+                SacredDraw.Quad(m, x, xa, ya, z, xb, yb, z, xb, top, z, xa, top, z, 0, 0, 1, Cream);
+            }
+            // The piers either side of the arch, from the springing line to the top.
+            if (mid - r > u0) SacredDraw.Quad(m, x, u0, spring, z, mid - r, spring, z, mid - r, top, z, u0, top, z, 0, 0, 1, Cream);
+            if (mid + r < u1) SacredDraw.Quad(m, x, mid + r, spring, z, u1, spring, z, u1, top, z, mid + r, top, z, 0, 0, 1, Cream);
         }
 
         /// <summary>The painted relief on the gate's core: on the forecourt face blue Shiva standing with his trident before
@@ -298,16 +369,79 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             SacredDraw.Box(m, x, -Hw, Hw, v, v + 0.45, 0.07, 0.08, Water, BoxFaces.Front);
             if (forecourt)
             {
-                Figure(m, x, 0.05, v + 0.25, 0.1, 1.45, ShivaBlue, lod);
+                Figure(m, x, 0.02, v + 0.2, 0.1, 1.68, ShivaBlue, lod);
                 Shapes.Bar(m, x, Gilt, 0.4, v + 0.2, 0.18, 0.4, v + H - 0.15, 0.18, 0.025, 4);
                 SacredDraw.Tri(m, x, 0.28, v + H - 0.35, 0.19, 0.52, v + H - 0.35, 0.19, 0.4, v + H - 0.05, 0.19, 0, 0, 1, Gilt);
                 Shapes.Ellipsoid(m, SacredDraw.At(x, -0.45, v + 0.32, 0.13), PashupatiKit.StoneDark, 0.18, 0.12, 0.08, 6, false);
             }
             else
             {
-                Figure(m, x, -0.35, v + 0.3, 0.1, 1.35, ShivaBlue, lod);
-                Figure(m, x, 0.4, v + 0.3, 0.1, 1.25, PashupatiKit.Br(0xE0A070, MaterialChannel.Paint), lod);
+                // Shiva and Parvati riding the white Nandi (c_gje/c_00).
+                ShapeBrush bull = PashupatiKit.Br(0xF2EEE4, MaterialChannel.Paint);
+                Shapes.Ellipsoid(m, SacredDraw.At(x, 0.05, v + 0.62, 0.1), bull, 0.62, 0.24, 0.05, 8, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(x, -0.62, v + 0.8, 0.11), bull, 0.16, 0.18, 0.05, 6, false);
+                for (int q = 0; q < 4; q++)
+                    Shapes.Bar(m, x, bull, -0.4 + 0.27 * q, v + 0.5, 0.11, -0.43 + 0.27 * q + 0.04 * (q % 2), v + 0.12, 0.11, 0.04, 4);
+                Shapes.Bar(m, x, PashupatiKit.GiltBright, -0.66, v + 0.94, 0.12, -0.74, v + 1.06, 0.12, 0.018, 3);
+                Shapes.Bar(m, x, PashupatiKit.GiltBright, -0.58, v + 0.94, 0.12, -0.52, v + 1.06, 0.12, 0.018, 3);
+                Figure(m, x, -0.2, v + 0.75, 0.13, 1.05, ShivaBlue, lod);
+                Figure(m, x, 0.3, v + 0.75, 0.13, 0.95, PashupatiKit.Br(0xE0A070, MaterialChannel.Paint), lod);
             }
+        }
+
+        /// <summary>
+        /// A painted seated deity in relief, <paramref name="h"/> tall from its lotus seat at (u, v) on face frame x: the
+        /// aureole behind, crossed legs in a red dhoti, the torso, four arms (the upper pair raised with their attributes,
+        /// the lower pair on the knees), the head and a gilt crown. Ganesh (orange-red) has the elephant head: broad fanned
+        /// ears and the trunk curling to his left, and the pot belly; the solar deity is golden with a round face.
+        /// </summary>
+        private static void SeatedDeity(MeshData m, in Affine3 x, double u, double v, double z, double h, bool ganesh, int lod)
+        {
+            ShapeBrush skin = ganesh ? PashupatiKit.Br(0xE06A2E, MaterialChannel.Paint) : PashupatiKit.Br(0xE3A33A, MaterialChannel.Paint);
+            ShapeBrush robe = ganesh ? PashupatiKit.Br(0xC23A2A, MaterialChannel.Paint) : PashupatiKit.Br(0xB8302A, MaterialChannel.Paint);
+            ShapeBrush halo = PashupatiKit.Br(0xF0D27A, MaterialChannel.Paint);
+            int seg = lod == 0 ? 7 : 4;
+            if (lod >= 2)
+            {
+                Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + 0.45 * h, z), skin, 0.3 * h, 0.45 * h, 0.04, 4, false);
+                return;
+            }
+            // Aureole and the lotus seat.
+            Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + 0.62 * h, z), halo, 0.36 * h, 0.4 * h, 0.015, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + 0.04 * h, z + 0.02), PashupatiKit.Br(0xD0453A, MaterialChannel.Paint), 0.34 * h, 0.05 * h, 0.04, seg, false);
+            // Crossed legs, torso (Ganesh's pot belly), shoulders.
+            Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + 0.14 * h, z + 0.04), robe, 0.32 * h, 0.09 * h, 0.07, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + (ganesh ? 0.33 : 0.38) * h, z + 0.05), skin, (ganesh ? 0.19 : 0.15) * h, (ganesh ? 0.19 : 0.2) * h,
+                             ganesh ? 0.09 : 0.06, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + 0.53 * h, z + 0.04), skin, 0.17 * h, 0.05 * h, 0.05, seg, false);
+            // Arms: the lower pair to the knees, the upper pair raised.
+            for (int sg = -1; sg <= 1; sg += 2)
+            {
+                Shapes.Bar(m, x, skin, u + sg * 0.15 * h, v + 0.52 * h, z + 0.06, u + sg * 0.22 * h, v + 0.22 * h, z + 0.07, 0.025 * h, 4);
+                // The upper pair out from the shoulders and bent up at the elbow, each hand holding an attribute.
+                Shapes.Bar(m, x, skin, u + sg * 0.14 * h, v + 0.52 * h, z + 0.05, u + sg * 0.27 * h, v + 0.5 * h, z + 0.05, 0.022 * h, 4);
+                Shapes.Bar(m, x, skin, u + sg * 0.27 * h, v + 0.5 * h, z + 0.05, u + sg * 0.3 * h, v + 0.62 * h, z + 0.05, 0.02 * h, 4);
+                if (lod == 0) Shapes.Sphere(m, SacredDraw.At(x, u + sg * 0.3 * h, v + 0.66 * h, z + 0.06), sg > 0 ? PashupatiKit.GiltBright : halo, 0.04 * h, 5);
+            }
+            double hy = v + 0.66 * h;
+            if (ganesh)
+            {
+                Shapes.Sphere(m, SacredDraw.At(x, u, hy, z + 0.06), skin, 0.12 * h, seg);
+                for (int sg = -1; sg <= 1; sg += 2)
+                    Shapes.Ellipsoid(m, SacredDraw.At(x, u + sg * 0.15 * h, hy - 0.01 * h, z + 0.04), skin, 0.1 * h, 0.12 * h, 0.025, seg, false);
+                Path3 tr = PashupatiKit.PathS;
+                tr.Add(u, hy - 0.04 * h, z + 0.14).Add(u + 0.01 * h, hy - 0.16 * h, z + 0.15).Add(u + 0.06 * h, hy - 0.26 * h, z + 0.14).Add(u + 0.12 * h, hy - 0.24 * h, z + 0.13);
+                Shapes.Tube(m, x, skin, tr, 0.035 * h, 5, true, false, default, 0.018 * h);
+                if (lod == 0)
+                    for (int sg = -1; sg <= 1; sg += 2) Shapes.Sphere(m, SacredDraw.At(x, u + sg * 0.05 * h, hy + 0.03 * h, z + 0.15), PashupatiKit.Ink, 0.012 * h, 3);
+            }
+            else
+            {
+                Shapes.Sphere(m, SacredDraw.At(x, u, hy, z + 0.06), skin, 0.1 * h, seg);
+                if (lod == 0)
+                    for (int sg = -1; sg <= 1; sg += 2) Shapes.Sphere(m, SacredDraw.At(x, u + sg * 0.035 * h, hy + 0.01 * h, z + 0.15), PashupatiKit.Ink, 0.01 * h, 3);
+            }
+            Shapes.Cone(m, SacredDraw.At(x, u, hy + (ganesh ? 0.09 : 0.08) * h, z + 0.06), PashupatiKit.GiltBright, 0.08 * h, 0.17 * h, seg, 0, 0, false);
         }
 
         /// <summary>A painted relief figure (robe, torso, head, crown, arms) of height h standing at (u, v).</summary>
@@ -329,7 +463,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             const double Hw = WestHalfWidth, Hd = WestHalfDepth, Eave = 9.3, Top = 10.55;
             var r = new PRoof
             {
-                EaveU = Hw + 0.9, EaveW = Hd + 0.9, EaveV = Eave - 0.05, TopU = 1.35, TopW = 1.35, TopV = Top, Lift = 0.12, FasciaH = 0.22, SeamPitch = 0,
+                EaveU = Hw + 0.9, EaveW = Hd + 0.9, EaveV = Eave - 0.05, TopU = 1.85, TopW = 1.85, TopV = Top, Lift = 0.12, FasciaH = 0.22, SeamPitch = 0,
                 CurlSize = 0, Roof = RoofCream, Seam = RoofCreamRib, Fascia = PashupatiKit.RedTrim, Curl = PashupatiKit.RedTrim,
             };
             PashupatiKit.Roof(m, g, r, lod);
@@ -367,7 +501,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 }
             }
             // The lantern.
-            const double L = 1.25, L0 = Top - 0.05, L1 = Top + 0.75;
+            const double L = 1.75, L0 = Top - 0.05, L1 = Top + 0.75;
             PashupatiKit.Block(m, g, -L, L, L0, L1, -L, L, Snow);
             if (lod <= 1)
                 for (int s = 0; s < 4; s++)
@@ -376,16 +510,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     PashupatiKit.Out(s, out du, out dw);
                     Affine3 x = SacredDraw.Basis(g, du * L, 0, dw * L, dw, 0, -du, 0, 1, 0);
                     for (int q = -1; q <= 1; q += 2)
-                        SacredParts.LatticeWindow(m, x, q * 0.55, 0.5 * (L0 + L1), 0, 0.85, 0.5, PashupatiKit.Br(0xE8E4DA, MaterialChannel.Wood), lod, 4);
+                        SacredParts.LatticeWindow(m, x, q * 0.8, 0.5 * (L0 + L1), 0, 1.2, 0.5, PashupatiKit.Br(0xE8E4DA, MaterialChannel.Wood), lod, 4);
                 }
             var mini = new PRoof
             {
-                EaveU = L + 0.35, EaveW = L + 0.35, EaveV = L1, TopU = 0.55, TopW = 0.55, TopV = L1 + 0.42, Lift = 0.06, FasciaH = 0.14, SeamPitch = 0, CurlSize = 0,
+                EaveU = L + 0.35, EaveW = L + 0.35, EaveV = L1, TopU = 0.95, TopW = 0.7, TopV = L1 + 0.42, Lift = 0.16, FasciaH = 0.14, SeamPitch = 0, CurlSize = 0,
                 Roof = RoofCream, Seam = RoofCreamRib, Fascia = PashupatiKit.RedTrim, Curl = PashupatiKit.RedTrim,
             };
             PashupatiKit.Roof(m, g, mini, Math.Max(1, lod));
-            PashupatiKit.Block(m, g, -0.6, 0.6, L1 + 0.4, L1 + 0.52, -0.6, 0.6, Gilt);
-            for (int q = -1; q <= 1; q++) PashupatiKit.BellFinial(m, g, q * 0.45, L1 + 0.52, 0, q == 0 ? 1.0 : 0.72, q == 0 ? 0.2 : 0.14, Gilt, lod);
+            PashupatiKit.Block(m, g, -0.85, 0.85, L1 + 0.4, L1 + 0.52, -0.6, 0.6, Gilt);
+            for (int q = -1; q <= 1; q++) PashupatiKit.BellFinial(m, g, q * 0.62, L1 + 0.52, 0, q == 0 ? 1.0 : 0.75, q == 0 ? 0.21 : 0.15, Gilt, lod);
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -472,8 +606,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             f.Ramp(footA, footB, foot, EastFrontA, EastB, 0, StairHalfWidth, GenColliders.Stone);
         }
 
-        /// <summary>The stair's run (m) along its skewed axis from the gate front to the ghat walk.</summary>
-        private static readonly double StairRun = (StairFootA - EastFrontA) / Math.Cos(StairSkewRad);
+        /// <summary>The stair's run (m) along its skewed axis from the gate front to the ghat walk: it ends where the outer
+        /// face of its south wall (the corner nearest the river) meets the walk's edge, so neither the stair's walls nor
+        /// its rail stand on the drawn walk.</summary>
+        private static readonly double StairRun = (WalkEdgeA - EastFrontA - (StairHalfWidth + 0.35) * Math.Sin(StairSkewRad)) / Math.Cos(StairSkewRad);
 
         /// <summary>Site (a, b) of a point z metres down the stair and u across it (u > 0 toward compound south).</summary>
         private static void StairPoint(double z, double u, out double a, out double b)
@@ -521,8 +657,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         }
 
         /// <summary>The stone stair from the gate down to the ghat walk: risers of about 18 cm in dark grey stone, a white
-        /// wall with a red band on its south side, the brass handrail with marigold garlands on its north side, and the brass
-        /// bell on its bracket at the top.</summary>
+        /// wall with a red band on its south side with marigold garlands along its top and the brass bell on its bracket at the
+        /// top of the stair, and the brass handrail on its north side.</summary>
         private static void Stair(ref PashupatiFrame f, MeshData m, double foot, int steps, int lod)
         {
             double run = StairRun, tread = run / steps, rise = -foot / steps;
@@ -555,7 +691,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             f.Wall(wa0, wb0, wa1, wb1, foot, 1.0, 0.18);
             if (lod <= 1)
             {
-                // The brass handrail on posts along the north side, with marigold garlands looped along it.
+                // The brass handrail on posts along the north side.
                 double hu = -StairHalfWidth + 0.1;
                 int posts = Math.Max(2, (int)Math.Round(run / 1.5));
                 for (int q = 0; q <= posts; q++)
@@ -564,21 +700,27 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     Shapes.Cylinder(m, SacredDraw.At(s, hu, y, z), PashupatiKit.Brass, 0.025, 0.95, 4, 0, 0, false, true);
                 }
                 Shapes.Bar(m, s, PashupatiKit.Brass, hu, 0.95, 0, hu, foot + 0.95, run, 0.03, lod == 0 ? 6 : 4);
+                // Marigold garlands looped along the top of the south wall (c_gje/c_01: on the left looking up the stair).
                 if (lod == 0)
-                    for (int q = 0; q < posts; q++)
+                {
+                    int loops = Math.Max(2, (int)Math.Round(run / 1.2));
+                    double gu = StairHalfWidth + 0.04;
+                    for (int q = 0; q < loops; q++)
                     {
-                        double za = run * q / posts, zb = run * (q + 1) / posts;
-                        Shapes.Wire(m, s, PashupatiKit.Br(0xF0A020, MaterialChannel.Fabric), hu, 0.92 + foot * za / run, za, hu, 0.92 + foot * zb / run, zb, 0.25, 0.045, 5,
-                                    4);
+                        double za = run * q / loops, zb = run * (q + 1) / loops;
+                        Shapes.Wire(m, s, PashupatiKit.Br(0xF0A020, MaterialChannel.Fabric), gu, 0.98 + foot * za / run, za, gu, 0.98 + foot * zb / run, zb, 0.3, 0.05,
+                                    5, 4);
                     }
+                }
                 StairPoint(0, -StairHalfWidth + 0.1, out wa0, out wb0);
                 StairPoint(run, -StairHalfWidth + 0.1, out wa1, out wb1);
                 f.Wall(wa0, wb0, wa1, wb1, foot, 0.95, 0.04);
-                // The brass bell on its iron bracket at the top of the stair (north side), at head height.
-                Affine3 b = SacredDraw.At(s, -StairHalfWidth - 0.1, 0, 0.4);
-                Shapes.Bar(m, b, PashupatiKit.Ink, 0, 2.7, 0, 0.55, 2.7, 0, 0.03, 4);
-                Shapes.Bar(m, b, PashupatiKit.Ink, 0, 2.2, 0, 0.0, 2.75, 0, 0.03, 4);
-                PashupatiKit.LatheOf(m, SacredDraw.At(b, 0.5, 2.25, 0), PashupatiKit.Brass,
+                // The brass bell on its iron bracket out from the south wall at the top of the stair, at head height
+                // (c_gje/c_01: top left looking up).
+                Affine3 b = SacredDraw.At(s, StairHalfWidth + 0.2, 0, 0.5);
+                Shapes.Bar(m, b, PashupatiKit.Ink, 0, 2.7, 0, -0.55, 2.7, 0, 0.03, 4);
+                Shapes.Bar(m, b, PashupatiKit.Ink, 0, 1.0, 0, 0.0, 2.75, 0, 0.03, 4);
+                PashupatiKit.LatheOf(m, SacredDraw.At(b, -0.5, 2.25, 0), PashupatiKit.Brass,
                                      new[] { 0.0, 0.0, 0.2, 0.0, 0.19, 0.06, 0.15, 0.2, 0.12, 0.36, 0.06, 0.42, 0.0, 0.43 }, 10, lod, 0b10);
             }
         }

@@ -105,10 +105,6 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Upper storey width as a fraction of its eave (0 = derived; Kasthamandap's wide hall 0.86).</summary>
         public float UpperWallFrac;
 
-        /// <summary>A bespoke heritage site (Heroes/&lt;Site&gt;/): its measured height, yaw and plan win over the curated DB
-        /// (<see cref="HeroBuilder.Merge"/>).</summary>
-        public bool Measured;
-
         /// <summary>Per-LOD triangle ceilings of a bespoke site (LOD0..3; null = class A or B).</summary>
         public int[] BudgetTris;
 
@@ -199,7 +195,7 @@ namespace Ghumante.Core.Generators.Sacred
                 yield return new HeroRecipe
                 {
                     Id = Heroes.Pashupati.PashupatiSite.IdOf(part), Name = names[i], Form = HeroForm.Bespoke, Kind = kinds[i], SiteOf = Heroes.Pashupati.PashupatiSite.HeroId,
-                    Lat = lat, Lon = lon, HeightM = Heroes.Pashupati.PashupatiSite.TopOf(part), PlanW = 30f, PlanD = 30f, Measured = true,
+                    Lat = lat, Lon = lon, HeightM = Heroes.Pashupati.PashupatiSite.TopOf(part), PlanW = 30f, PlanD = 30f,
                     BudgetTris = Heroes.Pashupati.PashupatiSite.BudgetOf(part), Hide = Heroes.Pashupati.PashupatiSite.HideRefs(part),
                 };
             }

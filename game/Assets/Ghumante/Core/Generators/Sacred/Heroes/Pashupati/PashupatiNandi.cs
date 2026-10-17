@@ -55,9 +55,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             0.07, 0.27, 0.24,
             0.2, 0.33, 0.28,
             0.45, 0.3, 0.27,
-            0.7, 0.24, 0.23,
-            0.88, 0.22, 0.21,
-            0.97, 0.19, 0.17,
+            0.7, 0.25, 0.23,
+            0.88, 0.245, 0.21,
+            0.97, 0.22, 0.17,
             1.0, 0.07, 0.06,
         };
 
@@ -187,7 +187,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 1.28, 1.08), Gold, 0.44, 0.48, 0.46, lod == 0 ? 12 : 8, false);
             Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.82, 1.24), Gold, 0.17, 0.42, 0.3, small, false);
             // The head: a loft along the axis from the poll (0, 1.74, 1.24) down and forward to the muzzle.
-            double p0y = 1.74, p0z = 1.24, p1y = 1.18, p1z = 1.98;
+            double p0y = 1.76, p0z = 1.22, p1y = 1.24, p1z = 2.16;
             double dy = p1y - p0y, dz = p1z - p0z, len = Math.Sqrt(dy * dy + dz * dz);
             dy /= len;
             dz /= len;
@@ -246,12 +246,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 Shapes.Tube(m, b, GoldDark, p, 0.035, 4, false);
                 if (lod == 0)
                 {
-                    for (int q = 0; q < 5; q++)
+                    // A row of round bells (ghanti) down the strap, each with its slit (c_inner/c_00).
+                    for (int q = 0; q < 7; q++)
                     {
-                        double t = (q + 0.5) / 5;
+                        double t = (q + 0.5) / 7;
                         double bx, by, bz;
                         Bez(p, t, out bx, out by, out bz);
-                        Shapes.Sphere(m, SacredDraw.At(b, bx * 1.06, by, bz + 0.04), GoldLight, 0.075, 6);
+                        Shapes.Sphere(m, SacredDraw.At(b, bx * 1.08, by, bz + 0.04), GoldLight, 0.085, 8);
+                        Shapes.Torus(m, Affine3.RotationZ(0.5 * Math.PI).Then(SacredDraw.At(b, bx * 1.08 + s * 0.02, by, bz + 0.04)), GoldDark, 0.07, 0.012, 8, 3);
                     }
                 }
             }
@@ -263,8 +265,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             Path3 p = PashupatiKit.PathS;
             // Thick at the root, out and up, then curving forward and in (the short crescents seen over the rump from the
             // West Gate, the longer sweep of c_inner/c_00 close up).
-            p.Add(s * 0.19, 1.86, 1.27).Add(s * 0.32, 1.98, 1.27).Add(s * 0.39, 2.16, 1.31).Add(s * 0.35, 2.34, 1.39).Add(s * 0.25, 2.44, 1.46);
-            Shapes.Tube(m, b, GoldLight, p, 0.12, lod == 0 ? 8 : lod == 1 ? 5 : 4, true, false, default, 0.025);
+            // c_inner/c_00: thick at the root, out and up in a long crescent (about 0.9 m along the curve), the tips turning in
+            // toward each other above the poll.
+            p.Add(s * 0.19, 1.86, 1.26).Add(s * 0.34, 1.96, 1.24).Add(s * 0.45, 2.12, 1.25).Add(s * 0.47, 2.32, 1.29).Add(s * 0.41, 2.5, 1.34)
+             .Add(s * 0.29, 2.62, 1.39);
+            Shapes.Tube(m, b, GoldLight, p, 0.13, lod == 0 ? 8 : lod == 1 ? 5 : 4, true, false, default, 0.022);
             if (lod == 0)
             {
                 // The scaled (beaded) cap at the root.

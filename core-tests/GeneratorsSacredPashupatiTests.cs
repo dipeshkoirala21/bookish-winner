@@ -114,10 +114,16 @@ namespace Ghumante.Core.Tests
         [Test]
         public void TheCourtyardIsOneLevelAndTheForecourtThreeStepsAbove()
         {
+            // The cached sample tile is shared by every test: the site reads a prepared copy and never alters it.
             TileData tile = StreamingSampleRegion.Tile(GeneratorsSacredPashupatiPreview.TempleTile);
-            PashupatiGround.Apply(tile);
-            Assert.That(PashupatiGround.Apply(tile), Is.EqualTo(0), "idempotent");
+            var raw = (ushort[])tile.HeightsQ.Clone();
+            TileData ground = PashupatiGround.Prepared(tile);
+            Assert.That(ground, Is.Not.SameAs(tile), "the raw sample tile needs preparing");
+            Assert.That(tile.HeightsQ, Is.EqualTo(raw), "Prepared leaves the tile alone");
+            Assert.That(PashupatiGround.Apply(ground), Is.EqualTo(0), "idempotent");
+            Assert.That(PashupatiGround.Prepared(ground), Is.SameAs(ground), "a prepared tile is used as it is");
             var f = PashupatiFrame.For(tile, 0, null);
+            Assert.That(tile.HeightsQ, Is.EqualTo(raw), "a frame leaves the tile alone");
             // Sample points at least one height-grid cell (8 m) inside the levelled zones (the grid interpolates across
             // the zone edges).
             double[] courtyard = { 0, 0, -20, 10, 14, -14, 10, 22, -28, -10, 12, 5 };
@@ -181,7 +187,7 @@ namespace Ghumante.Core.Tests
             {
                 var pc = new GenColliders();
                 Build(part, 0, pc);
-                Assert.That(CountWalkable(pc), Is.GreaterThan(0), part + " has walkable plinths or floors");
+                Assert.That(CountWalkable(pc) + pc.Ramps.Count, Is.GreaterThan(0), part + " has walkable plinths, floors or stairs");
                 Assert.That(pc.Boxes.Count + pc.Walls.Count + pc.Cylinders.Count, Is.GreaterThan(4), part + " is solid");
             }
             // Colliders only at LOD0.

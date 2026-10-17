@@ -9,34 +9,54 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
     /// The Pashupatinath ground (pashupati-temple.md 2.1): the terrain model is a surface model that reads the roofs round
     /// the courtyard (it climbs 3-5 m over the west buildings), where the real courtyard is one paved level and the west
     /// forecourt and gate passage stand three steps above it. <see cref="Apply"/> flattens a decoded tile's height grid
-    /// to those levels inside their zones (site rectangles) and clamps the terrain round them to a cone of slopes back to
-    /// the original, so the terrain mesh, the sampler, the ground query and every placer read the same floor the site is
-    /// built on. The east edge stops at the riverside blocks (a = +28), whose walls drop to the ghat walk (the river front
-    /// package's ground) and is steep there; the west forecourt eases into the Deopatan lanes at 1:4. Idempotent, any
-    /// tile level; the streamer calls it on every decoded tile before meshing (<see cref="HeroBuilder.PrepareGround"/>).
-    /// Also draws the courtyard and forecourt paving.
+    /// to those levels inside their zones (site rectangles), cuts the ground standing above them down to the level in a
+    /// band round them (<see cref="CutM"/>, for the streamer's decimated terrain) and clamps the terrain beyond to a cone
+    /// of slopes back to the original, so the terrain mesh, the sampler, the ground query and every placer read the same
+    /// floor the site is built on. The east edge stops at the riverside blocks (a = +28), whose walls drop to the ghat
+    /// walk (the river front package's ground) and is steep there; the west forecourt eases into the Deopatan lanes at
+    /// 1:4. Idempotent, any tile level; the streamer calls it on every decoded tile before meshing
+    /// (<see cref="HeroBuilder.PrepareGround"/>). Also draws the courtyard and forecourt paving.
     /// </summary>
     public static class PashupatiGround
     {
-        /// <summary>One level zone: site rectangle, height above the courtyard and the blend slope (rise over run) of the
-        /// terrain round it on each side (−a, +a, −b, +b).</summary>
+        /// <summary>One level zone: site rectangle, height above the courtyard, the blend slope (rise over run) of the
+        /// terrain round it on each side (−a, +a, −b, +b) and the width of the band on each side where the terrain is cut
+        /// down to the level (never filled) before the slope starts.</summary>
         private struct Zone
         {
-            public double A0, A1, B0, B1, Rise, SlopeA0, SlopeA1, SlopeB0, SlopeB1;
+            public double A0, A1, B0, B1, Rise, SlopeA0, SlopeA1, SlopeB0, SlopeB1, CutA0, CutA1, CutB0, CutB1;
         }
+
+        /// <summary>
+        /// Width of the cut bands (m). The streamer draws a level-10 tile's terrain decimated (every second height
+        /// sample on the Mid and High tiers, every fourth on Low: <see cref="Ghumante.Core.Streaming.StreamingConfig.TerrainStep"/>),
+        /// so a 16 m terrain cell that reaches over the paving from the rising ground round the courtyard would push
+        /// through it. The terrain is cut to the level for one 16 m cell's diagonal round the paved zones (cuts only
+        /// lower the ground: east of the courtyard, toward the river, it already falls away).
+        /// </summary>
+        public const double CutM = 23.0;
 
         /// <summary>The level zones: the courtyard with the riverside blocks and the south court, and the forecourt.</summary>
         private static readonly Zone[] Zones =
         {
-            new Zone { A0 = -36.7, A1 = 28.0, B0 = -24.0, B1 = 31.0, Rise = 0, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.6 },
-            new Zone { A0 = -30.0, A1 = 22.0, B0 = -36.0, B1 = -24.0, Rise = 0, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.5 },
+            new Zone
+            {
+                A0 = -36.7, A1 = 28.0, B0 = -24.0, B1 = 31.0, Rise = 0, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.6, CutA0 = CutM,
+                CutA1 = CutM, CutB0 = CutM, CutB1 = CutM,
+            },
+            new Zone
+            {
+                A0 = -30.0, A1 = 22.0, B0 = -36.0, B1 = -24.0, Rise = 0, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.5, CutA0 = CutM,
+                CutA1 = 0, CutB0 = CutM, CutB1 = 0,
+            },
             new Zone
             {
                 A0 = -78.0, A1 = -36.7, B0 = -20.0, B1 = 22.0, Rise = PashupatiSite.ForecourtRiseM, SlopeA0 = 0.25, SlopeA1 = 0.5, SlopeB0 = 0.3, SlopeB1 = 0.4,
+                CutA0 = CutM, CutA1 = 0, CutB0 = CutM, CutB1 = CutM,
             },
         };
 
-        /// <summary>Farthest a zone's blend reaches (m).</summary>
+        /// <summary>Farthest a zone's blend reaches past its cut band (m).</summary>
         public const double BlendReachM = 24.0;
 
         /// <summary>The level (metres above the courtyard) a site point is flattened to, NaN outside every zone.</summary>
@@ -54,18 +74,38 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// A tile the site does not reach is left alone.</summary>
         public static int Apply(TileData t)
         {
-            if (t == null || t.HeightsQ == null || t.HeightsN < 2) return 0;
+            return Flatten(t, true);
+        }
+
+        /// <summary>
+        /// The tile as the streamer prepares it, without touching <paramref name="t"/>: the tile itself when it is
+        /// already prepared (or the site does not reach it, or it has no heights), else a copy sharing every record but
+        /// with its own flattened height grid. The site's models read their ground from this so a build on a raw tile
+        /// (tests, tools) sits on the same floor as in the streamed world and never alters a tile someone else holds.
+        /// </summary>
+        public static TileData Prepared(TileData t)
+        {
+            if (Flatten(t, false) == 0) return t;
+            var copy = new TileData { Tile = t.Tile, HeightsN = t.HeightsN, HeightsQ = (ushort[])t.HeightsQ.Clone() };
+            Flatten(copy, true);
+            return copy;
+        }
+
+        /// <summary>The samples <see cref="Apply"/> changes; written only when <paramref name="write"/>.</summary>
+        private static int Flatten(TileData t, bool write)
+        {
+            if (t == null || t.HeightsQ == null || t.HeightsN < 2 || t.HeightsQ.Length < t.HeightsN * t.HeightsN) return 0;
             int n = t.HeightsN;
             double size = t.Tile.Size, cell = size / (n - 1);
-            PashupatiFrame f = PashupatiFrame.For(t, 0, null);
+            PashupatiFrame f = PashupatiFrame.Plain(t, 0, null);
             // The site's tile-local bounding box with the blend reach.
             double minX = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxZ = double.MinValue;
             for (int i = 0; i < Zones.Length; i++)
             {
                 for (int q = 0; q < 4; q++)
                 {
-                    double a = (q & 1) == 0 ? Zones[i].A0 - BlendReachM : Zones[i].A1 + BlendReachM;
-                    double b = (q & 2) == 0 ? Zones[i].B0 - BlendReachM : Zones[i].B1 + BlendReachM;
+                    double a = (q & 1) == 0 ? Zones[i].A0 - BlendReachM - CutM : Zones[i].A1 + BlendReachM + CutM;
+                    double b = (q & 2) == 0 ? Zones[i].B0 - BlendReachM - CutM : Zones[i].B1 + BlendReachM + CutM;
                     double x, z;
                     f.ToTile(a, b, out x, out z);
                     minX = Math.Min(minX, x);
@@ -106,7 +146,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                                 nearest = z;
                             }
                         }
-                        if (best > BlendReachM) continue;
+                        if (best > BlendReachM + CutM) continue;
                         for (int z = 0; z < Zones.Length; z++)
                         {
                             if (z == nearest) continue;
@@ -116,7 +156,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     }
                     ushort nq = Ght.Quantize(h);
                     if (nq == q) continue;
-                    t.HeightsQ[k] = nq;
+                    if (write) t.HeightsQ[k] = nq;
                     changed++;
                 }
             }
@@ -129,15 +169,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             return Math.Sqrt(da * da + db * db);
         }
 
-        /// <summary>Clamp height h to within the zone's cone of slopes: each side's slope times the distance past it.</summary>
+        /// <summary>Clamp height h to within the zone's cone of slopes: each side's slope times the distance past it
+        /// (above the level, past its cut band).</summary>
         private static double Clamp(in Zone z, double level, double a, double b, double h)
         {
             double da = a < z.A0 ? z.A0 - a : a > z.A1 ? a - z.A1 : 0, db = b < z.B0 ? z.B0 - b : b > z.B1 ? b - z.B1 : 0;
-            if (da > BlendReachM || db > BlendReachM) return h;
+            double ca = a < z.A0 ? z.CutA0 : a > z.A1 ? z.CutA1 : 0, cb = b < z.B0 ? z.CutB0 : b > z.B1 ? z.CutB1 : 0;
+            if (da > BlendReachM + ca || db > BlendReachM + cb) return h;
             double sa = a < z.A0 ? z.SlopeA0 : z.SlopeA1, sb = b < z.B0 ? z.SlopeB0 : z.SlopeB1;
-            double band = Math.Sqrt(Sq(da * sa) + Sq(db * sb));
+            double below = Math.Sqrt(Sq(da * sa) + Sq(db * sb)), above = Math.Sqrt(Sq(Math.Max(0, da - ca) * sa) + Sq(Math.Max(0, db - cb) * sb));
             double l = level + z.Rise;
-            return Math.Max(l - band, Math.Min(l + band, h));
+            return Math.Max(l - below, Math.Min(l + above, h));
         }
 
         private static double Sq(double x)
@@ -209,6 +251,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                                     uint seed)
         {
             int na = Math.Max(1, (int)Math.Round((a1 - a0) / cellM)), nb = Math.Max(1, (int)Math.Round((b1 - b0) / cellM));
+            // Draped cells, where the terrain's grid rises through the level (round the zone edges, mostly under the
+            // buildings, and the strip at the West Gate's courtyard face where the forecourt's step eases down).
+            double sub = Math.Max(2.0, 0.25 * cellM);
             for (int i = 0; i < na; i++)
             {
                 for (int j = 0; j < nb; j++)
@@ -218,10 +263,44 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     uint h = ShapeNoise.Hash(i, j, 3, seed);
                     float k = 0.92f + 0.12f * (h % 1000) / 1000f;
                     ShapeBrush c = b.WithColor(MeshColor.Scale(b.Color, k));
-                    SacredDraw.Quad(m, f.Site, qa0, y, qb0, qa1, y, qb0, qa1, y, qb1, qa0, y, qb1, 0, 1, 0, c);
+                    int ka = 1, kb = 1;
+                    if (Rises(ref f, qa0, qa1, qb0, qb1, y))
+                    {
+                        ka = Math.Max(1, (int)Math.Ceiling((qa1 - qa0) / sub));
+                        kb = Math.Max(1, (int)Math.Ceiling((qb1 - qb0) / sub));
+                    }
+                    for (int u = 0; u < ka; u++)
+                    {
+                        for (int w = 0; w < kb; w++)
+                        {
+                            double sa0 = qa0 + (qa1 - qa0) * u / ka, sa1 = qa0 + (qa1 - qa0) * (u + 1) / ka;
+                            double sb0 = qb0 + (qb1 - qb0) * w / kb, sb1 = qb0 + (qb1 - qb0) * (w + 1) / kb;
+                            SacredDraw.Quad(m, f.Site, sa0, Drape(ref f, sa0, sb0, y), sb0, sa1, Drape(ref f, sa1, sb0, y), sb0, sa1, Drape(ref f, sa1, sb1, y), sb1,
+                                            sa0, Drape(ref f, sa0, sb1, y), sb1, 0, 1, 0, c);
+                        }
+                    }
                 }
             }
         }
+
+        /// <summary>The paving height at site (a, b): <paramref name="y"/>, or 2 cm over the terrain where it rises above
+        /// (on any tier's decimation: <see cref="PashupatiFrame.TopGroundAt"/>).</summary>
+        private static double Drape(ref PashupatiFrame f, double a, double b, double y)
+        {
+            return f.Terrain == null ? y : Math.Max(y, f.TopGroundAt(a, b, y) + 0.02);
+        }
+
+        /// <summary>Whether the terrain rises through a level cell anywhere (1 m samples).</summary>
+        private static bool Rises(ref PashupatiFrame f, double a0, double a1, double b0, double b1, double y)
+        {
+            if (f.Terrain == null) return false;
+            int sa = Math.Max(1, (int)Math.Ceiling(a1 - a0)), sb = Math.Max(1, (int)Math.Ceiling(b1 - b0));
+            for (int i = 0; i <= sa; i++)
+                for (int j = 0; j <= sb; j++)
+                    if (f.TopGroundAt(a0 + (a1 - a0) * i / sa, b0 + (b1 - b0) * j / sb, y) + 0.02 > y + 0.003) return true;
+            return false;
+        }
+
 
         /// <summary>A flat strip on the floor.</summary>
         internal static void Strip(ref PashupatiFrame f, MeshData m, double a0, double a1, double b0, double b1, double y, in ShapeBrush b)

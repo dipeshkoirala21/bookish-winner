@@ -340,18 +340,41 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             Shapes.Sphere(m, SacredDraw.At(g, side * 0.34, 1.02, 0.08), gold, 0.07, 5);
         }
 
-        /// <summary>A gilt-framed panel of dark repoussé centred at u from v (width w, height h) with a raised medallion.</summary>
+        private static readonly ShapeBrush PanelField = PashupatiKit.Br(0x3C3936, MaterialChannel.Metal);
+        private static readonly ShapeBrush Repousse = PashupatiKit.Br(0x8E8A82, MaterialChannel.Metal);
+
+        /// <summary>A gilt-framed panel of dark repoussé centred at u from v (width w, height h): the blackened field and,
+        /// in silver relief, a standing deity under a gilt aureole (c_inner/c_01, nandi/ref_03: the dark wall panels with
+        /// their figures between gilt bands); the small upper panels carry a seated figure.</summary>
         private static void Panel(MeshData m, in Affine3 x, double u, double v, double w, double h, int lod)
         {
             double hw = 0.5 * w, fw = 0.08;
-            SacredDraw.Box(m, x, u - hw, u + hw, v, v + h, 0, 0.03, PashupatiKit.SilverDark, BoxFaces.Front);
+            SacredDraw.Box(m, x, u - hw, u + hw, v, v + h, 0, 0.03, PanelField, BoxFaces.Front);
             BoxFaces f = lod >= 1 ? BoxFaces.Front : BoxFaces.Front | BoxFaces.Wall;
             SacredDraw.Box(m, x, u - hw - fw, u - hw, v - fw, v + h + fw, 0, 0.07, PashupatiKit.GiltRoof, f);
             SacredDraw.Box(m, x, u + hw, u + hw + fw, v - fw, v + h + fw, 0, 0.07, PashupatiKit.GiltRoof, f);
             SacredDraw.Box(m, x, u - hw, u + hw, v - fw, v, 0, 0.07, PashupatiKit.GiltRoof, f);
             SacredDraw.Box(m, x, u - hw, u + hw, v + h, v + h + fw, 0, 0.07, PashupatiKit.GiltRoof, f);
-            if (lod == 0)
-                Shapes.Ellipsoid(m, SacredDraw.At(x, u, v + 0.5 * h, 0.03), PashupatiKit.Br(0x7E7A72, MaterialChannel.Metal), 0.32 * w, 0.28 * h, 0.05, 6, false);
+            if (lod != 0) return;
+            // The relief: aureole, robe, torso, head and crown, the arms out to the attributes.
+            bool tall = h > 1.5 * w;
+            double fh = 0.82 * h, base0 = v + 0.06 * h;
+            Shapes.Ellipsoid(m, SacredDraw.At(x, u, base0 + 0.78 * fh, 0.035), PashupatiKit.GiltShade, 0.3 * w, (tall ? 0.16 : 0.24) * h, 0.012, 6, false);
+            if (tall)
+            {
+                Shapes.Ellipsoid(m, SacredDraw.At(x, u, base0 + 0.32 * fh, 0.04), Repousse, 0.2 * w, 0.32 * fh, 0.04, 6, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(x, u, base0 + 0.66 * fh, 0.045), Repousse, 0.16 * w, 0.13 * fh, 0.04, 6, false);
+                for (int sg = -1; sg <= 1; sg += 2)
+                    Shapes.Bar(m, x, Repousse, u + sg * 0.12 * w, base0 + 0.7 * fh, 0.06, u + sg * 0.32 * w, base0 + 0.52 * fh, 0.06, 0.035, 3);
+            }
+            else
+            {
+                // Seated (the small upper panels).
+                Shapes.Ellipsoid(m, SacredDraw.At(x, u, base0 + 0.2 * fh, 0.04), Repousse, 0.3 * w, 0.12 * fh, 0.04, 5, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(x, u, base0 + 0.48 * fh, 0.045), Repousse, 0.17 * w, 0.18 * fh, 0.04, 5, false);
+            }
+            Shapes.Sphere(m, SacredDraw.At(x, u, base0 + (tall ? 0.82 : 0.72) * fh, 0.05), Repousse, (tall ? 0.09 : 0.1) * w, 5);
+            Shapes.Cone(m, SacredDraw.At(x, u, base0 + (tall ? 0.87 : 0.8) * fh, 0.05), PashupatiKit.GiltBright, 0.07 * w, 0.12 * fh, 5, 0, 0, false);
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -385,28 +408,28 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         // Gajur (PT-03)
         // ---------------------------------------------------------------------------------------------------------
 
-        /// <summary>Profile of the gajur above its stepped base as (radius, height) pairs (c_area/c_27): the great bell with
-        /// its nearly straight flaring wall and round shoulder, a lotus disc, the pot (kalasha), a disc and a small bell, a
-        /// small pot, the stem, the tiered conical parasol and the knob at the tip.</summary>
+        /// <summary>Profile of the gajur above its stepped base as (radius, height) pairs (c_area/c_27, c_28): the great bell
+        /// with its nearly straight flaring wall and round shoulder, the lotus disc, the round pot (kalasha), a disc, a small
+        /// bell and a knob, the long slender stem, a small knob and the tiered conical parasol with its fringes to the tip.</summary>
         private static readonly double[] GajurProfile =
         {
-            0, 0, 0.66, 0, 0.66, 0.06, 0.6, 0.14, 0.55, 0.35, 0.51, 0.7, 0.49, 0.95, 0.45, 1.08, 0.36, 1.16, 0.26, 1.2, 0.16, 1.24,
-            0.4, 1.26, 0.44, 1.32, 0.38, 1.4, 0.26, 1.44, 0.38, 1.52, 0.44, 1.66, 0.42, 1.82, 0.3, 1.94, 0.14, 2.0,
-            0.24, 2.02, 0.24, 2.06, 0.12, 2.08, 0.2, 2.14, 0.22, 2.24, 0.16, 2.36, 0.08, 2.42, 0.18, 2.44, 0.18, 2.47, 0.07, 2.49,
-            0.15, 2.55, 0.16, 2.64, 0.1, 2.72, 0.05, 2.76, 0.1, 2.8, 0.11, 2.86, 0.06, 2.92, 0.04, 2.93, 0.04, 3.25,
-            0.3, 3.28, 0.3, 3.34, 0.24, 3.4, 0.26, 3.44, 0.2, 3.52, 0.21, 3.56, 0.16, 3.64, 0.17, 3.68, 0.12, 3.76, 0.12, 3.8, 0.07, 3.88,
-            0.08, 3.92, 0.04, 4.0, 0.015, 4.1, 0, 4.14,
+            0, 0, 0.66, 0, 0.66, 0.06, 0.6, 0.14, 0.55, 0.35, 0.51, 0.7, 0.49, 0.95, 0.45, 1.08, 0.36, 1.16, 0.26, 1.2, 0.16, 1.24, 0.4, 1.26,
+            0.44, 1.32, 0.38, 1.4, 0.22, 1.43, 0.33, 1.5, 0.4, 1.6, 0.39, 1.72, 0.3, 1.82, 0.14, 1.88, 0.24, 1.9, 0.24, 1.95, 0.11, 1.97, 0.19, 1.99,
+            0.18, 2.06, 0.14, 2.17, 0.07, 2.24, 0.11, 2.27, 0.11, 2.34, 0.05, 2.4, 0.045, 2.42, 0.04, 3.28, 0.08, 3.3, 0.08, 3.36, 0.04, 3.38,
+            0.31, 3.41, 0.31, 3.46, 0.24, 3.51, 0.25, 3.55, 0.19, 3.62, 0.2, 3.66, 0.14, 3.73, 0.14, 3.77, 0.09, 3.84, 0.09, 3.88, 0.05, 3.96,
+            0.015, 4.08, 0, 4.14,
         };
 
         /// <summary>Creases of <see cref="GajurProfile"/> (hard rings at discs, rims and the parasol's tiers).</summary>
-        private static readonly int[] GajurCreases = { 1, 10, 11, 13, 14, 19, 20, 21, 22, 26, 27, 28, 29, 33, 34, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49 };
+        private static readonly int[] GajurCreases = { 1, 10, 11, 13, 14, 19, 20, 21, 22, 23, 26, 29, 30, 31, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44 };
 
         /// <summary>A corner pinnacle (lotus collar, bell, two knobs, spike) as (radius, height) pairs.</summary>
         private static readonly double[] PinnacleProfile =
         {
-            // A bell on a lotus collar (c_area/c_27: the corner bells are a third of the great bell's height).
-            0, 0, 0.3, 0, 0.33, 0.06, 0.27, 0.12, 0.3, 0.16, 0.29, 0.22, 0.25, 0.36, 0.2, 0.5, 0.13, 0.58, 0.08, 0.62, 0.11, 0.66, 0.11, 0.71,
-            0.06, 0.75, 0.08, 0.79, 0.07, 0.85, 0.035, 0.89, 0.018, 1.04, 0, 1.08,
+            // A bell on a lotus collar (c_area/c_27, c_area/c_28: the corner bells are inverted cups with a flared rim, about
+            // a third of the great bell's height, with a disc, two knobs and a short spike on top).
+            0, 0, 0.24, 0, 0.3, 0.04, 0.3, 0.08, 0.22, 0.11, 0.33, 0.13, 0.31, 0.17, 0.28, 0.22, 0.27, 0.34, 0.24, 0.44, 0.17, 0.51, 0.08, 0.54,
+            0.11, 0.56, 0.11, 0.6, 0.06, 0.62, 0.09, 0.67, 0.08, 0.73, 0.04, 0.76, 0.06, 0.79, 0.05, 0.84, 0.02, 0.87, 0.012, 0.98, 0, 1.0,
         };
 
         /// <summary>The gajur from its base at local height v0 (on the roof's flat top), <paramref name="height"/> tall
@@ -472,14 +495,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             // Four corner pinnacles on the lowest tier.
             for (int c = 0; c < 4; c++)
             {
-                double cu = (c % 2 == 0 ? 1 : -1) * 0.8, cw = (c < 2 ? 1 : -1) * 0.8;
-                PashupatiKit.LatheOf(m, SacredDraw.At(k, cu, v0 + tops[0], cw), gold, PinnacleProfile, 10, lod, 0b10_0000_0001_0010);
+                double cu = (c % 2 == 0 ? 1 : -1) * 0.9, cw = (c < 2 ? 1 : -1) * 0.9;
+                PashupatiKit.LatheOf(m, Affine3.Scaling(0.92).Then(SacredDraw.At(k, cu, v0 + tops[0], cw)), gold, PinnacleProfile, 12, lod, 0b0001_0110_0001_0010_0110);
             }
             // The streamer: a scalloped gilt ribbon from the parasol down the east face of the stack, over the bell, to the
             // base; round plates along it.
             // It hangs taut from under the parasol, clear of the stem and the pot, to the bell's shoulder, then lies on the
             // bell's wall down to the base.
-            double[] sr = { 0.3, 0.36, 0.42, 0.5, 0.5, 0.53, 0.56, 0.62, 0.72 }, sh = { 3.26, 2.8, 2.3, 1.75, 1.22, 0.95, 0.6, 0.25, -0.05 };
+            // From under the parasol's rim straight down past the pot to the bell's skirt (it hangs free of the stack).
+            double[] sr = { 0.3, 0.34, 0.38, 0.43, 0.47, 0.51, 0.55, 0.6, 0.66 }, sh = { 3.38, 3.0, 2.58, 2.12, 1.66, 1.2, 0.74, 0.3, -0.02 };
             int sn = sr.Length, first = m.VertexCount;
             for (int i = 0; i < sn; i++)
             {
@@ -492,7 +516,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     nh = -nh;
                 }
                 for (int sg = -1; sg <= 1; sg += 2)
-                    SacredDraw.V(m, at, sr[i], sh[i], sg * 0.11, nr, nh, 0, i % 2 == 0 ? gold : shade);
+                    SacredDraw.V(m, at, sr[i], sh[i], sg * 0.065, nr, nh, 0, i % 2 == 0 ? gold : shade);
             }
             SacredDraw.Grid(m, first, sn, 2, false, null);
             if (lod == 0)
@@ -502,7 +526,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     for (int q = 0; q < 2; q++)
                     {
                         double t = (q + 0.5) / 2, r0 = sr[i] + (sr[i + 1] - sr[i]) * t, h0 = sh[i] + (sh[i + 1] - sh[i]) * t;
-                        Shapes.Sphere(m, SacredDraw.At(at, r0 + 0.03, h0, 0), gold, 0.06, 5);
+                        Shapes.Sphere(m, SacredDraw.At(at, r0 + 0.03, h0, 0), gold, 0.045, 5);
                     }
                 }
             }
