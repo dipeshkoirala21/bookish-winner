@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Ghumante.Core.Data;
+using Ghumante.Core.Driving;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Streaming;
 using Ghumante.World.Buildings;
@@ -20,7 +21,7 @@ namespace Ghumante.Tests.EditMode
         public void BandRadiiFollowTheDesignTablePerTier()
         {
             // One source of truth: the Core band table of the detail pass (BuildingBandTable), which keeps the W2_DESIGN
-            // 2.4 radii and splits B0 into a near and a lite ring.
+            // 2.4 radii and the near radius and levels of B0.
             float[][] w2 = { new[] { 35f, 120f, 350f, 750f }, new[] { 60f, 200f, 500f, 1250f }, new[] { 80f, 250f, 700f, 1750f } };
             for (int tier = 0; tier < 3; tier++)
             {
@@ -31,18 +32,30 @@ namespace Ghumante.Tests.EditMode
                     Assert.AreEqual(BuildingBandTable.OuterM(tier, band), radii[band], "tier " + tier + " band " + band);
                     Assert.GreaterOrEqual(radii[band], w2[tier][band], "tier " + tier + " band " + band + " keeps the W2 radius");
                 }
-                Assert.AreEqual(BuildingBandTable.NearOuterM(tier), c.B0NearOuterM, "tier " + tier + " near ring");
-                Assert.Less(c.B0NearOuterM, c.B0OuterM, "tier " + tier + ": the lite ring lies inside B0");
+                // B0 draws each house once, at one level by its distance: the near level within the table's near radius
+                // (none on Low), the lite level for street fronts out to the lite radius, the flat level beyond.
+                Assert.AreEqual(tier == 0 ? 0f : BuildingBandTable.NearOuterM(tier), c.B0NearOuterM, "tier " + tier + " near radius");
+                Assert.LessOrEqual(c.B0NearOuterM, c.B0LiteOuterM, "tier " + tier + ": lite beyond near");
+                Assert.Less(c.B0LiteOuterM, c.B0OuterM, "tier " + tier + ": the lite radius lies inside B0");
                 Assert.AreEqual(BuildingBandTable.B0CapFor(tier), c.B0CapTris, "tier " + tier + " cap");
                 Assert.AreEqual(BuildingBandTable.B0BaseDropFor(tier), c.B0BaseDrop, "tier " + tier + " base drop");
-                Assert.AreEqual(BuildingBandTable.LiteDropFor(tier), c.B0LiteDrop, "tier " + tier + " lite drop");
+                Assert.AreEqual(BuildingBandTable.LiteDrop, c.B0LiteDrop, "tier " + tier + " lite level");
+                Assert.AreEqual(BuildingBandTable.FlatDrop, c.B0FlatDrop, "tier " + tier + " flat level");
+                Assert.AreEqual(tier > 0 ? BandConfig.LevelNear : BandConfig.LevelFlat, c.B0Level(0.0, true, -1),
+                                "tier " + tier + ": a house at the camera is near on Mid and High, flat on Low");
+                Assert.AreEqual(BandConfig.LevelFlat, c.B0Level(c.B0OuterM, true, -1), "tier " + tier + ": a house at the B0 edge is flat");
+                Assert.AreEqual(BandConfig.LevelFlat, c.B0Level(c.B0NearOuterM + 1, false, -1), "tier " + tier + ": a back house beyond near is flat");
+                if (tier > 0)
+                {
+                    Assert.AreEqual(BandConfig.LevelLite, c.B0Level(c.B0NearOuterM + 1, true, -1), "tier " + tier + ": a street front beyond near is lite");
+                    Assert.AreEqual(BandConfig.LevelNear, c.B0Level(c.B0NearOuterM + 1, true, BandConfig.LevelNear), "tier " + tier + ": hysteresis keeps near");
+                    Assert.AreEqual(BandConfig.LevelLite, c.B0Level(c.B0NearOuterM + BandConfig.B0LevelHysteresisM + 0.5, true, BandConfig.LevelNear),
+                                    "tier " + tier + ": past the hysteresis it drops");
+                }
                 float inner, outer;
-                c.B0Range(true, out inner, out outer);
+                c.Range(BuildingBandLayer.B0, false, out inner, out outer);
                 Assert.AreEqual(0f, inner);
-                Assert.AreEqual(c.B0NearOuterM, outer);
-                c.B0Range(false, out inner, out outer);
-                Assert.AreEqual(c.B0NearOuterM, inner);
-                Assert.AreEqual(c.B0OuterM, outer);
+                Assert.AreEqual(c.B0OuterM, outer, "B0 is one band out to its radius");
                 c.Range(BuildingBandLayer.B1, false, out inner, out outer);
                 Assert.AreEqual(c.B0OuterM, inner, "B1 takes over where B0 ends");
                 Assert.AreEqual(c.B1OuterM, outer);
@@ -50,7 +63,8 @@ namespace Ghumante.Tests.EditMode
                 Assert.AreEqual(0f, inner, "a B1 block standing in for its B0 cells starts at the camera");
             }
             BandConfig low = BandConfig.ForTier(0), mid = BandConfig.ForTier(1), high = BandConfig.ForTier(2);
-            Assert.AreEqual(new[] { 24, 48, 96 }, new[] { low.CellCacheSize, mid.CellCacheSize, high.CellCacheSize });
+            Assert.AreEqual(new long[] { 25L << 20, 50L << 20, 80L << 20 }, new[] { low.CellCacheBytes, mid.CellCacheBytes, high.CellCacheBytes },
+                            "the B0 cell cache is budgeted in bytes");
             Assert.AreEqual(new[] { 20000, 40000, 60000 }, new[] { low.HeroBudgetTris, mid.HeroBudgetTris, high.HeroBudgetTris });
             Assert.IsFalse(low.HeroLod0Allowed, "Low never uses hero LOD0");
             Assert.IsTrue(mid.HeroLod0Allowed);
@@ -255,6 +269,113 @@ namespace Ghumante.Tests.EditMode
                 }
                 double total = tris * 0.4 + BuildingBandTable.B0ShareTris(tier), limit = BuildingBandTable.SliceTris(tier) * BuildingBandTable.SliceHeadroom;
                 Assert.LessOrEqual(total, limit, "tier " + tier + ": " + tris.ToString("0") + " far-band triangles around Asan and a B0 share of " + BuildingBandTable.B0ShareTris(tier));
+            }
+        }
+
+        /// <summary>
+        /// Owner playtest #4 ("Buildings constantly flickers"): the streamer measures every building band from
+        /// <see cref="BandAnchor"/>, which follows the player while the camera chases it, so a chase camera swinging round
+        /// a standing rider never moves a band edge across a house; a far camera (free flight) is followed itself.
+        /// </summary>
+        [Test]
+        public void BandsAreCentredOnTheRiderNotTheSwayingCamera()
+        {
+            var anchor = new BandAnchor();
+            const double rx = 1000, rz = 2000;
+            anchor.Follow(rx - 4.5, rz, rx, rz, true);
+            Assert.AreEqual(rx, anchor.X);
+            for (int f = 0; f < 300; f++)
+            {
+                double a = 0.7 * Math.Sin(f * 0.03);
+                Assert.IsFalse(anchor.Follow(rx - 4.5 * Math.Cos(a), rz - 4.5 * Math.Sin(a), rx, rz, true), "frame " + f + ": the swinging camera moves nothing");
+            }
+            Assert.AreEqual(rx, anchor.X);
+            Assert.AreEqual(rz, anchor.Z);
+            // Riding: the centre trails the rider by at most the dead zone.
+            for (int f = 1; f <= 100; f++) anchor.Follow(rx + f * 0.33 - 4.5, rz, rx + f * 0.33, rz, true);
+            Assert.AreEqual(rx + 33 - BandAnchor.DeadzoneM, anchor.X, 1e-6);
+            // A free camera far from the focus is followed itself.
+            anchor.Follow(rx + 500, rz, rx, rz, true);
+            Assert.AreEqual(rx + 500, anchor.X);
+        }
+
+        /// <summary>Records which B0 chunks are shown (the Unity sink is DetailCells).</summary>
+        private sealed class B0Sink : IB0CellSink
+        {
+            public readonly HashSet<int[]> Shown = new HashSet<int[]>();
+
+            public object Upload(B0Tile tile, MeshData data, in UploadChunk chunk, ushort[] shortIndices)
+            {
+                Assert.LessOrEqual(chunk.VertexCount, B0CellSet.ChunkVertices, "B0 chunks are small");
+                return new[] { chunk.IndexCount / 3 };
+            }
+
+            public void SetShown(object handle, bool shown)
+            {
+                if (shown) Shown.Add((int[])handle);
+                else Shown.Remove((int[])handle);
+            }
+
+            public void Destroy(object handle)
+            {
+                Shown.Remove((int[])handle);
+            }
+
+            public int Tris
+            {
+                get
+                {
+                    int t = 0;
+                    foreach (int[] c in Shown) t += c[0];
+                    return t;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The B0 band as the streamer's cells draw it (B0CellSet, the engine-free core of DetailCells), honestly: every
+        /// cell shown at once around Asan, counted whole, per tier including Low, within the tier's budget
+        /// (BandConfig.B0ShownBudgetTris: the B0 share over 40% on Mid and High), with the cache within its bytes and each
+        /// shown cell's colliders registered under its own key.
+        /// </summary>
+        [Test]
+        public void B0CellsAtAsanHoldTheirBudgetPerTier()
+        {
+            double cx, cz;
+            Ghumante.Core.Geo.WorldFrame.LonLatToGame(85.3122, 27.7074, out cx, out cz);
+            TileId c = TileId.At(10, cx, cz);
+            for (int tier = 0; tier <= 2; tier++)
+            {
+                BandConfig bands = BandConfig.ForTier(tier);
+                MeshingSettings meshing = MeshingSettings.ForTier(tier);
+                var sink = new B0Sink();
+                var ground = new TileGroundQuery(meshing.Roads);
+                double now = 0;
+                var set = new B0CellSet(bands, meshing.DetailBuildings, sink, ground, new InlineJobRunner(), () => now);
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        var id = new TileId(10, c.Tx + dx, c.Ty + dz);
+                        if (!SampleRegion.Pack.Contains(id)) continue;
+                        TileData t = SampleRegion.Pack.ReadTile(id);
+                        if (t != null && t.HasDetail) set.Add(id, t, TileHeightSampler.ForArea(t, id, 1), null);
+                    }
+                // Settled for 1.5 s on end (nothing left to build or upload), as the core bench waits.
+                for (int f = 0, quiet = 0; f < 20000 && quiet < 45; f++)
+                {
+                    set.Update(cx, cz);
+                    set.Upload(1L << 20, true);
+                    now += 33.3;
+                    quiet = set.Settled ? quiet + 1 : 0;
+                }
+                set.Update(cx, cz);
+                Assert.IsTrue(set.Settled, "tier " + tier + ": B0 settled");
+                Assert.AreEqual(set.ShownTris, sink.Tris);
+                Assert.Greater(set.ShownTris, 0);
+                Assert.LessOrEqual(set.ShownTris, BandConfig.B0ShownBudgetTris(tier), "tier " + tier + ": every shown B0 cell within the budget");
+                Assert.LessOrEqual(set.ResidentBytes, bands.CellCacheBytes, "tier " + tier + ": the shown cells fit the cache");
+                Assert.Greater(ground.StructureTileCount, 0, "tier " + tier + ": shown cells register their colliders");
+                set.Dispose();
             }
         }
     }

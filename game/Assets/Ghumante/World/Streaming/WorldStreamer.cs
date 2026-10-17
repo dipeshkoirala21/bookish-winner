@@ -25,10 +25,11 @@ namespace Ghumante.World.Streaming
     /// rebuilt when the origin moves. Owned by <see cref="WorldRoot"/>; main thread only.
     /// <para>
     /// W2 (<see cref="UpdateView"/>, once per frame after <see cref="Tick"/>): the building bands of W2_DESIGN 2.4 (B1
-    /// blocks, B2 blocks and the B3 layer switched by their distance range around the camera, the band materials
-    /// dithering the exact 4 m cross-fade; B0 cells from <see cref="DetailCells"/>, with a B1 block standing in for its
-    /// cells until they are ready), the hero LODs (<see cref="HeroLodBudget"/>), the structure colliders of heroes and B0
-    /// cells (registered with the ground query while their tile is visible), and the per-frame render counters.
+    /// blocks, B2 blocks and the B3 layer switched by their distance range around the band centre
+    /// (<see cref="BandAnchor"/>: the player while the camera chases it), the band materials dithering the exact 4 m
+    /// cross-fade; B0 cells from <see cref="DetailCells"/>, with a B1 block standing in only where B0 does not draw a
+    /// house), the hero LODs (<see cref="HeroLodBudget"/>), the structure colliders of heroes and B0 cells (registered
+    /// with the ground query while their tile is visible), and the per-frame render counters.
     /// </para>
     /// <para>
     /// Detail pass: the bridge and roundabout pieces (<see cref="LodPiece"/>: one LOD per span or site by the camera's
@@ -88,7 +89,8 @@ namespace Ghumante.World.Streaming
             {
                 Warning = Debug.LogWarning,
             };
-            _cells = new DetailCells(_bands, meshing != null ? meshing.DetailBuildings : new BuildingOptions { Band = BuildingBand.B0KitLite }, _b0);
+            _cells = new DetailCells(_bands, meshing != null ? meshing.DetailBuildings : new BuildingOptions { Band = BuildingBand.B0KitLite }, _b0, ground, _root);
+            _uploadCapBytes = _scheduler.UploadBudgetBytes;
         }
 
         public StreamingScheduler Scheduler
@@ -126,18 +128,50 @@ namespace Ghumante.World.Streaming
             get { return _stats; }
         }
 
-        /// <summary>One frame: stream around <paramref name="focus"/>. The upload budget follows the frame rate target
-        /// (1.5 ms at 60 fps, 2 ms at 30 fps); B0 cells use what the tile uploads left.</summary>
+        /// <summary>
+        /// One frame: stream around <paramref name="focus"/>. The upload budget follows the frame rate target (1.5 ms at
+        /// 60 fps, 2 ms at 30 fps). Tiles and B0 cells share the scheduler's per-frame byte cap (<see cref="B0UploadShare"/>):
+        /// B0 chunks (about half a megabyte) take what the tile uploads left, and go first (up to half the cap) when a
+        /// build the band needs now is waiting (a house riding brings in) or when they found no room for
+        /// <see cref="B0UploadShare.StarvedTicks"/> frames in a row, so neither starves and a tile streaming in never
+        /// makes a house late.
+        /// </summary>
         public void Tick(WorldPos focus)
         {
             if (_disposed) return;
+            _focusX = focus.X;
+            _focusZ = focus.Z;
+            _hasFocus = true;
             double budget = Application.targetFrameRate >= 50 ? 1.5 : 2.0;
             _scheduler.UploadBudgetMs = budget;
+            long cap = _uploadCapBytes, b0 = 0;
+            bool b0Waiting = _cells.NextUploadBytes > 0;
+            double start = NowMs();
+            long first = _b0Share.First(cap, b0Waiting, b0Waiting && _cells.UrgentUploadWaiting);
+            if (first > 0) b0 = _cells.Upload(first, true);
+            double b0Ms = NowMs() - start;
+            _scheduler.UploadBudgetBytes = Math.Max(1, cap - b0);
+            _scheduler.UploadBudgetMs = Math.Max(0.1, budget - b0Ms);
+            _tickUploadBytes = 0;
             _scheduler.Tick(focus.X, focus.Z);
             StreamingStats st = _scheduler.Stats;
-            double left = budget - st.UploadMs;
-            _cells.UploadReady(left > 0.5 || st.PendingUploads == 0, NowMs());
+            long after = _b0Share.After(cap, b0 + _tickUploadBytes, b0Waiting, first > 0, budget - b0Ms - st.UploadMs);
+            if (after > 0) b0 += _cells.Upload(after, false);
+            _b0Share.EndFrame(b0Waiting, b0);
+            _scheduler.UploadBudgetBytes = cap;
         }
+
+        /// <summary>How tiles and B0 cells share the frame's upload cap.</summary>
+        private readonly B0UploadShare _b0Share = new B0UploadShare();
+
+        /// <summary>Where the building bands are measured from (the player while the camera chases it; owner playtest #4).</summary>
+        private readonly BandAnchor _bandAnchor = new BandAnchor();
+
+        private double _focusX, _focusZ;
+        private bool _hasFocus;
+
+        private readonly long _uploadCapBytes;
+        private long _tickUploadBytes;
 
         /// <summary>Re-place every view for a new floating origin (exact: computed from the doubles each time).</summary>
         public void Rebase(WorldPos origin)
@@ -147,21 +181,27 @@ namespace Ghumante.World.Streaming
         }
 
         /// <summary>
-        /// Per-frame view work: band switching around the camera (scene position), B0 cells, hero LODs, colliders and
-        /// counters. <paramref name="verticalFovDeg"/> is the camera's vertical field of view (hero screen heights).
+        /// Per-frame view work: band switching around the band centre (<see cref="BandAnchor"/>: the streaming focus of the
+        /// last <see cref="Tick"/>, the player, while the camera chases it, so a swaying or swinging chase camera never
+        /// sweeps a band edge across the houses; the camera otherwise), B0 cells, hero LODs, colliders and counters.
+        /// <paramref name="cameraScene"/> is the camera's scene position; <paramref name="verticalFovDeg"/> its vertical
+        /// field of view (hero screen heights).
         /// </summary>
         public void UpdateView(Vector3 cameraScene, float verticalFovDeg, float nowS)
         {
             if (_disposed) return;
-            Shader.SetGlobalVector(WorldShaders.BandCentre, new Vector4(cameraScene.x, cameraScene.y, cameraScene.z, 0f));
             double camX = _origin.X + cameraScene.x, camZ = _origin.Z + cameraScene.z;
             float camY = _origin.Y + cameraScene.y;
+            _bandAnchor.Follow(camX, camZ, _focusX, _focusZ, _hasFocus);
+            double bandX = _bandAnchor.X, bandZ = _bandAnchor.Z;
+            // The shader's band centre and the bands' switching below use the same point (the shader reads only x and z).
+            Shader.SetGlobalVector(WorldShaders.BandCentre, new Vector4((float)(bandX - _origin.X), cameraScene.y, (float)(bandZ - _origin.Z), 0f));
             _stats = default(RenderStats); // the instanced renderers and life presenters add theirs after this call
 
-            _cells.Update(_detailViews, camX, camZ, NowMs());
+            _cells.Update(_detailViews, bandX, bandZ, NowMs());
             for (int v = 0; v < _detailViews.Count; v++)
             {
-                UpdateBands(_detailViews[v], camX, camZ);
+                UpdateBands(_detailViews[v], bandX, bandZ);
                 UpdatePieces(_detailViews[v], camX, camZ);
             }
             UpdateHeroes(camX, camY, camZ, verticalFovDeg, nowS);
@@ -318,12 +358,11 @@ namespace Ghumante.World.Streaming
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Structure colliders, registered while the tile is visible: two sets per tile in the ground query. The heroes and
-        // the shown B0 cells (small, rebuilt whenever a B0 cell shows or hides) under the tile key, and the static
+        // Structure colliders, registered while the tile is visible: the heroes under the tile key and the static
         // dressing (ornaments, generated trunks, poles, parked vehicles: hundreds to a few thousand colliders) under
-        // tileKey | TileGroundQuery.StaticSetKeyBit, built once when the tile becomes visible and dropped when it hides.
-
-        private readonly StructureColliders _merged = new StructureColliders();
+        // tileKey | TileGroundQuery.StaticSetKeyBit, each built once when the tile becomes visible and dropped when it
+        // hides. The B0 cells register their own small sets, one per shown cell (B0CellSet), so a cell showing or hiding
+        // never rebuilds these.
 
         private void RegisterColliders(TileView view)
         {
@@ -338,18 +377,15 @@ namespace Ghumante.World.Streaming
                 return;
             }
             RegisterStatic(view);
-            _merged.Clear();
-            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers and parapets).
+            // Every kind (boxes, ramps, and the cylinders and walls of statues, piers and parapets); the ground copies them.
             StructureColliders heroes = view.Extras != null ? view.Extras.HeroColliders : null;
-            if (heroes != null) _merged.AddAll(heroes);
-            _cells.AppendColliders(view, _merged);
-            if (_merged.Count == 0)
+            if (heroes == null || heroes.Count == 0)
             {
                 if (view.CollidersRegistered) _ground.Unregister(key);
                 view.CollidersRegistered = false;
                 return;
             }
-            _ground.Register(key, _merged);
+            _ground.Register(key, heroes);
             view.CollidersRegistered = true;
         }
 
@@ -383,6 +419,7 @@ namespace Ghumante.World.Streaming
             }
             UploadChunk c = build.Chunks[chunk];
             view.AddChunk(c, MeshUpload.Create(build, chunk), MaterialFor(c.Layer));
+            _tickUploadBytes += build.ChunkBytes(chunk); // the B0 cells take what is left of the frame's cap
         }
 
         private Material MaterialFor(int layer)
@@ -408,6 +445,7 @@ namespace Ghumante.World.Streaming
             TileView view;
             if (!_views.TryGetValue(build.Node, out view)) return;
             view.Stage(build.Chunks[chunk], MeshUpload.Create(build, chunk));
+            _tickUploadBytes += build.ChunkBytes(chunk);
         }
 
         public void CommitRefresh(SelectedNode node, int layerMask)
