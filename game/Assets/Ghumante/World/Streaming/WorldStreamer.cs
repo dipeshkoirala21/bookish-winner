@@ -162,7 +162,8 @@ namespace Ghumante.World.Streaming
             _tickUploadBytes = 0;
             _scheduler.Tick(focus.X, focus.Z);
             StreamingStats st = _scheduler.Stats;
-            long after = _b0Share.After(cap, b0 + _tickUploadBytes, b0Waiting, first > 0, budget - b0Ms - st.UploadMs);
+            // TickMs, not UploadMs: the scheduler's time budget covers its whole tick (selection and rebuilds too).
+            long after = _b0Share.After(cap, b0 + _tickUploadBytes, b0Waiting, first > 0, budget - b0Ms - st.TickMs);
             if (after > 0) b0 += _cells.Upload(after, false);
             _b0Share.EndFrame(b0Waiting, b0);
             _scheduler.UploadBudgetBytes = cap;
