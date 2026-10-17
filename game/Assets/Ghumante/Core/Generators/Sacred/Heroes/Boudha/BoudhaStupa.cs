@@ -35,18 +35,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public const double NeckTop = 37.1, DrumTop = 38.7, CanopyTop = 40.6, Tip = 44.8;
         public const int Steps = 13, Arcs = 12, Niches = 108;
 
-        // ---- Terrace plans in the site frame (m from the stupa axis; OSM outlines turned onto the 9° axes).
-        // T1: body u ±32.9, v −36.1..29.8; N/S arms ±20.7 to +38.8 / −40.8; E/W arms v −23.4..17.4 to +40.6 / −41.0.
-        // T2: body ±25.6 × −25.8..25.9; arms ±15.3 / ±15.0 to ±31.3. T3: body ±20.65 × −20.8..20.7; arms ±11.2 to ±24.85.
+        // ---- Terrace plans in the site frame (m from the stupa axis; the OSM outlines turned onto the 9° axes, every
+        // vertex within 0.5 m). T1 (w56688295): body u −32.7..33.1, v −36.1..29.9; N/S arms u −20.9..20.5 to v +38.75 /
+        // −40.7; E/W arms v −23.4..17.4 to u +40.65 / −40.45. T2 (w235084185): body ±25.75; arms 31 m wide to ±31.0-31.45.
+        // T3 (w421288398): body ±20.6; arms 22.5 m wide to ±24.1-25.0 (the north arm's stair between two cheeks).
 
         /// <summary>The outline of terrace <paramref name="i"/> (0 = T1) into (pu, pv), counter-clockwise; returns 20.</summary>
         public static int Terrace(int i, double[] pu, double[] pv)
         {
             switch (i)
             {
-                case 0: return BoudhaKit.CrossSquare(-32.9, 32.9, -36.1, 29.8, -0.2, 20.7, 38.8, -40.8, -3.0, 20.4, 40.6, -41.0, pu, pv);
-                case 1: return BoudhaKit.CrossSquare(-25.6, 25.6, -25.8, 25.9, -0.3, 15.3, 31.2, -30.8, 0.1, 15.0, 31.2, -31.6, pu, pv);
-                default: return BoudhaKit.CrossSquare(-20.65, 20.65, -20.8, 20.7, -0.5, 11.2, 24.2, -24.8, 0.6, 11.2, 24.7, -25.0, pu, pv);
+                case 0: return BoudhaKit.CrossSquare(-32.7, 33.1, -36.1, 29.9, -0.2, 20.7, 38.75, -40.7, -3.0, 20.4, 40.65, -40.45, pu, pv);
+                case 1: return BoudhaKit.CrossSquare(-25.7, 25.8, -25.7, 25.8, -0.35, 15.5, 31.0, -30.85, -0.1, 15.25, 31.1, -31.45, pu, pv);
+                default: return BoudhaKit.CrossSquare(-20.55, 20.6, -20.6, 20.6, -1.0, 11.25, 24.1, -24.75, 0.2, 11.25, 24.8, -25.0, pu, pv);
             }
         }
 
@@ -63,16 +64,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             switch (i)
             {
                 case 0:
-                    end = q == 0 ? 38.8 : q == 1 ? 40.6 : q == 2 ? 40.8 : 41.0;
+                    end = q == 0 ? 38.75 : q == 1 ? 40.65 : q == 2 ? 40.7 : 40.45;
                     centre = q == 0 || q == 2 ? -0.2 : -3.0;
                     return;
                 case 1:
-                    end = q == 0 ? 31.2 : q == 1 ? 31.2 : q == 2 ? 30.8 : 31.6;
-                    centre = q == 0 || q == 2 ? -0.3 : 0.1;
+                    end = q == 0 ? 31.0 : q == 1 ? 31.1 : q == 2 ? 30.85 : 31.45;
+                    centre = q == 0 || q == 2 ? -0.35 : -0.1;
                     return;
                 default:
-                    end = q == 0 ? 24.2 : q == 1 ? 24.7 : q == 2 ? 24.8 : 25.0;
-                    centre = q == 0 || q == 2 ? -0.5 : 0.6;
+                    end = q == 0 ? 24.1 : q == 1 ? 24.8 : q == 2 ? 24.75 : 25.0;
+                    centre = q == 0 || q == 2 ? -1.0 : 0.2;
                     return;
             }
         }
@@ -330,8 +331,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private static void Dome(MeshData m, in Affine3 k, int lod)
         {
             int seg = lod == 0 ? 96 : lod == 1 ? 48 : 24, rows = lod == 0 ? 24 : lod == 1 ? 12 : 6;
-            double h = DomeApex - RingTop;
-            ShapeBrush w = BoudhaKit.B(BoudhaKit.DomeWhite, MaterialChannel.Plaster);
             // The dome as a grid so the yellow wash can follow the scallop line vertex by vertex.
             int first = m.VertexCount;
             for (int r = 0; r <= rows; r++)

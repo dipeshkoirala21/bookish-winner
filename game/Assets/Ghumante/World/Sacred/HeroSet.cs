@@ -84,6 +84,15 @@ namespace Ghumante.World.Sacred
                     ulong h = HeritageRecord.WayRelationRef(r.Hide[i]);
                     if (h != 0) _hidden.Add(h);
                 }
+            // A bespoke heritage site (Core/Generators/Sacred/Heroes/<Site>/) rebuilds more buildings than its curated
+            // record hides (Boudhanath: the front row of houses round the kora); its catalogue recipe lists them.
+            HeroRecipe recipe;
+            if (HeroCatalog.TryGet(r.Id, out recipe) && recipe.Hide != null)
+                for (int i = 0; i < recipe.Hide.Length; i++)
+                {
+                    ulong h = HeritageRecord.WayRelationRef(recipe.Hide[i]);
+                    if (h != 0) _hidden.Add(h);
+                }
         }
 
         /// <summary>The level-10 tile key a hero is built in.</summary>

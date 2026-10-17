@@ -63,9 +63,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>The site axes: faces and stairs at 9°, 99°, 189° and 279° (all three terraces in OSM: −9.0 to −9.1°).</summary>
         public const double AxisBearingDeg = 9.0;
 
-        /// <summary>The stupa axis (the centre of T2 and T3) from the T1 centroid along the site axes (m): T1's body
-        /// reaches 3 m further south than north (OSM).</summary>
-        public const double AxisOffsetU = 0.0, AxisOffsetV = 0.8;
+        /// <summary>The stupa axis (the centre of the T2 and T3 bodies, OSM w235084185 and w421288398) from the T1 centroid
+        /// along the site axes (m): T1's north arm sticks out 8.8 m and its south arm 4.7 m, so its centroid lies 1.85 m
+        /// south of the axis.</summary>
+        public const double AxisOffsetU = -0.17, AxisOffsetV = 1.85;
 
         /// <summary>The centroid of the lowest terrace (OSM w56688295) when the tile has no footprint.</summary>
         public const double Lat = 27.721445, Lon = 85.362004;
@@ -75,7 +76,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>The plaza is flat out to this radius from the T1 centroid (m), and blends back into the terrain by
         /// <see cref="PlazaBlendM"/> (boudha.md 2.3: flatten r ≤ 75 m and the south lane).</summary>
-        public const double PlazaRadiusM = 80.0, PlazaBlendM = 16.0;
+        public const double PlazaRadiusM = 86.0, PlazaBlendM = 16.0;
 
         /// <summary>LOD triangle ceilings of the whole site (W2 monuments round: about 150 k per site at LOD0 on High,
         /// LOD1 about 30 %, LOD2 about 8 %).</summary>

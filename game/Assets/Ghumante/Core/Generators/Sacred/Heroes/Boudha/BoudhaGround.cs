@@ -9,14 +9,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     /// and the ring of houses: it rises 5-8 m under the stupa and wanders 3 m round the kora, where the real plaza is one
     /// flat paved level. <see cref="KoraLevel"/> is that level (the 10th percentile of the terrain on the kora ring,
     /// r 50-60 m, so it also holds after flattening); <see cref="Apply"/> flattens a decoded tile's height grid to it
-    /// within <see cref="BoudhaSite.PlazaRadiusM"/> of the T1 centroid and blends back to the original terrain over
-    /// <see cref="BoudhaSite.PlazaBlendM"/>, so the terrain mesh, the sampler, the ground query and every placer agree
-    /// on one flat plaza. Idempotent. The streamer has to call it on a decoded tile before meshing (open issue for the
-    /// integration package: one line in TileBuild.Execute next to StructureFallback.Apply).
+    /// within <see cref="BoudhaSite.PlazaRadiusM"/> of the T1 centroid and clamps the terrain beyond to a 1:4 cone of
+    /// slopes back to the original over <see cref="BoudhaSite.PlazaBlendM"/>, so the terrain mesh, the sampler, the
+    /// ground query and every placer agree on one flat plaza. Idempotent. The streamer calls it on every decoded tile
+    /// before meshing (<see cref="HeroBuilder.PrepareGround"/> in TileBuild.Execute).
     /// </summary>
     public static class BoudhaGround
     {
         [ThreadStatic] private static float[] _samples;
+
+        /// <summary>The steepest slope (rise over run) between the plaza level and the original terrain beyond it.</summary>
+        public const double BlendSlope = 0.25;
 
         /// <summary>Inner and outer radius of the kora ring the level is read from (m from the T1 centroid).</summary>
         public const double RingInnerM = 50.0, RingOuterM = 60.0;
@@ -106,10 +109,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     }
                     else
                     {
-                        double s = (r - r0) / (r1 - r0);
-                        s = s * s * (3 - 2 * s);
-                        double h = Ght.Dequantize(q);
-                        nq = Ght.Quantize(Ght.Dequantize(lq) + (h - Ght.Dequantize(lq)) * s);
+                        // A cone of slopes (1:4) round the plaza: the terrain is clamped to within (r − r0) / 4 of the level,
+                        // so a second pass changes nothing.
+                        double band = (r - r0) * BlendSlope, h = Ght.Dequantize(q), l = Ght.Dequantize(lq);
+                        nq = Ght.Quantize(Math.Max(l - band, Math.Min(l + band, h)));
                     }
                     if (nq == q) continue;
                     t.HeightsQ[k] = nq;

@@ -639,6 +639,8 @@ namespace Ghumante.World.Streaming
             bool detail = n.DrawsDetail && src.HasDetail;
             // Before anything reads the tile's roads: one set of deck heights for roads, bridges, ground and traffic.
             if (detail && settings.DeriveStructures) StructureFallback.Apply(src);
+            // The bespoke heritage sites' ground (Boudhanath's flat plaza) before the terrain and anything on it is meshed.
+            HeroBuilder.PrepareGround(src);
 
             if (Wants(only, TileLayers.Terrain))
             {
