@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Bridges;
@@ -316,7 +317,7 @@ namespace Ghumante.Core.Driving
             {
                 Area = area, Source = sampler.SourceTile, Sampler = sampler, Roads = roads,
                 CountsRoads = roads != null && roads.SegmentCount > 0,
-                Paving = exact ? PavingIndex.Build(sampler.SourceTile) : null,
+                Paving = exact ? PreparedPaving.GetValue(sampler.SourceTile, BuildPaving) : null,
             };
             if (exact)
             {
@@ -766,6 +767,72 @@ namespace Ghumante.Core.Driving
             if (i < 0) return;
             _structureKeys.RemoveAt(i);
             _structures.RemoveAt(i);
+        }
+
+        // Paved-area indexes per decoded tile, built by PreparePaving on the tile build's worker (perf pass, perf-roads:
+        // every exact level-10 area, the terrain-only ones of the near ring included, indexed its tile's squares and
+        // courtyards on the main thread in the frame it joined the query, up to 0.12 ms of a desktop per tile, about half a
+        // millisecond on a Low phone). Keyed weakly by the tile, so an evicted tile takes its index with it; Add builds one
+        // itself when none was prepared. Thread-safe.
+        private static readonly ConditionalWeakTable<TileData, PavingIndex> PreparedPaving = new ConditionalWeakTable<TileData, PavingIndex>();
+        private static readonly ConditionalWeakTable<TileData, PavingIndex>.CreateValueCallback BuildPaving = PavingIndex.Build;
+
+        /// <summary>Indexes the paved areas of <paramref name="tile"/> (squares, courtyards, car parks) for a later
+        /// <see cref="Add(TileId, TileHeightSampler, RoadSpatialIndex)"/> of its exact area, which then only looks the index
+        /// up. Reads only the tile, so a worker may call it while the main thread uses the query; calling it again for the
+        /// same tile does nothing.</summary>
+        public static void PreparePaving(TileData tile)
+        {
+            if (tile == null) throw new ArgumentNullException(nameof(tile));
+            PreparedPaving.GetValue(tile, BuildPaving);
+        }
+
+        /// <summary>
+        /// A tile's collider set indexed ahead of time (<see cref="PrepareColliders"/>, safe on a worker thread), so that
+        /// registering it (<see cref="Register(PreparedColliders)"/>) on the main thread only links it in. Perf pass
+        /// (perf-roads): indexing a dense tile's static dressing (thousands of trunks, poles and parked vehicles) took 2 to
+        /// 3 ms on the main thread of a desktop each time a detail tile showed.
+        /// </summary>
+        public sealed class PreparedColliders
+        {
+            internal readonly StructureSet Set;
+
+            /// <summary>The key it registers under (a tile key, optionally with <see cref="StaticSetKeyBit"/>).</summary>
+            public readonly ulong TileKey;
+
+            internal PreparedColliders(ulong tileKey, StructureSet set)
+            {
+                TileKey = tileKey;
+                Set = set;
+            }
+        }
+
+        /// <summary>The work of <see cref="Register(ulong, StructureColliders)"/> without touching the query: indexes
+        /// <paramref name="c"/> (tile-local, copied) for <paramref name="tileKey"/>. Reads only <paramref name="c"/>, so
+        /// a worker may call it while the main thread uses the query.</summary>
+        public static PreparedColliders PrepareColliders(ulong tileKey, StructureColliders c)
+        {
+            if (c == null) throw new ArgumentNullException(nameof(c));
+            return new PreparedColliders(tileKey, new StructureSet(tileKey & ~StaticSetKeyBit, c, BodyRadiusM + StructureColliders.SoftMarginM));
+        }
+
+        /// <summary>Adds (or replaces) a prepared set under its <see cref="PreparedColliders.TileKey"/>, as
+        /// <see cref="Register(ulong, StructureColliders)"/> does with an unprepared one.</summary>
+        public void Register(PreparedColliders prepared)
+        {
+            if (prepared == null) throw new ArgumentNullException(nameof(prepared));
+            ulong tileKey = prepared.TileKey;
+            StructureSet set = prepared.Set;
+            AddSolids(tileKey | StructureKeyBit, set.Solids.Count > 0 ? set.Solids : null);
+            int i = _structureKeys.BinarySearch(tileKey);
+            if (i >= 0)
+            {
+                _structures[i] = set;
+                return;
+            }
+            i = ~i;
+            _structureKeys.Insert(i, tileKey);
+            _structures.Insert(i, set);
         }
 
         /// <summary>Number of registered structure collider sets (a tile may hold two: its own key and

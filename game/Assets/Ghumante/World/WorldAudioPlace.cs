@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Ghumante.Audio;
 using Ghumante.Core.Aviation;
 using Ghumante.Core.Data;
@@ -14,6 +18,8 @@ namespace Ghumante.World
     /// times a second at the streaming focus (Ring Road / arterial roar, the TIA aerodrome + 3 km, parks, rivers and
     /// the galli width for the slapback snapshot), and answers the director's occlusion rays against the building
     /// footprints (the procedural world has no physics colliders). Main thread only; owned by <see cref="WorldRoot"/>.
+    /// Perf pass (perf-roads): a shown tile is indexed on a worker thread (<see cref="PlaceAudioIndex.Prepare"/>, 1 to 2
+    /// ms per dense tile on a desktop) and joins the index on the main thread at the next query.
     /// </summary>
     internal sealed class WorldAudioPlace : IOcclusionQuery
     {
@@ -27,6 +33,13 @@ namespace Ghumante.World
         private readonly WorldRoot _world;
         private float _accum = UpdateS;
 
+        // Tiles asked for (ticket per tile; a newer ask or a removal makes older worker results stale) and the worker
+        // results waiting for the main thread.
+        private readonly Dictionary<TileId, int> _wanted = new Dictionary<TileId, int>();
+        private readonly ConcurrentQueue<KeyValuePair<int, PlaceAudioIndex.PreparedTile>> _ready =
+            new ConcurrentQueue<KeyValuePair<int, PlaceAudioIndex.PreparedTile>>();
+        private int _ticket;
+
         public WorldAudioPlace(WorldRoot world)
         {
             _world = world;
@@ -34,22 +47,54 @@ namespace Ghumante.World
 
         public PlaceAudioIndex Index
         {
-            get { return _index; }
+            get
+            {
+                Join();
+                return _index;
+            }
         }
 
+        /// <summary>A detail tile showed: indexed on a worker, it joins at the next query.</summary>
         public void AddTile(TileId id, TileData t)
         {
-            _index.AddTile(id, t);
+            if (t == null) return;
+            int ticket = ++_ticket;
+            _wanted[id] = ticket;
+            ConcurrentQueue<KeyValuePair<int, PlaceAudioIndex.PreparedTile>> ready = _ready;
+            Task.Run(() =>
+            {
+                try
+                {
+                    ready.Enqueue(new KeyValuePair<int, PlaceAudioIndex.PreparedTile>(ticket, PlaceAudioIndex.Prepare(id, t)));
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning("WorldAudioPlace: tile " + id + " not indexed: " + e.Message);
+                }
+            });
         }
 
         public void RemoveTile(TileId id)
         {
+            _wanted.Remove(id);
             _index.RemoveTile(id);
         }
 
         public void Clear()
         {
+            _wanted.Clear();
             _index.Clear();
+        }
+
+        /// <summary>Main thread: the prepared tiles still wanted join the index (stale ones are dropped).</summary>
+        private void Join()
+        {
+            KeyValuePair<int, PlaceAudioIndex.PreparedTile> r;
+            while (_ready.TryDequeue(out r))
+            {
+                int ticket;
+                if (_wanted.TryGetValue(r.Value.Id, out ticket) && ticket == r.Key) _index.AddTile(r.Value);
+            }
         }
 
         /// <summary>Recomputes the place overlays at <paramref name="at"/> every <see cref="UpdateS"/>.</summary>
@@ -58,6 +103,7 @@ namespace Ghumante.World
             _accum += dt;
             if (_accum < UpdateS) return;
             _accum = 0f;
+            Join();
             PlaceSample p = _index.Sample(at.X, at.Z);
             float airport = 0f;
             if (aviation != null)
@@ -73,6 +119,7 @@ namespace Ghumante.World
         /// <summary>Scene positions to game metres, then the footprint test.</summary>
         public bool Occluded(Vector3 listener, Vector3 source)
         {
+            Join();
             WorldPos o = _world.Origin;
             return _index.Occluded(o.X + listener.x, o.Y + listener.y, o.Z + listener.z, o.X + source.x, o.Y + source.y, o.Z + source.z);
         }

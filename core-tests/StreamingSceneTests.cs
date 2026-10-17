@@ -103,6 +103,34 @@ namespace Ghumante.Core.Tests
             return m;
         }
 
+        /// <summary>The road layer as the streamer shows it for a camera at tile-local (x, z) (<see cref="RoadBlocks"/>): the
+        /// full kit of the blocks within the B1 radius, the cheap far copy of the others out to the tier's far radius.</summary>
+        public static MeshData Roads(TileBuild b, int tier, double camX, double camZ)
+        {
+            float nearM, farM;
+            RoadBlocks.Radii(World.Buildings.BandConfig.ForTier(tier), StreamingConfig.ForTier(tier), out nearM, out farM);
+            return Layer(b, TileLayers.Roads, p =>
+            {
+                double d = BlockDistance(b, p, camX, camZ);
+                return RoadBlocks.IsFar(p) ? d > nearM && d <= farM : d <= nearM;
+            });
+        }
+
+        /// <summary>The road markings as the streamer shows them (the blocks within the B1 radius).</summary>
+        public static MeshData Decals(TileBuild b, int tier, double camX, double camZ)
+        {
+            float nearM, farM;
+            RoadBlocks.Radii(World.Buildings.BandConfig.ForTier(tier), StreamingConfig.ForTier(tier), out nearM, out farM);
+            return Layer(b, TileLayers.RoadDecals, p => BlockDistance(b, p, camX, camZ) <= nearM);
+        }
+
+        private static double BlockDistance(TileBuild b, int part, double camX, double camZ)
+        {
+            double x0, z0, x1, z1;
+            RoadBlocks.Square(RoadBlocks.BlockOfPart(part), b.Node.Area.Size, out x0, out z0, out x1, out z1);
+            return World.Buildings.BandConfig.NearestDistance(x0, z0, x1, z1, camX, camZ);
+        }
+
         /// <summary>The bridge and ornament pieces as the streamer shows them for a camera at tile-local (x, z).</summary>
         public static MeshData Pieces(TileBuild b, int layer, int tier, double camX, double camZ)
         {
@@ -1213,8 +1241,8 @@ namespace Ghumante.Core.Tests
                 files.Add(layer + ".obj");
             }
             Put("terrain", StreamingScene.Layer(b, TileLayers.Terrain));
-            Put("roads", StreamingScene.Layer(b, TileLayers.Roads));
-            Put("decals", StreamingScene.Layer(b, TileLayers.RoadDecals));
+            Put("roads", StreamingScene.Roads(b, tier, ex, ez));
+            Put("decals", StreamingScene.Decals(b, tier, ex, ez));
             Put("areas", StreamingScene.Layer(b, TileLayers.Areas));
             Put("bridges", StreamingScene.Pieces(b, TileLayers.Bridges, tier, ex, ez));
             Put("ornaments", StreamingScene.Pieces(b, TileLayers.Ornaments, tier, ex, ez));

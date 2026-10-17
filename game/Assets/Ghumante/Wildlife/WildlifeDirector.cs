@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Generators.Fauna;
@@ -30,7 +32,8 @@ namespace Ghumante.Wildlife
     /// sitting on the ground (to 70 m), so a square's whole flock is always there; the triangles stay within the
     /// animals-and-birds slice after <see cref="AnimalPresenter"/>'s share. The ground herds are handed to
     /// <see cref="AnimalPresenter"/>, which draws them with the street cows and dogs. Wing bursts, coos, caws, kite
-    /// whistles and dawn roosters go through the world's sound service. Main thread.
+    /// whistles and dawn roosters go through the world's sound service. Main thread, apart from the fauna ground of a
+    /// newly shown tile, which is indexed on a worker thread and joins the habitat once it is ready.
     /// </summary>
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(50)]
@@ -60,26 +63,59 @@ namespace Ghumante.Wildlife
             public bool Seen;
         }
 
+        /// <summary>
+        /// The fauna ground of one shown source tile: its own <see cref="FaunaGroundIndex"/>, built on a worker thread
+        /// (indexing a dense tile's buildings, areas and roads takes 2 to 3 ms and allocates 1 to 2 MB, too much for the
+        /// main thread when a tile shows) and read on the main thread once <see cref="Index"/> is set.
+        /// </summary>
+        private sealed class GroundTile
+        {
+            public ulong Source;
+            public double X0, Z0, Size;
+            public TileData Tile;
+            public FaunaGroundIndex Index;
+            public string Error;
+        }
+
         private sealed class Habitat : IFaunaHabitat
         {
             public AreaTypeGrid Grid;
-            public FaunaGroundIndex Index;
+            public List<GroundTile> Ground;
 
             public AreaType AreaAt(double x, double z)
             {
                 return Grid != null ? Grid.At(x, z) : AreaType.Unknown;
             }
 
+            /// <summary>As <see cref="FaunaGroundIndex.At"/> over every indexed tile: the hero monuments count as buildings,
+            /// and the finest tile containing the point answers.</summary>
             public FaunaGround GroundAt(double x, double z)
             {
-                return Index != null ? Index.At(x, z) : FaunaGround.None;
+                GroundTile best = null;
+                if (Ground != null)
+                {
+                    for (int i = 0; i < Ground.Count; i++)
+                    {
+                        GroundTile g = Ground[i];
+                        if (x < g.X0 || z < g.Z0 || x >= g.X0 + g.Size || z >= g.Z0 + g.Size) continue;
+                        if (best == null || g.Size < best.Size) best = g;
+                    }
+                }
+                if (best != null) return best.Index.At(x, z);
+                return FaunaHeroZones.Inside(x, z, 0.5) ? FaunaGround.Building : FaunaGround.None;
             }
         }
 
         private WorldRoot _world;
         private AmbientFaunaPlanner _planner;
         private readonly Habitat _habitat = new Habitat();
-        private readonly FaunaGroundIndex _ground = new FaunaGroundIndex();
+        private Func<TileData, IRoadCorridorQuery> _corridors;
+
+        // Fauna ground per shown source tile: every tile asked for (indexed or still on its worker), the indexed ones the
+        // habitat reads, and the worker results waiting for the main thread.
+        private readonly Dictionary<ulong, GroundTile> _groundWanted = new Dictionary<ulong, GroundTile>();
+        private readonly List<GroundTile> _ground = new List<GroundTile>();
+        private readonly ConcurrentQueue<GroundTile> _groundDone = new ConcurrentQueue<GroundTile>();
         private readonly Dictionary<ulong, ulong> _shownSource = new Dictionary<ulong, ulong>();
         private readonly Dictionary<ulong, int> _sourceRefs = new Dictionary<ulong, int>();
         private readonly AmbientGroup[] _planned = new AmbientGroup[96];
@@ -117,10 +153,17 @@ namespace Ghumante.Wildlife
         /// <summary>Triangles of the birds drawn last frame.</summary>
         public int BirdTris { get; private set; }
 
-        /// <summary>The ground the fauna is placed on (detail tiles near the player).</summary>
-        public FaunaGroundIndex Ground
+        /// <summary>The ground the fauna is placed on at game point (x, z) (the indexed detail tiles near the player;
+        /// <see cref="FaunaGround.None"/> where none is indexed yet).</summary>
+        public FaunaGround GroundAt(double x, double z)
         {
-            get { return _ground; }
+            return _habitat.GroundAt(x, z);
+        }
+
+        /// <summary>Detail tiles whose fauna ground is indexed (the others are still on their worker).</summary>
+        public int GroundTiles
+        {
+            get { return _ground.Count; }
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -152,10 +195,11 @@ namespace Ghumante.Wildlife
             _active.Clear();
             Herds.Clear();
             _ground.Clear();
-            _ground.CorridorFactory = CorridorFactory ?? world.RoadCorridors; // the world's: the same corridors the roads draw
+            _groundWanted.Clear(); // results of earlier workers no longer match and are dropped
+            _corridors = CorridorFactory ?? world.RoadCorridors; // the world's: the same corridors the roads draw
             _shownSource.Clear();
             _sourceRefs.Clear();
-            _habitat.Index = _ground;
+            _habitat.Ground = _ground;
             if (_library != null) _library.Dispose();
             _library = world.Materials != null ? new FaunaLibrary(world.Materials.instancedTint) : null;
             _planTimer = 0f;
@@ -177,13 +221,45 @@ namespace Ghumante.Wildlife
             _sourceRefs.TryGetValue(src, out refs);
             _sourceRefs[src] = refs + 1;
             if (refs > 0) return;
+            // Indexed on a worker; the habitat reads it from the frame the result is collected (CollectGround).
+            var g = new GroundTile { Source = src, X0 = e.Source.Tile.X0, Z0 = e.Source.Tile.Z0, Size = e.Source.Tile.Size, Tile = e.Source };
+            _groundWanted[src] = g;
+            Func<TileData, IRoadCorridorQuery> corridors = _corridors;
+            ConcurrentQueue<GroundTile> done = _groundDone;
+            Task.Run(() => BuildGround(g, corridors, done));
+        }
+
+        /// <summary>Worker: index one tile's fauna ground into its own index (the tile data is read-only by now).</summary>
+        private static void BuildGround(GroundTile g, Func<TileData, IRoadCorridorQuery> corridors, ConcurrentQueue<GroundTile> done)
+        {
             try
             {
-                _ground.Add(e.Source);
+                var index = new FaunaGroundIndex { CorridorFactory = corridors };
+                index.Add(g.Tile);
+                g.Index = index;
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("WildlifeDirector: fauna ground of " + id + " failed: " + ex.Message);
+                g.Error = ex.Message;
+            }
+            g.Tile = null;
+            done.Enqueue(g);
+        }
+
+        /// <summary>Main thread: take the finished worker indexes that are still wanted.</summary>
+        private void CollectGround()
+        {
+            GroundTile g;
+            while (_groundDone.TryDequeue(out g))
+            {
+                GroundTile wanted;
+                if (!_groundWanted.TryGetValue(g.Source, out wanted) || !ReferenceEquals(wanted, g)) continue; // hidden meanwhile
+                if (g.Index == null)
+                {
+                    Debug.LogWarning("WildlifeDirector: fauna ground of tile " + g.Source + " failed: " + g.Error);
+                    continue;
+                }
+                _ground.Add(g);
             }
         }
 
@@ -200,7 +276,12 @@ namespace Ghumante.Wildlife
                 return;
             }
             _sourceRefs.Remove(src);
-            _ground.Remove(src);
+            GroundTile g;
+            if (_groundWanted.TryGetValue(src, out g))
+            {
+                _groundWanted.Remove(src);
+                _ground.Remove(g);
+            }
         }
 
         /// <summary>Bird caps (full within 8 m, light within 25 m) for the device tier (<see cref="FaunaLod.BirdCaps"/>).</summary>
@@ -217,6 +298,7 @@ namespace Ghumante.Wildlife
 
         private void Update()
         {
+            CollectGround();
             if (_world == null || !_world.IsOpen || _planner == null) return;
             float dt = Mathf.Min(Time.deltaTime, 0.1f);
             WorldPos focus = _world.Focus;
