@@ -121,6 +121,7 @@ namespace Ghumante.App.Explore
         /// and not offered, by parked id, until the vehicle goes home, whatever happens to their tiles meanwhile.</summary>
         private readonly HashSet<uint> _hiddenParked = new HashSet<uint>();
         private readonly ParkedSpot[] _parked = new ParkedSpot[48];
+        private readonly double[] _parkedD2 = new double[48];
         private int _parkedCount;
         private float _parkedTimer;
         private readonly StructureColliders _parkedSolids = new StructureColliders();
@@ -908,14 +909,26 @@ namespace Ghumante.App.Explore
                 TileId id = kv.Key;
                 if (x < id.X0 - FleetSearchM || x > id.X0 + id.Size + FleetSearchM || z < id.Z0 - FleetSearchM || z > id.Z0 + id.Size + FleetSearchM)
                     continue;
-                for (int i = 0; i < inst.Parked.Count && _parkedCount < _parked.Length; i++)
+                for (int i = 0; i < inst.Parked.Count; i++)
                 {
                     ParkedVehicle p = inst.Parked[i];
                     if (!p.CommunityFleet || _hiddenParked.Contains(p.Id)) continue;
                     double px = id.X0 + p.X, pz = id.Z0 + p.Z;
-                    double dx = px - x, dz = pz - z;
-                    if (dx * dx + dz * dz > FleetSearchM * FleetSearchM) continue;
-                    _parked[_parkedCount++] = new ParkedSpot
+                    double dx = px - x, dz = pz - z, d2 = dx * dx + dz * dz;
+                    if (d2 > FleetSearchM * FleetSearchM) continue;
+                    // Keep the nearest ones when more stand in reach than the buffer holds (a bus park beside a lane of
+                    // scooters): the vehicle beside the player is always offered.
+                    int slot = _parkedCount;
+                    if (slot == _parked.Length)
+                    {
+                        slot = 0;
+                        for (int k = 1; k < _parkedCount; k++)
+                            if (_parkedD2[k] > _parkedD2[slot]) slot = k;
+                        if (_parkedD2[slot] <= d2) continue;
+                    }
+                    else _parkedCount++;
+                    _parkedD2[slot] = d2;
+                    _parked[slot] = new ParkedSpot
                     {
                         X = px, Z = pz, Y = p.Y, YawDeg = p.YawDeg, Variant = p.Variant, Livery = p.Livery, Id = p.Id, Fleet = true,
                     };
