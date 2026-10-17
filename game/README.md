@@ -436,3 +436,55 @@ every other chase angle, the boom's cost (sphere sweeps a frame) and that the ol
 What to report: any moment the view moves while you drive straight at a steady speed, a turn where the camera lags
 too much or too little for that vehicle, a frame inside or behind a house, or a class whose framing hides the road
 ahead.
+
+## Playtest fixes #3, #6, #10 and #11 on a Mac: parked vehicles, traffic, sprint lock, driving what is parked
+
+The owner's first Unity playtest (`docs/W2_PLAYTEST_1.md`): #3 "way too many motorcycles or scooters parked in the
+roads, narrow streets ... Only some motorcycles will be parked in front of the houses in residential area ... in
+vertical position alongside the road and footpath ... On busy area ... 2-3 motorcycles driving"; #6 "absolutely no
+traffics on the road ... show few traffics on the roads that follow the lanes properly"; #10 "Add locking mechanism
+while user is sprinting"; #11 "Allow the user to grab and start riding the parked vehicles around". What the real
+streets look like, with photos and numbers: `docs/research/w2/ref_play.md`.
+
+Set up as above (pull, **Ghumante → Project Setup**, `Bootstrap.unity`, **Play**, **Explore**); use **/** and
+**Teleport**. Every step works on the committed `kathmandu_core` sample and at every graphics tier (**Settings →
+Graphics**).
+
+1. **Parked vehicles (#3).** Teleport to **Kalopul** and ride the lanes round it, then **Baluwatar**: a few scooters
+   and motorbikes stand nose-in in front of the houses, perpendicular to the road edge, rear wheel at the road; none
+   stands on the drawn carriageway, a lane narrower than 6 m keeps its whole width and at least 2.7 m is always clear
+   (about one bike per 30 m or more of residential kerb in the city, far fewer in the suburbs). Cars stand parallel at
+   the kerb now and then. Teleport to **Thamel Chowk**, **Asan** (the search finds *Ason market*) and **New Road
+   Gate**: no parked two-wheelers in the bazaars; instead two or three moving riders are always near you. Teleport to
+   **Maitighar Mandala** and look along the main roads (Maitighar to Baneshwor, Kantipath): no parked two-wheelers by
+   trunk, primary, secondary or tertiary roads. Walk up to a parked bike: every parked vehicle near you shows its full
+   model (always within 30 m, normally to 45 m; the block-out starts at 45 m and the box at 100 m), so no red box
+   stands across a lane in front of you.
+2. **Traffic on the left (#6).** Stand by the road at **Chabahil bus station** (Ring Road), **Maitighar Mandala** or
+   **Thamel Chowk** for a minute on Low, Mid and High: there is moving traffic round you all the time (on Low at least
+   four vehicles within 120 m on average, something within 60 m most of the time), every vehicle keeps to the left lane
+   of its direction, on its lane line, and the junction clusters at New Baneshwor no longer lock up (a police or signal
+   red still holds a queue for about a minute).
+3. **Sprint lock (#10).** On foot, double-tap **Shift** (gamepad: double-tap X): "Sprint locked" and the explorer keeps
+   sprinting hands-free where the camera looks; **A**/**D** and the camera steer. Tap **Shift** again, pull back (**S**),
+   press **E**, or run into a wall to stop ("Sprint lock off"). On touch, push the stick up past its rim (into the lock
+   above it) for a quarter of a second: the stick's rim lights up while locked; pull the stick back to stop. Entering a
+   temple compound, getting on a vehicle, an emote or the pause menu also stop it.
+4. **Drive what is parked (#11).** Teleport to **Ratna Park bus station**: the green city bus, a micro and a Safa tempo
+   wait in the yard with a green key tag. Walk to the bus's driver door (right side: right-hand drive), **E**, and drive
+   it out: its own handling and camera (**C**: *High chase*, *Far*, *Driver's seat*). Do the same with a micro (van
+   camera), a lorry or tipper by the depots of **Balaju** and a tractor by the fields of **Nagdesh** (the table in
+   "Drive a car round a roundabout" lists every place). Cars, taxis, SUVs and pickups at the residential kerbs drive
+   too. A borrowed vehicle goes home by itself 10 minutes after you leave it or once you are 150 m away.
+
+Headless: `dotnet test core-tests --filter "FullyQualifiedName~ParkedPlacement|FullyQualifiedName~TrafficNearPlayer|FullyQualifiedName~ExplorePlayFleet|FullyQualifiedName~ExplorePlayDriveAway"`
+counts every parked vehicle on the sample as the streamer places it (none on a drawn road, none by main roads or in the
+bazaars beyond a handful at corners, perpendicular and in front of a house, none drawn coarser than its full model
+within 30 m), runs the traffic at eight real places on every tier (lane side, lane offset, density, riders in the
+bazaars, longest stop; the numbers before and after are in `ref_play.md` §2), and mounts and drives every kind of parked
+four-wheeler off onto the road with its own camera rig. The sprint lock's EditMode tests
+(`ExploreSprintLockTests`) are engine-free. `core-tests/ParkedScenePreview.cs` dumps street-level scenes of all this
+for the preview renderer (set `GHUMANTE_PREVIEW_DIR`).
+
+What to report: a parked vehicle in a carriageway, across a lane or by a main road or a bazaar; a street with no moving
+traffic for long; a vehicle on the right-hand side of a two-way road; a parked vehicle you cannot get into or drive off.

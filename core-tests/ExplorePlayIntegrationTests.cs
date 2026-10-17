@@ -495,6 +495,11 @@ namespace Ghumante.Core.Tests
         [TestCase("Chabahil bus station", "Chabahil", 85.3469, 27.7179)]
         [TestCase("Nagdesh", "Nagdesh", 85.3839, 27.6861)]
         [TestCase("Tinchuli", "Tinchuli", 85.3683, 27.7273)]
+        // The playtest fixes #3, #6, #10 and #11 section: lanes, bazaars and depots.
+        [TestCase("Baluwatar", "Baluwatar", 85.3300, 27.7290)]
+        [TestCase("Asan", "Ason", 85.3106, 27.7077)]
+        [TestCase("New Road Gate", "New Road", 85.3125, 27.7040)]
+        [TestCase("Balaju", "Balaju", 85.3040, 27.7340)]
         public void ReadmeTeleportsFindTheirPlaceOnTheSample(string query, string expect, double lon, double lat)
         {
             string path = Path.Combine(GoldenFiles.RepoRoot, "shared", "sample-regions", "kathmandu_core", "kathmandu_core.search.ghsi");
