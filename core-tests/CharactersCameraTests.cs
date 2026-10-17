@@ -397,7 +397,7 @@ namespace Ghumante.Core.Tests
             // The wall goes (the explorer rode past it): out again, smoothly.
             float before = boom.DistanceM;
             boom.Solve(open, 0, 1, 0, 0f, 13f, 8f, 1f, 0.1f);
-            Assert.AreEqual(before, boom.DistanceM, 1e-4f, "a short hold first, so a passing pole does not pump the camera");
+            Assert.AreEqual(before, boom.DistanceM, 1e-3f, "a short hold first, so a passing pole does not pump the camera");
             float last = boom.DistanceM;
             int frames = 0;
             while (boom.DistanceM < 7.9f && frames < 200)
@@ -408,7 +408,7 @@ namespace Ghumante.Core.Tests
                 last = boom.DistanceM;
                 frames++;
             }
-            Assert.That(frames / 60f, Is.InRange(0.3f, 1.5f), "back out over about 0.6 s");
+            Assert.That(frames / 60f, Is.InRange(0.5f, 2.0f), "back out over about a second (critically damped, no overshoot)");
         }
 
         [Test]
@@ -426,9 +426,11 @@ namespace Ghumante.Core.Tests
             Assert.Greater(cy, 1.6, "above the wall");
             Assert.IsFalse(world.Blocks(0, 0.9, 0, cx, cy, cz));
 
-            // Away from the wall the lift settles back.
+            // Away from the wall the lift settles back (after a hold, so a gap in a wall never drops it at once).
             var open = new BoxWorld();
-            for (int i = 0; i < 180; i++) boom.Solve(open, 0, 0.9, 0, 0f, 4f, 6f, 3f, 1f / 60f);
+            for (int i = 0; i < 20; i++) boom.Solve(open, 0, 0.9, 0, 0f, 4f, 6f, 3f, 1f / 60f);
+            Assert.Greater(boom.LiftDeg, 10f, "held a moment");
+            for (int i = 0; i < 300; i++) boom.Solve(open, 0, 0.9, 0, 0f, 4f, 6f, 3f, 1f / 60f);
             Assert.Less(boom.LiftDeg, 0.5f);
             Assert.AreEqual(4f, boom.PitchDeg, 0.5f);
         }
@@ -440,7 +442,7 @@ namespace Ghumante.Core.Tests
             var world = new BoxWorld().Add(-12, 0, -60, -2.4, 14, 60).Add(2.4, 0, -60, 12, 14, 60);
             var boom = new ChaseBoom();
             boom.Solve(world, 0, 1, 0, 0f, 13f, 8f, 4f, 0.016f);
-            for (int i = 0; i < 60; i++) boom.Solve(world, 0, 1, 0, 0f, 13f, 8f, 4f, 1f / 60f);
+            for (int i = 0; i < 150; i++) boom.Solve(world, 0, 1, 0, 0f, 13f, 8f, 4f, 1f / 60f);
             Assert.AreEqual(1f, boom.Lane01, 1e-4f);
             Assert.AreEqual(13f + ChaseBoom.LanePitchDeg, boom.PitchDeg, 0.01f);
             Assert.AreEqual(8f * ChaseBoom.LaneDistanceScale, boom.DistanceM, 0.01f, "the lane behind is straight and clear");
@@ -448,7 +450,7 @@ namespace Ghumante.Core.Tests
             // One wall only (a street along a single facade) is not a lane.
             var side = new BoxWorld().Add(-12, 0, -60, -2.4, 14, 60);
             var b2 = new ChaseBoom();
-            for (int i = 0; i < 60; i++) b2.Solve(side, 0, 1, 0, 0f, 13f, 8f, 4f, 1f / 60f);
+            for (int i = 0; i < 150; i++) b2.Solve(side, 0, 1, 0, 0f, 13f, 8f, 4f, 1f / 60f);
             Assert.AreEqual(0f, b2.Lane01);
             Assert.AreEqual(13f, b2.PitchDeg, 0.01f);
         }
@@ -463,8 +465,8 @@ namespace Ghumante.Core.Tests
             boom.Solve(null, 0, 1, 0, 30f, 13f, 12f, 4f, 0.016f);
             Assert.Greater(boom.DistanceM, 8f);
             Assert.Less(boom.DistanceM, 12f, "zooming out eases");
-            boom.Solve(null, 0, 1, 0, 30f, 13f, 6f, 4f, 0.016f);
-            Assert.AreEqual(6f, boom.DistanceM, "zooming in follows at once");
+            for (int i = 0; i < 45; i++) boom.Solve(null, 0, 1, 0, 30f, 13f, 6f, 4f, 1f / 60f);
+            Assert.AreEqual(6f, boom.DistanceM, 0.02f, "zooming in follows within about half a second, smoothly");
             boom.Solve(null, 0, 1, 0, 30f, 13f, float.NaN, 4f, float.NaN);
             Assert.IsFalse(float.IsNaN(boom.DistanceM));
         }

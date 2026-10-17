@@ -245,7 +245,7 @@ namespace Ghumante.Tests.EditMode
                         foreach (CameraView view in new[] { CameraViews.Default(rig), CameraView.Far })
                         {
                             ChaseRigProfile p = ChaseRigProfile.For(rig, portrait, RigClass.Bus, view);
-                            float vfov = CameraFov.VerticalFromHorizontal(p.MinHorizontalFovDeg, aspect);
+                            float vfov = p.VerticalFovDeg(aspect); // the camera's lens: Hor+ in landscape, minimum width in portrait
                             foreach (float speed in new[] { 0f, 40f })
                             {
                                 float foot = p.FootScreenY(speed);

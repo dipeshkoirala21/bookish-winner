@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Generators.Placement;
+using Ghumante.Core.Generators.Props;
 
 namespace Ghumante.World.Instancing
 {
@@ -65,9 +66,10 @@ namespace Ghumante.World.Instancing
 
         /// <summary>
         /// The colliders of the solid dressing, tile-local (collide package, StructureColliders): the trunk of every
-        /// generated tree (avenue, park, garden, forest; OSM trees and props are already solid through the tile's own
-        /// solids), boulders, the poles of generated street lamps, and every parked vehicle that is not
-        /// a community-fleet vehicle (those can be borrowed, so their spot must not stay solid when they drive away).
+        /// generated tree (avenue, park, garden, forest; OSM trees are already solid through the tile's own solids),
+        /// boulders, every placed street prop where it is drawn (<see cref="StreetPropColliders"/>: poles, posts,
+        /// pillars, shelters), and every parked vehicle that is not a community-fleet vehicle (those can be borrowed, so
+        /// their spot must not stay solid when they drive away).
         /// Flowers, shrubs, hedges, ground cover and pots stay passable.
         /// </summary>
         public void AppendColliders(StructureColliders into)
@@ -84,13 +86,9 @@ namespace Ghumante.World.Instancing
                         CX = t.X, CZ = t.Z, Radius = 0.4f * t.CrownM, Bottom = t.Y - 0.3f, Top = t.Y + t.HeightM, CameraPasses = true,
                     });
             }
-            for (int i = 0; i < Props.Count; i++)
-            {
-                StreetProp p = Props[i];
-                // Generated lamps stand at the kerb; generated signal heads mark a junction, so they stay passable.
-                if (p.Osm || p.Kind != StreetPropKind.StreetLamp) continue;
-                into.AddPole(p.X, p.Z, p.Y, p.HeightM, 0.15f);
-            }
+            // Every street prop, OSM or generated, solid where it is drawn (props package, StreetPropColliders): the
+            // ground query's tile solids no longer add OSM props at their mapped points (playtest #7).
+            StreetPropColliders.AppendAll(Props, into);
             for (int i = 0; i < Parked.Count; i++)
             {
                 ParkedVehicle v = Parked[i];
