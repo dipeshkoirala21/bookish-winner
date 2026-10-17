@@ -195,9 +195,9 @@ namespace Ghumante.Tests.EditMode
             {
                 ChaseRigProfile landscape = ChaseRigProfile.Blend(ride, 0f);
                 ChaseRigProfile portrait = ChaseRigProfile.Blend(ride, 1f);
-                // W2_DESIGN 6.4: the portrait walking camera comes closer (6.8 m) so the player reads bigger; riding pulls back.
-                if (ride > 0f) Assert.Greater(portrait.DistanceM, landscape.DistanceM);
-                else Assert.AreEqual(6.8f, portrait.DistanceM, Eps);
+                // docs/research/w2/ref_camera.md §5: portrait sits higher and steeper on a shorter boom (its ~100° vertical FOV).
+                Ghumante.Core.Characters.RigClass rig = ride > 0f ? Ghumante.Core.Characters.RigClass.TwoWheeler : Ghumante.Core.Characters.RigClass.Walk;
+                Assert.AreEqual(Ghumante.Core.Characters.CameraRigTable.For(rig, true).DistanceM, portrait.DistanceM, Eps);
                 Assert.Greater(portrait.CameraHeightM, landscape.CameraHeightM);
                 Assert.Greater(portrait.PitchDeg, landscape.PitchDeg);
                 Assert.Greater(portrait.LookAhead(20f), landscape.LookAhead(20f), "more road ahead on a tall screen");
@@ -228,7 +228,7 @@ namespace Ghumante.Tests.EditMode
                     for (float speed = 0f; speed <= 30f; speed += 1f)
                     {
                         float kick = ride > 0f ? 5f * Math.Min(1f, speed / 25f) : 0f;
-                        float vfov = CameraFov.VerticalFromHorizontal(minHFov + kick, aspect);
+                        float vfov = Math.Max(CameraFov.VerticalFromHorizontal(minHFov + kick, aspect), rig.VerticalFovDeg(aspect, kick));
                         float pitch = ChaseRigProfile.ViewPitchDeg(above, behind, rig.FootScreenY(speed), vfov);
                         float feet = ChaseRigProfile.ScreenY(above, behind, pitch, vfov);
                         float head = ChaseRigProfile.ScreenY(above - 1.7f, behind, pitch, vfov);
