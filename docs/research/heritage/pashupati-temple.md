@@ -627,3 +627,49 @@ Photos used (reference only; local copies under `/home/user/wt/refs/mon-pashupat
 | c_area/c_26, c_27, c_28 | gajur, trident, upper soffit lattice | Rajesh Dhungana, CC BY-SA 4.0, Commons Pashupati_Temple_Gajur_(Arch)_..._(1..3).jpg |
 | c_area/c_33 | South Gate range | Rajesh Dhungana, CC BY-SA 4.0, Commons Pashupati_South_Gate_..._(2).jpg |
 | c_gje/c_14, c_15, c_16, c_17 | west gate at night; gajur at dusk; view from the south; from the river | Commons Pashupathinath_West_Gate.jpg, Pashupati_Gajur.JPG, New_Face_of_Pashupatinath.jpg, NP-pashu-tempel.jpg (licences on file pages) |
+
+## 10. The bespoke model (W2 monuments round)
+
+The site is now modelled structure by structure in `game/Assets/Ghumante/Core/Generators/Sacred/Heroes/Pashupati/`
+instead of the parametric pagoda template. Six heroes build it, all anchored in the temple's level-10 tile (10/520/161)
+so the hero LOD allocator can keep the temple at LOD0 while the far side of the courtyard steps down:
+
+| Hero id | Part | Structures |
+|---|---|---|
+| `her.ktm.pashupatinath` (curated) | `PashupatiPart.Temple` | PT-01 temple, PT-03 gajur and trident, PT-02 Nandi and queue rail, PT-17 floor (paving, vermilion and petal stains), PT-16 lamp pillar and bell frames |
+| `….west_gate` | `WestGate` | PT-04 West Gate, its flanks and the inner west buildings, PT-05 forecourt (three steps up, red runner), PT-15 great trident |
+| `….east_gate` | `EastGate` | PT-11 East Gate, the stone stair down to the ghat walk (rail, garlands, bell), the white east wing |
+| `….mukti_mandap` | `MuktiMandap` | PT-08 Mukti Mandap on its riverside block with the crenellated parapet, the red pyramidal shrine, PT-21 south-east block |
+| `….south_court` | `SouthCourt` | PT-07 Bhairav, PT-09 octagonal temple, PT-14 kings' pillars, Dharmashila and Chandeshvar linga, the maroon fluted-dome shrines, the stone linga shrines and the red wall with its trident railing, PT-13 South Gate range, PT-19 priests' quarters |
+| `….north_court` | `NorthCourt` | PT-06 Vasuki, PT-10 shrine group (white mini-shikharas, the bell shrine), PT-12 north wing, the two Araucarias |
+
+The parts are `HeroCatalog` recipes (`HeroForm.Bespoke`, `SiteOf` = the temple) that `World/Sacred/HeroSet` adds
+whenever the curated DB holds the temple; each recipe lists the OSM ways it rebuilds (`HeroRecipe.Hide`), which the house
+bands then skip. `HeroBuilder.PrepareGround` (called by `TileBuild` on every decoded tile) levels the courtyard to
+1310.15 m and the forecourt 0.6 m above it, blending into the surrounding surface model.
+
+Modelling decisions against the photos (recorded where they differ from §3/§4):
+
+* **Upper tier proportions.** The upper body is 6.8 × 7.0 m and the upper eave 11.8 × 12.0 m at 15.4 m (the OSM parts
+  w1032559975 / w1032559974 map the sanctum core and an over-wide eave); the east-bank photos fit the roofs at 30-32°
+  and the finial tip at 23.6 m.
+* **West Gate passage** 3.6 m south of the door axis (b = −3.6), on the OSM gatehouse w913170307 (b −3.4) and the
+  mapped footway through it (w1328801417, b −3.75); c_westgate and c_26 agree (from the forecourt the door shows right
+  of the Nandi). The inner buildings either side are trimmed to it: w913170311 ends at b −8.75 and w913170313 at
+  b −5.9 (their OSM outlines overlap the gatehouse), and the brass queue rail runs from the passage mouth (a −32) along
+  the Nandi's south side to the west flight.
+* **East Gate** on its OSM outline, door 2.0 m wide on the gatehouse centre (b 6.75); the stair runs 11° south of the
+  site axis to its mapped foot on the ghat walk (a 36.2), between its parapet walls, so neither stands on the drawn
+  steps or footways.
+* **Vasuki** stands 0.7 m west of its OSM square so its 4.7 m lower eave clears the east wing wall behind it (c_inner/c_07
+  shows the two touching).
+* **Small shrines.** The five other OSM squares carry white mini-shikharas (5.4, 4.6, 5.0, 4.3 m) and the white bell
+  shrine (c_inner/c_01); the red pyramidal shrine stands between the Mukti Mandap and the East Gate (c_gje/c_03, c_04);
+  the maroon fluted-dome shrines south-west of the temple (pagoda/ref_02, c_gje/c_03) and the row of grey stone linga
+  shrines before the red railing wall behind the Nandi (c_inner/c_00) are placed from the photos [E].
+* **Kings' pillars** at a −6.5 and −3.4, b ≈ −12 [E], figures facing the temple; the Dharmashila and the Chandeshvar
+  linga beside them [E][V].
+* **Araucarias** at (2, 44) and (12, 48), 28.5 and 30 m [E from c_gje/c_17, c_inner/c_07]; they stand in the tile to the
+  north and are the only things round the courtyard taller than the temple's upper eave.
+* **Sacred rules kept**: the doors are closed (dark doorway panels, no interior); no bodies, fire or cremation; struts
+  generic; the inner courtyard is modelled fully, the entry rule stays with the game's card (W2-O1).

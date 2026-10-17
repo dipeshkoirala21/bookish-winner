@@ -26,6 +26,9 @@ namespace Ghumante.Core.Generators.Sacred
         KumariGhar = 16,
         GoldenTemple = 17,
         PeacockWindow = 18,
+
+        /// <summary>A structure group of a bespoke heritage site (Heroes/&lt;Site&gt;/), built by the site's own code.</summary>
+        Bespoke = 19,
     }
 
     /// <summary>
@@ -47,6 +50,11 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Centrepiece heroes use the class A budget (25,000 / 8,000 / 2,000 / 200), the others class B
         /// (12,000 / 3,000 / 800 / 200; W2_DESIGN 3.2).</summary>
         public bool Centrepiece;
+
+        /// <summary>A part of a bespoke heritage site built as its own hero (its own LODs in the hero allocator): the id of
+        /// the curated hero it belongs to. World/Sacred/HeroSet adds it, anchored in the same tile, whenever the region's
+        /// curated DB holds that hero (Pashupatinath: the gates, the Mukti Mandap and the courtyard groups).</summary>
+        public string SiteOf;
 
         public float CoreFrac, TierShrink, VahanaDistM;
         public bool VahanaGaruda, Pataka, NoStair, GiltBalcony, Figures;
@@ -97,6 +105,17 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Upper storey width as a fraction of its eave (0 = derived; Kasthamandap's wide hall 0.86).</summary>
         public float UpperWallFrac;
 
+        /// <summary>A bespoke heritage site (Heroes/&lt;Site&gt;/): its measured height, yaw and plan win over the curated DB
+        /// (<see cref="HeroBuilder.Merge"/>).</summary>
+        public bool Measured;
+
+        /// <summary>Per-LOD triangle ceilings of a bespoke site (LOD0..3; null = class A or B).</summary>
+        public int[] BudgetTris;
+
+        /// <summary>Extra OSM refs ("w123") of the buildings a bespoke site rebuilds: hidden from the house bands with the
+        /// curated DB's hide zones (World/Sacred/HeroSet).</summary>
+        public string[] Hide;
+
         public HeroRecipe Clone()
         {
             return (HeroRecipe)MemberwiseClone();
@@ -106,6 +125,7 @@ namespace Ghumante.Core.Generators.Sacred
         public int Budget(int lod)
         {
             lod = lod < 0 ? 0 : lod > 3 ? 3 : lod;
+            if (BudgetTris != null && BudgetTris.Length == 4) return BudgetTris[lod];
             return Centrepiece ? BudgetA[lod] : BudgetB[lod];
         }
 
@@ -165,6 +185,26 @@ namespace Ghumante.Core.Generators.Sacred
             };
         }
 
+        /// <summary>The parts of the bespoke Pashupatinath site after the temple: the West Gate with the forecourt, the East
+        /// Gate with the stair and the east wing, the Mukti Mandap, the south and north courts (pashupati-temple.md §3).</summary>
+        private static IEnumerable<HeroRecipe> PashupatiParts()
+        {
+            double lon, lat;
+            Heroes.Pashupati.PashupatiSite.CentreLonLat(out lon, out lat);
+            var names = new[] { "Pashupatinath West Gate", "Pashupatinath East Gate", "Mukti Mandap", "Pashupatinath south court", "Pashupatinath north court" };
+            var kinds = new[] { HeritageKind.Gate, HeritageKind.Gate, HeritageKind.Mandapa, HeritageKind.Pagoda, HeritageKind.Pagoda };
+            for (int i = 0; i < names.Length; i++)
+            {
+                var part = (Heroes.Pashupati.PashupatiPart)(i + 1);
+                yield return new HeroRecipe
+                {
+                    Id = Heroes.Pashupati.PashupatiSite.IdOf(part), Name = names[i], Form = HeroForm.Bespoke, Kind = kinds[i], SiteOf = Heroes.Pashupati.PashupatiSite.HeroId,
+                    Lat = lat, Lon = lon, HeightM = Heroes.Pashupati.PashupatiSite.TopOf(part), PlanW = 30f, PlanD = 30f, Measured = true,
+                    BudgetTris = Heroes.Pashupati.PashupatiSite.BudgetOf(part), Hide = Heroes.Pashupati.PashupatiSite.HideRefs(part),
+                };
+            }
+        }
+
         private static List<HeroRecipe> Make()
         {
             var l = new List<HeroRecipe>();
@@ -218,7 +258,12 @@ namespace Ghumante.Core.Generators.Sacred
             pashupati.FrontBell = true;
             pashupati.LampPillars = 2;
             pashupati.Ambulatory = true;
+            // The bespoke site (Heroes/Pashupati, docs/research/heritage/pashupati-temple.md) builds the temple, its gajur
+            // and Nandi as measured; the generator numbers above document the old template. Its other structures are parts.
+            pashupati.Hide = Heroes.Pashupati.PashupatiSite.HideRefs(Heroes.Pashupati.PashupatiPart.Temple);
+            pashupati.BudgetTris = Heroes.Pashupati.PashupatiSite.BudgetOf(Heroes.Pashupati.PashupatiPart.Temple);
             l.Add(pashupati);
+            l.AddRange(PashupatiParts());
 
             // --- Kathmandu Durbar Square ---------------------------------------------------------------------------
             HeroRecipe taleju = Pagoda("her.ktm.taleju", "Taleju (Kathmandu)", "w1414600808", 47.7f, 45.3f, 3, 12, 0.75f, 35f, 190f);
