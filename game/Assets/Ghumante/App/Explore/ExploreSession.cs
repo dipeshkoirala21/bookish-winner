@@ -60,7 +60,7 @@ namespace Ghumante.App.Explore
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("")]
-    public sealed class ExploreSession : MonoBehaviour
+    public sealed partial class ExploreSession : MonoBehaviour
     {
         /// <summary>Morning light for the first ride (local solar hours).</summary>
         public const float StartHours = 8.5f;
@@ -230,6 +230,7 @@ namespace Ghumante.App.Explore
             if (_phase == Phase.Closed) return;
             _phase = Phase.Closed;
             _routeToken++;
+            CloseFlight();
             if (_cts != null)
             {
                 // Cancelled, not disposed: the open in flight may still pass its token around while it unwinds.
@@ -534,7 +535,7 @@ namespace Ghumante.App.Explore
             {
                 if (frame.Search) _screen.OpenSearch(frame.Device == ControlDevice.Gamepad);
                 if (frame.Map) _screen.ShowToast(_localizer.Get("menu.map_soon"), "gh-toast__icon--map");
-                if (frame.CameraCycle) CycleCamera();
+                if (frame.CameraCycle && !Flying) CycleCamera();
             }
             blocked = _screen.BlocksGameplay;
             _blockedLastFrame = blocked;
@@ -549,16 +550,17 @@ namespace Ghumante.App.Explore
             _explorer.ReducedMotion = _motion.ReduceMotion;
             _rig.ReducedMotion = _motion.ReduceMotion;
             ExplorerContext context = BuildContext(dt);
-            _explorer.Tick(dt, frame, _rig.YawRad, blocked, context);
-            WorldPos position = _explorer.Position;
+            bool flying = FlightFrame(dt, ref frame, blocked); // ExploreSession.Flight.cs: boarding and flying from TIA
+            if (!flying) _explorer.Tick(dt, frame, _rig.YawRad, blocked, context);
+            WorldPos position = flying ? _aircraft.Position : _explorer.Position;
             PostToLife();
-            UpdateHud();
+            if (!flying) UpdateHud();
             UpdateListener(dt, position);
             _world.Focus = position;
             _screen.Search.SetPlayerPosition(position.X, position.Z);
 
             HapticKind kind;
-            if (!blocked && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode != ExplorerMode.Walk,
+            if (!blocked && !flying && ExploreFeedback.HapticFor(_explorer.LastEvents, _explorer.Mode != ExplorerMode.Walk,
                                                       _explorer.Active.Vehicle.LastLandingSpeedMps, out kind))
             {
                 _haptics.Play(kind);
@@ -584,6 +586,7 @@ namespace Ghumante.App.Explore
         private void LateUpdate()
         {
             if (_phase != Phase.Playing || _explorer == null) return;
+            if (FlightLateUpdate()) return;
             Vector3 ground;
             float heading, speed, lean;
             _explorer.GetCameraTarget(out ground, out heading, out speed, out lean);
@@ -678,7 +681,7 @@ namespace Ghumante.App.Explore
 
         private void ToggleMode()
         {
-            if (_explorer == null || _phase != Phase.Playing) return;
+            if (_explorer == null || _phase != Phase.Playing || Flying) return;
             _explorer.ToggleMode();
         }
 
@@ -900,6 +903,7 @@ namespace Ghumante.App.Explore
             ControlLayout layout = _explorer.Layout;
             if (layout != _screen.Layout) _screen.SetLayout(layout);
             PlayerVehicleHorn();
+            if (ShowBoardPrompt()) return;
             switch (_explorer.Prompt)
             {
                 case ExplorerPrompt.HopOn:
@@ -1127,7 +1131,7 @@ namespace Ghumante.App.Explore
         /// <summary>Development builds and the editor: jump to a search hit (snapped onto the nearest road).</summary>
         private void TeleportTo(SearchEntry entry)
         {
-            if (entry == null || _phase != Phase.Playing) return;
+            if (entry == null || _phase != Phase.Playing || Flying) return;
             if (!Application.isEditor && !Debug.isDebugBuild) return;
             SpawnPoint spawn;
             if (!ExploreSpawn.TryRoadSpawn(_world.Routes, _planner != null ? _planner.Starts : null, entry.X, entry.Z, out spawn))
