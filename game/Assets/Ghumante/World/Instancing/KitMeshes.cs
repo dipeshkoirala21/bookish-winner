@@ -1,6 +1,7 @@
 using System;
 using Ghumante.Core.Generators.Flora;
 using Ghumante.Core.Generators.Placement;
+using Ghumante.Core.Generators.Props;
 using Ghumante.Core.Meshing;
 
 namespace Ghumante.World.Instancing
@@ -8,7 +9,8 @@ namespace Ghumante.World.Instancing
     /// <summary>
     /// The procedural meshes of the instanced dressing (W2_DESIGN 5.4-5.8): trees and plants from the nature kit
     /// (Core <see cref="FloraMesher"/>: every species at LOD0 and LOD1, the shape families' far volume and impostor),
-    /// the chautari platform, street props, people as rigid parts, cows and dogs. Everything is built in code (no
+    /// the chautari platform, street props (the Core street furniture kit <see cref="StreetPropMesher"/>), people as rigid
+    /// parts, cows and dogs. Everything is built in code (no
     /// hand-made assets). Frame: origin on the ground, +Y up, +Z forward (north at yaw 0), +X right. Trees and plants
     /// are unit-sized (height 1, crown diameter 1) and scaled per instance. Vertex alpha is the per-instance tint mask
     /// of the <c>_INSTANCE_TINT</c> shaders: 255 on crowns, clothes and coats, 0 on trunks, skin, hair and fixed parts;
@@ -23,7 +25,6 @@ namespace Ghumante.World.Instancing
         public static readonly int[] TreeBudget = FloraMesher.Budget;
 
         private const uint Tinted = 0xFFFFFFFF;
-        private const uint Stone = 0x9A948A00;
 
         // ---------------------------------------------------------------------------------------------------------
         // Primitives
@@ -95,142 +96,38 @@ namespace Ghumante.World.Instancing
         }
 
         // ---------------------------------------------------------------------------------------------------------
-        // Street props (built at their default size in metres; instances scale by HeightM / DefaultHeight)
+        // Street props (the Core street furniture kit, StreetPropMesher: built at their default size in metres; instances
+        // scale by HeightM / DefaultHeight)
 
         /// <summary>Default height of a prop mesh (metres).</summary>
         public static float DefaultHeight(StreetPropKind k)
         {
-            switch (k)
-            {
-                case StreetPropKind.StreetLamp: return 10f;
-                case StreetPropKind.BusStop: return 2.6f;
-                case StreetPropKind.BusShelter: return 2.7f;
-                case StreetPropKind.TrafficSignal: return 4.5f;
-                case StreetPropKind.Gate: return 3.2f;
-                case StreetPropKind.StorageTank: return 2.6f;
-                case StreetPropKind.Bench: return 0.85f;
-                case StreetPropKind.WaterTap: return 1.0f;
-                case StreetPropKind.Windsock: return 6f;
-                case StreetPropKind.Helipad: return 0.05f;
-                case StreetPropKind.TaxiStand: return 2.4f;
-                case StreetPropKind.AerowayGate: return 2.4f;
-                case StreetPropKind.ParkingPosition: return 0.05f;
-                case StreetPropKind.Mast: return 25f;
-                case StreetPropKind.Artwork: return 2.5f;
-                case StreetPropKind.PowerTower: return 30f;
-                case StreetPropKind.PowerPole: return 9f;
-                case StreetPropKind.Well: return 0.8f;
-                case StreetPropKind.SolarPanel: return 1.6f;
-                case StreetPropKind.Chimney: return 18f;
-                default: return 1f;
-            }
+            return StreetPropMesher.DefaultHeight(k);
         }
 
         /// <summary>Number of street prop kinds with a mesh.</summary>
-        public const int PropKinds = 20;
+        public const int PropKinds = StreetPropMesher.Kinds;
 
-        /// <summary>A street prop at its default size. Colours are fixed (alpha 0) except tanks (tinted).</summary>
+        /// <summary>Levels of detail per prop kind (<see cref="Prop(StreetPropKind, int, MeshData)"/>).</summary>
+        public const int PropLods = StreetPropMesher.Lods;
+
+        /// <summary>Triangle caps per prop LOD (400 / 180 / 72).</summary>
+        public static readonly int[] PropBudget = StreetPropMesher.Budget;
+
+        /// <summary>
+        /// A street prop at its default size and full detail (LOD0, at most 400 triangles): the Shapes-built kit of
+        /// docs/research/w2/ref_props.md with UV0 (material channel, baked AO). Colours are fixed (vertex alpha 0)
+        /// except the tank body (tinted per instance).
+        /// </summary>
         public static int Prop(StreetPropKind k, MeshData m)
         {
-            const uint pole = 0xA8A49C00, dark = 0x2E344000, white = 0xF2F0E800, red = 0xD93A2B00, yellow = 0xF2C23000;
-            const uint blue = 0x2F7DE100, green = 0x2FA84F00, wood = 0x6B412900, roof = 0x3D7CC900, lamp = 0xFFE8A000;
-            int t0 = m.TriangleCount;
-            switch (k)
-            {
-                case StreetPropKind.StreetLamp:
-                    MeshKit.Frustum(m, 0, 0, 0.12, 0, 0.07, 10, 6, false, pole);
-                    MeshKit.Bar(m, 0, 9.6, 0, 0, 10.0, 1.6, 0.08, pole);
-                    BoxC(m, 0, 1.7, 0.18, 0.35, 9.75, 9.95, dark);
-                    BoxC(m, 0, 1.7, 0.14, 0.3, 9.7, 9.75, lamp);
-                    break;
-                case StreetPropKind.BusStop:
-                    MeshKit.Cylinder(m, 0, 0, 0.05, 0, 2.2, 6, false, pole);
-                    BoxC(m, 0, 0, 0.35, 0.03, 2.0, 2.6, blue);
-                    BoxC(m, 0, 0.031, 0.25, 0.005, 2.15, 2.45, white);
-                    break;
-                case StreetPropKind.BusShelter:
-                    for (int i = 0; i < 2; i++) BoxC(m, i == 0 ? -1.6 : 1.6, -0.6, 0.05, 0.05, 0, 2.5, pole);
-                    BoxC(m, 0, -0.65, 1.7, 0.04, 0.5, 2.3, 0x9DC3D100); // back panel
-                    BoxC(m, 0, 0, 1.8, 0.8, 2.5, 2.7, roof);
-                    BoxC(m, 0, -0.4, 1.4, 0.2, 0.42, 0.48, wood); // bench
-                    break;
-                case StreetPropKind.TrafficSignal:
-                    MeshKit.Cylinder(m, 0, 0, 0.08, 0, 3.6, 6, false, pole);
-                    BoxC(m, 0, 0.05, 0.18, 0.15, 3.6, 4.5, dark);
-                    BoxC(m, 0, 0.21, 0.09, 0.01, 4.25, 4.4, red);
-                    BoxC(m, 0, 0.21, 0.09, 0.01, 4.0, 4.15, yellow);
-                    BoxC(m, 0, 0.21, 0.09, 0.01, 3.75, 3.9, green);
-                    break;
-                case StreetPropKind.Gate:
-                    BoxC(m, -1.8, 0, 0.25, 0.25, 0, 3.2, white);
-                    BoxC(m, 1.8, 0, 0.25, 0.25, 0, 3.2, white);
-                    BoxC(m, 0, 0, 2.1, 0.3, 2.8, 3.2, red);
-                    break;
-                case StreetPropKind.StorageTank:
-                    for (int i = 0; i < 4; i++) BoxC(m, i % 2 == 0 ? -0.45 : 0.45, i < 2 ? -0.45 : 0.45, 0.04, 0.04, 0, 1.2, dark);
-                    BoxC(m, 0, 0, 0.6, 0.6, 1.2, 1.28, dark);
-                    MeshKit.Cylinder(m, 0, 0, 0.55, 1.28, 2.45, 10, false, Tinted);
-                    MeshKit.Dome(m, 0, 0, 0.55, 2.45, 0.15, 10, 1, Tinted);
-                    break;
-                case StreetPropKind.Bench:
-                    BoxC(m, 0, 0, 0.9, 0.22, 0.42, 0.5, wood);
-                    BoxC(m, -0.75, 0, 0.05, 0.2, 0, 0.42, dark);
-                    BoxC(m, 0.75, 0, 0.05, 0.2, 0, 0.42, dark);
-                    BoxC(m, 0, -0.2, 0.9, 0.03, 0.5, 0.85, wood);
-                    break;
-                case StreetPropKind.WaterTap:
-                    BoxC(m, 0, 0, 0.2, 0.2, 0, 0.9, Stone);
-                    MeshKit.Bar(m, 0, 0.8, 0, 0, 0.8, 0.3, 0.05, 0x8C949C00);
-                    break;
-                case StreetPropKind.Windsock:
-                    MeshKit.Cylinder(m, 0, 0, 0.06, 0, 6, 6, false, white);
-                    MeshKit.Frustum(m, 0, 0.6, 0.35, 5.6, 0.2, 5.9, 8, false, 0xF5821F00);
-                    break;
-                case StreetPropKind.Helipad:
-                    MeshKit.Cylinder(m, 0, 0, 7.5, 0, 0.05, 16, true, 0x5A5D6200);
-                    BoxC(m, -1.2, 0, 0.3, 2.0, 0.05, 0.06, white);
-                    BoxC(m, 1.2, 0, 0.3, 2.0, 0.05, 0.06, white);
-                    BoxC(m, 0, 0, 1.0, 0.3, 0.05, 0.06, white);
-                    break;
-                case StreetPropKind.TaxiStand:
-                case StreetPropKind.AerowayGate:
-                    MeshKit.Cylinder(m, 0, 0, 0.05, 0, 2.0, 6, false, pole);
-                    BoxC(m, 0, 0, 0.4, 0.03, 2.0, 2.4, k == StreetPropKind.TaxiStand ? 0xFFEB3B00 : yellow);
-                    break;
-                case StreetPropKind.ParkingPosition:
-                    BoxC(m, 0, 0, 0.15, 6.0, 0.02, 0.05, yellow);
-                    BoxC(m, 0, 6.0, 1.5, 0.15, 0.02, 0.05, yellow);
-                    break;
-                case StreetPropKind.Mast:
-                    MeshKit.Frustum(m, 0, 0, 0.6, 0, 0.15, 25, 4, false, 0xC9433A00);
-                    break;
-                case StreetPropKind.Artwork:
-                    BoxC(m, 0, 0, 0.6, 0.6, 0, 1.0, Stone);
-                    MeshKit.Blob(m, 0, 1.75, 0, 0.45, 0.75, 0.45, 0x8E8A8000);
-                    break;
-                case StreetPropKind.PowerTower:
-                    MeshKit.Frustum(m, 0, 0, 3.5, 0, 0.8, 30, 4, false, 0x9EA3A800);
-                    BoxC(m, 0, 0, 6, 0.3, 24, 24.5, 0x9EA3A800);
-                    BoxC(m, 0, 0, 4.5, 0.3, 27, 27.5, 0x9EA3A800);
-                    break;
-                case StreetPropKind.PowerPole:
-                    MeshKit.Frustum(m, 0, 0, 0.16, 0, 0.1, 9, 4, false, pole);
-                    BoxC(m, 0, 0, 0.8, 0.06, 8.2, 8.32, pole);
-                    break;
-                case StreetPropKind.Well:
-                    MeshKit.Cylinder(m, 0, 0, 0.8, 0, 0.8, 10, false, Stone);
-                    MeshKit.Cylinder(m, 0, 0, 0.62, 0.79, 0.8, 10, true, 0x2B3B4A00);
-                    break;
-                case StreetPropKind.SolarPanel:
-                    BoxC(m, 0, 0.6, 0.05, 0.05, 0, 1.2, dark);
-                    BoxC(m, 0, -0.6, 0.05, 0.05, 0, 0.6, dark);
-                    MeshKit.Quad(m, -1, 0.6, -0.75, 1, 0.6, -0.75, 1, 1.4, 0.75, -1, 1.4, 0.75, 0, 1, -1, 0x1E3A6B00);
-                    break;
-                case StreetPropKind.Chimney:
-                    MeshKit.Frustum(m, 0, 0, 1.4, 0, 0.9, 18, 8, true, 0xA0523A00);
-                    break;
-            }
-            return m.TriangleCount - t0;
+            return StreetPropMesher.Build(k, 0, m);
+        }
+
+        /// <summary>A street prop at level <paramref name="lod"/> (0 near, 1 mid, 2 far; see <see cref="PropBudget"/>).</summary>
+        public static int Prop(StreetPropKind k, int lod, MeshData m)
+        {
+            return StreetPropMesher.Build(k, lod, m);
         }
 
         // ---------------------------------------------------------------------------------------------------------
