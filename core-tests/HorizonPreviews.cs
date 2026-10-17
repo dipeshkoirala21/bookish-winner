@@ -37,6 +37,9 @@ namespace Ghumante.Core.Tests
             public int Width, Height;
         }
 
+        /// <summary>Kirtipur, by the Uma Maheshwor temple on the hilltop.</summary>
+        private static readonly HorizonViewpoint Kirtipur = new HorizonViewpoint("Kirtipur", 27.6785, 85.2776);
+
         [Test]
         public void DumpSkylinePanoramas()
         {
@@ -62,8 +65,14 @@ namespace Ghumante.Core.Tests
                 new Shot { Name = "basantapur_ganesh_dusk", View = HorizonViewpoint.Basantapur, EyeAboveGround = 25f, Hours = 17.85, BearingDeg = 343, PitchDeg = 3.2, FovDeg = 14, Width = 1500, Height = 1000 },
                 // Nagarjun from Swayambhu: the near rim hill drawn by the streamed terrain and the ring together.
                 new Shot { Name = "swayambhu_nagarjun", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 3f, Hours = 9.0, BearingDeg = 316, PitchDeg = 4.0, FovDeg = 37, Width = 1600, Height = 900 },
-                // The Langtang-Jugal row over Swayambhu hill (ref: "Swyambhu and langtang", Mbiken).
-                new Shot { Name = "swayambhu_langtang_mid", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 3f, Hours = 9.5, BearingDeg = 32, PitchDeg = 4.3, FovDeg = 7, Width = 1600, Height = 1066 },
+                // The Langtang row over Swayambhu hill, seen from Kirtipur, where both photos of Swayambhu in front of
+                // Langtang Lirung were taken (Kirtipur -> Swayambhu 17 degrees, -> Langtang Lirung 19 degrees; refs: "Swyambhu
+                // and langtang", Mbiken, and "Swayambhunath Stupa and Langtang Mountain Range, Nepal", Safalphotos).
+                new Shot { Name = "kirtipur_langtang_mid", View = Kirtipur, EyeAboveGround = 10f, Hours = 9.5, BearingDeg = 21, PitchDeg = 3.2, FovDeg = 9, Width = 1600, Height = 1066 },
+                new Shot { Name = "kirtipur_langtang_tele", View = Kirtipur, EyeAboveGround = 10f, Hours = 9.5, BearingDeg = 19.0, PitchDeg = 2.9, FovDeg = 5.5, Width = 1600, Height = 1066 },
+                // Over the city from the Swayambhu platform to the eastern rim in the valley haze (ref: "The ancient settlement
+                // of Kathmandu as viewed from Swayambhunath Hill", Wonderlane).
+                new Shot { Name = "swayambhu_east", View = HorizonViewpoint.Swayambhu, EyeAboveGround = 12f, Hours = 10.5, BearingDeg = 100, PitchDeg = -0.5, FovDeg = 34, Width = 1600, Height = 1066 },
             };
             var sh = new System.Text.StringBuilder();
             sh.Append("#!/bin/bash\nR=${R:-tools/mesh-preview/render.py}\nD=$(dirname \"$0\")/..\nmkdir -p $D/png\n");

@@ -269,9 +269,10 @@ namespace Ghumante.Core.Tests
                         rises.Add(rise);
                         if (rise <= 0.032) continue;
                         // The ring's crest is the field's own ground: no higher than the field's highest sight along the
-                        // ray (within the simplification tolerance).
+                        // ray (within the simplification tolerance), out to the farther end of the drawn edge (a chord from
+                        // a near ridge to a farther one interpolates its distance, while its height comes from both).
                         double a = b * Math.PI / 180.0, fieldTop = -90.0;
-                        for (double d = scene.Settings.BandEdgesM[0]; d <= ring.DistanceM + 3000.0; d += 25.0)
+                        for (double d = scene.Settings.BandEdgesM[0]; d <= Math.Max(ring.DistanceM, ring.SpanFarM) + 3000.0; d += 25.0)
                         {
                             float fh;
                             if (!scene.Field.TryHeight(scene.X + Math.Sin(a) * d, scene.Z + Math.Cos(a) * d, out fh)) continue;
@@ -320,8 +321,10 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
-        /// The valley's haze (SkyPalette.ValleyHazeDensity) leaves the city clear and puts the far ridges in haze as the
-        /// photos show (about 40 % of their own colour at 45 km), on every tier.
+        /// The valley's haze (SkyPalette.ValleyHazeDensity) on every tier, as the photos over the city show it (from
+        /// Swayambhu, Basantapur and the rooftops, docs/research/w2/ref_sky.md): the streets the game is played in stay
+        /// crisp, the city a few kilometres away is a little hazy, the forested rim 12-20 km away is a blue-grey
+        /// silhouette with about half of its own colour, and the ridges beyond the skyline's handover are a pale band.
         /// </summary>
         [Test]
         public void ValleyHazeLeavesTheCityClearAndHazesFarRidges()
@@ -329,11 +332,14 @@ namespace Ghumante.Core.Tests
             foreach (int tier in Tiers)
             {
                 double rho = SkyPalette.SceneFogDensity(SkyPalette.DayFogDensity, StreamingConfig.ForTier(tier).ViewRadiusM);
-                Assert.Greater(Math.Exp(-(rho * 3000) * (rho * 3000)), 0.98, "tier " + tier + ": the city within 3 km");
-                Assert.Less(Math.Exp(-(rho * 45000) * (rho * 45000)), 0.45, "tier " + tier + ": a ridge 45 km away stands in haze");
+                Func<double, double> left = d => Math.Exp(-(rho * d) * (rho * d));
+                Assert.Greater(left(1400), 0.99, "tier " + tier + ": the streets round the player");
+                Assert.Greater(left(5000), 0.9, "tier " + tier + ": the city 5 km away");
+                Assert.That(left(15000), Is.InRange(0.45, 0.7), "tier " + tier + ": the rim 15 km away keeps about half its colour");
+                Assert.Less(left(HorizonSettings.ForTier(tier).HandoverM), 0.15, "tier " + tier + ": the ridges beyond the handover are haze");
             }
-            double valley = SkyPalette.ValleyHazeDensity;
-            Assert.Greater(Math.Exp(-(valley * 5000) * (valley * 5000)), 0.98, "the valley haze alone leaves the city within 5 km clear");
+            Assert.AreEqual(SkyPalette.ValleyHazeDensity, SkyPalette.SceneFogDensity(SkyPalette.DayFogDensity, 50000), 1e-9,
+                            "the same valley on every tier (the haze is denser than Low's end-of-world floor)");
             Assert.AreEqual(3.6e-5, SkyPalette.FogDensityFloor(50000), 1e-6);
             Assert.AreEqual(0f, SkyPalette.FogDensityFloor(0));
         }

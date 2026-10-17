@@ -41,9 +41,13 @@ namespace Ghumante.Core.Horizon
         /// Slant range from the camera where the ring takes over from the streamed terrain: the ring is drawn at this
         /// distance along each view ray (after the opaque terrain), so streamed terrain nearer than this stays in front
         /// and the coarse, flattened horizon terrain farther than this is covered by the true silhouettes. Kept inside
-        /// the camera's far clip (WorldRoot.ConfigureCamera: 67.5 / 105 / 155 km).
+        /// the camera's far clip (WorldRoot.ConfigureCamera: 67.5 / 105 / 155 km). 30 km on every tier: beyond it the
+        /// valley haze has left about a tenth of the streamed terrain's colour, and the high ground 30-60 km out (the
+        /// Langtang and Jugal foothills, 3 500-5 000 m) is drawn in the ring's own altitude colours (blue-grey rock and
+        /// snow streaks over a hazy foot, as in the photos) instead of the streamed alpine and bare-ground colours, which
+        /// read khaki from the valley.
         /// </summary>
-        public double HandoverM = 55000.0;
+        public double HandoverM = 30000.0;
 
         /// <summary>Rebuild the ring once the camera moved this far horizontally from where it was built.</summary>
         public double RebuildDistanceM = 200.0;
@@ -70,7 +74,7 @@ namespace Ghumante.Core.Horizon
                     return new HorizonSettings
                     {
                         AzimuthStepDeg = 0.25, BandEdgesM = new double[] { 4000, 30000, 60000, 100000, 250000 }, StepRelative = 0.004,
-                        SimplifyToleranceDeg = 0.035, TriangleCap = 5000, GridSpacingM = 128.0, HandoverM = 45000.0, RebuildDistanceM = 300.0,
+                        SimplifyToleranceDeg = 0.035, TriangleCap = 5000, GridSpacingM = 128.0, HandoverM = 30000.0, RebuildDistanceM = 300.0,
                         RebuildHeightM = 80.0,
                     };
                 case TierHigh:

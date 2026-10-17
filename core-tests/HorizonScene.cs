@@ -55,6 +55,11 @@ namespace Ghumante.Core.Tests
 
         /// <summary>Drawn by the skyline ring (else by the streamed terrain).</summary>
         public bool FromRing;
+
+        /// <summary>Ring only: the farther of the two silhouette points the drawn quad's top edge joins. A simplified
+        /// chord can join a near ridge to a farther one; <see cref="DistanceM"/> is then interpolated between them, while
+        /// the ground that sets its height may lie as far out as this.</summary>
+        public double SpanFarM;
     }
 
     /// <summary>A point of the ring's curtain as the skyline shader shades it: horizontal distance, altitude, the quad's
@@ -221,6 +226,7 @@ namespace Ghumante.Core.Tests
                 best.ElevationDeg = el;
                 best.DistanceM = q.D0 + (q.D1 - q.D0) * t;
                 best.AltitudeM = q.Y0 + (q.Y1 - q.Y0) * t;
+                best.SpanFarM = Math.Max(q.D0, q.D1);
                 best.Hit = true;
                 best.FromRing = true;
             }

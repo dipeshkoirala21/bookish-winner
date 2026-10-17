@@ -77,12 +77,15 @@ namespace Ghumante.World.Sky
         public const float DayFogDensity = 1.2e-5f;
 
         /// <summary>
-        /// Least exponential-squared density of the scene fog at any hour: the valley's own haze. Ridges 30-55 km away
-        /// stand in it in every photo from Kathmandu (about 40 % of their own colour left at 45 km; docs/research/w2/
-        /// ref_sky.md), while the city within 5 km keeps over 98 %. The skyline hazes the sight lines that rise above
-        /// the haze with the palette's <see cref="SkyState.FogDensity"/> alone, so the snow peaks stay clear.
+        /// Least exponential-squared density of the scene fog at any hour: the valley's own haze, the same on every tier.
+        /// In the photos over the city (from Swayambhu, Basantapur and the rooftops; docs/research/w2/ref_sky.md) the
+        /// forested rim 12-20 km away is a blue-grey silhouette with about half of its own colour left, the ridges
+        /// beyond 30 km are a pale band, and the city a few kilometres away is already a little hazy: 57 % at 15 km,
+        /// 37 % at 20 km, 10 % at 30 km, 94 % at 5 km and over 99 % within 1.4 km (where the game is played). The
+        /// skyline takes over at 30 km and hazes the sight lines that rise above the haze with the palette's
+        /// <see cref="SkyState.FogDensity"/>, so the snow peaks stay crisp over a hazy foot, as in the photos.
         /// </summary>
-        public const float ValleyHazeDensity = 2.1e-5f;
+        public const float ValleyHazeDensity = 5.0e-5f;
 
         /// <summary>Share of the terrain left by the fog at the end of the streamed world (<see cref="FogDensityFloor"/>).</summary>
         public const double EdgeTransmittance = 0.04;
