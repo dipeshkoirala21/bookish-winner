@@ -50,6 +50,13 @@ namespace Ghumante.World.Sacred
             if (db != null && db.Count > 0)
             {
                 foreach (HeritageRecord r in db.Heritage) set.Add(r);
+                // Bespoke heritage sites (Core/Generators/Sacred/Heroes/<Site>/) build some of their structures as heroes of
+                // their own (HeroRecipe.SiteOf: their own LODs), added with the curated hero they belong to.
+                foreach (HeroRecipe part in HeroCatalog.S1)
+                {
+                    HeritageRecord parent, own;
+                    if (part.SiteOf != null && db.TryGetHeritage(part.SiteOf, out parent) && !db.TryGetHeritage(part.Id, out own)) set.Add(HeroCatalog.ToRecord(part));
+                }
             }
             else
             {
@@ -82,6 +89,15 @@ namespace Ghumante.World.Sacred
                 for (int i = 0; i < r.Hide.Length; i++)
                 {
                     ulong h = HeritageRecord.WayRelationRef(r.Hide[i]);
+                    if (h != 0) _hidden.Add(h);
+                }
+            // A bespoke heritage site (Core/Generators/Sacred/Heroes/<Site>/) rebuilds more buildings than its curated
+            // record hides (Boudhanath: the front row of houses round the kora); its catalogue recipe lists them.
+            HeroRecipe recipe;
+            if (HeroCatalog.TryGet(r.Id, out recipe) && recipe.Hide != null)
+                for (int i = 0; i < recipe.Hide.Length; i++)
+                {
+                    ulong h = HeritageRecord.WayRelationRef(recipe.Hide[i]);
                     if (h != 0) _hidden.Add(h);
                 }
         }

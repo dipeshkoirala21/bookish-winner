@@ -21,12 +21,29 @@ namespace Ghumante.Core.Generators.Sacred
             return Build(r, anchorTile, lod, m, c, null);
         }
 
+        /// <summary>
+        /// The ground the bespoke heritage sites (Heroes/&lt;Site&gt;/) need before a decoded tile is meshed: the Hanuman
+        /// Dhoka palace's one level (<see cref="Heroes.KdsPalace.KpGround.Apply"/>; the terrain model is a surface model
+        /// that dips and climbs 2-5 m round the palace). The streamer calls it on every decoded tile next to the structure
+        /// fallback, so the terrain mesh, the sampler, the ground query and every placer read one surface. Idempotent;
+        /// returns the height samples changed.
+        /// </summary>
+        public static int PrepareGround(TileData tile)
+        {
+            if (tile == null) return 0;
+            int n = 0;
+            n += Heroes.KdsPalace.KpGround.Apply(tile);
+            return n;
+        }
+
         /// <summary>Build a hero; returns its triangles, 0 when the anchor is not in this tile.</summary>
         public static int Build(HeritageRecord r, TileData anchorTile, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (anchorTile == null) throw new ArgumentNullException(nameof(anchorTile));
             if (m == null) throw new ArgumentNullException(nameof(m));
+            // Bespoke heritage sites (Heroes/<Site>/): structure-by-structure models instead of the parametric forms.
+            if (Heroes.KdsPalace.KdsPalaceSite.Handles(r.Id)) return Heroes.KdsPalace.KdsPalaceSite.Build(r, anchorTile, lod, m, c, stats);
             HeroRecipe recipe = Merge(r);
             double x, z;
             int building;
@@ -228,6 +245,14 @@ namespace Ghumante.Core.Generators.Sacred
                 case HeritageFinish.GiltAll: x.Finish = RoofFinish.GiltAll; break;
                 case HeritageFinish.GiltTop: x.Finish = RoofFinish.GiltTop; break;
                 case HeritageFinish.Tile: x.Finish = RoofFinish.Tile; break;
+            }
+            // A bespoke site's measured geometry (HeroRecipe.Measured) wins over the curated DB's estimates.
+            if (baseRecipe != null && baseRecipe.Measured)
+            {
+                x.HeightM = baseRecipe.HeightM;
+                x.YawDeg = baseRecipe.YawDeg;
+                x.PlanW = baseRecipe.PlanW;
+                x.PlanD = baseRecipe.PlanD;
             }
             return x;
         }
