@@ -75,13 +75,31 @@ three spots: the fade is needed only when something the boom cannot avoid hides 
 
 ## What the sample showed (core-tests, kathmandu_core, High), this round
 
+Measured on the playtest base (64155f3, after the camera, flight, props and heritage merges), "before" with the house kit
+and shader as they were on that base, "after" with this package's changes.
+
 | Measurement | Before | After |
 |---|---|---|
-| Visibly different coplanar house faces (gap ≤ 1 mm, near ring, 3 spots) | 13 132 pairs, 517 m² (6 372 exact) | see `zfight_houses.txt` (about 1-2% of the area left: grammar overlap, open issue) |
+| Visibly different coplanar house faces (gap ≤ 1 mm, near + lite ring, 3 spots) | 9 778 pairs, 405 m² (291 m² exact) | 818 pairs, 11.0 m² (4.9 m² exact): 2.7% |
+| ... the owner's houses: Hiti Pokhari 665 / Asan 292 / Kalopul 2125 | 9.41 / 3.13 / 2.97 m² | 0 / 0 / 0.06 m² |
+| ... a sign hung over a lattice window row, both clipped by the lane (Asan 142) | 1.85 m² (the whole board) | 0.94 m² (the board clear; a shutter drum on the carved lintel left) |
 | Band ring wall pixels with no band drawn, near/lite at 30 m (Hiti / Asan / Kalopul) | 0.55 / 0.46 / 0.96% | 0.09 / 0.05 / 0.12% |
 | ... B0/B1 at 80 m | 0.00 / 0.15 / 1.57% | 0.00 / 0.03 / 0.43% (meshes disagree by more than the ring: open issue) |
 | Ring wall pixels where both bands draw one wall (z-fight) with the first fix's 12% overlap | 7-9% | 0 (stencil) |
-| House pixels showing a culled back face (see-through), Hiti / Asan / Kalopul | 0.16 / 0.46 / 1.12% (old ray test) | 0.10 / 0.29 / 0.48% |
+| House pixels showing a culled back face (see-through), Hiti / Asan / Kalopul | 0.16 / 0.31 / 0.72% | 0.10 / 0.29 / 0.48% |
+| House wall dissolved in plain view (worst frame), Hiti / Asan / Kalopul | 21.1 / 13.0 / 1.7 m² | 0 / 0 / 0 |
+| Wall patches flipping solid/dissolved three times or more, worst ride | 1 248 | 0 |
+| Ground layers (roads, markings, areas, bridges and ornaments at LOD0) at the 3 spots | 3.4 m² | 3.4 m² (roads and bridges: open issue) |
+
+The first ground-layer scan read 2 000 m² of "z-fighting" on the Kalopul flyover: the bridge layer holds every span at its
+three LODs in one mesh (parts `piece × 4 + lod`, the streamer shows one), so the scan compared a span with its own LOD1
+and LOD2 copies. The scan now keeps LOD0 only; the real overlaps there are 0.9 m².
+
+The near plane: the harness's chase camera (the same 0.3 m sphere and 0.1 m skin as the game's boom) let the 0.4 m near
+plane, whose corners reach 0.49 m from the lens, cut into a house on 354 of 681 frames walking back between the two houses
+at Hiti Pokhari, because the drawn relief stands proud of the solids the boom avoids. That house beside the camera is then
+seen through (the back faces are culled), which matches the owner's screenshot as much as the old occluder fade did. Open
+issue for the camera package.
 
 Sources (this round):
 - [Unity manual: LOD Group cross-fade (dithered transitions, per-renderer fade factor)](https://docs.unity3d.com/Manual/class-LODGroup.html)

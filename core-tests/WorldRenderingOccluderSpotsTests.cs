@@ -53,8 +53,8 @@ namespace Ghumante.Core.Tests
                 OccluderSpotScene scene = OccluderSpotScene.Load(spot);
                 foreach (OccluderRide ride in scene.Rides)
                 {
-                    RideStats legacy = scene.Run(ride, new LegacyOccluderModel());
-                    RideStats game = scene.Run(ride, GameModel());
+                    OccluderRideStats legacy = scene.Run(ride, new LegacyOccluderModel());
+                    OccluderRideStats game = scene.Run(ride, GameModel());
                     report.Append(spot.Name).Append(' ').Append(ride.Name).Append('\n')
                           .Append("  legacy: ").Append(legacy).Append('\n')
                           .Append("  game:   ").Append(game).Append('\n');
@@ -126,7 +126,7 @@ namespace Ghumante.Core.Tests
                 float bestArea = 0f;
                 foreach (OccluderRide ride in scene.Rides)
                 {
-                    RideStats st = scene.Run(ride, new LegacyOccluderModel());
+                    OccluderRideStats st = scene.Run(ride, new LegacyOccluderModel());
                     if (st.WorstFrame >= 0 && st.MaxFadedAreaM2 > bestArea)
                     {
                         bestArea = st.MaxFadedAreaM2;
@@ -188,7 +188,7 @@ namespace Ghumante.Core.Tests
                 OccluderSpotScene scene = OccluderSpotScene.Load(spot);
                 foreach (OccluderRide ride in scene.Rides)
                 {
-                    RideStats game = scene.Run(ride, GameModel());
+                    OccluderRideStats game = scene.Run(ride, GameModel());
                     report.Append(spot.Name).Append(' ').Append(ride.Name).Append(": ").Append(game).Append('\n');
                     // A patch may dissolve once when the explorer really disappears behind it and come back once after:
                     // anything more is flicker.
@@ -280,7 +280,7 @@ namespace Ghumante.Core.Tests
     }
 
     /// <summary>Counters of one ride.</summary>
-    internal struct RideStats
+    internal struct OccluderRideStats
     {
         public int Frames, HiddenFrames, SustainedHiddenFrames, ClearedHiddenFrames;
 
@@ -346,12 +346,21 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>The scene of a spot, built once and kept until another spot is loaded: the tests walk the spots in
+        /// turn, and one scene (houses at three levels, the spot's whole tile build, grids) runs to a gigabyte, so only the
+        /// spot in use stays in memory while the full suite runs beside other jobs.</summary>
         public static OccluderSpotScene Load(OccluderSpot spot)
         {
             lock (Cache)
             {
                 OccluderSpotScene s;
                 if (Cache.TryGetValue(spot.Name, out s)) return s;
+                if (Cache.Count > 0)
+                {
+                    Cache.Clear();
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
                 s = new OccluderSpotScene();
                 s.Build(spot);
                 Cache[spot.Name] = s;
@@ -641,10 +650,10 @@ namespace Ghumante.Core.Tests
         // The ride
 
         /// <summary>Rides at the ride's speed with the chase camera and evaluates <paramref name="model"/> every frame.</summary>
-        public RideStats Run(OccluderRide ride, IOccluderModel model, Action<int, CameraFrame> onFrame = null)
+        public OccluderRideStats Run(OccluderRide ride, IOccluderModel model, Action<int, CameraFrame> onFrame = null)
         {
             model.Reset();
-            var stats = new RideStats { WorstFrame = -1 };
+            var stats = new OccluderRideStats { WorstFrame = -1 };
             float worst = 0f;
             var cam = new ChaseCam(ride.BoomM, ride.PitchDeg, ride.PivotM);
             var state = new Dictionary<int, byte>(); // patch -> (faded bit | transitions << 1)
@@ -998,12 +1007,16 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>A layer of the spot's tile as the streamer uploads it (High, October), cropped to
-        /// <paramref name="within"/> m of the spot's rides' first sample.</summary>
+        /// <paramref name="within"/> m of the spot's rides' first sample. The bridge and ornament layers hold every piece
+        /// at each of its LODs (parts <c>piece × 4 + lod</c>, of which the streamer shows one at a time): only LOD0 is
+        /// kept, so the copies of one span at its three LODs are not taken for overlapping surfaces.</summary>
         public MeshData ContextLayer(int layer, float within)
         {
             if (_context == null) _context = StreamingScene.Build(Tile.Tile, StreamingScene.Settings(2, 10));
             float x = Rides.Count > 0 ? Rides[0].X[0] : 512f, z = Rides.Count > 0 ? Rides[0].Z[0] : 512f;
-            return ObjDump.Crop(StreamingScene.Layer(_context, layer), x - within, z - within, x + within, z + within, true);
+            Func<int, bool> lod0 = null;
+            if (layer == TileLayers.Bridges || layer == TileLayers.Ornaments) lod0 = part => (part & 3) == 0;
+            return ObjDump.Crop(StreamingScene.Layer(_context, layer, lod0), x - within, z - within, x + within, z + within, true);
         }
 
         private TriGrid GridOf(MeshData m)

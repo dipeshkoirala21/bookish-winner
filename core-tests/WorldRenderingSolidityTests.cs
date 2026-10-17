@@ -36,10 +36,10 @@ namespace Ghumante.Core.Tests
     internal sealed class SeeThrough
     {
         /// <summary>At most this share of the house pixels beyond 1.5 m of the lens may be culled back faces. After the
-        /// pilasters were closed (0.1-0.5% at the three spots, from 0.16-1.12%; a two-sided panel's back quad no longer
-        /// counts when its front quad lies in the same plane) what is left are shell gaps in the grammar: shop boxes deeper
-        /// than the house behind them and side walls next to party walls that are not drawn (open issue for the buildings
-        /// package, World/README.md). The bound keeps them from growing.</summary>
+        /// pilasters were closed (0.10-0.48% at the three spots, from 0.16-0.72% on the playtest base; a two-sided panel's
+        /// back quad no longer counts when its front quad lies in the same plane) what is left are shell gaps in the
+        /// grammar: shop boxes deeper than the house behind them and side walls next to party walls that are not drawn
+        /// (open issue for the buildings package, World/README.md). The bound keeps them from growing.</summary>
         public const double MaxFarShare = 0.006;
 
         public int Cameras, Rays, Hits, NearBack, FarBack;

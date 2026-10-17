@@ -1725,7 +1725,12 @@ namespace Ghumante.Core.Meshing
                 double y = v + (k / 2) * 0.95;
                 // 9.5 cm (11 cm for an upper fascia): clear of the 9 cm window ledges and frames a board can overlap, and of
                 // a ground-floor board on the same wall (equal depths z-fought, playtest #4).
-                double d = Allow(ref h, f, a, b, y, fixedH > 0 ? 0.11 : 0.095);
+                double want = fixedH > 0 ? 0.11 : 0.095;
+                double d = Allow(ref h, f, a, b, y, want);
+                // Clipped by a road: every clipped frame, ledge and band behind the board ends on the same plane short of
+                // the corridor, so the board takes 8 mm (12 mm for an upper fascia) of the 2 cm margin and stays in front of
+                // them (the whole board z-fought the lattice windows it hangs over, playtest #4).
+                if (d > 0 && d < want - 1e-9) d += fixedH > 0 ? 0.012 : 0.008;
                 d = Math.Max(0.012, d);
                 int v0 = m.VertexCount;
                 MeshKit.Box(m, f, a, b, y, y + hgt, 0, d, col, h.Det.Lite ? BoxFaces.Front | BoxFaces.Bottom : BoxFaces.All & ~BoxFaces.Back);

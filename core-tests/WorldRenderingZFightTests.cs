@@ -26,11 +26,16 @@ namespace Ghumante.Core.Tests
         /// <summary>Overlaps smaller than this (m²) are below a few pixels even up close.</summary>
         public const float MinOverlapM2 = 0.0004f;
 
-        /// <summary>Before the fixes (same scan, near ring, the three spots): 13 132 visibly different coplanar pairs over
-        /// 517 m², 6 372 of them exactly coplanar (balcony slabs on the floor bands, the gable soffits under the slopes'
-        /// own, weathering patches and streaks on one layer, signs on window ledges, shop posts sunk into the reveals,
-        /// blade-sign lettering 1 mm off the blade, pilasters and bands clipped to one depth).</summary>
-        public const double BeforeAreaM2 = 517.0;
+        /// <summary>Before the fixes (same scan, near and lite rings, the three spots, measured on the playtest base
+        /// 64155f3 with the house kit as it was): 9 778 visibly different coplanar pairs over 405 m², 291 m² of them exactly
+        /// coplanar (balcony slabs on the floor bands, the gable soffits under the slopes' own, weathering patches and
+        /// streaks on one layer, signs on window ledges and frames, every relief element a road clips ending on the same
+        /// plane, shop posts sunk into the reveals, blade-sign lettering 1 mm off the blade, pilasters and bands clipped to
+        /// one depth). On the first base this scan ran on (near ring only): 13 132 pairs, 517 m².</summary>
+        public const double BeforeAreaM2 = 405.0;
+
+        /// <summary>... of which exactly coplanar (m²).</summary>
+        public const double BeforeExactAreaM2 = 291.0;
 
         [Test]
         public void HousesHaveNoCoplanarOverlappingFaces()
@@ -49,10 +54,11 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine(report.ToString());
             OccluderSpotScene.WriteReport("zfight_houses.txt", report.ToString());
-            // The long tail left is grammar overlap (a sign over a lattice, two shop boxes at a corner): open issue for the
-            // buildings package (World/README.md). It must stay a small fraction of what flickered before.
-            Assert.That(total, Is.LessThan(0.08 * BeforeAreaM2), "coplanar overlapping house faces (z-fighting):\n" + report);
-            Assert.That(exact, Is.LessThan(0.03 * BeforeAreaM2), "exactly coplanar overlapping house faces:\n" + report);
+            // The long tail left (11 m², 2.7%; 4.9 m² exactly coplanar, 1.7%) is grammar overlap: an awning over a carved
+            // window, shutters on brick pilasters, two lattice parts at one depth (by channel pair in the report): open issue
+            // for the buildings package (World/README.md). It must stay a small fraction of what flickered before.
+            Assert.That(total, Is.LessThan(0.04 * BeforeAreaM2), "coplanar overlapping house faces (z-fighting):\n" + report);
+            Assert.That(exact, Is.LessThan(0.025 * BeforeExactAreaM2), "exactly coplanar overlapping house faces:\n" + report);
         }
     }
 
@@ -67,7 +73,7 @@ namespace Ghumante.Core.Tests
             foreach (OccluderSpot spot in WorldRenderingOccluderSpotsTests.Spots)
             {
                 OccluderSpotScene scene = OccluderSpotScene.Load(spot);
-                foreach (int layer in new[] { TileLayers.Roads, TileLayers.RoadDecals, TileLayers.Areas, TileLayers.Bridges })
+                foreach (int layer in new[] { TileLayers.Roads, TileLayers.RoadDecals, TileLayers.Areas, TileLayers.Bridges, TileLayers.Ornaments })
                 {
                     MeshData m = scene.ContextLayer(layer, 150f);
                     CoplanarScan scan = CoplanarScan.Run(m, WorldRenderingZFightTests.FightM, WorldRenderingZFightTests.MinOverlapM2, 4);
@@ -109,6 +115,10 @@ namespace Ghumante.Core.Tests
         public double SameAreaM2;
         public readonly List<string> Examples = new List<string>();
 
+        /// <summary>Area of the visibly different pairs by material channel pair (lower channel first): which emitters of
+        /// the grammar still overlap.</summary>
+        public readonly Dictionary<string, double> ByChannels = new Dictionary<string, double>();
+
         /// <summary>Gap below which a pair counts as exactly coplanar (m).</summary>
         public const double ExactM = 0.0001;
 
@@ -119,6 +129,14 @@ namespace Ghumante.Core.Tests
               .Append(AreaM2.ToString("0.000", CultureInfo.InvariantCulture)).Append(" m² (").Append(Exact).Append(" exactly coplanar, ")
               .Append(ExactAreaM2.ToString("0.000", CultureInfo.InvariantCulture)).Append(" m²); ").Append(SamePairs)
               .Append(" identical-looking pairs, ").Append(SameAreaM2.ToString("0.000", CultureInfo.InvariantCulture)).Append(" m²");
+            if (ByChannels.Count > 0)
+            {
+                var pairs = new List<KeyValuePair<string, double>>(ByChannels);
+                pairs.Sort((a, b) => b.Value.CompareTo(a.Value));
+                sb.Append("; by channels:");
+                for (int i = 0; i < pairs.Count && i < 6; i++)
+                    sb.Append(' ').Append(pairs[i].Key).Append(' ').Append(pairs[i].Value.ToString("0.00", CultureInfo.InvariantCulture)).Append(" m²");
+            }
             foreach (string e in Examples) sb.Append("\n    ").Append(e);
             return sb.ToString();
         }
@@ -286,6 +304,14 @@ namespace Ghumante.Core.Tests
             {
                 Exact++;
                 ExactAreaM2 += overlap;
+            }
+            if (m.HasUv0)
+            {
+                int ca = (int)Math.Round(m.Uv0[2 * m.Indices[3 * t]]), cb = (int)Math.Round(m.Uv0[2 * m.Indices[3 * u]]);
+                string key = (MaterialChannel)Math.Min(ca, cb) + "/" + (MaterialChannel)Math.Max(ca, cb);
+                double sum;
+                ByChannels.TryGetValue(key, out sum);
+                ByChannels[key] = sum + overlap;
             }
             OnPair?.Invoke(t, u, overlap, gap);
             if (Examples.Count < maxExamples)

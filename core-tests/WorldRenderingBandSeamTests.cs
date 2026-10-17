@@ -79,7 +79,10 @@ namespace Ghumante.Core.Tests
             // Every band material is put in the order, the B0 rings by the detail cells.
             Assert.That(materials, Does.Contain("SetBandOrder(bands[i], orders[i]);"));
             Assert.That(streamer, Does.Contain("WorldMaterialDefaults.SetBandOrder(m, band == BuildingBandLayer.B0 ? ToonLitLayout.BandOrderNear : (int)band + 1);"));
-            Assert.That(cells, Does.Contain("WorldMaterialDefaults.SetBandOrder(m, layer == NearLayer ? ToonLitLayout.BandOrderNear : ToonLitLayout.BandOrderLite);"));
+            // While the B0 rings draw with their own material copies (one per ring), each copy takes its ring's order; a
+            // single B0 material (houses switched per house) keeps the streamer's B0 order.
+            if (cells.Contains("Material RingMaterial("))
+                Assert.That(cells, Does.Contain("WorldMaterialDefaults.SetBandOrder(m, layer == NearLayer ? ToonLitLayout.BandOrderNear : ToonLitLayout.BandOrderLite);"));
         }
     }
 

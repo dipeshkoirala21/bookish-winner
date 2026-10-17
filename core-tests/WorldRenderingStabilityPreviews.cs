@@ -81,6 +81,52 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
+        /// Per spot, the road and bridge layers within 150 m (as the streamer uploads them) as OBJ, with every visibly
+        /// different coplanar overlap lifted 1 cm (along its normal) in magenta: the ground-layer z-fighting report of
+        /// <see cref="WorldRenderingZFightGroundReport"/> made visible.
+        /// </summary>
+        [Test]
+        public void DumpZFightGroundLayers()
+        {
+            if (!ObjDump.Enabled) Assert.Pass("set " + ObjDump.EnvVar + " to dump the previews");
+            string tag = Environment.GetEnvironmentVariable("GHUMANTE_ZFIGHT_TAG") ?? "now";
+            var index = new StringBuilder();
+            foreach (OccluderSpot spot in WorldRenderingOccluderSpotsTests.Spots)
+            {
+                OccluderSpotScene scene = OccluderSpotScene.Load(spot);
+                foreach (int layer in new[] { Ghumante.World.Streaming.TileLayers.Roads, Ghumante.World.Streaming.TileLayers.Bridges })
+                {
+                    MeshData m = scene.ContextLayer(layer, 150f);
+                    if (m.TriangleCount == 0) continue;
+                    var fights = new MeshData();
+                    var seen = new HashSet<int>();
+                    CoplanarScan scan = CoplanarScan.Run(m, WorldRenderingZFightTests.FightM, WorldRenderingZFightTests.MinOverlapM2, 0, (a, b, area, gap) =>
+                    {
+                        foreach (int t in new[] { a, b })
+                        {
+                            if (!seen.Add(t)) continue;
+                            int f0 = fights.VertexCount;
+                            for (int k = 0; k < 3; k++)
+                            {
+                                int v = m.Indices[3 * t + k];
+                                fights.AddVertex(m.Positions[3 * v] + 0.01f * m.Normals[3 * v], m.Positions[3 * v + 1] + 0.01f * m.Normals[3 * v + 1],
+                                                 m.Positions[3 * v + 2] + 0.01f * m.Normals[3 * v + 2], m.Normals[3 * v], m.Normals[3 * v + 1],
+                                                 m.Normals[3 * v + 2], 0xFF00FFFFu);
+                            }
+                            fights.AddTriangle(f0, f0 + 1, f0 + 2);
+                        }
+                    });
+                    string dir = "stable/zfight_ground/" + spot.Name + "_layer" + layer;
+                    ObjDump.Write(m, dir + "/layer_" + tag + ".obj", new[] { "meshpreview: grid=0 sun=150,55" });
+                    if (fights.TriangleCount > 0) ObjDump.Write(fights, dir + "/fights_" + tag + ".obj", new[] { "meshpreview: grid=0 sun=150,55" });
+                    index.Append(spot.Name).Append(" layer ").Append(layer).Append(' ').Append(tag).Append(": ").Append(scan).Append('\n');
+                }
+            }
+            OccluderSpotScene.WriteReport("zfight_ground_previews_" + tag + ".txt", index.ToString());
+            TestContext.WriteLine(index.ToString());
+        }
+
+        /// <summary>
         /// The near/lite band edge (30 m on High) ray-traced from the chase camera of the rides, at the frame where the most
         /// house wall lies in the fade ring, zoomed 4x on that wall: what each pixel shows under the old complementary dithers
         /// (seam_before.ppm) and the stencil hand-off (seam_after.ppm). Near-ring fragments are drawn warm, lite-ring ones

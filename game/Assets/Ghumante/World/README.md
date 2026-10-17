@@ -265,16 +265,21 @@ rides' chase camera, `core-tests/WorldRendering*`, previews in `/home/user/wt/pr
   a dithered-out face must not hide the outer band). The source materials get their order in `ApplyExtras`, the B0 rings'
   copies in `DetailCells.RingMaterial` and the streamer's band copies in `WorldStreamer.BandMaterial`.
 * **Z-fighting** (`core-tests/WorldRenderingZFightTests`, a coplanar scan in double precision relative to each mesh,
-  shading compared at the overlap): 13 132 visibly different coplanar pairs over 517 m² on the near-ring houses at the
-  three spots, 6 372 of them exactly coplanar. Fixed at the source with minimal offsets in the house kit: balcony slabs
-  1 cm deeper than the floor band they cross (both were the same 0.16 m course), the floor band 5 mm under the floor line
-  and at 0.9 of its free depth (no longer one plane with pilasters clipped to the same depth), the gable soffits only
-  between the wall lines (the eave strips are the slopes' own soffits), weathering patches each on its own layer
-  (4.5 / 6.5 / 8.5 mm) above the streaks (2.5 mm), signs 9.5 cm proud (11 cm for an upper fascia) clear of the 9 cm window
-  ledges, Newar shop posts from the wall plane (sunk 2 cm they overlapped the reveal), blade-sign lettering 4 mm off the
-  blade (was 1 mm). What is left is grammar overlap (a sign across a lattice window, two shop boxes at a corner): open
-  issue. Surfaces closer than 1 mm count: exactly coplanar faces fight on every depth buffer, and GLES3 (no reversed Z)
-  resolves about 0.15 mm at the near ring's 32 m with the 0.4 m near plane.
+  shading compared at the overlap, area by material-channel pair in the report): on the playtest base (64155f3) the
+  near- and lite-ring houses at the three spots had 9 778 visibly different coplanar pairs over 405 m², 291 m² of them
+  exactly coplanar. Fixed at the source with minimal offsets in the house kit: balcony slabs 1 cm deeper than the floor
+  band they cross (both were the same 0.16 m course), the floor band 5 mm under the floor line and at 0.9 of its free depth
+  (no longer one plane with pilasters clipped to the same depth), the gable soffits only between the wall lines (the eave
+  strips are the slopes' own soffits), weathering patches each on its own layer (4.5 / 6.5 / 8.5 mm) above the streaks
+  (2.5 mm), signs 9.5 cm proud (11 cm for an upper fascia) clear of the 9 cm window ledges, and where a road clips a sign
+  (every clipped frame, ledge and band behind it ends on the same plane 2 cm short of the corridor) the board takes 8 mm
+  (12 mm) of that margin and stays in front, Newar shop posts from the wall plane (sunk 2 cm they overlapped the reveal),
+  blade-sign lettering 4 mm off the blade (was 1 mm), end pilasters 4 mm inside the plot end. Now 11.0 m² (2.7%) are left,
+  4.9 m² exactly coplanar (1.7%): grammar overlap (open issue). Surfaces closer than 1 mm count: exactly coplanar faces
+  fight on every depth buffer, and GLES3 (no reversed Z) resolves about 0.15 mm at the near ring's 32 m with the 0.4 m
+  near plane. The ground layers at the spots (roads, markings, areas, bridges and ornaments at LOD0; the bridge and
+  ornament layers hold every piece at each LOD, of which one draws) are clean but for 3.4 m² (roads and bridges, open
+  issue).
 * **Shadows per tier** (`ProjectSetup.TierProfile`, EditMode `WorldRenderingSetupTests`): the reach is spent on the streets
   around the camera, about 9-15 cm per texel near the camera on every tier (Low 50 m, 1 cascade 512; Mid 80 m, 1 cascade
   1024, soft Low quality; High 150 m, 2 cascades 1024 split at 20%), the last 20% of the reach fades out (cascade
@@ -283,8 +288,9 @@ rides' chase camera, `core-tests/WorldRendering*`, previews in `/home/user/wt/pr
 * **Solid walls** (`core-tests/WorldRenderingSolidityTests`): rays over the chase camera's view whose first hit on a house
   is a culled back face, i.e. the street or sky shows through the house. The end pilasters of modern fronts are closed on
   both sides (4 mm inside the plot end); a two-sided panel (awning canvas, hood soffit) no longer counts its back quad
-  when the front quad lies in the same plane. 0.1-0.5% of house pixels are left (shop boxes deeper than the house behind
-  them, side walls next to party walls that are not drawn): open issue.
+  when the front quad lies in the same plane. Hiti Pokhari 0.16% → 0.10%, Asan 0.31% → 0.29%, Kalopul 0.72% → 0.48% of
+  house pixels on the playtest base; what is left (shop boxes deeper than the house behind them, side walls next to
+  party walls that are not drawn) is an open issue.
 
 **Audio** (decision 7): the crowd walla beds are off by default (`AudioDirector.CrowdWallaEnabled`, `AmbienceInputs
 .CrowdWalla`); the bank does not even bake them, and the temple-courtyard bed is now quiet air and pigeons without
@@ -304,10 +310,23 @@ walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN
 - **Band meshes that disagree beyond the fade ring** (buildings): B1 extrudes the raw footprint while B0 is trimmed to the
   road corridor and set back, so at the B0/B1 edge a B1 facade can stand more than 2 m in front of the B0 one; the stencil
   hand-off cannot fill such a pixel (Kalopul 0.43% of the ring's wall pixels). Trim B1 like B0 (`CorridorGuard`).
-- **Z-fighting left in the house grammar** (buildings): about 1-2% of the old coplanar area at the three spots (labelled by
-  emitter with `CoplanarScan`): ground-floor signs across Newar lattice windows and roller shutters, two `ShopInterior`
-  boxes meeting at a corner shop, `ModernWindow` reveals of overlapping holes on side facades (a window hole overlapping
-  the balcony door on narrow fronts), floor bands under signs.
+- **Z-fighting left in the house grammar** (buildings): 11 m² at the three spots, 2.7% of the playtest base's 405 m²
+  (`WorldRenderingZFightTests` reports it by channel pair): awnings (Fabric) over carved windows, roller shutters and their
+  drum boxes (Metal) on carved lintels and brick pilasters, two lattice parts or two carved frames at one depth,
+  glazed-brick bands under signs, one balcony end on a side facade at Kalopul. The root is general: `Clearance.Depth`
+  clips every relief element a road reaches to the same plane (2 cm short of the corridor), so any two of them that
+  overlap fight; an order-preserving clip (deeper wanted depth, nearer the corridor, a few millimetres apart) would remove
+  the class.
+- **Ground layers** (roads, bridges): 2.5 m² of exactly coplanar road ribbon overlaps at Kalopul (junction pieces at the
+  tile edge) and 0.9 m² of bridge wall faces (an abutment and its wing wall, `zfight_ground.txt`).
+- **Near plane inside houses** (camera): the chase boom keeps a 0.3 m sphere plus 0.1 m skin off the solids, but the
+  near plane's corners reach 0.49 m from the lens at the 0.4 m near clip and the drawn relief (balconies, frames, signs)
+  stands proud of the solids, so walking between two houses at Hiti Pokhari the near plane cut into a house on 354 of 681
+  frames (the house beside the camera seen through, as in the owner's screenshot). Sweep with at least the near-plane
+  corner reach plus the relief depth, or lower the near clip in tight spaces.
+- **perf-cells merge**: its `DetailCells` draws every B0 house with the streamer's one B0 material (switched per house),
+  so `RingMaterial` and its `SetBandOrder` line go; `WorldStreamer.BandMaterial` already gives that material the B0
+  order. `WorldRenderingBandSeamTests.TheShaderHandsOverByStencil` checks the ring line only while `RingMaterial` exists.
 - **Shell gaps** (buildings): `ShopInterior` boxes 1.4 m deep on houses shallower than that at the opening poke out of the
   side wall (seen from behind); side walls drawn by `SideFacade` are seen from inside where the plot's neighbour wall is
   not drawn (Hiti Pokhari osm 478100038, Asan osm 1813422468, Kalopul osm 479929266).
