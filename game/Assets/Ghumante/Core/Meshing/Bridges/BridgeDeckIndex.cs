@@ -293,6 +293,9 @@ namespace Ghumante.Core.Meshing.Bridges
             return sb.ToString();
         }
 
+        /// <summary>How far before its top edge a flight still answers at its top height (see <see cref="Surface"/>).</summary>
+        public const double TopLipM = 0.15;
+
         /// <summary>Depth of a flight's or landing's structure under its walking surface (as <see cref="TryCeiling"/>
         /// answers it).</summary>
         public const float StairSlabM = 0.35f;
@@ -334,7 +337,13 @@ namespace Ghumante.Core.Meshing.Bridges
                 BridgeStair st = sp.Stairs[-3 - k];
                 double px = lx - st.X, pz = lz - st.Z;
                 double along = px * st.Dx + pz * st.Dz, across = -px * st.Dz + pz * st.Dx;
-                if (along < 0 || along > st.Length || Math.Abs(across) > st.HalfWidth) return false;
+                // A flight's top edge carries on a hand's width back at its top height (a lip over the joint with the
+                // deck, landing or flight it leaves), so no sliver between two pieces drops a walker through: a flight
+                // clipped off a deck starts at the first point off it, up to 0.1 m past the deck's edge (owner playtest
+                // #15: walkers reaching the top of the sidewalk stairs of the Tripureshwor overbridge 268851407 fell
+                // through that gap to the street).
+                if (along < -TopLipM || along > st.Length || Math.Abs(across) > st.HalfWidth) return false;
+                if (along < 0) along = 0;
                 // Beyond the square only for a flight whose walking line there lies in it.
                 if (!Inside(lx, lz) && !Inside(st.X + st.Dx * along, st.Z + st.Dz * along)) return false;
                 y = st.SurfaceAt(along);

@@ -670,6 +670,7 @@ namespace Ghumante.Core.Meshing.Bridges
                 }
                 return;
             }
+            JoinedCover(sp);
             double s0 = along[a], s1 = along[b];
             foreach (BridgeStair st in sp.Stairs)
             {
@@ -693,6 +694,63 @@ namespace Ghumante.Core.Meshing.Bridges
             s1 = Math.Min(s1, along[last]);
             if (s1 - s0 < 0.05) return;
             _cover[sp.Road] = MergeRange(_cover[sp.Road], s0, s1);
+        }
+
+        /// <summary>
+        /// The foot ways joining stair span <paramref name="sp"/> at its end nodes that its flights lie over (a flight run
+        /// on past its mapped foot, <see cref="FootOnGround"/>, along the pavement that carries straight on from it) are
+        /// covered there too, out to their next mapped point when less than <see cref="CoverRemnantM"/> is left: their
+        /// ribbon, a ramp up to the stair's mapped foot, neither stands through the lower treads nor answers the ground
+        /// query there. Owner playtest #15: the footway 1092639196 at the foot of the Ring Road steps 1268595061 rose
+        /// 0.3 m over the last tread toward the steps' mapped foot 1.5 m over the street, a step up that kept walkers on
+        /// the stair.
+        /// </summary>
+        private void JoinedCover(BridgeSpan sp)
+        {
+            int[] p = sp.Record.Points;
+            long k0 = BridgeStructures.Key(p[2 * sp.FirstPoint], p[2 * sp.FirstPoint + 1]), k1 = BridgeStructures.Key(p[2 * sp.LastPoint], p[2 * sp.LastPoint + 1]);
+            for (int j = 0; j < Tile.Roads.Count; j++)
+            {
+                // (A way the bridges package draws elsewhere, a sidewalk with a hump at another stair, is roads' ribbon
+                // here all the same.)
+                if (j == sp.Road) continue;
+                RoadRecord o = Tile.Roads[j];
+                if (!BridgeStyle.IsFoot(o.RoadClass)) continue;
+                int[] q = o.Points;
+                bool shares = false;
+                for (int i = 0; i + 1 < q.Length && !shares; i += 2)
+                {
+                    long key = BridgeStructures.Key(q[i], q[i + 1]);
+                    shares = key == k0 || key == k1;
+                }
+                if (!shares) continue;
+                int first, last;
+                RoadSpatialIndexRange(o, out first, out last);
+                if (last <= first) continue;
+                int n = o.PointCount;
+                var along = new double[n];
+                for (int k = first + 1; k < n; k++) along[k] = along[k - 1] + Seg(q, k - 1);
+                for (int k = first - 1; k >= 0; k--) along[k] = along[k + 1] - Seg(q, k);
+                double c0 = double.MaxValue, c1 = double.MinValue;
+                foreach (BridgeStair st in sp.Stairs)
+                {
+                    if (st.Steps <= 0 || st.Length < 0.05) continue;
+                    for (double a = 0; a <= st.Length + 1e-6; a += 0.25)
+                    {
+                        double sa, lat;
+                        if (!ProjectRoad(q, along, first, last, st.X + st.Dx * a, st.Z + st.Dz * a, out sa, out lat) || lat > st.HalfWidth) continue;
+                        c0 = Math.Min(c0, sa);
+                        c1 = Math.Max(c1, sa);
+                    }
+                }
+                if (c1 - c0 < 0.2) continue;
+                for (int k = first; k < last; k++)
+                {
+                    if (along[k] < c0 && along[k + 1] > c0 && c0 - along[k] < CoverRemnantM) c0 = along[k];
+                    if (along[k] < c1 && along[k + 1] > c1 && along[k + 1] - c1 < CoverRemnantM) c1 = along[k + 1];
+                }
+                _cover[j] = MergeRange(_cover[j], Math.Max(c0, along[first]), Math.Min(c1, along[last]));
+            }
         }
 
         private static void RoadSpatialIndexRange(RoadRecord r, out int first, out int last)
@@ -1312,12 +1370,36 @@ namespace Ghumante.Core.Meshing.Bridges
             // Crossings and openings first (their zone edges become stations).
             if (!trench && !stair) FindCrossings(t, ri, rec, along, k0, k1, sp);
             if (sp.Foot)
+            {
+                // Steep segments in a row make one stretch of steps while they run one way; where the mapped heights turn
+                // (a dip or a crest between two steep segments) one stretch ends and the next begins, so each flight
+                // climbs or descends only and passes through the height at the turn. Merged across a turn, one flight ran
+                // straight from the stretch's top to its foot: on the deck 112116412 of the Jamal overbridge it passed
+                // 0.7 m under the node where the deck 112116410 joins, so neither deck reached the other (owner
+                // playtest #15).
+                int zoneSign = 0;
                 for (int k = k0; k < k1; k++)
                 {
                     double len = along[k + 1] - along[k];
-                    if (stair || len > 1e-6 && Math.Abs(deck[k + 1] - deck[k]) / len > BridgeStyle.StairGrade)
-                        AddMerged(sp.StairZones, along[k], along[k + 1], -1);
+                    if (len <= 1e-6) continue;
+                    float dy = deck[k + 1] - deck[k];
+                    if (!stair && Math.Abs(dy) / len <= BridgeStyle.StairGrade)
+                    {
+                        zoneSign = 0;
+                        continue;
+                    }
+                    int sign = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+                    int nz = sp.StairZones.Count;
+                    if (nz > 0 && along[k] - sp.StairZones[nz - 1].S1 < 1e-6 && (stair || zoneSign == 0 || sign == zoneSign))
+                    {
+                        BridgeGap last = sp.StairZones[nz - 1];
+                        last.S1 = along[k + 1];
+                        sp.StairZones[nz - 1] = last;
+                    }
+                    else sp.StairZones.Add(new BridgeGap { S0 = along[k], S1 = along[k + 1], Road = -1 });
+                    if (sign != 0) zoneSign = sign;
                 }
+            }
 
             // Foot overbridges: an end inside the widened corridor of a road it crosses moves out of it (with room for
             // a stair landing), so neither the deck end nor its stairs stand in that road.
@@ -2557,6 +2639,15 @@ namespace Ghumante.Core.Meshing.Bridges
         {
             BridgePath path = sp.Path;
             int n = path.Count;
+            // Foot overbridge ends with nothing mapped: a stair down to the ground. First, so the deck's own flights see
+            // the railing gap it leaves through and run their treads out to the deck edge there (owner playtest #15: the
+            // flight at the west end of the Jamal overbridge deck 112116410 stopped 0.4 m short of the top of the stair
+            // generated beside it, so walkers fell between the two).
+            if (sp.Overbridge)
+            {
+                if (sp.StartEnd == SpanEnd.Ground) GeneratedStair(sp, 0);
+                if (sp.EndEnd == SpanEnd.Ground) GeneratedStair(sp, 1);
+            }
             if (sp.Foot) DeckFlights(sp);
             double wx0 = t.Tile.X0, wz0 = t.Tile.Z0;
             bool piers = sp.Form == BridgeForm.Girder;
@@ -2622,12 +2713,6 @@ namespace Ghumante.Core.Meshing.Bridges
                     if (okThis) sp.Lamps.Add(new BridgeLamp { S = s, Side = side });
                     if (okOther && (wide || !okThis)) sp.Lamps.Add(new BridgeLamp { S = s, Side = -side });
                 }
-            }
-            // Foot overbridge ends with nothing mapped: a stair down to the ground.
-            if (sp.Overbridge)
-            {
-                if (sp.StartEnd == SpanEnd.Ground) GeneratedStair(sp, 0);
-                if (sp.EndEnd == SpanEnd.Ground) GeneratedStair(sp, 1);
             }
         }
 
@@ -2977,14 +3062,7 @@ namespace Ghumante.Core.Meshing.Bridges
             {
                 double dx = dirs[c], dz = dirs[c + 1];
                 Entry e = EntryAt(sp, k, end == 0 ? -1 : 1, dx, dz, hw);
-                // Iterate the bottom height: the ground where the flight lands.
-                float bottom = g;
-                BridgeStair st = default(BridgeStair);
-                for (int it = 0; it < 3; it++)
-                {
-                    st = BridgeStair.Standard(e.X, e.Z, dx, dz, e.Y, Math.Max(0.3f, e.Y - bottom), hw);
-                    bottom = BridgeStructures.Ground(Tile, Ground, e.X + dx * st.Length, e.Z + dz * st.Length);
-                }
+                BridgeStair st = StandardToGround(e.X, e.Z, dx, dz, e.Y, hw, 0f);
                 if (c == 0 || StairClear(st, exclude))
                 {
                     best = e;
@@ -2999,6 +3077,44 @@ namespace Ghumante.Core.Meshing.Bridges
                 Runs(sp);
             }
             sp.Stairs.Add(bestStair);
+        }
+
+        /// <summary>Most risers of a generated flight (<see cref="StandardToGround"/>): 33 m of drop.</summary>
+        private const int MaxGeneratedSteps = 200;
+
+        /// <summary>
+        /// A standard flight (<see cref="BridgeStair.Standard"/>) from tile-local (x, z) at <paramref name="top"/> down
+        /// along (dx, dz) whose foot lands on the ground there (plus <paramref name="lift"/>): the shortest whole number of
+        /// risers whose foot, a flight's length on, lies one standard riser count below the top (the drop to the ground
+        /// there, within half a riser), its drop set to land exactly on the ground. On a slope rising or falling along the
+        /// flight a few rounds of "drop to the ground under the last foot" never settled: the foot of the stair generated
+        /// at the west end of the Durbar Marg overbridge 112449587 stood 0.45 m under the terrain, so walkers coming down
+        /// met a step up of more than they climb and never left the stair (owner playtest #15).
+        /// </summary>
+        private BridgeStair StandardToGround(double x, double z, double dx, double dz, float top, double hw, float lift)
+        {
+            BridgeStair best = default(BridgeStair);
+            double bestErr = double.MaxValue;
+            float bestDrop = 0.3f;
+            for (int n = 2; n <= MaxGeneratedSteps; n++)
+            {
+                BridgeStair probe = BridgeStair.Standard(x, z, dx, dz, top, n * BridgeStyle.StairRiseM, hw);
+                float drop = top - (BridgeStructures.Ground(Tile, Ground, x + dx * probe.Length, z + dz * probe.Length) + lift);
+                double err = Math.Abs(drop / BridgeStyle.StairRiseM - n);
+                if (err < 0.5 && drop >= 0.3f) return BridgeStair.Standard(x, z, dx, dz, top, drop, hw);
+                if (err < bestErr)
+                {
+                    bestErr = err;
+                    bestDrop = drop;
+                    best = probe;
+                }
+                // The ground rising along the flight faster than it descends: 3 m over the foot, no longer flight lands.
+                if (drop < n * BridgeStyle.StairRiseM - 3f) break;
+            }
+            // No whole number of risers lands on it (the ground falls away steeply under the foot): the closest, its
+            // risers stretched to reach the ground.
+            BridgeStair st = BridgeStair.Standard(x, z, dx, dz, top, Math.Max(0.3f, bestDrop), hw);
+            return st.Steps == best.Steps ? st : best;
         }
 
         /// <summary>The flights of a mapped stair: one per segment from its higher to its lower point, the top of the
@@ -3108,14 +3224,33 @@ namespace Ghumante.Core.Meshing.Bridges
                     double grade = (hi - lo) / l;
                     if (lo - g > 0.1f && grade > 0.05)
                     {
-                        double extra = Math.Min(20.0, (lo - g) / grade);
-                        float lo2 = (float)Math.Max(g, lo - grade * extra);
+                        // Where the grade line run on meets the ground, searched along it (owner playtest #15: the steps
+                        // 1268595050 of the Ring Road overbridge 1268595049, run on by the drop at the mapped foot over a
+                        // slope falling away, ended 0.9 m in the air).
+                        double extra = FootOnGround(ex, ez, dx, dz, lo, grade, lift, MaxFootRunM);
+                        float lo2 = extra < MaxFootRunM ? BridgeStructures.Ground(Tile, Ground, ex + dx * extra, ez + dz * extra) + lift
+                                                        : (float)Math.Max(g, lo - grade * extra);
+                        lo2 = Math.Min(lo2, lo);
                         BridgeStair straight = BridgeStair.Fit(tx, tz, dx, dz, hi, lo2, l + extra, hw);
                         dog = !StairClear(straight, exclude) && DogLeg(tx, tz, dx, dz, hi, lo, l, hw, lift, exclude, out f1, out pad, out f2);
                         if (!dog)
                         {
                             l += extra;
                             lo = lo2;
+                        }
+                    }
+                    else if (g - lo > 0.1f && grade > 0.05 && l > 0.6)
+                    {
+                        // The free foot under the ground (the ground rises toward the end of the way, or the stair moved
+                        // with an extended deck end onto higher ground): the flight ends where it meets the ground. Owner
+                        // playtest #15: the stair 1433527430 of the overbridge 1433527431, moved 5.7 m with the deck end
+                        // out of the lowered road's corridor, ended 0.56 m under the bank, a step up out of it no walker
+                        // makes.
+                        double a = LandingAlong(tx, tz, dx, dz, hi, grade, lift, l);
+                        if (a < l && a >= 0.6)
+                        {
+                            l = a;
+                            lo = Math.Min(hi - 0.2f, BridgeStructures.Ground(Tile, Ground, tx + dx * a, tz + dz * a) + lift);
                         }
                     }
                     // A foot that lands on a carriageway (the steps mapped to the road's centre line or kerb) is pulled
@@ -3144,6 +3279,34 @@ namespace Ghumante.Core.Meshing.Bridges
         }
 
         private readonly List<int> _chain = new List<int>();
+
+        /// <summary>Longest run of a flight's grade line on past a free mapped foot still above the ground.</summary>
+        private const double MaxFootRunM = 20.0;
+
+        /// <summary>The distance on from tile-local (x, z) along (dx, dz) at which a line falling from
+        /// <paramref name="y"/> at <paramref name="grade"/> meets the ground (plus <paramref name="lift"/>), in 5 cm steps;
+        /// <paramref name="maxRun"/> when it stays above it that far.</summary>
+        private double FootOnGround(double x, double z, double dx, double dz, float y, double grade, float lift, double maxRun)
+        {
+            for (double e = 0.05; e < maxRun; e += 0.05)
+                if (y - grade * e <= BridgeStructures.Ground(Tile, Ground, x + dx * e, z + dz * e) + lift) return e;
+            return maxRun;
+        }
+
+        /// <summary>The distance from a flight's top at tile-local (x, z), along (dx, dz), at which its grade line from
+        /// <paramref name="y"/> reaches the ground (plus <paramref name="lift"/>) where it lies under the ground from
+        /// there to its foot <paramref name="l"/> metres on (5 cm steps back from the foot; at least 0.3 m).</summary>
+        private double LandingAlong(double x, double z, double dx, double dz, float y, double grade, float lift, double l)
+        {
+            double a = l;
+            while (a - 0.05 > 0.3)
+            {
+                double b = a - 0.05;
+                if (y - grade * b >= BridgeStructures.Ground(Tile, Ground, x + dx * b, z + dz * b) + lift) break;
+                a = b;
+            }
+            return a;
+        }
 
         /// <summary>
         /// A landing pad (a flat piece: <see cref="BridgeStair.Steps"/> = 0) is cut back off any flight of the layout that
@@ -3277,6 +3440,8 @@ namespace Ghumante.Core.Meshing.Bridges
                     continue;
                 }
                 if (a < 0.15) continue;
+                // (The first point off the deck lies up to a step and the deck query's margin past its edge: the flight's
+                // top lip in the deck index, BridgeDeckIndex.TopLipM, carries walkers over that sliver.)
                 BridgeStair f = BridgeStair.Fit(st.X + st.Dx * a, st.Z + st.Dz * a, st.Dx, st.Dz, Math.Max(deckY, st.BottomY), st.BottomY, st.Length - a, st.HalfWidth);
                 f.Mapped = st.Mapped;
                 sp.Stairs[i] = f;
@@ -3388,13 +3553,7 @@ namespace Ghumante.Core.Meshing.Bridges
             {
                 double off = 2 * hw + 0.1;
                 double sx = fx + nx * side * off, sz = fz + nz * side * off;
-                float bottom = BridgeStructures.Ground(Tile, Ground, sx, sz) + lift;
-                BridgeStair back = default(BridgeStair);
-                for (int it = 0; it < 3; it++)
-                {
-                    back = BridgeStair.Standard(sx, sz, -dx, -dz, lo, Math.Max(0.3f, lo - bottom), hw);
-                    bottom = BridgeStructures.Ground(Tile, Ground, sx - dx * back.Length, sz - dz * back.Length) + lift;
-                }
+                BridgeStair back = StandardToGround(sx, sz, -dx, -dz, lo, hw, lift);
                 back.Mapped = true;
                 var landing = new BridgeStair
                 {

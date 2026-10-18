@@ -266,6 +266,67 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
+        /// Playtest #15 end to end: "I tried crossing the road using that, and i could not even reach the top." Every
+        /// foot overbridge of the sample (Kanti Path at Jamal and Bhadrakali, Durbar Marg, Putalisadak, New Baneshwor,
+        /// Tripureshwor, Chabahil, the Ring Road) is crossed by the real walker the way the player does it: from the
+        /// pavement beyond the foot of a stair on one side of the road, up every flight and landing, along the deck at its
+        /// height over the road and down a stair on the other side to the pavement (the route over the structure's own
+        /// pieces, <see cref="OverbridgeRoutes"/>, on the streamer's ground).
+        /// </summary>
+        [Test]
+        public void EveryFootOverbridgeIsCrossedFootToFoot()
+        {
+            List<TileId> tiles = TilesWith(sp => sp.Overbridge);
+            TileGroundQuery g = Ground(tiles);
+            var bad = new StringBuilder();
+            int structures = 0, crossed = 0, fallbacks = 0;
+            foreach (TileId id in tiles)
+            {
+                TileData t = StreamingSampleRegion.Tile(id);
+                foreach (OverbridgeRoutes.Route r in OverbridgeRoutes.For(t, g))
+                {
+                    structures++;
+                    if (r.Waypoints == null)
+                    {
+                        bad.Append(t.Tile).Append(" overbridge ").Append(r.Way).Append(": no route from a foot to a foot (").Append(r.Note).Append(")\n");
+                        continue;
+                    }
+                    // The longest route between two stair feet first; where a stair of the structure is one of the
+                    // known data quirks (StairDataQuirks: its mapped heights put it under another flight), the next
+                    // route crosses the road too, as a player picks the other stair.
+                    var tried = new StringBuilder();
+                    bool any = false;
+                    for (int c = -1; c < r.Alternatives.Count && !any; c++)
+                    {
+                        List<double> pts = c < 0 ? r.Waypoints : r.Alternatives[c];
+                        float startY = c < 0 ? r.StartY : r.AlternativeStartY[c];
+                        float maxY, minY, sink;
+                        string stop;
+                        bool ok = Walk(g, pts, startY + 0.05f, out maxY, out minY, out sink, out stop);
+                        bool topped = maxY > r.DeckY - 0.3f;
+                        any = ok && topped && sink <= SinkM;
+                        if (!any)
+                            tried.Append("\n      ").Append(c < 0 ? r.Note : r.AlternativeNotes[c]).Append(": ")
+                                 .Append(!ok ? stop : !topped ? "never reached the deck at " + r.DeckY.ToString("F2") : "sank " + sink.ToString("F2"));
+                        else if (c >= 0) fallbacks++;
+                        if (any && c >= 0) TestContext.WriteLine(t.Tile + " overbridge " + r.Way + " crossed on route " + (c + 2) + " (" + r.AlternativeNotes[c] + "); not on:" + tried);
+                    }
+                    if (any)
+                    {
+                        crossed++;
+                        continue;
+                    }
+                    bad.Append(t.Tile).Append(" overbridge ").Append(r.Way).Append(':').Append(tried).Append('\n');
+                }
+            }
+            TestContext.WriteLine(structures + " foot overbridges, " + crossed + " crossed");
+            Assert.That(structures, Is.GreaterThanOrEqualTo(15), "the sample's foot overbridges");
+            Assert.That(bad.ToString(), Is.Empty, "crossing every foot overbridge");
+            // (Only the overbridge 1174960075 at the sidewalk hump 1174960072, StairDataQuirks, needs its second route.)
+            Assert.That(fallbacks, Is.LessThanOrEqualTo(1), "overbridges crossed only on another route");
+        }
+
+        /// <summary>
         /// Ways whose mapped structure heights leave their flights under a deck or across another flight: a fault of the
         /// heights the data package derives, not of the layout (each is an open issue for it). Sidewalks sharing a node with
         /// the foot of a stair or the end of a deck get that node's height, so a footway along the street climbs over the
@@ -510,7 +571,16 @@ namespace Ghumante.Core.Tests
             List<double> pts;
             float startY;
             bool ride = false;
-            if (a[3] == "walk" || a[3] == "ride")
+            if (a[3] == "route")
+            {
+                // The route of EveryFootOverbridgeIsCrossedFootToFoot over the structure of group way a[2].
+                OverbridgeRoutes.Route r = OverbridgeRoutes.For(t, g).Find(x => x.Way == ulong.Parse(a[2]));
+                TestContext.WriteLine("route " + r.Note);
+                if (r.Waypoints == null) return;
+                pts = r.Waypoints;
+                startY = r.StartY + 0.05f;
+            }
+            else if (a[3] == "walk" || a[3] == "ride")
             {
                 // The crossing of RiverBridgesAndFlyoversAreWalkedAndRiddenAcross.
                 int mid = sp.Count / 2;

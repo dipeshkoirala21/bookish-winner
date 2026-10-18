@@ -159,6 +159,12 @@ namespace Ghumante.Core.Tests
         {
             public ulong Way;
             public List<double> Waypoints;
+
+            /// <summary>The other foot-to-foot routes over the deck, farthest apart first (the first is
+            /// <see cref="Waypoints"/>): waypoints, start height and a note each.</summary>
+            public readonly List<List<double>> Alternatives = new List<List<double>>();
+            public readonly List<float> AlternativeStartY = new List<float>();
+            public readonly List<string> AlternativeNotes = new List<string>();
             public float StartY, DeckY;
             public string Note;
         }
@@ -267,13 +273,21 @@ namespace Ghumante.Core.Tests
                     bool gotFoot = ground.TrySample(fx, fz, st.BottomY + 0.3f, out g);
                     feetWhy.Append(" [flight ").Append(sp.Record.OsmWayId).Append(" bottom ").Append(st.BottomY.ToString("F2")).Append(" ground ")
                            .Append(gotFoot ? g.Height.ToString("F2") + (g.OnDeck ? "d" : "") : "none").Append(" at (").Append(fx.ToString("F1")).Append(", ").Append(fz.ToString("F1")).Append(")]");
-                    if (gotFoot && Math.Abs(g.Height - st.BottomY) < 0.45f && !g.OnDeck)
+                    // The pavement 2 m beyond the foot, straight on, at the ground's height there and reached on foot both ways
+                    // (not a foot that ends over a drop, or on a ramp that leaves sideways).
+                    GroundSample gs;
+                    double sx = x0 + bx + st.Dx * 2.0, sz = z0 + bz + st.Dz * 2.0;
+                    bool street2 = gotFoot && ground.TrySample(sx, sz, g.Height + 0.3f, out gs) && !gs.OnDeck
+                                   && Walkable(ground, new Node { X = x0 + bx, Z = z0 + bz, Y = st.BottomY }, new Node { X = sx, Z = sz, Y = gs.Height })
+                                   && Walkable(ground, new Node { X = sx, Z = sz, Y = gs.Height }, new Node { X = x0 + bx, Z = z0 + bz, Y = st.BottomY });
+                    if (gotFoot && !street2) feetWhy.Append(" (no pavement at (").Append(sx.ToString("F1")).Append(", ").Append(sz.ToString("F1")).Append("))");
+                    if (gotFoot && Math.Abs(g.Height - st.BottomY) < 0.45f && !g.OnDeck && street2)
                     {
                         Node nb = nodes[prev];
                         nb.Foot = true;
                         nodes[prev] = nb;
-                        // The pavement 2 m beyond the foot, straight on.
-                        int street = Add(nodes, edges, x0 + bx + st.Dx * 2.0, z0 + bz + st.Dz * 2.0, g.Height, false);
+                        ground.TrySample(sx, sz, g.Height + 0.3f, out gs);
+                        int street = Add(nodes, edges, sx, sz, gs.Height, false);
                         piece.Add(me);
                         reachOf.Add(0);
                         Node ns = nodes[street];
@@ -301,6 +315,7 @@ namespace Ghumante.Core.Tests
             // Every foot to every other foot whose route goes over the deck: keep the one between the farthest apart.
             double bestLen = 0;
             List<int> best = null;
+            var found = new List<KeyValuePair<double, List<int>>>();
             for (int s = 0; s < nodes.Count; s++)
             {
                 if (!nodes[s].Foot || reachOf[s] > 0) continue; // start from the pavement beyond a foot
@@ -316,6 +331,7 @@ namespace Ghumante.Core.Tests
                     foreach (int v in path) overDeck |= nodes[v].Deck && nodes[v].Y > deckY - 0.5f;
                     if (!overDeck) continue;
                     double straight = Math.Sqrt((nodes[s].X - nodes[e].X) * (nodes[s].X - nodes[e].X) + (nodes[s].Z - nodes[e].Z) * (nodes[s].Z - nodes[e].Z));
+                    if (s < e) found.Add(new KeyValuePair<double, List<int>>(straight, path));
                     if (straight > bestLen)
                     {
                         bestLen = straight;
@@ -374,6 +390,23 @@ namespace Ghumante.Core.Tests
             }
             route.Waypoints = pts;
             route.StartY = nodes[best[0]].Y;
+            found.Sort((a, b) => b.Key.CompareTo(a.Key));
+            foreach (KeyValuePair<double, List<int>> f in found)
+            {
+                if (route.Alternatives.Count >= 8) break;
+                List<int> path = f.Value;
+                if (path[0] == best[0] && path[path.Count - 1] == best[best.Count - 1] || path[0] == best[best.Count - 1] && path[path.Count - 1] == best[0]) continue;
+                var ap = new List<double>();
+                foreach (int v in path)
+                {
+                    ap.Add(nodes[v].X);
+                    ap.Add(nodes[v].Z);
+                }
+                route.Alternatives.Add(ap);
+                route.AlternativeStartY.Add(nodes[path[0]].Y);
+                route.AlternativeNotes.Add("from (" + nodes[path[0]].X.ToString("F1") + ", " + nodes[path[0]].Z.ToString("F1") + ") to (" + nodes[path[path.Count - 1]].X.ToString("F1") + ", "
+                                           + nodes[path[path.Count - 1]].Z.ToString("F1") + ")");
+            }
             route.Note = "from (" + nodes[best[0]].X.ToString("F1") + ", " + nodes[best[0]].Z.ToString("F1") + ") to (" + nodes[best[best.Count - 1]].X.ToString("F1") + ", "
                          + nodes[best[best.Count - 1]].Z.ToString("F1") + "), " + best.Count + " nodes";
             return route;
