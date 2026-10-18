@@ -1597,6 +1597,11 @@ namespace Ghumante.Core.Meshing
         // The surface under the roads
         // ------------------------------------------------------------------------------------------------------------
 
+        /// <summary>A point this close outside a junction platform's outline is on it: the cap and ring vertices on the outline
+        /// are stored as floats (a few hundredths of a millimetre off the outline), and the drape and the ground query must
+        /// both find them on the platform.</summary>
+        private const double PadEdgeTolM = 1e-3;
+
         /// <summary>
         /// The bench (the road surface less its lift) under tile-local (<paramref name="lx"/>, <paramref name="lz"/>) when the
         /// point lies on a road's drawn extent (a carriageway with its footpaths or shoulders between its cuts, a junction cap,
@@ -1623,7 +1628,7 @@ namespace Ghumante.Core.Meshing
                 {
                     RoadPad p = _pads[e - _segCount];
                     if (lx < p.MinX - 1e-6 || lx > p.MaxX + 1e-6 || lz < p.MinZ - 1e-6 || lz > p.MaxZ + 1e-6) continue;
-                    if (p.Distance(lx, lz) > 1e-6) continue;
+                    if (p.Distance(lx, lz) > PadEdgeTolM) continue;
                     bench = p.Height(lx, lz);
                     gx = p.Gx;
                     gz = p.Gz;
