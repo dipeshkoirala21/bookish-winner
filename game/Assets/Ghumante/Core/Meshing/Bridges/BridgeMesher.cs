@@ -139,9 +139,16 @@ namespace Ghumante.Core.Meshing.Bridges
             return true;
         }
 
-        /// <summary>Plan distance (m) from tile-local point (x, z) to a span's centreline, for <see cref="BridgeOptions.LodFor"/>.</summary>
+        /// <summary>Plan distance (m) from tile-local point (x, z) to a span's centreline, for <see cref="BridgeOptions.LodFor"/>.
+        /// A trench is measured to its retaining walls where they are drawn (its wall runs, on their side of the road), the
+        /// rest of it being plain road: its LOD piece is no nearer than its walls, and no farther than they are.</summary>
         public static double Distance(BridgeSpan sp, double x, double z)
         {
+            if (sp.Trench && (sp.RailRunsL.Count > 0 || sp.RailRunsR.Count > 0))
+            {
+                double walls = Math.Min(RunDistance(sp, sp.RailRunsL, 1, x, z), RunDistance(sp, sp.RailRunsR, -1, x, z));
+                if (!double.IsPositiveInfinity(walls)) return walls;
+            }
             double best = double.PositiveInfinity;
             BridgePath p = sp.Path;
             for (int k = 0; k + 1 < p.Count; k++)
@@ -152,6 +159,32 @@ namespace Ghumante.Core.Meshing.Bridges
                 double qx = ax + dx * f - x, qz = az + dz * f - z;
                 best = Math.Min(best, qx * qx + qz * qz);
             }
+            return Math.Sqrt(best);
+        }
+
+        /// <summary>Plan distance from (x, z) to the wall line of trench <paramref name="sp"/> on side
+        /// <paramref name="side"/> (+1 left) over the stretches [runs[i], runs[i + 1]] (along): the line through the middle of
+        /// the wall, beside the carriageway and its walkway; +∞ when there are none.</summary>
+        private static double RunDistance(BridgeSpan sp, List<double> runs, int side, double x, double z)
+        {
+            double best = double.PositiveInfinity;
+            BridgePath p = sp.Path;
+            for (int r = 0; r + 1 < runs.Count; r += 2)
+                for (int k = 0; k + 1 < p.Count; k++)
+                {
+                    double s0 = Math.Max(p.S[k], runs[r]), s1 = Math.Min(p.S[k + 1], runs[r + 1]), len = p.S[k + 1] - p.S[k];
+                    if (s1 < s0 || len < 1e-9) continue;
+                    double f0 = (s0 - p.S[k]) / len, f1 = (s1 - p.S[k]) / len;
+                    double oa = side * (side > 0 ? sp.HalfL[k] + sp.WalkL[k] : sp.HalfR[k] + sp.WalkR[k]) + side * 0.5 * BridgeStyle.RailBaseM;
+                    double ob = side * (side > 0 ? sp.HalfL[k + 1] + sp.WalkL[k + 1] : sp.HalfR[k + 1] + sp.WalkR[k + 1]) + side * 0.5 * BridgeStyle.RailBaseM;
+                    double xa = p.X[k] + p.Nx[k] * oa, za = p.Z[k] + p.Nz[k] * oa, xb = p.X[k + 1] + p.Nx[k + 1] * ob, zb = p.Z[k + 1] + p.Nz[k + 1] * ob;
+                    double ax = xa + (xb - xa) * f0, az = za + (zb - za) * f0;
+                    double dx = (xb - xa) * (f1 - f0), dz = (zb - za) * (f1 - f0), l2 = dx * dx + dz * dz;
+                    double f = l2 > 1e-12 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+                    f = f < 0 ? 0 : f > 1 ? 1 : f;
+                    double qx = ax + dx * f - x, qz = az + dz * f - z;
+                    best = Math.Min(best, qx * qx + qz * qz);
+                }
             return Math.Sqrt(best);
         }
 

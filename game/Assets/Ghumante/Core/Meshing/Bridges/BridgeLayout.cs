@@ -110,6 +110,10 @@ namespace Ghumante.Core.Meshing.Bridges
         /// <summary>A mapped stair (a steps way climbing to a deck): drawn as flights only (<see cref="Stairs"/>).</summary>
         public bool Stair;
 
+        /// <summary>The span is a trench (<see cref="BridgeLayout.Trenches"/>): retaining walls along a lowered road, no
+        /// deck.</summary>
+        public bool Trench;
+
         /// <summary>The lowest way id of the connected structure this span belongs to (paint and roof choices).</summary>
         public ulong GroupWay;
 
@@ -1375,7 +1379,7 @@ namespace Ghumante.Core.Meshing.Bridges
             for (int k = k0 - 1; k >= 0; k--) along[k] = along[k + 1] - BridgeStructures.SegLen(p, k);
             if (along[k1] - along[k0] < (stair ? 0.8 : 2.0)) return null;
 
-            var sp = new BridgeSpan { Road = ri, Record = r, Kind = rec.Kind, FirstPoint = k0, LastPoint = k1, Stair = stair };
+            var sp = new BridgeSpan { Road = ri, Record = r, Kind = rec.Kind, FirstPoint = k0, LastPoint = k1, Stair = stair, Trench = trench };
             sp.Foot = BridgeStyle.IsFoot(r.RoadClass);
             sp.Overbridge = rec.Has(RoadStructureFlags.FootOverbridge) && !stair;
             sp.Water = rec.Has(RoadStructureFlags.WaterCrossing);
