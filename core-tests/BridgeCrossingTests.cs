@@ -323,6 +323,14 @@ namespace Ghumante.Core.Tests
                 foreach (BridgeSpan sp in d.Layout.Spans)
                 {
                     double lx = x - kv.Key.X0, lz = z - kv.Key.Z0;
+                    for (int si = 0; si < sp.Stairs.Count; si++)
+                    {
+                        BridgeStair st = sp.Stairs[si];
+                        double px = lx - st.X, pz = lz - st.Z, al = px * st.Dx + pz * st.Dz, ac = -px * st.Dz + pz * st.Dx;
+                        if (al < -0.5 || al > st.Length + 0.5 || Math.Abs(ac) > st.HalfWidth + 0.5) continue;
+                        TestContext.WriteLine("   flight " + sp.Record.OsmWayId + "#" + si + " along " + al.ToString("F2") + "/" + st.Length.ToString("F2") + " across " + ac.ToString("F2") + "/" + st.HalfWidth.ToString("F2")
+                                              + " surface " + (al >= 0 && al <= st.Length ? st.SurfaceAt(al).ToString("F2") : "-") + " y " + st.TopY.ToString("F2") + ".." + st.BottomY.ToString("F2") + " steps " + st.Steps + " landings " + st.Landings);
+                    }
                     if (BridgeMesher.Distance(sp, lx, lz) > 12) continue;
                     TestContext.WriteLine("   span " + Name(kv.Value.Source, sp) + " dist " + BridgeMesher.Distance(sp, lx, lz).ToString("F2") + " ends " + sp.StartEnd + "/" + sp.EndEnd
                                           + " start (" + (kv.Key.X0 + sp.Path.X[0]).ToString("F1") + ", " + (kv.Key.Z0 + sp.Path.Z[0]).ToString("F1") + ") end ("
@@ -338,6 +346,7 @@ namespace Ghumante.Core.Tests
             int layer;
             if (w.DrawnBelow(x, z, y + 1f, out top, out layer)) TestContext.WriteLine("drawn " + top.ToString("F2") + "TARB"[layer]);
             TestContext.WriteLine("column" + w.Column(x, z));
+            TestContext.WriteLine(w.Explain(x, z, y));
             TestContext.WriteLine(w.Blockers(x, z, y, 0.6));
         }
 

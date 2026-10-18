@@ -304,6 +304,11 @@ namespace Ghumante.Core.Tests
                     float[] dy = t.RoadStructureOf(sp.Road).DeckY;
                     for (int k = 0; k < sp.Record.PointCount; k++) mp.Append(" (").Append((x0 + p[2 * k] / 100.0).ToString("F1")).Append(",").Append((z0 + p[2 * k + 1] / 100.0).ToString("F1")).Append(dy != null && k < dy.Length ? " " + dy[k].ToString("F2") : "").Append(")");
                     TestContext.WriteLine(mp.ToString());
+                    foreach (BridgeStair st in sp.Stairs)
+                        TestContext.WriteLine("    stair top (" + (x0 + st.X).ToString("F2") + ", " + (z0 + st.Z).ToString("F2") + ") dir (" + st.Dx.ToString("F2") + ", " + st.Dz.ToString("F2") + ") y "
+                                              + st.TopY.ToString("F2") + ".." + st.BottomY.ToString("F2") + " len " + st.Length.ToString("F2") + " half " + st.HalfWidth.ToString("F2") + " steps " + st.Steps
+                                              + " landings " + st.Landings + " tread " + st.Tread.ToString("F2") + " bottomrun " + st.BottomRun.ToString("F2") + (st.Mapped ? " mapped" : "")
+                                              + " foot (" + (x0 + st.X + st.Dx * st.Length).ToString("F2") + ", " + (z0 + st.Z + st.Dz * st.Length).ToString("F2") + ")");
                     TestContext.WriteLine("    deck " + string.Join(",", sp.DeckRuns.ConvertAll(v => v.ToString("F1"))) + " railL " + string.Join(",", sp.RailRunsL.ConvertAll(v => v.ToString("F1"))) + " railR " + string.Join(",", sp.RailRunsR.ConvertAll(v => v.ToString("F1")))
                                           + " gapsL " + string.Join(";", sp.GapsL.ConvertAll(v => v.S0.ToString("F1") + ".." + v.S1.ToString("F1") + "@" + v.Road)) + " gapsR " + string.Join(";", sp.GapsR.ConvertAll(v => v.S0.ToString("F1") + ".." + v.S1.ToString("F1") + "@" + v.Road))
                                           + " open " + string.Join(";", sp.Openings.ConvertAll(v => v.S0.ToString("F1") + ".." + v.S1.ToString("F1"))));
@@ -328,6 +333,8 @@ namespace Ghumante.Core.Tests
                         mp.Append(" ").Append(k).Append(":(").Append((x0 + p[2 * k] / 100.0).ToString("F1")).Append(",").Append((z0 + p[2 * k + 1] / 100.0).ToString("F1"))
                           .Append(st.DeckY != null && k < st.DeckY.Length ? " " + st.DeckY[k].ToString("F2") : "").Append(")");
                     }
+                    double[] cov = l.CoverOf(ri);
+                    if (cov != null) TestContext.WriteLine("    stair cover of road #" + ri + ": " + string.Join(",", Array.ConvertAll(cov, v => v.ToString("F2"))));
                     TestContext.WriteLine("road #" + ri + " " + rr.OsmWayId + " " + rr.RoadClass + " kind " + st.Kind + " sflags " + st.Flags + " elevated " + st.IsElevated + mp);
                 }
             }

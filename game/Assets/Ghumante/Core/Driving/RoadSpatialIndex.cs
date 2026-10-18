@@ -443,6 +443,19 @@ namespace Ghumante.Core.Driving
         /// one level of roads (<see cref="RoadLayer"/>).</summary>
         public bool TryNearest(double x, double z, double maxDistM, RoadFlags mustHave, RoadFlags mustNotHave, RoadLayer layer, out RoadHit hit)
         {
+            return Nearest(x, z, maxDistM, mustHave, mustNotHave, layer, -1, out hit);
+        }
+
+        /// <summary>As <see cref="TryNearest(double, double, double, RoadFlags, RoadFlags, RoadLayer, out RoadHit)"/>,
+        /// ignoring road <paramref name="skipRoad"/>: the next road under a point where two carriageways overlap at
+        /// different structure heights (the ground query's layered choice, <c>TileGroundQuery</c>).</summary>
+        internal bool TryNearestExcept(double x, double z, double maxDistM, RoadLayer layer, int skipRoad, out RoadHit hit)
+        {
+            return Nearest(x, z, maxDistM, RoadFlags.None, RoadFlags.None, layer, skipRoad, out hit);
+        }
+
+        private bool Nearest(double x, double z, double maxDistM, RoadFlags mustHave, RoadFlags mustNotHave, RoadLayer layer, int skipRoad, out RoadHit hit)
+        {
             hit = default(RoadHit);
             bool filter = mustHave != RoadFlags.None || mustNotHave != RoadFlags.None;
             bool wantElevated = layer == RoadLayer.Elevated;
@@ -466,6 +479,7 @@ namespace Ghumante.Core.Driving
                 {
                     int i = _cellSegs[k];
                     if (layer != RoadLayer.Any && _elevated[_road[i]] != wantElevated) continue;
+                    if (_road[i] == skipRoad) continue;
                     if (filter)
                     {
                         RoadFlags f = _tile.Roads[_road[i]].Flags;

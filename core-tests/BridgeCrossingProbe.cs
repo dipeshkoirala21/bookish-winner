@@ -311,6 +311,7 @@ namespace Ghumante.Core.Tests
                 ObjDump.Write(m, name + "/" + layers[li] + ".obj", comments);
             }
             var solids = new MeshData();
+            var houses = new MeshData();
             var prims = new List<SolidPrim>();
             foreach (KeyValuePair<TileId, TileBuild> kv in Builds)
             {
@@ -318,7 +319,14 @@ namespace Ghumante.Core.Tests
                 Ground.SolidsOf(kv.Key, prims);
                 foreach (SolidPrim p in prims)
                 {
-                    if (p.Group >= 0) continue; // footprints: drawn as houses
+                    if (p.Group >= 0)
+                    {
+                        // Footprint walls (the drawn houses are off in this world): pale boxes.
+                        double hx = 0.5 * (p.Ax + p.Bx) - cx, hz = 0.5 * (p.Az + p.Bz) - cz;
+                        if (Math.Abs(hx) < half && Math.Abs(hz) < half)
+                            Slab(houses, p.Ax - cx, p.Az - cz, p.Bx - cx, p.Bz - cz, Math.Max(0.1f, p.Radius), p.Bottom, Math.Min(p.Top, p.Bottom + 9f), 0xE8DCC8FFu);
+                        continue;
+                    }
                     double mx = 0.5 * (p.Ax + p.Bx) - cx, mz = 0.5 * (p.Az + p.Bz) - cz;
                     if (Math.Abs(mx) > half || Math.Abs(mz) > half) continue;
                     Slab(solids, p.Ax - cx, p.Az - cz, p.Bx - cx, p.Bz - cz, Math.Max(0.05f, p.Radius), p.Bottom, p.Top, 0xD03030FFu);
@@ -343,6 +351,7 @@ namespace Ghumante.Core.Tests
                 }
             }
             ObjDump.Write(solids, name + "/solids.obj", comments);
+            ObjDump.Write(houses, name + "/houses.obj", comments);
         }
 
         /// <summary>A box from a to b, half width <paramref name="r"/>, from <paramref name="y0"/> to <paramref name="y1"/>.</summary>

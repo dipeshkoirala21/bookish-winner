@@ -246,6 +246,57 @@ namespace Ghumante.Core.Meshing.Bridges
             return found;
         }
 
+        /// <summary>
+        /// True when the structure of an item at (x, z) (between its underside and its walking surface) overlaps the
+        /// height band (<paramref name="low"/>, <paramref name="high"/>): a body standing there would be inside a deck or a
+        /// flight. Exact where the generic slab test assumes a road deck's full depth: a flight or landing is a thin steel
+        /// piece (<see cref="StairSlabM"/>), so the flight of a dog-leg 1.6 m over the one below is headroom, not a wall
+        /// (owner playtest #15).
+        /// </summary>
+        public bool SlabOverlaps(double x, double z, float low, float high)
+        {
+            double lx = x - _x0, lz = z - _z0;
+            if (!Near(lx, lz)) return false;
+            int cell = Clamp((int)Math.Floor(lz / CellM)) * _cells + Clamp((int)Math.Floor(lx / CellM));
+            for (int c = _cellStart[cell]; c < _cellStart[cell + 1]; c++)
+            {
+                int item = _items[c];
+                float y, ys, gx, gz;
+                if (!Surface(item, lx, lz, false, out y, out gx, out gz) || y <= low) continue;
+                // (No underside where the deck is not built, a junction trim or an opening: the walking surface goes on
+                // there, carried by the deck it meets, but no slab of this item stands over a body.)
+                if (!Surface(item, lx, lz, true, out ys, out gx, out gz)) continue;
+                if (ys < high) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Every item covering (x, z): way, piece (segment, pre/post or flight) and its surface and underside
+        /// (diagnostics for the probe tests).</summary>
+        internal string Explain(double x, double z)
+        {
+            double lx = x - _x0, lz = z - _z0;
+            if (!Near(lx, lz)) return "";
+            var sb = new System.Text.StringBuilder();
+            int cell = Clamp((int)Math.Floor(lz / CellM)) * _cells + Clamp((int)Math.Floor(lx / CellM));
+            for (int c = _cellStart[cell]; c < _cellStart[cell + 1]; c++)
+            {
+                int item = _items[c];
+                float y, ys, gx, gz;
+                if (!Surface(item, lx, lz, false, out y, out gx, out gz)) continue;
+                if (!Surface(item, lx, lz, true, out ys, out gx, out gz)) ys = float.NaN;
+                BridgeSpan sp = Layout.Spans[_span[item]];
+                int k = _k[item];
+                sb.Append(sp.Record.OsmWayId).Append(k <= -3 ? " flight " + (-3 - k) : k == -1 ? " pre" : k == -2 ? " post" : " seg " + k)
+                  .Append(sp.Stair ? " (stair)" : "").Append(" y ").Append(y.ToString("F2")).Append(" under ").Append(ys.ToString("F2")).Append("; ");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Depth of a flight's or landing's structure under its walking surface (as <see cref="TryCeiling"/>
+        /// answers it).</summary>
+        public const float StairSlabM = 0.35f;
+
         /// <inheritdoc />
         public bool TryCeiling(double x, double z, float fromY, out float undersideY)
         {
@@ -287,7 +338,7 @@ namespace Ghumante.Core.Meshing.Bridges
                 // Beyond the square only for a flight whose walking line there lies in it.
                 if (!Inside(lx, lz) && !Inside(st.X + st.Dx * along, st.Z + st.Dz * along)) return false;
                 y = st.SurfaceAt(along);
-                if (soffit) y -= 0.35f;
+                if (soffit) y -= StairSlabM;
                 // The normal of a flight is no steeper than a comfortable stair (each tread is level; the walking line
                 // only averages them): steep mapped flights stay climbable on foot (owner playtest #15), while wheels still
                 // meet a grade beyond every vehicle's limit.
@@ -331,6 +382,17 @@ namespace Ghumante.Core.Meshing.Bridges
                         if (t > 1 && tn >= 0 || t < 0 && tn <= 1) return false;
                     }
                     if (excess > reach) return false;
+                    if (nb >= 0)
+                    {
+                        // Only a joint between two decked segments has a wedge: where the neighbour is a stretch of steps
+                        // inside the deck (or an opening), its flights carry the surface (owner playtest #15: on the
+                        // overbridge mapped as way 112448812 the wedge of the deck at the top of the steps in its middle
+                        // stood over them as a ceiling 0.7 m above the treads).
+                        int n0, n1;
+                        Stations(sp, nb, out n0, out n1);
+                        double sMid = 0.5 * (sp.Path.S[n0] + sp.Path.S[n1]);
+                        if (!sp.HasDeck(sMid) || sp.InStairZoneInterior(sMid)) return false;
+                    }
                 }
             }
             double tc = t < 0 ? 0 : t > 1 ? 1 : t;

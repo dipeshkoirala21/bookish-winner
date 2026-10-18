@@ -94,7 +94,11 @@ namespace Ghumante.Core.Driving
             // (railings on the drawn railing line, supports, trench walls); the road-based railings below skip those roads.
             BridgeColliders bridges = bridgeSolids && t.HasDetail && t.Roads.Count > 0 ? BridgeColliders.For(BridgeLayout.For(t)) : null;
             if (roads != null) Railings(t, h, roads, roadOptions ?? new RoadOptions(), b, bridges != null ? bridges.Covered : null);
-            if (bridges != null) BridgeSolids(t, bridges, b);
+            if (bridges != null)
+            {
+                BridgeSolids(t, bridges, b);
+                OpenFootprints(t, BridgeLayout.For(t), b);
+            }
             return b.Build();
         }
 
@@ -401,6 +405,115 @@ namespace Ghumante.Core.Driving
             foreach (BridgeColliders.Block k in c.Blocks)
                 b.AddBox(x0 + k.CX, z0 + k.CZ, k.HalfAlong, k.HalfAcross, k.Yaw, k.Bottom, k.Top, 0.05f, SolidFlags.None, sx, sz);
             foreach (BridgeColliders.Column k in c.Columns) b.AddCylinder(x0 + k.CX, z0 + k.CZ, k.Radius, k.Bottom, k.Top, SolidFlags.None);
+        }
+
+        /// <summary>
+        /// Leaves out the walls of the building footprints that cross a walkable piece of the bridges package (a stair
+        /// flight, a landing, a deck's walkway or carriageway) at its walking height: the footprints stand where OSM maps
+        /// the houses, and the stairs of a foot overbridge or the walkway of a narrow bridge are often mapped along (or a
+        /// little into) a house beside the pavement, so a house wall stood across the stair or the walkway and the walker
+        /// could neither climb nor cross (owner playtest #15 and #2). The house keeps its other walls; a body that got
+        /// inside an outline can always leave it.
+        /// </summary>
+        private static void OpenFootprints(TileData t, BridgeLayout l, SolidBuilder b)
+        {
+            var quads = new List<double>(); // per piece: 4 corners (x, z) in game metres, then the lowest and highest walking height
+            double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+            foreach (BridgeSpan sp in l.Spans)
+            {
+                foreach (BridgeStair st in sp.Stairs)
+                {
+                    if (st.Steps < 0 || st.Length < 0.05) continue;
+                    double nx = -st.Dz * st.HalfWidth, nz = st.Dx * st.HalfWidth;
+                    double ex = st.X + st.Dx * st.Length, ez = st.Z + st.Dz * st.Length;
+                    AddQuad(quads, x0 + st.X + nx, z0 + st.Z + nz, x0 + ex + nx, z0 + ez + nz, x0 + ex - nx, z0 + ez - nz, x0 + st.X - nx, z0 + st.Z - nz,
+                            Math.Min(st.TopY, st.BottomY), Math.Max(st.TopY, st.BottomY));
+                }
+                if (sp.Stair) continue;
+                BridgePath p = sp.Path;
+                for (int k = 0; k + 1 < p.Count; k++)
+                {
+                    double mid = 0.5 * (p.S[k] + p.S[k + 1]);
+                    if (!sp.HasDeck(mid) || sp.InStairZoneInterior(mid)) continue;
+                    double ax, az, bx, bz, ux, uz, anx, anz, bnx, bnz, tx, tz;
+                    float ay, by;
+                    p.Frame(p.S[k], out ax, out az, out ay, out ux, out uz, out anx, out anz, out tx, out tz);
+                    p.Frame(p.S[k + 1], out bx, out bz, out by, out ux, out uz, out bnx, out bnz, out tx, out tz);
+                    double la = sp.InnerL(k), ra = sp.InnerR(k), lb = sp.InnerL(k + 1), rb = sp.InnerR(k + 1);
+                    AddQuad(quads, x0 + ax + anx * la, z0 + az + anz * la, x0 + bx + bnx * lb, z0 + bz + bnz * lb, x0 + bx - bnx * rb, z0 + bz - bnz * rb,
+                            x0 + ax - anx * ra, z0 + az - anz * ra, Math.Min(ay, by), Math.Max(ay, by));
+                }
+            }
+            if (quads.Count == 0) return;
+            int nq = quads.Count / 10;
+            int kept = 0;
+            for (int i = 0; i < b.Prims.Count; i++)
+            {
+                SolidPrim pr = b.Prims[i];
+                bool open = false;
+                if (pr.Group >= 0)
+                    for (int q = 0; q < nq && !open; q++)
+                    {
+                        int o = q * 10;
+                        // A wall spanning the walking height there (from below the feet to above the head).
+                        if (!(pr.Bottom < quads[o + 9] + TileGroundQuery.BodyHeightM && pr.Top > quads[o + 8] + TileGroundQuery.StepUpM)) continue;
+                        open = SegmentCrossesQuad(pr.Ax, pr.Az, pr.Bx, pr.Bz, quads, o);
+                    }
+                if (!open) b.Prims[kept++] = pr;
+            }
+            b.Prims.RemoveRange(kept, b.Prims.Count - kept);
+        }
+
+        private static void AddQuad(List<double> q, double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz, float lo, float hi)
+        {
+            q.Add(ax);
+            q.Add(az);
+            q.Add(bx);
+            q.Add(bz);
+            q.Add(cx);
+            q.Add(cz);
+            q.Add(dx);
+            q.Add(dz);
+            q.Add(lo);
+            q.Add(hi);
+        }
+
+        /// <summary>True when segment a-b crosses (or lies in) the convex quad at <paramref name="o"/> in
+        /// <paramref name="q"/> (corners in order).</summary>
+        private static bool SegmentCrossesQuad(double ax, double az, double bx, double bz, List<double> q, int o)
+        {
+            double minX = Math.Min(Math.Min(q[o], q[o + 2]), Math.Min(q[o + 4], q[o + 6])), maxX = Math.Max(Math.Max(q[o], q[o + 2]), Math.Max(q[o + 4], q[o + 6]));
+            double minZ = Math.Min(Math.Min(q[o + 1], q[o + 3]), Math.Min(q[o + 5], q[o + 7])), maxZ = Math.Max(Math.Max(q[o + 1], q[o + 3]), Math.Max(q[o + 5], q[o + 7]));
+            if (Math.Max(ax, bx) < minX || Math.Min(ax, bx) > maxX || Math.Max(az, bz) < minZ || Math.Min(az, bz) > maxZ) return false;
+            if (InQuad(ax, az, q, o) || InQuad(bx, bz, q, o)) return true;
+            for (int e = 0; e < 4; e++)
+            {
+                int i = o + 2 * e, j = o + 2 * ((e + 1) % 4);
+                if (Cross(ax, az, bx, bz, q[i], q[i + 1], q[j], q[j + 1])) return true;
+            }
+            return false;
+        }
+
+        private static bool InQuad(double x, double z, List<double> q, int o)
+        {
+            int sign = 0;
+            for (int e = 0; e < 4; e++)
+            {
+                int i = o + 2 * e, j = o + 2 * ((e + 1) % 4);
+                double c = (q[j] - q[i]) * (z - q[i + 1]) - (q[j + 1] - q[i + 1]) * (x - q[i]);
+                int sg = c > 1e-12 ? 1 : c < -1e-12 ? -1 : 0;
+                if (sg == 0) continue;
+                if (sign == 0) sign = sg;
+                else if (sg != sign) return false;
+            }
+            return true;
+        }
+
+        private static bool Cross(double ax, double az, double bx, double bz, double cx, double cz, double dx, double dz)
+        {
+            double d1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
+            double d3 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d4 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
+            return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0);
         }
 
         private static void Railings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, SolidBuilder b, bool[] covered)

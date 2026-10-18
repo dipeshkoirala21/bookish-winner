@@ -322,7 +322,7 @@ namespace Ghumante.Core.Meshing
                 last = j;
             }
             // Gap flags per kept segment: the candidates between two kept rows share one gap state.
-            for (int k = 0; k + 1 < f.Count; k++) f.GapAfter[k] = layout.InGap(ri, 0.5 * (f.S[k] + f.S[k + 1]));
+            for (int k = 0; k + 1 < f.Count; k++) f.GapAfter[k] = InGap(t, ri, layout, 0.5 * (f.S[k] + f.S[k + 1]));
             return f.Count >= 2;
         }
 
@@ -381,10 +381,21 @@ namespace Ghumante.Core.Meshing
             sc.Count = 0;
             RoadCut[] cuts = layout.Cuts[ri];
             int nextCut = 0;
+            // Stretches a stair of the bridges package covers (its flights are the walking surface): rows at their ends.
+            double[] cover = Ghumante.Core.Meshing.Bridges.BridgeLayout.For(t).CoverOf(ri);
+            int nextCover = 0;
             int sizeCm = (int)Math.Round(t.Tile.Size * 100.0);
             for (int k = 0; k < c.Count; k++)
             {
                 double s = c.S[k];
+                while (cover != null && nextCover < cover.Length && cover[nextCover] < s - 1e-6)
+                {
+                    double cs = cover[nextCover++];
+                    if (sc.Count == 0 || cs <= sc.S[sc.Count - 1] + 1e-6) continue;
+                    double cx, cz, ctx, ctz;
+                    c.At(cs, out cx, out cz, out ctx, out ctz);
+                    sc.Add(cs, cx, cz, -ctz, ctx, ctx, ctz, 0f, true);
+                }
                 while (cuts != null && nextCut < cuts.Length && cuts[nextCut].S < s - 1e-6)
                 {
                     RoadCut cu = cuts[nextCut++];
@@ -424,8 +435,17 @@ namespace Ghumante.Core.Meshing
                 if (sc.Count > 0 && cu.S <= sc.S[sc.Count - 1] + 1e-6) continue;
                 AddCut(sc, cu);
             }
-            for (int k = 0; k + 1 < sc.Count; k++) sc.Gap[k] = layout.InGap(ri, 0.5 * (sc.S[k] + sc.S[k + 1]));
+            for (int k = 0; k + 1 < sc.Count; k++) sc.Gap[k] = InGap(t, ri, layout, 0.5 * (sc.S[k] + sc.S[k + 1]));
             if (sc.Count > 0) sc.Gap[sc.Count - 1] = false;
+        }
+
+        /// <summary>True where road <paramref name="ri"/> draws no ribbon: inside a junction cap or ring entry
+        /// (<see cref="RoadLayout.InGap"/>), or on a stretch where a stair of the bridges package lies
+        /// (<see cref="Ghumante.Core.Meshing.Bridges.BridgeLayout.CoversAlong"/>: mapped steps and the sidewalks climbing to
+        /// a foot overbridge are drawn as flights and landings there, not as a ramp at their structure heights).</summary>
+        private static bool InGap(TileData t, int ri, RoadLayout layout, double s)
+        {
+            return layout.InGap(ri, s) || Ghumante.Core.Meshing.Bridges.BridgeLayout.For(t).CoversAlong(ri, s);
         }
 
         private static void AddCut(Scratch sc, in RoadCut cu)

@@ -266,6 +266,8 @@ namespace Ghumante.Core.Tests
                     for (double s = 0.25; s <= c.RawLengthM - 0.25; s += 2)
                     {
                         if (layout.InGap(i, s)) continue;
+                        // (Where a stair of the bridges package lies the ribbon is left out: its flights are the surface.)
+                        if (Ghumante.Core.Meshing.Bridges.BridgeLayout.For(t).CoversAlong(i, s)) continue;
                         Assert.That(layout.CorridorHalfM(i, s), Is.GreaterThanOrEqualTo(0.5f * RoadClearance.MinCorridorM - 1e-4f));
                         RoadCut cut = layout.DrawnCutAt(t, i, s);
                         Assert.That(2 * cut.Half, Is.GreaterThanOrEqualTo(floor - 1e-3), t.Tile + " road " + i);

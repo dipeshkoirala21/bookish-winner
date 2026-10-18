@@ -512,8 +512,17 @@ namespace Ghumante.Core.Driving
             // (A stair or ramp the bridges package draws is walked on its drawn flights, step 1: its structure heights, a
             // straight line between the mapped points where the flights may be fitted, moved or turned, are no surface of
             // their own; owner playtest #15: at a flight's foot they stood a wall as high as the flight.)
-            bool found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit)
-                         && (hit.OnRoad || hit.OnFootpath) && !DrawnByBridges(hit.Tile, hit.RoadIndex, hit.Segment);
+            bool found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit);
+            if (found && (!(hit.OnRoad || hit.OnFootpath) || DrawnByBridges(ref hit)) && DrawnByBridges(hit.Tile, hit.RoadIndex))
+            {
+                // The nearest centreline is a stair or deck way the bridges package draws (a sidewalk climbing to a foot
+                // overbridge runs beside the street it serves): where it is not the surface, the street's carriageway or
+                // footpath drawn there is.
+                RoadHit other;
+                if (TryNearestOtherRoad(x, z, ref hit, out other) && (other.OnRoad || other.OnFootpath) && !DrawnByBridges(ref other)) hit = other;
+            }
+            found = found && (hit.OnRoad || hit.OnFootpath) && !DrawnByBridges(ref hit);
+            if (found) LayeredRoad(x, z, h, nearY, ref hit);
             if (found && hit.OnFootpath)
             {
                 // A raised footpath: the paver top at kerb height above the ribbon (or the structure surface), never a ramp.
@@ -551,6 +560,86 @@ namespace Ghumante.Core.Driving
             s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
             SetRoad(ref s, ref hit);
             return !onDeck || OverDeck(ref s, ref deck, ref terrain, nearY);
+        }
+
+        /// <summary>Feet this far above a ground road's surface stand on another road there, not on it (see
+        /// <see cref="LayeredRoad"/>).</summary>
+        private const float LayerDropM = 0.6f;
+
+        /// <summary>
+        /// Where two ground-level carriageways overlap at different structure heights (a ramp coming down beside the
+        /// lowered riverside road it joins, a street at grade passing the mouth of an underpass cutting), the road under
+        /// the feet is the one whose surface they can reach: the nearest centreline answers unless its surface is more
+        /// than a step (<see cref="StepUpM"/>) above the feet or more than <see cref="LayerDropM"/> below them while the
+        /// next road covering the point is within that reach; then <paramref name="hit"/> becomes that road. Owner
+        /// playtest #2 ("the underpass doesn't work"): walking the riverside roads under Setopul, Dallu and the Bishnumati
+        /// bridge, the walker met the street ramping down beside the cutting as a step of more than a metre. Unchanged
+        /// for a query without a height (nearY +∞).
+        /// </summary>
+        private void LayeredRoad(double x, double z, float terrain, float nearY, ref RoadHit hit)
+        {
+            if (float.IsInfinity(nearY) || float.IsNaN(nearY)) return;
+            float y;
+            if (!RoadSurfaceAt(terrain, ref hit, out y) || y - nearY <= StepUpM && nearY - y <= LayerDropM) return;
+            RoadHit other;
+            if (!TryNearestOtherRoad(x, z, ref hit, out other)) return;
+            if (!(other.OnRoad || other.OnFootpath) || DrawnByBridges(ref other)) return;
+            float oy;
+            if (!RoadSurfaceAt(terrain, ref other, out oy) || oy - nearY > StepUpM || nearY - oy > LayerDropM) return;
+            hit = other;
+        }
+
+        /// <summary>The surface height step 2 of <see cref="SampleCore"/> gives for a ground road hit (a footpath: its
+        /// paver top), false where the terrain answers.</summary>
+        private bool RoadSurfaceAt(float terrain, ref RoadHit hit, out float y)
+        {
+            if (hit.OnFootpath)
+            {
+                float surface, grade;
+                RoadSpatialIndex idx = IndexOf(ref hit);
+                y = (idx != null && idx.TrySurfaceHeight(in hit, out surface, out grade) ? surface : terrain + RoadLiftM(hit.Road)) + _roadOptions.KerbHeightM;
+                return true;
+            }
+            bool spans;
+            float g;
+            return TryRoadHeight(terrain, ref hit, out y, out spans, out g);
+        }
+
+        /// <summary>The nearest ground road to (x, z) other than <paramref name="first"/>'s (its piece in its tile; the
+        /// same way's pieces in other tiles share its heights), searched as <see cref="TryNearestRoad(double, double,
+        /// double, RoadFlags, RoadFlags, RoadLayer, out RoadHit)"/> does.</summary>
+        private bool TryNearestOtherRoad(double x, double z, ref RoadHit first, out RoadHit hit)
+        {
+            hit = default(RoadHit);
+            int level = FinestRoadLevel();
+            if (level < 0) return false;
+            double size = TileId.SizeAt(level);
+            double r = RoadSpatialIndex.MaxFootpathM + MaxRoadHalfWidthM;
+            int n = 1 << level;
+            int tx0 = Math.Max(0, (int)Math.Floor((x - r) / size)), tx1 = Math.Min(n - 1, (int)Math.Floor((x + r) / size));
+            int tz0 = Math.Max(0, (int)Math.Floor((z - r) / size)), tz1 = Math.Min(n - 1, (int)Math.Floor((z + r) / size));
+            bool found = false;
+            ulong bestKey = 0;
+            for (int ty = tz0; ty <= tz1; ty++)
+            for (int tx = tx0; tx <= tx1; tx++)
+            {
+                Entry e;
+                var id = new TileId(level, tx, ty);
+                if (!_areas.TryGetValue(id, out e) || e.Roads == null) continue;
+                int skip = first.Tile != null && first.Tile.Tile.Equals(id) ? first.RoadIndex : -1;
+                RoadHit h;
+                if (!e.Roads.TryNearestExcept(x, z, RoadSpatialIndex.MaxFootpathM, RoadLayer.Ground, skip, out h)) continue;
+                if (h.Road.OsmWayId == first.Road.OsmWayId &&
+                    !e.Roads.TryNearestExcept(x, z, RoadSpatialIndex.MaxFootpathM, RoadLayer.Ground, h.RoadIndex, out h)) continue;
+                if (h.Road.OsmWayId == first.Road.OsmWayId) continue;
+                if (!found || h.EdgeDistanceM < hit.EdgeDistanceM || h.EdgeDistanceM == hit.EdgeDistanceM && id.Key < bestKey)
+                {
+                    hit = h;
+                    bestKey = id.Key;
+                    found = true;
+                }
+            }
+            return found;
         }
 
         /// <summary>The ground level counts over a deck only when drawn at least this much higher.</summary>
@@ -741,13 +830,15 @@ namespace Ghumante.Core.Driving
             return d != null && d.Layout.Draws(road);
         }
 
-        /// <summary>As <see cref="DrawnByBridges(TileData, int)"/> for one segment of the road (<see cref="BridgeLayout.Draws(int, int)"/>).</summary>
-        private bool DrawnByBridges(TileData tile, int road, int segment)
+        /// <summary>As <see cref="DrawnByBridges(TileData, int)"/> where the hit lies on the road: a segment the bridges
+        /// package draws (<see cref="BridgeLayout.Draws(int, int)"/>) or a stretch its stair flights cover beyond the mapped
+        /// stair (<see cref="BridgeLayout.CoversAlong"/>, where the roads layer draws no ribbon either).</summary>
+        private bool DrawnByBridges(ref RoadHit hit)
         {
             Entry e;
-            if (tile == null || !_areas.TryGetValue(tile.Tile, out e)) return false;
+            if (hit.Tile == null || !_areas.TryGetValue(hit.Tile.Tile, out e)) return false;
             var d = e.Decks as BridgeDeckIndex;
-            return d != null && d.Layout.Draws(road, segment);
+            return d != null && (d.Layout.Draws(hit.RoadIndex, hit.Segment) || d.Layout.CoversAlong(hit.RoadIndex, hit.AlongM));
         }
 
         private static void SetRoad(ref GroundSample s, ref RoadHit hit)
@@ -923,8 +1014,9 @@ namespace Ghumante.Core.Driving
                     // The hard edge stands beside the carriageway. Within its width past a segment's end (the outer side of
                     // a bend, the mouth of a junction) the lowered surface carries on: answering the terrain there stood an
                     // invisible wall as high as the cutting is deep across the riverside roads under Kalopul and Setopul
-                    // (owner playtest #2).
-                    if (Math.Abs(hit.LateralM - hit.CentreShiftM) > hit.HalfWidthM)
+                    // (owner playtest #2). A raised surface does not: past the end of a ramp at a flyover's joint the deck
+                    // carries on, and under it lies the ground.
+                    if (Math.Abs(hit.LateralM - hit.CentreShiftM) > hit.HalfWidthM || sy > deck)
                     {
                         height = terrain;
                         return false;

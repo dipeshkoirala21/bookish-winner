@@ -101,6 +101,18 @@ namespace Ghumante.Core.Driving
         {
             float low = feetY + StepUpM, high = feetY + bodyH;
             NearRoadEntries(x, z, MaxRoadHalfWidthM);
+            // A deck, flight or landing the body steps onto there (within the step-up over its feet) carries it: the body
+            // stands on it, so what is overhead is measured from it. Otherwise the next tread of a stair, or the landing a
+            // flight climbs to, counted as a slab over the head of a walker one step below it (owner playtest #15: walkers
+            // stopped a step short of the landings at the turns of the overbridge stairs).
+            float stand = feetY;
+            for (int i = 0; i < _near.Count; i++) StandOn(_near[i].Decks, x, z, low, ref stand);
+            StandOn(Decks, x, z, low, ref stand);
+            if (stand > feetY)
+            {
+                low += stand - feetY;
+                high += stand - feetY;
+            }
             for (int i = 0; i < _near.Count; i++)
             {
                 RoadSpatialIndex idx = _near[i].Roads;
@@ -112,9 +124,48 @@ namespace Ghumante.Core.Driving
             return DeckBlocks(Decks, x, z, low, high);
         }
 
+        /// <summary>Which part of <see cref="IsBlocked"/> blocks a body with feet at <paramref name="feetY"/> at (x, z):
+        /// "structure", "solid", "deck" (a deck, flight or landing slab, or a structure-height slab) or "" (diagnostics for
+        /// tests).</summary>
+        internal string BlockedBy(double x, double z, float feetY)
+        {
+            float best = feetY, gx = 0f, gz = 0f;
+            FootSurface foot = FootSurface.Asphalt;
+            bool found = false, blocked = false;
+            for (int i = 0; i < _structures.Count; i++)
+            {
+                StructureSet set = _structures[i];
+                if (!set.Covers(x, z)) continue;
+                set.Query(x, z, feetY, StepUpM, BodyHeightM, BodyRadiusM, ref best, ref foot, ref gx, ref gz, ref found, ref blocked);
+            }
+            if (blocked) return "structure";
+            for (int i = 0; i < _solidSets.Count; i++)
+            {
+                SolidSet set = _solidSets[i];
+                if (set.Overlaps(x - BodyRadiusM, z - BodyRadiusM, x + BodyRadiusM, z + BodyRadiusM) && set.Blocked(x, z, BodyRadiusM, feetY, StepUpM, BodyHeightM))
+                    return "solid";
+            }
+            return CeilingBlocks(x, z, feetY, BodyHeightM) ? "deck" : "";
+        }
+
+        /// <summary>Raises <paramref name="stand"/> to the highest deck surface of <paramref name="d"/> at (x, z) at most at
+        /// <paramref name="reach"/> (the step-up over the feet).</summary>
+        private static void StandOn(IBridgeDeckQuery d, double x, double z, float reach, ref float stand)
+        {
+            if (d == null) return;
+            float y, nx, ny, nz;
+            // (TryDeck answers up to the deck query's own step over its height: asked that much lower, it answers the
+            // highest surface at most at the reach.)
+            if (d.TryDeck(x, z, reach - Ghumante.Core.Meshing.Bridges.BridgeStyle.StepUpM, out y, out nx, out ny, out nz) && y > stand && y <= reach) stand = y;
+        }
+
         private static bool DeckBlocks(IBridgeDeckQuery d, double x, double z, float low, float high)
         {
             if (d == null) return false;
+            // The bridges package's index knows each piece's underside: a deck, a flight or a landing blocks where its
+            // structure overlaps the body (a thin flight overhead leaves headroom where a road deck's depth would not).
+            var bridges = d as BridgeDeckIndex;
+            if (bridges != null) return bridges.SlabOverlaps(x, z, low, high);
             float y, nx, ny, nz, under;
             if (d.TryDeck(x, z, high, out y, out nx, out ny, out nz) && y > low && y - RoadSpatialIndex.DeckThicknessM < high) return true;
             return d.TryCeiling(x, z, low, out under) && under < high;

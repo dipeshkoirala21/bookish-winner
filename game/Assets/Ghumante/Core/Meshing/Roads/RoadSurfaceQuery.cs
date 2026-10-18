@@ -339,6 +339,8 @@ namespace Ghumante.Core.Meshing.Roads
             int road = _road[g];
             double s = _s0[g] + (_s1[g] - _s0[g]) * t;
             if (Layout.InGap(road, s) || Layout.InAbsorbed(road, s)) return false;
+            // (Where a stair of the bridges package lies the ribbon is not drawn either: RibbonMesher.InGap.)
+            if (Bridges.BridgeLayout.For(Tile).CoversAlong(road, s)) return false;
             RoadWidthProfile prof = Layout.Profiles[road];
             float w = prof.DrawnAt(s), shift = prof.ShiftAt(s), half = 0.5f * w;
             double rel = lat - shift;

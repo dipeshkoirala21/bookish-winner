@@ -191,6 +191,7 @@ namespace Ghumante.Core.Tests
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             float deckY = float.MinValue;
             int pieces = 0;
+            var feetWhy = new StringBuilder();
             foreach (BridgeSpan sp in l.Spans)
             {
                 if (sp.GroupWay != group) continue;
@@ -200,6 +201,7 @@ namespace Ghumante.Core.Tests
                     // node reaches across the deck to its edges.
                     int prev = -1, me = pieces++;
                     double step = Math.Max(0.5, Math.Min(1.0, (sp.Path.End - sp.Path.Start) / 4));
+                    int firstNode = nodes.Count;
                     for (double s = sp.Path.Start; s <= sp.Path.End + 1e-6; s += step)
                     {
                         if (!sp.HasDeck(s) || sp.InStairZoneInterior(s))
@@ -217,6 +219,29 @@ namespace Ghumante.Core.Tests
                         if (sp.Overbridge) deckY = Math.Max(deckY, y);
                         if (prev >= 0) Link(edges, prev, k);
                         prev = k;
+                    }
+                    // A deck end at grade (a foot bridge over a road in a cutting, an overbridge whose end lands on a bank):
+                    // the ground 1.5 m beyond it is a foot too.
+                    for (int end = 0; end < 2 && nodes.Count > firstNode; end++)
+                    {
+                        if ((end == 0 ? sp.StartEnd : sp.EndEnd) != SpanEnd.Ground) continue;
+                        int en = end == 0 ? firstNode : nodes.Count - 1;
+                        double ex = sp.Path.X[end == 0 ? 0 : sp.Count - 1], ez = sp.Path.Z[end == 0 ? 0 : sp.Count - 1];
+                        double ix = sp.Path.X[end == 0 ? 1 : sp.Count - 2] - ex, iz = sp.Path.Z[end == 0 ? 1 : sp.Count - 2] - ez, il = Math.Sqrt(ix * ix + iz * iz);
+                        if (il < 1e-6) continue;
+                        double fx = x0 + ex - ix / il * 1.5, fz = z0 + ez - iz / il * 1.5;
+                        GroundSample ge;
+                        if (!ground.TrySample(fx, fz, nodes[en].Y + 0.3f, out ge) || ge.OnDeck || Math.Abs(ge.Height - nodes[en].Y) > 0.45f) continue;
+                        Node nd = nodes[en];
+                        nd.Foot = true;
+                        nodes[en] = nd;
+                        int street = Add(nodes, edges, fx, fz, ge.Height, false);
+                        piece.Add(me);
+                        reachOf.Add(0);
+                        Node ns = nodes[street];
+                        ns.Foot = true;
+                        nodes[street] = ns;
+                        Link(edges, en, street);
                     }
                 }
                 foreach (BridgeStair st in sp.Stairs)
@@ -239,7 +264,10 @@ namespace Ghumante.Core.Tests
                     double bx = st.X + st.Dx * st.Length, bz = st.Z + st.Dz * st.Length;
                     GroundSample g;
                     double fx = x0 + bx + st.Dx * 0.6, fz = z0 + bz + st.Dz * 0.6;
-                    if (ground.TrySample(fx, fz, st.BottomY + 0.3f, out g) && Math.Abs(g.Height - st.BottomY) < 0.45f && !g.OnDeck)
+                    bool gotFoot = ground.TrySample(fx, fz, st.BottomY + 0.3f, out g);
+                    feetWhy.Append(" [flight ").Append(sp.Record.OsmWayId).Append(" bottom ").Append(st.BottomY.ToString("F2")).Append(" ground ")
+                           .Append(gotFoot ? g.Height.ToString("F2") + (g.OnDeck ? "d" : "") : "none").Append(" at (").Append(fx.ToString("F1")).Append(", ").Append(fz.ToString("F1")).Append(")]");
+                    if (gotFoot && Math.Abs(g.Height - st.BottomY) < 0.45f && !g.OnDeck)
                     {
                         Node nb = nodes[prev];
                         nb.Foot = true;
@@ -257,6 +285,9 @@ namespace Ghumante.Core.Tests
             }
             // Joins between pieces: nodes within either one's reach in plan and a step in height (flight to pad, flight to
             // flight, a flight top to the deck beside it).
+            // Also nodes of two pieces within 3 m that the ground query joins: walking the straight line between them
+            // the surface never steps more than a walker climbs and nothing solid stands on it (how the walker gets from a
+            // flight onto a landing or a deck that the plan offsets above do not catch).
             for (int i = 0; i < nodes.Count; i++)
             for (int j = i + 1; j < nodes.Count; j++)
             {
@@ -264,6 +295,7 @@ namespace Ghumante.Core.Tests
                 double dx = nodes[i].X - nodes[j].X, dz = nodes[i].Z - nodes[j].Z;
                 double d = Math.Sqrt(dx * dx + dz * dz);
                 if (d < Math.Max(reachOf[i], reachOf[j]) && Math.Abs(nodes[i].Y - nodes[j].Y) < 0.4f) Link(edges, i, j);
+                else if (d < 3.0 && Math.Abs(nodes[i].Y - nodes[j].Y) < 1.0f && Walkable(ground, nodes[i], nodes[j]) && Walkable(ground, nodes[j], nodes[i])) Link(edges, i, j);
             }
             var route = new Route { Way = group, DeckY = deckY };
             // Every foot to every other foot whose route goes over the deck: keep the one between the farthest apart.
@@ -331,7 +363,7 @@ namespace Ghumante.Core.Tests
                        .Append(" at (").Append((cx / cnt).ToString("F1")).Append(", ").Append((cz / cnt).ToString("F1")).Append(") n ").Append(cnt).Append(']');
                     nc++;
                 }
-                route.Note = "feet " + feet + ", nodes " + nodes.Count + ", pieces " + pieces + why;
+                route.Note = "feet " + feet + ", nodes " + nodes.Count + ", pieces " + pieces + why + "\n      feet:" + feetWhy;
                 return route;
             }
             var pts = new List<double>();
@@ -345,6 +377,24 @@ namespace Ghumante.Core.Tests
             route.Note = "from (" + nodes[best[0]].X.ToString("F1") + ", " + nodes[best[0]].Z.ToString("F1") + ") to (" + nodes[best[best.Count - 1]].X.ToString("F1") + ", "
                          + nodes[best[best.Count - 1]].Z.ToString("F1") + "), " + best.Count + " nodes";
             return route;
+        }
+
+        /// <summary>True when the ground query carries a walker from node a straight to node b: every 0.2 m the surface
+        /// within a step of the last (up at most <see cref="ArcadeVehicle.WalkerMaxClimbM"/>), not blocked, ending
+        /// within 0.3 m of b's height.</summary>
+        private static bool Walkable(TileGroundQuery g, Node a, Node b)
+        {
+            double dx = b.X - a.X, dz = b.Z - a.Z, l = Math.Sqrt(dx * dx + dz * dz);
+            int n = Math.Max(1, (int)Math.Ceiling(l / 0.2));
+            float y = a.Y;
+            for (int i = 1; i <= n; i++)
+            {
+                double x = a.X + dx * i / n, z = a.Z + dz * i / n;
+                GroundSample s;
+                if (!g.TrySample(x, z, y + 0.3f, out s) || s.Height - y > ArcadeVehicle.WalkerMaxClimbM) return false;
+                y = s.Height;
+            }
+            return Math.Abs(y - b.Y) < 0.3f;
         }
 
         private static int Add(List<Node> nodes, List<List<int>> edges, double x, double z, float y, bool deck)

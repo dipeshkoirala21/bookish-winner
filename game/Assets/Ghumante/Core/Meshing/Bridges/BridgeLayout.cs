@@ -545,6 +545,7 @@ namespace Ghumante.Core.Meshing.Bridges
                     if (sp.Stair) Flights(sp);
                 foreach (BridgeSpan sp in Spans)
                     if (sp.Stair) ClipFlights(sp);
+                TrimPads();
                 foreach (BridgeSpan sp in Spans)
                     if (!sp.Stair && FlightGaps(sp))
                     {
@@ -572,6 +573,9 @@ namespace Ghumante.Core.Meshing.Bridges
                 _ranges[at + 1] = sp.LastPoint;
                 fill[sp.Road] += 2;
             }
+            _cover = new double[t.Roads.Count][];
+            foreach (BridgeSpan sp in Spans)
+                if (sp.Stair || sp.StairZones.Count > 0) StairCover(sp);
         }
 
         private readonly bool[] _draws;
@@ -593,6 +597,165 @@ namespace Ghumante.Core.Meshing.Bridges
             for (int i = _rangeStart[road]; i < _rangeStart[road + 1]; i += 2)
                 if (segment >= _ranges[i] && segment < _ranges[i + 1]) return true;
             return false;
+        }
+
+        /// <summary>Per road, sorted disjoint along ranges [a0, b0, a1, b1, ...] (metres from the first rendered point, as
+        /// <c>RoadSpatialIndex</c> and <c>RoadLayout</c> measure along) where the flights and landings of a stair of this
+        /// layout replace the road's own surface (null: none).</summary>
+        private readonly double[][] _cover;
+
+        /// <summary>The road surface left between a flight's foot and the next mapped point is left out too when it is
+        /// shorter than this: the roads' blend from the stair's structure height down to the ground would stand there as a
+        /// lip above the pavement.</summary>
+        public const double CoverRemnantM = 6.0;
+
+        /// <summary>
+        /// True when a stair of this layout (its flights and landing pads) covers road <paramref name="road"/> at
+        /// <paramref name="along"/> metres from the road's first rendered point: there the stair is the walking surface
+        /// and the road draws no ribbon of its own and has no surface of its own in the ground query. Owner playtest #15
+        /// ("I could not even reach the top"): the roads layer drew the mapped steps and the sidewalks climbing to the
+        /// foot overbridges as straight ramps at their structure heights over the drawn flights, and the ground query
+        /// followed those ramps beyond the mapped stair ends where the flights were fitted down to the pavement.
+        /// </summary>
+        public bool CoversAlong(int road, double along)
+        {
+            if (road < 0 || road >= _cover.Length) return false;
+            double[] c = _cover[road];
+            if (c == null) return false;
+            for (int i = 0; i + 1 < c.Length; i += 2)
+                if (along >= c[i] && along <= c[i + 1]) return true;
+            return false;
+        }
+
+        /// <summary>The covered along ranges of road <paramref name="road"/> (see <see cref="CoversAlong"/>), sorted pairs,
+        /// or null.</summary>
+        public double[] CoverOf(int road)
+        {
+            return road >= 0 && road < _cover.Length ? _cover[road] : null;
+        }
+
+        /// <summary>Adds the along range stair span <paramref name="sp"/> covers on its road (<see cref="CoversAlong"/>):
+        /// its mapped points, widened to where its flights and pads project on the road beyond them (a flight fitted down
+        /// to the pavement past the mapped end), and to the next mapped point when less than <see cref="CoverRemnantM"/>
+        /// is left to it.</summary>
+        private void StairCover(BridgeSpan sp)
+        {
+            RoadRecord r = sp.Record;
+            int first, last;
+            RoadSpatialIndexRange(r, out first, out last);
+            if (last <= first) return;
+            int[] p = r.Points;
+            int n = r.PointCount;
+            var along = new double[n];
+            for (int k = first + 1; k < n; k++) along[k] = along[k - 1] + Seg(p, k - 1);
+            for (int k = first - 1; k >= 0; k--) along[k] = along[k + 1] - Seg(p, k);
+            int a = Math.Max(first, sp.FirstPoint), b = Math.Min(last, sp.LastPoint);
+            if (b < a) return;
+            if (!sp.Stair)
+            {
+                // A deck with steps inside it (a stretch mapped as a stair in the middle of a foot deck): the zones.
+                foreach (BridgeGap g in sp.StairZones)
+                {
+                    double z0 = double.MaxValue, z1 = double.MinValue;
+                    foreach (double gs in new[] { g.S0, g.S1 })
+                    {
+                        double px, pz, ux, uz, nx, nz, tx, tz, sa, lat;
+                        float py;
+                        sp.Path.Frame(Math.Max(sp.Path.Start, Math.Min(sp.Path.End, gs)), out px, out pz, out py, out ux, out uz, out nx, out nz, out tx, out tz);
+                        if (!ProjectRoad(p, along, first, last, px - sp.ShiftX, pz - sp.ShiftZ, out sa, out lat)) continue;
+                        z0 = Math.Min(z0, sa);
+                        z1 = Math.Max(z1, sa);
+                    }
+                    if (z1 - z0 >= 0.05) _cover[sp.Road] = MergeRange(_cover[sp.Road], z0, z1);
+                }
+                return;
+            }
+            double s0 = along[a], s1 = along[b];
+            foreach (BridgeStair st in sp.Stairs)
+            {
+                if (st.Steps < 0 || st.Length < 0.05) continue;
+                for (int e = 0; e < 2; e++)
+                {
+                    double x = st.X + st.Dx * st.Length * e - sp.ShiftX, z = st.Z + st.Dz * st.Length * e - sp.ShiftZ;
+                    double sa, lat;
+                    if (!ProjectRoad(p, along, first, last, x, z, out sa, out lat) || lat > st.HalfWidth + 1.5) continue;
+                    s0 = Math.Min(s0, sa);
+                    s1 = Math.Max(s1, sa);
+                }
+            }
+            // The rest of a segment the flights reach into, when short, goes with them.
+            for (int k = first; k < last; k++)
+            {
+                if (along[k] < s0 && along[k + 1] > s0 && s0 - along[k] < CoverRemnantM && k < a) s0 = along[k];
+                if (along[k] < s1 && along[k + 1] > s1 && along[k + 1] - s1 < CoverRemnantM && k + 1 > b) s1 = along[k + 1];
+            }
+            s0 = Math.Max(s0, along[first]);
+            s1 = Math.Min(s1, along[last]);
+            if (s1 - s0 < 0.05) return;
+            _cover[sp.Road] = MergeRange(_cover[sp.Road], s0, s1);
+        }
+
+        private static void RoadSpatialIndexRange(RoadRecord r, out int first, out int last)
+        {
+            int count = r.PointCount;
+            first = r.HasPrevContext ? 1 : 0;
+            last = r.HasNextContext ? count - 2 : count - 1;
+        }
+
+        private static double Seg(int[] p, int k)
+        {
+            double dx = (p[2 * k + 2] - p[2 * k]) / 100.0, dz = (p[2 * k + 3] - p[2 * k + 1]) / 100.0;
+            return Math.Sqrt(dx * dx + dz * dz);
+        }
+
+        /// <summary>The along distance and plan distance of tile-local (x, z) projected on the road's rendered polyline.</summary>
+        private static bool ProjectRoad(int[] p, double[] along, int first, int last, double x, double z, out double s, out double dist)
+        {
+            s = 0;
+            dist = double.MaxValue;
+            for (int k = first; k < last; k++)
+            {
+                double ax = p[2 * k] / 100.0, az = p[2 * k + 1] / 100.0, bx = p[2 * k + 2] / 100.0, bz = p[2 * k + 3] / 100.0;
+                double dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+                double t = l2 > 1e-12 ? Math.Max(0, Math.Min(1, ((x - ax) * dx + (z - az) * dz) / l2)) : 0;
+                double qx = ax + dx * t - x, qz = az + dz * t - z, d = Math.Sqrt(qx * qx + qz * qz);
+                if (d >= dist) continue;
+                dist = d;
+                s = along[k] + t * Math.Sqrt(l2);
+            }
+            return dist < double.MaxValue;
+        }
+
+        /// <summary>Adds [s0, s1] to sorted disjoint ranges, merging overlaps.</summary>
+        private static double[] MergeRange(double[] ranges, double s0, double s1)
+        {
+            var l = new List<double>();
+            bool placed = false;
+            if (ranges != null)
+                for (int i = 0; i + 1 < ranges.Length; i += 2)
+                {
+                    double a = ranges[i], b = ranges[i + 1];
+                    if (b < s0 || a > s1)
+                    {
+                        if (!placed && a > s1)
+                        {
+                            l.Add(s0);
+                            l.Add(s1);
+                            placed = true;
+                        }
+                        l.Add(a);
+                        l.Add(b);
+                        continue;
+                    }
+                    s0 = Math.Min(s0, a);
+                    s1 = Math.Max(s1, b);
+                }
+            if (!placed)
+            {
+                l.Add(s0);
+                l.Add(s1);
+            }
+            return l.ToArray();
         }
 
         /// <summary>A stair handrail stands this far inside the flight's side (as drawn).</summary>
@@ -619,7 +782,8 @@ namespace Ghumante.Core.Meshing.Bridges
                     for (int j = 0; j <= n; j++)
                     {
                         double a = st.Length * j / n;
-                        bool open = Joins(sp, i, st.X + st.Dx * a + nx * off, st.Z + st.Dz * a + nz * off, st.SurfaceAt(a));
+                        double rx = st.X + st.Dx * a + nx * off, rz = st.Z + st.Dz * a + nz * off;
+                        bool open = Joins(sp, i, rx, rz, st.SurfaceAt(a)) || !sp.Stair && InDeckGap(sp, rx, rz);
                         if (!open)
                         {
                             if (double.IsNaN(from)) from = a;
@@ -641,10 +805,14 @@ namespace Ghumante.Core.Meshing.Bridges
 
         /// <summary>True when (x, z) at walking height <paramref name="y"/> lies on another flight or landing pad of the
         /// layout than flight <paramref name="index"/> of <paramref name="self"/>, or on the walkable deck of another span
-        /// of the structure (a branch deck leaving the side of a deck's flight): the walking line continues there.</summary>
+        /// of the structure (a branch deck leaving the side of a deck's flight): the walking line continues there. A
+        /// flight or pad passing just over the rail's line counts too (its treads lower than the rail's top, plus a margin):
+        /// where two mapped stairs cross, the rail of the lower one stood up through the treads of the upper one and
+        /// stopped the walker there (owner playtest #15).</summary>
         private bool Joins(BridgeSpan self, int index, double x, double z, float y)
         {
             const double Margin = 0.15;
+            BridgeStair me = self.Stairs[index];
             foreach (BridgeSpan sp in Spans)
             {
                 for (int k = 0; k < sp.Stairs.Count; k++)
@@ -655,7 +823,13 @@ namespace Ghumante.Core.Meshing.Bridges
                     double px = x - o.X, pz = z - o.Z;
                     double along = px * o.Dx + pz * o.Dz, across = -px * o.Dz + pz * o.Dx;
                     if (along < -Margin || along > o.Length + Margin || Math.Abs(across) > o.HalfWidth + Margin) continue;
-                    if (Math.Abs(o.SurfaceAt(Math.Max(0, Math.Min(o.Length, along))) - y) < 0.6f) return true;
+                    float dy = o.SurfaceAt(Math.Max(0, Math.Min(o.Length, along))) - y;
+                    // A flight turning off this one's end without a landing (two mapped steps ways meeting at a corner
+                    // node): its first treads lie under this one's last, so the rail there stood across the turn, a
+                    // metre over the next flight's treads (owner playtest #15, at the corner of the steps 696986541 and
+                    // 696986537 of the overbridge 112449582). It opens down to the next flight however far below.
+                    float low = SharesEnd(me, o) ? -(BridgeColliders.HandrailM + 0.4f) : -0.6f;
+                    if (dy > low && dy < BridgeColliders.HandrailM + 0.25f) return true;
                 }
                 if (sp.Stair || sp == self || sp.GroupWay != self.GroupWay) continue;
                 double s, lat;
@@ -667,6 +841,38 @@ namespace Ghumante.Core.Meshing.Bridges
                 if (Math.Abs(sp.Path.YAt(sc) + (sp.RaisedWalk ? BridgeStyle.KerbHeightM : 0f) - y) < 0.6f) return true;
             }
             return false;
+        }
+
+        /// <summary>True when an end of flight <paramref name="a"/> (the middle of its top or foot edge) is an end of flight
+        /// <paramref name="b"/>: the walk turns from one onto the other there.</summary>
+        private static bool SharesEnd(BridgeStair a, BridgeStair b)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                double ax = i == 0 ? a.X : a.X + a.Dx * a.Length, az = i == 0 ? a.Z : a.Z + a.Dz * a.Length;
+                float ay = i == 0 ? a.TopY : a.BottomY;
+                for (int j = 0; j < 2; j++)
+                {
+                    double bx = j == 0 ? b.X : b.X + b.Dx * b.Length, bz = j == 0 ? b.Z : b.Z + b.Dz * b.Length;
+                    float by = j == 0 ? b.TopY : b.BottomY;
+                    double dx = ax - bx, dz = az - bz;
+                    if (dx * dx + dz * dz < 0.35 * 0.35 && Math.Abs(ay - by) < 0.15f) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>True when (x, z) lies beside deck span <paramref name="sp"/> where its railing on that side has a gap: a
+        /// flight of the deck's own (a stair stretch) has no handrail there either, as the way leaving through the gap
+        /// leaves across the flight's side (owner playtest #15: at the east end of the overbridge 195516756 the end flight's
+        /// handrail stood across the gap to the stair going north, so walkers coming down it could not turn onto that
+        /// stair).</summary>
+        private static bool InDeckGap(BridgeSpan sp, double x, double z)
+        {
+            double s, lat;
+            int k;
+            if (!Project(sp, x, z, out s, out lat, out k) || s < sp.Path.Start || s > sp.Path.End) return false;
+            return sp.InGap(lat > 0 ? 1 : -1, s);
         }
 
         /// <summary>True when the structure of a deck span of the layout (out to its deck edge) covers tile-local (x, z) with
@@ -745,7 +951,12 @@ namespace Ghumante.Core.Meshing.Bridges
                     // Nor under a deck whose soffit the wall would reach: the bridge's own abutment holds the bank there
                     // (owner playtest #2: the wall of the track under the Ganeshman Singh Path bridge stood up through
                     // the deck's walkway).
+                    // Nor where a road up on the bank (its footpaths too) crosses the wall line under the wall's
+                    // top: the parapet would stand up through it (owner playtest #2: walkers on the Dallu bridge
+                    // approach were stopped by the riverside cutting's wall poking 0.2 m out of the road).
                     clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude, true) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude, true)
+                               && !Corridors.SurfaceBetween(wx, wz, y + TrenchWallMinCutM, top + 0.3f, exclude)
+                               && !Corridors.SurfaceBetween(bx, bz, y + TrenchWallMinCutM, top + 0.3f, exclude)
                                && !DeckBelow(wx, wz, top) && !DeckBelow(bx, bz, top) && !InOwnCarriageway(sp, wx, wz) && !InOwnCarriageway(sp, bx, bz);
                 }
                 List<double> runs = side > 0 ? sp.RailRunsL : sp.RailRunsR;
@@ -1277,6 +1488,11 @@ namespace Ghumante.Core.Meshing.Bridges
                 need = Math.Max(need, CorridorExit(c, t.Roads[c.Road].Points, ex, ez, dx, dz, dir > 0 ? c.S + c.HalfAlong - sEnd : sEnd - (c.S - c.HalfAlong)));
             if (double.IsNegativeInfinity(need) || need + Landing <= 0) return 0;
             double ext = Math.Min(MaxExt, need + Landing);
+            // The landing stops short of the houses straight on (the stairs leave it sideways along the street): owner
+            // playtest #15, the extended ends of the overbridges at Koteshwor and Chabahil stood inside the buildings beside
+            // the pavement, so the walker met a house wall at the top of the stairs. The end still leaves the corridor.
+            double clear = HouseRoom(t, ex, ez, dx, dz, HouseBandM, MaxExt + StairRoomM);
+            if (clear - StairRoomM < ext) ext = Math.Max(Math.Max(0, need + MinLandingM), clear - StairRoomM);
             // Stay inside the tile (the neighbour cannot answer for a deck it does not know).
             double size = t.Tile.Size, room = MaxExt;
             if (dx > 1e-6) room = Math.Min(room, (size - 0.5 - ex) / dx);
@@ -1284,6 +1500,73 @@ namespace Ghumante.Core.Meshing.Bridges
             if (dz > 1e-6) room = Math.Min(room, (size - 0.5 - ez) / dz);
             if (dz < -1e-6) room = Math.Min(room, (0.5 - ez) / dz);
             return Math.Max(0, Math.Min(ext, room));
+        }
+
+        /// <summary>Half width of the band straight on from an overbridge end that its landing and stairs need clear of
+        /// houses (<see cref="Extension"/>).</summary>
+        private const double HouseBandM = 2.0;
+
+        /// <summary>Room kept between an extended overbridge end and the first house straight on: a stair flight leaving
+        /// the landing sideways and its handrail.</summary>
+        private const double StairRoomM = 1.4;
+
+        /// <summary>Shortest landing beyond a crossed road's corridor when houses stand close.</summary>
+        private const double MinLandingM = 0.6;
+
+        /// <summary>
+        /// Distance from tile-local (<paramref name="ex"/>, <paramref name="ez"/>) straight on along unit
+        /// (<paramref name="dx"/>, <paramref name="dz"/>) to the first building outline within <paramref name="half"/>
+        /// either side of that line (0 when the point lies inside one), at most <paramref name="max"/>.
+        /// </summary>
+        internal static double HouseRoom(TileData t, double ex, double ez, double dx, double dz, double half, double max)
+        {
+            double room = max;
+            double nx = -dz, nz = dx;
+            double bx0 = Math.Min(ex - half, ex + dx * max - half), bx1 = Math.Max(ex + half, ex + dx * max + half);
+            double bz0 = Math.Min(ez - half, ez + dz * max - half), bz1 = Math.Max(ez + half, ez + dz * max + half);
+            foreach (BuildingRecord b in t.Buildings)
+            {
+                if (b.Rings == null || b.Rings.Length == 0 || b.Rings[0] == null || b.Rings[0].Length < 6) continue;
+                if ((b.Flags & BuildingFlags.Part) != 0) continue;
+                int[] r = b.Rings[0];
+                int n = r.Length / 2;
+                double mx0 = double.MaxValue, mx1 = double.MinValue, mz0 = double.MaxValue, mz1 = double.MinValue;
+                for (int k = 0; k < n; k++)
+                {
+                    double x = r[2 * k] / 100.0, z = r[2 * k + 1] / 100.0;
+                    mx0 = Math.Min(mx0, x);
+                    mx1 = Math.Max(mx1, x);
+                    mz0 = Math.Min(mz0, z);
+                    mz1 = Math.Max(mz1, z);
+                }
+                if (mx1 < bx0 || mx0 > bx1 || mz1 < bz0 || mz0 > bz1) continue;
+                bool inside = false;
+                for (int k = 0, j = n - 1; k < n; j = k++)
+                {
+                    double ax = r[2 * j] / 100.0 - ex, az = r[2 * j + 1] / 100.0 - ez, cx = r[2 * k] / 100.0 - ex, cz = r[2 * k + 1] / 100.0 - ez;
+                    if ((az > 0) != (cz > 0) && 0 < ax + (cx - ax) * (0 - az) / (cz - az)) inside = !inside;
+                    // The edge in (along, across) of the line, clipped to the band.
+                    double ua = ax * dx + az * dz, va = ax * nx + az * nz, uc = cx * dx + cz * dz, vc = cx * nx + cz * nz;
+                    double t0 = 0, t1 = 1, dv = vc - va;
+                    if (Math.Abs(dv) < 1e-12)
+                    {
+                        if (Math.Abs(va) > half) continue;
+                    }
+                    else
+                    {
+                        double ta = (-half - va) / dv, tb = (half - va) / dv;
+                        t0 = Math.Max(t0, Math.Min(ta, tb));
+                        t1 = Math.Min(t1, Math.Max(ta, tb));
+                        if (t0 > t1) continue;
+                    }
+                    double u0 = ua + (uc - ua) * t0, u1 = ua + (uc - ua) * t1;
+                    if (u0 < 0 && u1 < 0) continue;
+                    double u = u0 >= 0 && u1 >= 0 ? Math.Min(u0, u1) : 0;
+                    room = Math.Min(room, u);
+                }
+                if (inside) return 0;
+            }
+            return room;
         }
 
         /// <summary>
@@ -1941,17 +2224,48 @@ namespace Ghumante.Core.Meshing.Bridges
             if (sp.PartnerR >= 0) exclude[Spans[sp.PartnerR].Road] = true;
             int[] p = sp.Record.Points;
             long k0 = BridgeStructures.Key(p[2 * sp.FirstPoint], p[2 * sp.FirstPoint + 1]), k1 = BridgeStructures.Key(p[2 * sp.LastPoint], p[2 * sp.LastPoint + 1]);
+            double d0x, d0z, d1x, d1z;
+            LeaveDirection(sp, 0, out d0x, out d0z);
+            LeaveDirection(sp, 1, out d1x, out d1z);
             for (int j = 0; j < Tile.Roads.Count; j++)
             {
                 if (exclude[j]) continue;
                 int[] q = Tile.Roads[j].Points;
+                // (A foot way with structure heights joining the end of a foot structure climbs with it: a stair or a
+                // sidewalk at a foot overbridge; it stays one of the structure's own roads.)
+                bool graded = Structures[j].DeckY != null && (sp.Foot || BridgeStyle.IsFoot(Tile.Roads[j].RoadClass));
                 for (int i = 0; i < q.Length; i += 2)
                 {
                     long key = BridgeStructures.Key(q[i], q[i + 1]);
-                    if (key == k0 && !sp.StartCut || key == k1 && !sp.EndCut) exclude[j] = true;
+                    if (key == k0 && !sp.StartCut && (graded || Continues(q, i, d0x, d0z)) || key == k1 && !sp.EndCut && (graded || Continues(q, i, d1x, d1z)))
+                        exclude[j] = true;
                 }
             }
             return exclude;
+        }
+
+        /// <summary>
+        /// True when the road with points <paramref name="q"/> leaves the joint at <c>q[i]</c> nearly straight on from a
+        /// deck whose line runs (<paramref name="intoX"/>, <paramref name="intoZ"/>) into the deck from there (within
+        /// 50 degrees, <see cref="JointBendCos"/>): the approach the deck carries. A street at grade meeting the deck end at
+        /// an angle (a T or an L at the bridge head) is no approach: its carriageway crosses the railing line, which opens
+        /// there like at any road beside the deck. Owner playtest #2: at the culverts of the residential lanes (Dhawok
+        /// Marg, Matatirtha Marg, Pabitranagar Marg) the walker turning into the street at the bridge end walked into the
+        /// last metre of railing standing across it.
+        /// </summary>
+        private static bool Continues(int[] q, int i, double intoX, double intoZ)
+        {
+            int n = q.Length / 2, k = i / 2;
+            for (int dir = -1; dir <= 1; dir += 2)
+            {
+                int m = k + dir;
+                while (m >= 0 && m < n && q[2 * m] == q[2 * k] && q[2 * m + 1] == q[2 * k + 1]) m += dir;
+                if (m < 0 || m >= n) continue;
+                double dx = (q[2 * m] - q[2 * k]) / 100.0, dz = (q[2 * m + 1] - q[2 * k + 1]) / 100.0, l = Math.Sqrt(dx * dx + dz * dz);
+                if (l < 1e-6) continue;
+                if ((dx * intoX + dz * intoZ) / l < JointBendCos) return true;
+            }
+            return false;
         }
 
         /// <summary>Cosine of the angle between two decks' lines at an end-to-end joint above which they meet at an angle
@@ -2204,10 +2518,12 @@ namespace Ghumante.Core.Meshing.Bridges
                 if (open) continue;
                 float y0 = sp.Path.YAt(g.S0), y1 = sp.Path.YAt(g.S1);
                 bool down = y0 >= y1;
-                double sTop = down ? g.S0 : g.S1, len = g.S1 - g.S0;
-                if (len < 0.2) continue;
-                double px, pz, ux, uz, nx, nz, tx, tz;
+                double sTop = down ? g.S0 : g.S1, sLow = down ? g.S1 : g.S0;
+                if (g.S1 - g.S0 < 0.2) continue;
+                double px, pz, ux, uz, nx, nz, tx, tz, qx, qz;
                 float y;
+                sp.Path.Frame(sLow, out qx, out qz, out y, out ux, out uz, out nx, out nz, out tx, out tz);
+                double lnx = nx, lnz = nz;
                 sp.Path.Frame(sTop, out px, out pz, out y, out ux, out uz, out nx, out nz, out tx, out tz);
                 int k = sp.StationAt(0.5 * (g.S0 + g.S1));
                 // Where a stair or branch leaves the flight's side through a railing gap, the treads run out to the deck
@@ -2215,8 +2531,15 @@ namespace Ghumante.Core.Meshing.Bridges
                 // of nothing between the two and the flight's handrail across it kept walkers on the deck).
                 double il = Overlaps(sp.GapsL, g.S0, g.S1) ? sp.EdgeL(k) : sp.InnerL(k), ir = Overlaps(sp.GapsR, g.S0, g.S1) ? sp.EdgeR(k) : sp.InnerR(k);
                 double mid = 0.5 * (il - ir), hw = Math.Max(0.5, 0.5 * (il + ir));
-                double dx = down ? tx : -tx, dz = down ? tz : -tz;
-                BridgeStair st = BridgeStair.Fit(px + nx * mid, pz + nz * mid, dx, dz, down ? y0 : y1, down ? y1 : y0, len, hw);
+                // Along the chord of the stretch, from its top to its foot: the tangent at the top end turned with a bend
+                // there (owner playtest #15: on the overbridge 112448812 the flight below the junction with the way
+                // 301779941 ran 40 degrees off its steps, its top under that deck's end and its foot off the deck).
+                double topX = px + nx * mid, topZ = pz + nz * mid, dx = qx + lnx * mid - topX, dz = qz + lnz * mid - topZ;
+                double len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 0.2) continue;
+                dx /= len;
+                dz /= len;
+                BridgeStair st = BridgeStair.Fit(topX, topZ, dx, dz, down ? y0 : y1, down ? y1 : y0, len, hw);
                 if (exclude == null) exclude = SideExclusions(sp);
                 if (StairClear(st, exclude)) sp.Stairs.Add(st);
             }
@@ -2822,9 +3145,78 @@ namespace Ghumante.Core.Meshing.Bridges
 
         private readonly List<int> _chain = new List<int>();
 
+        /// <summary>
+        /// A landing pad (a flat piece: <see cref="BridgeStair.Steps"/> = 0) is cut back off any flight of the layout that
+        /// runs below it, lower by more than a step (<see cref="PadClearM"/>): the pad is centred on the joint it serves, so at the turn of a dog-leg
+        /// it reached a metre over the top of the flight coming up to it, and a walker climbing that flight met the pad's
+        /// edge as a slab over the head a few treads below the top (owner playtest #15, at the stairs of the overbridges
+        /// over Prithvi Path and the Ring Road). The cut keeps the side of the pad away from the flight; a pad that would
+        /// keep less than <see cref="MinPadM"/> of its width stays as it is.
+        /// </summary>
+        private void TrimPads()
+        {
+            foreach (BridgeSpan sp in Spans)
+                for (int i = 0; i < sp.Stairs.Count; i++)
+                {
+                    BridgeStair pad = sp.Stairs[i];
+                    if (pad.Steps != 0 || pad.Length < 0.05) continue;
+                    double ux = pad.Dx, uz = pad.Dz, nx = -pad.Dz, nz = pad.Dx;
+                    double v0 = -pad.HalfWidth, v1 = pad.HalfWidth;
+                    foreach (BridgeSpan o in Spans)
+                        foreach (BridgeStair f in o.Stairs)
+                        {
+                            if (f.Steps <= 0 || f.Length < 0.05) continue;
+                            // The flight's footprint in the pad's frame (u along it, v across), sampled (its edges, just
+                            // inside, and its walking line: a flight as wide as the pad is long has its edges at the pad's
+                            // ends) where it is lower than the pad by more than a step, less a margin.
+                            double fv0 = double.MaxValue, fv1 = double.MinValue;
+                            bool lower = false;
+                            int n = Math.Max(2, (int)Math.Ceiling(f.Length / 0.1));
+                            double hw = Math.Max(0, f.HalfWidth - 0.05);
+                            for (int j = 0; j <= n; j++)
+                            {
+                                double a = f.Length * j / n;
+                                if (f.SurfaceAt(a) > pad.TopY - PadClearM) continue;
+                                for (int c = -1; c <= 1; c++)
+                                {
+                                    double px = f.X + f.Dx * a - f.Dz * hw * c - pad.X, pz = f.Z + f.Dz * a + f.Dx * hw * c - pad.Z;
+                                    double u = px * ux + pz * uz, v = px * nx + pz * nz;
+                                    if (u < 0.02 || u > pad.Length - 0.02) continue;
+                                    fv0 = Math.Min(fv0, v);
+                                    fv1 = Math.Max(fv1, v);
+                                    lower = true;
+                                }
+                            }
+                            if (!lower || fv1 <= v0 || fv0 >= v1) continue;
+                            // Keep the larger side of the pad clear of the flight.
+                            double keepHi = v1 - Math.Max(v0, fv1), keepLo = Math.Min(v1, fv0) - v0;
+                            if (keepHi >= keepLo) v0 = Math.Max(v0, fv1);
+                            else v1 = Math.Min(v1, fv0);
+                        }
+                    if (v1 - v0 >= 2 * pad.HalfWidth - 1e-6) continue;
+                    if (v1 - v0 < MinPadM) continue;
+                    double mid = 0.5 * (v0 + v1);
+                    pad.X += nx * mid;
+                    pad.Z += nz * mid;
+                    pad.HalfWidth = 0.5 * (v1 - v0);
+                    sp.Stairs[i] = pad;
+                }
+        }
+
+        /// <summary>Narrowest landing pad left by <see cref="TrimPads"/>.</summary>
+        private const double MinPadM = 0.6;
+
+        /// <summary>A flight lower than a pad by more than this runs under it: the walker's step-up (the ground query's,
+        /// 0.45 m) less a margin, since the treads come in whole risers (owner playtest #15: the pad at the turn of the
+        /// footway 301779943 stood 0.45 m over the treads under its edge, exactly the step-up, and stopped walkers there).</summary>
+        private const float PadClearM = 0.3f;
+
         /// <summary>True when tile-local (x, z) at height <paramref name="y"/> lies on a deck of stair
-        /// <paramref name="stair"/>'s structure: inside the footprint of one of its decks (out to the deck edge) and no
-        /// lower than a body under its surface (a point there is on the deck, not on a flight beside it).</summary>
+        /// <paramref name="stair"/>'s structure: inside the footprint of one of its decks (out to the deck edge, its own
+        /// flights included) and no lower than a body under its surface (a point there is on the deck, not on a flight
+        /// beside it). A deck ending in a flight carries the way that joins it there: a mapped point on that flight is the
+        /// structure's, not the top of the joining stair (owner playtest #15: the steps way 1258620879, joining the end
+        /// flight of the overbridge deck 112449587, got a flight from the deck edge back over its own first flight).</summary>
         private bool OnDeckOf(BridgeSpan stair, double x, double z, float y)
         {
             float deckY;
@@ -2841,9 +3233,10 @@ namespace Ghumante.Core.Meshing.Bridges
                 double s, lat;
                 int k;
                 if (!Project(d, x, z, out s, out lat, out k)) continue;
-                if (s < d.Path.Start - 0.05 || s > d.Path.End + 0.05 || !d.HasDeck(Math.Max(d.Path.Start, Math.Min(d.Path.End, s)))) continue;
+                double sc = Math.Max(d.Path.Start, Math.Min(d.Path.End, s));
+                if (s < d.Path.Start - 0.05 || s > d.Path.End + 0.05 || !d.HasDeck(sc) && !d.InStairZone(sc)) continue;
                 if (lat > d.EdgeL(k) + 0.05 || lat < -d.EdgeR(k) - 0.05) continue;
-                float top = d.Path.YAt(Math.Max(d.Path.Start, Math.Min(d.Path.End, s))) + (d.RaisedWalk ? BridgeStyle.KerbHeightM : 0f);
+                float top = d.Path.YAt(sc) + (d.RaisedWalk && d.HasDeck(sc) ? BridgeStyle.KerbHeightM : 0f);
                 if (y <= top - 2.2f) continue;
                 deckY = top;
                 return true;
@@ -3205,6 +3598,30 @@ namespace Ghumante.Core.Meshing.Bridges
                     if (!Inside(id, x, z, carriageway, out f)) continue;
                     float low = Low(id, f);
                     if (y1 > low + 0.3f && y0 < low + _env[id])
+                    {
+                        LastRoad = _road[id];
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            /// <summary>True when (x, z) lies in the corridor, footpaths included, of a road not marked in
+            /// <paramref name="exclude"/> whose surface there lies between <paramref name="lo"/> and
+            /// <paramref name="hi"/>: a road whose walkers would meet an element standing up to <paramref name="hi"/>
+            /// that it does not climb over.</summary>
+            public bool SurfaceBetween(double x, double z, float lo, float hi, bool[] exclude)
+            {
+                int ci = Clamp((int)Math.Floor(x / CellM)), cj = Clamp((int)Math.Floor(z / CellM));
+                List<int> l = _grid[cj * _cells + ci];
+                if (l == null) return false;
+                foreach (int id in l)
+                {
+                    if (exclude[_road[id]]) continue;
+                    float f;
+                    if (!Inside(id, x, z, false, out f)) continue;
+                    float low = Low(id, f);
+                    if (low >= lo && low <= hi)
                     {
                         LastRoad = _road[id];
                         return true;
