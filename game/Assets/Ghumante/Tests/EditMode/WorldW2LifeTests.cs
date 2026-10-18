@@ -41,7 +41,7 @@ namespace Ghumante.Tests.EditMode
             TileInstances inst = b.Instances;
             Assert.IsNotNull(inst);
             Assert.Greater(inst.Props.Count, 20, "lamps, stops and signals");
-            Assert.Greater(inst.Parked.Count, 100, "parked motorbikes line the old-core lanes");
+            Assert.Greater(inst.Parked.Count, 10, "a few motorbikes in front of the houses (playtest #3: beside the lanes, not in them)");
             Assert.AreEqual(inst.CellsPerSide * inst.CellsPerSide + 1, inst.ParkedCells.Length);
             Assert.AreEqual(inst.Parked.Count, inst.ParkedCells[inst.ParkedCells.Length - 1]);
             for (int c = 0; c + 1 < inst.ParkedCells.Length; c++)
@@ -49,15 +49,12 @@ namespace Ghumante.Tests.EditMode
                     Assert.AreEqual(c, inst.CellOf(inst.Parked[i].X, inst.Parked[i].Z));
 
             var mask = new FootprintGrid(b.Source);
-            int fleet = 0;
             foreach (ParkedVehicle p in inst.Parked)
             {
                 Assert.IsFalse(mask.Inside(p.X, p.Z), "parked on a building");
                 Assert.That(p.Variant, Is.InRange(0, VehicleCatalog.Count - 1));
-                if (p.CommunityFleet) fleet++;
+                Assert.AreEqual(VehicleCatalog.At(p.Variant).PlayerDrivable, p.CommunityFleet, "every drivable parked vehicle can be borrowed (playtest #11)");
             }
-            float share = (float)fleet / inst.Parked.Count;
-            Assert.That(share, Is.InRange(0.15f, 0.4f), "about 30% carry the community-fleet tag");
 
             // Deterministic between builds (D10 seed).
             TileBuild again = BuildTile(new TileId(10, 516, 161));
@@ -78,7 +75,14 @@ namespace Ghumante.Tests.EditMode
             Assert.AreEqual(1, mid.TreeLodAt(100));
             Assert.AreEqual(2, mid.TreeLodAt(1000));
             Assert.AreEqual(3, mid.TreeLodAt(1300));
-            Assert.AreEqual(new[] { 80, 200, 400 }, new[] { DressingConfig.ForTier(0).ParkedCap, mid.ParkedCap, DressingConfig.ForTier(2).ParkedCap });
+            for (int tier = 0; tier < 3; tier++)
+            {
+                int near, block, total;
+                ParkedLod.Caps(tier, out near, out block, out total);
+                DressingConfig c = DressingConfig.ForTier(tier);
+                Assert.AreEqual(new[] { near, block, total }, new[] { c.ParkedNearCap, c.ParkedBlockCap, c.ParkedCap }, "parked caps from ParkedLod");
+                Assert.AreEqual(ParkedLod.NearM, c.ParkedNearM);
+            }
             Assert.AreEqual(0x5E8F45u, DressingConfig.CrownColour(TreeSpecies.Jacaranda, 10), "October jacaranda is green");
             Assert.AreEqual(0x8E6CC8u, DressingConfig.CrownColour(TreeSpecies.Jacaranda, 4), "violet in April");
 

@@ -127,6 +127,24 @@ namespace Ghumante.Tests.EditMode
         }
 
         [Test]
+        public void ThePromptChipClearsTheHopOffButtonInLandscape()
+        {
+            // Riding up to a compound in landscape the "Vehicles rest outside" chip shows over the Hop off circle, which
+            // stands at 46% of the safe height (129 units): Hud.uss puts the chip at 64% in a vehicle, above it with a gap,
+            // on every phone and tablet (the finding: at 58% it covered the circle's top 21-23 units).
+            foreach (Device d in Devices)
+            {
+                float w = (float)Math.Sqrt(PanelArea * d.LongOverShort), h = PanelArea / w;
+                HudRect safe = HudRect.Edges(d.LandLeft, 0f, w - d.LandRight, h - d.LandBottom);
+                var hopOff = new HudRect(safe.Right - 0.03f * safe.W - 129f, safe.Bottom - 0.46f * safe.H - 129f, 129f, 129f);
+                const float chipH = 24f * 1.4f + 20f; // one line of 24 px text and 10 px padding top and bottom
+                var chip = new HudRect(safe.Right - 0.03f * safe.W - 0.4f * safe.W, safe.Bottom - 0.64f * safe.H - chipH, 0.4f * safe.W, chipH);
+                Assert.IsFalse(chip.Overlaps(hopOff, 8f), d + ": the chip clears the Hop off circle with a gap");
+                Assert.That(chip.Y, Is.GreaterThan(safe.Y + 120f), d + ": and stays below the top bar");
+            }
+        }
+
+        [Test]
         public void TheChipFindsAClearSlotOnEveryPhoneAndTablet()
         {
             var obstacles = new List<HudRect>();

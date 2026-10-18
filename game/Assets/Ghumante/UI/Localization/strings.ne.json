@@ -281,5 +281,15 @@
   "flight.toast.smooth_landing": "एकदम चिल्लो अवतरण!",
   "flight.toast.landed": "अवतरण भयो!",
   "flight.toast.airborne": "उडियो!",
-  "flight.toast.mind_obstacle": "होस गर्नुहोस्, अगाडि केही छ"
+  "flight.toast.mind_obstacle": "होस गर्नुहोस्, अगाडि केही छ",
+  "hud.prompt.ride_offer": "यात्रु बन्नुहोस्: {0}",
+  "hud.prompt.wave": "बसका लागि सडक छेउमा पर्खनुहोस्, वा ट्याक्सी रोक्न थिचिराख्नुहोस्",
+  "hud.taxi_waiting": "तपाईंको ट्याक्सी पर्खिरहेको छ: ढोकासम्म हिँड्नुहोस्।",
+  "vehicle.taxi": "ट्याक्सी",
+  "vehicle.minibus": "मिनीबस",
+  "vehicle.micro": "माइक्रो",
+  "vehicle.tempo": "टेम्पो",
+  "vehicle.rickshaw": "रिक्सा",
+  "hud.sprint_locked": "दौड लक भयो: हात नछोइकनै दौडिरहन्छ। रोक्न दौड फेरि थिच्नुहोस् वा पछाडि तान्नुहोस्।",
+  "hud.sprint_unlocked": "दौड लक खुल्यो।"
 }

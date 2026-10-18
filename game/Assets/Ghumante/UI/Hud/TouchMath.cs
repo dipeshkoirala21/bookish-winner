@@ -57,6 +57,24 @@ namespace Ghumante.UI.Hud
             y = -dy / length * amount;
         }
 
+        /// <summary>A walking thumb dragged this far beyond the stick's rim, straight up (within
+        /// <see cref="SprintLockConeDeg"/> of it), is in the sprint lock (playtest #10: keep running hands-free).</summary>
+        public const float SprintLockReach = 1.6f * StickRadius;
+
+        /// <summary>Half the cone round straight up that counts as dragging into the sprint lock, degrees.</summary>
+        public const float SprintLockConeDeg = 30f;
+
+        /// <summary>True when a finger at (dx, dy) from where it went down (panel units, y down) is in the sprint lock:
+        /// past <see cref="SprintLockReach"/> and within <see cref="SprintLockConeDeg"/> of straight up.</summary>
+        public static bool InSprintLock(float dx, float dy)
+        {
+            if (float.IsNaN(dx) || float.IsInfinity(dx) || float.IsNaN(dy) || float.IsInfinity(dy)) return false;
+            if (dy >= 0f) return false;
+            float length = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (length < SprintLockReach) return false;
+            return Math.Abs(dx) <= -dy * (float)Math.Tan(SprintLockConeDeg * Math.PI / 180.0);
+        }
+
         /// <summary>Portrait drive zone: steering in [−1, 1] for a horizontal drag of <paramref name="dx"/> panel units.</summary>
         public static float DriveSteer(float dx)
         {

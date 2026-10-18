@@ -281,5 +281,15 @@
   "flight.toast.smooth_landing": "Butter-smooth landing!",
   "flight.toast.landed": "Landed!",
   "flight.toast.airborne": "Airborne!",
-  "flight.toast.mind_obstacle": "Careful, something's in the way"
+  "flight.toast.mind_obstacle": "Careful, something's in the way",
+  "hud.prompt.ride_offer": "Ride along: {0}",
+  "hud.prompt.wave": "Wait by the road for a bus, or hold to wave down a taxi",
+  "hud.taxi_waiting": "Your taxi is waiting: walk to its door.",
+  "vehicle.taxi": "Taxi",
+  "vehicle.minibus": "Minibus",
+  "vehicle.micro": "Micro",
+  "vehicle.tempo": "Tempo",
+  "vehicle.rickshaw": "Rickshaw",
+  "hud.sprint_locked": "Sprint locked: running hands free. Tap sprint or pull back to stop.",
+  "hud.sprint_unlocked": "Sprint lock off."
 }

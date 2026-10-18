@@ -346,40 +346,29 @@ namespace Ghumante.Core.Traffic
             }
             seg.Length = acc;
             if (seg.Length < 30f) return;
-            // Stops projected onto the segment's road lanes (within 25 m), in path order.
+            // The route's real stops on this path (in path order): each projected onto the path's road lanes (within
+            // StopProjectM), then moved to the nearest place on the path where the whole vehicle stands on one road lane
+            // with its front short of the next junction (a stop is usually mapped right at a junction, often on a short
+            // piece); a place within StopShiftM of the real stop is kept, else the stop is dropped.
             var stopLane = new List<int>();
             var stopS = new List<float>();
             var stopIdx = new List<int>();
             var stopPos = new List<float>();
-            // A stop stands where the whole vehicle fits on its lane (its tail never in the junction behind).
-            float minS = VehicleCatalog.At(variant).LengthM + 2f;
+            float body = VehicleCatalog.At(variant).LengthM;
             if (r.Stops != null)
                 for (int k = 0; k < r.Stops.Length; k++)
                 {
                     TransitStop st = r.Stops[k];
-                    double best = 25.0;
-                    int bl = -1;
-                    float bs = 0f, bp = 0f;
-                    for (int i = 0; i < path.Count; i++)
-                    {
-                        LaneGraph.Lane l = _g.Lanes[path[i]];
-                        if (l.Kind != LaneKind.Road) continue;
-                        float s;
-                        double d = LaneGraph.Project(l, st.X, st.Z, out s);
-                        if (d < best && s > minS && s < l.Length - 2f)
-                        {
-                            best = d;
-                            bl = path[i];
-                            bs = s;
-                            bp = seg.Start[i] + s;
-                        }
-                    }
-                    if (bl < 0) continue;
+                    int lane;
+                    float s, along;
+                    if (!PlaceStop(seg, st.X, st.Z, body, out lane, out s, out along)) continue;
                     int at = 0;
-                    while (at < stopPos.Count && stopPos[at] <= bp) at++;
-                    stopPos.Insert(at, bp);
-                    stopLane.Insert(at, bl);
-                    stopS.Insert(at, bs);
+                    while (at < stopPos.Count && stopPos[at] <= along) at++;
+                    // Two stops on one spot (both directions mapped, a stop and its platform): keep one.
+                    if (at > 0 && along - stopPos[at - 1] < MinStopGapM || at < stopPos.Count && stopPos[at] - along < MinStopGapM) continue;
+                    stopPos.Insert(at, along);
+                    stopLane.Insert(at, lane);
+                    stopS.Insert(at, s);
                     stopIdx.Insert(at, k);
                 }
             // The timetable anchor: where the segment starts along the whole route, from the stops on it (their distance
@@ -400,11 +389,80 @@ namespace Ghumante.Core.Traffic
             }
             var plan = new TrafficSim.RoutePlan
             {
-                Lanes = seg.Lanes, StopLane = stopLane.ToArray(), StopS = stopS.ToArray(), StopIndex = stopIdx.ToArray(), RouteIndex = ri,
+                Lanes = seg.Lanes, LaneStart = seg.Start, StopLane = stopLane.ToArray(), StopS = stopS.ToArray(), StopIndex = stopIdx.ToArray(),
+                StopAlong = stopPos.ToArray(), RouteIndex = ri,
             };
             seg.PlanIndex = _sim.Routes.Count;
             _sim.Routes.Add(plan);
             _segments.Add(seg);
+        }
+
+        /// <summary>A real stop is projected onto a route's lanes from at most this far (metres).</summary>
+        public const double StopProjectM = 30.0;
+
+        /// <summary>Where a stop's vehicle stands lies at most this far from the real stop (metres).</summary>
+        public const double StopShiftM = 30.0;
+
+        /// <summary>Two stops closer than this along a path are one stop.</summary>
+        public const float MinStopGapM = 20f;
+
+        /// <summary>
+        /// Where on a segment's path a vehicle of length <paramref name="body"/> stands for the stop at (x, z): the front's
+        /// lane, arc length and distance along the path. The projection onto the nearest road lane of the path is moved,
+        /// as little as it can be, to a place where the whole body stands on one road lane and the front stays 2 m short
+        /// of its end; short pieces with no such room take the vehicle with its front 2 m short of their end. False when
+        /// no place lies within <see cref="StopShiftM"/> of the stop.
+        /// </summary>
+        private bool PlaceStop(Segment seg, double x, double z, float body, out int lane, out float s, out float along)
+        {
+            lane = -1;
+            s = along = 0f;
+            double best = StopProjectM;
+            int bi = -1;
+            float bs = 0f;
+            for (int i = 0; i < seg.Lanes.Length; i++)
+            {
+                LaneGraph.Lane l = _g.Lanes[seg.Lanes[i]];
+                if (l.Kind != LaneKind.Road) continue;
+                float ps;
+                double d = LaneGraph.Project(l, x, z, out ps);
+                if (d < best)
+                {
+                    best = d;
+                    bi = i;
+                    bs = ps;
+                }
+            }
+            if (bi < 0) return false;
+            float want = seg.Start[bi] + bs;
+            float bestShift = float.PositiveInfinity;
+            for (int pass = 0; pass < 2 && lane < 0; pass++)
+            {
+                for (int j = 0; j < seg.Lanes.Length; j++)
+                {
+                    LaneGraph.Lane l = _g.Lanes[seg.Lanes[j]];
+                    if (l.Kind != LaneKind.Road || Math.Abs(seg.Start[j] - want) > l.Length + 2f * (float)StopShiftM) continue;
+                    float lo = body + 2f, hi = l.Length - 2f;
+                    if (pass == 0 && lo > hi) continue; // the body does not fit: only in the second pass
+                    if (pass == 1)
+                    {
+                        if (hi < 4f) continue;
+                        lo = hi;
+                    }
+                    float t = Math.Max(lo, Math.Min(hi, want - seg.Start[j]));
+                    float shift = Math.Abs(seg.Start[j] + t - want);
+                    if (shift >= bestShift) continue;
+                    double px, pz;
+                    float py, ph;
+                    LaneGraph.PointAt(l, t, out px, out pz, out py, out ph);
+                    if ((px - x) * (px - x) + (pz - z) * (pz - z) > StopShiftM * StopShiftM) continue;
+                    bestShift = shift;
+                    lane = seg.Lanes[j];
+                    s = t;
+                    along = seg.Start[j] + t;
+                }
+            }
+            return lane >= 0;
         }
 
         /// <summary>The route (index into the route set) of a resident segment and its length (tests).</summary>

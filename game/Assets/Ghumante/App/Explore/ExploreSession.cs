@@ -94,11 +94,23 @@ namespace Ghumante.App.Explore
             Closed,
         }
 
-        /// <summary>Traffic obstacle ids the session owns (the player, a taxi's pull-over point).</summary>
-        public const int PlayerObstacleId = 0x50_4C_41_59, PullOverObstacleId = 0x50_55_4C_4C;
+        /// <summary>The traffic obstacle id of the player (standing, or the vehicle they drive).</summary>
+        public const int PlayerObstacleId = 0x50_4C_41_59;
 
         /// <summary>Community-fleet vehicles are offered within this distance.</summary>
         public const float FleetSearchM = 30f;
+
+        /// <summary>
+        /// Parked vehicles the player may borrow are solid within this distance of the player (playtest #11: every parked
+        /// vehicle can be ridden away, and #12: proper physics): the tiles' static collider sets leave them out
+        /// (<see cref="TileInstances.AppendColliders"/>: a borrowed one must not leave a ghost box behind), so the session
+        /// registers their bodies itself (<see cref="RefreshParkedSolids"/>), less the ones on loan.
+        /// </summary>
+        public const float ParkedSolidM = 60f;
+
+        /// <summary>Level of the quadtree cell whose key and frame carry the parked-vehicle colliders (128 m; the streamer
+        /// registers detail tiles at level 10 and coarser, so the key never meets a tile's).</summary>
+        public const int ParkedSolidLevel = 13;
 
         private ExploreScreen _screen;
         private SaveData _save;
@@ -109,8 +121,12 @@ namespace Ghumante.App.Explore
         /// and not offered, by parked id, until the vehicle goes home, whatever happens to their tiles meanwhile.</summary>
         private readonly HashSet<uint> _hiddenParked = new HashSet<uint>();
         private readonly ParkedSpot[] _parked = new ParkedSpot[48];
+        private readonly double[] _parkedD2 = new double[48];
         private int _parkedCount;
         private float _parkedTimer;
+        private readonly StructureColliders _parkedSolids = new StructureColliders();
+        private ulong _parkedSolidKey, _parkedSolidHash;
+        private bool _parkedSolidRegistered;
         private volatile float _cowDistance = float.PositiveInfinity;
         private double _cowX, _cowZ;
         private Action<TrafficSim, PedestrianSim, AnimalSim> _postPlayer;
@@ -119,12 +135,18 @@ namespace Ghumante.App.Explore
         private bool _vehicleBody;
         private volatile bool _postPassenger;
         private float _postTimer;
-        private int _postedPull = -1;
 
         /// <summary>The player is posted to the sims at 10 Hz (LifeHost.Post wraps each call in a closure).</summary>
         public const float PostIntervalS = 0.1f;
-        private int _pullAgent = -1;
+
+        // The ride's traffic command (ExplorerController.TryGetPullOver), written here and read by PostPlayer on the life
+        // worker: a pull-over for one agent, or a wave for any taxi; and the player waiting for a bus at the kerb.
+        private int _pullAgent = -1, _postedPullAgent = -1, _lastPullAgent = -2;
+        private PullOverKind _pullKind, _lastPullKind;
         private double _pullX, _pullZ;
+        private bool _taxiRequest, _waiting;
+        private double _waitX, _waitZ;
+        private volatile int _requestedTaxi;
         private bool _listenerAttached;
         private Vector3 _lastListener;
         private bool _garagePressed;
@@ -265,6 +287,7 @@ namespace Ghumante.App.Explore
             }
             if (_world != null)
             {
+                if (_parkedSolidRegistered && _world.GroundQuery != null) _world.GroundQuery.Unregister(_parkedSolidKey);
                 _world.OriginShifted -= OnOriginShifted;
                 _world.DetailTileShown -= OnDetailShown;
                 _world.DetailTileHidden -= OnDetailHidden;
@@ -273,6 +296,8 @@ namespace Ghumante.App.Explore
             }
             _detailTiles.Clear();
             _hiddenParked.Clear();
+            _parkedSolidRegistered = false;
+            _parkedSolidHash = 0;
             if (_vehicleCache != null)
             {
                 _vehicleCache.Dispose();
@@ -644,6 +669,7 @@ namespace Ghumante.App.Explore
                 Namaste = t.Namaste,
                 Bell = t.Bell,
                 RidePassenger = t.Passenger,
+                SprintLockDrag = t.SprintLockDrag,
                 Device = t.Active || t.Touched ? ControlDevice.Touch : ControlDevice.None,
             };
         }
@@ -746,6 +772,13 @@ namespace Ghumante.App.Explore
         {
             if (_screen == null || string.IsNullOrEmpty(key)) return;
             string icon = key.StartsWith("hud.garage", StringComparison.Ordinal) ? "gh-toast__icon--scooter" : "gh-toast__icon--star";
+            if (key == "hud.garage_selected" && _explorer != null)
+            {
+                // The whistle picked the next garage vehicle: name it ("Garage: Bicycle").
+                RigClass rig = VehicleRoles.RigOf(VehicleCatalog.At(_explorer.Garage.Current.Variant));
+                _screen.ShowToast(_localizer.Format("hud.garage_selected", _localizer.Get(VehicleNameKey(rig))), icon, 2.4f);
+                return;
+            }
             _screen.ShowToast(_localizer.Get(key), icon, 2.4f);
         }
 
@@ -782,9 +815,14 @@ namespace Ghumante.App.Explore
             if (borrowed)
             {
                 if (_hiddenParked.Add(id)) OnNotice("hud.fleet_borrowed");
-                return;
             }
-            _hiddenParked.Remove(id);
+            else _hiddenParked.Remove(id);
+            // At once: the borrowed body must not stand inside its own parked box, and a returned one is solid again.
+            if (_explorer != null)
+            {
+                WorldPos at = _explorer.Position;
+                RefreshParkedSolids(at.X, at.Z);
+            }
         }
 
         /// <summary>What the explorer needs from the world this frame (no allocation).</summary>
@@ -796,6 +834,7 @@ namespace Ghumante.App.Explore
             {
                 _parkedTimer = 0.25f;
                 GatherParked(at.X, at.Z);
+                RefreshParkedSolids(at.X, at.Z);
             }
             LifeHost life = _world.Life;
             Camera cam = _rig.Camera;
@@ -813,7 +852,65 @@ namespace Ghumante.App.Explore
                 CameraPosition = cam != null ? cam.transform.position : Vector3.zero,
                 CameraForward = cam != null ? cam.transform.forward : Vector3.forward,
                 Portrait = cam != null && cam.aspect < 1f,
+                RequestedTaxi = _requestedTaxi,
             };
+        }
+
+        /// <summary>
+        /// Registers the bodies of the borrowable parked vehicles within <see cref="ParkedSolidM"/> of (x, z), less the ones
+        /// on loan, with the world's ground query as one collider set (in the frame of the <see cref="ParkedSolidLevel"/> cell
+        /// under the player). Rebuilt only when that set of vehicles or the cell changes; no allocation otherwise.
+        /// </summary>
+        private void RefreshParkedSolids(double x, double z)
+        {
+            TileGroundQuery ground = _world != null ? _world.GroundQuery : null;
+            if (ground == null) return;
+            TileId cell = TileId.At(ParkedSolidLevel, x, z);
+            ulong key = cell.Key;
+            // An order-free hash of the ids in reach (the same set gives the same hash whatever the tile order).
+            ulong hash = 0;
+            int count = 0;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                if (pass == 1)
+                {
+                    if (hash == _parkedSolidHash && key == _parkedSolidKey && _parkedSolidRegistered == count > 0) return;
+                    _parkedSolids.Clear();
+                }
+                foreach (KeyValuePair<TileId, TileExtras> kv in _detailTiles)
+                {
+                    TileInstances inst = kv.Value.Instances;
+                    if (inst == null || inst.Parked.Count == 0) continue;
+                    TileId id = kv.Key;
+                    if (x < id.X0 - ParkedSolidM || x > id.X0 + id.Size + ParkedSolidM || z < id.Z0 - ParkedSolidM || z > id.Z0 + id.Size + ParkedSolidM)
+                        continue;
+                    for (int i = 0; i < inst.Parked.Count; i++)
+                    {
+                        ParkedVehicle p = inst.Parked[i];
+                        if (!p.CommunityFleet || _hiddenParked.Contains(p.Id)) continue;
+                        double px = id.X0 + p.X, pz = id.Z0 + p.Z, dx = px - x, dz = pz - z;
+                        if (dx * dx + dz * dz > ParkedSolidM * ParkedSolidM) continue;
+                        if (pass == 0)
+                        {
+                            ulong h = (ulong)p.Id * 0x9E3779B97F4A7C15UL;
+                            hash += h ^ (h >> 29);
+                            count++;
+                        }
+                        else _parkedSolids.AddVehicle(px - cell.X0, pz - cell.Z0, p.Y, p.YawDeg, p.Variant);
+                    }
+                }
+            }
+            if (_parkedSolidRegistered && key != _parkedSolidKey) ground.Unregister(_parkedSolidKey);
+            _parkedSolidKey = key;
+            _parkedSolidHash = hash;
+            if (_parkedSolids.Count == 0)
+            {
+                if (_parkedSolidRegistered) ground.Unregister(key);
+                _parkedSolidRegistered = false;
+                return;
+            }
+            ground.Register(key, _parkedSolids);
+            _parkedSolidRegistered = true;
         }
 
         private void GatherParked(double x, double z)
@@ -826,14 +923,26 @@ namespace Ghumante.App.Explore
                 TileId id = kv.Key;
                 if (x < id.X0 - FleetSearchM || x > id.X0 + id.Size + FleetSearchM || z < id.Z0 - FleetSearchM || z > id.Z0 + id.Size + FleetSearchM)
                     continue;
-                for (int i = 0; i < inst.Parked.Count && _parkedCount < _parked.Length; i++)
+                for (int i = 0; i < inst.Parked.Count; i++)
                 {
                     ParkedVehicle p = inst.Parked[i];
                     if (!p.CommunityFleet || _hiddenParked.Contains(p.Id)) continue;
                     double px = id.X0 + p.X, pz = id.Z0 + p.Z;
-                    double dx = px - x, dz = pz - z;
-                    if (dx * dx + dz * dz > FleetSearchM * FleetSearchM) continue;
-                    _parked[_parkedCount++] = new ParkedSpot
+                    double dx = px - x, dz = pz - z, d2 = dx * dx + dz * dz;
+                    if (d2 > FleetSearchM * FleetSearchM) continue;
+                    // Keep the nearest ones when more stand in reach than the buffer holds (a bus park beside a lane of
+                    // scooters): the vehicle beside the player is always offered.
+                    int slot = _parkedCount;
+                    if (slot == _parked.Length)
+                    {
+                        slot = 0;
+                        for (int k = 1; k < _parkedCount; k++)
+                            if (_parkedD2[k] > _parkedD2[slot]) slot = k;
+                        if (_parkedD2[slot] <= d2) continue;
+                    }
+                    else _parkedCount++;
+                    _parkedD2[slot] = d2;
+                    _parked[slot] = new ParkedSpot
                     {
                         X = px, Z = pz, Y = p.Y, YawDeg = p.YawDeg, Variant = p.Variant, Livery = p.Livery, Id = p.Id, Fleet = true,
                     };
@@ -843,20 +952,29 @@ namespace Ghumante.App.Explore
 
         /// <summary>
         /// The player in the sims (only through LifeHost.Post): a traffic obstacle where the player stands or drives, the
-        /// pedestrians' hop-aside capsule ahead of the player's vehicle, a hailed taxi's pull-over point, and the
-        /// nearest-cow query for the cushion (read back next frame).
+        /// pedestrians' hop-aside capsule ahead of the player's vehicle, the ride's traffic command (a wave for a taxi, a
+        /// pickup, a hold while climbing in or out, the bell), the player waiting for a bus at the kerb, and the
+        /// nearest-cow query for the cushion (read back next frame). Posted at 10 Hz, and at once when the ride's command
+        /// changes.
         /// </summary>
         private void PostToLife()
         {
             LifeHost life = _world.Life;
             if (life == null) return;
             _postTimer -= Time.deltaTime;
-            int wantPull;
-            double unusedX, unusedZ;
-            _explorer.TryGetPullOver(out wantPull, out unusedX, out unusedZ);
-            if (_postTimer > 0f && wantPull == _postedPull) return;
+            int agent;
+            PullOverKind kind;
+            double px, pz;
+            bool pull = _explorer.TryGetPullOver(out agent, out kind, out px, out pz);
+            if (!pull)
+            {
+                agent = -1;
+                kind = PullOverKind.None;
+            }
+            if (_postTimer > 0f && agent == _lastPullAgent && kind == _lastPullKind) return;
             _postTimer = PostIntervalS;
-            _postedPull = wantPull;
+            _lastPullAgent = agent;
+            _lastPullKind = kind;
             WorldPos at = _explorer.Position;
             _vehicleBody = _explorer.TryGetVehicleBody(out _obstacleX, out _obstacleZ, out _obstacleHeading, out _obstacleSpeed, out _obstacleWidth,
                                                        out _obstacleFront);
@@ -866,18 +984,12 @@ namespace Ghumante.App.Explore
                 _obstacleZ = at.Z;
             }
             _obstacleRadius = _vehicleBody ? Mathf.Max(1f, 0.5f * _obstacleFront) : 0.6f;
-            int agent;
-            double px, pz;
-            if (_explorer.TryGetPullOver(out agent, out px, out pz))
-            {
-                _pullAgent = agent;
-                _pullX = px;
-                _pullZ = pz;
-            }
-            else
-            {
-                _pullAgent = -1;
-            }
+            _taxiRequest = pull && agent < 0 && kind == PullOverKind.Pickup;
+            _pullAgent = pull && agent > 0 ? agent : -1;
+            _pullKind = kind;
+            _pullX = px;
+            _pullZ = pz;
+            _waiting = _explorer.TryGetWaitingPoint(out _waitX, out _waitZ);
             _cowX = at.X;
             _cowZ = at.Z;
             _postPassenger = _explorer.Mode == ExplorerMode.Passenger;
@@ -891,8 +1003,14 @@ namespace Ghumante.App.Explore
             if (!_postPassenger) traffic.AddObstacle(PlayerObstacleId, _obstacleX, _obstacleZ, _obstacleRadius, ObstacleKind.Player);
             else traffic.RemoveObstacle(PlayerObstacleId);
             peds.SetPlayerVehicle(_vehicleBody, _obstacleX, _obstacleZ, _obstacleHeading, _obstacleSpeed, _obstacleWidth, _obstacleFront);
-            if (_pullAgent >= 0) traffic.AddObstacle(PullOverObstacleId, _pullX, _pullZ, 1.2f, ObstacleKind.Player);
-            else traffic.RemoveObstacle(PullOverObstacleId);
+            // The ride: a new agent (or none) lets the previous one go; the same command again changes nothing.
+            if (_postedPullAgent > 0 && _postedPullAgent != _pullAgent) traffic.CancelPullOver(_postedPullAgent);
+            if (_pullAgent > 0) traffic.PullOver(_pullAgent, _pullKind, _pullX, _pullZ);
+            _postedPullAgent = _pullAgent;
+            if (_taxiRequest) traffic.RequestTaxi(_pullX, _pullZ);
+            else traffic.CancelTaxiRequest();
+            _requestedTaxi = _taxiRequest ? traffic.RequestedTaxi : 0;
+            traffic.SetWaitingPassenger(_waiting, _waitX, _waitZ);
             float d;
             _cowDistance = animals.TryNearestCow(_cowX, _cowZ, out d) ? d : float.PositiveInfinity;
         }
@@ -921,16 +1039,27 @@ namespace Ghumante.App.Explore
                     else _screen.SetAction("hud.action.jump", null, false);
                     _screen.SetPrompt("hud.prompt.rest_outside");
                     break;
+                case ExplorerPrompt.RideOffered:
+                    // Only a passenger seat: the Action button boards it (tap, or hold), so it is a green Hop on.
+                    _screen.SetAction("hud.action.hop_on", "hop", false);
+                    _screen.SetPrompt("hud.prompt.ride_offer", TrafficNameKey(_explorer.PromptVariant));
+                    break;
+                case ExplorerPrompt.Waiting:
+                    // Standing by the road: buses stop for the player; holding the button waves down a taxi.
+                    _screen.SetAction("hud.action.jump", null, false);
+                    _screen.SetPrompt("hud.prompt.wave");
+                    break;
                 case ExplorerPrompt.TaxiComing:
                     _screen.SetAction("hud.action.jump", null, false);
                     _screen.SetPrompt("hud.prompt.taxi_coming");
                     break;
                 case ExplorerPrompt.StopRequested:
-                    _screen.SetAction("hud.action.stop", "off", false);
+                    // Riding along, the Action button is Hop off (it asks the driver to stop, like the bell beside it).
+                    _screen.SetAction("hud.action.hop_off", "off", false);
                     _screen.SetPrompt("hud.prompt.stop_requested");
                     break;
                 case ExplorerPrompt.RideAlong:
-                    _screen.SetAction("hud.action.stop", "off", false);
+                    _screen.SetAction("hud.action.hop_off", "off", false);
                     _screen.SetPrompt("hud.prompt.ride_along");
                     break;
                 default:
@@ -939,6 +1068,7 @@ namespace Ghumante.App.Explore
                     break;
             }
             _screen.SetPassengerOffered(_explorer.PassengerOffered && _explorer.Mode == ExplorerMode.Walk);
+            _screen.SetSprintLocked(_explorer.SprintLocked);
         }
 
         private void PlayerVehicleHorn()
@@ -946,6 +1076,22 @@ namespace Ghumante.App.Explore
             Characters.Rides.PlayerVehicle v = _explorer.CurrentVehicle;
             bool bell = v != null && VehicleRoles.HornOf(v.Entry) == Core.Synth.HornKind.BicycleBell;
             _screen.SetHornLabel(bell ? "hud.bell" : "hud.horn");
+        }
+
+        /// <summary>The name of a traffic vehicle the player can ride along in (taxi, bus, minibus, micro, tempo, rickshaw).</summary>
+        private static string TrafficNameKey(int variant)
+        {
+            if (variant < 0 || variant >= VehicleCatalog.Count) return "vehicle.passenger";
+            switch (VehicleCatalog.At(variant).TrafficClass)
+            {
+                case VehicleClass.Taxi: return "vehicle.taxi";
+                case VehicleClass.Bus: return "vehicle.bus";
+                case VehicleClass.Minibus: return "vehicle.minibus";
+                case VehicleClass.Microbus: return "vehicle.micro";
+                case VehicleClass.Tempo: return "vehicle.tempo";
+                case VehicleClass.Rickshaw: return "vehicle.rickshaw";
+                default: return "vehicle.passenger";
+            }
         }
 
         private static string VehicleNameKey(RigClass rig)

@@ -28,6 +28,24 @@ namespace Ghumante.Core.Traffic
         public float SpawnIntervalS = 0.25f;
         public int SpawnAttempts = 4;
 
+        /// <summary>
+        /// Out of view, ambient vehicles farther than this from the player leave (W2 playtest #6: "there are absolutely no
+        /// traffics on the road"): the moving-vehicle cap stays around the player instead of thinning out over the whole
+        /// ghost radius. Routed buses, a hailed taxi and a vehicle pulling over keep the ghost radius. 0 = 1.2 × the ghost
+        /// radius (the old behaviour).
+        /// </summary>
+        public float KeepRadiusM = 260f;
+
+        /// <summary>
+        /// Moving motorbikes and scooters kept near the player (playtest #3: "on busy areas, instead of parked
+        /// motorcycles, bring up the actual person driving it instead. But not too many: 2-3"): when fewer two-wheelers than
+        /// this ride within <see cref="NearRiderRadiusM"/>, one is started on a lane at least <see cref="NearRiderMinM"/>
+        /// away, out of view, every spawn interval (within the cap).
+        /// </summary>
+        public int NearRiders = 3;
+
+        public float NearRiderRadiusM = 70f, NearRiderMinM = 35f;
+
         /// <summary>Weekly holiday: density × 0.6.</summary>
         public bool Saturday;
 
@@ -36,18 +54,54 @@ namespace Ghumante.Core.Traffic
 
         public static TrafficSettings Low()
         {
-            return new TrafficSettings { MaxVehicles = 12, FullRadiusM = 150f, GhostRadiusM = 300f };
+            return new TrafficSettings { MaxVehicles = 12, FullRadiusM = 150f, GhostRadiusM = 300f, KeepRadiusM = 180f, NearRiders = 2 };
         }
 
         public static TrafficSettings Mid()
         {
-            return new TrafficSettings { MaxVehicles = 30, FullRadiusM = 250f, GhostRadiusM = 500f };
+            return new TrafficSettings { MaxVehicles = 30, FullRadiusM = 250f, GhostRadiusM = 500f, KeepRadiusM = 230f, NearRiders = 3 };
         }
 
         public static TrafficSettings High()
         {
-            return new TrafficSettings { MaxVehicles = 50, FullRadiusM = 400f, GhostRadiusM = 800f };
+            return new TrafficSettings { MaxVehicles = 50, FullRadiusM = 400f, GhostRadiusM = 800f, KeepRadiusM = 280f, NearRiders = 3 };
         }
+    }
+
+    /// <summary>What a pull-over command asks of one agent (<see cref="TrafficSim.PullOver"/>). Append-only.</summary>
+    public enum PullOverKind : byte
+    {
+        None = 0,
+
+        /// <summary>Pick up a person waiting at (x, z) (a hailed taxi): the agent finds its way there through the lane
+        /// graph and stops at the kerb with its passenger door beside them.</summary>
+        Pickup = 1,
+
+        /// <summary>Pull over at the kerb as soon as it comfortably can, about 14 m on (a taxi passenger's bell).</summary>
+        Ahead = 2,
+
+        /// <summary>Stand where it is (someone is climbing in or out).</summary>
+        Hold = 3,
+
+        /// <summary>A passenger rang the bell: a route vehicle stops at its next real stop when one lies within
+        /// <see cref="TrafficSim.NextStopReachM"/>, else it pulls over ahead with its doors open.</summary>
+        NextStop = 4,
+    }
+
+    /// <summary>Where a pull-over stands (<see cref="TrafficSim.PullOverStateOf"/>).</summary>
+    public enum PullOverState : byte
+    {
+        None = 0,
+
+        /// <summary>On its way to the place it will stop.</summary>
+        Approaching = 1,
+
+        /// <summary>Standing at the place (doors open for a route vehicle).</summary>
+        Holding = 2,
+
+        /// <summary>No way to that place was found within <see cref="TrafficSim.PickupSearchM"/> (tried again every few
+        /// seconds); a hail should pick another taxi.</summary>
+        Unreachable = 3,
     }
 
     /// <summary>
@@ -59,6 +113,12 @@ namespace Ghumante.Core.Traffic
     /// model, and the simulation LOD (lane ghosts at 2 Hz beyond the full radius). No motor agent ever spawns or drives
     /// inside SACRED_NO_VEHICLE (lanes there carry no motor classes and spawns are checked against
     /// <see cref="SacredZoneIndex"/>).
+    /// <para><b>Pulling over</b> (the player's rides): <see cref="PullOver"/> gives one agent a fixed place to stop at the
+    /// kerb (a hailed taxi finds its way to the person waiting; a bell stops it about 14 m on; a boarding or alighting
+    /// passenger holds it), resolved once to a lane position and kept until <see cref="CancelPullOver"/>, so the agent
+    /// really stops instead of creeping after a target that moves with it. Route buses, micros and tempos dwell at every
+    /// real stop of their route with their doors open, pull over for a person waiting at their kerb
+    /// (<see cref="SetWaitingPassenger"/>), and micros, minibuses and tempos also stop at random about every 600 m.</para>
     /// <para><b>Threading.</b> <see cref="Step"/> runs on a worker thread holding the graph's lock;
     /// <see cref="SetFocus"/>, <see cref="AddObstacle"/> and friends may be called from any thread (they are applied at
     /// the next step); <see cref="CopyPoses"/> reads a double-buffered snapshot. Deterministic: the same graph, seed and
@@ -106,6 +166,16 @@ namespace Ghumante.Core.Traffic
             public byte Anim;
             public float RandomStopAt; // micros and tempos stop at random every ~600 m
             public float Odo;
+
+            // Pulling over: a command from the player's session (external) or the sim's own kerb pickups and random stops.
+            public PullOverKind Pull;
+            public PullOverState PullState;
+            public bool PullExternal, PullHeld, PullAtStop;
+            public double PullX, PullZ; // the waiting person (Pickup)
+            public int PullLane; // resolved target: the front stops at PullS on PullLane (-1 unresolved)
+            public float PullS, PullT, PullRetry, PullHoldS;
+            public int[] PullPath; // lanes after the current one leading to PullLane (a hailed taxi's way), or null
+            public float SinceServed; // seconds since this agent last stopped for a waiting passenger
         }
 
         internal struct Obstacle
@@ -123,14 +193,37 @@ namespace Ghumante.Core.Traffic
             public ObstacleKind Kind;
         }
 
-        /// <summary>A bus-route plan: the lanes to follow and the stops along them.</summary>
+        /// <summary>A bus-route plan: the lanes to follow and the stops along them (in path order).</summary>
         internal sealed class RoutePlan
         {
             public int[] Lanes;
+
+            /// <summary>Arc length of each lane's start along the plan (same length as <see cref="Lanes"/>).</summary>
+            public float[] LaneStart;
+
             public int[] StopLane;
             public float[] StopS;
             public int[] StopIndex;
+
+            /// <summary>Where the front stands at each stop, along the plan (ascending).</summary>
+            public float[] StopAlong;
+
             public int RouteIndex;
+        }
+
+        /// <summary>A pull-over command waiting for the next step.</summary>
+        private struct PullCommand
+        {
+            public int AgentId;
+            public PullOverKind Kind;
+            public double X, Z;
+        }
+
+        /// <summary>One agent's pull-over in the published snapshot.</summary>
+        private struct PullStatus
+        {
+            public int AgentId;
+            public PullOverState State;
         }
 
         private readonly LaneGraph _g;
@@ -164,6 +257,9 @@ namespace Ghumante.Core.Traffic
         private Obstacle[] _obstacles = new Obstacle[64];
         private int _obstacleCount;
         private bool _obstaclesDirty = true;
+        private readonly List<PullCommand> _pendPull = new List<PullCommand>(8), _pullWork = new List<PullCommand>(8);
+        private bool _pendWaiting, _waiting, _waitBusy;
+        private double _pendWaitX, _pendWaitZ, _waitX, _waitZ;
 
         // Per-step scratch.
         private long[] _occKey = new long[64];
@@ -184,6 +280,8 @@ namespace Ghumante.Core.Traffic
         private int _frontCount;
         private HornEvent[] _hornsBack = new HornEvent[16], _hornsFront = new HornEvent[16];
         private int _hornsBackCount, _hornsFrontCount;
+        private PullStatus[] _pullBack = new PullStatus[8], _pullFront = new PullStatus[8];
+        private int _pullBackCount, _pullFrontCount;
 
         /// <summary>Optional: spawns of motor classes inside these zones are refused (the lane graph already drops lanes
         /// there).</summary>
@@ -298,6 +396,59 @@ namespace Ghumante.Core.Traffic
             }
         }
 
+        /// <summary>
+        /// Asks agent <paramref name="agentId"/> to pull over (applied at the next step; any thread). The place is
+        /// resolved once to a lane position and kept, so the agent stops there instead of creeping after a moving target:
+        /// <see cref="PullOverKind.Pickup"/> stops with the passenger door beside the person waiting at (x, z), finding a
+        /// way there through the lane graph (within <see cref="PickupSearchM"/>); <see cref="PullOverKind.Ahead"/> about
+        /// <see cref="AheadM"/> on; <see cref="PullOverKind.Hold"/> where it stands; <see cref="PullOverKind.NextStop"/> at a
+        /// route vehicle's next real stop, else ahead with its doors open. Posting the same command again changes nothing
+        /// (a session may post it every frame); a different one replaces it. It holds until <see cref="CancelPullOver"/>
+        /// (or <see cref="CommandHoldMaxS"/> standing). (x, z) matter only for a pickup.
+        /// </summary>
+        public void PullOver(int agentId, PullOverKind kind, double x, double z)
+        {
+            if (kind == PullOverKind.None)
+            {
+                CancelPullOver(agentId);
+                return;
+            }
+            lock (_inputLock) _pendPull.Add(new PullCommand { AgentId = agentId, Kind = kind, X = x, Z = z });
+        }
+
+        /// <summary>Lets agent <paramref name="agentId"/> go on its way (applied at the next step; any thread).</summary>
+        public void CancelPullOver(int agentId)
+        {
+            lock (_inputLock) _pendPull.Add(new PullCommand { AgentId = agentId, Kind = PullOverKind.None });
+        }
+
+        /// <summary>
+        /// A person (the player on foot) is waiting at (x, z): the next bus, minibus, micro or tempo coming along a kerb
+        /// lane within <see cref="KerbReachM"/> of its edge pulls over with its door beside them and dwells with its doors
+        /// open (one at a time; each vehicle once per <see cref="ServeCooldownS"/>). Any thread; applied at the next step.
+        /// </summary>
+        public void SetWaitingPassenger(bool waiting, double x, double z)
+        {
+            lock (_inputLock)
+            {
+                _pendWaiting = waiting;
+                _pendWaitX = x;
+                _pendWaitZ = z;
+            }
+        }
+
+        /// <summary>Where agent <paramref name="agentId"/>'s pull-over stands after the last step (thread-safe).</summary>
+        public PullOverState PullOverStateOf(int agentId)
+        {
+            lock (_snapLock)
+            {
+                for (int i = 0; i < _pullFrontCount; i++)
+                    if (_pullFront[i].AgentId == agentId)
+                        return _pullFront[i].State;
+            }
+            return PullOverState.None;
+        }
+
         private void ApplyInputs()
         {
             lock (_inputLock)
@@ -318,7 +469,22 @@ namespace Ghumante.Core.Traffic
                     foreach (var kv in _pendObstacles) _obstacles[_obstacleCount++] = kv.Value;
                     _obstaclesDirty = false;
                 }
+                _pullWork.Clear();
+                _pullWork.AddRange(_pendPull);
+                _pendPull.Clear();
+                _waiting = _pendWaiting;
+                _waitX = _pendWaitX;
+                _waitZ = _pendWaitZ;
+                if (_pendTaxiReq != _taxiReq || _pendTaxiReq && ((_pendTaxiX - _taxiX) * (_pendTaxiX - _taxiX) + (_pendTaxiZ - _taxiZ) * (_pendTaxiZ - _taxiZ) > 4.0))
+                {
+                    // A new wave (or a new place): answer it afresh.
+                    _taxiDone = false;
+                    _taxiX = _pendTaxiX;
+                    _taxiZ = _pendTaxiZ;
+                }
+                _taxiReq = _pendTaxiReq;
             }
+            for (int k = 0; k < _pullWork.Count; k++) ApplyPull(_pullWork[k]);
         }
 
         internal bool TryFocus(out double x, out double z)
@@ -478,6 +644,7 @@ namespace Ghumante.Core.Traffic
                 Alive = true, Id = _nextId++, Class = c, Variant = (ushort)variant, Livery = livery, Length = len, Half = 0.5f * e.WidthM,
                 Wheelbase = e.WheelbaseM, Idm = TrafficTables.Idm(c), Lane = laneId, LaneGen = l.Gen, PrevLane = -1, S = s,
                 P0 = -1, P1 = -1, P2 = -1, P3 = -1, CommitLane = -1, ChangeFrom = -1, Route = -1, NextStop = -1, RouteId = -1, TailLane = -1,
+                PullLane = -1, SinceServed = ServeCooldownS,
             };
             a.FrontOverhang = Math.Max(0.1f, len - e.WheelbaseM - e.RearOverhangM);
             a.Rng = SimRng.Mix(_seed, (ulong)a.Id, 0x41474E54);
@@ -515,8 +682,7 @@ namespace Ghumante.Core.Traffic
             _agents[i].Route = route;
             _agents[i].RouteId = route >= 0 && route < Routes.Count ? Routes[route].RouteIndex : -1;
             _agents[i].RoutePos = routePos;
-            _agents[i].RandomStopAt = -1f;
-            _agents[i].NextStop = -1;
+            _agents[i].NextStop = -1; // micros, minibuses and tempos keep their random stops between the real ones
             ClearPath(ref _agents[i]);
             return true;
         }
@@ -631,7 +797,14 @@ namespace Ghumante.Core.Traffic
             // Leave the slots of the departures the bus runner is still waiting to place (they spawn under the cap).
             int pending = RoutedPending > 0 ? Math.Min(RoutedPending, target) : 0;
             target -= pending;
-            if (alive >= target) return;
+            // A full cap would starve the timetable: make room for a due bus by letting the farthest ambient lane ghost go
+            // (out of view, beyond the full simulation radius), one per spawn interval.
+            if (pending > 0 && alive >= _s.MaxVehicles) RetireFarthest(true, 0.0);
+            if (alive >= target)
+            {
+                SpawnNearRider(hour, alive, target);
+                return;
+            }
             for (int attempt = 0; attempt < _s.SpawnAttempts && alive < target; attempt++)
             {
                 double ang = _rng.NextDouble() * 2 * Math.PI;
@@ -660,6 +833,89 @@ namespace Ghumante.Core.Traffic
                     if (VehicleCatalog.At(variant).TrafficClass == VehicleClass.Rickshaw) rickshaws++;
                 }
             }
+            SpawnNearRider(hour, alive, target);
+        }
+
+        /// <summary>
+        /// Keeps <see cref="TrafficSettings.NearRiders"/> moving two-wheelers round the player (playtest #3): counts the
+        /// motorbikes and scooters (not ghosts) within <see cref="TrafficSettings.NearRiderRadiusM"/> and, when short, starts
+        /// one on a lane between <see cref="TrafficSettings.NearRiderMinM"/> and that radius, out of view, on a lane two
+        /// wheelers may use. Within the cap: when the cap is full the farthest ambient ghost out of view makes room.
+        /// </summary>
+        private void SpawnNearRider(float hour, int alive, int target)
+        {
+            if (_s.NearRiders <= 0 || target <= 0) return;
+            double r2 = _s.NearRiderRadiusM * (double)_s.NearRiderRadiusM;
+            int riders = 0;
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive || _agents[i].Ghost || _agents[i].Class != VehicleClass.TwoWheeler) continue;
+                double dx = _agents[i].X - _focusX, dz = _agents[i].Z - _focusZ;
+                if (dx * dx + dz * dz <= r2) riders++;
+            }
+            if (riders >= _s.NearRiders) return;
+            if (alive >= _s.MaxVehicles)
+            {
+                // The cap is full of traffic far off (on Low twelve vehicles spread over 180 m): the farthest ambient one out
+                // of view, well beyond the riders' circle, makes room.
+                RetireFarthest(false, _s.NearRiderRadiusM + 20.0);
+                return; // the slot frees for the next interval
+            }
+            uint bit = VehicleClasses.Bit(VehicleClass.TwoWheeler);
+            for (int attempt = 0; attempt < _s.SpawnAttempts; attempt++)
+            {
+                double ang = _rng.NextDouble() * 2 * Math.PI;
+                double rad = _s.NearRiderMinM + (_s.NearRiderRadiusM - _s.NearRiderMinM) * _rng.NextDouble();
+                double x = _focusX + rad * Math.Cos(ang), z = _focusZ + rad * Math.Sin(ang);
+                if (InView(x, z)) continue;
+                _near.Clear();
+                _g.LanesNear(x, z, 15.0, _near);
+                if (_near.Count == 0) continue;
+                _near.Sort();
+                int pick = _near[_rng.Next(_near.Count)];
+                LaneGraph.Lane l = _g.Lanes[pick];
+                if (l.Kind != LaneKind.Road || l.Length < 12f || (l.Mask & bit) == 0) continue;
+                float s;
+                double d = LaneGraph.Project(l, x, z, out s);
+                if (d > 18.0) continue;
+                // A rider of the street: the two-wheeler column of the lane's mix (scooter, commuter bike, cruiser, e-scooter).
+                int variant = TrafficTables.PickVariant(ref _rng, l.Class, l.Area, hour, bit);
+                if (variant < 0) continue;
+                // Close to the player the traffic is fully simulated and moving: leave a clear stretch behind the rider
+                // (NearRiderClearBehindM) so nothing coming along the lane has to brake harder than it can.
+                float rl = VehicleCatalog.At(variant).LengthM;
+                if (!Room(pick, Math.Min(l.Length, s + 10f), rl + 10f + NearRiderClearBehindM)) continue;
+                int id;
+                byte livery = VehicleCatalog.At(variant).PickLivery(_rng.NextU32());
+                if (SpawnOnLane(pick, s, variant, livery, out id, true)) return;
+            }
+        }
+
+        /// <summary>A rider started near the player has nothing on its lane this far (metres) behind it, nor 10 m ahead.</summary>
+        private const float NearRiderClearBehindM = 30f;
+
+        /// <summary>Removes the farthest ambient vehicle (not routed, not pulling over, out of view; with
+        /// <paramref name="ghostsOnly"/> a lane ghost) farther than <paramref name="minDistM"/> from the player, if any.</summary>
+        private void RetireFarthest(bool ghostsOnly, double minDistM)
+        {
+            int best = -1;
+            double bestD = minDistM > 0.0 ? minDistM * minDistM : 0.0;
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive || ghostsOnly && !_agents[i].Ghost || _agents[i].Route >= 0 || _agents[i].Pull != PullOverKind.None ||
+                    _agents[i].PullExternal)
+                    continue;
+                ref Agent a = ref _agents[i];
+                double dx = a.X - _focusX, dz = a.Z - _focusZ, d = dx * dx + dz * dz;
+                if (d <= bestD || InView(a.X, a.Z)) continue;
+                bestD = d;
+                best = i;
+            }
+            if (best < 0) return;
+            ref Agent g = ref _agents[best];
+            if (g.Committed && g.CommitLane >= 0 && _resv[g.CommitLane] > 0) _resv[g.CommitLane]--;
+            if (g.TailLane >= 0 && _resv[g.TailLane] > 0) _resv[g.TailLane]--;
+            Kill(best);
         }
 
         private int QueueOf(LaneGraph.Lane l)
@@ -703,6 +959,8 @@ namespace Ghumante.Core.Traffic
                 _time += dt;
                 EnsureLaneArrays();
                 Validate();
+                _waitBusy = WaitingServed();
+                ServeTaxiRequest();
                 Controllers(dt);
                 ProjectObstacles();
                 BuildOccupancy();
@@ -765,6 +1023,14 @@ namespace Ghumante.Core.Traffic
                 }
                 if (a.P0 >= 0 && !_g.IsAlive(new LaneId(a.P0))) ClearPath(ref a);
                 if (a.ChangeFrom >= 0 && !_g.IsAlive(new LaneId(a.ChangeFrom))) a.ChangeFrom = -1;
+                if (a.Pull != PullOverKind.None && a.PullLane >= 0 && !_g.IsAlive(new LaneId(a.PullLane)))
+                {
+                    // The place streamed out: find it again (or the next one) from where the agent is.
+                    a.PullLane = -1;
+                    a.PullPath = null;
+                    a.PullHeld = false;
+                    a.PullRetry = 0f;
+                }
             }
             // Reservations are recounted from the agents each step. A long body keeps the junction connector it left
             // reserved until its tail is out of it, so no crossing movement starts into its tail.
@@ -775,9 +1041,24 @@ namespace Ghumante.Core.Traffic
                 ref Agent a = ref _agents[i];
                 if (a.Committed && a.CommitLane >= 0 && _g.IsAlive(new LaneId(a.CommitLane))) _resv[a.CommitLane]++;
                 else a.Committed = false;
-                if (a.TailLane >= 0 && (a.PrevLane != a.TailLane || a.S >= a.Length + 0.5f || !_g.IsAlive(new LaneId(a.TailLane)))) a.TailLane = -1;
+                // The tail frees the connector once less than TailFreeM of it is left in the connector's mouth: a scooter
+                // waiting on a 3 m stub between two chowks (Bakhundol) otherwise holds the connector behind it for ever
+                // and the two junctions lock each other. The geometric corridor check still sees the body.
+                if (a.TailLane >= 0 && (a.PrevLane != a.TailLane || a.S >= a.Length - TailFreeM || !_g.IsAlive(new LaneId(a.TailLane)))) a.TailLane = -1;
                 if (a.TailLane >= 0) _resv[a.TailLane]++;
             }
+        }
+
+        /// <summary>A body whose tail reaches less than this into the junction connector it left no longer reserves it.</summary>
+        private const float TailFreeM = 1.0f;
+
+        /// <summary>Signal cycle (W2_DESIGN 5.1: 90 s), shared by the phases with 5 s of amber and clear each, every phase
+        /// between <see cref="SignalPhaseMinS"/> and <see cref="SignalPhaseMaxS"/>.</summary>
+        private const float SignalCycleS = 90f, SignalPhaseMinS = 20f, SignalPhaseMaxS = 30f;
+
+        private static float SignalPhaseS(int phases)
+        {
+            return Math.Max(SignalPhaseMinS, Math.Min(SignalPhaseMaxS, SignalCycleS / Math.Max(1, phases)));
         }
 
         private void Kill(int i)
@@ -834,7 +1115,7 @@ namespace Ghumante.Core.Traffic
                     // First step: a deterministic phase offset per node so the city does not switch in lockstep.
                     var r = new SimRng(SimRng.Mix(_seed, (ulong)c.NodeKey));
                     st.Phase = r.Next(Math.Max(1, c.Phases));
-                    st.PhaseLen = 30f;
+                    st.PhaseLen = c.Kind == ControllerKind.Signal ? SignalPhaseS(c.Phases) : 30f;
                     st.PhaseT = r.Range(0f, st.PhaseLen);
                 }
                 st.PhaseT += dt;
@@ -847,7 +1128,7 @@ namespace Ghumante.Core.Traffic
                     st.GreenT = 0f;
                     if (c.Kind == ControllerKind.Signal)
                     {
-                        st.PhaseLen = 30f; // 25 s green + 5 s amber and clear: a 90 s cycle at three phases
+                        st.PhaseLen = SignalPhaseS(c.Phases); // 90 s cycle: 25 s green + 5 s amber and clear at three phases
                         st.ClearT = 0f;
                     }
                     else
@@ -1034,6 +1315,13 @@ namespace Ghumante.Core.Traffic
             LaneGraph.Lane l = _g.Lanes[from];
             if (l.Next.Length == 0) return -1;
             uint bit = VehicleClasses.Bit(a.Class);
+            if (a.PullPath != null)
+            {
+                // A hailed taxi follows the way it found to the person waiting.
+                int[] path = a.PullPath;
+                int at = Array.IndexOf(path, from), want = at >= 0 ? (at + 1 < path.Length ? path[at + 1] : -1) : from == a.Lane ? path[0] : -1;
+                if (want >= 0 && Array.IndexOf(l.Next, want) >= 0 && _g.IsAlive(new LaneId(want))) return want;
+            }
             if (a.Route >= 0 && a.Route < Routes.Count)
             {
                 RoutePlan rp = Routes[a.Route];
@@ -1161,7 +1449,9 @@ namespace Ghumante.Core.Traffic
                 {
                     if (step == 0)
                     {
-                        float brake = a.V * a.V / (2f * p.B) + 3f;
+                        // Ask within braking distance plus the standing gap: IDM halts s0 short of the line, and a bus or a
+                        // lorry (s0 3 m) standing there must still be near enough to ask, or it waits through every green.
+                        float brake = a.V * a.V / (2f * p.B) + Math.Max(3f, p.S0 + StopLineM + 1f);
                         if (dist <= brake && CanEnter(idx, ref a, cl, nl))
                         {
                             a.Committed = true;
@@ -1178,7 +1468,12 @@ namespace Ghumante.Core.Traffic
                     else
                     {
                         // A later junction: approach its stop line ready to stop (permission is asked one lane before).
-                        Lead(ref gap, ref lv, dist - StopLineM, 0f, ref a, false);
+                        // IDM halts s0 short of a standing leader: behind a lane shorter than that (a stub between two
+                        // junctions) the front would never reach the lane where permission is asked, so the virtual
+                        // leader stands s0 beyond the line there.
+                        float line = dist - StopLineM;
+                        if (step == 1 && cl.Length < p.S0 + 1.5f) line += p.S0;
+                        Lead(ref gap, ref lv, line, 0f, ref a, false);
                         break;
                     }
                 }
@@ -1243,6 +1538,10 @@ namespace Ghumante.Core.Traffic
 
             // 5. Bus and micro stops.
             Stops(idx, ref a, l, ref gap, ref lv, h);
+
+            // 6. Pulling over: a hailed taxi, a passenger's bell, someone boarding, a person waiting at the kerb, a
+            // micro's random stop.
+            PullOverStep(idx, ref a, l, ref gap, ref lv, h);
 
             // IDM and integration.
             float acc = TrafficTables.IdmAccel(p, a.V, v0, gap, a.V - lv);
@@ -1349,6 +1648,13 @@ namespace Ghumante.Core.Traffic
                 ref Agent b = ref _agents[j];
                 double dx = b.X - ox, dz = b.Z - oz;
                 if (dx * dx + dz * dz > 400.0) continue;
+                // Inside a junction on our reservation, a body waiting at another arm's stop line (not on our way) only
+                // goes once we are through: waiting for its nose as well would hold both for ever. Not a body longer than
+                // the stub it waits on (a minibus at the second light of a junction cluster, its tail back across the
+                // first junction): that one stands in our way, and nothing drives through it.
+                if (mine.Kind == LaneKind.Connector && b.AtStopLine && !b.Committed && b.V < 0.5f && b.S >= b.Length && b.Lane != a.Lane &&
+                    b.Lane != a.P0 && b.Lane != a.P1 && b.Lane != a.P2 && b.Lane != a.P3)
+                    continue;
                 double bfx = Math.Sin(b.Heading), bfz = Math.Cos(b.Heading);
                 double cos = fx * bfx + fz * bfz;
                 float lim = a.Half + CorridorMarginM, reach = CorridorAheadM;
@@ -1444,6 +1750,23 @@ namespace Ghumante.Core.Traffic
             return next.Conflicts.Length > 0;
         }
 
+        /// <summary>A road lane shorter than this between two junctions' connectors lies inside one junction cluster.</summary>
+        private const float ClusterStubM = 6f;
+
+        /// <summary>True for a short road lane whose every predecessor is a junction connector: the stub between the nodes
+        /// of one junction cluster (W2 playtest #6: a Low-tier gridlock at New Baneshwor, where three lit nodes stand a metre
+        /// apart).</summary>
+        private bool InsideCluster(LaneGraph.Lane l)
+        {
+            if (l.Kind != LaneKind.Road || l.Length >= ClusterStubM || l.Prev.Length == 0) return false;
+            for (int k = 0; k < l.Prev.Length; k++)
+            {
+                LaneKind pk = _g.Lanes[l.Prev[k]].Kind;
+                if (pk != LaneKind.Connector && pk != LaneKind.UTurn) return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// May agent <paramref name="a"/> commit to connector <paramref name="next"/> now? The controller must allow its
         /// approach (police phase, signal green, roundabout gap, priority yield), no conflicting connector may be
@@ -1462,7 +1785,10 @@ namespace Ghumante.Core.Traffic
             {
                 case ControllerKind.Police:
                 case ControllerKind.Signal:
-                    return Green(c, cur.Approach);
+                    // Inside a junction cluster (a dual carriageway's two nodes a few metres apart, each with its own lights,
+                    // as at New Baneshwor) a vehicle on the stub between them has already entered on a green: it clears the
+                    // junction instead of stopping in the middle, where it would hold the crossing traffic up for good.
+                    return InsideCluster(cur) || Green(c, cur.Approach);
                 case ControllerKind.Roundabout:
                     return cur.Priority || RingGap(ref a, next);
                 case ControllerKind.Priority:
@@ -1600,6 +1926,7 @@ namespace Ghumante.Core.Traffic
         private void Obstacles(ref Agent a, LaneGraph.Lane l, ref float gap, ref float lv, ref float v0)
         {
             _avoiding = false;
+            _blockedByPlayer = false;
             if (_laneObsCount == 0) return;
             float avoid = 0f;
             bool want = false;
@@ -1644,6 +1971,7 @@ namespace Ghumante.Core.Traffic
                             lv = 0f;
                             a.BlockedByVehicle = o.Kind == ObstacleKind.Player || o.Kind == ObstacleKind.ParkedVehicle;
                             a.BlockedByAnimal = animal;
+                            _blockedByPlayer = o.Kind == ObstacleKind.Player;
                         }
                         if (animal) a.Anim |= (byte)AgentAnim.Yielding;
                     }
@@ -1654,6 +1982,9 @@ namespace Ghumante.Core.Traffic
         }
 
         private bool _avoiding;
+
+        /// <summary>This step's agent stands behind a player obstacle (someone in the road, maybe the one it stops for).</summary>
+        private bool _blockedByPlayer;
 
         /// <summary>
         /// Shared lanes (two-way roads under 5.5 m real): each direction keeps to its half; an oncoming agent within 40 m
@@ -1704,6 +2035,10 @@ namespace Ghumante.Core.Traffic
             }
         }
 
+        /// <summary>
+        /// Route stops: a routed agent brakes for the next real stop of its plan (measured along the plan, so a stop
+        /// several lanes ahead is seen in time) and dwells 8–15 s there with its doors open (<see cref="AgentAnim.AtStop"/>).
+        /// </summary>
         private void Stops(int idx, ref Agent a, LaneGraph.Lane l, ref float gap, ref float lv, float h)
         {
             if (a.DwellT > 0f)
@@ -1714,69 +2049,803 @@ namespace Ghumante.Core.Traffic
                 lv = 0f;
                 return;
             }
-            // Route stops.
-            if (a.Route >= 0 && a.Route < Routes.Count)
-            {
-                RoutePlan rp = Routes[a.Route];
-                if (a.NextStop < 0) a.NextStop = FirstStopFrom(rp, a.Lane, a.S);
-                if (a.NextStop >= 0 && a.NextStop < rp.StopLane.Length)
-                {
-                    int sl = rp.StopLane[a.NextStop];
-                    float d = float.PositiveInfinity; // not on this lane or the next: no stop yet
-                    if (sl == a.Lane) d = rp.StopS[a.NextStop] - a.S;
-                    else if (sl == a.P0) d = l.Length - a.S + rp.StopS[a.NextStop];
-                    if (d >= -1f && d < 60f)
-                    {
-                        if (d < 1.0f && a.V < 0.6f)
-                        {
-                            var r = new SimRng(a.Rng);
-                            a.DwellT = r.Range(8f, 15f);
-                            a.Rng = r.NextU64();
-                            int stopIdx = rp.StopIndex[a.NextStop];
-                            if (StopReached != null) _stopEvents.Add(new KeyValuePair<int, int>(a.Id, rp.RouteIndex * 65536 + stopIdx));
-                            a.NextStop++;
-                            if (a.NextStop >= rp.StopLane.Length) a.NextStop = int.MaxValue;
-                        }
-                        else
-                        {
-                            // The stop is a standing leader the bus should reach: IDM keeps its minimum gap s0 to any
-                            // leader, so the virtual one stands s0 beyond the stop, or the bus would halt short of it.
-                            float stopGap = Math.Max(0f, d) + a.Idm.S0;
-                            if (stopGap < gap)
-                            {
-                                gap = stopGap;
-                                lv = 0f;
-                            }
-                        }
-                    }
-                    else if (d < -1f && sl == a.Lane)
-                    {
-                        a.NextStop++; // passed (spawned beyond it)
-                    }
-                }
-            }
-            // Micros, minibuses and tempos also stop at random about every 600 m.
-            if (a.RandomStopAt > 0f && a.Odo >= a.RandomStopAt && !a.Ghost && l.Kind == LaneKind.Road && a.V < 3f)
+            float d;
+            RoutePlan rp;
+            if (!NextRouteStop(ref a, out rp, out d) || d >= 60f) return;
+            if (d < 1.0f && a.V < 0.6f)
             {
                 var r = new SimRng(a.Rng);
-                a.DwellT = r.Range(8f, 20f);
-                a.RandomStopAt = a.Odo + r.Range(400f, 800f);
+                a.DwellT = r.Range(8f, 15f);
                 a.Rng = r.NextU64();
+                a.Anim |= (byte)AgentAnim.AtStop;
+                gap = Math.Min(gap, 0.1f);
+                lv = 0f;
+                int stopIdx = rp.StopIndex[a.NextStop];
+                if (StopReached != null) _stopEvents.Add(new KeyValuePair<int, int>(a.Id, rp.RouteIndex * 65536 + stopIdx));
+                a.NextStop++;
+                if (a.NextStop >= rp.StopAlong.Length) a.NextStop = int.MaxValue;
+                return;
             }
+            // The stop is a standing leader the bus should reach: IDM keeps its minimum gap s0 to any leader, so the
+            // virtual one stands s0 beyond the stop, or the bus would halt short of it.
+            float stopGap = Math.Max(0f, d) + a.Idm.S0;
+            if (stopGap < gap)
+            {
+                gap = stopGap;
+                lv = 0f;
+            }
+        }
+
+        /// <summary>
+        /// The next real stop of a routed agent's plan and how far its front is from it along the plan (negative within a
+        /// metre past it). Stops already passed by more than a metre are skipped. False when the agent is not routed or
+        /// no stop is left on its plan.
+        /// </summary>
+        private bool NextRouteStop(ref Agent a, out RoutePlan rp, out float d)
+        {
+            rp = null;
+            d = float.PositiveInfinity;
+            if (a.Route < 0 || a.Route >= Routes.Count) return false;
+            rp = Routes[a.Route];
+            if (rp.StopAlong == null || rp.StopAlong.Length == 0) return false;
+            int pos = a.RoutePos;
+            if (pos < 0 || pos >= rp.Lanes.Length || rp.Lanes[pos] != a.Lane)
+            {
+                pos = Array.IndexOf(rp.Lanes, a.Lane);
+                if (pos < 0) return false;
+                a.RoutePos = pos;
+            }
+            float along = rp.LaneStart[pos] + a.S;
+            if (a.NextStop < 0) a.NextStop = FirstStopFrom(rp, along);
+            while (a.NextStop < rp.StopAlong.Length && rp.StopAlong[a.NextStop] < along - 1f) a.NextStop++;
+            if (a.NextStop >= rp.StopAlong.Length)
+            {
+                a.NextStop = int.MaxValue;
+                return false;
+            }
+            d = rp.StopAlong[a.NextStop] - along;
+            return true;
         }
 
         private readonly List<KeyValuePair<int, int>> _stopEvents = new List<KeyValuePair<int, int>>();
 
-        private static int FirstStopFrom(RoutePlan rp, int lane, float s)
+        private static int FirstStopFrom(RoutePlan rp, float along)
         {
-            int pos = Array.IndexOf(rp.Lanes, lane);
-            if (pos < 0) return -1;
-            for (int k = 0; k < rp.StopLane.Length; k++)
-            {
-                int sp = Array.IndexOf(rp.Lanes, rp.StopLane[k]);
-                if (sp > pos || sp == pos && rp.StopS[k] >= s - 1f) return k;
-            }
+            for (int k = 0; k < rp.StopAlong.Length; k++)
+                if (rp.StopAlong[k] >= along - 1f) return k;
             return int.MaxValue;
+        }
+
+        // ---- pulling over (W2_DESIGN 6.2: hailing, the bell, boarding; route vehicles at the kerb) ----
+
+        /// <summary>The resolved place of an agent's pull-over (tests and debug drawing): lane and the front's arc length,
+        /// and how many lanes its way there still has (0 when the place is on its lane or plan). False when the agent has
+        /// no pull-over or its place is not resolved yet.</summary>
+        public bool TryGetPullOverPlace(int agentId, out LaneId lane, out float s, out int wayLanes)
+        {
+            lane = LaneId.None;
+            s = 0f;
+            wayLanes = 0;
+            lock (_g.SyncRoot)
+            {
+                int i = IndexOf(agentId);
+                if (i < 0 || _agents[i].Pull == PullOverKind.None || _agents[i].PullLane < 0) return false;
+                lane = new LaneId(_agents[i].PullLane);
+                s = _agents[i].PullS;
+                wayLanes = _agents[i].PullPath != null ? _agents[i].PullPath.Length : 0;
+                return true;
+            }
+        }
+
+        /// <summary>A bell stops a taxi this far on at least.</summary>
+        public const float AheadM = 14f;
+
+        /// <summary>A bell on a route vehicle waits for its next real stop when it lies within this distance along the
+        /// route; farther, the vehicle pulls over ahead.</summary>
+        public const float NextStopReachM = 600f;
+
+        /// <summary>A hailed taxi looks this far through the lane graph for a way to the person waiting.</summary>
+        public const float PickupSearchM = 1500f;
+
+        /// <summary>The person waiting may stand this far beyond a lane's edge (on the footpath or the verge).</summary>
+        public const float KerbReachM = 6f;
+
+        /// <summary>A vehicle that stopped for a waiting passenger does not stop for one again within this time.</summary>
+        public const float ServeCooldownS = 90f;
+
+        /// <summary>A commanded stop is let go after standing this long without a cancel (a lost session).</summary>
+        public const float CommandHoldMaxS = 120f;
+
+        /// <summary>A rider who rang the bell gets off wherever the vehicle has stood this long (a jam, a long red).</summary>
+        public const float BellJamS = 4f;
+
+        /// <summary>Held up this close to its place (a queue, someone in the road), a vehicle pulling over stops there.</summary>
+        public const float ShortStopM = 15f;
+
+        /// <summary>Comfortable braking for pulling over (m/s²).</summary>
+        private const float PullBrake = 2.5f;
+
+        // Distance from the front to the left (kerb-side) passenger door, per catalogue variant (lazily filled).
+        private static float[] _doorAhead;
+
+        /// <summary>How far behind its front a vehicle's kerb-side passenger door is (the rear step of a tempo lies just
+        /// behind it), so a stop puts that door beside the person waiting.</summary>
+        internal static float DoorAhead(int variant)
+        {
+            float[] t = _doorAhead;
+            if (t == null)
+            {
+                t = new float[VehicleCatalog.Count];
+                for (int v = 0; v < t.Length; v++)
+                {
+                    VehicleCatalogEntry e = VehicleCatalog.At(v);
+                    float front = e.LengthM - e.RearOverhangM; // rear axle to front
+                    float door = 0.5f * e.LengthM;
+                    SeatSocket[] seats = VehicleSeats.For(v);
+                    for (int k = 0; k < seats.Length; k++)
+                    {
+                        if (seats[k].Kind == SeatKind.Driver || seats[k].Kind == SeatKind.Standing) continue;
+                        if (seats[k].Side == EntrySide.Right) continue;
+                        door = front - seats[k].EntryZ;
+                        break;
+                    }
+                    t[v] = Math.Max(0.5f, door);
+                }
+                _doorAhead = t;
+            }
+            return variant >= 0 && variant < t.Length ? t[variant] : 2f;
+        }
+
+        /// <summary>The public-service variants that pick people up at the kerb: the city bus, the minibus, the micro and
+        /// the tempo (not coaches or school buses).</summary>
+        internal static bool PicksUpAtKerb(int variant)
+        {
+            return variant == VehicleCatalog.BusCityGreen || variant == VehicleCatalog.Minibus || variant == VehicleCatalog.Microbus ||
+                   variant == VehicleCatalog.Tempo;
+        }
+
+        private static float StopNeed(float v, float brake)
+        {
+            return v * v / (2f * brake) + 1f;
+        }
+
+        private void ApplyPull(in PullCommand c)
+        {
+            int i = IndexOf(c.AgentId);
+            if (i < 0) return;
+            ref Agent a = ref _agents[i];
+            if (c.Kind == PullOverKind.None)
+            {
+                if (a.PullExternal) ReleasePull(ref a);
+                return;
+            }
+            if (a.PullExternal && a.Pull == c.Kind)
+            {
+                // The same command again: keep the place it was given (a session posts every frame).
+                if (c.Kind != PullOverKind.Pickup) return;
+                double dx = c.X - a.PullX, dz = c.Z - a.PullZ;
+                if (dx * dx + dz * dz < 1.0) return;
+            }
+            bool doors = (a.Anim & (byte)AgentAnim.AtStop) != 0 || a.DwellT > 0f || a.PullHeld && a.PullAtStop;
+            ReleasePull(ref a);
+            a.Pull = c.Kind;
+            a.PullExternal = true;
+            a.PullX = c.X;
+            a.PullZ = c.Z;
+            a.PullState = PullOverState.Approaching;
+            // A route vehicle asked to stop for its passenger opens its doors; one held for boarding keeps them open.
+            a.PullAtStop = c.Kind == PullOverKind.NextStop || c.Kind == PullOverKind.Hold && doors;
+        }
+
+        private static void ReleasePull(ref Agent a)
+        {
+            a.Pull = PullOverKind.None;
+            a.PullState = PullOverState.None;
+            a.PullExternal = false;
+            a.PullHeld = false;
+            a.PullAtStop = false;
+            a.PullLane = -1;
+            a.PullPath = null;
+            a.PullT = 0f;
+            a.PullRetry = 0f;
+            a.PullHoldS = 0f;
+        }
+
+        /// <summary>True when some agent is already pulling over for the waiting passenger (one at a time).</summary>
+        private bool WaitingServed()
+        {
+            if (!_waiting) return false;
+            for (int i = 0; i < _agents.Length; i++)
+                if (_agents[i].Alive && _agents[i].Pull == PullOverKind.Pickup && !_agents[i].PullExternal)
+                    return true;
+            return false;
+        }
+
+        private void PullOverStep(int idx, ref Agent a, LaneGraph.Lane l, ref float gap, ref float lv, float h)
+        {
+            if (a.Pull == PullOverKind.None)
+            {
+                if (a.SinceServed < ServeCooldownS) a.SinceServed += h;
+                if (a.Ghost || a.DwellT > 0f) return;
+                if (_waiting && !_waitBusy && a.SinceServed >= ServeCooldownS && PicksUpAtKerb(a.Variant)) KerbPickup(ref a, l);
+                if (a.Pull == PullOverKind.None && a.RandomStopAt > 0f && a.Odo >= a.RandomStopAt) RandomStop(ref a, l);
+                if (a.Pull == PullOverKind.None) return;
+            }
+            a.PullT += h;
+            if (a.PullHeld)
+            {
+                HoldStill(ref a, l, ref gap, ref lv);
+                if (a.PullT >= (a.PullExternal ? CommandHoldMaxS : a.PullHoldS)) ReleasePull(ref a);
+                return;
+            }
+            float d;
+            RoutePlan rp;
+            if (a.Pull == PullOverKind.NextStop && a.DwellT <= 0f && NextRouteStop(ref a, out rp, out d) && d <= NextStopReachM)
+            {
+                // The bell on a route vehicle: its next real stop is close enough; the stop's dwell lets the rider off
+                // (or, stuck in a jam on the way, the doors open where it stands).
+                a.PullState = PullOverState.Approaching;
+                if (a.V < 0.3f && a.WaitT > BellJamS)
+                {
+                    a.PullHeld = true;
+                    a.PullT = 0f;
+                    a.PullState = PullOverState.Holding;
+                    a.PullLane = a.Lane;
+                    a.PullS = a.S;
+                    HoldStill(ref a, l, ref gap, ref lv);
+                }
+                return;
+            }
+            if (a.PullLane < 0)
+            {
+                a.PullRetry -= h;
+                if (a.PullRetry > 0f) return;
+                bool ok = a.Pull == PullOverKind.Pickup && a.PullExternal ? ResolvePickup(ref a)
+                    : ResolveAhead(ref a, a.Pull == PullOverKind.Hold ? 0f : a.Pull == PullOverKind.Ahead || a.Pull == PullOverKind.NextStop ? AheadM : 0f,
+                                   a.Pull == PullOverKind.Hold);
+                if (!ok)
+                {
+                    a.PullState = PullOverState.Unreachable;
+                    a.PullRetry = 3f;
+                    if (!a.PullExternal) ReleasePull(ref a);
+                    return;
+                }
+                a.PullState = PullOverState.Approaching;
+            }
+            d = DistanceAlong(ref a, a.PullLane, a.PullS);
+            if (float.IsPositiveInfinity(d))
+            {
+                // Not on the next few lanes yet: fine while the agent follows the way it found; else find it again.
+                bool onWay = a.PullPath != null && (Array.IndexOf(a.PullPath, a.Lane) >= 0 || a.P0 == a.PullPath[0]);
+                if (!onWay)
+                {
+                    a.PullLane = -1;
+                    a.PullPath = null;
+                }
+                return;
+            }
+            if (d < -1.5f)
+            {
+                // Rolled past it (it came too late to stop): the next place on.
+                a.PullLane = -1;
+                a.PullPath = null;
+                return;
+            }
+            // Arrived: the front at the place; or, held up short of it (the person waiting stands in the road, a queue
+            // in front), standing still a moment within a few metres of it: the driver stops where he can. A passenger
+            // who rang the bell is let off wherever the vehicle has stood a while (a jam, a long red light).
+            bool bell = a.PullExternal && (a.Pull == PullOverKind.Ahead || a.Pull == PullOverKind.NextStop);
+            if (d < 1.0f && a.V < 0.6f || d < 8f && a.V < 0.3f && _blockedByPlayer || d < ShortStopM && a.V < 0.3f && a.WaitT > 1.5f ||
+                bell && a.V < 0.3f && a.WaitT > BellJamS)
+            {
+                a.PullHeld = true;
+                a.PullT = 0f;
+                a.PullState = PullOverState.Holding;
+                a.PullPath = null;
+                HoldStill(ref a, l, ref gap, ref lv);
+                return;
+            }
+            float stopGap = Math.Max(0f, d) + a.Idm.S0;
+            if (stopGap < gap)
+            {
+                gap = stopGap;
+                lv = 0f;
+            }
+            if (d < 30f && a.Lane == a.PullLane) KerbSide(ref a, l);
+        }
+
+        private void HoldStill(ref Agent a, LaneGraph.Lane l, ref float gap, ref float lv)
+        {
+            gap = Math.Min(gap, 0.1f);
+            lv = 0f;
+            if (a.PullAtStop) a.Anim |= (byte)AgentAnim.AtStop;
+            if (a.Lane == a.PullLane) KerbSide(ref a, l);
+        }
+
+        /// <summary>Drifts to the left (kerb) edge of a kerb lane (left-hand traffic).</summary>
+        private static void KerbSide(ref Agent a, LaneGraph.Lane l)
+        {
+            if (l.Kind != LaneKind.Road || l.Index != 0) return;
+            a.LatTarget = -Math.Max(0f, 0.5f * l.Width - a.Half - 0.15f);
+        }
+
+        /// <summary>Distance from the agent's front to arc length <paramref name="s"/> of <paramref name="lane"/> along
+        /// its current lane and planned lanes; +∞ when the lane is not among them.</summary>
+        private float DistanceAlong(ref Agent a, int lane, float s)
+        {
+            if (lane == a.Lane) return s - a.S;
+            float dist = _g.Lanes[a.Lane].Length - a.S;
+            for (int k = 0; k < PathLen; k++)
+            {
+                int p = k == 0 ? a.P0 : k == 1 ? a.P1 : k == 2 ? a.P2 : a.P3;
+                if (p < 0) break;
+                if (p == lane) return dist + s;
+                dist += _g.Lanes[p].Length;
+            }
+            return float.PositiveInfinity;
+        }
+
+        /// <summary>
+        /// A stop at least <paramref name="minAhead"/> on (and far enough to brake comfortably) along the agent's lane
+        /// and plan, on a road lane with the whole body past the junction behind; never on a junction connector or a
+        /// roundabout ring. <paramref name="here"/> (a hold) accepts the lane the agent is on, whatever it is.
+        /// </summary>
+        private bool ResolveAhead(ref Agent a, float minAhead, bool here)
+        {
+            Plan(ref a);
+            float s = a.S + Math.Max(minAhead, here ? a.V * a.V / (2f * PullBrake) : StopNeed(a.V, PullBrake));
+            for (int k = -1; k < PathLen; k++)
+            {
+                int cur = k < 0 ? a.Lane : k == 0 ? a.P0 : k == 1 ? a.P1 : k == 2 ? a.P2 : a.P3;
+                if (cur < 0) return false;
+                LaneGraph.Lane cl = _g.Lanes[cur];
+                bool stoppable = here && k < 0 || cl.Kind == LaneKind.Road && !cl.Ring;
+                if (stoppable)
+                {
+                    float lo = k < 0 ? 0f : Math.Min(a.Length + 0.5f, cl.Length - 1f);
+                    float t = Math.Max(s, lo);
+                    if (t <= cl.Length - (here && k < 0 ? 0f : 1f))
+                    {
+                        a.PullLane = cur;
+                        a.PullS = t;
+                        a.PullPath = null;
+                        return true;
+                    }
+                }
+                s = Math.Max(0f, s - cl.Length);
+            }
+            return false;
+        }
+
+        /// <summary>A bus, minibus, micro or tempo coming along a kerb lane towards the person waiting pulls over with
+        /// its door beside them (within the next 70 m, when it can still stop comfortably).</summary>
+        private void KerbPickup(ref Agent a, LaneGraph.Lane l)
+        {
+            uint bit = VehicleClasses.Bit(a.Class);
+            float door = DoorAhead(a.Variant), need = StopNeed(a.V, PullBrake), start = -a.S;
+            for (int k = -1; k < 2; k++)
+            {
+                int cur = k < 0 ? a.Lane : k == 0 ? a.P0 : a.P1;
+                if (cur < 0 || start > 70f) return;
+                LaneGraph.Lane cl = _g.Lanes[cur];
+                if (cl.Kind == LaneKind.Road && cl.Index == 0 && (cl.Mask & bit) != 0)
+                {
+                    float sp;
+                    double dist = LaneGraph.Project(cl, _waitX, _waitZ, out sp);
+                    if (dist <= 0.5 * cl.Width + KerbReachM && Beside(cl, KerbLat(cl, sp, _waitX, _waitZ)))
+                    {
+                        float lo = k < 0 ? 0f : Math.Min(a.Length + 0.5f, cl.Length - 0.5f);
+                        float st = Math.Max(lo, Math.Min(sp + door, cl.Length - 0.5f));
+                        float d = start + st;
+                        if (d >= need && d <= 70f && Math.Abs(st - (sp + door)) < 6f)
+                        {
+                            a.Pull = PullOverKind.Pickup;
+                            a.PullExternal = false;
+                            a.PullState = PullOverState.Approaching;
+                            a.PullX = _waitX;
+                            a.PullZ = _waitZ;
+                            a.PullLane = cur;
+                            a.PullS = st;
+                            a.PullPath = null;
+                            a.PullAtStop = true;
+                            a.PullT = 0f;
+                            var r = new SimRng(a.Rng);
+                            a.PullHoldS = r.Range(10f, 16f);
+                            a.Rng = r.NextU64();
+                            a.SinceServed = 0f;
+                            _waitBusy = true;
+                            return;
+                        }
+                    }
+                }
+                start += cl.Length;
+            }
+        }
+
+        /// <summary>True when someone <paramref name="lat"/> metres right of a lane's centre (negative: left) stands on its
+        /// kerb side or on its own carriageway (in the road, between the lanes of its direction), not across the road.</summary>
+        private static bool Beside(LaneGraph.Lane l, float lat)
+        {
+            return lat <= 1.0f || lat <= (Math.Max(1, (int)l.Count) - l.Index - 0.5f) * l.Width + 1.0f;
+        }
+
+        /// <summary>Signed offset of (x, z) from a lane at arc length <paramref name="s"/>, right of travel positive.</summary>
+        private static float KerbLat(LaneGraph.Lane l, float s, double x, double z)
+        {
+            double px, pz;
+            float py, hd;
+            LaneGraph.PointAt(l, s, out px, out pz, out py, out hd);
+            return (float)((x - px) * Math.Cos(hd) - (z - pz) * Math.Sin(hd));
+        }
+
+        /// <summary>Micros, minibuses and tempos also stop at random about every 600 m (a passenger gets on or off), at
+        /// the kerb with their doors open, wherever the lane has room.</summary>
+        private void RandomStop(ref Agent a, LaneGraph.Lane l)
+        {
+            if (l.Kind != LaneKind.Road || l.Ring) return;
+            float st = a.S + StopNeed(a.V, PullBrake);
+            if (st < a.Length || st > l.Length - 2f) return; // no room on this lane: try on the next
+            var r = new SimRng(a.Rng);
+            a.Pull = PullOverKind.Ahead;
+            a.PullExternal = false;
+            a.PullState = PullOverState.Approaching;
+            a.PullLane = a.Lane;
+            a.PullS = st;
+            a.PullPath = null;
+            a.PullAtStop = true;
+            a.PullT = 0f;
+            a.PullHoldS = r.Range(8f, 20f);
+            a.RandomStopAt = a.Odo + r.Range(400f, 800f);
+            a.Rng = r.NextU64();
+        }
+
+        /// <summary>A hailed taxi's place and way to the person waiting (<see cref="FindPickup"/>), applied to the agent.</summary>
+        private bool ResolvePickup(ref Agent a)
+        {
+            int lane;
+            float s, cost;
+            int[] path;
+            if (!FindPickup(ref a, a.PullX, a.PullZ, PickupSearchM, out lane, out s, out path, out cost)) return false;
+            SetPickupPlace(ref a, lane, s, path);
+            return true;
+        }
+
+        private void SetPickupPlace(ref Agent a, int lane, float s, int[] path)
+        {
+            a.PullLane = lane;
+            a.PullS = s;
+            a.PullPath = path;
+            if (path == null) return;
+            // Re-plan along the way (a held junction reservation stays: the way starts with that connector).
+            if (!(a.Committed && a.CommitLane == path[0])) ClearPath(ref a);
+            else a.P1 = a.P2 = a.P3 = -1;
+            Plan(ref a);
+        }
+
+        /// <summary>
+        /// The kerb lanes where a vehicle of class <paramref name="bit"/> could stop for a person at (x, z): road lanes
+        /// within <see cref="KerbReachM"/> (plus a little) of their edge, with the stop place (the passenger door beside
+        /// the person), the latest place it may slide to, and a penalty in metres of driving: the inner lanes of a wide
+        /// road, each metre the person stands farther than 1.5 m from the lane's edge, and the far side of the road.
+        /// Appends to the caller's lists (cleared first).
+        /// </summary>
+        private void PickupGoals(uint bit, float door, double x, double z, List<int> lanes, List<float> place, List<float> latest, List<float> penalty)
+        {
+            const float latePass = 12f; // the stop may slide this far on when the vehicle comes too fast for the exact place
+            lanes.Clear();
+            place.Clear();
+            latest.Clear();
+            penalty.Clear();
+            _near.Clear();
+            _g.LanesNear(x, z, KerbReachM + 8.0, _near);
+            _near.Sort();
+            foreach (int id in _near)
+            {
+                LaneGraph.Lane gl = _g.Lanes[id];
+                if (gl.Kind != LaneKind.Road || (gl.Mask & bit) == 0) continue;
+                float sp;
+                double dist = LaneGraph.Project(gl, x, z, out sp);
+                double beyond = dist - 0.5 * gl.Width;
+                if (beyond > KerbReachM + 4.0) continue;
+                lanes.Add(id);
+                place.Add(Math.Max(0f, Math.Min(sp + door, gl.Length - 0.5f)));
+                latest.Add(Math.Min(sp + door + latePass, gl.Length - 0.5f));
+                penalty.Add(4f * gl.Index + 6f * (float)Math.Max(0.0, beyond - 1.5) + (Beside(gl, KerbLat(gl, sp, x, z)) ? 0f : 80f));
+            }
+        }
+
+        private readonly List<int> _goalLane = new List<int>();
+        private readonly List<float> _goalPlace = new List<float>(), _goalLatest = new List<float>(), _goalPen = new List<float>();
+
+        /// <summary>
+        /// Where agent <paramref name="a"/> should stop for a person at (x, z) and its way there: a shortest-path search
+        /// over the lane graph from its front (through the junction connector it holds, if any), within
+        /// <paramref name="searchM"/>, to the cheapest kerb place (<see cref="PickupGoals"/>) it can still stop at
+        /// comfortably (a little on when it comes too fast). <paramref name="path"/> is null when the place is on its
+        /// current lane; <paramref name="cost"/> is the driving distance plus the place's penalty. No state changes;
+        /// allocates (once per hail).
+        /// </summary>
+        private bool FindPickup(ref Agent a, double x, double z, float searchM, out int lane, out float s, out int[] path, out float cost)
+        {
+            lane = -1;
+            s = 0f;
+            path = null;
+            cost = float.PositiveInfinity;
+            uint bit = VehicleClasses.Bit(a.Class);
+            float need = StopNeed(a.V, PullBrake);
+            PickupGoals(bit, DoorAhead(a.Variant), x, z, _goalLane, _goalPlace, _goalLatest, _goalPen);
+            if (_goalLane.Count == 0) return false;
+            int here = _goalLane.IndexOf(a.Lane);
+            if (here >= 0)
+            {
+                // On the lane already: ahead of the front, or a little on when it comes too fast.
+                float t = Math.Max(_goalPlace[here], a.S + need);
+                if (t <= _goalLatest[here])
+                {
+                    cost = t - a.S + _goalPen[here];
+                    lane = a.Lane;
+                    s = t;
+                }
+            }
+            // Shortest paths from the end of the current lane (through the committed connector when it holds one).
+            var dist = new Dictionary<int, float>();
+            var prev = new Dictionary<int, int>();
+            var open = new List<KeyValuePair<float, int>>();
+            LaneGraph.Lane cur = _g.Lanes[a.Lane];
+            float rem = cur.Length - a.S;
+            if (a.Committed && a.CommitLane >= 0 && _g.IsAlive(new LaneId(a.CommitLane)))
+            {
+                dist[a.CommitLane] = rem;
+                prev[a.CommitLane] = -1;
+                open.Add(new KeyValuePair<float, int>(rem, a.CommitLane));
+            }
+            else
+            {
+                foreach (int n in cur.Next)
+                {
+                    if (!Usable(n, bit) || dist.ContainsKey(n)) continue;
+                    dist[n] = rem;
+                    prev[n] = -1;
+                    open.Add(new KeyValuePair<float, int>(rem, n));
+                }
+            }
+            int best = -1;
+            while (open.Count > 0)
+            {
+                int bi = 0;
+                for (int k = 1; k < open.Count; k++)
+                    if (open[k].Key < open[bi].Key || open[k].Key == open[bi].Key && open[k].Value < open[bi].Value)
+                        bi = k;
+                float c = open[bi].Key;
+                int u = open[bi].Value;
+                open.RemoveAt(bi);
+                if (c > dist[u] || c >= cost || c > searchM) continue;
+                LaneGraph.Lane ul = _g.Lanes[u];
+                int gi = _goalLane.IndexOf(u);
+                if (gi >= 0)
+                {
+                    // The whole body past the junction behind, and room to brake.
+                    float t = Math.Max(_goalPlace[gi], Math.Max(need - c, Math.Min(a.Length + 0.5f, ul.Length - 1f)));
+                    if (t <= _goalLatest[gi] && c + t + _goalPen[gi] < cost)
+                    {
+                        cost = c + t + _goalPen[gi];
+                        lane = u;
+                        s = t;
+                        best = u;
+                    }
+                }
+                float cn = c + ul.Length;
+                foreach (int n in ul.Next)
+                {
+                    if (!Usable(n, bit)) continue;
+                    float old;
+                    if (dist.TryGetValue(n, out old) && old <= cn) continue;
+                    dist[n] = cn;
+                    prev[n] = u;
+                    open.Add(new KeyValuePair<float, int>(cn, n));
+                }
+            }
+            if (lane < 0) return false;
+            if (best >= 0 && best == lane)
+            {
+                var way = new List<int>();
+                for (int u = best; u >= 0; u = prev[u]) way.Add(u);
+                way.Reverse();
+                path = way.ToArray();
+            }
+            return true;
+        }
+
+        // ---- hailing a taxi (any taxi: the sim picks or sends one) ----
+
+        /// <summary>A taxi this far (straight line) may answer a hail.</summary>
+        public const float HailRadiusM = 150f;
+
+        /// <summary>An existing taxi answers a hail only when its way to the person is at most this long; otherwise a taxi
+        /// is sent from up the street, out of view.</summary>
+        public const float HailWayMaxM = 200f;
+
+        private bool _pendTaxiReq, _taxiReq, _taxiDone;
+        private double _pendTaxiX, _pendTaxiZ, _taxiX, _taxiZ;
+        private int _taxiFor, _taxiForFront;
+
+        /// <summary>
+        /// The player waves for a taxi at (x, z) (any thread; applied at the next step; posting it again for the same
+        /// place changes nothing). The simulation answers once: the taxi within <see cref="HailRadiusM"/> with the
+        /// shortest way to the kerb beside the person (at most <see cref="HailWayMaxM"/>, not one stuck in a jam), else a
+        /// taxi sent from 60–150 m up the person's street, out of view; it gets a <see cref="PullOverKind.Pickup"/> for (x, z). Read the
+        /// answer from <see cref="RequestedTaxi"/>.
+        /// </summary>
+        public void RequestTaxi(double x, double z)
+        {
+            lock (_inputLock)
+            {
+                _pendTaxiReq = true;
+                _pendTaxiX = x;
+                _pendTaxiZ = z;
+            }
+        }
+
+        /// <summary>Withdraws the wave (the taxi keeps any pickup it was given until <see cref="CancelPullOver"/>).</summary>
+        public void CancelTaxiRequest()
+        {
+            lock (_inputLock) _pendTaxiReq = false;
+        }
+
+        /// <summary>The answer to the current <see cref="RequestTaxi"/> after the last step (thread-safe): the agent id of
+        /// the taxi on its way, 0 while undecided (or no request), −1 when no taxi can come (no taxi lane near the
+        /// person).</summary>
+        public int RequestedTaxi
+        {
+            get
+            {
+                lock (_snapLock) return _taxiForFront;
+            }
+        }
+
+        /// <summary>Answers the taxi request once per place (caller holds the graph lock).</summary>
+        private void ServeTaxiRequest()
+        {
+            if (!_taxiReq)
+            {
+                _taxiFor = 0;
+                _taxiDone = false;
+                return;
+            }
+            if (_taxiDone) return;
+            _taxiDone = true;
+            _taxiFor = -1;
+            int bestIdx = -1, bestLane = -1;
+            float bestCost = float.PositiveInfinity, bestS = 0f;
+            int[] bestPath = null;
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive || _agents[i].Class != VehicleClass.Taxi || _agents[i].Ghost || _agents[i].Pull != PullOverKind.None) continue;
+                if (_agents[i].WaitT > 5f) continue; // stuck in a jam: it would not come
+                ref Agent a = ref _agents[i];
+                double dx = a.X - _taxiX, dz = a.Z - _taxiZ;
+                if (dx * dx + dz * dz > HailRadiusM * HailRadiusM) continue;
+                int lane;
+                float s, cost;
+                int[] path;
+                if (!FindPickup(ref a, _taxiX, _taxiZ, HailWayMaxM, out lane, out s, out path, out cost) || cost > HailWayMaxM || cost >= bestCost) continue;
+                bestIdx = i;
+                bestCost = cost;
+                bestLane = lane;
+                bestS = s;
+                bestPath = path;
+            }
+            if (bestIdx < 0) bestIdx = SendTaxi(out bestLane, out bestS, out bestPath);
+            if (bestIdx < 0) return;
+            ref Agent t = ref _agents[bestIdx];
+            ReleasePull(ref t);
+            t.Pull = PullOverKind.Pickup;
+            t.PullExternal = true;
+            t.PullX = _taxiX;
+            t.PullZ = _taxiZ;
+            t.PullState = PullOverState.Approaching;
+            SetPickupPlace(ref t, bestLane, bestS, bestPath);
+            _taxiFor = t.Id;
+        }
+
+        // Distances (metres) up the street, tried in order, where a sent taxi may start.
+        private static readonly float[] SendBackM = { 75f, 90f, 105f, 60f, 125f, 150f };
+
+        /// <summary>
+        /// Spawns a taxi on the kerb lane nearest the person waiting, about 100 m before the place it will stop (walking
+        /// back over the lanes leading there, through junctions), out of view where it can be; returns its index (−1 when
+        /// no taxi lane is near or nowhere has room) and its place and way.
+        /// </summary>
+        private int SendTaxi(out int lane, out float s, out int[] path)
+        {
+            lane = -1;
+            s = 0f;
+            path = null;
+            int variant = VehicleCatalog.Taxi;
+            uint bit = VehicleClasses.Bit(VehicleClass.Taxi);
+            PickupGoals(bit, DoorAhead(variant), _taxiX, _taxiZ, _goalLane, _goalPlace, _goalLatest, _goalPen);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int g = 0; g < _goalLane.Count; g++)
+                {
+                    // The cheapest kerb place first.
+                    int gi = -1;
+                    for (int k = 0; k < _goalLane.Count; k++)
+                        if (_goalPen[k] < float.MaxValue && (gi < 0 || _goalPen[k] < _goalPen[gi] || _goalPen[k] == _goalPen[gi] && _goalLane[k] < _goalLane[gi]))
+                            gi = k;
+                    if (gi < 0) break;
+                    int goal = _goalLane[gi];
+                    float place = _goalPlace[gi];
+                    _goalPen[gi] = float.MaxValue;
+                    foreach (float back in SendBackM)
+                    {
+                        int sl;
+                        float ss;
+                        if (!WalkBack(goal, place - back, bit, out sl, out ss)) continue;
+                        double x, z;
+                        float y, h;
+                        LaneGraph.PointAt(_g.Lanes[sl], ss, out x, out z, out y, out h);
+                        if (pass == 0 && InView(x, z)) continue; // out of view first; in view only as the last resort
+                        byte livery = VehicleCatalog.At(variant).PickLivery(_rng.NextU32());
+                        int id;
+                        if (!SpawnOnLane(sl, ss, variant, livery, out id, false)) continue;
+                        int idx = IndexOf(id);
+                        ref Agent a = ref _agents[idx];
+                        a.V = Math.Min(a.V, 6f);
+                        float cost;
+                        if (!FindPickup(ref a, _taxiX, _taxiZ, PickupSearchM, out lane, out s, out path, out cost))
+                        {
+                            Kill(idx);
+                            continue;
+                        }
+                        return idx;
+                    }
+                }
+                // Second pass: the same places again, in view allowed.
+                PickupGoals(bit, DoorAhead(variant), _taxiX, _taxiZ, _goalLane, _goalPlace, _goalLatest, _goalPen);
+            }
+            return -1;
+        }
+
+        /// <summary>The place <paramref name="s"/> metres along lane <paramref name="lane"/> (negative: before its start,
+        /// walking back over its predecessors, the same street first) on a road lane a taxi may use; false when the walk
+        /// ends (no predecessor) or lands on a junction connector or a short lane.</summary>
+        private bool WalkBack(int lane, float s, uint bit, out int at, out float atS)
+        {
+            at = lane;
+            atS = s;
+            for (int depth = 0; depth < 16 && atS < 0f; depth++)
+            {
+                LaneGraph.Lane l = _g.Lanes[at];
+                int pick = -1;
+                for (int k = 0; k < l.Prev.Length; k++)
+                {
+                    int p = l.Prev[k];
+                    if (p < 0 || p >= _g.Lanes.Count || !_g.Lanes[p].Alive || (_g.Lanes[p].Mask & bit) == 0) continue;
+                    LaneGraph.Lane pl = _g.Lanes[p];
+                    // The same street (a road lane of the same way, or a connector fed by it) beats a turn in.
+                    bool same = pl.WayId == l.WayId || pl.Kind == LaneKind.Connector && pl.Prev.Length > 0 && _g.Lanes[pl.Prev[0]].WayId == l.WayId;
+                    if (pl.Kind == LaneKind.UTurn) continue;
+                    if (pick < 0 || same && _g.Lanes[pick].WayId != l.WayId || p < pick && same == (_g.Lanes[pick].WayId == l.WayId)) pick = p;
+                }
+                if (pick < 0) return false;
+                at = pick;
+                atS += _g.Lanes[pick].Length;
+            }
+            if (atS < 0f) return false;
+            LaneGraph.Lane fl = _g.Lanes[at];
+            if (fl.Kind != LaneKind.Road || fl.Ring || fl.Length < 12f) return false;
+            atS = Math.Max(VehicleCatalog.At(VehicleCatalog.Taxi).LengthM + 0.5f, Math.Min(atS, fl.Length - 1f));
+            return true;
+        }
+
+        /// <summary>A lane the class may drive into (a connector only when its exit admits the class too).</summary>
+        private bool Usable(int lane, uint bit)
+        {
+            if (lane < 0 || lane >= _g.Lanes.Count) return false;
+            LaneGraph.Lane n = _g.Lanes[lane];
+            if (!n.Alive || (n.Mask & bit) == 0) return false;
+            return !(n.Kind == LaneKind.Connector && n.Next.Length > 0 && (_g.Lanes[n.Next[0]].Mask & bit) == 0);
         }
 
         // ---- horns (W2_DESIGN 5.1, post-2017 no-horn rule) ----
@@ -1828,7 +2897,7 @@ namespace Ghumante.Core.Traffic
             {
                 if (!_agents[i].Alive) continue;
                 ref Agent a = ref _agents[i];
-                if (a.Ghost || a.ChangeFrom >= 0 || a.Committed || a.DwellT > 0f) continue;
+                if (a.Ghost || a.ChangeFrom >= 0 || a.Committed || a.DwellT > 0f || a.Pull != PullOverKind.None) continue;
                 a.ChangeTimer -= dt;
                 if (a.ChangeTimer > 0f) continue;
                 a.ChangeTimer = 1f;
@@ -1910,6 +2979,7 @@ namespace Ghumante.Core.Traffic
         {
             if (!_hasFocus) return;
             double far = 1.2 * _s.GhostRadiusM;
+            double keep = _s.KeepRadiusM > 0f ? Math.Min(far, Math.Max(_s.KeepRadiusM, _s.SpawnMaxM + 30.0)) : far;
             for (int i = 0; i < _agents.Length; i++)
             {
                 if (!_agents[i].Alive) continue;
@@ -1917,7 +2987,9 @@ namespace Ghumante.Core.Traffic
                 double dx = a.X - _focusX, dz = a.Z - _focusZ;
                 double d = Math.Sqrt(dx * dx + dz * dz);
                 bool outOfView = !InView(a.X, a.Z);
-                if (d > far && outOfView || a.WaitT > 60f && outOfView && d > _s.SpawnMinM)
+                // Ambient traffic stays round the player; routed buses, pull-overs and hailed taxis keep the ghost radius.
+                double limit = a.Route >= 0 || a.Pull != PullOverKind.None || a.PullExternal ? far : keep;
+                if (d > limit && outOfView || a.WaitT > 60f && outOfView && d > _s.SpawnMinM && !a.PullExternal)
                 {
                     if (a.Committed && a.CommitLane >= 0 && _resv[a.CommitLane] > 0) _resv[a.CommitLane]--;
                     if (a.TailLane >= 0 && _resv[a.TailLane] > 0) _resv[a.TailLane]--;
@@ -2018,8 +3090,20 @@ namespace Ghumante.Core.Traffic
                     Class = a.Class, Variant = a.Variant, Livery = a.Livery, AnimState = a.Anim, AgentId = a.Id,
                 };
             }
+            _pullBackCount = 0;
+            for (int i = 0; i < _agents.Length; i++)
+            {
+                if (!_agents[i].Alive || _agents[i].Pull == PullOverKind.None) continue;
+                if (_pullBackCount == _pullBack.Length) Array.Resize(ref _pullBack, _pullBackCount * 2);
+                _pullBack[_pullBackCount++] = new PullStatus { AgentId = _agents[i].Id, State = _agents[i].PullState };
+            }
             lock (_snapLock)
             {
+                PullStatus[] tp = _pullFront;
+                _pullFront = _pullBack;
+                _pullBack = tp.Length >= _pullFront.Length ? tp : new PullStatus[_pullFront.Length];
+                _pullFrontCount = _pullBackCount;
+                _taxiForFront = _taxiReq ? _taxiFor : 0;
                 AgentPose[] t = _front;
                 _front = _back;
                 _back = t.Length >= _front.Length ? t : new AgentPose[_front.Length];
@@ -2044,6 +3128,55 @@ namespace Ghumante.Core.Traffic
         // ---------------------------------------------------------------------------------------------------------
         // Diagnostics for tests (allocation is fine here)
         // ---------------------------------------------------------------------------------------------------------
+
+        /// <summary>The agents on a lane and the reservations of the connectors that conflict with it (test diagnostics).</summary>
+        internal string DescribeLane(int lane)
+        {
+            lock (_g.SyncRoot)
+            {
+                var sb = new System.Text.StringBuilder();
+                LaneGraph.Lane l = _g.Lanes[lane];
+                sb.Append("lane " + lane + " " + l.Kind + " len " + l.Length.ToString("0.0") + " ctrl " + l.Controller + " next " + string.Join(",", l.Next) +
+                          " conflicts " + string.Join(",", l.Conflicts) + " resv " + (lane < _resv.Length ? _resv[lane] : 0) + ":");
+                foreach (int c in l.Conflicts) sb.Append(" [" + c + " resv " + (c < _resv.Length ? _resv[c] : 0) + "]");
+                for (int i = 0; i < _agents.Length; i++)
+                    if (_agents[i].Alive && (_agents[i].Lane == lane || _agents[i].CommitLane == lane || _agents[i].TailLane == lane))
+                        sb.Append(" | " + Describe(_agents[i].Id));
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>One line about a junction controller: kind, phase and its timers, each arm's phase and queue (test
+        /// diagnostics).</summary>
+        internal string DescribeController(int id)
+        {
+            lock (_g.SyncRoot)
+            {
+                if (id < 0 || id >= _g.Controllers.Count) return "controller " + id + " none";
+                LaneGraph.Controller c = _g.Controllers[id];
+                CtrlState st = StateOf(id);
+                return "controller " + id + " " + c.Kind + " alive " + c.Alive + " arms " + c.Arms + " phases " + c.Phases + " phase " + st.Phase + " t " +
+                       st.PhaseT.ToString("0") + "/" + st.PhaseLen.ToString("0") + " clear " + st.ClearT.ToString("0.0") + " phaseOf " + string.Join(",", c.PhaseOf) +
+                       " queue " + string.Join(",", st.Queue);
+            }
+        }
+
+        /// <summary>One line about an agent's lane, plan and state (test diagnostics).</summary>
+        internal string Describe(int agentId)
+        {
+            lock (_g.SyncRoot)
+            {
+                int i = IndexOf(agentId);
+                if (i < 0) return "agent " + agentId + " gone";
+                Agent a = _agents[i];
+                LaneGraph.Lane l = _g.Lanes[a.Lane];
+                return "agent " + a.Id + " " + a.Class + " lane " + a.Lane + " (" + l.Kind + " way " + l.WayId + " len " + l.Length.ToString("0") + ") s " +
+                       a.S.ToString("0.0") + " v " + a.V.ToString("0.0") + " plan " + a.P0 + "," + a.P1 + "," + a.P2 + "," + a.P3 + " committed " +
+                       (a.Committed ? a.CommitLane.ToString() : "-") + " wait " + a.WaitT.ToString("0") + " blockedVeh " + a.BlockedByVehicle +
+                       " stopLine " + a.AtStopLine + " pull " + a.Pull + "/" + a.PullState + " at " + a.PullLane + "@" + a.PullS.ToString("0") +
+                       (a.PullPath != null ? " path " + string.Join(",", a.PullPath) : "") + " route " + a.Route + " dwell " + a.DwellT.ToString("0");
+            }
+        }
 
         /// <summary>The body rectangle of every live agent: rear-axle point, heading, length behind and ahead of it,
         /// half width; plus whether the agent is a ghost.</summary>

@@ -455,6 +455,24 @@ namespace Ghumante.Core.Tests
             Assert.That(ReadmeStep(readme, 7).Contains(NeedsWorldIntegration), Is.EqualTo(!decor), "step 7: Maitighar Mandala and Shahid Gate");
             Assert.That(ReadmeStep(readme, 2).Contains(NeedsWorldIntegration), Is.EqualTo(!(bridges && statueColliders)),
                 "step 2: the camera against statues, piers and decks");
+            // The camera section promises the same layers: bridge decks with kerbs and railings (its step 4) and the
+            // roundabout's centre piece (its step 6).
+            Assert.That(CameraStep(readme, 4).Contains(NeedsWorldIntegration), Is.EqualTo(!bridges), "camera section step 4: bridge decks");
+            Assert.That(CameraStep(readme, 6).Contains(NeedsWorldIntegration), Is.EqualTo(!decor), "camera section step 6: roundabout centre pieces");
+        }
+
+        /// <summary>Step <paramref name="n"/> ("**n. Title**" up to the next one) of the README's camera, HUD and routes
+        /// section.</summary>
+        private static string CameraStep(string readme, int n)
+        {
+            int section = readme.IndexOf("## The detail pass on a Mac (camera, HUD and routes)", StringComparison.Ordinal);
+            Assert.That(section, Is.GreaterThanOrEqualTo(0), "the camera section");
+            int stop = readme.IndexOf("\n## ", section + 4, StringComparison.Ordinal);
+            int start = readme.IndexOf("\n**" + n + ". ", section, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0).And.LessThan(stop < 0 ? int.MaxValue : stop), "camera step " + n);
+            int end = readme.IndexOf("\n**" + (n + 1) + ". ", start + 1, StringComparison.Ordinal);
+            if (end < 0 || stop >= 0 && end > stop) end = stop < 0 ? readme.Length : stop;
+            return readme.Substring(start, end - start);
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -470,6 +488,21 @@ namespace Ghumante.Core.Tests
         [TestCase("Shahid Gate", "Shahid Gate", 85.3155, 27.6985)]
         [TestCase("Ratna Park bus station", "Ratna Park", 85.3150, 27.7060)]
         [TestCase("Pashupatinath", "Pashupati", 85.3488, 27.7105)]
+        // The M1 and camera sections, and the community fleet's heavy vehicles.
+        [TestCase("Hanuman Dhoka", "Hanuman Dhoka", 85.3074, 27.7041)]
+        [TestCase("Kalopul", "Kalopul", 85.3369, 27.7118)]
+        [TestCase("Nilo pul (Blue Bridge)", "Nilo pul", 85.3499, 27.7025)]
+        [TestCase("Balaju Bridge", "Balaju Bridge", 85.3073, 27.7353)]
+        [TestCase("Tribhuvan International Airport", "Tribhuvan International Airport", 85.3589, 27.6968)]
+        [TestCase("Naya Bus Park, Gongabu", "Gongabu", 85.3081, 27.7329)]
+        [TestCase("Chabahil bus station", "Chabahil", 85.3469, 27.7179)]
+        [TestCase("Nagdesh", "Nagdesh", 85.3839, 27.6861)]
+        [TestCase("Tinchuli", "Tinchuli", 85.3683, 27.7273)]
+        // The playtest fixes #3, #6, #10 and #11 section: lanes, bazaars and depots.
+        [TestCase("Baluwatar", "Baluwatar", 85.3300, 27.7290)]
+        [TestCase("Asan", "Ason", 85.3106, 27.7077)]
+        [TestCase("New Road Gate", "New Road", 85.3125, 27.7040)]
+        [TestCase("Balaju", "Balaju", 85.3040, 27.7340)]
         public void ReadmeTeleportsFindTheirPlaceOnTheSample(string query, string expect, double lon, double lat)
         {
             string path = Path.Combine(GoldenFiles.RepoRoot, "shared", "sample-regions", "kathmandu_core", "kathmandu_core.search.ghsi");

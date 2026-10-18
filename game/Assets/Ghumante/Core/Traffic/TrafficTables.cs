@@ -1,6 +1,7 @@
 using System;
 using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
+using Ghumante.Core.Meshing;
 
 namespace Ghumante.Core.Traffic
 {
@@ -414,5 +415,28 @@ namespace Ghumante.Core.Traffic
                      VehicleClasses.Bit(VehicleClass.Tanker);
             return m;
         }
+
+        /// <summary>
+        /// The classes the lanes of road <paramref name="road"/> of <paramref name="t"/> carry, by the lane graph's own rule
+        /// (<see cref="LaneGraph"/>: drawn, not a tunnel, at least <see cref="LaneGraph.MinLaneWidthM"/> wide; the travel
+        /// mask of its narrowest final width, <see cref="RoadWidthModel.AccessFor(float, in RoadRecord, in RoadAttrRecord)"/>,
+        /// after the car rule, <see cref="RoadAccess.Restrict"/>); 0 when it has none. Parked vehicles use it to stand only
+        /// beside a road their class can be driven off on (W2 playtest #11).
+        /// </summary>
+        public static uint LaneClassesOf(TileData t, int road, RoadLayout layout)
+        {
+            if (t == null) throw new ArgumentNullException(nameof(t));
+            if (layout == null) throw new ArgumentNullException(nameof(layout));
+            RoadRecord r = t.Roads[road];
+            if ((r.Flags & RoadFlags.Tunnel) != 0 || !RoadMesher.IsDrawn(r, LaneRoadOptions)) return 0;
+            RoadWidthProfile prof = layout.Profiles[road];
+            float minW = prof.Count > 0 ? prof.MinWidth : 0f;
+            if (minW < LaneGraph.MinLaneWidthM) return 0;
+            uint mask = ClassesFor(RoadWidthModel.AccessFor(minW, r, layout.Attrs[road]));
+            return RoadAccess.Restrict(mask, t, road, prof.RealM);
+        }
+
+        /// <summary>The road options the lane graph builds with (defaults).</summary>
+        private static readonly RoadOptions LaneRoadOptions = new RoadOptions();
     }
 }

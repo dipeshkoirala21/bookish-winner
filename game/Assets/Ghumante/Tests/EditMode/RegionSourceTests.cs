@@ -51,18 +51,33 @@ namespace Ghumante.Tests.EditMode
             return dir;
         }
 
-        /// <summary>A root holding Regions/kathmandu_core/ with the four sample files.</summary>
+        /// <summary>A root holding Regions/kathmandu_core/ with the sample's manifest and every file it lists (the data
+        /// files and the sidecars: transit routes, curated places, hero recipes, aviation), as Project Setup and
+        /// RegionImport copy them.</summary>
         private string RootWithSample()
         {
             string root = TempRoot();
             string folder = Path.Combine(root, RegionFiles.FolderName, SampleRegion.Id);
             Directory.CreateDirectory(folder);
-            foreach (RegionFileKind kind in new[] { RegionFileKind.Manifest, RegionFileKind.Pack, RegionFileKind.SearchIndex, RegionFileKind.RouteGraph })
-            {
-                string name = RegionFiles.FileName(SampleRegion.Id, kind);
-                File.Copy(Path.Combine(SampleRegion.Folder, name), Path.Combine(folder, name));
-            }
+            string manifest = RegionFiles.FileName(SampleRegion.Id, RegionFileKind.Manifest);
+            File.Copy(Path.Combine(SampleRegion.Folder, manifest), Path.Combine(folder, manifest));
+            foreach (RegionFileEntry e in SampleManifest().Files)
+                File.Copy(Path.Combine(SampleRegion.Folder, e.Path), Path.Combine(folder, e.Path));
             return root;
+        }
+
+        private static RegionManifest SampleManifest()
+        {
+            return RegionManifest.Parse(File.ReadAllText(SampleRegion.FilePath(".manifest.json")));
+        }
+
+        /// <summary>How many files the sample manifest's JSON lists (counted from the text, independently of the parser).</summary>
+        private static int ListedFiles()
+        {
+            string json = File.ReadAllText(SampleRegion.FilePath(".manifest.json"));
+            int n = 0;
+            for (int at = json.IndexOf("\"path\"", StringComparison.Ordinal); at >= 0; at = json.IndexOf("\"path\"", at + 1, StringComparison.Ordinal)) n++;
+            return n;
         }
 
         // ------------------------------------------------------------------------------------------------------
@@ -115,14 +130,15 @@ namespace Ghumante.Tests.EditMode
             Assert.IsTrue(m.HasBounds);
             Assert.That(SampleRegion.ThamelX, Is.InRange(m.MinX, m.MaxX));
             Assert.That(SampleRegion.ThamelZ, Is.InRange(m.MinZ, m.MaxZ));
-            Assert.AreEqual(3, m.Files.Count);
+            // The three data files (pack, search index, route graph) and the sidecars (transit routes, curated places,
+            // hero recipes, aviation): every entry the manifest lists, each present with its size.
+            Assert.AreEqual(ListedFiles(), m.Files.Count, "every listed file parsed");
+            Assert.GreaterOrEqual(m.Files.Count, RegionFiles.DataKinds.Length);
             Assert.IsNotEmpty(m.Attribution);
             foreach (RegionFileKind kind in RegionFiles.DataKinds)
-            {
-                RegionFileEntry e = m.FileFor(kind);
-                Assert.IsNotNull(e, kind.ToString());
-                Assert.AreEqual(new FileInfo(Path.Combine(SampleRegion.Folder, e.Path)).Length, e.Bytes);
-            }
+                Assert.IsNotNull(m.FileFor(kind), kind.ToString());
+            foreach (RegionFileEntry e in m.Files)
+                Assert.AreEqual(new FileInfo(Path.Combine(SampleRegion.Folder, e.Path)).Length, e.Bytes, e.Path);
             RegionFileEntry search = m.FileFor(RegionFileKind.SearchIndex);
             Assert.AreEqual(search.Sha256, RegionFileVerifier.Sha256Hex(Path.Combine(SampleRegion.Folder, search.Path)));
             string problem;

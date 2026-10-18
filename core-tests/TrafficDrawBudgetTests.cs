@@ -204,8 +204,11 @@ namespace Ghumante.Core.Tests
                 Assert.That(m.TrafficOverflow, Is.EqualTo(0), TierName[tier] + ": every vehicle within the tier caps is drawn under the cap");
                 Assert.That(m.People, Is.GreaterThan(0));
                 Assert.That(m.ParkedAssigned, Is.GreaterThan(0));
-                // Parked batches: one per variant and level for the tinted levels (was one per livery too).
-                Assert.That(m.Parked * 2, Is.LessThanOrEqualTo(m.ParkedBefore), TierName[tier] + ": parked draws at least halved");
+                // Parked batches: one per variant and level for the tinted levels (was one per livery too, and outlined on Mid
+                // and High). Since the playtest the parked vehicles near the bazaars are few and of many kinds (a car, a micro,
+                // a scooter: one livery each), so on Low, without outlines to save, fewer batches is what is left to gain.
+                if (b.Outlines) Assert.That(m.Parked * 2, Is.LessThanOrEqualTo(m.ParkedBefore), TierName[tier] + ": parked draws at least halved");
+                else Assert.That(m.Parked, Is.LessThan(m.ParkedBefore), TierName[tier] + ": fewer parked draws than one per livery");
                 Assert.That(life, Is.LessThan(lifeBefore), TierName[tier] + ": fewer life draws than before");
             }
         }

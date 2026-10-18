@@ -509,7 +509,10 @@ namespace Ghumante.Core.Tests
             TileId id = StreamingScene.TileAt(AsanLon, AsanLat);
             TileBuild b = StreamingScene.Build(id, s);
             Assert.That(b.Colliders, Is.Not.Null);
-            Assert.That(b.Colliders.Count, Is.GreaterThan(500), "Asan's dressing");
+            // Trunks, street-prop poles and the parked vehicles nobody can borrow. Since the first playtest (#3) every parked
+            // vehicle the player can drive is a community-fleet one, registered round the player by ExploreSession rather
+            // than in this static set, and the bazaar keeps few parked vehicles: what is left is the trees and the props.
+            Assert.That(b.Colliders.Count, Is.GreaterThan(150), "Asan's dressing");
             ColliderCylinder trunk = default(ColliderCylinder);
             bool found = false;
             foreach (ColliderCylinder c in b.Colliders.Cylinders)

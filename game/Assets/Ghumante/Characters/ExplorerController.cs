@@ -52,6 +52,14 @@ namespace Ghumante.Characters
 
         /// <summary>Riding along: Hop off asks the driver to stop (the bell).</summary>
         RideAlong = 7,
+
+        /// <summary>A passenger seat is offered (a stopped taxi, or a bus, micro or tempo with its doors open): the
+        /// Action button reads Hop on and boards it (the vehicle from <see cref="ExplorerController.PromptVariant"/>).</summary>
+        RideOffered = 8,
+
+        /// <summary>On foot, standing by the road: the next bus, micro or tempo stops for the player; holding Action
+        /// waves down a taxi.</summary>
+        Waiting = 9,
     }
 
     /// <summary>A parked vehicle near the player (community fleet), in game metres; filled by the session.</summary>
@@ -93,6 +101,10 @@ namespace Ghumante.Characters
         public Vector3 CameraPosition, CameraForward;
 
         public bool Portrait;
+
+        /// <summary>The traffic's answer to the player's wave for a taxi (<c>TrafficSim.RequestedTaxi</c>, read back by
+        /// the session): the agent id of the taxi on its way, 0 while undecided, −1 when no taxi can come here.</summary>
+        public int RequestedTaxi;
     }
 
     /// <summary>
@@ -167,6 +179,7 @@ namespace Ghumante.Characters
         private readonly FaceMood _mood = new FaceMood();
         private bool _landCue;
         private readonly MountDetector _detector = new MountDetector();
+        private readonly SprintLock _sprintLock = new SprintLock();
         private readonly PassengerRide _ride = new PassengerRide();
         private readonly List<PlayerVehicle> _vehicles = new List<PlayerVehicle>();
         private VehicleMeshCache _cache;
@@ -195,6 +208,11 @@ namespace Ghumante.Characters
         private long _nextId = 1;
         private AgentPose _ridePose;
         private bool _rideFound;
+
+        // A wave for a taxi: the place the player waved from (the taxi's pickup, fixed until boarding or giving up).
+        private bool _hailPending, _hailArrived, _hailRearmed;
+        private double _hailX, _hailZ, _hailStartDist;
+        private float _hailWaitS, _hailT, _waveS, _standS;
         private ISoundService _sound = NullSoundService.Instance;
 
         /// <summary>Builds the explorer as a new scene object. <paramref name="material"/> is a <c>Ghumante/ToonLit</c>
@@ -306,8 +324,18 @@ namespace Ghumante.Characters
         /// <summary>The Action button's meaning now.</summary>
         public ExplorerPrompt Prompt { get; private set; }
 
+        /// <summary>True while the sprint is locked on foot (<see cref="SprintLock"/>): the HUD shows the lock.</summary>
+        public bool SprintLocked
+        {
+            get { return _mode == ExplorerMode.Walk && _sprintLock.Locked; }
+        }
+
         /// <summary>The class icon for <see cref="ExplorerPrompt.HopOn"/>.</summary>
         public RigClass PromptRig { get; private set; }
+
+        /// <summary>The catalogue variant of the vehicle a <see cref="ExplorerPrompt.RideOffered"/> seat belongs to (−1
+        /// otherwise), so the HUD can name it (taxi, bus, micro, tempo).</summary>
+        public int PromptVariant { get; private set; }
 
         /// <summary>A passenger seat is offered (the small "Ride as passenger" button shows).</summary>
         public bool PassengerOffered { get; private set; }
@@ -408,27 +436,78 @@ namespace Ghumante.Characters
             return true;
         }
 
-        /// <summary>A taxi asked to pull over (hail, or a passenger's stop): the session places a stop obstacle at
-        /// (x, z) for agent <paramref name="agentId"/>; cleared when false.</summary>
-        public bool TryGetPullOver(out int agentId, out double x, out double z)
+        /// <summary>
+        /// What the traffic should do for the player's ride now (the session posts it to <c>TrafficSim</c> about ten times
+        /// a second; false: nothing, cancel what was posted). <paramref name="agentId"/> −1 with
+        /// <see cref="PullOverKind.Pickup"/> is a wave for any taxi (<c>TrafficSim.RequestTaxi</c> at (x, z)); otherwise
+        /// the command for that agent: the hailed taxi picks the player up at the place they waved from (fixed, so the
+        /// taxi really stops there), a vehicle being boarded or left is held where it stands, and the bell asks a taxi
+        /// to pull over ahead or a bus, micro or tempo to stop at its next stop.
+        /// </summary>
+        public bool TryGetPullOver(out int agentId, out PullOverKind kind, out double x, out double z)
         {
             agentId = -1;
+            kind = PullOverKind.None;
             x = z = 0;
-            bool wanted = _ride.State == RideState.Hailing || _ride.State == RideState.StopRequested && _ride.Class == VehicleClass.Taxi;
-            if (!wanted || !_rideFound) return false;
-            agentId = _ride.AgentId;
-            float ahead = _ride.State == RideState.Hailing ? HailAhead() : 14f;
-            PassengerRide.PullOverPoint(_ridePose, ahead, out x, out z);
-            return true;
+            if (_hailPending)
+            {
+                kind = PullOverKind.Pickup;
+                x = _hailX;
+                z = _hailZ;
+                return true;
+            }
+            // Climbing into or out of a traffic vehicle: it stands still until the clip is done.
+            if (_tr.Phase != Phase.Free && _tr.Passenger && _tr.Vehicle == null && _tr.AgentId > 0)
+            {
+                agentId = _tr.AgentId;
+                kind = PullOverKind.Hold;
+                return true;
+            }
+            switch (_ride.State)
+            {
+                case RideState.Hailing:
+                    agentId = _ride.AgentId;
+                    kind = PullOverKind.Pickup;
+                    x = _hailX;
+                    z = _hailZ;
+                    return true;
+                case RideState.StopRequested:
+                case RideState.Alight:
+                    agentId = _ride.AgentId;
+                    kind = _ride.State == RideState.Alight ? PullOverKind.Hold : IsRouteClass(_ride.Class) ? PullOverKind.NextStop : PullOverKind.Ahead;
+                    return true;
+            }
+            return false;
         }
 
-        private float HailAhead()
+        /// <summary>Buses, minibuses, micros and tempos stop at stops; taxis and rickshaws anywhere.</summary>
+        private static bool IsRouteClass(VehicleClass c)
         {
-            // Stop the taxi level with the player (within 30 m), never behind it.
-            double dx = Position.X - _ridePose.X, dz = Position.Z - _ridePose.Z;
-            double along = dx * Math.Sin(_ridePose.HeadingRad) + dz * Math.Cos(_ridePose.HeadingRad);
-            return (float)Math.Max(8.0, Math.Min(PassengerRide.PullOverM, along + 4.0));
+            return c == VehicleClass.Bus || c == VehicleClass.Minibus || c == VehicleClass.Microbus || c == VehicleClass.Tempo;
         }
+
+        /// <summary>
+        /// The player waits for a ride at (x, z): on foot outside a compound, standing still a moment (or just waved) and
+        /// not already hailing or boarding. The session posts it to the traffic (<c>TrafficSim.SetWaitingPassenger</c>):
+        /// the next bus, minibus, micro or tempo along the kerb pulls over with its doors open.
+        /// </summary>
+        public bool TryGetWaitingPoint(out double x, out double z)
+        {
+            float y;
+            PlayerPoint(out x, out y, out z);
+            if (_mode != ExplorerMode.Walk || _tr.Phase != Phase.Free || _calm.Active || _ride.State != RideState.None) return false;
+            return _standS >= WaitAfterS || _waveS > 0f;
+        }
+
+        /// <summary>Standing still this long on foot counts as waiting for a bus.</summary>
+        public const float WaitAfterS = 1.0f;
+
+        /// <summary>A wave keeps the player waiting this long even while they walk (towards the kerb).</summary>
+        public const float WaveWaitS = 20f;
+
+        /// <summary>The player gives up on a hailed taxi still on its way after this long (PassengerRide's own timeout is
+        /// re-armed once while it comes nearer, and again when it has pulled over).</summary>
+        public const float HailGiveUpS = 90f;
 
         public void Bind(IGroundQuery ground, WorldPos origin)
         {
@@ -455,17 +534,21 @@ namespace Ghumante.Characters
         {
             RequireBound();
             CancelTransition();
+            _sprintLock.Release();
             _exitPending = false;
             _jump.Cancel();
             _ride.End();
+            _hailPending = false;
+            _waveS = 0f;
             _puffs.Clear();
             GarageVehicle gv = _garage.Current;
-            PlayerVehicle own = OwnVehicle();
+            PlayerVehicle own = OwnVehicleOf(gv);
             if (own == null)
             {
                 own = new PlayerVehicle(_nextId++, gv.Variant, gv.Livery, gv.PlateSeed, VehicleSource.Garage, transform, _material, _cache, null);
                 _vehicles.Add(own);
             }
+            own.Arriving = false;
             Place(own.Driver, x, z, headingRad, heightHint);
             double sx, sz;
             Side(x, z, headingRad, -(VehicleMesher.DimsOf(own.Entry).Half + 0.7), out sx, out sz);
@@ -492,6 +575,9 @@ namespace Ghumante.Characters
                 _ride.End();
                 _mode = ExplorerMode.Walk;
             }
+            if (_ride.State == RideState.Hailing) _ride.End();
+            _hailPending = false;
+            _waveS = 0f;
             RequireBound();
             CancelTransition();
             if (_mode == ExplorerMode.Ride && _current != null)
@@ -547,10 +633,12 @@ namespace Ghumante.Characters
             if (_ground == null) return;
             if (paused || !(dt > 0f))
             {
+                if (paused) _sprintLock.Release(); // a menu or the search sheet stops a hands-free run
                 Render(0f);
                 return;
             }
             dt = Mathf.Min(dt, 0.1f);
+            if (_mode != ExplorerMode.Walk || _tr.Phase != Phase.Free) _standS = 0f;
             UpdateRideSnapshot(dt);
             if (_ride.State == RideState.Hailing && !_rideFound) _ride.End();
             UpdateZone(dt);
@@ -707,7 +795,8 @@ namespace Ghumante.Characters
                     _holdConsumed = true;
                     Act(true);
                 }
-                else if (!_detector.Passenger.Valid && !_detector.Driver.Valid && !_calm.Active && _actionHeld >= HailHoldS)
+                else if (!_detector.Passenger.Valid && !_detector.Driver.Valid && !_calm.Active && _actionHeld >= HailHoldS && !_hailPending &&
+                         _ride.State == RideState.None)
                 {
                     _holdConsumed = true;
                     Hail();
@@ -831,11 +920,19 @@ namespace Ghumante.Characters
         private void StepWalk(float dt, in ControlFrame f, float cameraYawRad)
         {
             ControlFrame c = f;
+            // Sprint lock (playtest #10): double-tap sprint, or drag the touch stick into the lock, and the explorer keeps
+            // sprinting forward hands-free until stopped. Never in a calm zone or during an emote.
+            if (_calm.Active || _emote != Emote.None) _sprintLock.Release();
+            else _sprintLock.Step(dt, ref c, _walker.Vehicle.SpeedMps);
+            if (_sprintLock.Changed) Raise(_sprintLock.Locked ? "hud.sprint_locked" : "hud.sprint_unlocked");
             if (_calm.Active) c.Boost = false;
             bool moving = c.MoveX != 0f || c.MoveY != 0f;
             if (moving) _emote = Emote.None;
             DriveInput input = _emote != Emote.None ? new DriveInput(0f, 0f, 0f, false) : ControlMapper.WalkInput(_walker.Vehicle, c, cameraYawRad, dt);
             _events = _walker.Advance(dt, input, _ground, Wetness);
+            // Standing still on foot (no stick, barely moving): waiting for a ride.
+            if (!moving && Math.Abs(_walker.Vehicle.SpeedMps) < 0.3f) _standS += dt;
+            else _standS = 0f;
             bool ground = _walker.Vehicle.HasGround && !_walker.Vehicle.Airborne;
             _jump.Update(dt, _jumpPressed, ground, _emote == Emote.None);
             if (_jump.TookOff)
@@ -974,6 +1071,8 @@ namespace Ghumante.Characters
 
         private void UpdateRideSnapshot(float dt)
         {
+            ResolveHail(dt);
+            if (_waveS > 0f) _waveS -= dt;
             _rideFound = false;
             // The vehicle of a ride, a hail, or a passenger approach in progress.
             bool approaching = _tr.Phase != Phase.Free && _tr.AgentId >= 0;
@@ -1005,6 +1104,7 @@ namespace Ghumante.Characters
                 float y;
                 PlayerPoint(out x, out y, out z);
                 _ride.Update(dt, true, a, x, z);
+                KeepHailing(dt);
             }
         }
 
@@ -1017,20 +1117,90 @@ namespace Ghumante.Characters
             if (s == RideState.Alight) BeginExitPassenger();
         }
 
+        /// <summary>
+        /// Hold Action with nothing to board: the explorer waves where they stand. The traffic answers (the session
+        /// reads <c>TrafficSim.RequestedTaxi</c> into <see cref="ExplorerContext.RequestedTaxi"/>) with the nearby taxi
+        /// that can reach the kerb soonest, or one sent from up the street; the ride then follows it
+        /// (<see cref="UpdateRideSnapshot"/>). Buses, micros and tempos coming along stop for a waving player too.
+        /// </summary>
         private void Hail()
         {
             double x, z;
             float y;
             PlayerPoint(out x, out y, out z);
-            int i = PassengerRide.NearestTaxi(_ctx.Traffic, _ctx.TrafficCount, x, z);
-            if (i < 0)
+            _hailPending = true;
+            _hailX = x;
+            _hailZ = z;
+            _hailWaitS = 0f;
+            _waveS = WaveWaitS;
+            StartEmote(Emote.Wave);
+            Raise("hud.taxi_coming");
+        }
+
+        /// <summary>The wave's answer: follow the taxi the traffic sent, or say none can come.</summary>
+        private void ResolveHail(float dt)
+        {
+            if (!_hailPending) return;
+            _hailWaitS += dt;
+            int answer = _ctx.RequestedTaxi;
+            if (answer < 0 || answer == 0 && _hailWaitS > HailAnswerS)
             {
+                _hailPending = false;
                 Raise("hud.no_taxi");
                 return;
             }
+            if (answer == 0) return;
+            int i = PassengerRide.Find(_ctx.Traffic, _ctx.TrafficCount, answer);
+            if (i < 0)
+            {
+                if (_hailWaitS > HailAnswerS)
+                {
+                    _hailPending = false;
+                    Raise("hud.no_taxi");
+                }
+                return;
+            }
+            _hailPending = false;
             _ride.Hail(_ctx.Traffic[i]);
-            StartEmote(Emote.Wave);
-            Raise("hud.taxi_coming");
+            _hailT = 0f;
+            _hailArrived = false;
+            _hailRearmed = false;
+            double dx = _ctx.Traffic[i].X - _hailX, dz = _ctx.Traffic[i].Z - _hailZ;
+            _hailStartDist = Math.Sqrt(dx * dx + dz * dz);
+        }
+
+        /// <summary>The traffic answers a wave within this long (it decides on its next step).</summary>
+        private const float HailAnswerS = 2f;
+
+        /// <summary>
+        /// While a hailed taxi comes: once it stands beside the player the wait starts afresh (the player has
+        /// PassengerRide's 45 s to walk to its door); once, while it is still coming nearer, the timeout is re-armed so a
+        /// taxi on its way round the block is not given up on; never longer than <see cref="HailGiveUpS"/>.
+        /// </summary>
+        private void KeepHailing(float dt)
+        {
+            if (_ride.State != RideState.Hailing || !_rideFound) return;
+            _hailT += dt;
+            double dx = _ridePose.X - _hailX, dz = _ridePose.Z - _hailZ;
+            double d = Math.Sqrt(dx * dx + dz * dz);
+            if (_hailT > HailGiveUpS)
+            {
+                _ride.End();
+                Raise("hud.no_taxi");
+                return;
+            }
+            if (!_hailArrived && d < 25.0 && PassengerRide.IsBoardable(_ridePose))
+            {
+                _hailArrived = true;
+                _ride.Hail(_ridePose);
+                Raise("hud.taxi_waiting");
+                return;
+            }
+            if (!_hailArrived && !_hailRearmed && _hailT > 0.8f * PassengerRide.HailTimeoutS && d < _hailStartDist)
+            {
+                _hailRearmed = true;
+                _ride.Hail(_ridePose);
+            }
         }
 
         private void RequestStop()
@@ -1044,13 +1214,27 @@ namespace Ghumante.Characters
         // -------------------------------------------------------------------------------------------------------------
         // Garage summon and the community fleet
 
-        private PlayerVehicle OwnVehicle()
+        /// <summary>The garage vehicle out in the world for garage entry <paramref name="gv"/>, or null.</summary>
+        private PlayerVehicle OwnVehicleOf(in GarageVehicle gv)
         {
             for (int i = 0; i < _vehicles.Count; i++)
-                if (_vehicles[i].Source == VehicleSource.Garage) return _vehicles[i];
+            {
+                PlayerVehicle v = _vehicles[i];
+                if (v.Source == VehicleSource.Garage && v.Variant == gv.Variant && v.Livery == gv.Livery) return v;
+            }
             return null;
         }
 
+        /// <summary>A garage vehicle no longer selected goes home once it is out of view and this far away (never in
+        /// sight, never while it is the one the player rides).</summary>
+        public const double GarageHomeM = 60.0;
+
+        /// <summary>
+        /// The garage whistle (G, D-pad down, the garage button): the selected vehicle drives up from out of view and
+        /// stops beside the player. Whistling again while it stands beside the player (within 18 m) selects the next
+        /// garage vehicle ("Garage: Bicycle") and calls that one; the first stays parked where it is (nothing vanishes in
+        /// view) and goes home once out of sight (<see cref="GarageHomeM"/>).
+        /// </summary>
         private void Summon()
         {
             if (_mode != ExplorerMode.Walk || _tr.Phase != Phase.Free)
@@ -1068,10 +1252,11 @@ namespace Ghumante.Characters
             float py;
             PlayerPoint(out px, out py, out pz);
             GarageVehicle gv = _garage.Current;
-            PlayerVehicle own = OwnVehicle();
-            if (own != null && own.Variant == gv.Variant && own.Livery == gv.Livery)
+            PlayerVehicle here = OwnVehicleOf(gv);
+            bool next = false;
+            if (here != null && !here.Arriving)
             {
-                VehiclePose op = own.Driver.Current;
+                VehiclePose op = here.Driver.Current;
                 double ddx = op.X - px, ddz = op.Z - pz;
                 if (ddx * ddx + ddz * ddz < 18.0 * 18.0)
                 {
@@ -1082,6 +1267,7 @@ namespace Ghumante.Characters
                         return;
                     }
                     gv = _garage.Next();
+                    next = true;
                 }
             }
             // It stops beside the player, on whichever side lies outside any zone it may not enter.
@@ -1094,25 +1280,38 @@ namespace Ghumante.Characters
                 Raise("hud.garage_rest_outside");
                 return;
             }
-            if (own != null)
+            PlayerVehicle own = OwnVehicleOf(gv);
+            if (own != null && own.Loan == null && !InViewOf(own))
             {
+                // Out of sight (left somewhere earlier): it is sent afresh from out of view behind the camera.
                 _vehicles.Remove(own);
                 if (_current == own) _current = null;
                 own.Dispose();
+                own = null;
             }
-            own = new PlayerVehicle(_nextId++, gv.Variant, gv.Livery, gv.PlateSeed, VehicleSource.Garage, transform, _material, _cache, null);
-            _vehicles.Add(own);
-            double sx, sz;
-            SummonStart(px, py, pz, allowed, out sx, out sz);
-            float heading = Mathf.Atan2((float)(ax - sx), (float)(az - sz));
-            Place(own.Driver, sx, sz, heading, py);
+            if (own == null)
+            {
+                own = new PlayerVehicle(_nextId++, gv.Variant, gv.Livery, gv.PlateSeed, VehicleSource.Garage, transform, _material, _cache, null);
+                _vehicles.Add(own);
+                double sx, sz;
+                SummonStart(px, py, pz, allowed, out sx, out sz);
+                float heading = Mathf.Atan2((float)(ax - sx), (float)(az - sz));
+                Place(own.Driver, sx, sz, heading, py);
+            }
+            // In view already (parked down the street): it drives over from where it stands.
             own.Arriving = true;
             own.ArriveS = 0f;
             own.ArriveRelocated = false;
             own.ArriveX = ax;
             own.ArriveZ = az;
             _sound.PlayUi(BankSound.UiBoing, -10f);
-            Raise("hud.garage_coming");
+            Raise(next ? "hud.garage_selected" : "hud.garage_coming");
+        }
+
+        private bool InViewOf(PlayerVehicle v)
+        {
+            VehiclePose p = v.Driver.Current;
+            return InView(p.X, p.Y, p.Z);
         }
 
         // Bearings tried for a summoned vehicle's start, relative to straight behind the camera (radians).
@@ -1209,7 +1408,21 @@ namespace Ghumante.Characters
                     continue;
                 }
                 v.StepParked(dt, _ground, Wetness);
-                if (v.Loan == null) continue;
+                if (v.Loan == null)
+                {
+                    if (v.Source == VehicleSource.Garage && !IsSelected(v) && v != _current)
+                    {
+                        // No longer the garage's pick: it goes home once out of sight and well away.
+                        VehiclePose gp = v.Driver.Current;
+                        double gx = gp.X - px, gz = gp.Z - pz;
+                        if (gx * gx + gz * gz > GarageHomeM * GarageHomeM && !InView(gp.X, gp.Y, gp.Z))
+                        {
+                            _vehicles.RemoveAt(i);
+                            v.Dispose();
+                        }
+                    }
+                    continue;
+                }
                 VehiclePose p = v.Driver.Current;
                 if (v.Loan.Update(dt, false, p.X, p.Z, px, pz) && !InView(p.X, p.Y, p.Z))
                 {
@@ -1222,6 +1435,12 @@ namespace Ghumante.Characters
                     if (h != null) h(id, false);
                 }
             }
+        }
+
+        private bool IsSelected(PlayerVehicle v)
+        {
+            GarageVehicle gv = _garage.Current;
+            return v.Variant == gv.Variant && v.Livery == gv.Livery;
         }
 
         private void StepArrival(PlayerVehicle v, float dt, double px, double pz)
@@ -1338,6 +1557,7 @@ namespace Ghumante.Characters
 
         private void BeginApproach(in MountDetector.Candidate c)
         {
+            _sprintLock.Release();
             PlayerVehicle vehicle = null;
             VehicleFrame frame;
             int agentId = -1;
@@ -1535,8 +1755,10 @@ namespace Ghumante.Characters
                 y = _ridePose.Y;
             }
             int fare = _ride.Fare;
+            int agent = _ride.AgentId;
             _ride.End();
             BeginExit(null, seat, VehicleRoles.PoseFor(e, seat.Kind), x, z, y, _ridePose.HeadingRad);
+            _tr.AgentId = agent; // held where it stands until the player is down (TryGetPullOver)
             SetMode(ExplorerMode.Walk, false);
             if (fare > 0) Raise("hud.taxi_fare");
         }
@@ -1549,7 +1771,7 @@ namespace Ghumante.Characters
             _tr = new Transition
             {
                 Phase = Phase.Exit, T = 0f, Duration = seat.ExitS, Vehicle = v, Seat = seat, Pose = pose, Passenger = v == null,
-                FromX = sx, FromZ = sz, FromY = sy, ToX = x, ToZ = z, ToY = y, FromHeading = heading, ToHeading = heading,
+                FromX = sx, FromZ = sz, FromY = sy, ToX = x, ToZ = z, ToY = y, FromHeading = heading, ToHeading = heading, AgentId = -1,
             };
             _sound.PlayUi(BankSound.ClothRustle, -12f);
         }
@@ -1627,6 +1849,7 @@ namespace Ghumante.Characters
             Detect();
             PassengerOffered = _detector.Passenger.Valid;
             PromptRig = RigClass.Walk;
+            PromptVariant = -1;
             switch (_mode)
             {
                 case ExplorerMode.Ride:
@@ -1636,7 +1859,7 @@ namespace Ghumante.Characters
                     Prompt = _ride.State == RideState.StopRequested ? ExplorerPrompt.StopRequested : ExplorerPrompt.RideAlong;
                     return;
             }
-            if (_ride.State == RideState.Hailing)
+            if (_ride.State == RideState.Hailing || _hailPending)
             {
                 Prompt = ExplorerPrompt.TaxiComing;
                 return;
@@ -1652,7 +1875,15 @@ namespace Ghumante.Characters
                 PromptRig = VehicleRoles.RigOf(VehicleCatalog.At(_detector.Driver.Variant));
                 return;
             }
-            Prompt = ExplorerPrompt.Jump;
+            if (_detector.Passenger.Valid)
+            {
+                // Only a passenger seat: the Action button boards it (tap, or hold), so it says so.
+                Prompt = ExplorerPrompt.RideOffered;
+                PromptRig = RigClass.Passenger;
+                PromptVariant = _detector.Passenger.Variant;
+                return;
+            }
+            Prompt = _tr.Phase == Phase.Free && (_standS >= WaitAfterS || _waveS > 0f) ? ExplorerPrompt.Waiting : ExplorerPrompt.Jump;
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -1893,6 +2124,7 @@ namespace Ghumante.Characters
         {
             bool changed = mode != _mode;
             _mode = mode;
+            if (mode != ExplorerMode.Walk) _sprintLock.Release();
             if (!changed && !force) return;
             Action<ExplorerMode> handler = ModeChanged;
             if (handler != null) handler(mode);

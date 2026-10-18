@@ -60,6 +60,9 @@ namespace Ghumante.UI.Screens
         public const string LoadingHiddenClass = "gh-loading--hidden";
         public const string PauseOpenClass = "gh-sheet-layer--open";
 
+        /// <summary>On the touch stick while the sprint is locked (playtest #10): a gold rim so the hands-free run shows.</summary>
+        public const string StickLockedClass = "gh-stick--locked";
+
         private static readonly string[] ConfettiClasses =
         {
             "gh-particle--confetti-red", "gh-particle--confetti-yellow", "gh-particle--confetti-cyan",
@@ -67,6 +70,7 @@ namespace Ghumante.UI.Screens
         };
 
         private readonly TouchControls _touch;
+        private readonly VisualElement _stick;
         private readonly SearchSheet _search;
         private readonly SettingsSheet _settings;
         private readonly HudToast _toast;
@@ -218,7 +222,7 @@ namespace Ghumante.UI.Screens
                 Controls = _controls,
                 Pad = Required<VisualElement>("hud-pad"),
                 StickZone = Required<VisualElement>("hud-stick-zone"),
-                Stick = Required<VisualElement>("hud-stick"),
+                Stick = _stick = Required<VisualElement>("hud-stick"),
                 StickKnob = Required<VisualElement>("hud-stick-knob"),
                 DriveZone = Required<VisualElement>("hud-drive-zone"),
                 DriveMarker = Required<VisualElement>("hud-drive-marker"),
@@ -274,10 +278,11 @@ namespace Ghumante.UI.Screens
                 Clear = Required<Button>("search-clear"),
                 Hint = Required<Label>("search-hint"),
                 Results = Required<ScrollView>("search-results"),
+                Content = Required<VisualElement>("search-content"),
+                BleedRoot = Root,
             }, Animator, Localizer, Haptics, Feel, StyledRoot);
             _search.RideRequested += entry => Raise(RideToRequested, entry);
             _search.TeleportRequested += entry => Raise(TeleportRequested, entry);
-            Required<VisualElement>("search-content");
             Required<VisualElement>("search-handle");
 
             _searchLayer = Required<VisualElement>("search-layer");
@@ -346,6 +351,12 @@ namespace Ghumante.UI.Screens
             _loadingFillNode = Animator.Node(Required<VisualElement>("loading-bar-fill"));
             _loadingFillNode.Set(MotionChannel.ScaleX, 0.001f); // the fill is full width, scaled from its left edge
             Feel(Required<Button>("loading-back"), HapticKind.LightImpact, () => Raise(MenuRequested));
+
+            // The pause scrim and the loading overlay cover the whole screen on a notched phone (under the notch and the
+            // home indicator), their panels inside the safe area; the search and Settings sheets do the same themselves.
+            Root.RegisterCallback<GeometryChangedEvent>(OnRootGeometry);
+            Animator.OnUpdate(WatchSafeArea);
+            BleedLayers();
 
             // HUD buttons never take keyboard focus: gamepad A and Space drive the scooter, they must not also "submit"
             // a button clicked earlier with the mouse. The pause panel and the Settings sheet keep theirs, so a gamepad
@@ -599,6 +610,14 @@ namespace Ghumante.UI.Screens
             _hornKey = key;
             _hornLabel.text = Localizer.Get(key);
             if (_horn != null) _horn.tooltip = Localizer.Get(key); // hover name matches the label ("Bell" on a bicycle)
+        }
+
+        /// <summary>Marks the touch stick while the sprint is locked on foot (<c>Characters.SprintLock</c>): the stick's rim
+        /// turns gold and stays lit while the explorer runs hands-free.</summary>
+        public void SetSprintLocked(bool locked)
+        {
+            if (_stick.ClassListContains(StickLockedClass) == locked) return;
+            _stick.EnableInClassList(StickLockedClass, locked);
         }
 
         /// <summary>Shows the small "Ride as passenger" button (a passenger seat is offered).</summary>
@@ -998,6 +1017,7 @@ namespace Ghumante.UI.Screens
             StopListeningForBack();
             Root.UnregisterCallback<AttachToPanelEvent>(OnAttach);
             StyledRoot.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
+            Root.UnregisterCallback<GeometryChangedEvent>(OnRootGeometry);
             _route.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _speedo.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
             _top.UnregisterCallback<GeometryChangedEvent>(OnHudGeometry);
@@ -1105,6 +1125,28 @@ namespace Ghumante.UI.Screens
         private void OnHudGeometry(GeometryChangedEvent evt)
         {
             PlaceRouteChip();
+        }
+
+        private Rect _bledFor;
+
+        private void OnRootGeometry(GeometryChangedEvent evt)
+        {
+            BleedLayers();
+        }
+
+        /// <summary>A 180-degree turn moves the insets without resizing the root (no geometry event).</summary>
+        private void WatchSafeArea(float time, float dt)
+        {
+            if (Root.panel != null && Screen.safeArea != _bledFor) BleedLayers();
+        }
+
+        /// <summary>The pause layer (its scrim) and the loading overlay reach the screen's edges; their centred panels
+        /// stay inside the safe area (<see cref="SafeBleed"/>).</summary>
+        private void BleedLayers()
+        {
+            _bledFor = Screen.safeArea;
+            SafeBleed.Apply(Root, _pauseLayer, null, BleedEdges.All);
+            SafeBleed.Apply(Root, _loading, null, BleedEdges.All);
         }
 
         /// <summary>Places the chip on the next panel update, after a change of classes or visibility has been laid out
