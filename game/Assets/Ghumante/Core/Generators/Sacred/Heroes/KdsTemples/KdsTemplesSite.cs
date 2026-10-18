@@ -180,7 +180,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 if (e.Part == KdsPart.AshokBinayak)
                 {
                     e.Rel = "her.ktm.kasthamandap";
-                    e.KeepClearM = 2.5;
+                    // The cage corners (2.25 × 2.35 m half sizes) stay clear of the lane's corridor.
+                    e.KeepClearM = 3.3;
                 }
                 if (e.Part == KdsPart.PratapMallaColumn) e.KeepClearM = 1.3;
                 if (e.Part == KdsPart.PratapMallaColumn) e.Rel = "her.ktm.jagannath";

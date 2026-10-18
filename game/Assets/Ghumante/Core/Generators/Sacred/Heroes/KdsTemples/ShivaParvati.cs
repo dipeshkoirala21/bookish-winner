@@ -8,12 +8,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     /// The Shiva-Parvati temple (Nava Yogini, late 18th c.; kds-temples.md T7; OSM w185882281 and its parts: plinth 14.7 ×
     /// 9.8 to 1.2 m and 11.8 × 7.0 to 1.4 m, ground storey 11.5 × 6.6 to 5.5 m, cornice band 12.1 × 7.2, upper storey
     /// 10.8 × 5.9 to 8 m, hipped roof 15.7 × 10.8 from 7 to 10 m, finials to 11.3 m): a long brick house-temple facing
-    /// south-south-west toward Maju Dega. A stepped plinth with a broad central stair and two stone lions on the lower
-    /// stage; a ground storey of five carved cusped (multifoil) arches on the front, the centre one the door, the others
-    /// carved lattice windows, with carved pilasters and a deep carved lintel band; the upper storey's band of carved
-    /// windows with, at the centre, the wide window where the painted figures of Shiva and Parvati look out side by side;
-    /// the hipped tile roof with its red valance and five gilt finials on the ridge; a small white domed shrine at the
-    /// plinth's west corner.
+    /// south-south-west toward Maju Dega. A stepped plinth with a broad central stair and two big stone lions on the
+    /// lower stage; a ground storey of five carved bays on the front (the centre one the door, the others lattice windows,
+    /// each a tall carved frame with a round-headed opening under a great semicircular carved tympanum), carved pilasters
+    /// between; the projecting cornice with its row of carved beast heads and a carved timber band; the upper storey's
+    /// carved red-brown timber frontage with its band of lattice and rosette windows and, at the centre, the window where
+    /// the painted figures of Shiva and Parvati look out side by side; the hipped tile roof with the deep red valance hung
+    /// right over that band and five gilt finials with leaf sprays on a gilt ridge plinth; a small white domed shrine at
+    /// the plinth's west corner.
     /// </summary>
     internal static class ShivaParvati
     {
@@ -42,81 +44,106 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 x.Stats.PlinthTopM = 1.4f;
             }
             // The two stone lions on the lower stage either side of the stair.
-            KdsKit.Lion(x, -(stairHalf + 0.75), 4.3, 0.3, 1.45, -1, false, 0.32);
-            KdsKit.Lion(x, stairHalf + 0.75, 4.3, 0.3, 1.45, 1, false, 0.32);
+            // They are big (about 2 m with their pedestals) and frame the stair (photos c_02, c_06).
+            KdsKit.LionOn(x, -(stairHalf + 0.62), 4.15, 1.2, 0.45, 1.65, -1, false, 0.36);
+            KdsKit.LionOn(x, stairHalf + 0.62, 4.15, 1.2, 0.45, 1.65, 1, false, 0.36);
             // A small white domed shrine at the west corner of the plinth.
             if (lod <= 1) SmallDomeShrine(x, -hu0 + 1.1, hw0 - 1.1, 0.5);
 
-            // Ground storey with the arcade.
-            const double gu = 5.75, gw = 3.3, g0 = 1.4, g1 = 5.15;
+            // Ground storey: five carved bays on the front (the centre one the door, the others lattice windows), each a
+            // tall carved frame with a round-headed opening under a great semicircular carved tympanum (torana), carved
+            // pilasters between (photos c_shivaparvati 02, 11; Commons 2014.12.09 Kathmandu 16).
+            const double gu = 5.75, gw = 3.3, g0 = 1.4, g1 = 4.85;
             SacredParts.BandedWall(m, x.K, gu, gw, g0, g1, KdsLooks.BrickRed, KdsLooks.Timber, lod, true, false);
             x.Solid(-gu, gu, -gw, gw, g0, g1, GenColliders.Brick);
             for (int s = 0; s < 4; s++)
             {
                 Affine3 sk = KdsKit.Side(x.K, s);
                 double a = KdsKit.Along(s, gu, gw), d = KdsKit.Depth(s, gu, gw);
-                int arches = s % 2 == 0 ? 5 : 2;
-                double pitch = 2 * a / arches;
-                for (int i = 0; i < arches; i++)
+                int bays = s % 2 == 0 ? 5 : 2;
+                double pitch = 2 * a / bays;
+                for (int i = 0; i < bays; i++)
                 {
                     double u = -a + pitch * (i + 0.5);
-                    bool door = s == 0 && i == arches / 2;
-                    CuspedArch(x, sk, u, g0 + 0.15, d, Math.Min(1.25, 0.72 * pitch), 2.25, door);
+                    bool door = s == 0 && i == bays / 2;
+                    // The back (north) keeps plain carved lattice windows without the great toranas.
+                    if (s == 2) KdsKit.BlackWindow(m, sk, u, g0 + 1.45, d, 0.95, 1.5, lod, 0.12, 3);
+                    else Bay(x, sk, u, g0 + 0.12, d, Math.Min(1.45, 0.64 * pitch), 2.25, door, true);
                 }
                 if (lod <= 1)
                 {
-                    // Carved pilasters between the arches.
-                    for (int i = 0; i <= arches; i++)
+                    // Carved pilasters between the bays.
+                    for (int i = 0; i <= bays; i++)
                     {
                         double u = -a + pitch * i;
-                        SacredDraw.Box(m, sk, u - 0.11, u + 0.11, g0 + 0.15, g1 - 0.2, d, d + 0.08, KdsLooks.Timber, BoxFaces.Wall);
+                        SacredDraw.Box(m, sk, u - 0.13, u + 0.13, g0 + 0.12, g0 + 2.45, d, d + 0.09, RedWood, BoxFaces.Wall);
+                        if (lod == 0 && s == 0 && i > 0 && i < bays)
+                            Shapes.Ellipsoid(m, SacredDraw.At(sk, u, g0 + 1.3, d + 0.12), Looks.Ao(RedWood, 0.9f), 0.07, 0.22, 0.05, 6, false);
                     }
                 }
             }
-            // The deep carved lintel band and cornice between the storeys (OSM w420291386: 12.1 × 7.2 m).
-            KdsKit.Cornice(x, 6.05, 3.6, g1, g1 + 0.55, 0.3, KdsLooks.Timber);
-            if (lod == 0) CarvedBand(x, 6.05, 3.6, g1 + 0.06, 0.28);
+            // Between the storeys: a brick course, the projecting cornice with its row of small carved beast heads, and the
+            // carved timber band (OSM w420291386: 12.1 × 7.2 m).
+            KdsKit.Cornice(x, 5.95, 3.5, g1, g1 + 0.32, 0.22, RedWood);
+            if (lod == 0) CarvedBand(x, 5.95, 3.5, g1 + 0.02, 0.26);
+            const double bandTop = 5.45;
+            KdsKit.Cornice(x, 5.9, 3.45, g1 + 0.32, bandTop, 0.16, KdsLooks.Timber);
 
-            // Upper storey: carved windows, the couple at the centre front.
-            const double uu = 5.4, uw = 2.95, u0 = g1 + 0.55;
-            double soffit = 7.35;
-            SacredParts.BandedWall(m, x.K, uu, uw, u0, 8.0, KdsLooks.BrickRed, KdsLooks.Timber, lod, false, false);
-            x.Solid(-uu, uu, -uw, uw, u0, 8.0, GenColliders.Brick);
+            // Upper storey: a carved timber frontage with the window band; the couple at the centre front.
+            const double uu = 5.75, uw = 3.3, u0 = bandTop, wallTop = 7.7;
+            SacredParts.BandedWall(m, x.K, uu, uw, u0, wallTop, RedWood, KdsLooks.Timber, lod, false, false);
+            x.Solid(-uu, uu, -uw, uw, u0, wallTop, GenColliders.Wood);
+            const double wc = 6.45;
             for (int s = 0; s < 4; s++)
             {
                 Affine3 sk = KdsKit.Side(x.K, s);
                 double a = KdsKit.Along(s, uu, uw), d = KdsKit.Depth(s, uu, uw);
-                int n = s % 2 == 0 ? 5 : 2;
+                int n = s % 2 == 0 ? 7 : 3;
+                // Carved posts framing the windows (the frontage's vertical members).
+                if (lod <= 1)
+                {
+                    for (int i = 0; i <= n; i++)
+                    {
+                        double u = -a + 2 * a * i / n;
+                        SacredDraw.Box(m, sk, u - 0.08, u + 0.08, u0, wallTop, d, d + 0.06, KdsLooks.Timber, BoxFaces.Wall);
+                    }
+                    SacredDraw.Box(m, sk, -a, a, u0 + 0.22, u0 + 0.34, d, d + 0.08, KdsLooks.Timber, BoxFaces.Wall | BoxFaces.Top);
+                }
                 for (int i = 0; i < n; i++)
                 {
                     double u = -a + 2 * a * (i + 0.5) / n;
                     if (s == 0 && i == n / 2)
                     {
-                        CoupleWindow(x, sk, u, u0 + 0.15, d);
+                        CoupleWindow(x, sk, u, u0 + 0.45, d);
                         continue;
                     }
-                    if (i % 2 == 0 && lod <= 1) Rosette(x, sk, u, 0.5 * (u0 + soffit), d, 0.32);
-                    else KdsKit.BlackWindow(m, sk, u, 0.5 * (u0 + soffit), d, 0.62, 0.62, lod, 0.12, 3);
+                    int k = Math.Abs(i - n / 2);
+                    if (k % 2 == 0 && lod <= 1) Rosette(x, sk, u, wc, d, 0.36);
+                    else KdsKit.BlackWindow(m, sk, u, wc, d, 0.78, 0.78, lod, 0.08, 3);
                 }
             }
 
-            // The hipped roof with its ridge along the long side, red valance, five gilt finials.
-            const double eu = 7.85, ew = 5.4, ev = 7.0, rv = 10.0;
-            RoofSpec r = KdsKit.Roof(x, eu, ew, ev, eu - ew + 0.12, 0.12, rv, uu, uw, soffit, KdsLooks.TileOld, 0.44);
+            // The hipped roof with its ridge along the long side and the deep red valance hung right over the window
+            // band (no struts show: the eave sits on the frontage's top beam), five gilt finials with leaf sprays.
+            const double eu = 7.85, ew = 5.4, ev = 7.85, rv = 10.0;
+            RoofSpec r = KdsKit.Roof(x, eu, ew, ev, eu - ew + 0.12, 0.12, rv, uu, uw, wallTop, KdsLooks.TileOld, 0.34);
             if (lod <= 1)
             {
                 var ridge = new Path3(2);
                 ridge.Add(-(eu - ew + 0.12), rv + 0.06, 0).Add(eu - ew + 0.12, rv + 0.06, 0);
                 Shapes.Tube(m, x.K, Looks.Of(MeshColor.Scale(KdsLooks.TileOld.Color, 0.7f), MaterialChannel.RoofTile), ridge, 0.1, 5, true);
+                // The gilt ridge plinth the finials stand on.
+                SacredDraw.Box(m, x.K, -2.45, 2.45, rv - 0.05, rv + 0.18, -0.16, 0.16, KdsLooks.GiltLo, BoxFaces.All & ~BoxFaces.Bottom);
             }
-            KdsKit.Struts(x, r, u0 - 0.2, 8, 4, false, 0x53505Au);
             if (lod == 0 && x.Stats != null) x.Stats.Bells += KdsKit.Bells(x, r, 1.2, 1.0);
             double tip = rv;
             for (int i = 0; i < 5; i++)
             {
-                double u = -2.2 + 1.1 * i;
+                double u = -2.0 + 1.0 * i;
                 double h = i == 2 ? TopM - rv + 0.1 : TopM - rv - 0.15;
-                tip = Math.Max(tip, Finial(x, u, rv - 0.1, h));
+                int was = i == 2 ? x.Lod : x.Coarser();
+                tip = Math.Max(tip, Finial(x, u, rv + 0.1, h - 0.2));
+                x.Restore(was);
             }
             if (x.Stats != null)
             {
@@ -125,6 +152,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             return tip;
         }
+
+        /// <summary>The red-brown carved timber of the upper frontage, pilasters and toranas.</summary>
+        private static readonly ShapeBrush RedWood = Looks.Of(MeshColor.FromHex(0x8A4530), MaterialChannel.WoodCarved);
 
         /// <summary>A gilt ridge finial at u: a kalasha finial with two leaf/flag ornaments.</summary>
         private static double Finial(KdsCtx x, double u, double v0, double h)
@@ -144,55 +174,56 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return tip;
         }
 
-        /// <summary>A cusped multifoil arch on side frame sk at u (opening width w, jamb height h from v, on the wall plane
-        /// d): the carved frame, a lobed arch head with a carved tympanum, and a dark door or a carved lattice window.</summary>
-        private static void CuspedArch(KdsCtx x, in Affine3 sk, double u, double v, double d, double w, double h, bool door)
+        /// <summary>
+        /// One carved bay of the ground storey on side frame sk at u (frame width w, height h from v, wall plane d): the
+        /// carved rectangular frame with its lintel, a round-headed opening (a dark door, or a lattice window), and over
+        /// the lintel the great semicircular carved tympanum (torana) with a flame-tongued rim when <paramref name="torana"/>.
+        /// </summary>
+        private static void Bay(KdsCtx x, in Affine3 sk, double u, double v, double d, double w, double h, bool door, bool torana)
         {
             MeshData m = x.M;
             int lod = x.Lod;
-            double hw = 0.5 * w, archH = 0.55 * w;
-            ShapeBrush fill = door ? Looks.Dark : Looks.Recess;
-            SacredDraw.Panel(m, sk, u - hw, v, u + hw, v + h, d + 0.01, fill);
-            // The lobed arch opening above the jambs.
-            int seg = lod == 0 ? 18 : 8;
-            double[] px = ShapeScratch.U, pz = ShapeScratch.W;
-            int n = 0;
-            px[n] = -hw;
-            pz[n++] = 0;
-            for (int i = 0; i <= seg; i++)
+            double hw = 0.5 * w, ow = hw - 0.16, top = v + h;
+            // A door is a dark opening; a window is a carved red-brown lattice over a dark ground.
+            ShapeBrush fill = door ? Looks.Dark : Looks.Ao(RedWood, lod == 0 ? 0.42f : 0.6f);
+            // The opening: straight jambs and a round head inside the frame.
+            double spring = top - 0.16 - ow;
+            SacredDraw.Panel(m, sk, u - ow, v, u + ow, spring, d + 0.012, fill);
+            KdsKit.ArchPanel(m, sk, u, spring - 0.05, d + 0.012, ow, ow + 0.05, 0.004, fill, lod == 0 ? 1 : 2, false);
+            // The frame: jambs, sill and a lintel with ears.
+            ShapeBrush fr = RedWood;
+            SacredDraw.Box(m, sk, u - hw, u - ow, v, top, d, d + 0.1, fr, BoxFaces.Wall);
+            SacredDraw.Box(m, sk, u + ow, u + hw, v, top, d, d + 0.1, fr, BoxFaces.Wall);
+            SacredDraw.Box(m, sk, u - hw - 0.18, u + hw + 0.18, top, top + 0.18, d, d + 0.16, fr, BoxFaces.Wall | BoxFaces.Bottom);
+            if (lod <= 1)
             {
-                double a = Math.PI * i / seg, r = 1 - 0.12 * Math.Abs(Math.Sin(5 * a));
-                px[n] = -hw * Math.Cos(a) * r;
-                pz[n++] = -archH * Math.Sin(a) * r;
+                // The spandrels over the round head and the sill.
+                SacredDraw.Panel(m, sk, u - ow, spring + ow - 0.05, u + ow, top, d + 0.05, Looks.Ao(fr, 0.85f));
+                SacredDraw.Box(m, sk, u - hw - 0.1, u + hw + 0.1, v - 0.06, v + 0.06, d, d + 0.14, fr, BoxFaces.Wall);
             }
-            px[n] = hw;
-            pz[n++] = 0;
-            Shapes.BevelExtrude(m, SacredDraw.Basis(sk, u, v + h, d + 0.01, 1, 0, 0, 0, 0, 1), fill, px, pz, n, 0.01, 0, 0, BevelStyle.Chamfer, true, false);
-            if (lod >= 2) return;
-            // Frame and the carved tympanum surround (a raised cusped ring).
-            ShapeBrush fr = KdsLooks.Timber;
-            SacredDraw.Box(m, sk, u - hw - 0.12, u - hw, v, v + h, d, d + 0.1, fr, BoxFaces.Wall);
-            SacredDraw.Box(m, sk, u + hw, u + hw + 0.12, v, v + h, d, d + 0.1, fr, BoxFaces.Wall);
-            for (int i = 0; i < n; i++)
-            {
-                px[i] *= 1.18;
-                pz[i] = pz[i] * 1.22;
-            }
-            Shapes.BevelExtrude(m, SacredDraw.Basis(sk, u, v + h, d + 0.005, 1, 0, 0, 0, 0, 1), Looks.Of(MeshColor.FromHex(0x5A3A2A), MaterialChannel.WoodCarved),
-                                px, pz, n, 0.06, lod == 0 ? 0.02 : 0, lod == 0 ? 1 : 0, BevelStyle.Chamfer, true, false);
-            // Lattice for the windows.
             if (!door && lod == 0)
             {
+                // The square lattice of the window.
                 for (int i = 1; i <= 3; i++)
                 {
-                    double uu = u - hw + w * i / 4;
-                    SacredDraw.Box(m, sk, uu - 0.02, uu + 0.02, v, v + h, d + 0.01, d + 0.05, fr, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                    double uu = u - ow + 2 * ow * i / 4;
+                    SacredDraw.Panel(m, sk, uu - 0.03, v, uu + 0.03, spring + ow * 0.8, d + 0.04, RedWood);
                 }
-                for (int i = 1; i <= 5; i++)
+                for (int i = 1; i <= 4; i++)
                 {
-                    double vv = v + h * i / 6;
-                    SacredDraw.Box(m, sk, u - hw, u + hw, vv - 0.02, vv + 0.02, d + 0.01, d + 0.05, fr, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+                    double vv = v + (spring + 0.6 * ow - v) * i / 5;
+                    SacredDraw.Panel(m, sk, u - ow, vv - 0.03, u + ow, vv + 0.03, d + 0.035, RedWood);
                 }
+            }
+            if (!torana || lod >= 2) return;
+            // The great tympanum over the lintel: a carved half-disc field and its flame rim.
+            double tr = hw + 0.12, tv = top + 0.18;
+            KdsKit.ArchPanel(m, sk, u, tv - 0.05, d + 0.02, tr - 0.1, tr - 0.05, 0.05, Looks.Ao(fr, 0.8f), lod == 0 ? 1 : 2, false);
+            KdsKit.FlameArch(m, sk, u, tv - 0.05, d + 0.04, tr - 0.12, tr - 0.07, 0.14, 0.06, fr, lod == 0 ? 1 : 2, false, false);
+            if (lod == 0)
+            {
+                // The deity at the centre of the tympanum.
+                Shapes.Ellipsoid(m, SacredDraw.At(sk, u, tv + 0.32, d + 0.1), Looks.Ao(fr, 0.95f), 0.12, 0.22, 0.06, 6, false);
             }
         }
 
@@ -207,8 +238,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 for (int i = 0; i < n; i++)
                 {
                     double u = -a + 2 * a * (i + 0.5) / n;
-                    Shapes.Ellipsoid(x.M, SacredDraw.At(sk, u, v + 0.5 * h, d + 0.32), Looks.Of(MeshColor.FromHex(0x5A3A2A), MaterialChannel.WoodCarved), 0.09, 0.12,
-                                     0.05, 6, false);
+                    SacredDraw.Box(x.M, sk, u - 0.09, u + 0.09, v + 0.5 * h - 0.12, v + 0.5 * h + 0.12, d + 0.27, d + 0.37,
+                                   Looks.Of(MeshColor.FromHex(0x5A3A2A), MaterialChannel.WoodCarved), BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
                 }
             }
         }
@@ -217,13 +248,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         private static void Rosette(KdsCtx x, in Affine3 sk, double u, double v, double d, double r)
         {
             Affine3 f = SacredDraw.Basis(sk, u, v, d, 1, 0, 0, 0, 0, 1);
-            Shapes.Cylinder(x.M, f, Looks.Recess, r, 0.02, x.Lod == 0 ? 12 : 8, 0, 0, false, true);
-            Shapes.Torus(x.M, f * Affine3.Translation(0, 0.04, 0), KdsLooks.Timber, r, 0.06, x.Lod == 0 ? 14 : 8, 4);
+            Shapes.Cylinder(x.M, f, Looks.Recess, r, 0.02, x.Lod == 0 ? 10 : 6, 0, 0, false, true);
+            Shapes.Torus(x.M, f * Affine3.Translation(0, 0.04, 0), KdsLooks.Timber, r, 0.06, x.Lod == 0 ? 10 : 6, x.Lod == 0 ? 4 : 3);
             if (x.Lod == 0)
             {
-                for (int i = 0; i < 6; i++)
+                for (int i = 0; i < 4; i++)
                 {
-                    double a = Math.PI * i / 6;
+                    double a = Math.PI * i / 4;
                     Shapes.Bar(x.M, f, KdsLooks.Timber, -r * Math.Cos(a), 0.03, -r * Math.Sin(a), r * Math.Cos(a), 0.03, r * Math.Sin(a), 0.018, 4);
                 }
             }

@@ -90,15 +90,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double top = KdsKit.BellDomeFinial(x, apex - 0.2, TopM - apex + 0.2, 0.42);
             if (x.Stats != null) x.Stats.Tiers = 3;
 
-            // Nandi on the lowest stage at the west (rear), facing the temple.
-            double rear = -0.5 * wu[0] + 0.55;
+            // Nandi at the west (rear), facing the temple: on the second stage's tread, inside the OSM outline (the lane
+            // along the west face runs over the lowest stage's edge).
+            double sv = 2 * PlinthTop / n, tread0 = 0.5 * wu[2], tread1 = 0.5 * wu[1], rear = -0.5 * (tread0 + tread1), len = 0.92 * (tread1 - tread0);
             if (lod <= 1)
             {
-                SacredParts.Pedestal(m, x.K, 0, 0, rear - 0.5, 0.45, 0.85, 0.35, KdsLooks.StoneGrey, lod);
-                Affine3 back = SacredDraw.Turn(x.K, 0, 0.35, rear - 0.5, Math.PI);
-                SacredFigures.Nandi(m, back, 0, 0, 0, 1.6, Looks.Carved, Math.Min(2, lod + 1));
+                Affine3 back = SacredDraw.Turn(x.K, 0, sv, rear, Math.PI);
+                SacredFigures.Nandi(m, back, 0, 0, 0, len, Looks.Carved, Math.Min(2, lod + 1));
             }
-            x.Solid(-0.45, 0.45, rear - 1.35, rear + 0.35, 0, 1.4, GenColliders.Stone);
+            x.Solid(-0.35, 0.35, rear - 0.5 * len, rear + 0.5 * len, sv, sv + 0.8, GenColliders.Stone);
             return top;
         }
 

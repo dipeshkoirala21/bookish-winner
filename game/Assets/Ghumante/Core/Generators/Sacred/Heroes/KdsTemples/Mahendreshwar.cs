@@ -67,6 +67,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             KdsPagoda.WindowBand(x, 1.65, 1.65, top1, eave2 - 0.4, 1, 0.5, 0.45);
             RoofSpec r2 = KdsKit.Roof(x, 2.95, 2.95, eave2, 0.15, 0.15, top2, 1.65, 1.65, eave2 - 0.25, MetalRoof, 0, false, 0.15, KdsLooks.Gilt, KdsLooks.Gilt);
             st += SacredParts.Struts(m, x.K, r2, top1 + 0.25, 3, 3, false, KdsLooks.PaintBlue, 0x4D414832u, lod);
+            // The gilt banner from the finial down over both roofs to the south door (KAT1510 07).
+            KdsKit.Pataka(x, r2, r1, 0.85, 0.08);
             if (x.Stats != null)
             {
                 x.Stats.Struts += st;
@@ -75,12 +77,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double tip = KdsKit.GiltFinial(x, top2 - 0.1, TopM - top2 + 0.1, 0.22);
             // The compound: low white wall with an iron railing, the brick gateway on the south.
             const double gate = 1.25;
-            CompoundWall(x, -half, half, -gate - 0.45, half);
-            CompoundWall(x, gate + 0.45, half, half, half);
-            CompoundWall(x, half, half, half, -half);
+            // The south wall and its gateway step back from the street's corridor in front (the gate's small roof and the
+            // lions must clear it).
+            double ws = half;
+            while (ws > 4.8 && Math.Min(x.CorridorDistance(-2.9, ws + 1.0), x.CorridorDistance(2.9, ws + 1.0)) < SacredClearance.MarginM + 0.1) ws -= 0.1;
+            CompoundWall(x, -half, ws, -gate - 0.45, ws);
+            CompoundWall(x, gate + 0.45, ws, half, ws);
+            CompoundWall(x, half, ws, half, -half);
             CompoundWall(x, half, -half, -half, -half);
-            CompoundWall(x, -half, -half, -half, half);
-            Gateway(x, half, gate);
+            CompoundWall(x, -half, -half, -half, ws);
+            Gateway(x, ws, gate);
             // Nandi on the west (−u) facing the temple, the trident on the north, a bell by the gate.
             if (lod <= 1)
             {
@@ -122,7 +128,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 ShapeBrush iron = Looks.Of(MeshColor.FromHex(0x34312E), MaterialChannel.Metal);
                 SacredDraw.Box(x.M, seg, 0, l, 1.5, 1.55, -0.02, 0.02, iron, BoxFaces.All);
-                int n = Math.Max(2, (int)(l / (x.Lod == 0 ? 0.35 : 0.7)));
+                int n = Math.Max(2, (int)(l / (x.Lod == 0 ? 0.5 : 0.9)));
                 for (int i = 0; i <= n; i++)
                 {
                     double c = l * i / n;
@@ -153,10 +159,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     SacredDraw.Box(m, x.K, u - pt, u + pt, -0.2, ph, w - pt, w + pt, KdsLooks.Brick, BoxFaces.Wall | BoxFaces.Top);
                 }
                 x.Solid(u - pt, u + pt, w - pt, w + pt, 0, ph, GenColliders.Brick);
-                // Bronze lions outside the gate.
-                int first = m.VertexCount;
-                KdsKit.Lion(x, sg * (gate + 0.4), w + 1.05, 0.5, 1.05, sg, false, 0.3);
-                KdsKit.Recolour(m, first, KdsLooks.BronzeDark, 0.5f);
+                // Bronze lions outside the gate, where they stand clear of the street.
+                if (x.CorridorDistance(sg * (gate + 0.4), w + 1.5) >= SacredClearance.MarginM + 0.05)
+                {
+                    int first = m.VertexCount, wasL = x.Coarser();
+                    KdsKit.Lion(x, sg * (gate + 0.4), w + 1.05, 0.5, 1.05, sg, false, 0.3);
+                    x.Restore(wasL);
+                    KdsKit.Recolour(m, first, KdsLooks.BronzeDark, 0.5f);
+                }
             }
             double span = gate + 2 * pt + 0.15;
             SacredDraw.Box(m, x.K, -span, span, ph, ph + 0.35, w - 0.3, w + 0.3, KdsLooks.Timber, BoxFaces.All);

@@ -92,7 +92,8 @@ namespace Ghumante.World.Sacred
                     if (h != 0) _hidden.Add(h);
                 }
             // A bespoke heritage site (Core/Generators/Sacred/Heroes/<Site>/) rebuilds more buildings than its curated
-            // record hides (Boudhanath: the front row of houses round the kora); its catalogue recipe lists them.
+            // record hides (Kathmandu Durbar Square: the generic houses standing on its temples' footprints); its catalogue
+            // recipe lists them.
             HeroRecipe recipe;
             if (HeroCatalog.TryGet(r.Id, out recipe) && recipe.Hide != null)
                 for (int i = 0; i < recipe.Hide.Length; i++)

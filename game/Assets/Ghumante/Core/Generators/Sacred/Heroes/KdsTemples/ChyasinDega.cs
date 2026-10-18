@@ -83,15 +83,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double r1w = 4.15, r2w = 2.65, r3w = 1.7;
             PolyWall(x, r1w, cv1 + 0.45, 9.2, KdsLooks.Brick);
             if (lod <= 1) PolyWindows(x, r1w, cv1 + 0.5, 7.1, 0.45, 0.32);
-            PolyStruts(x, r1w, cv1 + 0.5, 6.35, 7.2, 8.2, 2);
+            PolyStruts(x, r1w, cv1 + 0.5, 6.35, 7.2, 8.2, lod == 0 ? 2 : 1);
             KdsKit.PolyRoof(x, N, 6.35, 7.2, r2w + 0.05, 9.7, r1w, 8.4, KdsLooks.TileNew, 0.4);
             PolyWall(x, r2w, 9.6, 12.8, KdsLooks.Brick);
             if (lod <= 1) PolyWindows(x, r2w, 9.7, 11.3, 0.4, 0.4);
-            PolyStruts(x, r2w, 9.75, 4.6, 11.4, 12.2, 1);
+            if (lod == 0) PolyStruts(x, r2w, 9.75, 4.6, 11.4, 12.2, 1);
             KdsKit.PolyRoof(x, N, 4.6, 11.4, r3w + 0.05, 13.2, r2w, 12.3, KdsLooks.TileNew, 0.34);
             PolyWall(x, r3w, 13.1, 15.2, KdsLooks.Brick);
             if (lod <= 1) PolyWindows(x, r3w, 13.15, 14.5, 0.32, 0.3);
-            PolyStruts(x, r3w, 13.2, 2.85, 14.6, 15.0, 1);
+            if (lod == 0) PolyStruts(x, r3w, 13.2, 2.85, 14.6, 15.0, 1);
             KdsKit.PolyRoof(x, N, 2.85, 14.6, 0.22, 15.8, r3w, 15.1, KdsLooks.TileNew, 0.3);
             double tip = KdsKit.GiltFinial(x, 15.7, TopM - 15.7, 0.3);
             if (x.Stats != null) x.Stats.Tiers = 3;
@@ -121,7 +121,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             if (x.Lod >= 2) p.Add(0, v0 - sink, face).Add(0, v1);
             else p.Add(0, v0 - sink, face).Add(0, v1 - nh).Add(0.03, v1 - nh, nose).Add(0.03, v1);
             SacredDraw.Ring(x.M, x.K, pu, pw, n, p);
-            SacredDraw.Cap(x.M, x.K, pu, pw, n, 0.03, v1, true, nose);
+            SacredDraw.Cap(x.M, x.K, pu, pw, n, 0.03, v1, true, nose.Color == KdsLooks.Nosing.Color ? KdsLooks.Tread : nose);
             x.Floor(-a, a, -a, a, v0 - sink, v1, GenColliders.Brick);
         }
 
@@ -162,6 +162,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         private static void Columns(KdsCtx x, double a, double v0, double v1)
         {
             int lod = x.Lod;
+            MeshData m = x.M;
             double r = a / Math.Cos(Math.PI / N);
             for (int s = 0; s < N; s++)
             {
@@ -172,6 +173,18 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     if (lod >= 2 && q > 0) continue;
                     double t = q / 3.0, u = au + (bu - au) * t, w = aw + (bw - aw) * t;
                     Column(x, u, w, v0, v1);
+                }
+                if (lod == 0)
+                {
+                    // The carved cusped arch heads between the columns under the lintel (KAT1810 05, 11).
+                    Affine3 sk = SacredDraw.Turn(x.K, 0, 0, 0, 2 * Math.PI * s / N);
+                    double sideLen = 2 * a * Math.Tan(Math.PI / N), bay = sideLen / 3, hw = 0.5 * bay - 0.13;
+                    for (int q = 0; q < 3; q++)
+                    {
+                        double c = -0.5 * sideLen + bay * (q + 0.5);
+                        KdsKit.FlameArch(m, sk, c, v1 - hw - 0.55, a - 0.05, hw, hw + 0.42, 0.11, 0.1, KdsLooks.Timber, 2, false, true);
+                        SacredDraw.Box(m, sk, c - hw - 0.12, c + hw + 0.12, v1 - 0.2, v1, a - 0.08, a + 0.06, Looks.Ao(KdsLooks.Timber, 0.9f), BoxFaces.Front | BoxFaces.Bottom);
+                    }
                 }
             }
         }
@@ -189,9 +202,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double h = v1 - v0;
             SacredDraw.Box(m, x.K, u - 0.14, u + 0.14, v0, v0 + 0.25, w - 0.14, w + 0.14, KdsLooks.Timber, BoxFaces.All & ~BoxFaces.Bottom);
             var p = new Profile2(16);
-            p.Add(0, 0, true).Add(0.1, 0, true).Add(0.1, 0.12 * h).Add(0.13, 0.15 * h).Add(0.09, 0.2 * h).Add(0.085, 0.7 * h).Add(0.12, 0.74 * h)
-             .Add(0.09, 0.78 * h).Add(0.1, 0.86 * h).Add(0.2, 0.96 * h, true).Add(0.2, h - 0.25, true).Add(0, h - 0.25, true);
-            Shapes.Lathe(m, SacredDraw.At(x.K, u, v0 + 0.25, w), KdsLooks.Timber, p, lod == 0 ? 8 : 5);
+            if (lod == 0)
+                p.Add(0.1, 0, true).Add(0.13, 0.15 * h).Add(0.09, 0.2 * h).Add(0.085, 0.7 * h).Add(0.12, 0.74 * h).Add(0.1, 0.86 * h).Add(0.2, 0.96 * h, true)
+                 .Add(0.2, h - 0.25, true);
+            else p.Add(0.1, 0, true).Add(0.09, 0.86 * h).Add(0.2, 0.96 * h, true).Add(0.2, h - 0.25, true);
+            Shapes.Lathe(m, SacredDraw.At(x.K, u, v0 + 0.25, w), KdsLooks.Timber, p, lod == 0 ? 6 : 4);
             x.Cylinder(u, w, v0, v1, 0.14, true);
         }
 

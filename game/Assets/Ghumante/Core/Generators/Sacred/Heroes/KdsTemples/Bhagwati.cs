@@ -16,15 +16,41 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
 
         public static double Build(KdsCtx x)
         {
-            MeshData m = x.M;
-            int lod = x.Lod;
             double hu = x.PlanHu > 2 ? x.PlanHu - 0.1 : 14.8, hw = x.PlanHw > 1 ? Math.Max(2.4, x.PlanHw - 0.15) : 3.0;
-            const double p0 = 0.45, g1 = 3.2, f1 = 3.4, f2 = 5.75, eave = 8.1, ridge = 10.4;
+            // The street in front (north-east) runs along the outline's slanting front edge: the range's front, with its
+            // jettied upper storey (0.35 m out), gives way to the corridor and the range is drawn about the fitted centre.
+            double fcu = 0, fcw = 0, ring = 0.35;
+            hu += ring;
+            hw += ring;
+            KdsKit.FitRect(x, ref fcu, ref fcw, ref hu, ref hw, 8.0 + ring, 2.2 + ring);
+            hu -= ring;
+            hw -= ring;
             // The temple stands on the range near the brief's point (-79, -16), along the range's axis.
             double tu, tw;
             KdsTemplesSite.LocalToTile(x.Tile, -79.0, -16.0, out tu, out tw);
             double uc, wc;
             x.Local(tu, tw, out uc, out wc);
+            uc -= fcu;
+            KitFrame keepKf = x.Kf;
+            Affine3 keepK = x.K;
+            x.Kf = keepKf.Offset(fcu, 0, fcw);
+            x.K = SacredDraw.Xf(x.Kf);
+            try
+            {
+                return BuildAt(x, hu, hw, uc);
+            }
+            finally
+            {
+                x.Kf = keepKf;
+                x.K = keepK;
+            }
+        }
+
+        private static double BuildAt(KdsCtx x, double hu, double hw, double uc)
+        {
+            MeshData m = x.M;
+            int lod = x.Lod;
+            const double p0 = 0.45, g1 = 3.2, f1 = 3.4, f2 = 5.75, eave = 8.1, ridge = 10.4;
             uc = Math.Max(-hu + 3.5, Math.Min(hu - 3.5, uc));
             double th = Math.Min(3.1, hw + 0.1);
             if (lod >= 3)
@@ -76,12 +102,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             SacredParts.BandedWall(m, x.K, bu, bw, f1, f2, KdsLooks.Brick, KdsLooks.Timber, lod, false, true);
             SacredParts.BandedWall(m, x.K, bu + 0.25, bw + 0.25, f2, eave + 0.3, KdsLooks.Brick, KdsLooks.Timber, lod, true, false);
             x.Solid(-bu - 0.25, bu + 0.25, -bw - 0.25, bw + 0.25, f1, eave, GenColliders.Brick);
-            int per = Math.Max(2, (int)(2 * bu / (lod == 0 ? 2.0 : 3.2)));
+            int per = Math.Max(2, (int)(2 * bu / (lod == 0 ? 3.0 : 3.6)));
             Windows(x, bu, bw, f1 + 0.25, f2 - 0.25, per, 0.7, 1.15);
             Windows(x, bu + 0.25, bw + 0.25, f2 + 0.3, eave - 0.35, per, 0.75, 1.2);
             // The range roof (no valance), a few plain struts.
             RoofSpec r = KdsKit.Roof(x, hu + 0.9, hw + 1.05, eave, Math.Max(0.4, hu - hw + 0.2), 0.12, ridge, bu + 0.25, bw + 0.25, eave - 0.15, KdsLooks.TileOld, 0);
-            KdsKit.Struts(x, r, f2 + 0.6, Math.Max(4, (int)(hu / 1.6)), 2, false, 0x42484731u);
+            KdsKit.Struts(x, r, f2 + 0.6, Math.Max(4, (int)(hu / 2.6)), 2, false, 0x42484731u);
             // The three-roof temple rising from the range.
             KitFrame kf = x.Kf;
             Affine3 k = x.K;
@@ -128,7 +154,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 for (int i = 0; i < n; i++)
                 {
                     double u = -a + 2 * a * (i + 0.5) / n;
-                    SacredParts.LatticeWindow(x.M, sk, u, vc, d, ww, wh, KdsLooks.WindowBlack, x.Lod, 3);
+                    KdsKit.BlackWindow(x.M, sk, u, vc, d, ww, wh, x.Lod, 0.1, 2);
                 }
             }
         }

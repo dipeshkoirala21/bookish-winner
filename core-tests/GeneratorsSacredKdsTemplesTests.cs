@@ -165,8 +165,10 @@ namespace Ghumante.Core.Tests
                 // Mahendreshwar's outline is the temple's only; its compound runs well beyond it.
                 Assert.That(u0, Is.LessThanOrEqualTo(-0.65 * hu), b.Id);
                 Assert.That(u1, Is.GreaterThanOrEqualTo(0.65 * hu), b.Id);
-                Assert.That(w0, Is.LessThanOrEqualTo(-0.65 * hw), b.Id);
-                Assert.That(w1, Is.GreaterThanOrEqualTo(0.65 * hw), b.Id);
+                // Bhagwati's range: the street's corridor cuts the outline's slanting front, the range's front recedes.
+                double fw = b.Entry.Part == KdsPart.Bhagwati ? 0.4 : 0.65;
+                Assert.That(w0, Is.LessThanOrEqualTo(-fw * hw), b.Id);
+                Assert.That(w1, Is.GreaterThanOrEqualTo(fw * hw), b.Id);
             }
         }
 

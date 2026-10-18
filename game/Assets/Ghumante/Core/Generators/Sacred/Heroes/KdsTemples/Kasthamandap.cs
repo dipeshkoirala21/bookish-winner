@@ -11,7 +11,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     /// small stairs north, west and south; an open forest of dark posts 4.5 m tall (ten on each outer side on a 19.2 m
     /// square, a grid of heavier posts inside, four round the centre); four corner bays walled in brick behind the posts with
     /// the projecting carved mezzanine balconies; the small Gorakhnath shrine at the centre; the very broad, low first roof
-    /// (eave 22.7 m at 4.5 m, deep crimson valance, short struts from the posts); the brick band storey (11.8 m) with its row
+    /// (eave 22.7 m at 4.5 m, deep crimson valance, carried on the beam ring without struts); the brick band storey (11.8 m) with its row
     /// of small carved windows and the continuous carved balcony gallery (14.7 m) on slender posts; the second roof (17.4 m
     /// at 10.6 m); the small top pavilion with its rail; the third roof (10.1 m at 15.5 m) and the dark bronze finial to
     /// 18.8 m; the low pointed-picket fence round the plinth, open at the stairs.
@@ -64,6 +64,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             if (lod <= 1)
             {
+                // The inner posts stand in the hall's shade: drawn one LOD coarser.
+                int was = x.Coarser();
                 for (int qu = -1; qu <= 1; qu += 2)
                 for (int qw = -1; qw <= 1; qw += 2)
                 {
@@ -77,6 +79,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     KdsKit.Post(x, qu * 1.19, qw * 5.79, pv, postTop, 0.32, wood);
                     KdsKit.Post(x, qu * 5.79, qw * 1.19, pv, postTop, 0.32, wood);
                 }
+                x.Restore(was);
             }
             // Corner bays: raised floors walled in brick on their outer faces, the carved mezzanine balconies over them.
             for (int qu = -1; qu <= 1; qu += 2)
@@ -88,10 +91,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             x.Floor(-9.3, 9.3, -9.3, 9.3, postTop, postTop + 0.3, GenColliders.Wood);
             if (lod <= 1) Gorakhnath(x, pv);
 
-            // First roof: very broad and low; its soffit returns to the beam over the outer posts; short struts.
+            // First roof: very broad and low; its soffit returns to the beam over the outer posts. No struts: the 2021
+            // rebuild carries the first eave on the beam ring straight over the posts (DANAM KAT1970 photos 04, 11).
             const double brick = 5.9;
             RoofSpec r1 = KdsKit.Roof(x, 11.35, 11.35, 4.85, brick + 0.05, brick + 0.05, 7.6, 9.3, 9.3, postTop + 0.3, KdsLooks.TileNew, 0.48);
-            KdsKit.Struts(x, r1, 3.3, 9, 9, false, 0x4B41u);
             if (lod == 0 && x.Stats != null) x.Stats.Bells += KdsKit.Bells(x, r1, 1.6, 1.1);
 
             // The brick band storey with its small carved windows, the continuous balcony gallery.
@@ -188,8 +191,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 SacredDraw.Quad(m, sk, p0, v + 0.16, d + 0.38, p1, v + 0.16, d + 0.38, p1, v + 0.78, d + 0.62, p0, v + 0.78, d + 0.62, 0, 0.36, 0.93, b);
                 if (lod == 0)
                 {
-                    // A carved figure boss on each panel.
-                    Shapes.Ellipsoid(m, SacredDraw.At(sk, 0.5 * (p0 + p1), v + 0.47, d + 0.55), Looks.Ao(wood, 0.9f), 0.09, 0.2, 0.06, 6, false);
+                    // A carved figure on each panel (KAT1970 11): a small block standing proud of the slats.
+                    double c = 0.5 * (p0 + p1);
+                    SacredDraw.Box(m, sk, c - 0.08, c + 0.08, v + 0.26, v + 0.68, d + 0.5, d + 0.6, Looks.Ao(wood, 0.9f), BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
                 }
             }
             SacredDraw.Box(m, sk, a0, a1, v + 0.78, v + 0.88, d - 0.1, d + 0.66, dark, BoxFaces.All & ~BoxFaces.Bottom);
@@ -237,7 +241,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 SacredDraw.Box(m, sk, -g, g, v0, v0 + 0.12, g - 0.05, g + 0.05, dark, BoxFaces.Front | BoxFaces.Top);
                 if (lod == 0)
                 {
-                    int n = (int)(2 * g / 0.2);
+                    int n = (int)(2 * g / 0.3);
                     for (int i = 0; i < n; i++)
                     {
                         double u = -g + 2 * g * (i + 0.5) / n;
@@ -272,7 +276,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             var r = new RoofSpec
             {
                 EaveU = 1.5, EaveW = 1.2, EaveV = pv + 2.3, TopU = 0.4, TopW = 0.1, TopV = pv + 3.1, WallU = 1.05, WallW = 0.75, WallTopV = pv + 2.35, Lift = 0.06,
-                Sag = 0.02, FasciaH = 0.1, CoursePitch = 0.45, Horns = true, Roof = KdsLooks.TileNew, Ridge = KdsLooks.TileOld, Fascia = KdsLooks.Timber,
+                Sag = 0.02, FasciaH = 0.1, CoursePitch = 0.45, Horns = false, Roof = KdsLooks.TileNew, Ridge = KdsLooks.TileOld, Fascia = KdsLooks.Timber,
                 Soffit = Looks.Ao(KdsLooks.Timber, 0.55f), Horn = KdsLooks.Timber,
             };
             SacredParts.Roof(m, x.K, r, lod);

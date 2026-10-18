@@ -49,6 +49,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
             }
             double top = ShikharaGenerator.Spire(m, x.K, c - 0.05, 2.5, 3.4, white, KdsLooks.PlasterShade, 3, lod);
+            KdsKit.SpireBands(x, c - 0.05, 2.5, 3.4, 5, KdsLooks.PlasterShade);
             double cap = KdsKit.Amalaka(x, top, 5.9, white);
             double tip = KdsKit.GiltFinial(x, cap - 0.05, WhiteShikharaTopM - cap + 0.05, 0.12);
             return tip;
@@ -58,7 +59,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         {
             MeshData m = x.M;
             int lod = x.Lod;
-            ShapeBrush stone = Looks.Of(MeshColor.FromHex(0x9A958A), MaterialChannel.Stone), stoneDark = KdsLooks.StoneGrey;
+            // Weathered buff-grey sandstone, warmer than the square's flags (KAT1530 02, 03, 06).
+            ShapeBrush stone = Looks.Of(MeshColor.FromHex(0x9C9080), MaterialChannel.Stone), stoneDark = Looks.Of(MeshColor.FromHex(0x857A6C), MaterialChannel.Stone);
             if (lod >= 3)
             {
                 SacredDraw.Box(m, x.K, -5.35, 5.35, 0, 1.8, -5.35, 5.35, stone, BoxFaces.All & ~BoxFaces.Bottom);
@@ -108,7 +110,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     for (int sgn = -1; sgn <= 1; sgn += 2)
                     {
                         SacredDraw.Panel(m, sk, sgn * 1.0 - 0.18, v + 0.5, sgn * 1.0 + 0.18, v + 1.3, cell + 0.71, Looks.Ao(stoneDark, 0.7f));
-                        Shapes.Ellipsoid(m, SacredDraw.At(sk, sgn * 1.0, v + 0.9, cell + 0.72), stone, 0.1, 0.25, 0.04, 6, false);
+                        if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(sk, sgn * 1.0, v + 0.9, cell + 0.72), stone, 0.1, 0.25, 0.04, 6, false);
                     }
                 }
                 // Porch cornice and the small dome over it.
@@ -130,7 +132,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // The great hemispherical dome on a short drum, a small finial.
             Shapes.Cylinder(m, SacredDraw.At(x.K, 0, cv + 0.25, 0), stoneDark, 2.15, 0.35, KdsKit.Seg(20, lod), 0.03, 1, false, false);
             Shapes.Dome(m, SacredDraw.At(x.K, 0, cv + 0.6, 0), stone, 2.15, 2.15, KdsKit.Seg(24, lod));
-            if (lod <= 1)
+            if (lod == 0)
             {
                 // Faint ribs on the dome.
                 for (int i = 0; i < 8; i++)

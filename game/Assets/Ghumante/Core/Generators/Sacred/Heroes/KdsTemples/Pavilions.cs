@@ -50,7 +50,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // Ground floor: closed dark timber shutters and shop fronts all round.
             KdsKit.Walls(x, hu, hw, p0, g1 + 0.35, KdsLooks.Timber, true, false, GenColliders.Wood);
             for (int s = 0; s < 4; s++)
-                KdsKit.Shutters(m, KdsKit.Side(x.K, s), KdsKit.Along(s, hu, hw), KdsKit.Depth(s, hu, hw), p0 + 0.1, g1 - 0.05, 1.1, lod, KdsLooks.TimberRed);
+                KdsKit.Shutters(m, KdsKit.Side(x.K, s), KdsKit.Along(s, hu, hw), KdsKit.Depth(s, hu, hw), p0 + 0.1, g1 - 0.05, 1.1, Math.Max(1, lod), KdsLooks.TimberRed);
             // The pent (skirt) roof with its valance.
             KdsKit.Roof(x, hu + 1.15, hw + 1.15, g1, hu + 0.1, hw + 0.1, par0, hu, hw, g1 + 0.3, KdsLooks.TileOld, 0.36);
             // The white parapet band with the scalloped crenellation; the white corner piers with the gilt winged lions.
@@ -66,12 +66,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 for (int s = 0; s < 4; s++)
                 {
                     Affine3 sk = KdsKit.Side(x.K, s);
-                    double a = KdsKit.Along(s, hu, hw) - 0.3, d = KdsKit.Depth(s, hu, hw) + 0.17;
-                    int n = Math.Max(2, (int)Math.Round(2 * a / 0.62));
-                    for (int i = 0; i < n; i++)
+                    double a = KdsKit.Along(s, hu, hw) - 0.4, d = KdsKit.Depth(s, hu, hw) + 0.17;
+                    int n = Math.Max(2, (int)Math.Round(2 * a / 0.78));
+                    if (lod == 1) ScallopRow(m, sk, a, par1 - 0.02, d - 0.22, 0.42, n, 0.34);
+                    else
                     {
-                        double c = -a + 2 * a * (i + 0.5) / n;
-                        Scallop(m, sk, c, par1, d - 0.2, 0.22, lod);
+                        for (int i = 0; i < n; i++)
+                        {
+                            double c = -a + 2 * a * (i + 0.5) / n;
+                            Scallop(m, sk, c, par1 - 0.02, d - 0.22, 0.42, 2 * a / n, 0.34, lod);
+                        }
                     }
                 }
             }
@@ -82,19 +86,22 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 {
                     double u = cu * (hu + 0.1), w = cw * (hw + 0.1);
                     Mould pier = SacredDraw.M;
-                    pier.Add(0.36, par0 - 0.05, KdsLooks.Plaster).Add(0.36, 5.35);
-                    if (lod <= 1) pier.Add(0.44, 5.42, KdsLooks.PlasterShade).Add(0.44, 5.55);
+                    pier.Add(0.4, par0 - 0.05, KdsLooks.Plaster).Add(0.4, 5.55);
+                    if (lod <= 1) pier.Add(0.48, 5.62, KdsLooks.PlasterShade).Add(0.48, 5.75);
                     SacredDraw.RectRing(m, x.K, u, w, 0, 0, pier, true, KdsLooks.Plaster);
-                    x.Solid(u - 0.4, u + 0.4, w - 0.4, w + 0.4, par0, 5.55, GenColliders.Brick);
+                    x.Solid(u - 0.44, u + 0.44, w - 0.44, w + 0.44, par0, 5.75, GenColliders.Brick);
                     int first = m.VertexCount;
-                    Affine3 lk = SacredDraw.Turn(x.K, u, 5.55, w, Math.Atan2(-cu, cw));
-                    SacredFigures.Guardian(m, lk, 0, 0, 0, 0.95, GuardianKind.Griffin, true, SacredFigures.Generic, lod, 0);
+                    // The gilt winged lions are big (KAT1990 06, 10): about 1.3 m, rearing over the corners.
+                    Affine3 lk = SacredDraw.Turn(x.K, u, 5.75, w, Math.Atan2(-cu, cw));
+                    SacredFigures.Guardian(m, lk, 0, 0, 0, 1.3, GuardianKind.Griffin, true, SacredFigures.Generic, Math.Min(2, lod + 1), 0);
                     KdsKit.Recolour(m, first, KdsLooks.Gilt);
                 }
             }
             // The open veranda storey: carved posts, the balcony rail and the closed inner wall with lattice windows.
             double vu = hu - 0.15, vw = hw - 0.15, iu = hu - 1.05, iw = hw - 1.05;
+            int wasPosts = x.Coarser();
             KdsKit.PostRing(x, vu, vw, par1, postTop, 9, 5, 0.2, KdsLooks.Timber);
+            x.Restore(wasPosts);
             if (lod <= 1)
             {
                 KdsKit.Balustrade(x, -vu, vw, vu, vw, par1, 0.82, KdsLooks.Timber);
@@ -102,7 +109,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 KdsKit.Balustrade(x, -vu, -vw, -vu, vw, par1, 0.82, KdsLooks.Timber);
                 KdsKit.Balustrade(x, vu, vw, vu, -vw, par1, 0.82, KdsLooks.Timber);
             }
-            KdsKit.Walls(x, iu, iw, par1, eave + 0.3, KdsLooks.TimberNew, true, false, GenColliders.Wood);
+            // The gallery's back walls are white lime plaster with dark doors and lattice windows (KAT1990 02, 10).
+            KdsKit.Walls(x, iu, iw, par1, eave + 0.3, KdsLooks.Plaster, true, false, GenColliders.Wood);
             for (int s = 0; s < 4; s++)
             {
                 Affine3 sk = KdsKit.Side(x.K, s);
@@ -127,22 +135,59 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return KdsKit.FlamePinnacle(x, ridge - 0.12, SilyanTopM - ridge + 0.12);
         }
 
-        /// <summary>One merlon of the scalloped parapet: a short block with a round head, on the plane d of side frame sk.</summary>
-        private static void Scallop(MeshData m, in Affine3 sk, double u, double v0, double d, double r, int lod)
+        /// <summary>One period (width p) of the scalloped parapet crest on the plane d of side frame sk (KAT1990 06, 10): a
+        /// flat-topped white merlon of width mw between two half round scoops cut down into the wall top, from v0 up to h.</summary>
+        /// <summary>The scalloped crest of one parapet side seen from further off (LOD1): one extruded band from −a to a whose
+        /// top runs flat over each of the n merlons (mw wide) and dips in a notch between them.</summary>
+        private static void ScallopRow(MeshData m, in Affine3 sk, double a, double v0, double d, double h, int n, double mw)
         {
             double[] px = ShapeScratch.U, pz = ShapeScratch.W;
-            int seg = lod == 0 ? 4 : 2, n = 0;
-            px[n] = u - r;
+            n = Math.Min(n, (px.Length - 3) / 3);
+            double p = 2 * a / n, rn = 0.5 * (p - mw), top = v0 + h;
+            int c = 0;
+            px[c] = -a;
+            pz[c++] = -v0;
+            px[c] = a;
+            pz[c++] = -v0;
+            px[c] = a;
+            pz[c++] = -(top - rn);
+            for (int i = n - 1; i >= 0; i--)
+            {
+                double u = -a + p * (i + 0.5);
+                px[c] = u + 0.5 * mw;
+                pz[c++] = -top;
+                px[c] = u - 0.5 * mw;
+                pz[c++] = -top;
+                px[c] = u - 0.5 * p;
+                pz[c++] = -(top - rn);
+            }
+            Shapes.BevelExtrude(m, SacredDraw.Basis(sk, 0, 0, d, 1, 0, 0, 0, 0, 1), KdsLooks.Plaster, px, pz, c, 0.24, 0, 0, BevelStyle.Chamfer, true, false);
+        }
+
+        private static void Scallop(MeshData m, in Affine3 sk, double u, double v0, double d, double h, double p, double mw, int lod)
+        {
+            double[] px = ShapeScratch.U, pz = ShapeScratch.W;
+            int seg = lod == 0 ? 3 : 2, n = 0;
+            double rn = 0.5 * (p - mw), top = v0 + h;
+            px[n] = u - 0.5 * p;
             pz[n++] = -v0;
-            px[n] = u + r;
+            px[n] = u + 0.5 * p;
             pz[n++] = -v0;
+            // Right scoop: from its bottom up to the merlon's right corner.
             for (int i = 0; i <= seg; i++)
             {
-                double a = Math.PI * i / seg;
-                px[n] = u + r * Math.Cos(a);
-                pz[n++] = -(v0 + 0.1 + r * Math.Sin(a));
+                double a = -0.5 * Math.PI - 0.5 * Math.PI * i / seg;
+                px[n] = u + 0.5 * p + rn * Math.Cos(a);
+                pz[n++] = -(top + rn * Math.Sin(a));
             }
-            Shapes.BevelExtrude(m, SacredDraw.Basis(sk, 0, 0, d, 1, 0, 0, 0, 0, 1), KdsLooks.Plaster, px, pz, n, 0.2, 0, 0, BevelStyle.Chamfer, true, false);
+            // Left scoop: from the merlon's left corner down to its bottom.
+            for (int i = 0; i <= seg; i++)
+            {
+                double a = -0.5 * Math.PI * i / seg;
+                px[n] = u - 0.5 * p + rn * Math.Cos(a);
+                pz[n++] = -(top + rn * Math.Sin(a));
+            }
+            Shapes.BevelExtrude(m, SacredDraw.Basis(sk, 0, 0, d, 1, 0, 0, 0, 0, 1), KdsLooks.Plaster, px, pz, n, 0.24, 0, 0, BevelStyle.Chamfer, true, false);
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -191,8 +236,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // A pair of small stone lions at the door, inside the cage.
             if (lod <= 1)
             {
+                // Small and behind the cage bars: drawn one LOD coarser.
+                int wasL = x.Coarser();
                 KdsKit.Lion(x, -0.85, hw + 0.55, 0.12, 0.6, -1, false, 0.18);
                 KdsKit.Lion(x, 0.85, hw + 0.55, 0.12, 0.6, 1, false, 0.18);
+                x.Restore(wasL);
             }
             // The brass-bar cage with its rails and rows of small bells.
             Cage(x, cu, cw, b0, cageH);
@@ -206,8 +254,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         {
             MeshData m = x.M;
             int lod = x.Lod;
-            ShapeBrush brass = KdsLooks.Brass, rail = Looks.Ao(KdsLooks.Brass, 0.85f);
-            double pitch = lod == 0 ? 0.14 : lod == 1 ? 0.42 : 1.2, t = 0.014;
+            // Aged, darkened brass bars (KAT1930 02-07), denser than they look from afar.
+            ShapeBrush brass = Looks.Of(MeshColor.FromHex(0x8C7A4C), MaterialChannel.Metal), rail = Looks.Ao(brass, 0.85f);
+            double pitch = lod == 0 ? 0.22 : lod == 1 ? 0.45 : 1.2, t = 0.016;
             for (int s = 0; s < 4; s++)
             {
                 Affine3 sk = KdsKit.Side(x.K, s);
@@ -224,7 +273,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 if (lod == 0)
                 {
                     // Rows of small bells hung along the top rail and the middle rail.
-                    int bells = (int)(2 * a / 0.3);
+                    int bells = (int)(2 * a / 0.55);
                     for (int i = 0; i < bells; i++)
                     {
                         double u = -a + 2 * a * (i + 0.5) / bells;
@@ -259,9 +308,36 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// sellers under it), a brick upper storey with carved windows under a hipped roof, a small top lantern roof.</summary>
         public static double LaxmiSattal(KdsCtx x)
         {
+            double hu = x.PlanHu > 1 ? Clamp(x.PlanHu - 1.0, 4.0, 6.2) : 5.6, hw = x.PlanHw > 1 ? Clamp(x.PlanHw - 1.1, 2.6, 4.0) : 3.5;
+            // The lane from Maru to Basantapur runs along its south-east corner: the arcade gives way to the corridor (the
+            // house is drawn about the fitted centre).
+            // The fit keeps the arcade's corner posts with their bracket capitals and the cornice (0.4 m beyond the post
+            // line) out of the corridor's margin too.
+            double fcu = 0, fcw = 0, ring = 0.4;
+            hu += ring;
+            hw += ring;
+            KdsKit.FitRect(x, ref fcu, ref fcw, ref hu, ref hw, 3.2 + ring, 2.4 + ring);
+            hu -= ring;
+            hw -= ring;
+            KitFrame keepKf = x.Kf;
+            Affine3 keepK = x.K;
+            x.Kf = keepKf.Offset(fcu, 0, fcw);
+            x.K = SacredDraw.Xf(x.Kf);
+            try
+            {
+                return LaxmiSattalAt(x, hu, hw);
+            }
+            finally
+            {
+                x.Kf = keepKf;
+                x.K = keepK;
+            }
+        }
+
+        private static double LaxmiSattalAt(KdsCtx x, double hu, double hw)
+        {
             MeshData m = x.M;
             int lod = x.Lod;
-            double hu = x.PlanHu > 1 ? Clamp(x.PlanHu - 1.0, 4.0, 6.2) : 5.6, hw = x.PlanHw > 1 ? Clamp(x.PlanHw - 1.1, 2.6, 4.0) : 3.5;
             double hu2 = hu - 1.25, hw2 = hw - 1.15;
             const double p0 = 0.3, arc = 2.45, eave1 = 2.55, wall2 = 3.75, eave2 = 6.5;
             if (lod >= 3)
@@ -296,8 +372,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             SacredDraw.Quad(m, x.K, -hu, arc, -hw, hu, arc, -hw, hu, arc, hw, -hu, arc, hw, 0, -1, 0, Looks.Ao(KdsLooks.Beam, 0.5f));
             KdsKit.Cornice(x, hu + 0.05, hw + 0.05, arc, arc + 0.22, 0.1, KdsLooks.Timber);
             // The broad lower roof up to the upper storey.
-            RoofSpec r1 = KdsKit.Roof(x, hu + 1.5, hw + 1.4, eave1, hu2 + 0.08, hw2 + 0.08, wall2 + 0.25, hu, hw, arc + 0.22, KdsLooks.TileMoss, 0.34);
-            KdsKit.Struts(x, r1, 1.5, 6, 4, false, 0x4C534131u);
+            // The broad pent roof sits low (2.5 m) over the stalls: over the lane its overhang is pulled back instead.
+            bool asym;
+            RoofSpec r1 = KdsKit.RoofFit(x, hu + 1.5, hw + 1.4, eave1, hu2 + 0.08, hw2 + 0.08, wall2 + 0.25, hu, hw, arc + 0.22, KdsLooks.TileMoss, 0.34, out asym);
             // The brick upper storey with its carved windows.
             KdsKit.Walls(x, hu2, hw2, wall2, eave2 + 0.3, KdsLooks.Brick, false, false);
             KdsPagoda.WindowBand(x, hu2, hw2, wall2 + 0.3, eave2 - 0.2, lod == 0 ? 4 : 2, 0.75, 1.05);
@@ -322,9 +399,54 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// roof with a red valance.</summary>
         public static double Bell(KdsCtx x)
         {
+            // The OSM outline holds the block and its stair: the stair (with its outer wall, 1.22 m) runs inside the
+            // outline's south-south-west (−u) edge, where the bell lane's corridor passes, and the block fills the rest.
+            double full = x.PlanHu > 1 ? Clamp(x.PlanHu - 0.1, 3.0, 4.0) : 3.7, hw = x.PlanHw > 1 ? Clamp(x.PlanHw - 0.35, 2.4, 3.6) : 3.4;
+            const double stairBand = 1.22;
+            // The stair's outer wall follows the outline's −u edge where it runs (the box is a little wider than the
+            // drawn outline there).
+            double left = Math.Min(-0.7 * full, Math.Max(-full, OutlineLeft(x, -hw, hw) + 0.05)), right = full;
+            KitFrame keepKf = x.Kf;
+            Affine3 keepK = x.K;
+            x.Kf = keepKf.Offset(0.5 * (left + stairBand + right), 0, 0);
+            x.K = SacredDraw.Xf(x.Kf);
+            try
+            {
+                return BellAt(x, 0.5 * (right - left - stairBand), hw);
+            }
+            finally
+            {
+                x.Kf = keepKf;
+                x.K = keepK;
+            }
+        }
+
+        /// <summary>The outline's −u boundary over w0..w1: the largest u at which a line of constant w first enters the
+        /// outline (−∞ without an outline).</summary>
+        private static double OutlineLeft(KdsCtx x, double w0, double w1)
+        {
+            if (x.OutU == null || x.OutU.Length < 3) return double.NegativeInfinity;
+            double worst = double.NegativeInfinity;
+            int n = x.OutU.Length;
+            for (int q = 0; q <= 12; q++)
+            {
+                double w = w0 + (w1 - w0) * q / 12.0, best = double.PositiveInfinity;
+                for (int i = 0, j = n - 1; i < n; j = i++)
+                {
+                    double wa = x.OutW[j], wb = x.OutW[i];
+                    if ((wa > w) == (wb > w)) continue;
+                    double u = x.OutU[j] + (x.OutU[i] - x.OutU[j]) * (w - wa) / (wb - wa);
+                    best = Math.Min(best, u);
+                }
+                if (!double.IsPositiveInfinity(best)) worst = Math.Max(worst, best);
+            }
+            return worst;
+        }
+
+        private static double BellAt(KdsCtx x, double hu, double hw)
+        {
             MeshData m = x.M;
             int lod = x.Lod;
-            double hu = x.PlanHu > 1 ? Clamp(x.PlanHu - 0.4, 2.4, 3.4) : 3.1, hw = x.PlanHw > 1 ? Clamp(x.PlanHw - 0.35, 2.4, 3.6) : 3.4;
             const double top = 3.5, pil = 1.55, beamV = 6.55;
             if (lod >= 3)
             {
@@ -501,20 +623,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             SacredDraw.Panel(m, KdsKit.Side(x.K, 0), -hu + t, f1 + 0.1, hu - t, c1, -hw + t + 0.01, Looks.Of(MeshColor.FromHex(0x8A4A36), MaterialChannel.Brick));
             // The two great drums lying on their sides, skins tilted up toward the square.
             double r = Math.Min(0.78, 0.42 * (hu - t)), len = Math.Min(1.25, 0.9 * (hw - t));
+            // They lie side by side, skins turned in toward each other, so from the square one sees the laced shells and
+            // the painted heads aslant (c_bigdrum 03, 06).
             for (int sg = -1; sg <= 1; sg += 2)
-                Drum(m, x.K, sg * 0.5 * (hu - t), f1 + 0.1 + r * 0.82, hw - 0.4 - 0.5 * len, r, len, sg * 0.18, lod);
-            // The hipped roof with its valance.
-            RoofSpec rs = KdsKit.Roof(x, hu + 0.85, hw + 0.85, eave, 0.12, Math.Max(0.12, hw - hu + 0.12), DrumsTopM - 0.05, hu, hw, c1 + 0.22, KdsLooks.TileOld, 0.32);
-            KdsKit.Struts(x, rs, f1 + 0.8, 2, 3, false, 0x4452554Du);
+                Drum(m, x.K, sg * 0.5 * (hu - t), f1 + 0.1 + r * 0.9, hw - 0.45 - 0.5 * len, r, len, -sg * 1.0, lod);
+            // The small hipped roof with its valance, no struts (the photos).
+            KdsKit.Roof(x, hu + 0.6, hw + 0.6, eave, 0.12, Math.Max(0.12, hw - hu + 0.12), DrumsTopM - 0.05, hu, hw, c1 + 0.22, KdsLooks.TileOld, 0.3);
             return DrumsTopM;
         }
 
-        /// <summary>A great drum of radius r and length len lying on its side at (u, v, w), its axis along +w tipped up by
-        /// about 25° and toed by <paramref name="toe"/> rad: a wooden shell, cream painted skins with red and coloured
+        /// <summary>A great drum of radius r and length len lying on its side at (u, v, w), its axis along +w tipped up a
+        /// little and toed by <paramref name="toe"/> rad: a wooden shell, cream painted skins with red and coloured
         /// circles, red rims.</summary>
         private static void Drum(MeshData m, in Affine3 k, double u, double v, double w, double r, double len, double toe, int lod)
         {
-            double tilt = 0.45, ax = Math.Sin(toe) * Math.Cos(tilt), ay = Math.Sin(tilt), az = Math.Cos(toe) * Math.Cos(tilt);
+            double tilt = 0.2, ax = Math.Sin(toe) * Math.Cos(tilt), ay = Math.Sin(tilt), az = Math.Cos(toe) * Math.Cos(tilt);
             // A frame whose y is the drum axis, x across it on the ground plane.
             double xl = Math.Sqrt(az * az + ax * ax), xu = az / xl, xw = -ax / xl;
             Affine3 f = SacredDraw.Basis(k, u - 0.5 * len * ax, v - 0.5 * len * ay, w - 0.5 * len * az, xu, 0, xw, ax, ay, az);
@@ -523,7 +646,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             p.Add(0, 0, true).Add(0.94 * r, 0, true).Add(r, 0.12 * len).Add(1.03 * r, 0.5 * len).Add(r, 0.88 * len).Add(0.94 * r, len, true).Add(0, len, true);
             Shapes.Lathe(m, f, Looks.Of(MeshColor.FromHex(0x6B3A24), MaterialChannel.Wood), p, seg);
             // The front skin, painted, and the red rims.
-            ShapeBrush skin = Looks.Of(MeshColor.FromHex(0xE9DFC6), MaterialChannel.Paint), red = KdsLooks.PaintRed;
+            ShapeBrush skin = Looks.Of(MeshColor.FromHex(0xD9CBAA), MaterialChannel.Paint), red = KdsLooks.PaintRed;
             Shapes.Cylinder(m, SacredDraw.At(f, 0, len, 0), skin, 0.92 * r, 0.02, seg);
             Shapes.Cylinder(m, SacredDraw.At(f, 0, -0.02, 0), skin, 0.92 * r, 0.02, seg);
             if (lod <= 1)
@@ -533,10 +656,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             if (lod == 0)
             {
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.02, 0), red, 0.62 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.026, 0), Looks.Of(MeshColor.FromHex(0xE0B437), MaterialChannel.Paint), 0.45 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.032, 0), Looks.Of(MeshColor.FromHex(0x2E7D4F), MaterialChannel.Paint), 0.28 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.038, 0), red, 0.12 * r, 0.006, seg);
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.02, 0), red, 0.5 * r, 0.006, seg);
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.026, 0), Looks.Of(MeshColor.FromHex(0xE0B437), MaterialChannel.Paint), 0.36 * r, 0.006, seg);
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.032, 0), Looks.Of(MeshColor.FromHex(0x2E7D4F), MaterialChannel.Paint), 0.22 * r, 0.006, seg);
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.038, 0), red, 0.1 * r, 0.006, seg);
             }
         }
 

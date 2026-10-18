@@ -17,7 +17,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     {
         public const float RuinTopM = 2.9f;
         public const float DabaliTopM = 0.6f;
-        public const float SquareTopM = 2.6f;
+        /// <summary>The square's top: its lamp posts (5.6 m) on the rising east end of the paving.</summary>
+        public const float SquareTopM = 6.6f;
 
         // The marketplace outline (w218440319) in the brief's local frame (kds-temples.md T28).
         private static readonly double[] MarketX = { -82.9, -4.4, -3.7, -86.2 }, MarketY = { -76.8, -92.9, -115.8, -95.9 };
@@ -41,6 +42,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // The broken stages (no stair: the temple is gone), weathered.
             int first = m.VertexCount;
             KdsPagoda.StageStack(x, st, st, top, 0, KdsLooks.BrickPlinth, KdsLooks.Rubble, 0.08);
+            // Weathered and grimy since 2015: darker, duller brick with a green-grey cast (KAT1890 02, 07).
+            for (int v = first; v < m.VertexCount; v++)
+            {
+                int c = 4 * v;
+                m.Colors[c] = (byte)(m.Colors[c] * 0.72f + 10);
+                m.Colors[c + 1] = (byte)(m.Colors[c + 1] * 0.74f + 14);
+                m.Colors[c + 2] = (byte)(m.Colors[c + 2] * 0.72f + 10);
+            }
             if (lod <= 1) ShapeColor.JitterByPosition(m, first, m.VertexCount - first, 0.12f, 0x4E415255u, 0.6);
             // Rubble heaps, loose bricks, timber fragments and weeds on the top and the treads.
             uint seed = 0x52554Eu;
@@ -63,15 +72,46 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                         SacredDraw.Box(m, b, -0.6, 0.6, 0, 0.1, -0.06, 0.06, Looks.Of(MeshColor.FromHex(0x4E3626), MaterialChannel.Wood), BoxFaces.All & ~BoxFaces.Bottom);
                     else SacredDraw.Box(m, b, -0.11, 0.11, 0, 0.06, -0.05, 0.05, i % 2 == 0 ? KdsLooks.Brick : KdsLooks.Rubble, BoxFaces.All & ~BoxFaces.Bottom);
                 }
-                for (int i = 0; i < 26; i++)
+            }
+            if (lod <= 1)
+            {
+                // Grass and weeds grow over the top and along the treads (KAT1890 02, 03, 07): flat green mats of
+                // mixed tones lying on the brick, and a few taller tufts at LOD0.
+                ShapeBrush[] greens =
                 {
-                    int sIdx = i % 4;
-                    double a = 0.5 * st[sIdx] - 0.15, v = (sIdx + 1) * top / st.Length;
-                    double along = (Rnd(ref seed) - 0.5) * 2 * a;
-                    int side = (int)(Rnd(ref seed) * 4) % 4;
-                    double u, w;
-                    SacredParts.OnRect(side, along / Math.Max(0.1, a), a, a, out u, out w);
-                    Shapes.Cone(m, SacredDraw.At(x.K, u * 0.97, v, w * 0.97), KdsLooks.Grass, 0.18 + 0.12 * Rnd(ref seed), 0.25 + 0.25 * Rnd(ref seed), 5, 0, 0, false);
+                    KdsLooks.Grass, Looks.Of(MeshColor.FromHex(0x5E7A35), MaterialChannel.Grass), Looks.Of(MeshColor.FromHex(0x7D8A48), MaterialChannel.Grass),
+                };
+                SacredDraw.Quad(m, x.K, -0.8 * h3, top + 0.02, -0.75 * h3, 0.78 * h3, top + 0.02, -0.8 * h3, 0.82 * h3, top + 0.02, 0.7 * h3, -0.7 * h3, top + 0.02,
+                                0.8 * h3, 0, 1, 0, greens[1]);
+                int per = lod == 0 ? 5 : 2;
+                for (int sIdx = 0; sIdx < st.Length - 1; sIdx++)
+                {
+                    double outer = 0.5 * st[sIdx] - 0.08, inner = 0.5 * st[sIdx + 1] + 0.02, v = (sIdx + 1) * top / st.Length + 0.015;
+                    for (int side = 0; side < 4; side++)
+                    {
+                        for (int q = 0; q < per; q++)
+                        {
+                            double a0 = -1 + 2 * (q + 0.15 * Rnd(ref seed)) / per, a1 = a0 + (1.2 + 0.6 * Rnd(ref seed)) / per;
+                            a1 = Math.Min(1, a1);
+                            double u0, w0, u1, w1, u2, w2, u3, w3;
+                            SacredParts.OnRect(side, a0, outer, outer, out u0, out w0);
+                            SacredParts.OnRect(side, a1, outer, outer, out u1, out w1);
+                            SacredParts.OnRect(side, a1, inner, inner, out u2, out w2);
+                            SacredParts.OnRect(side, a0, inner, inner, out u3, out w3);
+                            SacredDraw.Quad(m, x.K, u0, v, w0, u1, v, w1, u2, v, w2, u3, v, w3, 0, 1, 0, greens[(sIdx + side + q) % 3]);
+                        }
+                    }
+                }
+                if (lod == 0)
+                {
+                    for (int i = 0; i < 14; i++)
+                    {
+                        int sIdx = i % 4;
+                        double a = 0.5 * st[sIdx] - 0.25, v = (sIdx + 1) * top / st.Length;
+                        double u, w;
+                        SacredParts.OnRect((int)(Rnd(ref seed) * 4) % 4, (Rnd(ref seed) - 0.5) * 1.8, a, a, out u, out w);
+                        Shapes.Cone(m, SacredDraw.At(x.K, u, v, w), greens[i % 3], 0.2 + 0.12 * Rnd(ref seed), 0.3 + 0.25 * Rnd(ref seed), 5, 0, 0, false);
+                    }
                 }
             }
             // The wire-mesh fence round the outline (or a square) and the water tank at the north-west.
@@ -319,7 +359,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 w0 = Math.Min(w0, pw[i]);
                 w1 = Math.Max(w1, pw[i]);
             }
-            double pitch = lod == 0 ? 2.0 : lod == 1 ? 3.0 : lod == 2 ? 5.0 : 12.0, lift = 0.22;
+            double pitch = lod == 0 ? 2.0 : lod == 1 ? 4.0 : lod == 2 ? 5.0 : 6.0, lift = 0.22;
             int nu = (int)Math.Ceiling((u1 - u0) / pitch), nw = (int)Math.Ceiling((w1 - w0) / pitch);
             var keep = new bool[nu * nw];
             for (int j = 0; j < nw; j++)
@@ -427,55 +467,58 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             int lod = x.Lod;
             ShapeBrush wood = Looks.Of(MeshColor.FromHex(0x6E4A30), MaterialChannel.Wood);
             ShapeBrush[] mats = { KdsLooks.ClothRed, KdsLooks.ClothBlue, KdsLooks.ClothGreen, KdsLooks.ClothYellow };
-            ShapeBrush[] umb = { KdsLooks.PaintWhite, KdsLooks.ClothBlue, Looks.Of(MeshColor.FromHex(0x6A3C8E), MaterialChannel.Fabric) };
+            ShapeBrush[] umb = { KdsLooks.PaintWhite, KdsLooks.ClothBlue, KdsLooks.PaintWhite };
             ShapeBrush bronze = Looks.Of(MeshColor.FromHex(0x9C7A3A), MaterialChannel.Metal);
             uint seed = 0x5354414Cu;
-            const double du = 3.6, dw = 4.0;
+            // The stalls stand in long rows along the square (the aerial and tower photos c_basantapur_chowk 00, c_dabli
+            // 05): low tables and ground mats side by side with gaps, aisles about 4.5 m apart; a patio umbrella or a red
+            // tarpaulin over a few of them.
+            const double du = 2.0, dw = 4.5;
             int row = 0;
-            for (double w = w0 + 2.2; w < w1 - 1.5; w += dw, row++)
+            for (double w = w0 + 2.4; w < w1 - 1.5; w += dw, row++)
             {
                 int col = 0;
                 for (double u = u0 + 2.0; u < u1 - 1.5; u += du, col++)
                 {
                     double r = Rnd(ref seed);
-                    if (!Inside(pu, pw, u, w) || !Inside(pu, pw, u - 1.2, w - 1.2) || !Inside(pu, pw, u + 1.2, w + 1.2)) continue;
+                    if (r < 0.3) continue; // a gap in the row
+                    if (!Inside(pu, pw, u, w) || !Inside(pu, pw, u - 1.0, w - 0.8) || !Inside(pu, pw, u + 1.0, w + 0.8)) continue;
                     if (x.CorridorDistance(u, w) < 1.6 + SacredClearance.MarginM) continue;
                     double g = x.GroundV(u, w) + lift;
-                    bool table = (row + col) % 3 != 0;
+                    bool table = r > 0.48;
                     if (table)
                     {
-                        // A low table laden with goods.
-                        SacredDraw.Box(m, x.K, u - 0.75, u + 0.75, g + 0.4, g + 0.47, w - 0.4, w + 0.4, wood, BoxFaces.All & ~BoxFaces.Bottom);
-                        SacredDraw.Panel(m, x.K, u - 0.75, g + 0.47, u + 0.75, g + 0.475, w, mats[(int)(r * 4) % 4]);
-                        if (lod <= 1)
+                        // A low table laden with goods, its two leg frames.
+                        SacredDraw.Box(m, x.K, u - 0.8, u + 0.8, g + 0.4, g + 0.47, w - 0.42, w + 0.42, wood, BoxFaces.All & ~BoxFaces.Bottom);
+                        SacredDraw.Panel(m, x.K, u - 0.8, g + 0.47, u + 0.8, g + 0.475, w, mats[(int)(r * 13) % 4]);
+                        if (lod == 0)
                         {
-                            for (int q = 0; q < 4; q++)
-                            {
-                                double lu = u + (q % 2 == 0 ? -0.68 : 0.68), lw = w + (q < 2 ? -0.33 : 0.33);
-                                SacredDraw.Box(m, x.K, lu - 0.03, lu + 0.03, g, g + 0.4, lw - 0.03, lw + 0.03, wood, BoxFaces.Front | BoxFaces.Left);
-                            }
+                            SacredDraw.Quad(m, x.K, u - 0.72, g, w + 0.36, u + 0.72, g, w + 0.36, u + 0.72, g + 0.4, w + 0.36, u - 0.72, g + 0.4, w + 0.36, 0, 0, 1,
+                                            Looks.Ao(wood, 0.55f));
+                            SacredDraw.Quad(m, x.K, u + 0.72, g, w - 0.36, u - 0.72, g, w - 0.36, u - 0.72, g + 0.4, w - 0.36, u + 0.72, g + 0.4, w - 0.36, 0, 0, -1,
+                                            Looks.Ao(wood, 0.55f));
                         }
-                        x.Solid(u - 0.75, u + 0.75, w - 0.4, w + 0.4, g, g + 0.47, GenColliders.Wood);
+                        x.Solid(u - 0.8, u + 0.8, w - 0.42, w + 0.42, g, g + 0.47, GenColliders.Wood);
                     }
                     else
                     {
                         // A mat on the ground.
-                        SacredDraw.Box(m, x.K, u - 0.8, u + 0.8, g, g + 0.03, w - 0.5, w + 0.5, mats[(int)(r * 7) % 4], BoxFaces.Top | BoxFaces.Wall);
+                        SacredDraw.Box(m, x.K, u - 0.85, u + 0.85, g, g + 0.03, w - 0.55, w + 0.55, mats[(int)(r * 7) % 4], lod == 0 ? BoxFaces.Top | BoxFaces.Wall : BoxFaces.Top);
                     }
                     double gv = table ? g + 0.47 : g + 0.03;
-                    if (lod == 0 && (row + col) % 2 == 0)
+                    if (lod == 0 && col % 4 == 0)
                     {
                         // Bronze figures, singing bowls and masks.
                         for (int q = 0; q < 3; q++)
                         {
                             double gu = u - 0.5 + 0.5 * q, gw = w + ((q % 2) == 0 ? -0.12 : 0.15);
                             int kind = (int)(Rnd(ref seed) * 3);
-                            if (kind == 0) Shapes.Cone(m, SacredDraw.At(x.K, gu, gv, gw), bronze, 0.07, 0.26, 5, 0, 0, false);
-                            else if (kind == 1) Shapes.Dome(m, Affine3.RotationX(Math.PI).Then(SacredDraw.At(x.K, gu, gv + 0.08, gw)), bronze, 0.1, 0.08, 6, true);
-                            else SacredDraw.Box(m, x.K, gu - 0.08, gu + 0.08, gv, gv + 0.22, gw - 0.02, gw + 0.02, mats[(q + 1) % 4], BoxFaces.All & ~BoxFaces.Bottom);
+                            if (kind == 0) Shapes.Cone(m, SacredDraw.At(x.K, gu, gv, gw), bronze, 0.07, 0.26, 4, 0, 0, false);
+                            else if (kind == 1) Shapes.Dome(m, Affine3.RotationX(Math.PI).Then(SacredDraw.At(x.K, gu, gv + 0.08, gw)), bronze, 0.1, 0.08, 5, true);
+                            else SacredDraw.Box(m, x.K, gu - 0.08, gu + 0.08, gv, gv + 0.22, gw - 0.02, gw + 0.02, mats[(q + 1) % 4], BoxFaces.Front | BoxFaces.Top | BoxFaces.Back);
                         }
                     }
-                    if (lod <= 1 && row % 2 == 0 && col % 2 == 0)
+                    if (lod <= 1 && (row * 7 + col) % 9 == 4)
                     {
                         // A red tarpaulin on four poles over the stall.
                         double th = g + 2.25, tl = g + 2.0;
@@ -483,15 +526,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                         {
                             for (int q = 0; q < 4; q++)
                             {
-                                double lu = u + (q % 2 == 0 ? -1.1 : 1.1), lw = w + (q < 2 ? -0.9 : 0.9);
-                                SacredDraw.Box(m, x.K, lu - 0.025, lu + 0.025, g, q < 2 ? tl : th, lw - 0.025, lw + 0.025, wood, BoxFaces.Wall);
+                                double lu = u + (q % 2 == 0 ? -1.0 : 1.0), lw = w + (q < 2 ? -0.9 : 0.9);
+                                SacredDraw.Box(m, x.K, lu - 0.025, lu + 0.025, g, q < 2 ? tl : th, lw - 0.025, lw + 0.025, wood, BoxFaces.Front | BoxFaces.Left);
                             }
                         }
-                        SacredDraw.Quad(m, x.K, u - 1.15, tl, w - 0.95, u + 1.15, tl, w - 0.95, u + 1.15, th, w + 0.95, u - 1.15, th, w + 0.95, 0, 1, -0.12, KdsLooks.Tarp);
-                        SacredDraw.Quad(m, x.K, u - 1.15, th, w + 0.95, u + 1.15, th, w + 0.95, u + 1.15, tl, w - 0.95, u - 1.15, tl, w - 0.95, 0, -1, 0.12,
+                        SacredDraw.Quad(m, x.K, u - 1.05, tl, w - 0.95, u + 1.05, tl, w - 0.95, u + 1.05, th, w + 0.95, u - 1.05, th, w + 0.95, 0, 1, -0.12, KdsLooks.Tarp);
+                        SacredDraw.Quad(m, x.K, u - 1.05, th, w + 0.95, u + 1.05, th, w + 0.95, u + 1.05, tl, w - 0.95, u - 1.05, tl, w - 0.95, 0, -1, 0.12,
                                         Looks.Ao(KdsLooks.Tarp, 0.6f));
                     }
-                    else if (lod <= 1 && (row + col) % 4 == 1)
+                    else if (lod == 0 && (row * 5 + col) % 11 == 2)
                     {
                         // A patio umbrella.
                         ShapeBrush c = umb[(int)(r * 9) % 3];

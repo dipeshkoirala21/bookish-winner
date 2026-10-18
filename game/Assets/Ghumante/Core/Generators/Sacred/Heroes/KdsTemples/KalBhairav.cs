@@ -26,7 +26,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             int lod = x.Lod;
             double hu = 2.4, hw = x.PlanHw > 0.5 ? Math.Max(1.05, Math.Min(1.6, x.PlanHw)) : 1.25;
             const double b0 = 0.3, wallTop = 6.0;
-            ShapeBrush stone = KdsLooks.StoneGrey, dark = Looks.Of(MeshColor.FromHex(0x5A5A55), MaterialChannel.Metal);
+            // The domes are weathered grey stone (DANAM KAT1770 13), paler than the soot-blackened wall.
+            ShapeBrush stone = KdsLooks.StoneGrey, dark = Looks.Of(MeshColor.FromHex(0x8A877F), MaterialChannel.Stone);
             if (lod >= 3)
             {
                 SacredDraw.Box(m, x.K, -hu, hu, 0, wallTop, -hw, hw, stone, BoxFaces.All & ~BoxFaces.Bottom);
@@ -76,42 +77,69 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             // The niche: the flame-carved stone rim, the painted flame field and the figure.
             const double nw = 1.75, nv0 = b0 + 0.15, nh = 5.2;
-            KdsKit.FlameArch(m, nf, 0, nv0, hw, nw, nh, 0.22, 0.12, Looks.Of(MeshColor.FromHex(0x77726A), MaterialChannel.Stone), lod, true, true);
-            KdsKit.ArchPanel(m, nf, 0, nv0, hw, nw, nh, 0.02, KdsLooks.FlameOrange, lod, true);
+            // The rim is black carved stone (serpents and the monster face); the field behind the figure is painted sky
+            // blue with an orange-red aureole round the body (KAT1770 14).
+            ShapeBrush rim = Looks.Of(MeshColor.FromHex(0x3E3B38), MaterialChannel.Stone);
+            KdsKit.FlameArch(m, nf, 0, nv0, hw, nw, nh, 0.26, 0.12, rim, lod, true, true);
+            KdsKit.ArchPanel(m, nf, 0, nv0, hw, nw, nh, 0.02, Looks.Of(MeshColor.FromHex(0x86B4D6), MaterialChannel.Paint), lod, true);
+            if (lod <= 1) KdsKit.ArchPanel(m, nf, 0, nv0 + 0.2, hw + 0.025, 1.2, 3.4, 0.01, KdsLooks.FlameOrange, lod, false);
             if (lod <= 1)
             {
                 // A gilt inner border and the monster face at the crown.
                 KdsKit.FlameArch(m, nf, 0, nv0, hw + 0.02, nw - 0.12, nh - 0.1, 0.1, 0.03, KdsLooks.Gilt, lod, false, true);
-                Shapes.Ellipsoid(m, SacredDraw.At(nf, 0, nv0 + nh + 0.05, hw + 0.08), Looks.Of(MeshColor.FromHex(0x77726A), MaterialChannel.Stone), 0.32, 0.28, 0.14, 8, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(nf, 0, nv0 + nh + 0.05, hw + 0.08), rim, 0.36, 0.3, 0.14, 8, false);
                 if (lod == 0)
                 {
                     for (int sg = -1; sg <= 1; sg += 2)
                         Shapes.Sphere(m, SacredDraw.At(nf, sg * 0.11, nv0 + nh + 0.1, hw + 0.2), KdsLooks.PaintWhite, 0.06, 5);
                     Shapes.Ellipsoid(m, SacredDraw.At(nf, 0, nv0 + nh - 0.05, hw + 0.2), KdsLooks.PaintRed, 0.14, 0.05, 0.05, 6, false);
                 }
-                // Sun (gilt) and moon (white) discs above the shoulders.
-                Shapes.Cylinder(m, SacredDraw.Basis(nf, -2.0, 5.3, hw, 1, 0, 0, 0, 0, 1), KdsLooks.Gilt, 0.26, 0.06, lod == 0 ? 14 : 8);
-                Shapes.Cylinder(m, SacredDraw.Basis(nf, 2.0, 5.3, hw, 1, 0, 0, 0, 0, 1), KdsLooks.PaintWhite, 0.26, 0.06, lod == 0 ? 14 : 8);
+                // Sun and moon: carved stone faces in discs above the shoulders.
+                ShapeBrush disc = Looks.Of(MeshColor.FromHex(0x6E6A63), MaterialChannel.Stone);
+                for (int sg = -1; sg <= 1; sg += 2)
+                {
+                    Shapes.Cylinder(m, SacredDraw.Basis(nf, sg * 2.0, 5.3, hw, 1, 0, 0, 0, 0, 1), disc, 0.3, 0.06, lod == 0 ? 14 : 8);
+                    if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(nf, sg * 2.0, 5.3, hw + 0.07), Looks.Ao(disc, 0.85f), 0.17, 0.2, 0.06, 6, false);
+                }
             }
             BhairavFigure(m, nf, 0, nv0 + 0.1, hw + 0.05, 3.7, lod);
             // The valanced eave, the cornice platform and the three ribbed domes.
             KdsKit.Roof(x, hu + 0.4, hw + 0.42, 5.25, hu + 0.03, hw + 0.03, 5.72, hu, hw, 5.45, KdsLooks.TileOld, 0.32);
-            SacredDraw.Box(m, x.K, -hu - 0.2, hu + 0.2, 5.95, 6.2, -hw - 0.15, hw + 0.15, KdsLooks.StonePale, BoxFaces.All);
+            SacredDraw.Box(m, x.K, -hu - 0.12, hu + 0.12, 5.95, 6.2, -hw - 0.12, hw + 0.12, KdsLooks.StonePale, BoxFaces.All);
+            // A second red valance hangs from the cornice slab under the domes, in front of the roof's upper slope
+            // (KAT1770 05, 08).
+            if (lod <= 1)
+            {
+                var slab = new RoofSpec
+                {
+                    EaveU = hu + 0.12, EaveW = hw + 0.12, EaveV = 5.95, TopU = hu + 0.12, TopW = hw + 0.12, TopV = 5.95, Clear = x.Clear, GroundY = x.F.GroundY,
+                };
+                KdsKit.Valance(x, slab, 0.3);
+            }
             KdsKit.RibbedDome(x, 0, 0, 6.2, TopM - 6.2, 0.62, dark);
             int was = x.Coarser();
             for (int sg = -1; sg <= 1; sg += 2) KdsKit.RibbedDome(x, sg * 1.6, 0, 6.2, 1.4, 0.48, dark);
             x.Restore(was);
             // Lions at the north-west and north-east corners of the platform, bells on the wings, pennants and the railing.
-            double lw = hw + Math.Min(1.35, front - 0.45);
-            KdsKit.Lion(x, -3.0, lw, 0.5, 1.6, -1, true, 0.32);
-            KdsKit.Lion(x, 3.0, lw, 0.5, 1.6, 1, true, 0.32);
+            // The lions stand on the platform's front corners, stepped back toward the wall (or left out) where the
+            // square's walkway corridor runs close: their heads lean forward over their pedestals.
+            for (int sg = -1; sg <= 1; sg += 2)
+            {
+                double lu = sg * 3.0, lw = hw + Math.Min(1.35, front - 0.45);
+                while (lw > hw + 0.45 && LionRoom(x, lu, lw) < SacredClearance.MarginM + 0.1) lw -= 0.15;
+                if (LionRoom(x, lu, lw) >= SacredClearance.MarginM + 0.05) KdsKit.Lion(x, lu, lw, 0.5, 1.6, sg, true, 0.32);
+            }
             if (lod <= 1)
             {
                 for (int sg = -1; sg <= 1; sg += 2)
                 {
-                    KdsKit.BellFrame(x, sg * (hu + 0.5), hw + 0.3, b0, 1.75, 0.42);
-                    // A pennant staff.
+                    // The bell frames in front of the wings, nudged toward the wall where the walkway runs close.
+                    double bu = sg * (hu + 0.5);
+                    while (Math.Abs(bu) > hu + 0.15 && x.CorridorDistance(bu + sg * 0.5, hw + 0.3) < SacredClearance.MarginM + 0.1) bu -= sg * 0.1;
+                    if (x.CorridorDistance(bu + sg * 0.5, hw + 0.3) >= SacredClearance.MarginM) KdsKit.BellFrame(x, bu, hw + 0.3, b0, 1.75, 0.42);
+                    // A pennant staff with its red pennant, where it stands clear of the walkway.
                     double pu = sg * 2.2, pw = hw + front - 0.35;
+                    if (Math.Min(x.CorridorDistance(pu, pw), x.CorridorDistance(pu + sg * 0.7, pw)) < SacredClearance.MarginM + 0.1) continue;
                     Shapes.Cylinder(m, SacredDraw.At(x.K, pu, b0, pw), KdsLooks.Timber, 0.03, 3.9, 5);
                     SacredDraw.Tri(m, x.K, pu, b0 + 3.85, pw, pu + sg * 0.7, b0 + 3.6, pw, pu, b0 + 3.3, pw, 0, 0, 1, KdsLooks.ClothRed);
                     SacredDraw.Tri(m, x.K, pu, b0 + 3.85, pw, pu, b0 + 3.3, pw, pu + sg * 0.7, b0 + 3.6, pw, 0, 0, -1, KdsLooks.ClothRed);
@@ -136,6 +164,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         private static double F0(KdsCtx x)
         {
             return x.F.GroundY;
+        }
+
+        /// <summary>The least corridor distance over a platform lion's footprint and its forward-leaning head.</summary>
+        static double LionRoom(KdsCtx x, double lu, double lw)
+        {
+            double d = double.MaxValue;
+            for (int a = -1; a <= 1; a++)
+                for (int b = -1; b <= 1; b++) d = Math.Min(d, x.CorridorDistance(lu + 0.5 * a, lw + 0.55 * b));
+            return d;
         }
 
         /// <summary>The six-armed Bhairav, h tall, against the niche field at (u, v, w) of the wall frame k, facing +w: a
@@ -168,9 +205,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 Shapes.Ellipsoid(m, SacredDraw.At(b, s * 0.25 * h, 0.12 * h, 0.14), body, 0.06 * h, 0.035 * h, 0.08 * h, limb, false);
             }
             Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.44 * h, 0.08), Looks.Of(MeshColor.FromHex(0xD98B2B), MaterialChannel.Fabric), 0.2 * h, 0.08 * h, 0.1 * h, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.55 * h, 0.08), body, 0.17 * h, 0.12 * h, 0.1 * h, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.68 * h, 0.06), body, 0.2 * h, 0.09 * h, 0.09 * h, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.81 * h, 0.1), body, 0.1 * h, 0.1 * h, 0.09 * h, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.55 * h, 0.08), body, 0.2 * h, 0.13 * h, 0.11 * h, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.68 * h, 0.06), body, 0.23 * h, 0.1 * h, 0.1 * h, seg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.81 * h, 0.1), body, 0.12 * h, 0.115 * h, 0.1 * h, seg, false);
             double face = 0.1 + 0.085 * h;
             Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.775 * h, face), red, 0.05 * h, 0.022 * h, 0.03 * h, 6, false);
             for (int s = -1; s <= 1; s += 2)
@@ -191,7 +228,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             var gl = new Path3(8);
             gl.Add(-0.18 * h, 0.72 * h, 0.12).Add(-0.08 * h, 0.55 * h, 0.2).Add(0.08 * h, 0.55 * h, 0.2).Add(0.18 * h, 0.72 * h, 0.12);
             Path3 gs = Curves.CatmullRom(gl, new Path3(16), lod == 0 ? 4 : 2, false);
-            Shapes.Tube(m, b, Looks.Of(SacredPalette.Marigold, MaterialChannel.Fabric), gs, 0.02 * h, limb, true);
+            if (lod == 0) Shapes.Tube(m, b, Looks.Of(SacredPalette.Marigold, MaterialChannel.Fabric), gs, 0.02 * h, limb, true);
             // Six arms.
             double[] ax = { 0.42, 0.44, 0.36 }, ay = { 0.98, 0.78, 0.58 };
             for (int s = -1; s <= 1; s += 2)
@@ -200,7 +237,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 {
                     var p = new Path3(4);
                     p.Add(s * 0.17 * h, 0.7 * h, 0.08).Add(s * (0.17 + 0.6 * (ax[a] - 0.17)) * h, (0.7 + 0.5 * (ay[a] - 0.7)) * h - 0.03 * h, 0.1).Add(s * ax[a] * h, ay[a] * h, 0.12);
-                    Shapes.Tube(m, b, body, p, 0.04 * h, limb, true, false, default, 0.03 * h);
+                    Shapes.Tube(m, b, body, p, 0.055 * h, limb, true, false, default, 0.04 * h);
                     Shapes.Sphere(m, SacredDraw.At(b, s * ax[a] * h, ay[a] * h, 0.12), gold, 0.025 * h, 4);
                 }
             }

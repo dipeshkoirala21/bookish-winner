@@ -50,33 +50,44 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         public static double LakshmiNarayan(KdsCtx x)
         {
             int lod = x.Lod;
-            double[] st = Scaled(new[] { 5.8, 5.1, 4.4 }, 2 * x.PlanHu);
+            // Proportions from the KVPT elevation and section (DANAM KAT1780 02, 03; photos 04-06): a low two-step plinth,
+            // a tall brick ground storey (0.45 of the height) under a carved beast-head cornice and a pent ledge, the
+            // brick wall carrying on under the very broad first roof (eave at 0.55 of the height, about the plinth's
+            // width), a second beast-head cornice, the short upper storey and its roof, a metal finial.
+            double[] st = Scaled(new[] { 5.8, 5.0 }, 2 * x.PlanHu);
+            double wh = Math.Max(1.3, Math.Min(1.7, 0.257 * st[0])), eave1 = 0.533 * st[0], eave2 = 0.367 * st[0];
+            const double v0 = 0.8, v1 = 3.9, ledge = 4.35, e1 = 5.0, t1 = 6.0, e2 = 7.13, t2 = 8.24;
             if (lod >= 3)
             {
-                KdsKit.Lod3(x, 0.5 * st[0], 0.5 * st[0], 1.2, 1.7, 1.7, new[] { 2.9, 1.9 }, new[] { 4.0, 6.6 }, new[] { 5.6 }, 7.9, KdsLooks.BrickPlinth, KdsLooks.Brick,
+                KdsKit.Lod3(x, 0.5 * st[0], 0.5 * st[0], v0, wh, wh, new[] { eave1, eave2 }, new[] { e1, e2 }, new[] { t1 }, t2, KdsLooks.BrickPlinth, KdsLooks.Brick,
                             KdsLooks.TileOld);
-                return 7.9;
+                return t2;
             }
-            Plinth(x, st, st, 1.2, 0.55, 1.4, 5);
-            const double wh = 1.7, v0 = 1.2, v1 = 3.45;
+            Plinth(x, st, st, v0, 0.55, 1.1, 4);
             SacredParts.BandedWall(x.M, x.K, wh, wh, v0, v1, KdsLooks.Brick, KdsLooks.Timber, lod, true, true);
             x.Solid(-wh, wh, -wh, wh, v0, v1, GenColliders.Brick);
-            KdsKit.Door(x.M, KdsKit.Side(x.K, 0), 0, v0 + 0.1, wh, 0.75, 1.55, KdsLooks.Timber, lod, true, v1 - 0.05);
-            for (int s = 1; s < 4; s++) KdsKit.BlackWindow(x.M, KdsKit.Side(x.K, s), 0, v0 + 1.2, wh, 0.55, 0.7, lod, 0.1, 2);
+            KdsKit.Door(x.M, KdsKit.Side(x.K, 0), 0, v0 + 0.1, wh, 0.85, 1.95, KdsLooks.Timber, lod, true, v1 - 0.1);
+            for (int s = 1; s < 4; s++) KdsKit.BlackWindow(x.M, KdsKit.Side(x.K, s), 0, v0 + 1.55, wh, 0.6, 0.85, lod, 0.12, 2);
+            // The carved cornice with its row of beast heads, then the projecting pent ledge.
+            KdsKit.Cornice(x, wh + 0.04, wh + 0.04, v1, v1 + 0.3, 0.14, KdsLooks.Timber);
+            KdsKit.Cornice(x, wh + 0.2, wh + 0.2, v1 + 0.3, ledge, 0.12, KdsLooks.Timber);
             var tiers = new[]
             {
                 new KdsTier
                 {
-                    WallHu = 1.65, WallHw = 1.65, WallV0 = v1, EaveHu = 2.9, EaveHw = 2.9, EaveV = 4.0, TopHu = 1.2, TopHw = 1.2, TopV = 5.6, StrutsU = 2, StrutsW = 2,
-                    ValanceH = 0.32, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Bells = true,
+                    WallHu = wh, WallHw = wh, WallV0 = ledge, EaveHu = eave1, EaveHw = eave1, EaveV = e1, TopHu = 0.78, TopHw = 0.78, TopV = t1, StrutsU = 2, StrutsW = 2,
+                    StrutFootV = ledge + 0.12, ValanceH = 0.4, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 1, WinW = 0.6, WinH = 0.5, Bells = true,
                 },
                 new KdsTier
                 {
-                    WallHu = 1.2, WallHw = 1.2, WallV0 = 5.6, EaveHu = 1.9, EaveHw = 1.9, EaveV = 6.6, TopHu = 0.18, TopHw = 0.18, TopV = 7.9, StrutsU = 1, StrutsW = 1,
-                    ValanceH = 0.26, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 1, WinW = 0.4, WinH = 0.35, Bells = true,
+                    WallHu = 0.73, WallHw = 0.73, WallV0 = t1, EaveHu = eave2, EaveHw = eave2, EaveV = e2, TopHu = 0.28, TopHw = 0.28, TopV = t2, StrutsU = 1, StrutsW = 1,
+                    StrutFootV = t1 + 0.45, ValanceH = 0.32, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 1, WinW = 0.4, WinH = 0.32, Bells = true,
                 },
             };
             double apex = KdsPagoda.Tiers(x, tiers, 0x4C4E54u);
+            // The upper storey's beast-head cornice and ledge over the first roof (they sit on its top).
+            KdsKit.Cornice(x, 0.82, 0.82, Math.Max(t1, tiers[0].TopV), Math.Max(t1, tiers[0].TopV) + 0.24, 0.1, KdsLooks.Timber);
+            KdsKit.Cornice(x, 0.98, 0.98, Math.Max(t1, tiers[0].TopV) + 0.24, Math.Max(t1, tiers[0].TopV) + 0.38, 0.08, KdsLooks.Timber);
             if (x.Stats != null) x.Stats.Tiers = 2;
             return KdsKit.GiltFinial(x, apex - 0.1, LakshmiNarayanTopM - apex + 0.1, 0.2);
         }
@@ -88,25 +99,26 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double edge = 0.5 * st[2];
             if (lod >= 3)
             {
-                KdsKit.Lod3(x, 0.5 * st[0], 0.5 * st[0], 1.5, 2.0, 2.0, new[] { edge + 1.0, 2.4 }, new[] { 3.6, 7.6 }, new[] { 6.0 }, 9.1, KdsLooks.BrickPlinth, KdsLooks.Brick,
+                KdsKit.Lod3(x, 0.5 * st[0], 0.5 * st[0], 1.5, 2.0, 2.0, new[] { edge + 1.0, 2.4 }, new[] { 3.45, 7.3 }, new[] { 5.5 }, 8.9, KdsLooks.BrickPlinth, KdsLooks.Brick,
                             KdsLooks.TileOld);
-                return 9.1;
+                return 8.9;
             }
             Plinth(x, st, st, 1.5, 0.6, 1.7, 7);
             // A ring of posts at the top stage's edge round a small sanctum; the beam band over them.
             double pv = 1.5, postTop = 3.35;
             double beamTop = KdsPagoda.Ambulatory(x, edge - 0.3, edge - 0.3, pv, postTop, 3, 0.22, 1.9, 1.9, KdsLooks.Brick, 1, 0.3, false, false, KdsLooks.Timber);
-            // The very broad, low first roof reaching nearly to the plinth edge, then the small upper storey.
+            // The very broad, low first roof reaching nearly to the plinth edge (about 30°, c_indrapur 14), then the small
+            // upper storey.
             var tiers = new[]
             {
                 new KdsTier
                 {
-                    WallHu = edge - 0.4, WallHw = edge - 0.4, WallV0 = beamTop, EaveHu = edge + 0.95, EaveHw = edge + 0.95, EaveV = 3.65, TopHu = 1.55, TopHw = 1.55, TopV = 6.0,
+                    WallHu = edge - 0.4, WallHw = edge - 0.4, WallV0 = beamTop, EaveHu = edge + 1.15, EaveHw = edge + 1.15, EaveV = 3.45, TopHu = 1.55, TopHw = 1.55, TopV = 5.5,
                     StrutsU = 3, StrutsW = 3, StrutFootV = beamTop - 0.05, ValanceH = 0.36, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Bells = true,
                 },
                 new KdsTier
                 {
-                    WallHu = 1.55, WallHw = 1.55, WallV0 = 6.0, EaveHu = 2.4, EaveHw = 2.4, EaveV = 7.6, TopHu = 0.2, TopHw = 0.2, TopV = 9.1, StrutsU = 2, StrutsW = 2,
+                    WallHu = 1.55, WallHw = 1.55, WallV0 = 5.5, EaveHu = 2.4, EaveHw = 2.4, EaveV = 7.3, TopHu = 0.2, TopHw = 0.2, TopV = 8.9, StrutsU = 2, StrutsW = 2,
                     ValanceH = 0.28, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 1, WinW = 0.6, WinH = 0.55, Bells = true,
                 },
             };
@@ -231,14 +243,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 new KdsTier
                 {
-                    WallHu = post - 0.1, WallHw = post - 0.1, WallV0 = beamTop, EaveHu = post + 1.25, EaveHw = post + 1.25, EaveV = 3.95, TopHu = 2.45, TopHw = 2.45,
-                    TopV = 6.1, StrutsU = 5, StrutsW = 5, StrutFootV = 3.0, ValanceH = 0.42, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Bells = true,
+                    WallHu = post - 0.1, WallHw = post - 0.1, WallV0 = beamTop, EaveHu = post + 1.25, EaveHw = post + 1.25, EaveV = 3.95, TopHu = 3.55, TopHw = 3.55,
+                    TopV = 5.05, StrutsU = 5, StrutsW = 5, StrutFootV = 3.0, ValanceH = 0.42, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Bells = true,
                 },
             };
             KdsPagoda.Tiers(x, tier, 0x4B4147u);
-            // The white cubic storey with its small balustrade, the white ribbed shikhara and the gilt finial.
+            // The white storey (OSM part w1414590540: 7.6 m wide, to 6 m) rises straight out of the low tile roof with its
+            // crest of small white pillars, the white ribbed shikhara (w1414590541: 4 m) with four small corner turrets
+            // (c_kageshwor 00, 05, 10) and the gilt finial.
             ShapeBrush white = KdsLooks.Plaster;
-            const double cube = 2.4, c0 = 5.9, c1 = 7.5;
+            const double cube = 3.55, c0 = 4.95, c1 = 6.35;
             SacredParts.BandedWall(m, x.K, cube, cube, c0, c1, white, white, lod, false, true);
             SacredDraw.CapRect(m, x.K, 0, 0, cube + 0.17, cube + 0.17, c1, true, white);
             if (lod <= 1)
@@ -246,19 +260,34 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 for (int s = 0; s < 4; s++)
                 {
                     Affine3 sk = KdsKit.Side(x.K, s);
-                    KdsKit.BlackWindow(m, sk, 0, 0.5 * (c0 + c1) + 0.1, cube, 0.5, 0.55, lod, 0.06, 2);
-                    // Balustrade posts round the cube's top.
-                    for (int i = 0; i < 7; i++)
+                    for (int q = -1; q <= 1; q++) KdsKit.BlackWindow(m, sk, q * 1.6, 0.5 * (c0 + c1) + 0.15, cube, 0.5, 0.55, lod, 0.06, 2);
+                    // Balustrade posts round the storey's top.
+                    for (int i = 0; i < 9; i++)
                     {
-                        double u = -cube + 2 * cube * (i + 0.5) / 7;
+                        double u = -cube + 2 * cube * (i + 0.5) / 9;
                         SacredDraw.Box(m, sk, u - 0.06, u + 0.06, c1, c1 + 0.45, cube - 0.05, cube + 0.07, white, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
                     }
                     SacredDraw.Box(m, sk, -cube - 0.05, cube + 0.05, c1 + 0.45, c1 + 0.55, cube - 0.08, cube + 0.09, white, BoxFaces.All & ~BoxFaces.Bottom);
                 }
             }
             x.Solid(-cube, cube, -cube, cube, c0, c1, GenColliders.Brick);
-            double topHalf = ShikharaGenerator.Spire(m, x.K, 1.85, c1 + 0.55, 4.6, white, KdsLooks.PlasterShade, 3, lod);
-            double cap = KdsKit.Amalaka(x, topHalf, c1 + 0.55 + 4.6, white);
+            double topHalf = ShikharaGenerator.Spire(m, x.K, 2.0, c1 + 0.55, 5.4, white, KdsLooks.PlasterShade, 3, lod);
+            KdsKit.SpireBands(x, 2.0, c1 + 0.55, 5.4, 6, KdsLooks.PlasterShade);
+            double cap = KdsKit.Amalaka(x, topHalf, c1 + 0.55 + 5.4, white);
+            if (lod <= 1)
+            {
+                // The four small corner turrets on the terrace.
+                int was = x.Coarser();
+                for (int cu = -1; cu <= 1; cu += 2)
+                for (int cw = -1; cw <= 1; cw += 2)
+                {
+                    Affine3 tk = SacredDraw.At(x.K, cu * 2.85, 0, cw * 2.85);
+                    SacredDraw.Box(m, tk, -0.42, 0.42, c1, c1 + 0.75, -0.42, 0.42, white, BoxFaces.Wall);
+                    ShikharaGenerator.Spire(m, tk, 0.42, c1 + 0.75, 1.35, white, KdsLooks.PlasterShade, 3, x.Lod);
+                    Shapes.Cone(m, SacredDraw.At(tk, 0, c1 + 2.08, 0), KdsLooks.Gilt, 0.06, 0.32, 5, 0, 0, false);
+                }
+                x.Restore(was);
+            }
             double tip = KdsKit.GiltFinial(x, cap - 0.05, KageshworTopM - cap + 0.05, 0.2);
             if (x.Stats != null) x.Stats.Tiers = 1;
             return tip;
