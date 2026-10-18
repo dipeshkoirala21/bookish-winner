@@ -181,6 +181,7 @@ namespace Ghumante.Core.Meshing
                             double w1 = p1[k], w2 = p2[k], w0 = 1 - w1 - w2;
                             uint col = Blend(a.Rgba, b.Rgba, c.Rgba, w0, w1, w2);
                             float lx = (float)(gx * cell - ox), lz = (float)(gz * cell - oz);
+                            if (!virt && carve != null) OnBench(carve, lx, lz, ox, oz, cell, lift, ref y, ref nx, ref ny, ref nz);
                             if (uvs)
                                 m.AddVertex(lx, y, lz, nx, ny, nz, col, (float)(w0 * a.U + w1 * b.U + w2 * c.U), (float)(w0 * a.V + w1 * b.V + w2 * c.V));
                             else m.AddVertex(lx, y, lz, nx, ny, nz, col);
@@ -246,8 +247,8 @@ namespace Ghumante.Core.Meshing
                         dhu = h11 - (double)h01;
                         dhv = h01 - (double)h00;
                     }
-                    float nx, ny, nz;
-                    TileHeightSampler.FacetNormal(dhu / subM, dhv / subM, out nx, out ny, out nz);
+                    float fnx, fny, fnz;
+                    TileHeightSampler.FacetNormal(dhu / subM, dhv / subM, out fnx, out fny, out fnz);
                     m.Reserve(n, 3 * (n - 2));
                     int first = m.VertexCount;
                     for (int k = 0; k < n; k++)
@@ -255,9 +256,11 @@ namespace Ghumante.Core.Meshing
                         double gx = px[k], gz = pz[k];
                         double fu = (gx - u0) * r, fv = (gz - v0) * r;
                         float y = (float)(h00 + fu * dhu + fv * dhv) + lift;
+                        float nx = fnx, ny = fny, nz = fnz;
                         double w1 = p1[k], w2 = p2[k], w0 = 1 - w1 - w2;
                         uint col = Blend(a.Rgba, b.Rgba, c.Rgba, w0, w1, w2);
                         float lx = (float)(gx * cell - ox), lz = (float)(gz * cell - oz);
+                        OnBench(carve, lx, lz, ox, oz, cell, lift, ref y, ref nx, ref ny, ref nz);
                         if (uvs)
                             m.AddVertex(lx, y, lz, nx, ny, nz, col, (float)(w0 * a.U + w1 * b.U + w2 * c.U), (float)(w0 * a.V + w1 * b.V + w2 * c.V));
                         else m.AddVertex(lx, y, lz, nx, ny, nz, col);
@@ -266,6 +269,23 @@ namespace Ghumante.Core.Meshing
                         if (UpFloat(m, first, first + k + 1, first + k) > 0) m.AddTriangle(first, first + k + 1, first + k);
                 }
             }
+        }
+
+        /// <summary>
+        /// On a road's bench (<see cref="TerrainCarve.BenchAt"/>: a drawn extent, or a crossing's seam landing on the tile
+        /// border) the drape lies on the bench plus the lift, not on the terrain the carve drew hidden under the road, so a
+        /// junction cap, a ring or a plaza lies exactly where its ribbons, the ground query and everything standing there
+        /// are (cut/fill package).
+        /// </summary>
+        private static void OnBench(TerrainCarve carve, float lx, float lz, double ox, double oz, double cell, float lift, ref float y, ref float nx, ref float ny,
+                                    ref float nz)
+        {
+            float bench;
+            double gx, gz;
+            // At the vertex as stored (float, tile-local), exactly where a sampler asked there looks.
+            if (!carve.BenchAt((lx + ox) / cell, (lz + oz) / cell, out bench, out gx, out gz)) return;
+            y = bench + lift;
+            TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
         }
 
         /// <summary>A coarse vertex height as drawn (lowered under gentle streets when the area is carved).</summary>

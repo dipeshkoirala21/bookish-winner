@@ -50,11 +50,13 @@ namespace Ghumante.Core.Tests
 
         /// <summary>
         /// A primary along the contour of a 70 % hillside (the Pasang Lhamu Highway case: the terrain cross slope about 80 %)
-        /// leans with the slope: its centre stays within the band of the lifted terrain and neither edge stands more than a
-        /// few centimetres off it, so there is no causeway; no up-facing vertex is buried or floats.
+        /// stays level across as hill roads are built (owner playtest #16, docs/W2_PLAYTEST_1.md: cross-fall at most
+        /// <see cref="RoadGrade.MaxBank"/>), and the terrain is cut and filled to meet it (cut/fill package): its centre and
+        /// both edges stand their lift on the drawn (carved) ground, so there is no causeway and nothing is buried; the
+        /// centre stays within the band of the natural ground.
         /// </summary>
         [Test]
-        public void HillRoadsHugASteepCrossSlope()
+        public void HillRoadsStayLevelAcrossASteepCrossSlope()
         {
             Func<double, double, double> f = (x, z) => 1500 + 0.7 * (z - (A.Z0 + 500)) + 2 * Math.Sin((x - A.X0) / 90.0);
             TileData t = MeshingChecks.SyntheticTile(A, f, 513, Biome.HillTerraces);
@@ -70,6 +72,7 @@ namespace Ghumante.Core.Tests
             RoadCentreline c = layout.Centres[0];
             RoadWidthProfile prof = layout.Profiles[0];
             float lift = g.LiftOf(0);
+            Assert.That(h.Carve, Is.Not.Null, "the hillside is carved");
             double worstCentre = 0, worstEdge = 0, bank = 0;
             for (double s = 1; s < c.RawLengthM - 1; s += 1)
             {
@@ -78,7 +81,7 @@ namespace Ghumante.Core.Tests
                 double ux = -tz, uz = tx;
                 float shift = prof.ShiftAt(s), half = 0.5f * prof.DrawnAt(s);
                 double cx = x + ux * shift, cz = z + uz * shift;
-                double dc = g.SurfaceY(0, s, shift, cx, cz) - (g.Terrain(cx, cz) + lift);
+                double dc = g.SurfaceY(0, s, shift, cx, cz) - (g.NaturalTerrain(cx, cz) + lift);
                 worstCentre = Math.Max(worstCentre, Math.Abs(dc));
                 for (int side = -1; side <= 1; side += 2)
                 {
@@ -89,12 +92,12 @@ namespace Ghumante.Core.Tests
                 }
                 bank = Math.Max(bank, Math.Abs(g.RowAt(0, s).B));
             }
-            TestContext.Progress.WriteLine("hill road: centre within " + worstCentre.ToString("0.000") + " m, highest edge " + worstEdge.ToString("0.000") +
-                                           " m over the lifted terrain, bank up to " + (100 * bank).ToString("0") + " %");
+            TestContext.Progress.WriteLine("hill road: centre within " + worstCentre.ToString("0.000") + " m of the natural ground, highest edge " +
+                                           worstEdge.ToString("0.000") + " m over the lifted carved ground, cross-fall up to " + (100 * bank).ToString("0.0") + " %");
             // The band of the smoothed profile (the synthetic DEM is quantised, so a few centimetres of steps are ironed out).
-            Assert.That(worstCentre, Is.LessThanOrEqualTo(RoadGrade.BandM + RoadGrade.MaxBuryM), "the centre stays on the lifted terrain");
-            Assert.That(worstEdge, Is.LessThanOrEqualTo(RoadGrade.BandM + RoadGrade.MaxBuryM + 0.05), "no causeway above the downhill side");
-            Assert.That(bank, Is.GreaterThan(0.6), "the road leans with the 70 % slope");
+            Assert.That(worstCentre, Is.LessThanOrEqualTo(RoadGrade.BandM + RoadGrade.MaxBuryM), "the centre stays on the natural ground");
+            Assert.That(worstEdge, Is.LessThanOrEqualTo(0.02), "no causeway: the carved ground meets the level road");
+            Assert.That(bank, Is.LessThanOrEqualTo(RoadGrade.MaxBank + 1e-4), "the road stays level across the 70 % slope");
             // Every up-facing vertex of the ribbon (carriageway, shoulders) lies within half a metre of the lifted terrain.
             for (int v = 0; v < m.VertexCount; v++)
             {
@@ -133,7 +136,8 @@ namespace Ghumante.Core.Tests
                     RoadStructureRecord st = t.RoadStructureOf(i);
                     for (double s = 1; s < c.RawLengthM - 1; s += 2)
                     {
-                        if (g.OnDeck(i, s) || NearStructurePoint(lay, st, i, s)) continue;
+                        // Not drawn in a gap (cut/fill package: the ground there may be another road's cutting).
+                        if (g.OnDeck(i, s) || NearStructurePoint(lay, st, i, s) || lay.InGap(i, s)) continue;
                         double x, z, tx, tz;
                         c.At(s, out x, out z, out tx, out tz);
                         double ux = -tz, uz = tx;

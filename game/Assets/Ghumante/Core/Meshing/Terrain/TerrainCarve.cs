@@ -205,6 +205,25 @@ namespace Ghumante.Core.Meshing
 
         private readonly List<RoadPad> _pads = new List<RoadPad>();
 
+        /// <summary>A road crossing the tile border (its seam row, which lies on the border line): what the tile on the
+        /// other side knows identically (<see cref="BorderCarved"/>).</summary>
+        private struct Crossing
+        {
+            /// <summary>Centre of the seam row on the border (tile-local).</summary>
+            public double X, Z;
+
+            /// <summary>The seam row's section direction (along the border line; offsets along it are distances square to
+            /// the road), outward from this tile, and the drawn extent on each side of it.</summary>
+            public double WX, WZ;
+
+            public float CL, CR;
+
+            /// <summary>The level bench of the seam landing (the road surface less its lift).</summary>
+            public float Bench;
+        }
+
+        private readonly List<Crossing> _crossings = new List<Crossing>();
+
         // Element grids (tile-local): every element by its box grown by its reach (strong) or verge (weak), and every
         // element by its drawn extent only (the analytic surface under roads, ExtentAt).
         private const double ElemCellM = 8.0;
@@ -637,6 +656,15 @@ namespace Ghumante.Core.Meshing
                 pos.Clear();
                 for (int k = 0; k < n; k++) pos.Add(c.AlongAtArc(k * step));
                 for (int k = 0; k < _rowS.Count; k++) pos.Add(_rowS[k]);
+                // Where an absorbed stretch (drawn as the other road's footpath) ends, the ribbon starts again: the run does
+                // too, so no hole opens between the ribbon's first row and the next station.
+                double[] ab = lay.Absorbed[i];
+                if (ab != null)
+                    for (int k = 0; k < ab.Length; k++)
+                    {
+                        double sa = (k & 1) == 0 ? ab[k] - 1e-3 : ab[k] + 1e-3;
+                        if (sa > 0 && sa < c.RawLengthM) pos.Add(sa);
+                    }
                 pos.Sort();
                 run.Clear();
                 bool clipStart = seamStart;
@@ -1061,6 +1089,9 @@ namespace Ghumante.Core.Meshing
             };
             a.S = Strength(a);
             Reach(ref a, tx, tz);
+            double size = Source.Tile.Size;
+            if (Math.Abs(x) < 1e-3 || Math.Abs(z) < 1e-3 || Math.Abs(x - size) < 1e-3 || Math.Abs(z - size) < 1e-3)
+                _crossings.Add(new Crossing { X = x, Z = z, WX = wx, WZ = wz, CL = a.CL, CR = a.CR, Bench = a.A0 });
             double len = RoadGrade.SeamLandingM + 1.0;
             Station b = a;
             b.X = x + tx * len;
@@ -1996,6 +2027,42 @@ namespace Ghumante.Core.Meshing
         /// fill beside it) only when every cell around it is refined, else the coarse surface, so a refined cell meets its
         /// unrefined neighbours on their straight edges without cracks.
         /// </summary>
+        /// <summary>The border profile moves the ground at least this much before its cells are refined.</summary>
+        private const float BorderMoveM = 0.005f;
+
+        /// <summary>
+        /// The drawn ground on the tile border at tile-local (lx, lz) over the natural ground <paramref name="natural"/>
+        /// there: what both tiles of a seam draw alike, from what both know identically. That is the natural border line,
+        /// cut down to every crossing road's seam landing (level at the bench, both tiles pin it to the same height) under
+        /// its drawn extent and its verge, and at the cut slope beyond (<see cref="CutSlope"/>, measured square to the
+        /// road: the seam row lies on the border line). The fill below a crossing stays natural on the border (the road's
+        /// skirt closes it), as does every other road's cut and fill (relaxed over <see cref="BorderFadeM"/>).
+        /// </summary>
+        private float BorderCarved(double lx, double lz, float natural)
+        {
+            float h = natural;
+            double size = Source.Tile.Size;
+            // A tile corner is shared by four tiles, each knowing only the crossings of its own two borders: natural.
+            if (IsCorner(lx, lz)) return h;
+            float verge = _refine ? StreetVergeM : UnrefinedVergeM;
+            for (int k = 0; k < _crossings.Count; k++)
+            {
+                Crossing c = _crossings[k];
+                // Only a crossing on the same border line as the point.
+                bool same = Math.Abs(c.X - lx) < 1e-3 && (Math.Abs(lx) < 1e-3 || Math.Abs(lx - size) < 1e-3) ||
+                            Math.Abs(c.Z - lz) < 1e-3 && (Math.Abs(lz) < 1e-3 || Math.Abs(lz - size) < 1e-3);
+                if (!same) continue;
+                double ww = c.WX * c.WX + c.WZ * c.WZ;
+                if (ww < 1e-9) continue;
+                double o = ((lx - c.X) * c.WX + (lz - c.Z) * c.WZ) / ww;
+                double d = o >= 0 ? o - c.CL : -o - c.CR;
+                if (d > MaxReachM + verge) continue;
+                float cut = d <= verge ? c.Bench : c.Bench + CutSlope * (float)(d - verge);
+                if (cut < h) h = cut;
+            }
+            return h;
+        }
+
         private void Rasterise()
         {
             int q = Grid.Quads, r = Sub, side = q * r + 1;
@@ -2024,6 +2091,28 @@ namespace Ghumante.Core.Meshing
             }
             for (int cell = 0; cell < q * q; cell++)
                 if (_poke[cell]) candidate[cell] = true;
+            // Border cells where a crossing road cuts the border line (BorderCarved): both tiles refine them.
+            var forced = new bool[q * q];
+            if (_crossings.Count > 0 && _offX == 0.0 && _offZ == 0.0)
+            {
+                for (int k = 0; k < q; k++)
+                for (int e = 0; e < 4; e++)
+                {
+                    int ci = e == 0 ? 0 : e == 1 ? q - 1 : k, cj = e == 2 ? 0 : e == 3 ? q - 1 : k;
+                    if (forced[cj * q + ci]) continue;
+                    for (int a = 0; a <= r; a++)
+                    {
+                        int gi = e == 0 ? 0 : e == 1 ? q * r : ci * r + a, gj = e == 2 ? 0 : e == 3 ? q * r : cj * r + a;
+                        double u = gi / (double)r, v = gj / (double)r;
+                        float nat = (float)GridSurface(_natural, u, v);
+                        if (BorderCarved(gi * SubM, gj * SubM, nat) < nat - BorderMoveM)
+                        {
+                            forced[cj * q + ci] = candidate[cj * q + ci] = true;
+                            break;
+                        }
+                    }
+                }
+            }
             // Pass 1: the carved and the coarse surfaces at every sub-vertex of the candidate cells.
             var refinedFlag = new bool[q * q];
             var refined = new List<int>(256);
@@ -2042,7 +2131,7 @@ namespace Ghumante.Core.Meshing
                     float d = Math.Abs(sc.Judge[idx] - sc.Coarse[idx]);
                     if (d > worst) worst = d;
                 }
-                if (worst > TuneRefineMove) moved = true;
+                if (worst > TuneRefineMove || forced[cell]) moved = true;
                 if (!moved) continue;
                 refined.Add(cell);
                 refinedFlag[cell] = true;
@@ -2065,6 +2154,12 @@ namespace Ghumante.Core.Meshing
                 for (int a = 0; a <= r; a++)
                 {
                     int gi = ci * r + a, gj = cj * r + b, idx = gj * side + gi;
+                    if (gi == 0 || gj == 0 || gi == side - 1 || gj == side - 1)
+                    {
+                        // On the tile border: the profile both tiles draw alike (the neighbour cannot see this carve).
+                        _heights[start + b * (r + 1) + a] = BorderCarved(_offX + gi * SubM, _offZ + gj * SubM, (float)GridSurface(_natural, gi / (double)r, gj / (double)r));
+                        continue;
+                    }
                     bool all = true;
                     if (a == 0 || a == r || b == 0 || b == r)
                     {
@@ -2072,8 +2167,6 @@ namespace Ghumante.Core.Meshing
                         for (int jj = ja; jj <= jb && all; jj++)
                         for (int ii = ia; ii <= ib && all; ii++)
                         {
-                            // Cells off the grid count as refined (the tile border: both tiles keep their own carve there,
-                            // which the border fade holds to the natural ground; the skirts close the rest).
                             if (ii < 0 || jj < 0 || ii >= q || jj >= q) continue;
                             if (!refinedFlag[jj * q + ii]) all = false;
                         }
@@ -2227,8 +2320,83 @@ namespace Ghumante.Core.Meshing
             if (v < 0) v = 0;
             else if (v > q) v = q;
             float bench;
-            if (ExtentAt(_offX + u * Grid.CellM, _offZ + v * Grid.CellM, out bench, out gx, out gz)) return bench;
+            double lx = _offX + u * Grid.CellM, lz = _offZ + v * Grid.CellM;
+            if (OnTileBorder(lx, lz))
+            {
+                // On the tile border only what both tiles know alike: the crossing roads' seam landings, else the border
+                // profile both draw (BorderCarved), so everything standing on the seam stands alike on both sides of it.
+                if (CrossingBench(lx, lz, out bench))
+                {
+                    gx = gz = 0.0;
+                    return bench;
+                }
+                return DrawnSurface(u, v, out gx, out gz);
+            }
+            if (ExtentAt(lx, lz, out bench, out gx, out gz)) return bench;
             return DrawnSurface(u, v, out gx, out gz);
+        }
+
+        /// <summary>
+        /// True when the carved surface at area-local fractional grid coordinates (u, v) is a road's bench (on a drawn
+        /// extent, or on a crossing road's seam landing on the tile border): <see cref="Surface"/> answers
+        /// <paramref name="bench"/> there with its gradient per metre, not the drawn terrain hidden under the road. The
+        /// drapes put caps, rings and areas on it, so they lie exactly where the ground query and the ribbons are.
+        /// </summary>
+        public bool BenchAt(double u, double v, out float bench, out double gx, out double gz)
+        {
+            int q = Grid.Quads;
+            if (u < 0) u = 0;
+            else if (u > q) u = q;
+            if (v < 0) v = 0;
+            else if (v > q) v = q;
+            double lx = _offX + u * Grid.CellM, lz = _offZ + v * Grid.CellM;
+            if (OnTileBorder(lx, lz))
+            {
+                gx = gz = 0.0;
+                return CrossingBench(lx, lz, out bench);
+            }
+            return ExtentAt(lx, lz, out bench, out gx, out gz);
+        }
+
+        /// <summary>True when tile-local (lx, lz) is a corner of the source tile.</summary>
+        private bool IsCorner(double lx, double lz)
+        {
+            const double Eps = 1e-3;
+            double size = Source.Tile.Size;
+            return (Math.Abs(lx) < Eps || Math.Abs(lx - size) < Eps) && (Math.Abs(lz) < Eps || Math.Abs(lz - size) < Eps);
+        }
+
+        /// <summary>True when tile-local (lx, lz) lies on the source tile's border line.</summary>
+        private bool OnTileBorder(double lx, double lz)
+        {
+            const double Eps = 1e-6;
+            double size = Source.Tile.Size;
+            return lx <= Eps || lz <= Eps || lx >= size - Eps || lz >= size - Eps;
+        }
+
+        /// <summary>The seam landing's bench of a road crossing the tile border at tile-local (lx, lz) on the border line
+        /// (its drawn extent and <see cref="SideMarginM"/>, as <see cref="ExtentAt"/> reaches); false elsewhere.</summary>
+        private bool CrossingBench(double lx, double lz, out float bench)
+        {
+            bench = 0f;
+            bool found = false;
+            double size = Source.Tile.Size;
+            if (IsCorner(lx, lz)) return false;
+            for (int k = 0; k < _crossings.Count; k++)
+            {
+                Crossing c = _crossings[k];
+                bool same = Math.Abs(c.X - lx) < 1e-3 && (Math.Abs(lx) < 1e-3 || Math.Abs(lx - size) < 1e-3) ||
+                            Math.Abs(c.Z - lz) < 1e-3 && (Math.Abs(lz) < 1e-3 || Math.Abs(lz - size) < 1e-3);
+                if (!same) continue;
+                double ww = c.WX * c.WX + c.WZ * c.WZ;
+                if (ww < 1e-9) continue;
+                double o = ((lx - c.X) * c.WX + (lz - c.Z) * c.WZ) / ww;
+                if (o > c.CL + SideMarginM || -o > c.CR + SideMarginM) continue;
+                // Two crossings overlapping on the border: the higher bench (the lower is under it).
+                if (!found || c.Bench > bench) bench = c.Bench;
+                found = true;
+            }
+            return found;
         }
 
         /// <summary>

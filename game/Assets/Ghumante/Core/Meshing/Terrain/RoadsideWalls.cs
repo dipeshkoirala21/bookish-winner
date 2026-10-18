@@ -193,7 +193,7 @@ namespace Ghumante.Core.Meshing
                     float base0 = b0 - 0.15f, base1 = b1 - 0.15f;
                     float top0 = Math.Max(base0 + 0.6f, Drawn(fx0 + ox0 * depth, fz0 + oz0 * depth));
                     float top1 = Math.Max(base1 + 0.6f, Drawn(fx1 + ox1 * depth, fz1 + oz1 * depth));
-                    WallFace(m, fx0, fz0, fx1, fz1, ox0, oz0, ox1, oz1, base0, base1, top0, top1, depth, gabion, jitter);
+                    WallFace(m, fx0, fz0, fx1, fz1, ox0, oz0, ox1, oz1, base0, base1, top0, top1, depth, gabion, jitter, CutFill.FillEarth);
                 }
                 else
                 {
@@ -203,7 +203,7 @@ namespace Ghumante.Core.Meshing
                     float base0 = Math.Min(top0 - 0.6f, Drawn(fx0 + ox0 * d, fz0 + oz0 * d) - 0.3f);
                     float base1 = Math.Min(top1 - 0.6f, Drawn(fx1 + ox1 * d, fz1 + oz1 * d) - 0.3f);
                     WallFace(m, fx0 + ox0 * depth, fz0 + oz0 * depth, fx1 + ox1 * depth, fz1 + oz1 * depth, -ox0, -oz0, -ox1, -oz1, base0, base1, top0, top1,
-                             depth, gabion, jitter);
+                             depth, gabion, jitter, CutFill.Verge);
                 }
             }
         }
@@ -224,6 +224,13 @@ namespace Ghumante.Core.Meshing
         /// <summary>How far a gabion basket's face bulges out at its middle (the stones press the wire mesh out).</summary>
         private const float BasketBulgeM = 0.06f;
 
+        /// <summary>Depth of a gabion basket (its top shows as stone this far back from the face; the earth it holds lies
+        /// behind).</summary>
+        private const double BasketDepthM = 1.0;
+
+        /// <summary>Depth of a dry stone wall's concrete coping.</summary>
+        private const double CopingDepthM = 0.45;
+
         /// <summary>
         /// One 2 m bay of wall between front points (x0, z0) and (x1, z1) on its foot line; (b0x, b0z) and (b1x, b1z) point
         /// from the face into the wall's body at either end (the ribbon's mitred section directions, so neighbouring bays
@@ -231,10 +238,11 @@ namespace Ghumante.Core.Meshing
         /// wall's face looks at the valley (its courses step back toward the road).
         /// Gabion: 1 m courses counted up from the foot (so they run level across bays), each course a wire basket per bay
         /// bulging out between its wired seams, set back <see cref="GabionStepM"/> with a stone ledge on it. Dry stone: one battered
-        /// rubble face and a concrete coping.
+        /// rubble face and a concrete coping. Behind the top course (or the coping) the wall's body is drawn as the earth it
+        /// holds back, tinted <paramref name="behind"/>.
         /// </summary>
         private static void WallFace(MeshData m, double x0, double z0, double x1, double z1, double b0x, double b0z, double b1x, double b1z, float base0,
-                                     float base1, float top0, float top1, double depth, bool gabion, uint jitter)
+                                     float base1, float top0, float top1, double depth, bool gabion, uint jitter, uint behind)
         {
             // Face normal: away from the body, square to the bay's chord.
             double cx = x1 - x0, cz = z1 - z0, cl = Math.Sqrt(cx * cx + cz * cz);
@@ -255,11 +263,16 @@ namespace Ghumante.Core.Meshing
                 double ax0 = x0 + b0x * 0.1 * h0, az0 = z0 + b0z * 0.1 * h0, ax1 = x1 + b1x * 0.1 * h1, az1 = z1 + b1z * 0.1 * h1;
                 uint stone = MeshColor.Scale(MasonryStone, 0.92f + 0.16f * ((jitter & 255) / 255f));
                 Quad(m, x0, base0, z0, x1, base1, z1, ax1, top1, az1, ax0, top0, az0, nx, 0.1f, nz, stone, MaterialChannel.Flagstone, 0.85f);
-                double kx0 = ax0 + b0x * depth, kz0 = az0 + b0z * depth, kx1 = ax1 + b1x * depth, kz1 = az1 + b1z * depth;
+                // The coping: a 0.45 m concrete slab overhanging the face by 8 cm; behind it the earth the wall holds.
+                double cd = Math.Min(depth, CopingDepthM);
+                double kx0 = ax0 + b0x * cd, kz0 = az0 + b0z * cd, kx1 = ax1 + b1x * cd, kz1 = az1 + b1z * cd;
                 Quad(m, ax0 - b0x * 0.08, top0 + 0.12f, az0 - b0z * 0.08, ax1 - b1x * 0.08, top1 + 0.12f, az1 - b1z * 0.08, kx1, top1 + 0.12f, kz1, kx0,
                      top0 + 0.12f, kz0, 0f, 1f, 0f, Coping, MaterialChannel.Concrete, 1f);
                 Quad(m, ax0 - b0x * 0.08, top0 - 0.02f, az0 - b0z * 0.08, ax1 - b1x * 0.08, top1 - 0.02f, az1 - b1z * 0.08, ax1 - b1x * 0.08, top1 + 0.12f,
                      az1 - b1z * 0.08, ax0 - b0x * 0.08, top0 + 0.12f, az0 - b0z * 0.08, nx, 0f, nz, Coping, MaterialChannel.Concrete, 0.9f);
+                if (depth > cd + 0.01)
+                    Quad(m, kx0, top0 + 0.04f, kz0, kx1, top1 + 0.04f, kz1, ax1 + b1x * depth, top1 + 0.04f, az1 + b1z * depth, ax0 + b0x * depth, top0 + 0.04f,
+                         az0 + b0z * depth, 0f, 1f, 0f, behind, MaterialChannel.Dirt, 0.9f);
                 return;
             }
             float hMax = Math.Max(top0 - base0, top1 - base1);
@@ -282,8 +295,14 @@ namespace Ghumante.Core.Meshing
                     l0 = Math.Max(0.0, l0);
                     l1 = Math.Max(0.0, l1);
                     double ax0 = x0 + b0x * set, az0 = z0 + b0z * set, ax1 = x1 + b1x * set, az1 = z1 + b1z * set;
-                    Quad(m, ax0, yt0, az0, ax1, yt1, az1, ax1 + b1x * l1, yt1, az1 + b1z * l1, ax0 + b0x * l0, yt0, az0 + b0z * l0, 0f, 1f, 0f,
+                    // The top of the basket itself (stone, one basket deep), then the earth it holds back (the road's
+                    // shoulder behind a fill wall, the hillside behind a breast wall).
+                    double s0 = next0 ? l0 : Math.Min(l0, BasketDepthM), s1 = next1 ? l1 : Math.Min(l1, BasketDepthM);
+                    Quad(m, ax0, yt0, az0, ax1, yt1, az1, ax1 + b1x * s1, yt1, az1 + b1z * s1, ax0 + b0x * s0, yt0, az0 + b0z * s0, 0f, 1f, 0f,
                          MeshColor.Scale(stone, 1.04f), MaterialChannel.Flagstone, ao);
+                    if (l0 > s0 + 0.01 || l1 > s1 + 0.01)
+                        Quad(m, ax0 + b0x * s0, yt0, az0 + b0z * s0, ax1 + b1x * s1, yt1, az1 + b1z * s1, ax1 + b1x * l1, yt1, az1 + b1z * l1, ax0 + b0x * l0, yt0,
+                             az0 + b0z * l0, 0f, 1f, 0f, behind, MaterialChannel.Dirt, 0.9f);
                 }
             }
         }
@@ -360,15 +379,7 @@ namespace Ghumante.Core.Meshing
                 }
                 float gy = bench + lift; // on the road's outer edge (shoulder or footpath)
                 if (k < n || (_flags[e] & ClipEnd) != 0) Post(m, px, gy, pz, ux, uz, !_refine);
-                if (rail && prev)
-                {
-                    // A W-beam between this post and the previous one, on the road side of the posts.
-                    double rx0 = prevX - ux * 0.12, rz0 = prevZ - uz * 0.12, rx1 = px - ux * 0.12, rz1 = pz - uz * 0.12;
-                    float ya = prevY + 0.42f, yb = gy + 0.42f, h = 0.3f;
-                    Quad(m, rx0, ya, rz0, rx1, yb, rz1, rx1, yb + h, rz1, rx0, ya + h, rz0, (float)-ux, 0f, (float)-uz, RailSteel, MaterialChannel.Metal, 0.95f);
-                    Quad(m, rx1, yb, rz1, rx0, ya, rz0, rx0, ya + h, rz0, rx1, yb + h, rz1, (float)ux, 0f, (float)uz, MeshColor.Scale(RailSteel, 0.8f),
-                         MaterialChannel.Metal, 0.8f);
-                }
+                if (rail && prev) WBeam(m, prevX - ux * 0.09, prevY + 0.42f, prevZ - uz * 0.09, px - ux * 0.09, gy + 0.42f, pz - uz * 0.09, -ux, -uz);
                 prev = true;
                 prevX = px;
                 prevZ = pz;
@@ -496,8 +507,82 @@ namespace Ghumante.Core.Meshing
                 Box(m, x, y - 0.5f, z, ux, uz, vx, vz, H, 1.28f, PostWhite, MaterialChannel.Paint, 0.9f);
                 return;
             }
-            Box(m, x, y - 0.5f, z, ux, uz, vx, vz, H, 1.08f, PostWhite, MaterialChannel.Paint, 0.9f);
-            Box(m, x, y + 0.58f, z, ux, uz, vx, vz, H, 0.2f, PostBlack, MaterialChannel.Paint, 1f);
+            // Cast concrete posts have chamfered arrises (and read rounded at a glance): an eight-sided prism, the black
+            // band on top.
+            Prism(m, x, y - 0.5f, z, ux, uz, H, PostChamferM, 1.08f, PostWhite, 0.9f, false);
+            Prism(m, x, y + 0.58f, z, ux, uz, H, PostChamferM, 0.2f, PostBlack, 1f, true);
+        }
+
+        /// <summary>The chamfer on a parapet post's vertical edges.</summary>
+        private const double PostChamferM = 0.03;
+
+        // The eight corners of a chamfered square (see Prism): unit square corner and chamfer direction.
+        private static readonly double[] OctU = { 1, 1, 1, -1, -1, -1, -1, 1 }, OctV = { -1, 1, 1, 1, 1, -1, -1, -1 };
+        private static readonly double[] OctCu = { 0, 0, 1, -1, 0, 0, -1, 1 }, OctCv = { -1, 1, 0, 0, 1, -1, 0, 0 };
+
+        // The W-beam's profile from its bottom edge up: height, and how far it stands out toward the road.
+        private static readonly float[] BeamY = { 0f, 0.06f, 0.10f, 0.155f, 0.21f, 0.25f, 0.31f };
+        private static readonly float[] BeamD = { 0.015f, 0.083f, 0.083f, 0.03f, 0.083f, 0.083f, 0.015f };
+
+        /// <summary>An upright eight-sided prism (a square of half side <paramref name="h"/> with its corners chamfered by
+        /// <paramref name="c"/>, faces toward (ux, uz) and along the road) standing at (x, y, z), <paramref name="height"/>
+        /// tall, with a top cap when <paramref name="cap"/>. Paint channel.</summary>
+        private static void Prism(MeshData m, double x, float y, double z, double ux, double uz, double h, double c, float height, uint rgba, float ao, bool cap)
+        {
+            double vx = -uz, vz = ux;
+            float y1 = y + height;
+            // Corners counter-clockwise seen from above, starting on the outward face: corner k is (u, v) = (OctU[k] h -
+            // OctCu[k] c, OctV[k] h - OctCv[k] c).
+            for (int k = 0; k < 8; k++)
+            {
+                int k1 = (k + 1) & 7;
+                double au = OctU[k] * h - OctCu[k] * c, av = OctV[k] * h - OctCv[k] * c, bu = OctU[k1] * h - OctCu[k1] * c, bv = OctV[k1] * h - OctCv[k1] * c;
+                double ax = x + ux * au + vx * av, az = z + uz * au + vz * av;
+                double bx = x + ux * bu + vx * bv, bz = z + uz * bu + vz * bv;
+                double mu = 0.5 * (au + bu), mv = 0.5 * (av + bv);
+                double nx = ux * mu + vx * mv, nz = uz * mu + vz * mv;
+                float a = k == 2 || k == 6 || (k & 1) == 1 ? ao * 0.95f : ao;
+                Quad(m, ax, y, az, bx, y, bz, bx, y1, bz, ax, y1, az, (float)nx, 0f, (float)nz, rgba, MaterialChannel.Paint, a);
+            }
+            if (!cap) return;
+            int v0 = m.VertexCount;
+            for (int k = 0; k < 8; k++)
+            {
+                double ku = OctU[k] * h - OctCu[k] * c, kv = OctV[k] * h - OctCv[k] * c;
+                m.AddVertex((float)(x + ux * ku + vx * kv), y1, (float)(z + uz * ku + vz * kv), 0f, 1f, 0f, rgba, (float)MaterialChannel.Paint, ao);
+            }
+            // A fan, wound to face up (Unity: front = cross(b - a, c - a)).
+            for (int k = 1; k < 7; k++)
+            {
+                float ex = m.Positions[3 * (v0 + k)] - m.Positions[3 * v0], ez = m.Positions[3 * (v0 + k) + 2] - m.Positions[3 * v0 + 2];
+                float fx = m.Positions[3 * (v0 + k + 1)] - m.Positions[3 * v0], fz = m.Positions[3 * (v0 + k + 1) + 2] - m.Positions[3 * v0 + 2];
+                if (ez * fx - ex * fz >= 0f) m.AddTriangle(v0, v0 + k, v0 + k + 1);
+                else m.AddTriangle(v0, v0 + k + 1, v0 + k);
+            }
+        }
+
+        /// <summary>
+        /// A steel W-beam guard rail from (x0, y0, z0) to (x1, y1, z1) (its lower edge, on the road side of the posts;
+        /// (fx, fz) points from the posts toward the road): the 31 cm two-ridged corrugated profile of the beams on Nepal's
+        /// strategic roads (World Bank road safety programme, docs/research/w2/ref_cutfill.md), six facets on the road side and
+        /// a flat back.
+        /// </summary>
+        private static void WBeam(MeshData m, double x0, float y0, double z0, double x1, float y1, double z1, double fx, double fz)
+        {
+            float[] py = BeamY, pd = BeamD;
+            for (int k = 0; k + 1 < py.Length; k++)
+            {
+                float ya = py[k], yb = py[k + 1];
+                double da = pd[k], db = pd[k + 1];
+                // The facet's normal in the section: (outward run, rise) turned toward the road.
+                double run = db - da, rise = yb - ya, l = Math.Sqrt(run * run + rise * rise);
+                double nh = rise / l, nv = -run / l;
+                float shade = nv > 0.3 ? 1.05f : nv < -0.3 ? 0.78f : 0.95f;
+                Quad(m, x0 + fx * da, y0 + ya, z0 + fz * da, x1 + fx * da, y1 + ya, z1 + fz * da, x1 + fx * db, y1 + yb, z1 + fz * db, x0 + fx * db, y0 + yb,
+                     z0 + fz * db, (float)(fx * nh), (float)nv, (float)(fz * nh), MeshColor.Scale(RailSteel, shade), MaterialChannel.Metal, nv < -0.3 ? 0.8f : 0.95f);
+            }
+            Quad(m, x1, y1, z1, x0, y0, z0, x0, y0 + 0.31f, z0, x1, y1 + 0.31f, z1, (float)-fx, 0f, (float)-fz, MeshColor.Scale(RailSteel, 0.8f), MaterialChannel.Metal,
+                 0.8f);
         }
 
         /// <summary>Parapet posts and guard rails stand this far beyond the road's drawn extent, on the crest of the

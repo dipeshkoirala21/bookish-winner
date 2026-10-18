@@ -136,6 +136,18 @@ namespace Ghumante.Core.Meshing
                 if (PinCount == Pins.Length) Array.Resize(ref Pins, Math.Max(4, 2 * PinCount));
                 Pins[PinCount++] = p;
             }
+
+            /// <summary>Replaces the pin at arc <paramref name="l"/> (the first within a millimetre), else adds it.</summary>
+            public void SetPinAt(double l, in Pin p)
+            {
+                for (int k = 0; k < PinCount; k++)
+                {
+                    if (Math.Abs(Pins[k].L - l) > 1e-3) continue;
+                    Pins[k] = p;
+                    return;
+                }
+                AddPin(p);
+            }
         }
 
         /// <summary>Everything about one cross-section row of a piece that depends only on the along position.</summary>
@@ -143,6 +155,9 @@ namespace Ghumante.Core.Meshing
         {
             public float P, B, G;
             public float PinW, PinRel, PinAbsY, PinBank, PinBenchY, PinBenchBank;
+
+            /// <summary>The pin that set the row's pin values (-1: none).</summary>
+            public int PinIndex;
             public bool PinAbs;
             public float DeckW, DeckY, DeckG;
             public bool Clamp;
@@ -364,6 +379,23 @@ namespace Ghumante.Core.Meshing
             return Math.Abs(lat - prof.ShiftAt(sj)) <= 0.5 * prof.DrawnAt(sj) + 0.05;
         }
 
+        /// <summary>True when tile-local (x, z) lies on the drawn extent of road <paramref name="j"/> (its carriageway with the
+        /// footpaths or shoulders beside it, outside its junction gaps); <paramref name="sj"/> is the raw along there.</summary>
+        private bool OnDrawn(int j, double x, double z, out double sj)
+        {
+            sj = 0;
+            RoadCentreline c = Layout.Centres[j];
+            if (!_drawn[j]) return false;
+            int seg;
+            double lat, dist;
+            if (!c.Nearest(x, z, out seg, out sj, out lat, out dist)) return false;
+            if (sj <= 0 || sj >= c.RawLengthM || Layout.InGap(j, sj) || Layout.InAbsorbed(j, sj)) return false;
+            RoadWidthProfile prof = Layout.Profiles[j];
+            double off = lat - prof.ShiftAt(sj), half = 0.5 * prof.DrawnAt(sj), shoulder = Layout.ShoulderAt(j, sj);
+            double side = off >= 0 ? Math.Max(prof.Sample(prof.FootLeft, sj), shoulder) : Math.Max(prof.Sample(prof.FootRight, sj), shoulder);
+            return Math.Abs(off) <= half + side + 0.05;
+        }
+
         /// <summary>
         /// Minor roads running into another road without a junction cap (a lane or a path ending on a street, steps meeting
         /// a lane): the free end lies in the other road's surface plane, held over the stretch where the two carriageways
@@ -433,6 +465,184 @@ namespace Ghumante.Core.Meshing
                 }
             }
             foreach (KeyValuePair<int, Pin> e in pins) _pieces[e.Key].AddPin(e.Value);
+            GapPins();
+            FollowPins();
+        }
+
+        /// <summary>Spacing of the pins that hold a piece to the road it runs alongside.</summary>
+        public const double FollowStepM = 3.0;
+
+        /// <summary>Two pieces run alongside each other where their directions differ by less than this (degrees).</summary>
+        public const double FollowMaxAngleDeg = 35.0;
+
+        /// <summary>
+        /// Pieces whose carriageways overlap another piece's running alongside it (a slip road or link beside the main road,
+        /// the two carriageways of a divided road where they touch, an arm merging at an acute fork, a lane drawn over a
+        /// wider street): the lesser piece (lower class, then shorter) is held to the greater's drawn surface plane over the
+        /// whole overlap, pin by pin every <see cref="FollowStepM"/>, then fades to its own profile. Each piece is level across
+        /// on its own; before this the two followed their own profiles and met up to 4 m apart on a hillside (the Ring Road
+        /// and its link at Chabahil, cut/fill package).
+        /// </summary>
+        private void FollowPins()
+        {
+            int n = _pieces.Length;
+            var box = new double[4 * n];
+            for (int i = 0; i < n; i++)
+            {
+                Piece p = _pieces[i];
+                RoadCentreline c = Layout.Centres[i];
+                if (p == null || p.AllDeck || p.Synthetic || c == null || c.Count < 2) continue;
+                double x0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, z1 = double.MinValue;
+                for (int k = 0; k < c.Count; k++)
+                {
+                    x0 = Math.Min(x0, c.X[k]);
+                    z0 = Math.Min(z0, c.Z[k]);
+                    x1 = Math.Max(x1, c.X[k]);
+                    z1 = Math.Max(z1, c.Z[k]);
+                }
+                RoadWidthProfile prof = Layout.Profiles[i];
+                double m = 0.5 * prof.MaxDrawn + 4.0; // the drawn half width and a dual carriageway's shift
+                box[4 * i] = x0 - m;
+                box[4 * i + 1] = z0 - m;
+                box[4 * i + 2] = x1 + m;
+                box[4 * i + 3] = z1 + m;
+            }
+            double cosMax = Math.Cos(FollowMaxAngleDeg * Math.PI / 180.0);
+            var pins = new List<KeyValuePair<int, Pin>>();
+            for (int i = 0; i < n; i++)
+            {
+                Piece p = _pieces[i];
+                RoadCentreline c = Layout.Centres[i];
+                if (p == null || p.AllDeck || p.Synthetic || c == null || c.Count < 2) continue;
+                int pi = FollowRank(i);
+                for (int j = 0; j < n; j++)
+                {
+                    Piece pj = _pieces[j];
+                    if (j == i || pj == null || pj.AllDeck || pj.Synthetic) continue;
+                    if (box[4 * j] > box[4 * i + 2] || box[4 * j + 2] < box[4 * i] || box[4 * j + 1] > box[4 * i + 3] || box[4 * j + 3] < box[4 * i + 1]) continue;
+                    // j leads: the higher class (a link below its class), then the longer, then the lower index.
+                    int pjr = FollowRank(j);
+                    double li = c.RawLengthM, lj = Layout.Centres[j].RawLengthM;
+                    if (pjr < pi || pjr == pi && (lj < li || lj == li && j > i)) continue;
+                    double runStart = -1, runEnd = -1;
+                    for (double s = 0.5; s <= li - 0.5 + 1e-9; s += 1.0)
+                    {
+                        bool on = !Layout.InGap(i, s) && !Layout.InAbsorbed(i, s) && Overlaps(i, s, j) && Parallel(i, s, j, cosMax);
+                        if (on)
+                        {
+                            if (runStart < 0) runStart = s;
+                            runEnd = s;
+                        }
+                        if ((!on || s + 1.0 > li - 0.5) && runStart >= 0)
+                        {
+                            AddFollow(pins, i, j, runStart, runEnd);
+                            runStart = -1;
+                        }
+                    }
+                }
+            }
+            foreach (KeyValuePair<int, Pin> e in pins) _pieces[e.Key].AddPin(e.Value);
+        }
+
+        /// <summary>Which of two pieces running alongside each other leads (<see cref="FollowPins"/>): the class, a link (a
+        /// slip road) just below the main road of its class.</summary>
+        private int FollowRank(int i)
+        {
+            RoadRecord r = Tile.Roads[i];
+            return 2 * RoadStyle.Priority(r.RoadClass) + ((r.Flags & RoadFlags.Link) != 0 ? 0 : 1);
+        }
+
+        /// <summary>True when road <paramref name="i"/> at raw along <paramref name="s"/> runs alongside road
+        /// <paramref name="j"/> (their directions within the angle whose cosine is <paramref name="cosMax"/>).</summary>
+        private bool Parallel(int i, double s, int j, double cosMax)
+        {
+            RoadCentreline c = Layout.Centres[i], cj = Layout.Centres[j];
+            double x, z, tx, tz;
+            c.At(s, out x, out z, out tx, out tz);
+            int seg;
+            double a, lat, dist;
+            if (!cj.Nearest(x, z, out seg, out a, out lat, out dist)) return false;
+            double xj, zj, txj, tzj;
+            cj.At(a, out xj, out zj, out txj, out tzj);
+            return Math.Abs(tx * txj + tz * tzj) >= cosMax;
+        }
+
+        /// <summary>Pins holding road <paramref name="i"/> to road <paramref name="j"/>'s drawn surface plane from raw along
+        /// <paramref name="s0"/> to <paramref name="s1"/> (at both ends and every <see cref="FollowStepM"/> between, their
+        /// landings meeting so the stretch between is held throughout).</summary>
+        private void AddFollow(List<KeyValuePair<int, Pin>> pins, int i, int j, double s0, double s1)
+        {
+            RoadCentreline c = Layout.Centres[i], cj = Layout.Centres[j];
+            int count = Math.Max(1, (int)Math.Ceiling((s1 - s0) / FollowStepM));
+            double step = (s1 - s0) / count;
+            for (int k = 0; k <= count; k++)
+            {
+                double s = s0 + step * k;
+                double x, z, tx, tz;
+                c.At(s, out x, out z, out tx, out tz);
+                int seg;
+                double sj, lat, dist;
+                if (!cj.Nearest(x, z, out seg, out sj, out lat, out dist)) continue;
+                sj = Math.Max(0.0, Math.Min(cj.RawLengthM, sj));
+                float h0, gx, gz;
+                if (!SurfacePlane(j, sj, x, z, out h0, out gx, out gz)) continue;
+                double ux = -tz, uz = tx;
+                pins.Add(new KeyValuePair<int, Pin>(i, new Pin
+                {
+                    L = c.ArcAt(s), Fade = PinFadeM, Land = 0.5 * step + 0.5, Abs = true, AbsY = h0 - _pieces[j].Lift + _pieces[i].Lift,
+                    Bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(gx * ux + gz * uz))), Plane = true, X = x, Z = z, Gx = gx, Gz = gz,
+                }));
+            }
+        }
+
+        /// <summary>
+        /// Junction cuts without a platform (a path or a lane crossing a carriageway is drawn with a gap over it, no cap):
+        /// the cut row lies in the crossed road's surface plane (its bench, this piece's lift on top), as a free end running
+        /// into a road does, instead of on the natural ground, so the two meet without a step even where the crossed road
+        /// is cut deep into a hillside (cut/fill package: a footway met a road cut 3 m into Swayambhu hill 3 m above it).
+        /// </summary>
+        private void GapPins()
+        {
+            int n = _pieces.Length;
+            for (int i = 0; i < n; i++)
+            {
+                Piece p = _pieces[i];
+                RoadCut[] cuts = Layout.Cuts[i];
+                if (p == null || p.AllDeck || p.Synthetic || cuts == null) continue;
+                RoadCentreline c = Layout.Centres[i];
+                int[] tops = Layout.CutTops[i];
+                for (int g = 0; g < cuts.Length; g++)
+                {
+                    RoadCut cut = cuts[g];
+                    if (Pads.PadOfCut(i, cut.S) >= 0) continue;
+                    int best = -1;
+                    double bestS = 0, bestD = double.MaxValue;
+                    for (int j = 0; j < n; j++)
+                    {
+                        if (j == i || _pieces[j] == null || _pieces[j].AllDeck || _pieces[j].Synthetic) continue;
+                        double sj;
+                        if (!OnDrawn(j, cut.CX, cut.CZ, out sj)) continue;
+                        int seg;
+                        double a, lat, dist;
+                        Layout.Centres[j].Nearest(cut.CX, cut.CZ, out seg, out a, out lat, out dist);
+                        if (dist >= bestD) continue;
+                        bestD = dist;
+                        best = j;
+                        bestS = sj;
+                    }
+                    float h0, gx, gz;
+                    if (best < 0 || !SurfacePlane(best, bestS, cut.CX, cut.CZ, out h0, out gx, out gz)) continue;
+                    int top = tops != null && g < tops.Length ? tops[g] : -1;
+                    float pinLift = top >= 0 ? RoadMesher.LiftOf(Tile.Roads[top], _o) + JunctionMesher.CapExtraLiftM : p.Lift;
+                    double l = c.ArcAt(cut.S);
+                    p.SetPinAt(l, new Pin
+                    {
+                        L = l, Fade = PinFadeM, Abs = true, AbsY = h0 - _pieces[best].Lift + pinLift,
+                        Bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(gx * cut.UX + gz * cut.UZ))), Plane = true,
+                        X = cut.CX, Z = cut.CZ, Gx = gx, Gz = gz,
+                    });
+                }
+            }
         }
 
         /// <summary>
@@ -734,29 +944,55 @@ namespace Ghumante.Core.Meshing
                 r.Clamp = false;
                 return r;
             }
+            // The strongest pin wins (of two equally strong the nearer). Where several full pins overlap (the landings of
+            // a short piece, a stretch held to another road's surface pin by pin), the row blends linearly from the full
+            // pin before it to the full pin after it, so each pin keeps exactly its own target at its own row (the tile on
+            // the other side of a seam pins it alike, whatever this piece's other end does).
             float best = 0f;
+            double bestDist = double.MaxValue, beforeL = double.NegativeInfinity, afterL = double.PositiveInfinity;
+            int bestK = -1, before = -1, after = -1;
             for (int k = 0; k < p.PinCount; k++)
             {
                 Pin pin = p.Pins[k];
-                double d = Math.Abs(l - pin.L) - pin.Land;
+                double dist = Math.Abs(l - pin.L), d = dist - pin.Land;
                 if (d >= pin.Fade) continue;
                 float w = d <= 0 ? 1f : (float)(1.0 - Smoothstep(d / pin.Fade));
-                if (w <= best) continue;
-                best = w;
-                float y = pin.AbsY, bank = pin.Bank;
-                if (pin.Plane && Math.Abs(l - pin.L) > 1e-3)
+                if (w >= 1f)
                 {
-                    double cx, cz, tx, tz;
-                    Layout.Centres[road].At(s, out cx, out cz, out tx, out tz);
-                    y = pin.AbsY + (float)(pin.Gx * (cx - pin.X) + pin.Gz * (cz - pin.Z));
-                    bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(pin.Gx * -tz + pin.Gz * tx)));
+                    if (pin.L <= l && pin.L > beforeL)
+                    {
+                        beforeL = pin.L;
+                        before = k;
+                    }
+                    if (pin.L >= l && pin.L < afterL)
+                    {
+                        afterL = pin.L;
+                        after = k;
+                    }
                 }
+                if (w < best || w == best && dist >= bestDist) continue;
+                best = w;
+                bestDist = dist;
+                bestK = k;
+            }
+            if (bestK >= 0)
+            {
+                Pin pin = p.Pins[bestK];
+                r.PinIndex = bestK;
                 r.PinAbs = pin.Abs;
                 r.PinRel = 0f;
-                r.PinAbsY = y;
-                r.PinBank = bank;
-                r.PinBenchY = y;
-                r.PinBenchBank = bank;
+                if (best >= 1f && before >= 0 && after >= 0 && before != after && afterL - beforeL > 1e-6)
+                {
+                    float ya, ba, yb, bb;
+                    PinTarget(road, s, l, p.Pins[before], out ya, out ba);
+                    PinTarget(road, s, l, p.Pins[after], out yb, out bb);
+                    float fb = (float)((l - beforeL) / (afterL - beforeL));
+                    r.PinAbsY = ya + (yb - ya) * fb;
+                    r.PinBank = ba + (bb - ba) * fb;
+                }
+                else PinTarget(road, s, l, pin, out r.PinAbsY, out r.PinBank);
+                r.PinBenchY = r.PinAbsY;
+                r.PinBenchBank = r.PinBank;
             }
             r.PinW = best;
             bool lowered = false;
@@ -781,6 +1017,19 @@ namespace Ghumante.Core.Meshing
                 r.PinBenchBank = r.B;
             }
             return r;
+        }
+
+        /// <summary>The height and cross-fall pin <paramref name="pin"/> asks of road <paramref name="road"/>'s row at raw along
+        /// <paramref name="s"/> (arc <paramref name="l"/>): its own, or its plane's under the row's centre.</summary>
+        private void PinTarget(int road, double s, double l, in Pin pin, out float y, out float bank)
+        {
+            y = pin.AbsY;
+            bank = pin.Bank;
+            if (!pin.Plane || Math.Abs(l - pin.L) <= 1e-3) return;
+            double cx, cz, tx, tz;
+            Layout.Centres[road].At(s, out cx, out cz, out tx, out tz);
+            y = pin.AbsY + (float)(pin.Gx * (cx - pin.X) + pin.Gz * (cz - pin.Z));
+            bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(pin.Gx * -tz + pin.Gz * tx)));
         }
 
         /// <summary>The drawn surface of a row at lateral offset <paramref name="off"/> for the point at tile-local (x, z):

@@ -821,7 +821,9 @@ namespace Ghumante.Core.Tests
                 Assert.That(y, Is.GreaterThanOrEqualTo(ground - RoadGrade.BandM - 1e-3f), "under the band at " + s);
                 Assert.That(y, Is.LessThanOrEqualTo(ground + 0.6f), "floating at " + s);
                 ys.Add(y);
-                ts.Add(g.Terrain(x, z));
+                // The roughness it irons out is the natural ground's (cut/fill package: the drawn terrain is carved to the
+                // road, so under it the drawn terrain is the road's own bench).
+                ts.Add(g.NaturalTerrain(x, z));
             }
             double road = 0, terrain = 0;
             for (int k = 1; k + 1 < ys.Count; k++)
@@ -841,6 +843,9 @@ namespace Ghumante.Core.Tests
                 for (int k = 0; k < 3; k++)
                 {
                     int v = m.Indices[3 * tri + k];
+                    // A skirt's foot (its own normal tilted out) tucks under the terrain by design; on the carved ground
+                    // beside a level road a skirt can be shallow enough for its triangle to face up (cut/fill package).
+                    if (m.Normals[3 * v + 1] < 0.9f) continue;
                     float x = m.Positions[3 * v], y = m.Positions[3 * v + 1], z = m.Positions[3 * v + 2];
                     if (y < g.Terrain(x, z) + lift - RoadGrade.MaxBuryM - 2e-3f) Assert.Fail("vertex " + v + " buried at " + x + "," + z);
                 }
@@ -947,9 +952,10 @@ namespace Ghumante.Core.Tests
             RoadGrade g = RoadGrade.For(t, h, o);
             Assert.That(g.IsLowered(0), Is.True);
             float drop = RoadClearance.MinUnderpassClearanceM - 4.0f;
-            float mid = g.SurfaceY(0, 300, 0, 500, 500), midGround = g.Terrain(500, 500) + g.LiftOf(0);
+            // Against the natural ground (cut/fill package: the drawn terrain is carved down to the lowered road).
+            float mid = g.SurfaceY(0, 300, 0, 500, 500), midGround = g.NaturalTerrain(500, 500) + g.LiftOf(0);
             Assert.That(midGround - mid, Is.EqualTo(drop).Within(RoadGrade.BandM + 0.01), "lowered by the missing clearance");
-            float end = g.SurfaceY(0, 0, 0, 200, 500), endGround = g.Terrain(200, 500) + g.LiftOf(0);
+            float end = g.SurfaceY(0, 0, 0, 200, 500), endGround = g.NaturalTerrain(200, 500) + g.LiftOf(0);
             Assert.That(end, Is.EqualTo(endGround).Within(0.3), "at grade at the ends (the band around the highest point across)");
             // The ramp is never steeper than the ramp grade (plus the terrain's own slope).
             float prev = g.SurfaceY(0, 0, 0, 200, 500);
