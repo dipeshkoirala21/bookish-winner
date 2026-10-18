@@ -441,7 +441,8 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>
         /// The carve of <paramref name="sampler"/>'s tile, area and step, or null when nothing is carved there (no roads, an
-        /// area cropped from an ancestor, no heights, or carving off). Built on first use and cached per tile; the grade it
+        /// area cropped from an ancestor, no heights, a level tile (relief under <see cref="LevelReliefM"/>: the roads lie on
+        /// the ground as drawn, nothing to cut or fill), or carving off). Built on first use and cached per tile; the grade it
         /// follows is <see cref="RoadGrade.For"/> on the sampler with default road options.
         /// </summary>
         public static TerrainCarve For(TileHeightSampler sampler)
@@ -477,8 +478,15 @@ namespace Ghumante.Core.Meshing
                 _building++;
                 try
                 {
-                    var c = new TerrainCarve(src, sampler);
-                    slot.Carve = c.ElementCount > 0 ? c : null;
+                    if (IsLevel(src, sampler.Grid))
+                    {
+                        slot.Carve = null;
+                    }
+                    else
+                    {
+                        var c = new TerrainCarve(src, sampler);
+                        slot.Carve = c.ElementCount > 0 ? c : null;
+                    }
                 }
                 finally
                 {
@@ -487,6 +495,25 @@ namespace Ghumante.Core.Meshing
                 slot.Done = true;
                 return slot.Carve;
             }
+        }
+
+        /// <summary>Relief (highest minus lowest grid vertex) under which a tile is level and carves nothing: its roads lie
+        /// on the ground with their lift, so there is neither cut nor fill (and nothing reads the tile's roads early).</summary>
+        public const float LevelReliefM = 0.01f;
+
+        private static bool IsLevel(TileData src, TerrainGrid grid)
+        {
+            int q = grid.Quads;
+            float lo = float.MaxValue, hi = float.MinValue;
+            for (int k = 0; k <= q; k++)
+            for (int l = 0; l <= q; l++)
+            {
+                float h = grid.VertexHeight(src, k, l);
+                if (h < lo) lo = h;
+                if (h > hi) hi = h;
+                if (hi - lo >= LevelReliefM) return false;
+            }
+            return true;
         }
 
         // ------------------------------------------------------------------------------------------------------------

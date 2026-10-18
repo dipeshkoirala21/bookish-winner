@@ -113,7 +113,10 @@ namespace Ghumante.Core.Meshing
                     float px = (float)(l * g.CellM);
                     float h = carve != null ? carve.CoarseVertex(k, l) : g.VertexHeight(source, k, l);
                     double gx, gz;
-                    if (carve != null && MovedNear(carve, k, l, q)) CoarseGradient(carve, k, l, q, g.CellM, out gx, out gz);
+                    // The tile border keeps the neighbour-aware natural normal: the neighbour cannot see this carve, and
+                    // both tiles must light the shared edge alike.
+                    bool edge = k == 0 || l == 0 || k == q || l == q;
+                    if (carve != null && !edge && MovedNear(carve, k, l, q)) CoarseGradient(carve, k, l, q, g.CellM, out gx, out gz);
                     else g.VertexGradient(source, k, l, out gx, out gz);
                     Biome biome;
                     if (bn == 0) biome = Biome.None;

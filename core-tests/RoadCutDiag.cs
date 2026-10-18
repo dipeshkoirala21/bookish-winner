@@ -797,3 +797,57 @@ namespace Ghumante.Core.Tests
         }
     }
 }
+namespace Ghumante.Core.Tests
+{
+    /// <summary>Diagnostics (CUTDIAG_QUERY="tx,ty;..."): the worst asphalt vertices the drawn surface query misses, explained.</summary>
+    public class RoadCutDiagQuery
+    {
+        [Test]
+        public void Query()
+        {
+            string spec = System.Environment.GetEnvironmentVariable("CUTDIAG_QUERY");
+            if (string.IsNullOrEmpty(spec)) Assert.Pass();
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            var sb = new System.Text.StringBuilder();
+            foreach (string item in spec.Split(';'))
+            {
+                string[] p = item.Split(',');
+                var id = new Ghumante.Core.Data.TileId(10, int.Parse(p[0]), int.Parse(p[1]));
+                var t = StreamingSampleRegion.Tile(id);
+                var h = new Ghumante.Core.Meshing.TileHeightSampler(t, 2);
+                var o = new Ghumante.Core.Meshing.RoadOptions();
+                var m = new Ghumante.Core.Meshing.MeshData();
+                Ghumante.Core.Meshing.RoadMesher.Build(t, h, o, m);
+                var q = Ghumante.Core.Meshing.Roads.RoadSurfaceQuery.For(t, h, o);
+                var list = new System.Collections.Generic.List<(double d, string s)>();
+                int off = 0, n = 0, offJ = 0, offR = 0;
+                for (int v = 0; v < m.VertexCount; v++)
+                {
+                    if (m.Normals[3 * v + 1] < 0.97f || (int)System.Math.Round(m.Uv0[2 * v]) != (int)Ghumante.Core.Meshing.MaterialChannel.Asphalt) continue;
+                    float x = m.Positions[3 * v], y = m.Positions[3 * v + 1], z = m.Positions[3 * v + 2];
+                    if (x < 1 || z < 1 || x > t.Tile.Size - 1 || z > t.Tile.Size - 1) continue;
+                    Ghumante.Core.Meshing.Roads.RoadSurfaceHit hit;
+                    if (!q.TrySample(t.Tile.X0 + x, t.Tile.Z0 + z, y + 0.2f, out hit) || !hit.OnCarriageway) continue;
+                    n++;
+                    double d = System.Math.Abs(hit.Y - y);
+                    if (d <= Ghumante.Core.Meshing.RibbonMesher.RowToleranceM + 0.02) continue;
+                    off++;
+                    if (hit.OnJunction) offJ++;
+                    else offR++;
+                    float th;
+                    h.TryHeight(t.Tile.X0 + x, t.Tile.Z0 + z, out th);
+                    list.Add((d, string.Format(ic, "v {0} at {1:0.00},{2:0.00} mesh {3:0.000} query {4:0.000} road {5} {6} along {7:0.0} lat {8:0.00} junc {9} terrain {10:0.000}",
+                        v, x, z, y, hit.Y, hit.Road, hit.Road >= 0 && hit.Road < t.Roads.Count ? t.Roads[hit.Road].RoadClass.ToString() : "-", hit.AlongM, hit.LateralM, hit.OnJunction ? 1 : 0, th)));
+                }
+                list.Sort((a, b) => b.d.CompareTo(a.d));
+                sb.AppendLine(id + ": " + n + " carriageway vertices, off " + off + " (junction " + offJ + ", ribbon " + offR + ")");
+                for (int k = 0; k < System.Math.Min(25, list.Count); k++) sb.AppendLine("  " + list[k].d.ToString("0.000", ic) + " " + list[k].s);
+                // a histogram of offsets
+                int[] bins = new int[8];
+                foreach (var e in list) bins[System.Math.Min(7, (int)(e.d / 0.05))]++;
+                sb.AppendLine("  bins(5cm): " + string.Join(",", bins));
+            }
+            TestContext.Progress.WriteLine(sb.ToString());
+        }
+    }
+}

@@ -216,15 +216,16 @@ namespace Ghumante.Core.Meshing
             }
             double u = (x - _x0) / _grid.CellM, v = (z - _z0) / _grid.CellM;
             TerrainCarve c = Carve;
-            if (c != null)
+            // On the tile border the neighbour-aware natural normal, as the terrain mesh's border vertices show it (the
+            // neighbouring tile cannot see this carve).
+            const double Edge = 1e-6;
+            int q = _grid.Quads;
+            if (c != null && u > Edge && v > Edge && u < q - Edge && v < q - Edge && c.Carves(u, v))
             {
-                if (c.Carves(u, v))
-                {
-                    double gx, gz;
-                    c.Surface(u, v, out gx, out gz);
-                    FacetNormal(gx, gz, out nx, out ny, out nz);
-                    return true;
-                }
+                double gx, gz;
+                c.Surface(u, v, out gx, out gz);
+                FacetNormal(gx, gz, out nx, out ny, out nz);
+                return true;
             }
             _grid.SmoothNormal(_source, u, v, out nx, out ny, out nz);
             return true;

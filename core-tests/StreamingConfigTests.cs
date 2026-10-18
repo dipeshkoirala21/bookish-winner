@@ -265,12 +265,15 @@ namespace Ghumante.Core.Tests
             World.Streaming.MeshingSettings game = World.Streaming.MeshingSettings.ForTier(tier);
             var cost = new long[5];
             long[] tc;
-            if (!terrainCache.TryGetValue((n.Area.Key, n.Source.Key, step), out tc))
+            // As TileBuild meshes it: the road cut and fill (TerrainCarve) only where the node draws its roads.
+            bool carve = n.DrawsDetail && src.HasDetail;
+            int key = step + (carve ? 1 << 16 : 0);
+            if (!terrainCache.TryGetValue((n.Area.Key, n.Source.Key, key), out tc))
             {
                 var terrain = new MeshData();
-                TerrainMesher.Build(src, n.Area, new TerrainOptions { Step = step }, terrain);
+                TerrainMesher.Build(src, n.Area, new TerrainOptions { Step = step, Carve = carve }, terrain);
                 tc = new long[] { terrain.TriangleCount, Bytes(terrain) };
-                terrainCache[(n.Area.Key, n.Source.Key, step)] = tc;
+                terrainCache[(n.Area.Key, n.Source.Key, key)] = tc;
             }
             cost[0] = tc[0];
             cost[4] = tc[1];

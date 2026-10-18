@@ -123,12 +123,33 @@ namespace Ghumante.Core.Meshing
             return depth;
         }
 
+        /// <summary>Longest outward step a wall takes along the ribbon's section direction (a mitred bend; an oblique junction
+        /// or border section is held to this, so a wall bay never shears far off its road).</summary>
+        private const double MaxWallMitre = 1.6;
+
+        /// <summary>The outward direction of a wall at fraction <paramref name="t"/> of segment <paramref name="e"/> on
+        /// <paramref name="side"/>: the ribbon's section direction there (mitred at bends, shared by both segments at a
+        /// row, so neighbouring bays meet without a gap), its length held to <see cref="MaxWallMitre"/>.</summary>
+        private void Outward(int e, double t, int side, out double ox, out double oz)
+        {
+            double sign = side == 0 ? 1 : -1;
+            double wx = _wxa[e] + (_wxb[e] - _wxa[e]) * t, wz = _wza[e] + (_wzb[e] - _wza[e]) * t;
+            double l = Math.Sqrt(wx * wx + wz * wz);
+            if (l < 1e-6)
+            {
+                wx = -_dz[e];
+                wz = _dx[e];
+                l = 1.0;
+            }
+            double k = Math.Min(l, MaxWallMitre) / l;
+            ox = wx * k * sign;
+            oz = wz * k * sign;
+        }
+
         private void Wall(MeshData m, int e, int side, float wa, float wb)
         {
             double len = _len[e];
             int n = Math.Max(1, (int)Math.Ceiling(len / GabionLengthM));
-            double sign = side == 0 ? 1 : -1;
-            double ux = -_dz[e] * sign, uz = _dx[e] * sign; // outward (away from the road)
             double fullDepth = WallDepthM;
             RoadClass cls = _road[e] >= 0 && _road[e] < Source.Roads.Count ? Source.Roads[_road[e]].RoadClass : RoadClass.Residential;
             bool cutSide = wa + wb > 0f;
@@ -141,14 +162,18 @@ namespace Ghumante.Core.Meshing
                 // A breast wall stands where the cut slope starts (beyond the verge), a fill wall at the drawn edge.
                 float e0 = Ext(e, side, t0) + (cutSide ? WallVergeM : 0f), e1 = Ext(e, side, t1) + (cutSide ? WallVergeM : 0f);
                 float b0 = EdgeBench(e, side, t0), b1 = EdgeBench(e, side, t1);
-                double fx0, fz0, fx1, fz1;
+                double fx0, fz0, fx1, fz1, ox0, oz0, ox1, oz1;
                 At(e, t0, side, e0, out fx0, out fz0);
                 At(e, t1, side, e1, out fx1, out fz1);
+                Outward(e, t0, side, out ox0, out oz0);
+                Outward(e, t1, side, out ox1, out oz1);
+                double oxm = 0.5 * (ox0 + ox1), ozm = 0.5 * (oz0 + oz1);
                 // Never over another road: the block stops short of any drawn extent behind it (a breast wall) or between
                 // it and the valley (a fill wall's body); no room at all, no wall (the terrain carve meets that road).
-                double depth = Math.Min(ClearDepth(fx0 + ux * 0.05, fz0 + uz * 0.05, ux, uz, fullDepth), ClearDepth(fx1 + ux * 0.05, fz1 + uz * 0.05, ux, uz, fullDepth));
+                double depth = Math.Min(ClearDepth(fx0 + ox0 * 0.05, fz0 + oz0 * 0.05, ox0, oz0, fullDepth),
+                                        ClearDepth(fx1 + ox1 * 0.05, fz1 + oz1 * 0.05, ox1, oz1, fullDepth));
                 double fxm = 0.5 * (fx0 + fx1), fzm = 0.5 * (fz0 + fz1);
-                depth = Math.Min(depth, ClearDepth(fxm + ux * 0.05, fzm + uz * 0.05, ux, uz, fullDepth));
+                depth = Math.Min(depth, ClearDepth(fxm + oxm * 0.05, fzm + ozm * 0.05, oxm, ozm, fullDepth));
                 if (depth <= 0.0) continue;
                 uint jitter = WallHash(e, side, i);
                 if (!_refine)
@@ -156,27 +181,29 @@ namespace Ghumante.Core.Meshing
                     // The Low tier's coarse grids: one battered stone face per bay.
                     float lb0 = cutSide ? b0 - 0.15f : Math.Min(b0 - 0.6f, b0 - w), lb1 = cutSide ? b1 - 0.15f : Math.Min(b1 - 0.6f, b1 - w);
                     float lt0 = cutSide ? b0 + w : b0 + 0.06f, lt1 = cutSide ? b1 + w : b1 + 0.06f;
-                    double bx = cutSide ? ux : -ux, bz = cutSide ? uz : -uz;
-                    double sx = cutSide ? 0 : depth;
-                    Quad(m, fx0 + ux * sx, lb0, fz0 + uz * sx, fx1 + ux * sx, lb1, fz1 + uz * sx, fx1 + ux * sx + bx * 0.1 * w, lt1, fz1 + uz * sx + bz * 0.1 * w,
-                         fx0 + ux * sx + bx * 0.1 * w, lt0, fz0 + uz * sx + bz * 0.1 * w, (float)-bx, 0.1f, (float)-bz, MasonryStone, MaterialChannel.Stone, 0.85f);
+                    double s = cutSide ? 0 : depth, bt = cutSide ? 0.1 : -0.1;
+                    double ax0 = fx0 + ox0 * s, az0 = fz0 + oz0 * s, ax1 = fx1 + ox1 * s, az1 = fz1 + oz1 * s;
+                    Quad(m, ax0, lb0, az0, ax1, lb1, az1, ax1 + ox1 * bt * w, lt1, az1 + oz1 * bt * w, ax0 + ox0 * bt * w, lt0, az0 + oz0 * bt * w,
+                         (float)(cutSide ? -oxm : oxm), 0.1f, (float)(cutSide ? -ozm : ozm), MasonryStone, MaterialChannel.Flagstone, 0.85f);
                     continue;
                 }
                 if (cutSide)
                 {
                     // A breast wall: from the verge up to the cut ground behind it, the courses stepping back into the hill.
                     float base0 = b0 - 0.15f, base1 = b1 - 0.15f;
-                    float top0 = Math.Max(base0 + 0.6f, Drawn(fx0 + ux * depth, fz0 + uz * depth)), top1 = Math.Max(base1 + 0.6f, Drawn(fx1 + ux * depth, fz1 + uz * depth));
-                    WallFace(m, fx0, fz0, fx1, fz1, ux, uz, base0, base1, top0, top1, depth, gabion, true, jitter);
+                    float top0 = Math.Max(base0 + 0.6f, Drawn(fx0 + ox0 * depth, fz0 + oz0 * depth));
+                    float top1 = Math.Max(base1 + 0.6f, Drawn(fx1 + ox1 * depth, fz1 + oz1 * depth));
+                    WallFace(m, fx0, fz0, fx1, fz1, ox0, oz0, ox1, oz1, base0, base1, top0, top1, depth, gabion, jitter);
                 }
                 else
                 {
                     // A wall holding the fill: from the toe up to the verge, the courses stepping back toward the road.
                     float top0 = b0 + 0.06f, top1 = b1 + 0.06f;
-                    double tx0 = fx0 + ux * (depth + 0.3), tz0 = fz0 + uz * (depth + 0.3), tx1 = fx1 + ux * (depth + 0.3), tz1 = fz1 + uz * (depth + 0.3);
-                    float base0 = Math.Min(top0 - 0.6f, Drawn(tx0, tz0) - 0.3f), base1 = Math.Min(top1 - 0.6f, Drawn(tx1, tz1) - 0.3f);
-                    WallFace(m, fx0 + ux * depth, fz0 + uz * depth, fx1 + ux * depth, fz1 + uz * depth, -ux, -uz, base0, base1, top0, top1, depth, gabion, false,
-                             jitter);
+                    double d = depth + 0.3;
+                    float base0 = Math.Min(top0 - 0.6f, Drawn(fx0 + ox0 * d, fz0 + oz0 * d) - 0.3f);
+                    float base1 = Math.Min(top1 - 0.6f, Drawn(fx1 + ox1 * d, fz1 + oz1 * d) - 0.3f);
+                    WallFace(m, fx0 + ox0 * depth, fz0 + oz0 * depth, fx1 + ox1 * depth, fz1 + oz1 * depth, -ox0, -oz0, -ox1, -oz1, base0, base1, top0, top1,
+                             depth, gabion, jitter);
                 }
             }
         }
@@ -194,55 +221,112 @@ namespace Ghumante.Core.Meshing
             }
         }
 
+        /// <summary>How far a gabion basket's face bulges out at its middle (the stones press the wire mesh out).</summary>
+        private const float BasketBulgeM = 0.06f;
+
         /// <summary>
-        /// One 2 m bay of wall between front points (x0, z0) and (x1, z1) on its foot line; (bx, bz) points from the face into
-        /// the wall's body. A cut wall's face looks at the road (its courses step back toward +b as they rise); a fill wall's
-        /// face looks at the valley (its courses step back toward +b, the road). Gabion: baskets with dark gaps between them
-        /// and a ledge per course; masonry: one battered face and a coping.
+        /// One 2 m bay of wall between front points (x0, z0) and (x1, z1) on its foot line; (b0x, b0z) and (b1x, b1z) point
+        /// from the face into the wall's body at either end (the ribbon's mitred section directions, so neighbouring bays
+        /// share their ends). A cut wall's face looks at the road (its courses step back into the hill as they rise); a fill
+        /// wall's face looks at the valley (its courses step back toward the road).
+        /// Gabion: 1 m courses counted up from the foot (so they run level across bays), each course a wire basket per bay
+        /// bulging out between its wired seams, set back <see cref="GabionStepM"/> with a stone ledge on it. Dry stone: one battered
+        /// rubble face and a concrete coping.
         /// </summary>
-        private static void WallFace(MeshData m, double x0, double z0, double x1, double z1, double bx, double bz, float base0, float base1, float top0, float top1,
-                                     double depth, bool gabion, bool cut, uint jitter)
+        private static void WallFace(MeshData m, double x0, double z0, double x1, double z1, double b0x, double b0z, double b1x, double b1z, float base0,
+                                     float base1, float top0, float top1, double depth, bool gabion, uint jitter)
         {
-            // Face normal: away from the body.
-            float nx = (float)-bx, nz = (float)-bz;
+            // Face normal: away from the body, square to the bay's chord.
+            double cx = x1 - x0, cz = z1 - z0, cl = Math.Sqrt(cx * cx + cz * cz);
+            if (cl < 1e-6) return;
+            cx /= cl;
+            cz /= cl;
+            double nxd = -cz, nzd = cx;
+            if (nxd * (b0x + b1x) + nzd * (b0z + b1z) > 0)
+            {
+                nxd = -nxd;
+                nzd = -nzd;
+            }
+            float nx = (float)nxd, nz = (float)nzd;
             if (!gabion)
             {
-                // Dry stone, 10 % batter, and a coping slab on top.
+                // Dry stone rubble, 10 % batter, and a coping slab on top.
                 float h0 = top0 - base0, h1 = top1 - base1;
-                double ax0 = x0 + bx * 0.1 * h0, az0 = z0 + bz * 0.1 * h0, ax1 = x1 + bx * 0.1 * h1, az1 = z1 + bz * 0.1 * h1;
+                double ax0 = x0 + b0x * 0.1 * h0, az0 = z0 + b0z * 0.1 * h0, ax1 = x1 + b1x * 0.1 * h1, az1 = z1 + b1z * 0.1 * h1;
                 uint stone = MeshColor.Scale(MasonryStone, 0.92f + 0.16f * ((jitter & 255) / 255f));
-                Quad(m, x0, base0, z0, x1, base1, z1, ax1, top1, az1, ax0, top0, az0, nx, 0.1f, nz, stone, MaterialChannel.Stone, 0.85f);
-                double cx0 = ax0 + bx * depth, cz0 = az0 + bz * depth, cx1 = ax1 + bx * depth, cz1 = az1 + bz * depth;
-                Quad(m, ax0 - bx * 0.08, top0 + 0.12f, az0 - bz * 0.08, ax1 - bx * 0.08, top1 + 0.12f, az1 - bz * 0.08, cx1, top1 + 0.12f, cz1, cx0, top0 + 0.12f, cz0,
-                     0f, 1f, 0f, Coping, MaterialChannel.Concrete, 1f);
-                Quad(m, ax0 - bx * 0.08, top0 - 0.02f, az0 - bz * 0.08, ax1 - bx * 0.08, top1 - 0.02f, az1 - bz * 0.08, ax1 - bx * 0.08, top1 + 0.12f,
-                     az1 - bz * 0.08, ax0 - bx * 0.08, top0 + 0.12f, az0 - bz * 0.08, nx, 0f, nz, Coping, MaterialChannel.Concrete, 0.9f);
+                Quad(m, x0, base0, z0, x1, base1, z1, ax1, top1, az1, ax0, top0, az0, nx, 0.1f, nz, stone, MaterialChannel.Flagstone, 0.85f);
+                double kx0 = ax0 + b0x * depth, kz0 = az0 + b0z * depth, kx1 = ax1 + b1x * depth, kz1 = az1 + b1z * depth;
+                Quad(m, ax0 - b0x * 0.08, top0 + 0.12f, az0 - b0z * 0.08, ax1 - b1x * 0.08, top1 + 0.12f, az1 - b1z * 0.08, kx1, top1 + 0.12f, kz1, kx0,
+                     top0 + 0.12f, kz0, 0f, 1f, 0f, Coping, MaterialChannel.Concrete, 1f);
+                Quad(m, ax0 - b0x * 0.08, top0 - 0.02f, az0 - b0z * 0.08, ax1 - b1x * 0.08, top1 - 0.02f, az1 - b1z * 0.08, ax1 - b1x * 0.08, top1 + 0.12f,
+                     az1 - b1z * 0.08, ax0 - b0x * 0.08, top0 + 0.12f, az0 - b0z * 0.08, nx, 0f, nz, Coping, MaterialChannel.Concrete, 0.9f);
                 return;
             }
             float hMax = Math.Max(top0 - base0, top1 - base1);
-            int courses = Math.Max(1, Math.Min(4, (int)Math.Ceiling(hMax / GabionCourseM - 0.15f)));
-            const double Gap = 0.0; // courses meet (no backing behind them)
-            double lx = x1 - x0, lz = z1 - z0, l = Math.Sqrt(lx * lx + lz * lz);
-            double gx = l > 1e-6 ? lx / l * Gap : 0, gz = l > 1e-6 ? lz / l * Gap : 0;
+            int courses = Math.Max(1, Math.Min(6, (int)Math.Ceiling(hMax / GabionCourseM - 0.1f)));
             for (int c = 0; c < courses; c++)
             {
-                // Course c: from base + c to base + c + 1 (the last one stops at the top), set back c steps.
-                float f0 = (float)c / courses, f1 = (float)(c + 1) / courses;
-                float y00 = base0 + (top0 - base0) * f0, y01 = base0 + (top0 - base0) * f1, y10 = base1 + (top1 - base1) * f0, y11 = base1 + (top1 - base1) * f1;
+                // Course c: from foot + c m to foot + (c + 1) m at each end, stopping at the top (gone where the wall is lower).
+                float yb0 = base0 + c * GabionCourseM, yb1 = base1 + c * GabionCourseM;
+                float yt0 = Math.Max(yb0, Math.Min(top0, yb0 + GabionCourseM)), yt1 = Math.Max(yb1, Math.Min(top1, yb1 + GabionCourseM));
+                if (yt0 - yb0 < 0.05f && yt1 - yb1 < 0.05f) break;
                 double set = GabionStepM * c;
-                double ax0 = x0 + bx * set, az0 = z0 + bz * set, ax1 = x1 + bx * set, az1 = z1 + bz * set;
-                uint stone = MeshColor.Scale(GabionStone, 0.9f + 0.2f * (((jitter >> (c * 3 % 24)) & 255) / 255f));
-                float ao = 0.75f + 0.25f * f1;
-                // The basket face (the course's own shade; the course steps and ledges read as the baskets).
-                Quad(m, ax0 + gx, y00 + (float)Gap, az0 + gz, ax1 - gx, y10 + (float)Gap, az1 - gz, ax1 - gx, y11 - (float)Gap, az1 - gz, ax0 + gx,
-                     y01 - (float)Gap, az0 + gz, nx, 0.05f, nz, stone, MaterialChannel.Stone, ao);
-                // The ledge on top of this course (to the next course's face, or the wall's top surface).
-                double ledge = c + 1 < courses ? GabionStepM : depth - set;
-                if (ledge > 0.01)
+                bool next0 = top0 > yb0 + GabionCourseM + 0.05f, next1 = top1 > yb1 + GabionCourseM + 0.05f;
+                uint stone = MeshColor.Scale(GabionStone, 0.88f + 0.24f * (((jitter >> (c * 5 % 24)) & 255) / 255f));
+                float ao = 0.78f + 0.22f * Math.Min(1f, (c + 1f) / courses);
+                Basket(m, x0 + b0x * set, z0 + b0z * set, x1 + b1x * set, z1 + b1z * set, yb0, yb1, yt0, yt1, nxd, nzd, cx, cz, stone, ao);
+                // The ledge on top of this course: to the next course's face, or the wall's top surface back to the body's end.
+                double l0 = next0 ? GabionStepM : depth - set, l1 = next1 ? GabionStepM : depth - set;
+                if (l0 > 0.01 || l1 > 0.01)
                 {
-                    Quad(m, ax0 + gx, y01 - (float)Gap, az0 + gz, ax1 - gx, y11 - (float)Gap, az1 - gz, ax1 - gx + bx * ledge, y11 - (float)Gap,
-                         az1 - gz + bz * ledge, ax0 + gx + bx * ledge, y01 - (float)Gap, az0 + gz + bz * ledge, 0f, 1f, 0f, MeshColor.Scale(stone, 0.95f),
-                         MaterialChannel.Stone, ao);
+                    l0 = Math.Max(0.0, l0);
+                    l1 = Math.Max(0.0, l1);
+                    double ax0 = x0 + b0x * set, az0 = z0 + b0z * set, ax1 = x1 + b1x * set, az1 = z1 + b1z * set;
+                    Quad(m, ax0, yt0, az0, ax1, yt1, az1, ax1 + b1x * l1, yt1, az1 + b1z * l1, ax0 + b0x * l0, yt0, az0 + b0z * l0, 0f, 1f, 0f,
+                         MeshColor.Scale(stone, 1.04f), MaterialChannel.Flagstone, ao);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A course of a gabion bay as one wire basket: a 2 x 3 vertex patch (its ends; its foot, middle and top) bulging
+        /// <see cref="BasketBulgeM"/> out at mid-height and shaded as a cushion (normals tilted down at the foot, up at the
+        /// top and out toward the wired seams at its ends, the seams and the foot in shadow), so every basket reads on
+        /// its own at the price of four triangles.
+        /// </summary>
+        private static void Basket(MeshData m, double x0, double z0, double x1, double z1, float yb0, float yb1, float yt0, float yt1, double nx, double nz,
+                                   double cx, double cz, uint stone, float ao)
+        {
+            int v = m.VertexCount;
+            for (int r = 0; r < 3; r++)
+            for (int j = 0; j < 2; j++)
+            {
+                float yb = j == 0 ? yb0 : yb1, yt = j == 0 ? yt0 : yt1;
+                float y = r == 0 ? yb : r == 1 ? 0.5f * (yb + yt) : yt;
+                double bulge = r == 1 ? BasketBulgeM * Math.Min(1.0, (yt - yb) / 0.5) : 0.0;
+                double px = (j == 0 ? x0 : x1) + nx * bulge, pz = (j == 0 ? z0 : z1) + nz * bulge;
+                double tilt = r == 0 ? -0.45 : r == 2 ? 0.55 : 0.0, side = j == 0 ? -0.35 : 0.35;
+                double gx = nx + cx * side, gy = tilt, gz = nz + cz * side;
+                double gl = Math.Sqrt(gx * gx + gy * gy + gz * gz);
+                float a = ao * (r == 1 ? 0.95f : r == 0 ? 0.66f : 0.84f) * 0.85f;
+                m.AddVertex((float)px, y, (float)pz, (float)(gx / gl), (float)(gy / gl), (float)(gz / gl), stone, (float)MaterialChannel.Flagstone, a);
+            }
+            for (int r = 0; r < 2; r++)
+            {
+                int a = v + r * 2, b = a + 1, c = a + 3, d = a + 2;
+                // Front faces the face normal: (b - a) x (c - a) along it (Unity winding as Quad).
+                float ex = m.Positions[3 * b] - m.Positions[3 * a], ey = m.Positions[3 * b + 1] - m.Positions[3 * a + 1], ez = m.Positions[3 * b + 2] - m.Positions[3 * a + 2];
+                float fx = m.Positions[3 * c] - m.Positions[3 * a], fy = m.Positions[3 * c + 1] - m.Positions[3 * a + 1], fz = m.Positions[3 * c + 2] - m.Positions[3 * a + 2];
+                double kx = ey * fz - ez * fy, kz = ex * fy - ey * fx;
+                if (kx * nx + kz * nz >= 0)
+                {
+                    m.AddTriangle(a, b, c);
+                    m.AddTriangle(a, c, d);
+                }
+                else
+                {
+                    m.AddTriangle(a, c, b);
+                    m.AddTriangle(a, d, c);
                 }
             }
         }
@@ -383,9 +467,13 @@ namespace Ghumante.Core.Meshing
                         At(e, t0, side, Ext(e, side, t0) + WallVergeM, out ax, out az);
                         At(e, t1, side, Ext(e, side, t1) + WallVergeM, out bx, out bz);
                         // As Wall draws it: no bay where another road leaves no room behind the face.
-                        double sgn = side == 0 ? 1 : -1, ox = -_dz[e] * sgn, oz = _dx[e] * sgn;
-                        if (ClearDepth(ax + ox * 0.05, az + oz * 0.05, ox, oz, WallDepthM) <= 0.0 || ClearDepth(bx + ox * 0.05, bz + oz * 0.05, ox, oz, WallDepthM) <= 0.0 ||
-                            ClearDepth(0.5 * (ax + bx) + ox * 0.05, 0.5 * (az + bz) + oz * 0.05, ox, oz, WallDepthM) <= 0.0) continue;
+                        double oax, oaz, obx, obz;
+                        Outward(e, t0, side, out oax, out oaz);
+                        Outward(e, t1, side, out obx, out obz);
+                        double omx = 0.5 * (oax + obx), omz = 0.5 * (oaz + obz);
+                        if (ClearDepth(ax + oax * 0.05, az + oaz * 0.05, oax, oaz, WallDepthM) <= 0.0 ||
+                            ClearDepth(bx + obx * 0.05, bz + obz * 0.05, obx, obz, WallDepthM) <= 0.0 ||
+                            ClearDepth(0.5 * (ax + bx) + omx * 0.05, 0.5 * (az + bz) + omz * 0.05, omx, omz, WallDepthM) <= 0.0) continue;
                         float b0 = EdgeBench(e, side, t0), b1 = EdgeBench(e, side, t1);
                         into.Add(new CarveBarrier
                         {
