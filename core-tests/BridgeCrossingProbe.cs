@@ -31,28 +31,8 @@ namespace Ghumante.Core.Tests
         /// does; off (BRIDGE_NO_DRESSING=1) to look at the structures alone.</summary>
         public static bool WithDressing = Environment.GetEnvironmentVariable("BRIDGE_NO_DRESSING") != "1";
 
-        public static readonly List<KeyValuePair<ulong, double[]>> RailDebug = new List<KeyValuePair<ulong, double[]>>();
-
-        public static string RailOwner(double x, double z)
-        {
-            double best = 1.0;
-            ulong way = 0;
-            lock (RailDebug)
-                foreach (KeyValuePair<ulong, double[]> kv in RailDebug)
-                {
-                    double d = Math.Sqrt((kv.Value[0] - x) * (kv.Value[0] - x) + (kv.Value[1] - z) * (kv.Value[1] - z));
-                    if (d < best)
-                    {
-                        best = d;
-                        way = kv.Key;
-                    }
-                }
-            return way != 0 ? " RAIL-OF " + way : "";
-        }
-
         private BridgeWorld(int tier)
         {
-
             Settings = StreamingScene.Settings(tier, 10);
             Settings.DrawBuildings = false; // house solids come from the footprints (TileSolids); the meshes are not needed
             Ground = StreamingScene.Ground(Settings);
@@ -112,9 +92,10 @@ namespace Ghumante.Core.Tests
             if (b.HeroColliders != null && b.HeroColliders.Count > 0) Ground.Register(id.Key, b.HeroColliders);
             if (WithDressing && b.Colliders != null && b.Colliders.Count > 0) Ground.Register(id.Key | TileGroundQuery.StaticSetKeyBit, b.Colliders);
             double x0 = id.X0, z0 = id.Z0;
-            _drawn.Add(b.Layers[TileLayers.Terrain], x0, z0, 0);
-            _drawn.Add(b.Layers[TileLayers.Areas], x0, z0, 1);
-            _drawn.Add(b.Layers[TileLayers.Roads], x0, z0, 2);
+            // (The layers as uploaded: a layer's indices are relative to its upload chunk.)
+            _drawn.Add(StreamingScene.Layer(b, TileLayers.Terrain), x0, z0, 0);
+            _drawn.Add(StreamingScene.Layer(b, TileLayers.Areas), x0, z0, 1);
+            _drawn.Add(StreamingScene.Layer(b, TileLayers.Roads), x0, z0, 2);
             // The bridge pieces at LOD0 (what a walker standing on them sees).
             var lod0 = new HashSet<int>();
             foreach (LodPiece p in b.Pieces)
@@ -142,7 +123,7 @@ namespace Ghumante.Core.Tests
                     sb.Append("   solid ").Append(kv.Key).Append(" (").Append(p.Ax.ToString("F1")).Append(",").Append(p.Az.ToString("F1")).Append(")-(")
                       .Append(p.Bx.ToString("F1")).Append(",").Append(p.Bz.ToString("F1")).Append(") r ").Append(p.Radius.ToString("F2")).Append(" y ")
                       .Append(p.Bottom.ToString("F2")).Append("..").Append(p.Top.ToString("F2")).Append(" grp ").Append(p.Group).Append(" d ").Append(d.ToString("F2"))
-                      .Append(IsBridgeSolid(in p) ? " [bridge]" : p.Group < 0 ? " " + LoweredNear(kv.Value.Source, Ground.RoadIndexOf(kv.Key), 0.5 * (p.Ax + p.Bx), 0.5 * (p.Az + p.Bz)) + RailOwner(p.Ax, p.Az) : "").Append('\n');
+                      .Append(IsBridgeSolid(in p) ? " [bridge]" : p.Group < 0 ? " " + LoweredNear(kv.Value.Source, Ground.RoadIndexOf(kv.Key), 0.5 * (p.Ax + p.Bx), 0.5 * (p.Az + p.Bz)) : "").Append('\n');
                 }
                 foreach (StructureColliders c in new[] { kv.Value.HeroColliders, kv.Value.Colliders })
                 {
@@ -258,7 +239,7 @@ namespace Ghumante.Core.Tests
                 foreach (KeyValuePair<TileId, TileBuild> kv in Builds)
                 {
                     TileBuild b = kv.Value;
-                    MeshData src = b.Layers[ids[li]];
+                    MeshData src = StreamingScene.Layer(b, ids[li]);
                     if (ids[li] == TileLayers.Bridges)
                     {
                         var lod0 = new HashSet<int>();
@@ -310,7 +291,7 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>A box from a to b, half width <paramref name="r"/>, from <paramref name="y0"/> to <paramref name="y1"/>.</summary>
-        private static void Slab(MeshData m, double ax, double az, double bx, double bz, float r, float y0, float y1, uint rgba)
+        internal static void Slab(MeshData m, double ax, double az, double bx, double bz, float r, float y0, float y1, uint rgba)
         {
             double dx = bx - ax, dz = bz - az, l = Math.Sqrt(dx * dx + dz * dz);
             double ux = l > 1e-6 ? dx / l : 1, uz = l > 1e-6 ? dz / l : 0;
@@ -347,6 +328,12 @@ namespace Ghumante.Core.Tests
             return _drawn.FirstAbove(x, z, y, out hitY, out upFacing, out layer);
         }
 
+        /// <summary>Every drawn surface at (x, z), top down (diagnostics).</summary>
+        public string Column(double x, double z)
+        {
+            return _drawn.Column(x, z);
+        }
+
         /// <summary>The highest drawn surface of a layer (0 terrain, 1 areas, 2 roads, 3 bridges) at (x, z), NaN for none.</summary>
         public float LayerTop(double x, double z, int layer)
         {
@@ -375,6 +362,7 @@ namespace Ghumante.Core.Tests
         private readonly List<double> _tri = new List<double>(); // x y z × 3
         private readonly List<int> _layer = new List<int>();
         private readonly List<float> _ny = new List<float>(); // mean vertex normal y (up-facing > 0)
+        private readonly List<int> _channel = new List<int>(); // material channel of the first vertex (-1: no UV0)
 
         private static long Key(int i, int j)
         {
@@ -388,6 +376,7 @@ namespace Ghumante.Core.Tests
                 int t = _tri.Count / 9;
                 _layer.Add(layer);
                 _ny.Add((m.Normals[3 * m.Indices[k] + 1] + m.Normals[3 * m.Indices[k + 1] + 1] + m.Normals[3 * m.Indices[k + 2] + 1]) / 3f);
+                _channel.Add(m.HasUv0 ? (int)Math.Round(m.Uv0[2 * m.Indices[k]]) : -1);
                 double minX = double.MaxValue, maxX = double.MinValue, minZ = double.MaxValue, maxZ = double.MinValue;
                 for (int c = 0; c < 3; c++)
                 {
@@ -450,6 +439,38 @@ namespace Ghumante.Core.Tests
             if (w0 < -1e-9 || w1 < -1e-9 || w2 < -1e-9) return false;
             h = w0 * ay + w1 * by + w2 * cy;
             return true;
+        }
+
+        /// <summary>Every drawn surface straight above or below (x, z), top down: height, layer (TARB) and the facing
+        /// (diagnostics).</summary>
+        public string Column(double x, double z)
+        {
+            var hits = new List<KeyValuePair<double, string>>();
+            List<int> l;
+            if (_cells.TryGetValue(Key((int)Math.Floor(x / Cell), (int)Math.Floor(z / Cell)), out l))
+                foreach (int t in l)
+                {
+                    double h;
+                    if (!At(t, x, z, out h)) continue;
+                    hits.Add(new KeyValuePair<double, string>(h, h.ToString("F2") + "TARB"[_layer[t]] + (_ny[t] > 0.2f ? "^" : _ny[t] < -0.2f ? "v" : "|")
+                                                                    + (Verbose ? "{" + (_channel[t] >= 0 ? ((Ghumante.Core.Meshing.MaterialChannel)_channel[t]).ToString() : "-") + " " + Tri(t) + "}" : "")));
+                }
+            hits.Sort((a, b) => b.Key.CompareTo(a.Key));
+            var sb = new StringBuilder();
+            foreach (KeyValuePair<double, string> kv in hits) sb.Append(' ').Append(kv.Value);
+            return sb.ToString();
+        }
+
+        /// <summary>Column prints each triangle's material and corners (diagnostics).</summary>
+        public static bool Verbose = Environment.GetEnvironmentVariable("BRIDGE_VERBOSE") == "1";
+
+        private string Tri(int t)
+        {
+            int o = 9 * t;
+            var sb = new StringBuilder();
+            for (int c = 0; c < 3; c++)
+                sb.Append('(').Append(_tri[o + 3 * c].ToString("F1")).Append(',').Append(_tri[o + 3 * c + 2].ToString("F1")).Append(' ').Append(_tri[o + 3 * c + 1].ToString("F2")).Append(')');
+            return sb.ToString();
         }
 
         /// <summary>The highest surface of one layer at (x, z) (NaN: none).</summary>
@@ -687,6 +708,32 @@ namespace Ghumante.Core.Tests
             }
             if (trace != null && !run.Reached) trace.Append("blockers at the stop:\n").Append(w.Blockers(v.X, v.Z, v.Y));
             return run;
+        }
+
+        /// <summary>What stopped a run (the solids and colliders at the stop), or nothing when it arrived.</summary>
+        public static string Why(BridgeWorld w, ProbeRun r)
+        {
+            if (r.Reached) return "";
+            var sb = new StringBuilder();
+            sb.Append("      stop (").Append(r.StopX.ToString("F1")).Append(", ").Append(r.StopZ.ToString("F1")).Append(") y ").Append(r.StopY.ToString("F2"))
+              .Append(" heading (").Append(r.StopDirX.ToString("F2")).Append(", ").Append(r.StopDirZ.ToString("F2")).Append(") ground ahead:");
+            double firstX = double.NaN;
+            foreach (double a in new[] { 0.0, 0.3, 0.6, 1.0, 1.5 })
+            {
+                double x = r.StopX + r.StopDirX * a, z = r.StopZ + r.StopDirZ * a;
+                GroundSample g;
+                bool got = w.Ground.TrySample(x, z, r.StopY, out g);
+                if (!got && double.IsNaN(firstX)) firstX = a;
+                sb.Append(' ').Append(a.ToString("F1")).Append('=').Append(got ? g.Height.ToString("F2") + (g.OnDeck ? "d" : "") + (g.OnStructure ? "s" : "") + (g.OnFootpath ? "f" : "")
+                                                                             + (g.Ny < 0.766f ? "!ny" + g.Ny.ToString("F2") : "") : "X");
+            }
+            sb.Append('\n').Append(w.Blockers(r.StopX + r.StopDirX * 0.3, r.StopZ + r.StopDirZ * 0.3, r.StopY, 0.6));
+            double ea = double.IsNaN(firstX) ? 0.3 : firstX;
+            sb.Append(w.Explain(r.StopX + r.StopDirX * ea, r.StopZ + r.StopDirZ * ea, r.StopY, r.Body.HeightM));
+            float t, nx, nz;
+            bool hit = w.Ground.SweepBody(r.Body, r.StopX, r.StopZ, r.StopHeading, r.StopY, r.StopDirX * 0.3, r.StopDirZ * 0.3, out t, out nx, out nz);
+            sb.Append("   sweep 0.3 m ahead: ").Append(hit ? "hit t " + t.ToString("F2") + " n (" + nx.ToString("F2") + ", " + nz.ToString("F2") + ")" : "clear").Append('\n');
+            return sb.ToString();
         }
 
         /// <summary>A ground query that answers one sample everywhere (to teleport onto a chosen level).</summary>

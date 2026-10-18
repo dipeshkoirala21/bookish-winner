@@ -12,13 +12,18 @@ namespace Ghumante.Core.Meshing.Bridges
     /// structure, so ground queries pick the right level on and under bridges and flyovers and clearance checks see
     /// the real underside. Where a deck leaves a road below open (<see cref="BridgeSpan.Openings"/>) there is no
     /// soffit and no raised walkway; where a railing opens for a stair or a branch the walkable deck reaches the deck
-    /// edge, where the stair or branch starts. Coordinates are game metres; a tile answers only for points inside its
-    /// own square (the neighbour answers across the border, where the same span continues), so a query must go to
-    /// the tile containing the point. Built once per tile (cached); queries are allocation-free and thread-safe.
+    /// edge, where the stair or branch starts. Coordinates are game metres; a tile answers for points inside its own
+    /// square, and beyond it for the decks whose centreline it owns (a wide deck along the border reaches into the
+    /// neighbour, which does not hold that road: owner playtest #2), while a span cut by the border is answered by the
+    /// tile on each side of it; a query goes to the tiles around the point. Built once per tile (cached); queries are
+    /// allocation-free and thread-safe.
     /// </summary>
     public sealed class BridgeDeckIndex : IBridgeDeckQuery
     {
         private const double CellM = 16.0;
+
+        /// <summary>Farthest beyond its own square a tile answers for a deck whose centreline lies in the square.</summary>
+        public const double BeyondSquareM = 32.0;
 
         /// <summary>Steepest grade a stair flight reports for its normal (tan 35°): below the walker's limit
         /// (<c>VehicleSpec.Walker().MaxSlopeDeg</c>, 40°), above every wheeled vehicle's.</summary>
@@ -201,6 +206,18 @@ namespace Ghumante.Core.Meshing.Bridges
             return c < 0 ? 0 : c >= _cells ? _cells - 1 : c;
         }
 
+        /// <summary>True when tile-local (lx, lz) is within <see cref="BeyondSquareM"/> of the square and the index has items.</summary>
+        private bool Near(double lx, double lz)
+        {
+            return _items.Length > 0 && lx >= -BeyondSquareM && lz >= -BeyondSquareM && lx <= _size + BeyondSquareM && lz <= _size + BeyondSquareM;
+        }
+
+        /// <summary>True when tile-local (lx, lz) lies in the tile's own square.</summary>
+        private bool Inside(double lx, double lz)
+        {
+            return lx >= -1e-3 && lz >= -1e-3 && lx <= _size + 1e-3 && lz <= _size + 1e-3;
+        }
+
         /// <inheritdoc />
         public bool TryDeck(double x, double z, float nearY, out float deckY, out float nx, out float ny, out float nz)
         {
@@ -208,7 +225,7 @@ namespace Ghumante.Core.Meshing.Bridges
             nx = nz = 0f;
             ny = 1f;
             double lx = x - _x0, lz = z - _z0;
-            if (lx < -1e-3 || lz < -1e-3 || lx > _size + 1e-3 || lz > _size + 1e-3 || _items.Length == 0) return false;
+            if (!Near(lx, lz)) return false;
             int cell = Clamp((int)Math.Floor(lz / CellM)) * _cells + Clamp((int)Math.Floor(lx / CellM));
             bool found = false;
             float best = float.NegativeInfinity;
@@ -234,7 +251,7 @@ namespace Ghumante.Core.Meshing.Bridges
         {
             undersideY = float.PositiveInfinity;
             double lx = x - _x0, lz = z - _z0;
-            if (lx < -1e-3 || lz < -1e-3 || lx > _size + 1e-3 || lz > _size + 1e-3 || _items.Length == 0) return false;
+            if (!Near(lx, lz)) return false;
             int cell = Clamp((int)Math.Floor(lz / CellM)) * _cells + Clamp((int)Math.Floor(lx / CellM));
             bool found = false;
             for (int c = _cellStart[cell]; c < _cellStart[cell + 1]; c++)
@@ -267,6 +284,8 @@ namespace Ghumante.Core.Meshing.Bridges
                 double px = lx - st.X, pz = lz - st.Z;
                 double along = px * st.Dx + pz * st.Dz, across = -px * st.Dz + pz * st.Dx;
                 if (along < 0 || along > st.Length || Math.Abs(across) > st.HalfWidth) return false;
+                // Beyond the square only for a flight whose walking line there lies in it.
+                if (!Inside(lx, lz) && !Inside(st.X + st.Dx * along, st.Z + st.Dz * along)) return false;
                 y = st.SurfaceAt(along);
                 if (soffit) y -= 0.35f;
                 // The normal of a flight is no steeper than a comfortable stair (each tread is level; the walking line
@@ -316,6 +335,9 @@ namespace Ghumante.Core.Meshing.Bridges
             }
             double tc = t < 0 ? 0 : t > 1 ? 1 : t;
             double qx = ax + dx * tc, qz = az + dz * tc;
+            // Beyond the square only for the tile's own stretch of centreline (a context segment beyond a cut end belongs
+            // to the neighbour, which answers there with the same span).
+            if (!Inside(lx, lz) && (k < 0 || !Inside(qx, qz))) return false;
             double lat = -uz * (lx - qx) + ux * (lz - qz);
             double ya, yb;
             if (k == -1)

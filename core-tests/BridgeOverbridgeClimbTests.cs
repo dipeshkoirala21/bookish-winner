@@ -51,7 +51,7 @@ namespace Ghumante.Core.Tests
             foreach (TileId id in tiles)
             {
                 TileData t = w.Tile(id);
-                foreach (OverbridgeRoutes.Route r in OverbridgeRoutes.For(t, w))
+                foreach (OverbridgeRoutes.Route r in OverbridgeRoutes.For(t, w.Ground))
                 {
                     if (!string.IsNullOrEmpty(only) && r.Way.ToString() != only) continue;
                     if (r.Waypoints == null)
@@ -76,7 +76,7 @@ namespace Ghumante.Core.Tests
                     bool ok = run.Reached && topped && run.BridgeSink < 0.25f;
                     if (!ok) bad++;
                     report.Append(t.Tile).Append(" overbridge ").Append(r.Way).Append(" deck ").Append(r.DeckY.ToString("F1")).Append(" (").Append(r.Note).Append("): ")
-                          .Append(ok ? "ok " : "BAD ").Append(run).Append(topped ? "" : " NEVER REACHED THE DECK").Append('\n');
+                          .Append(ok ? "ok " : "BAD ").Append(run).Append(topped ? "" : " NEVER REACHED THE DECK").Append('\n').Append(BridgeProbe.Why(w, run));
                 }
             }
             TestContext.WriteLine("overbridges " + structures + ", routes " + routes + ", bad " + bad);
@@ -168,13 +168,9 @@ namespace Ghumante.Core.Tests
             public double X, Z;
             public float Y;
             public bool Deck, Foot;
-
-            /// <summary>Unit plan direction out of a flight at this end (0 for other nodes): a walker leaving the flight
-            /// carries on straight for a step before turning.</summary>
-            public double Ox, Oz;
         }
 
-        public static List<Route> For(TileData t, BridgeWorld w)
+        public static List<Route> For(TileData t, TileGroundQuery ground)
         {
             var result = new List<Route>();
             BridgeLayout l = BridgeLayout.For(t);
@@ -182,32 +178,42 @@ namespace Ghumante.Core.Tests
             foreach (BridgeSpan sp in l.Spans)
                 if (sp.Overbridge)
                     groups.Add(sp.GroupWay);
-            foreach (ulong g in groups) result.Add(RouteOf(t, l, g, w));
+            foreach (ulong g in groups) result.Add(RouteOf(t, l, g, ground));
             return result;
         }
 
-        private static Route RouteOf(TileData t, BridgeLayout l, ulong group, BridgeWorld w)
+        private static Route RouteOf(TileData t, BridgeLayout l, ulong group, TileGroundQuery ground)
         {
             var nodes = new List<Node>();
             var edges = new List<List<int>>();
-            // Interpolated walking line of each edge (world points, without the end nodes), keyed by (a, b).
-            var lines = new Dictionary<long, List<double>>();
+            var piece = new List<int>(); // which piece (deck or flight) each node belongs to
+            var reachOf = new List<double>(); // plan reach of a node to a node of another piece
             double x0 = t.Tile.X0, z0 = t.Tile.Z0;
             float deckY = float.MinValue;
+            int pieces = 0;
             foreach (BridgeSpan sp in l.Spans)
             {
                 if (sp.GroupWay != group) continue;
                 if (!sp.Stair)
                 {
-                    // Deck stations every ~2 m along the centreline.
-                    int prev = -1;
-                    for (double s = sp.Path.Start; s <= sp.Path.End + 1e-6; s += Math.Max(0.5, Math.Min(2.0, (sp.Path.End - sp.Path.Start) / 4)))
+                    // Deck stations about every metre along the centreline (not in a stair zone: its flights carry it); a
+                    // node reaches across the deck to its edges.
+                    int prev = -1, me = pieces++;
+                    double step = Math.Max(0.5, Math.Min(1.0, (sp.Path.End - sp.Path.Start) / 4));
+                    for (double s = sp.Path.Start; s <= sp.Path.End + 1e-6; s += step)
                     {
-                        if (!sp.HasDeck(s) && s > sp.Path.Start + 0.5 && s < sp.Path.End - 0.5) continue;
+                        if (!sp.HasDeck(s) || sp.InStairZoneInterior(s))
+                        {
+                            prev = -1;
+                            continue;
+                        }
                         double px, pz, ux, uz, nx, nz, tx, tz;
                         float y;
                         sp.Path.Frame(s, out px, out pz, out y, out ux, out uz, out nx, out nz, out tx, out tz);
                         int k = Add(nodes, edges, x0 + px, z0 + pz, y, true);
+                        piece.Add(me);
+                        int st = sp.StationAt(s);
+                        reachOf.Add(Math.Max(sp.EdgeL(st), sp.EdgeR(st)) + 0.6);
                         if (sp.Overbridge) deckY = Math.Max(deckY, y);
                         if (prev >= 0) Link(edges, prev, k);
                         prev = k;
@@ -216,67 +222,62 @@ namespace Ghumante.Core.Tests
                 foreach (BridgeStair st in sp.Stairs)
                 {
                     if (st.Steps < 0) continue;
-                    double bx = st.X + st.Dx * st.Length, bz = st.Z + st.Dz * st.Length;
-                    int a = Add(nodes, edges, x0 + st.X, z0 + st.Z, st.TopY, false);
-                    int b = Add(nodes, edges, x0 + bx, z0 + bz, st.BottomY, false);
-                    Node na = nodes[a], nb0 = nodes[b];
-                    na.Ox = -st.Dx;
-                    na.Oz = -st.Dz;
-                    nb0.Ox = st.Dx;
-                    nb0.Oz = st.Dz;
-                    nodes[a] = na;
-                    nodes[b] = nb0;
-                    Link(edges, a, b);
-                    var line = new List<double>();
+                    // Nodes every half metre along the flight's centre line (a landing pad: along its middle).
+                    int me = pieces++, prev = -1;
                     int n = Math.Max(1, (int)Math.Ceiling(st.Length / 0.5));
-                    for (int i = 1; i < n; i++)
+                    for (int i = 0; i <= n; i++)
                     {
-                        double f = st.Length * i / n;
-                        line.Add(x0 + st.X + st.Dx * f);
-                        line.Add(z0 + st.Z + st.Dz * f);
+                        double a = st.Length * i / n;
+                        int k = Add(nodes, edges, x0 + st.X + st.Dx * a, z0 + st.Z + st.Dz * a, st.SurfaceAt(a), false);
+                        piece.Add(me);
+                        reachOf.Add(st.HalfWidth + 0.4);
+                        if (prev >= 0) Link(edges, prev, k);
+                        prev = k;
                     }
-                    lines[Key(a, b)] = line;
                     if (st.Steps == 0) continue;
                     // A stair foot on the ground: its bottom within a step of the terrain (or the road) there.
+                    double bx = st.X + st.Dx * st.Length, bz = st.Z + st.Dz * st.Length;
                     GroundSample g;
                     double fx = x0 + bx + st.Dx * 0.6, fz = z0 + bz + st.Dz * 0.6;
-                    if (w.Ground.TrySample(fx, fz, st.BottomY + 0.3f, out g) && Math.Abs(g.Height - st.BottomY) < 0.45f && !g.OnDeck)
+                    if (ground.TrySample(fx, fz, st.BottomY + 0.3f, out g) && Math.Abs(g.Height - st.BottomY) < 0.45f && !g.OnDeck)
                     {
-                        Node nb = nodes[b];
+                        Node nb = nodes[prev];
                         nb.Foot = true;
-                        nodes[b] = nb;
+                        nodes[prev] = nb;
                         // The pavement 2 m beyond the foot, straight on.
                         int street = Add(nodes, edges, x0 + bx + st.Dx * 2.0, z0 + bz + st.Dz * 2.0, g.Height, false);
+                        piece.Add(me);
+                        reachOf.Add(0);
                         Node ns = nodes[street];
                         ns.Foot = true;
                         nodes[street] = ns;
-                        Link(edges, b, street);
+                        Link(edges, prev, street);
                     }
                 }
             }
-            // Joins: ends of different pieces within 1.6 m in plan and a step in height (flight to pad, flight to flight,
-            // flight top to the nearest deck station).
+            // Joins between pieces: nodes within either one's reach in plan and a step in height (flight to pad, flight to
+            // flight, a flight top to the deck beside it).
             for (int i = 0; i < nodes.Count; i++)
             for (int j = i + 1; j < nodes.Count; j++)
             {
+                if (piece[i] == piece[j]) continue;
                 double dx = nodes[i].X - nodes[j].X, dz = nodes[i].Z - nodes[j].Z;
                 double d = Math.Sqrt(dx * dx + dz * dz);
-                double reach = nodes[i].Deck || nodes[j].Deck ? 3.5 : 1.6;
-                if (d < reach && Math.Abs(nodes[i].Y - nodes[j].Y) < 0.45f) Link(edges, i, j);
+                if (d < Math.Max(reachOf[i], reachOf[j]) && Math.Abs(nodes[i].Y - nodes[j].Y) < 0.4f) Link(edges, i, j);
             }
             var route = new Route { Way = group, DeckY = deckY };
-            // Every foot to every other foot whose route goes over the deck: keep the longest such route.
+            // Every foot to every other foot whose route goes over the deck: keep the one between the farthest apart.
             double bestLen = 0;
             List<int> best = null;
             for (int s = 0; s < nodes.Count; s++)
             {
-                if (!nodes[s].Foot) continue;
+                if (!nodes[s].Foot || reachOf[s] > 0) continue; // start from the pavement beyond a foot
                 int[] prevOf;
                 double[] dist;
                 Dijkstra(nodes, edges, s, out prevOf, out dist);
                 for (int e = 0; e < nodes.Count; e++)
                 {
-                    if (e == s || !nodes[e].Foot || double.IsPositiveInfinity(dist[e])) continue;
+                    if (e == s || !nodes[e].Foot || reachOf[e] > 0 || double.IsPositiveInfinity(dist[e])) continue;
                     var path = new List<int>();
                     for (int v = e; v >= 0; v = prevOf[v]) path.Insert(0, v);
                     bool overDeck = false;
@@ -294,77 +295,56 @@ namespace Ghumante.Core.Tests
             {
                 int feet = 0;
                 foreach (Node n in nodes) feet += n.Foot ? 1 : 0;
+                // Components of the graph: which hold a foot and which the deck top.
+                var comp = new int[nodes.Count];
+                for (int i = 0; i < comp.Length; i++) comp[i] = -1;
+                int nc = 0;
                 var why = new StringBuilder();
-                // Each flight top's nearest deck node (plan distance and height step): where the joins failed.
                 for (int i = 0; i < nodes.Count; i++)
                 {
-                    if (nodes[i].Deck || nodes[i].Ox == 0 && nodes[i].Oz == 0) continue;
-                    double bestD = double.MaxValue;
-                    float dy = 0;
-                    for (int j = 0; j < nodes.Count; j++)
+                    if (comp[i] >= 0) continue;
+                    var stack = new Stack<int>();
+                    stack.Push(i);
+                    comp[i] = nc;
+                    bool foot = false, top = false;
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    double cx = 0, cz = 0;
+                    int cnt = 0;
+                    while (stack.Count > 0)
                     {
-                        if (!nodes[j].Deck) continue;
-                        double d = Math.Sqrt((nodes[i].X - nodes[j].X) * (nodes[i].X - nodes[j].X) + (nodes[i].Z - nodes[j].Z) * (nodes[i].Z - nodes[j].Z));
-                        if (d < bestD)
-                        {
-                            bestD = d;
-                            dy = nodes[j].Y - nodes[i].Y;
-                        }
+                        int u = stack.Pop();
+                        foot |= nodes[u].Foot;
+                        top |= nodes[u].Deck && nodes[u].Y > deckY - 0.5f;
+                        lo = Math.Min(lo, nodes[u].Y);
+                        hi = Math.Max(hi, nodes[u].Y);
+                        cx += nodes[u].X;
+                        cz += nodes[u].Z;
+                        cnt++;
+                        foreach (int v in edges[u])
+                            if (comp[v] < 0)
+                            {
+                                comp[v] = nc;
+                                stack.Push(v);
+                            }
                     }
-                    if (bestD < 6) why.Append(" end (").Append(nodes[i].X.ToString("F1")).Append(", ").Append(nodes[i].Z.ToString("F1")).Append(") y ").Append(nodes[i].Y.ToString("F1"))
-                                      .Append(" deck@").Append(bestD.ToString("F1")).Append(" dy ").Append(dy.ToString("F2")).Append(" links ").Append(edges[i].Count).Append(';');
+                    why.Append(" [comp ").Append(nc).Append(foot ? " foot" : "").Append(top ? " top" : "").Append(" y ").Append(lo.ToString("F1")).Append("..").Append(hi.ToString("F1"))
+                       .Append(" at (").Append((cx / cnt).ToString("F1")).Append(", ").Append((cz / cnt).ToString("F1")).Append(") n ").Append(cnt).Append(']');
+                    nc++;
                 }
-                route.Note = "feet " + feet + ", nodes " + nodes.Count + why;
+                route.Note = "feet " + feet + ", nodes " + nodes.Count + ", pieces " + pieces + why;
                 return route;
             }
             var pts = new List<double>();
-            for (int i = 0; i < best.Count; i++)
+            foreach (int v in best)
             {
-                if (i > 0)
-                {
-                    List<double> line;
-                    int a = best[i - 1], b = best[i];
-                    if (lines.TryGetValue(Key(a, b), out line))
-                    {
-                        if (a < b) pts.AddRange(line);
-                        else
-                            for (int k = line.Count - 2; k >= 0; k -= 2)
-                            {
-                                pts.Add(line[k]);
-                                pts.Add(line[k + 1]);
-                            }
-                    }
-                    else
-                    {
-                        // A join between pieces: off a flight straight on for a step, onto one straight in.
-                        Node na = nodes[a], nb = nodes[b];
-                        if (na.Ox != 0 || na.Oz != 0)
-                        {
-                            pts.Add(na.X + na.Ox * 0.8);
-                            pts.Add(na.Z + na.Oz * 0.8);
-                        }
-                        if (nb.Ox != 0 || nb.Oz != 0)
-                        {
-                            pts.Add(nb.X + nb.Ox * 0.8);
-                            pts.Add(nb.Z + nb.Oz * 0.8);
-                        }
-                    }
-                }
-                Node nd = nodes[best[i]];
-                if (pts.Count >= 2 && Math.Abs(pts[pts.Count - 2] - nd.X) + Math.Abs(pts[pts.Count - 1] - nd.Z) < 0.05) continue;
-                pts.Add(nd.X);
-                pts.Add(nd.Z);
+                pts.Add(nodes[v].X);
+                pts.Add(nodes[v].Z);
             }
             route.Waypoints = pts;
             route.StartY = nodes[best[0]].Y;
             route.Note = "from (" + nodes[best[0]].X.ToString("F1") + ", " + nodes[best[0]].Z.ToString("F1") + ") to (" + nodes[best[best.Count - 1]].X.ToString("F1") + ", "
                          + nodes[best[best.Count - 1]].Z.ToString("F1") + "), " + best.Count + " nodes";
             return route;
-        }
-
-        private static long Key(int a, int b)
-        {
-            return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
         }
 
         private static int Add(List<Node> nodes, List<List<int>> edges, double x, double z, float y, bool deck)

@@ -77,9 +77,11 @@ namespace Ghumante.Core.Driving
         /// <summary>Builds the solids of <paramref name="t"/>. <paramref name="roads"/> (the tile's road index, may be null)
         /// keeps props off carriageways and bounds railings; <paramref name="corridors"/> (may be null: the drawn
         /// carriageways of <paramref name="roads"/> stand in) trims footprints; <paramref name="hidden"/> lists building
-        /// refs drawn by hero replicas (may be null).</summary>
+        /// refs drawn by hero replicas (may be null). With <paramref name="bridgeSolids"/> (a ground query on the bridges
+        /// package's decks) the bridges, flyovers, overbridges, stairs and trenches the bridges package draws get its solids
+        /// (<see cref="BridgeColliders"/>); without it (decks from the structure heights) the road-based railings.</summary>
         internal static SolidSet Build(TileData t, RoadSpatialIndex roads, IRoadCorridorQuery corridors, ISet<ulong> hidden,
-                                       RoadOptions roadOptions)
+                                       RoadOptions roadOptions, bool bridgeSolids = true)
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
             if (t.HeightsQ == null || t.HeightsN < 2) return SolidSet.Empty;
@@ -90,7 +92,7 @@ namespace Ghumante.Core.Driving
             Props(t, h, roads, b);
             // Bridges, flyovers, overbridges, stairs and underpass trenches: the solids of what the bridges package draws
             // (railings on the drawn railing line, supports, trench walls); the road-based railings below skip those roads.
-            BridgeColliders bridges = t.HasDetail && t.Roads.Count > 0 ? BridgeColliders.For(BridgeLayout.For(t)) : null;
+            BridgeColliders bridges = bridgeSolids && t.HasDetail && t.Roads.Count > 0 ? BridgeColliders.For(BridgeLayout.For(t)) : null;
             if (roads != null) Railings(t, h, roads, roadOptions ?? new RoadOptions(), b, bridges != null ? bridges.Covered : null);
             if (bridges != null) BridgeSolids(t, bridges, b);
             return b.Build();
@@ -401,9 +403,6 @@ namespace Ghumante.Core.Driving
             foreach (BridgeColliders.Column k in c.Columns) b.AddCylinder(x0 + k.CX, z0 + k.CZ, k.Radius, k.Bottom, k.Top, SolidFlags.None);
         }
 
-        public static Action<ulong, double, double> DebugRail;
-        public static bool DebugSkipLowered = Environment.GetEnvironmentVariable("DEBUG_SKIP_LOWERED") == "1";
-
         private static void Railings(TileData t, TileHeightSampler h, RoadSpatialIndex roads, RoadOptions o, SolidBuilder b, bool[] covered)
         {
             var run = new RailRun(b);
@@ -412,7 +411,6 @@ namespace Ghumante.Core.Driving
             for (int ri = 0; ri < t.Roads.Count; ri++)
             {
                 if (covered != null && ri < covered.Length && covered[ri]) continue; // drawn and made solid by the bridges package
-                if (DebugSkipLowered && (t.RoadStructureOf(ri).Flags & RoadStructureFlags.Lowered) != 0) continue;
                 bool elevated = roads.IsElevated(ri);
                 float[] deck = roads.SurfaceHeights(ri);
                 if (!elevated && deck == null) continue;
@@ -493,7 +491,6 @@ namespace Ghumante.Core.Driving
                             {
                                 // A lowered road: a retaining wall where it runs below the hard edge.
                                 bool cut = ground + lift - y > TileGroundQuery.HardEdgeM;
-                                if (cut && DebugRail != null) DebugRail(t.Roads[ri].OsmWayId, qx, qz);
                                 run.Add(qx, qz, y - RailingBelowDeckM, Math.Max(y + rail, ground + RetainingParapetM), cut);
                             }
                         }

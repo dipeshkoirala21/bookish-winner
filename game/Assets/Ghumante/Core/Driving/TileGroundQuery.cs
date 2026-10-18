@@ -358,7 +358,9 @@ namespace Ghumante.Core.Driving
         {
             if (!TileSolidsEnabled || tile == null || !tile.HasDetail) return null;
             IRoadCorridorQuery corridors = CorridorFactory != null ? CorridorFactory(tile) : null;
-            SolidSet set = TileSolids.Build(tile, roads, corridors, HiddenBuildingRefs, _roadOptions);
+            // The bridges package's solids stand where its decks are walked (DeckFactory); decks from the structure heights
+            // keep the road-based railings that bound them.
+            SolidSet set = TileSolids.Build(tile, roads, corridors, HiddenBuildingRefs, _roadOptions, DeckFactory != null);
             return set.Count > 0 ? set : null;
         }
 
@@ -476,36 +478,42 @@ namespace Ghumante.Core.Driving
                 s.Surface = FootSurfaces.GroupOf(paved);
             }
 
-            // 1. A bridge or flyover deck within reach of the asker.
+            // 1. A bridge or flyover deck within reach of the asker. It answers unless the ground level of step 2 (the terrain
+            //    or a ground road) is drawn above it within the same reach (OverDeck).
             RoadHit hit;
             float deckY, dnx, dny, dnz;
-            if (TryDeckAt(x, z, nearY, h, out hit, out deckY, out dnx, out dny, out dnz))
+            GroundSample deck = default(GroundSample), terrain = s;
+            bool onDeck = TryDeckAt(x, z, nearY, h, out hit, out deckY, out dnx, out dny, out dnz);
+            if (onDeck)
             {
-                s.OnRoad = true;
-                s.OnDeck = true;
-                s.Height = deckY;
-                s.Nx = dnx;
-                s.Ny = dny;
-                s.Nz = dnz;
+                deck = s;
+                deck.OnRoad = true;
+                deck.OnDeck = true;
+                deck.Height = deckY;
+                deck.Nx = dnx;
+                deck.Ny = dny;
+                deck.Nz = dnz;
                 if (hit.Road != null)
                 {
-                    s.Surface = SurfaceGroups.Of(hit.Road.Surface);
-                    s.Foot = FootSurfaces.OfRoad(hit.Road.Surface, hit.Road.RoadClass);
-                    SetRoad(ref s, ref hit);
+                    deck.Surface = SurfaceGroups.Of(hit.Road.Surface);
+                    deck.Foot = FootSurfaces.OfRoad(hit.Road.Surface, hit.Road.RoadClass);
+                    SetRoad(ref deck, ref hit);
                 }
                 else
                 {
-                    s.Surface = SurfaceGroup.Paved;
-                    s.Foot = FootSurface.Concrete;
+                    deck.Surface = SurfaceGroup.Paved;
+                    deck.Foot = FootSurface.Concrete;
                 }
-                return true;
             }
 
             // 2. The roads that are not bridges or flyovers (draped, lowered underpasses, fords) and their footpaths.
             float road = h, deckGrade = 0f;
             bool spans = false;
+            // (A stair or ramp the bridges package draws is walked on its drawn flights, step 1: its structure heights, a
+            // straight line between the mapped points where the flights may be fitted, moved or turned, are no surface of
+            // their own; owner playtest #15: at a flight's foot they stood a wall as high as the flight.)
             bool found = TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Ground, out hit)
-                         && (hit.OnRoad || hit.OnFootpath);
+                         && (hit.OnRoad || hit.OnFootpath) && !DrawnByBridges(hit.Tile, hit.RoadIndex, hit.Segment);
             if (found && hit.OnFootpath)
             {
                 // A raised footpath: the paver top at kerb height above the ribbon (or the structure surface), never a ramp.
@@ -518,10 +526,14 @@ namespace Ghumante.Core.Driving
                 s.Foot = FootSurface.Concrete;
                 s.Surface = SurfaceGroup.Paved;
                 SetRoad(ref s, ref hit);
-                return true;
+                if (!onDeck) return true;
+                // (The footpath band of a street ending at a deck reaches over the deck where nothing of it is drawn: over a
+                // deck only the drawn carriageway or the terrain counts.)
+                s = terrain;
+                return OverDeck(ref s, ref deck, ref terrain, nearY);
             }
             found = found && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
-            if (!found) return true;
+            if (!found) return !onDeck || OverDeck(ref s, ref deck, ref terrain, nearY);
 
             RoadRecord r = hit.Road;
             s.OnRoad = true;
@@ -538,6 +550,33 @@ namespace Ghumante.Core.Driving
             s.Surface = SurfaceGroups.Of(r.Surface);
             s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
             SetRoad(ref s, ref hit);
+            return !onDeck || OverDeck(ref s, ref deck, ref terrain, nearY);
+        }
+
+        /// <summary>The ground level counts over a deck only when drawn at least this much higher.</summary>
+        private const float DeckCoverM = 0.02f;
+
+        /// <summary>
+        /// Chooses between a deck within reach (<paramref name="deck"/>) and the ground level under it (<paramref name="ground"/>:
+        /// a ground road or <paramref name="terrain"/>, step 2 of <see cref="SampleCore"/>): the ground level answers where it is drawn
+        /// above the deck within the deck's reach (<see cref="DeckStepUpM"/> over the feet; the highest when nearY is +∞),
+        /// otherwise the deck. A low deck lies under the drawn terrain or a street ribbon there: the bank beside a deck end
+        /// on a slope, the river bank under a bridge the terrain grid does not resolve, a junction cap or a joining street
+        /// drawn across the end of the deck. Answering the deck there stood the feet inside what is drawn (owner playtest #2
+        /// at Kalopul: "characters get sucked in ... disappears when trying to cross the bridge"). Always true.
+        /// </summary>
+        private static bool OverDeck(ref GroundSample ground, ref GroundSample deck, ref GroundSample terrain, float nearY)
+        {
+            float reach = float.IsPositiveInfinity(nearY) || float.IsNaN(nearY) ? float.PositiveInfinity : nearY + DeckStepUpM;
+            if (ground.Height > deck.Height + DeckCoverM && ground.Height <= reach) return true;
+            // A ground road below the deck (a street passing under a low bridge) does not hide a bank of terrain drawn over
+            // the deck beside it.
+            if (terrain.Height > deck.Height + DeckCoverM && terrain.Height <= reach)
+            {
+                ground = terrain;
+                return true;
+            }
+            ground = deck;
             return true;
         }
 
@@ -700,6 +739,15 @@ namespace Ghumante.Core.Driving
             if (tile == null || !_areas.TryGetValue(tile.Tile, out e)) return false;
             var d = e.Decks as BridgeDeckIndex;
             return d != null && d.Layout.Draws(road);
+        }
+
+        /// <summary>As <see cref="DrawnByBridges(TileData, int)"/> for one segment of the road (<see cref="BridgeLayout.Draws(int, int)"/>).</summary>
+        private bool DrawnByBridges(TileData tile, int road, int segment)
+        {
+            Entry e;
+            if (tile == null || !_areas.TryGetValue(tile.Tile, out e)) return false;
+            var d = e.Decks as BridgeDeckIndex;
+            return d != null && d.Layout.Draws(road, segment);
         }
 
         private static void SetRoad(ref GroundSample s, ref RoadHit hit)
@@ -872,8 +920,16 @@ namespace Ghumante.Core.Driving
             {
                 if (Math.Abs(sy - deck) > HardEdgeM && hit.EdgeDistanceM > 0f)
                 {
-                    height = terrain;
-                    return false;
+                    // The hard edge stands beside the carriageway. Within its width past a segment's end (the outer side of
+                    // a bend, the mouth of a junction) the lowered surface carries on: answering the terrain there stood an
+                    // invisible wall as high as the cutting is deep across the riverside roads under Kalopul and Setopul
+                    // (owner playtest #2).
+                    if (Math.Abs(hit.LateralM - hit.CentreShiftM) > hit.HalfWidthM)
+                    {
+                        height = terrain;
+                        return false;
+                    }
+                    ramp = 1f;
                 }
                 spans = true;
                 grade = sg;

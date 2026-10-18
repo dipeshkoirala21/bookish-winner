@@ -114,7 +114,8 @@ namespace Ghumante.Core.Tests
                     {
                         for (int side = -1; side <= 1; side += 2)
                         {
-                            if (!sp.HasRail(side, s)) continue;
+                            // (Exactly at a run's end the railing's end face is met edge-on: sample inside the runs.)
+                            if (!sp.HasRail(side, s) || !sp.HasRail(side, s - 0.05) || !sp.HasRail(side, s + 0.05)) continue;
                             double x, z, ux, uz, nx, nz, tx, tz;
                             float y;
                             sp.Path.Frame(s, out x, out z, out y, out ux, out uz, out nx, out nz, out tx, out tz);

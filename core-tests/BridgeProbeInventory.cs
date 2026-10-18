@@ -75,22 +75,6 @@ namespace Ghumante.Core.Tests
             }
         }
 
-        /// <summary>Which roads' road-based retaining walls TileSolids builds in one tile (BRIDGE_TILE), by way (debug hook).</summary>
-        [Test, Explicit]
-        public void RailOwners()
-        {
-            string spec = Environment.GetEnvironmentVariable("BRIDGE_TILE");
-            if (string.IsNullOrEmpty(spec)) Assert.Ignore("set BRIDGE_TILE");
-            string[] a = spec.Split(',');
-            TileData t = StreamingSampleRegion.Tile(new TileId(10, int.Parse(a[0]), int.Parse(a[1])));
-            var count = new SortedDictionary<ulong, int>();
-            TileSolids.DebugRail = (w, x, z) => { int c; count.TryGetValue(w, out c); count[w] = c + 1; };
-            var q = new TileGroundQuery();
-            q.Add(t);
-            TileSolids.DebugRail = null;
-            foreach (KeyValuePair<ulong, int> kv in count) TestContext.WriteLine("way " + kv.Key + " retaining points " + kv.Value);
-        }
-
         /// <summary>Roads of one tile (BRIDGE_TILE = "tx,ty") that carry structure heights or are elevated, with their record
         /// kind and flags and whether the bridges package covers them (a span or a trench of the layout).</summary>
         [Test, Explicit]
