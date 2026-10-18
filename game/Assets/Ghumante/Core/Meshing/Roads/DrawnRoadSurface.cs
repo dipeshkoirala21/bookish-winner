@@ -33,6 +33,15 @@ namespace Ghumante.Core.Meshing.Roads
         /// and a cap share an edge; the drawn edge vertices themselves).</summary>
         public const double EdgeToleranceM = 0.02;
 
+        /// <summary>
+        /// A drawn level with another drawn level at most this much above it (two pieces overlapping a step apart: a mapped
+        /// sidewalk drawn at road level inside a raised paver footpath, a path ribbon over a lane, two tiles' caps at a seam)
+        /// is hidden under that one: feet and wheels stand on the upper piece, the one the player sees (owner playtest #8),
+        /// never inside it. Equal to the ground query's step-up (<c>TileGroundQuery.StepUpM</c>), so the climb onto the
+        /// covering piece is never a wall.
+        /// </summary>
+        public const float CoveredM = 0.45f;
+
         private readonly double _x0, _z0; // tile origin (game metres): positions are tile-local x/z, absolute y
         private readonly float[] _p; // x, y, z per kept vertex
         private readonly int[] _tri; // 3 vertex indices per kept triangle
@@ -201,10 +210,10 @@ namespace Ghumante.Core.Meshing.Roads
         /// The drawn road surface at game (x, z) for feet at <paramref name="nearY"/>: of every drawn level there at most
         /// <paramref name="stepUpM"/> above the feet (higher ones, a deck or a street over an underpass, are overhead), the
         /// one nearest to the feet (the street the feet are on where two drawn pieces overlap a metre apart; a kerb top or a
-        /// ramp just above them where only that is drawn), the higher on a tie. +∞ or NaN feet take the highest, −∞ the
-        /// lowest. False where
-        /// nothing is drawn, or every drawn level there is overhead. Height, unit face normal and the material channel of
-        /// the triangle.
+        /// ramp just above them where only that is drawn), the higher on a tie; and where another drawn level covers that one
+        /// at most <see cref="CoveredM"/> above it (and within the step-up), the covering one, the surface the player sees
+        /// (<see cref="Uncover"/>). +∞ or NaN feet take the highest, −∞ the lowest. False where nothing is drawn, or every
+        /// drawn level there is overhead. Height, unit face normal and the material channel of the triangle.
         /// </summary>
         public bool TrySample(double x, double z, float nearY, float stepUpM, out float y, out float nx, out float ny, out float nz,
                               out MaterialChannel channel)
@@ -238,10 +247,37 @@ namespace Ghumante.Core.Meshing.Roads
                 }
             }
             if (best < 0) return false;
+            if (!highest && !lowest) best = Uncover(cell, lx, lz, best, ref bestY, limit);
             y = bestY;
             channel = (MaterialChannel)_channel[best];
             FaceNormal(best, out nx, out ny, out nz);
             return true;
+        }
+
+        /// <summary>
+        /// From drawn triangle <paramref name="best"/> at height <paramref name="y"/>: while another drawn triangle over the
+        /// point lies above it by at most <see cref="CoveredM"/> and not above <paramref name="limit"/>, the highest such one
+        /// (the lower piece is hidden under it). Returns the triangle the feet stand on and updates <paramref name="y"/>.
+        /// </summary>
+        private int Uncover(int cell, double lx, double lz, int best, ref float y, float limit)
+        {
+            for (int guard = 0; guard < 8; guard++)
+            {
+                float top = Math.Min(y + CoveredM, limit), upY = y;
+                int up = -1;
+                for (int k = _start[cell], end = _start[cell + 1]; k < end; k++)
+                {
+                    int t = _items[k];
+                    float h;
+                    if (t == best || !HeightOn(t, lx, lz, 0.0, out h) || !(h > upY + 1e-4f) || h > top) continue;
+                    up = t;
+                    upY = h;
+                }
+                if (up < 0) break;
+                best = up;
+                y = upY;
+            }
+            return best;
         }
 
         /// <summary>Every drawn level over game (x, z) (strictly inside a triangle), ascending, into

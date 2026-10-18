@@ -593,7 +593,8 @@ namespace Ghumante.Core.Driving
         /// <summary>
         /// The drawn road surface under (x, z) for feet at <paramref name="nearY"/> over the loaded exact tiles of the finest
         /// road level (<see cref="DrawnRoadSurface.TrySample"/>: of the drawn levels at most <see cref="DeckStepUpM"/> above
-        /// the feet the one nearest to them; the highest for feet at +∞). <paramref name="known"/> tells whether some tile
+        /// the feet the one nearest to them, or the piece drawn over it a step higher, <see cref="DrawnRoadSurface.CoveredM"/>,
+        /// across tiles too; the highest for feet at +∞). <paramref name="known"/> tells whether some tile
         /// with a drawn surface covers the point's surroundings, so a miss there means "no road here" rather than "not
         /// known".
         /// </summary>
@@ -608,6 +609,7 @@ namespace Ghumante.Core.Driving
             known = false;
             NearRoadEntries(x, z, DrawnReachM);
             bool found = false;
+            int hits = 0;
             for (int i = 0; i < _near.Count; i++)
             {
                 DrawnRoadSurface d = _near[i].Roads.DrawnSurface;
@@ -616,6 +618,7 @@ namespace Ghumante.Core.Driving
                 float yy, ax, ay, az;
                 MaterialChannel ch;
                 if (!d.TrySample(x, z, nearY, DeckStepUpM, out yy, out ax, out ay, out az, out ch)) continue;
+                hits++;
                 if (found && (float.IsNegativeInfinity(nearY) ? !(yy < y)
                         : float.IsInfinity(nearY) || float.IsNaN(nearY) ? !(yy > y) : Math.Abs(yy - nearY) >= Math.Abs(y - nearY))) continue;
                 y = yy;
@@ -624,6 +627,28 @@ namespace Ghumante.Core.Driving
                 nz = az;
                 channel = ch;
                 found = true;
+            }
+            // Two tiles' pieces over the point (a junction cap reaching over the seam onto the neighbour's ribbon): the one
+            // that covers the other a step above is the surface seen (DrawnRoadSurface.CoveredM), as within one tile.
+            if (hits < 2 || float.IsInfinity(nearY) || float.IsNaN(nearY)) return found;
+            for (int guard = 0; guard < 4; guard++)
+            {
+                float top = Math.Min(y + DrawnRoadSurface.CoveredM, nearY + DeckStepUpM);
+                bool raised = false;
+                for (int i = 0; i < _near.Count; i++)
+                {
+                    DrawnRoadSurface d = _near[i].Roads.DrawnSurface;
+                    float yy, ax, ay, az;
+                    MaterialChannel ch;
+                    if (d == null || !d.TrySample(x, z, top, 0f, out yy, out ax, out ay, out az, out ch) || !(yy > y + 1e-4f)) continue;
+                    y = yy;
+                    nx = ax;
+                    ny = ay;
+                    nz = az;
+                    channel = ch;
+                    raised = true;
+                }
+                if (!raised) break;
             }
             return found;
         }

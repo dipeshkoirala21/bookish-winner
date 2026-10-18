@@ -89,6 +89,18 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>The level feet at <paramref name="y"/> stand on among the drawn <paramref name="levels"/> (ascending): the
+        /// one nearest to them, or the drawn piece that covers it a step above (<see cref="DrawnRoadSurface.CoveredM"/>: a
+        /// level with another drawn just over it is hidden under that one, which is what the player sees).</summary>
+        internal static float Visible(List<float> levels, float y)
+        {
+            int k = 0;
+            for (int i = 1; i < levels.Count; i++)
+                if (Math.Abs(levels[i] - y) < Math.Abs(levels[k] - y)) k = i;
+            while (k + 1 < levels.Count && levels[k + 1] - levels[k] <= DrawnRoadSurface.CoveredM) k++;
+            return levels[k];
+        }
+
         private static TileGroundQuery _ground;
         private static List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> _tiles;
 
@@ -142,9 +154,11 @@ namespace Ghumante.Core.Tests
                 for (double lx = 0.17; lx < t.Tile.Size; lx += 1.0)
                 {
                     double x = t.Tile.X0 + lx, z = t.Tile.Z0 + lz;
-                    foreach (float y in d.Levels(x, z))
+                    List<float> levels = d.Levels(x, z);
+                    foreach (float y in levels)
                     {
                         GroundSample s;
+                        float seen = Visible(levels, y);
                         if (!g.TrySample(x, z, y + 0.005f, out s))
                         {
                             // A wall: a deck slab lower than a body over this drawn road (the bridges package's), never a miss.
@@ -158,7 +172,7 @@ namespace Ghumante.Core.Tests
                             continue;
                         }
                         samples++;
-                        double err = s.Height - y, a = Math.Abs(err);
+                        double err = s.Height - seen, a = Math.Abs(err);
                         int b = 0;
                         while (a >= edges[b]) b++;
                         hist[b]++;
@@ -168,7 +182,8 @@ namespace Ghumante.Core.Tests
                         if (a > worst)
                         {
                             worst = a;
-                            where = t.Tile + " at " + lx.ToString("0.0") + ", " + lz.ToString("0.0") + " drawn " + y.ToString("0.00") + " ground " + s.Height.ToString("0.00");
+                            where = t.Tile + " at " + lx.ToString("0.0") + ", " + lz.ToString("0.0") + " drawn " + y.ToString("0.00") + " (seen " + seen.ToString("0.00") + ") ground " +
+                                    s.Height.ToString("0.00");
                         }
                     }
                 }
@@ -242,8 +257,9 @@ namespace Ghumante.Core.Tests
                         if (w.Airborne) continue;
                         List<float> ys = d.Levels(w.X, w.Z);
                         if (ys.Count == 0) continue;
-                        float best = ys.OrderBy(y => Math.Abs(y - w.Y)).First();
-                        if (Math.Abs(best - w.Y) > 0.5f) continue; // the walker stands on something else (a plinth, the terrain beside)
+                        float near = ys.OrderBy(y => Math.Abs(y - w.Y)).First();
+                        if (Math.Abs(near - w.Y) > 0.5f) continue; // the walker stands on something else (a plinth, the terrain beside)
+                        float best = Visible(ys, w.Y);
                         GroundSample s;
                         if (g.TrySample(w.X, w.Z, w.Y, out s) && (s.OnDeck || s.OnStructure)) continue;
                         steps++;
@@ -266,6 +282,127 @@ namespace Ghumante.Core.Tests
             Assert.That(walks, Is.GreaterThan(300));
             Assert.That(steps, Is.GreaterThan(100000));
             Assert.That(over3, Is.LessThanOrEqualTo(steps / 5000), "feet within 3 cm of the drawn surface: " + where);
+        }
+
+        /// <summary>
+        /// Where two drawn pieces overlap a step apart, the feet stand on the upper one, the one the player sees (owner #8):
+        /// a mapped sidewalk (Footway 802516424) drawn at road level inside the raised paver footpath of Primary 169442477
+        /// north of Rani Pokhari. A walker coming along the sidewalk stood on it, its feet 0.27 m inside the visible
+        /// footpath (the whole-sample walk harness: 2 270 steps 3 cm or more inside the surface around Asan alone).
+        /// </summary>
+        [TestCase(85.31724, 27.71025, 802516424UL, 169442477UL)]
+        public void FeetStepOntoTheDrawnPieceThatCoversAnother(double lon, double lat, ulong lower, ulong upper)
+        {
+            TileGroundQuery g;
+            List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> tiles;
+            Stream(out g, out tiles);
+            double x, z;
+            Ghumante.Core.Geo.WorldFrame.LonLatToGame(lon, lat, out x, out z);
+            TileId id = TileId.At(10, x, z);
+            (TileData t, Drawn d, TileHeightSampler sampler) = tiles.First(e => e.tile.Tile.Key == id.Key);
+            List<float> levels = d.Levels(x, z);
+            TestContext.WriteLine("drawn levels " + string.Join(", ", levels.Select(y => y.ToString("0.000"))));
+            Assert.That(levels.Count, Is.GreaterThanOrEqualTo(2), "two drawn pieces overlap here");
+            float low = levels[levels.Count - 2], high = levels[levels.Count - 1];
+            Assert.That(high - low, Is.GreaterThan(0.1f).And.LessThanOrEqualTo(DrawnRoadSurface.CoveredM), "a step apart");
+            // The two pieces, by the analytic surface query the ribbons are drawn from.
+            RoadSurfaceQuery q = RoadSurfaceQuery.For(t, sampler, new RoadOptions());
+            RoadSurfaceHit rh;
+            Assert.That(q.TrySample(x, z, float.NegativeInfinity, out rh), Is.True);
+            TestContext.WriteLine("lowest drawn piece: osm " + t.Roads[rh.Road].OsmWayId + " at " + rh.Y.ToString("0.00"));
+            Assert.That(t.Roads[rh.Road].OsmWayId, Is.EqualTo(lower));
+            Assert.That(q.TrySample(x, z, float.PositiveInfinity, out rh), Is.True);
+            TestContext.WriteLine("highest drawn piece: osm " + t.Roads[rh.Road].OsmWayId + " at " + rh.Y.ToString("0.00"));
+            Assert.That(t.Roads[rh.Road].OsmWayId, Is.EqualTo(upper));
+            foreach (float feet in new[] { low + 0.005f, low - 0.05f, high + 0.005f })
+            {
+                GroundSample s;
+                Assert.That(g.TrySample(x, z, feet, out s), Is.True);
+                TestContext.WriteLine("feet at " + feet.ToString("0.000") + ": ground " + s.Height.ToString("0.000") + " road " + s.RoadClass);
+                Assert.That(s.Height, Is.EqualTo(high).Within(0.03f), "feet at " + feet.ToString("0.00") + " stand on the visible piece at " + high.ToString("0.00"));
+            }
+        }
+
+        /// <summary>
+        /// The walk harness on the old core's lanes and foot ways (owner #8): walkers walk the centre of every drawn lane,
+        /// galli, footway, path, steps and dhoka passage of the Asan and Indra Chowk tiles (40 m each, along the drawn
+        /// centreline), and whenever they stand on the drawn road surface their feet are on the level the player sees within
+        /// 3 cm (<see cref="Visible"/>). Before, a walker along a piece drawn under another one a step higher (a mapped
+        /// sidewalk inside a raised footpath, a path ribbon over a lane) stood on the hidden lower one.
+        /// </summary>
+        [Test]
+        public void WalkersOnLanesAndFootwaysStandOnTheVisibleSurface()
+        {
+            TileGroundQuery g;
+            List<(TileData tile, Drawn drawn, TileHeightSampler sampler)> tiles;
+            Stream(out g, out tiles);
+            long steps = 0, over3 = 0, sunk = 0;
+            double worst = 0;
+            string where = "";
+            int walks = 0, reached = 0;
+            foreach ((TileData t, Drawn d, TileHeightSampler _) in tiles.Take(2))
+            {
+                RoadLayout layout = RoadLayout.For(t);
+                for (int i = 0; i < t.Roads.Count; i++)
+                {
+                    RoadCentreline c = layout.Centres[i];
+                    if (c == null || c.Count < 2 || !RoadMesher.IsDrawn(t, i, null) || !layout.DrawsRibbon(i)) continue;
+                    RoadWidthProfile p = layout.Profiles[i];
+                    double s0 = Math.Min(0.1 * p.LengthM, 10), s1 = Math.Min(p.LengthM - 1, s0 + 40);
+                    if (s1 - s0 < 4) continue;
+                    bool foot = p.Sample(p.FootLeft, s0) >= 1f || p.Sample(p.FootRight, s0) >= 1f;
+                    if (!(layout.IsPassage(i) || RoadWidthModel.IsFootClass(t.Roads[i].RoadClass) || !foot && p.DrawnAt(s0) < 6.5f)) continue;
+                    var px = new List<double>();
+                    var pz = new List<double>();
+                    for (double s = s0; ; s = Math.Min(s1, s + 1.0))
+                    {
+                        double cx, cz, tx, tz;
+                        c.At(s, out cx, out cz, out tx, out tz);
+                        double off = p.ShiftAt(s);
+                        px.Add(t.Tile.X0 + cx - tz * off);
+                        pz.Add(t.Tile.Z0 + cz + tx * off);
+                        if (s >= s1) break;
+                    }
+                    var w = new ArcadeVehicle(VehicleSpec.Walker()) { RoadAssist = false };
+                    w.Teleport(px[0], pz[0], (float)Math.Atan2(px[1] - px[0], pz[1] - pz[0]), g);
+                    walks++;
+                    int next = 1;
+                    for (int step = 0; step < 60 * 40 && next < px.Count; step++)
+                    {
+                        // Aim two points (2 m) ahead along the drawn centreline.
+                        while (next < px.Count && (px[next] - w.X) * (px[next] - w.X) + (pz[next] - w.Z) * (pz[next] - w.Z) < 4.0) next++;
+                        if (next >= px.Count) break;
+                        w.Step(new DriveInput(1f, 0f, w.SteerToward((float)Math.Atan2(px[next] - w.X, pz[next] - w.Z), 1f / 60f)), 1f / 60f, g, 0f);
+                        if (w.Airborne) continue;
+                        List<float> ys = d.Levels(w.X, w.Z);
+                        if (ys.Count == 0) continue;
+                        float near = ys.OrderBy(y => Math.Abs(y - w.Y)).First();
+                        if (Math.Abs(near - w.Y) > 0.5f) continue; // on something else: a plinth, the terrain beside a cutting
+                        GroundSample s;
+                        if (g.TrySample(w.X, w.Z, w.Y, out s) && (s.OnDeck || s.OnStructure)) continue;
+                        steps++;
+                        double err = w.Y - Visible(ys, w.Y), a = Math.Abs(err);
+                        if (a < 0.03) continue;
+                        over3++;
+                        if (err < 0) sunk++;
+                        if (a > worst)
+                        {
+                            worst = a;
+                            double lon, lat;
+                            Ghumante.Core.Geo.WorldFrame.GameToLonLat(w.X, w.Z, out lon, out lat);
+                            where = t.Roads[i].RoadClass + " osm " + t.Roads[i].OsmWayId + ": feet " + w.Y.ToString("0.00") + " seen " + Visible(ys, w.Y).ToString("0.00") +
+                                    " at " + lon.ToString("0.00000") + ", " + lat.ToString("0.00000");
+                        }
+                    }
+                    if (next >= px.Count) reached++;
+                }
+            }
+            TestContext.WriteLine("walks " + walks + " (reached the end " + reached + "), grounded steps on drawn roads " + steps + ", feet 3 cm or more off the seen level " +
+                                  over3 + " (sunk " + sunk + "), worst " + worst.ToString("0.000") + " m " + where);
+            Assert.That(walks, Is.GreaterThan(300));
+            Assert.That(steps, Is.GreaterThan(100000));
+            Assert.That(reached, Is.GreaterThanOrEqualTo(walks * 97 / 100), "the walkers get through the lanes and foot ways");
+            Assert.That(over3, Is.LessThanOrEqualTo(steps / 5000), "feet within 3 cm of the seen surface: " + where);
         }
     }
 }
