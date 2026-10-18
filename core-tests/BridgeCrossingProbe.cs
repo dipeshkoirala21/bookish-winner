@@ -949,8 +949,10 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>Extends a centreline (tile-local metres) at its start or end along the roads of the tile that
-        /// continue it at that point (sharing the end point exactly), each time the one most nearly straight on, until
-        /// <paramref name="need"/> metres are added or no road continues.</summary>
+        /// continue it at that point (sharing the point exactly, at one of their ends or passing through it), each time
+        /// the one most nearly straight on (at a T, where none is within 60 degrees, the branch turning least, as a
+        /// player turns into the street at the end of theirs), until <paramref name="need"/> metres are added or no road
+        /// continues.</summary>
         private static void Continue(TileData t, int road, List<double> xs, List<double> zs, bool atStart, double need)
         {
             var used = new HashSet<int> { road };
@@ -962,9 +964,8 @@ namespace Ghumante.Core.Tests
                 double ix = atStart ? xs[0] - xs[1] : xs[n - 1] - xs[n - 2], iz = atStart ? zs[0] - zs[1] : zs[n - 1] - zs[n - 2];
                 double il = Math.Sqrt(ix * ix + iz * iz);
                 if (il < 1e-9) return;
-                int bestRoad = -1;
-                bool bestFromStart = false;
-                double bestCos = 0.5; // at most 60 degrees off straight on
+                int bestRoad = -1, bestK = 0, bestDir = 0;
+                double bestCos = -0.35; // at most 110 degrees off straight on
                 for (int ri = 0; ri < t.Roads.Count; ri++)
                 {
                     if (used.Contains(ri) || !RoadMesher.IsDrawn(t.Roads[ri], null)) continue;
@@ -972,19 +973,24 @@ namespace Ghumante.Core.Tests
                     int f, l;
                     RoadSpatialIndex.RenderedRange(o, out f, out l);
                     if (l <= f) continue;
-                    for (int end = 0; end < 2; end++)
+                    for (int k = f; k <= l; k++)
                     {
-                        int k = end == 0 ? f : l, k2 = end == 0 ? f + 1 : l - 1;
                         double px = o.Points[2 * k] / 100.0, pz = o.Points[2 * k + 1] / 100.0;
                         if (Math.Abs(px - ex) > 0.02 || Math.Abs(pz - ez) > 0.02) continue;
-                        double ox = o.Points[2 * k2] / 100.0 - px, oz = o.Points[2 * k2 + 1] / 100.0 - pz, ol = Math.Sqrt(ox * ox + oz * oz);
-                        if (ol < 1e-9) continue;
-                        double cos = (ix * ox + iz * oz) / (il * ol);
-                        if (cos > bestCos)
+                        for (int dir = -1; dir <= 1; dir += 2)
                         {
-                            bestCos = cos;
-                            bestRoad = ri;
-                            bestFromStart = end == 0;
+                            int k2 = k + dir;
+                            if (k2 < f || k2 > l) continue;
+                            double ox = o.Points[2 * k2] / 100.0 - px, oz = o.Points[2 * k2 + 1] / 100.0 - pz, ol = Math.Sqrt(ox * ox + oz * oz);
+                            if (ol < 1e-9) continue;
+                            double cos = (ix * ox + iz * oz) / (il * ol);
+                            if (cos > bestCos)
+                            {
+                                bestCos = cos;
+                                bestRoad = ri;
+                                bestK = k;
+                                bestDir = dir;
+                            }
                         }
                     }
                 }
@@ -995,9 +1001,8 @@ namespace Ghumante.Core.Tests
                 RoadSpatialIndex.RenderedRange(br, out bf, out bl);
                 var px2 = new List<double>();
                 var pz2 = new List<double>();
-                for (int i = 1; i <= bl - bf; i++)
+                for (int k = bestK + bestDir; k >= bf && k <= bl; k += bestDir)
                 {
-                    int k = bestFromStart ? bf + i : bl - i;
                     px2.Add(br.Points[2 * k] / 100.0);
                     pz2.Add(br.Points[2 * k + 1] / 100.0);
                 }

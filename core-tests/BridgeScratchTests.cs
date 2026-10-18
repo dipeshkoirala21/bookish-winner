@@ -273,5 +273,64 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine("pairs " + pairs);
         }
+
+        /// <summary>BRIDGE_SPANS = "x,z,r;...": every span within r m of the point (ends, cuts, mapped points, runs, gaps,
+        /// openings) and the roads with a point within r (their end points and classes).</summary>
+        [Test, Explicit]
+        public void SpansNear()
+        {
+            string specs = Environment.GetEnvironmentVariable("BRIDGE_SPANS");
+            if (string.IsNullOrEmpty(specs)) Assert.Ignore("set BRIDGE_SPANS");
+            foreach (string spec in specs.Split(';'))
+            {
+                string[] a = spec.Split(',');
+                double x = double.Parse(a[0]), z = double.Parse(a[1]), r = double.Parse(a[2]);
+                TileId id = TileId.At(10, x, z);
+                TileData t = StreamingSampleRegion.Tile(id);
+                BridgeLayout l = BridgeLayout.For(t);
+                double x0 = t.Tile.X0, z0 = t.Tile.Z0;
+                TestContext.WriteLine("==== spans near " + spec + " tile " + id);
+                foreach (BridgeSpan sp in l.Spans)
+                {
+                    if (BridgeMesher.Distance(sp, x - x0, z - z0) > r) continue;
+                    TestContext.WriteLine("span " + sp.Record.OsmWayId + " " + sp.Record.RoadClass + " foot " + sp.Foot + " stair " + sp.Stair + " over " + sp.Overbridge + " ends " + sp.StartEnd + (sp.StartCut ? "(cut)" : "") + "/" + sp.EndEnd + (sp.EndCut ? "(cut)" : "")
+                                          + " group " + sp.GroupWay + " partners " + sp.PartnerL + "/" + sp.PartnerR + " pts " + sp.FirstPoint + ".." + sp.LastPoint + " path " + sp.Path.Start.ToString("F1") + ".." + sp.Path.End.ToString("F1")
+                                          + " trims " + sp.TrimStart.ToString("F1") + "/" + sp.TrimEnd.ToString("F1"));
+                    for (int k = 0; k < sp.Count; k += Math.Max(1, sp.Count / 6))
+                        TestContext.WriteLine("    st " + k + " (" + (x0 + sp.Path.X[k]).ToString("F2") + ", " + (z0 + sp.Path.Z[k]).ToString("F2") + ") s " + sp.Path.S[k].ToString("F1") + " y " + sp.Path.Y[k].ToString("F2") + " gnd " + sp.Ground[k].ToString("F2")
+                                              + " half " + sp.HalfL[k].ToString("F2") + "/" + sp.HalfR[k].ToString("F2") + " walk " + sp.WalkL[k].ToString("F2") + "/" + sp.WalkR[k].ToString("F2") + " clamp " + sp.ClampL[k].ToString("F2") + "/" + sp.ClampR[k].ToString("F2"));
+                    int[] p = sp.Record.Points;
+                    var mp = new StringBuilder("    mapped:");
+                    float[] dy = t.RoadStructureOf(sp.Road).DeckY;
+                    for (int k = 0; k < sp.Record.PointCount; k++) mp.Append(" (").Append((x0 + p[2 * k] / 100.0).ToString("F1")).Append(",").Append((z0 + p[2 * k + 1] / 100.0).ToString("F1")).Append(dy != null && k < dy.Length ? " " + dy[k].ToString("F2") : "").Append(")");
+                    TestContext.WriteLine(mp.ToString());
+                    TestContext.WriteLine("    deck " + string.Join(",", sp.DeckRuns.ConvertAll(v => v.ToString("F1"))) + " railL " + string.Join(",", sp.RailRunsL.ConvertAll(v => v.ToString("F1"))) + " railR " + string.Join(",", sp.RailRunsR.ConvertAll(v => v.ToString("F1")))
+                                          + " gapsL " + string.Join(";", sp.GapsL.ConvertAll(v => v.S0.ToString("F1") + ".." + v.S1.ToString("F1") + "@" + v.Road)) + " gapsR " + string.Join(";", sp.GapsR.ConvertAll(v => v.S0.ToString("F1") + ".." + v.S1.ToString("F1") + "@" + v.Road))
+                                          + " open " + string.Join(";", sp.Openings.ConvertAll(v => v.S0.ToString("F1") + ".." + v.S1.ToString("F1"))));
+                }
+                for (int ri = 0; ri < t.Roads.Count; ri++)
+                {
+                    RoadRecord rr = t.Roads[ri];
+                    int[] p = rr.Points;
+                    bool near = false;
+                    for (int k = 0; k < rr.PointCount && !near; k++)
+                    {
+                        double dx = x0 + p[2 * k] / 100.0 - x, dz = z0 + p[2 * k + 1] / 100.0 - z;
+                        near = dx * dx + dz * dz < r * r;
+                    }
+                    if (!near) continue;
+                    RoadStructureRecord st = t.RoadStructureOf(ri);
+                    var mp = new StringBuilder();
+                    for (int k = 0; k < rr.PointCount; k++)
+                    {
+                        double dx = x0 + p[2 * k] / 100.0 - x, dz = z0 + p[2 * k + 1] / 100.0 - z;
+                        if (dx * dx + dz * dz > 4 * r * r && k != 0 && k != rr.PointCount - 1) continue;
+                        mp.Append(" ").Append(k).Append(":(").Append((x0 + p[2 * k] / 100.0).ToString("F1")).Append(",").Append((z0 + p[2 * k + 1] / 100.0).ToString("F1"))
+                          .Append(st.DeckY != null && k < st.DeckY.Length ? " " + st.DeckY[k].ToString("F2") : "").Append(")");
+                    }
+                    TestContext.WriteLine("road #" + ri + " " + rr.OsmWayId + " " + rr.RoadClass + " kind " + st.Kind + " sflags " + st.Flags + " elevated " + st.IsElevated + mp);
+                }
+            }
+        }
     }
 }

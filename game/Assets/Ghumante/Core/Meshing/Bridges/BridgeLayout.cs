@@ -685,6 +685,17 @@ namespace Ghumante.Core.Meshing.Bridges
             return false;
         }
 
+        /// <summary>True when (x, z) lies in the carriageway of <paramref name="sp"/> itself further along: inside a sharp
+        /// bend, where the road doubles back across the wall line of the stretch before it (owner playtest #2: the
+        /// lowered lane leaving the riverside underpass at the Bagmati bridge turned back through its own wall).</summary>
+        private static bool InOwnCarriageway(BridgeSpan sp, double x, double z)
+        {
+            double s, lat;
+            int k;
+            if (!Project(sp, x, z, out s, out lat, out k) || s < sp.Path.Start || s > sp.Path.End) return false;
+            return Math.Abs(lat) < (lat > 0 ? sp.HalfL[k] : sp.HalfR[k]) - 0.05;
+        }
+
         /// <summary>A trench needs a retaining wall where the road runs this far below its draped surface (the ground behind
         /// it plus the road's lift): where the ground query gives it a hard edge.</summary>
         public const float TrenchWallMinCutM = 0.5f;
@@ -735,7 +746,7 @@ namespace Ghumante.Core.Meshing.Bridges
                     // (owner playtest #2: the wall of the track under the Ganeshman Singh Path bridge stood up through
                     // the deck's walkway).
                     clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude, true) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude, true)
-                               && !DeckBelow(wx, wz, top) && !DeckBelow(bx, bz, top);
+                               && !DeckBelow(wx, wz, top) && !DeckBelow(bx, bz, top) && !InOwnCarriageway(sp, wx, wz) && !InOwnCarriageway(sp, bx, bz);
                 }
                 List<double> runs = side > 0 ? sp.RailRunsL : sp.RailRunsR;
                 double from = double.NaN, last = double.NaN;
@@ -1917,14 +1928,15 @@ namespace Ghumante.Core.Meshing.Bridges
             Polish(sp, sp.GapsR, -1, exclude, top);
         }
 
-        /// <summary>The roads a span's structure may touch: its own, the other pieces of its structure, a twin deck on
-        /// a shared side and the approaches (roads meeting it at a real end).</summary>
+        /// <summary>The roads a span's structure may touch: its own, the other pieces of its structure (but not a deck
+        /// crossing it or meeting its end at an angle: see <see cref="MeetsAcross"/>), a twin deck on a shared side and
+        /// the approaches (roads meeting it at a real end).</summary>
         private bool[] SideExclusions(BridgeSpan sp)
         {
             var exclude = new bool[Tile.Roads.Count];
             exclude[sp.Road] = true;
             foreach (BridgeSpan o in Spans)
-                if (o.GroupWay == sp.GroupWay) exclude[o.Road] = true;
+                if (o.GroupWay == sp.GroupWay && !MeetsAcross(sp, o)) exclude[o.Road] = true;
             if (sp.PartnerL >= 0) exclude[Spans[sp.PartnerL].Road] = true;
             if (sp.PartnerR >= 0) exclude[Spans[sp.PartnerR].Road] = true;
             int[] p = sp.Record.Points;
@@ -1940,6 +1952,43 @@ namespace Ghumante.Core.Meshing.Bridges
                 }
             }
             return exclude;
+        }
+
+        /// <summary>Cosine of the angle between two decks' lines at an end-to-end joint above which they meet at an angle
+        /// (an L of two streets on one deck) rather than one continuing the other (a bridge split into two ways, a gentle
+        /// bend at the joint): 50 degrees off straight on.</summary>
+        private const double JointBendCos = -0.64;
+
+        /// <summary>
+        /// True when deck <paramref name="o"/> of the same structure crosses <paramref name="sp"/> (a point inside both,
+        /// two streets crossing on one deck) or meets its end at an angle (both ending at one point, an L): its
+        /// carriageway runs through <paramref name="sp"/>'s railing lines, which open there like at any road meeting the
+        /// deck. A piece continuing <paramref name="sp"/>, a branch ending on its side (opened by <see cref="Structure"/>)
+        /// and stairs do not. Owner playtest #2: at the X of Ropeway Sadak and the lane crossing it on the deck over the
+        /// Bishnumati side channel (and the L of the two lanes over the Dhobi Khola at Sublime Boutique Road) each deck's
+        /// railing stood across the other's carriageway, and walkers and riders stopped against it.
+        /// </summary>
+        private static bool MeetsAcross(BridgeSpan sp, BridgeSpan o)
+        {
+            if (o == sp || o.Road == sp.Road || o.Stair || sp.Stair) return false;
+            int[] p = sp.Record.Points, q = o.Record.Points;
+            for (int k = sp.FirstPoint; k <= sp.LastPoint; k++)
+            {
+                long key = BridgeStructures.Key(p[2 * k], p[2 * k + 1]);
+                for (int j = o.FirstPoint; j <= o.LastPoint; j++)
+                {
+                    if (BridgeStructures.Key(q[2 * j], q[2 * j + 1]) != key) continue;
+                    bool spEnd = k == sp.FirstPoint && !sp.StartCut || k == sp.LastPoint && !sp.EndCut;
+                    bool oEnd = j == o.FirstPoint && !o.StartCut || j == o.LastPoint && !o.EndCut;
+                    if (!spEnd && !oEnd) return true;
+                    if (spEnd != oEnd) continue;
+                    double ax, az, bx, bz;
+                    LeaveDirection(sp, k == sp.FirstPoint ? 0 : 1, out ax, out az);
+                    LeaveDirection(o, j == o.FirstPoint ? 0 : 1, out bx, out bz);
+                    if (ax * bx + az * bz > JointBendCos) return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>Height above the walkway of the tallest railing part along a run (posts and caps reach a little
