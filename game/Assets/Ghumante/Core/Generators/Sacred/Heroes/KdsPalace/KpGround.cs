@@ -24,6 +24,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             -95.5, -69.5, -118.0, -88.5, // Kumari Ghar and its plinth
             8.5, 61.5, 27.5, 83.5, // the Taleju plinth, precinct wall and the north shop row
             56.0, 82.0, -68.5, -55.0, // the east shop range on the street
+            20.0, 90.0, -84.0, -68.5, // the street along the palace's south-east front (level with the square, not tilted
+                                      // across by the surface model's rooftops on its far side)
         };
 
         /// <summary>Slope (rise over run) of the terrain eased back round the zones, and how far the easing reaches.</summary>

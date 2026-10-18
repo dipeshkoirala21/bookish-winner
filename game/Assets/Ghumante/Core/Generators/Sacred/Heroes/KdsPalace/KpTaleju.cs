@@ -304,6 +304,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 double tu = Temple[i + 1].WallU, tw = Temple[i + 1].WallW;
                 Kp.SoffitRafters(m, t, ti.EaveU, ti.EaveW, ti.Eave, tu, tw, ti.Top, ti.WallU, ti.WallW, i == 0 ? 0.32 : 0.45, lod);
             }
+            BodyDress(m, t, lod);
             Kp.Finial(m, t, 0, 30.95, 0, 4.05, 0.62, lod, true);
             // The pataka banners hanging from the top down the west and east faces.
             if (lod == 0)
@@ -318,6 +319,46 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 double x, y;
                 Local(TU, TW, out x, out y);
                 f.Box(x, y, Temple[0].WallU, Temple[0].WallW, Bearing, PlinthTopM, 31.0, GenColliderFlags.NoClimb, GenColliders.Brick);
+            }
+        }
+
+        /// <summary>
+        /// The ground body above its gilt windows (photos taleju c_02, c_25, c_26): a carved timber frieze of small panels
+        /// over the windows and their torana, and the dark timber zone under the deep soffit where the long struts stand
+        /// (from the street that whole band reads dark, not as bare brick).
+        /// </summary>
+        private static void BodyDress(MeshData m, in Affine3 t, int lod)
+        {
+            KpTier ti = Temple[0];
+            double frac = (ti.EaveU - ti.WallU) / Math.Max(1e-6, ti.EaveU - Temple[1].WallU);
+            double wallTop = ti.Eave + frac * (ti.Top - ti.Eave) - 0.15;
+            // The frieze clears the gilt torana over the middle window (its top about 1.15 m over the window).
+            double f0 = ti.Base + ti.WinSill + ti.WinH + 1.3, dark = f0 + 0.62;
+            for (int s = 0; s < 4; s++)
+            {
+                double half = s % 2 == 0 ? ti.WallU : ti.WallW, depth = s % 2 == 0 ? ti.WallW : ti.WallU;
+                Affine3 face = SacredDraw.At(SacredDraw.Turn(t, 0, 0, 0, s * 0.5 * Math.PI), 0, 0, depth);
+                // Either side of the gilt windows a dark carved window, and a small one near each corner (c_25).
+                for (int e = -1; e <= 1; e += 2)
+                {
+                    Kp.FramedWindow(m, face, e * 0.56 * half, ti.Base + ti.WinSill + 0.55, 0.9, 1.35, lod <= 1, lod);
+                    Kp.Lattice(m, face, e * 0.84 * half, ti.Base + ti.WinSill + 1.2, 0.6, 0.75, lod, 2);
+                }
+                // The carved frieze over the windows.
+                Kp.Band(m, face, -half, half, f0, f0 + 0.32, 0.15, Kp.Wood);
+                Kp.Band(m, face, -half, half, f0 + 0.32, f0 + 0.46, 0.09, Kp.WoodMid);
+                if (lod == 0)
+                {
+                    int n = Math.Max(4, (int)Math.Round(2 * half / 0.95));
+                    for (int i = 0; i < n; i++)
+                    {
+                        double u = -half + 2 * half * (i + 0.5) / n;
+                        Kp.Box(m, face, u - 0.24, u + 0.24, f0 + 0.05, f0 + 0.27, 0.15, 0.2, Kp.WoodMid, BoxFaces.Front | BoxFaces.Top);
+                    }
+                }
+                // The dark timber zone behind the struts up to the soffit, with its beam.
+                Kp.Band(m, face, -half, half, dark - 0.18, dark, 0.12, Kp.WoodBeam);
+                Kp.Panel(m, face, -half, dark, half, wallTop, 0.015, Kp.Ao(Kp.WoodBeam, 0.75f));
             }
         }
 
@@ -361,7 +402,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                         Shapes.Sphere(m, SacredDraw.At(face, gu - 0.6 + 0.4 * c, 0.6 + 0.45 * r, 0.03), Kp.GiltDeep, 0.035, 4);
             Kp.Box(m, face, gu - 0.5 * dw - 0.35, gu - 0.5 * dw, 0.2, 0.2 + dh, 0, 0.2, Kp.Wood, BoxFaces.Wall);
             Kp.Box(m, face, gu + 0.5 * dw, gu + 0.5 * dw + 0.35, 0.2, 0.2 + dh, 0, 0.2, Kp.Wood, BoxFaces.Wall);
-            ShikharaGenerator.Arch(m, face, gu, 0.2 + dh, 0.0, dw + 0.7, 0.9, 0.35, 0.22, true, Kp.Wood, lod);
+            ShikharaGenerator.Arch(m, face, gu, 0.2 + dh, 0.012, dw + 0.7, 0.9, 0.35, 0.22, true, Kp.Wood, lod);
             if (lod <= 1)
             {
                 // The painted eyes and roundels on the red either side.
@@ -456,15 +497,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 double u = -hu + bay * (i + 0.5);
                 Kp.Panel(m, front, u - 0.5 * bay + 0.12, 0.05, u + 0.5 * bay - 0.12, ShopEave - 0.35, 0.01, Kp.Ao(Kp.Recess, 0.9f));
                 if (lod >= 2) continue;
-                // Goods in the opening: hanging cloth and shawls in bright colours, a low counter.
-                uint h = (uint)(i * 2654435761u);
-                ShapeBrush goods = (h >> 7) % 4 == 0 ? Kp.Cloak : (h >> 7) % 4 == 1 ? Kp.Cream : (h >> 7) % 4 == 2 ? Kp.GateBlue : Kp.Green;
-                Kp.Panel(m, front, u - 0.5 * bay + 0.25, 0.9, u - 0.05, ShopEave - 0.45, 0.06, goods);
-                if (lod == 0)
+                // Goods in the opening (taleju c_02, c_25): shawls, cloth and pictures hanging in narrow strips of mixed
+                // colours with the dark shop showing between them, over a low counter.
+                int strips = lod == 0 ? 4 : 2;
+                double sw = (bay - 0.5) / strips;
+                for (int q = 0; q < strips; q++)
                 {
-                    Kp.Panel(m, front, u + 0.08, 1.1, u + 0.5 * bay - 0.25, ShopEave - 0.45, 0.05, (h >> 11) % 2 == 0 ? Kp.Tint(Kp.Cloak, 1.2f) : Kp.Tint(Kp.Teal, 1.3f));
-                    Kp.Box(m, front, u - 0.5 * bay + 0.2, u + 0.5 * bay - 0.2, 0, 0.75, 0.0, 0.55, Kp.WoodMid, BoxFaces.Front | BoxFaces.Top);
+                    uint hq = ShapeNoise.Hash(i, q, 3, 977u);
+                    if (hq % 5 == 0) continue;
+                    ShapeBrush goods = GoodsColour(hq);
+                    double u0 = u - 0.5 * bay + 0.25 + sw * q + 0.04, drop = 0.9 + 0.5 * ((hq >> 8) % 3) / 2.0;
+                    Kp.Panel(m, front, u0, drop, u0 + sw - 0.08, ShopEave - 0.45, 0.06 + 0.005 * q, goods);
                 }
+                if (lod == 0) Kp.Box(m, front, u - 0.5 * bay + 0.2, u + 0.5 * bay - 0.2, 0, 0.75, 0.0, 0.55, Kp.WoodMid, BoxFaces.Front | BoxFaces.Top);
             }
             for (int i = 0; i <= shops; i++)
                 Kp.Box(m, front, -hu + bay * i - 0.09, -hu + bay * i + 0.09, 0, ShopEave - 0.2, 0, 0.12, Kp.Wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
@@ -475,6 +520,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double x, y;
             Local(cu, cw - 0.5 * FrontGap, out x, out y);
             f.Box(x, y, hu, hw - 0.5 * FrontGap, Bearing, 0, ShopRidge, GenColliderFlags.NoClimb, GenColliders.Brick);
+        }
+
+        /// <summary>A muted mixed colour for hanging goods (cloth, shawls, pictures), never a flat block of one colour.</summary>
+        private static ShapeBrush GoodsColour(uint h)
+        {
+            switch (h % 7)
+            {
+                case 0: return B2(0xB8473A, MaterialChannel.Fabric);
+                case 1: return B2(0xD8B25A, MaterialChannel.Fabric);
+                case 2: return B2(0x3E6E8E, MaterialChannel.Fabric);
+                case 3: return B2(0x7A3F6A, MaterialChannel.Fabric);
+                case 4: return B2(0xC9C2B2, MaterialChannel.Fabric);
+                case 5: return B2(0x5F7F4A, MaterialChannel.Fabric);
+                default: return B2(0xD97A3A, MaterialChannel.Fabric);
+            }
         }
 
         private static ShapeBrush B2(uint rgb, MaterialChannel ch)

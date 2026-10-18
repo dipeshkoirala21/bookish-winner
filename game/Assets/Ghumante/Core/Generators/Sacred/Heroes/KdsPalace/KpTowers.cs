@@ -32,7 +32,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>The Lalitpur tower's base.</summary>
         public const double LA0 = 46.0, LA1 = 57.0, LB0 = -69.6, LB1 = -58.6;
 
-        private static readonly double[] BaseFloors = { 3.6, 7.4 };
         private static readonly double[] LowFloors = { 3.0, 6.0 };
 
         // =============================================================================================================
@@ -63,30 +62,108 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             };
             if (lod >= 3)
             {
-                Lod3(m, k, t, 4, Kp.Brick, Kp.TowerTile);
+                Lod3(m, k, t, 4, Kp.BrickRebuilt, Kp.TowerTile);
                 return;
             }
             KpRoofLook look = KpRoofLook.TilePlain(Kp.TowerTile);
             look.StrutPitch = 1.15;
-            KpStack.Build(m, k, t, 4, Kp.Tint(Kp.Brick, 0.92f), look, 91u, lod);
+            KpStack.Build(m, k, t, 4, Kp.BrickRebuilt, look, 91u, lod);
             // The three gilt finials on the top ridge.
             for (int i = -1; i <= 1; i++) Kp.Finial(m, k, 1.7 * i, 28.55, 0, i == 0 ? 1.45 : 1.15, i == 0 ? 0.24 : 0.2, lod);
-            // The base storeys: carved windows on the faces that show (S onto Basantapur, N onto Nasal Chowk, E onto Lohan).
+            // The base storeys: the faces that show (S onto Basantapur, N onto Nasal Chowk, E onto Lohan).
             double half;
             Affine3 s = f.GridSide(BA0, BA1, BB0, BB1, 0, 2, out half);
-            KpFacade.Newar(m, s, half, 0, BaseFloors, 2, 11.2, 2.3, 1, -1, false, false, lod);
+            BaseFace(m, s, half, false, true, lod);
             Affine3 n = f.GridSide(BA0, BA1, BB0, BB1, 0, 0, out half);
-            KpFacade.Newar(m, n, half, 0, BaseFloors, 2, 11.2, 2.3, 1, -1, false, true, lod);
+            BaseFace(m, n, half, true, true, lod);
             if (lod <= 1)
             {
                 Affine3 e = f.GridSide(BA0, BA1, BB0, BB1, 0, 1, out half);
-                KpFacade.Newar(m, e, half, 0, BaseFloors, 2, 11.2, 2.6, -1, -1, false, false, Math.Max(1, lod));
+                BaseFace(m, e, half, false, false, Math.Max(1, lod));
             }
             // Storeys 5-6: a carved balcony window at the centre of each face.
             if (lod <= 1)
                 for (int q = 0; q < 4; q++)
                     Kp.Bay(m, KpStack.Face(k, 90 * q, 6.25), 0, 18.9, 2.6, 1.5, false, lod);
             Colliders(ref f, BA0, BA1, BB0, BB1, 28.6);
+        }
+
+        /// <summary>
+        /// One face of the Basantapur tower's brick base as rebuilt (photos basantapur_tower c_00, c_02, c_10): a plain brick
+        /// ground storey with thin brick courses and one small window (a doorway on the Nasal Chowk side); a timber band at
+        /// 4 m; the second storey's three carved windows with long-eared frames (the middle one larger, under a crest); a
+        /// carved cornice; the third storey's projecting three-bay window (sah jhya) between two small windows; and under
+        /// roof 1 the continuous carved lattice gallery projecting on a row of carved figure struts.
+        /// </summary>
+        private static void BaseFace(MeshData m, in Affine3 k, double half, bool door, bool bay, int lod)
+        {
+            ShapeBrush course = Kp.Tint(Kp.BrickRebuilt, 0.84f);
+            Kp.Band(m, k, -half, half, 0, 0.4, 0.07, Kp.Step);
+            if (lod <= 1)
+                for (int i = 0; i < 2; i++)
+                    Kp.Band(m, k, -half, half, 1.45 + 1.25 * i, 1.53 + 1.25 * i, 0.03, course);
+            if (door)
+            {
+                // The Nasal Chowk side (nasal_chowk c_08): a carved door over the plinth along its foot and two small
+                // carved windows.
+                double top = Kp.Doorway(m, k, 0, 0.6, 1.15, 2.25, Kp.Wood, false, lod);
+                if (lod <= 1) Kp.Crest(m, k, 0, top + 0.03, 0.04, 2.0, 1.05, Kp.Wood, lod);
+                for (int e = -1; e <= 1; e += 2) Kp.FramedWindow(m, k, e * 3.6, 1.6, 0.8, 0.95, false, lod);
+            }
+            else Kp.FramedWindow(m, k, 0, 1.7, 0.85, 1.0, false, lod);
+            // Timber band at the first floor.
+            Kp.Band(m, k, -half, half, 3.95, 4.2, 0.1, Kp.Wood);
+            if (lod == 0) Kp.Band(m, k, -half, half, 4.2, 4.28, 0.05, Kp.WoodMid);
+            // Second storey: three carved windows.
+            double side = Math.Min(4.4, 0.64 * half);
+            Kp.FramedWindow(m, k, -side, 4.95, 1.0, 1.2, false, lod);
+            Kp.FramedWindow(m, k, side, 4.95, 1.0, 1.2, false, lod);
+            Kp.FramedWindow(m, k, 0, 4.85, 1.45, 1.35, true, lod);
+            // Carved cornice, then the third storey: the projecting bay between two small windows.
+            Kp.Cornice(m, k, -half, half, 6.95, 0.36, Kp.Wood, lod);
+            if (bay) Kp.Bay(m, k, 0, 7.45, Math.Min(4.6, 0.7 * half), 1.75, false, lod);
+            else Kp.FramedWindow(m, k, 0, 7.75, 1.2, 1.15, false, lod);
+            Kp.FramedWindow(m, k, -side - 0.4, 7.8, 0.8, 1.0, false, lod);
+            Kp.FramedWindow(m, k, side + 0.4, 7.8, 0.8, 1.0, false, lod);
+            // The lattice gallery under roof 1 on its figure struts.
+            const double G0 = 9.45, G1 = 10.9, Gd = 0.85;
+            if (lod >= 2)
+            {
+                Kp.Box(m, k, -half, half, G0, G1, 0, Gd, Kp.Wood, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+                Kp.Panel(m, k, -half + 0.2, G0 + 0.3, half - 0.2, G1 - 0.25, Gd + 0.01, Kp.Recess);
+                return;
+            }
+            Kp.Box(m, k, -half - 0.1, half + 0.1, G0 - 0.18, G0, 0, Gd + 0.08, Kp.WoodBeam, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+            Kp.Box(m, k, -half - 0.1, half + 0.1, G1 - 0.14, G1, 0, Gd + 0.06, Kp.WoodBeam, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+            Kp.Box(m, k, -half, half, G0, G1 - 0.14, 0, Gd, Kp.Wood, BoxFaces.Left | BoxFaces.Right);
+            Affine3 g = SacredDraw.At(k, 0, 0, Gd);
+            int np = Math.Max(4, (int)Math.Round(2 * half / 1.05));
+            for (int i = 0; i < np; i++)
+            {
+                double u = -half + 2 * half * (i + 0.5) / np;
+                Kp.Lattice(m, g, u, 0.5 * (G0 + G1 - 0.14), 2 * half / np - 0.2, G1 - G0 - 0.42, lod, lod == 0 ? 3 : 0);
+                if (lod == 0) Kp.Box(m, g, u - 0.5 * (2 * half / np) - 0.05, u - 0.5 * (2 * half / np) + 0.05, G0, G1 - 0.14, 0, 0.06, Kp.Wood, BoxFaces.Front);
+            }
+            int ns = Math.Max(4, (int)Math.Round(2 * half / 1.75));
+            for (int i = 0; i <= ns; i++)
+            {
+                double u = -half + 0.25 + (2 * half - 0.5) * i / ns;
+                if (bay && Math.Abs(u) < 0.5 * Math.Min(4.6, 0.7 * half) + 0.15) continue;
+                Kp.FigureStrut(m, k, u, 7.45, 0.03, G0 - 0.22, Gd - 0.12, lod);
+            }
+        }
+
+        /// <summary>A red-framed round-headed opening (the small arcade under the Kirtipur tower on Nasal Chowk): the dark passage,
+        /// red-painted jambs and archivolt.</summary>
+        internal static void RedArch(MeshData m, in Affine3 k, double u, double v0, double ww, double h, int lod)
+        {
+            double r = 0.5 * ww, rect = h - r;
+            Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.01, Kp.Recess);
+            Kp.HalfDisc(m, k, u, v0 + rect, r, r, 0.01, Kp.Recess, lod == 0 ? 8 : 5);
+            if (lod >= 2) return;
+            Kp.Box(m, k, u - r - 0.16, u - r, v0, v0 + rect, 0, 0.12, Kp.Dado, BoxFaces.Wall);
+            Kp.Box(m, k, u + r, u + r + 0.16, v0, v0 + rect, 0, 0.12, Kp.Dado, BoxFaces.Wall);
+            ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.012, ww, r, 0.16, 0.12, false, Kp.Dado, lod);
         }
 
         // =============================================================================================================

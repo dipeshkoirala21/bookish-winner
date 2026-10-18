@@ -51,13 +51,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFacade.Court(m, ref f, MA0, MA1, MB0, MB1, Kp.Flags);
             if (lod <= 1)
             {
-                // Court faces: carved windows on three floors (one level coarser than the outer faces: the court is only
-                // seen from inside it or from above).
+                // Court faces: carved windows on three floors as dark openings and timber bands (the court is closed: it is
+                // only seen from above, from the Basantapur tower and the air).
                 for (int s = 0; s < 4; s++)
                 {
                     double half;
                     Affine3 k = f.GridSide(MA0, MA1, MB0, MB1, 0, s, out half);
-                    KpFacade.Newar(m, Flip(k), half, 0, Floors3, 2, MohanEave + 0.3, 2.6, -1, -1, false, s == 0, lod + 1);
+                    KpFacade.Newar(m, Flip(k), half, 0, Floors3, 2, MohanEave + 0.3, 2.6, -1, -1, false, s == 0, 2);
                 }
                 // The east face on the lane to Taleju.
                 double h;
@@ -110,9 +110,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double x, y;
             KpFrame.FromGrid(a, b, out x, out y);
             Affine3 k = f.Plan(x, y, 0, 102);
-            if (lod >= 2)
+            if (lod >= 1)
             {
-                // LOD2: the turret's box and one roof.
+                // LOD1 and LOD2: the turret's box and one roof (it is a few metres across on the roofs).
                 Kp.Box(m, k, -half, half, from - 0.5, from + 2.6, -half, half, Kp.Brick, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
                 KpLod3.Pyramid(m, k, 0, 0, half + 1.0, half + 1.0, from + 2.6, from + 5.4, Kp.Tile);
                 return;
@@ -123,7 +123,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpRoofLook look = KpRoofLook.TilePlain(Kp.Tile);
             look.Fringe = red;
             look.Struts = lod == 0;
-            KpStack.Build(m, k, t, 2, Kp.Brick, look, 7u + (uint)((int)Math.Round(a * 13 + b * 7) & 0xFFFF), Math.Max(1, lod));
+            KpStack.Build(m, k, t, 2, Kp.Brick, look, 7u + (uint)((int)Math.Round(a * 13 + b * 7) & 0xFFFF), 1);
             Kp.Finial(m, k, 0, from + 5.35, 0, 0.55, 0.12, lod);
         }
 
@@ -160,29 +160,28 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFacade.Court(m, ref f, NA0, NA1, NB0, NB1, Kp.Flags);
             NorthRange(ref f, m);
             EastRange(ref f, m, NB1, -33.6);
-            EastRange(ref f, m, -42.6, NB0);
+            KirtipurFront(ref f, m);
             Platform(ref f, m);
-            WhiteShrine(ref f, m, 18.6, -50.5);
+            WhiteShrine(ref f, m, 18.6, -32.0);
             // The south-west range (white, three storeys) between the court and the white wing.
             KpFacade.Range(m, ref f, NA0, 8.6, -60.2, NB0, 11.5, 14.0, 1.0, Kp.White, Kp.Tile, false, lod);
             double half;
             Affine3 sw = f.GridSide(NA0, 8.6, -60.2, NB0, 0, 0, out half);
-            KpFacade.Rana(m, sw, half, 0, Floors3, 2, 11.5, KpFoot.Lattice, 2.4, Kp.Shutter, false, false, false, lod);
-            // A low brick lean-to along the Basantapur tower's north foot, its tile roof sloping to the court.
-            Kp.Box(m, g, 8.6, 22.2, -0.2, 3.2, -58.2, NB0 - 0.2, Kp.Brick, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
-            SacredDraw.Quad(m, g, 8.4, 4.4, -58.2, 22.4, 4.4, -58.2, 22.4, 3.1, NB0 + 0.6, 8.4, 3.1, NB0 + 0.6, 0, 1, 0.55, Kp.Tile);
-            SacredDraw.Quad(m, g, 8.4, 3.1, NB0 + 0.6, 22.4, 3.1, NB0 + 0.6, 22.4, 2.9, NB0 + 0.6, 8.4, 2.9, NB0 + 0.6, 0, 0, 1, Kp.Wood);
-            if (lod <= 1)
-            {
-                Affine3 lean = f.GridSide(8.6, 22.2, -58.2, NB0 - 0.2, 0, 0, out half);
-                for (int i = 0; i < 4; i++) Kp.Doorway(m, lean, -half + 1.7 + i * (2 * half - 3.4) / 3, 0.15, 1.0, 2.1, Kp.Wood, false, lod);
-            }
+            KpFacade.Rana(m, sw, half, 0, Floors3, 2, 11.5, KpFoot.Lattice, 2.4, Kp.Shutter, false, false, false, lod == 0 ? 0 : 2);
+            // The raised stone plinth along the Basantapur tower's north foot with its steps up from the court at the east
+            // end under the carved door (nasal_chowk c_08; the tower's north face carries the door and the three
+            // red-framed arches).
+            Kp.Box(m, g, 8.6, 22.2, -0.2, PlatformH, -58.2, NB0 - 0.2, Kp.StoneGrey, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            for (int st = 1; st <= 2; st++)
+                Kp.Box(m, g, 18.6, 21.0, -0.2, PlatformH * (3 - st) / 3, NB0 - 0.2, NB0 - 0.2 + 0.35 * st, Kp.Step,
+                       BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
             if (f.C != null)
             {
                 f.GridBox(-3.5, 15.6, -7.3, -3.0, 0, NorthRidge, GenColliderFlags.NoClimb, GenColliders.Brick);
                 f.GridBox(-3.5, 15.6, -8.9, -7.3, NorthF1, NorthRidge, GenColliderFlags.NoClimb, GenColliders.Brick);
                 f.GridBox(NA0, 8.6, -60.2, NB0, 0, 14.0, GenColliderFlags.NoClimb, GenColliders.Brick);
-                f.GridBox(8.6, 22.2, -58.2, NB0 - 0.2, 0, 4.4, GenColliderFlags.NoClimb, GenColliders.Brick);
+                f.GridBox(8.6, 22.2, -58.2, NB0 - 0.2, 0, PlatformH, GenColliderFlags.Walkable, GenColliders.Stone);
+                f.GridRamp(19.8, NB0 + 0.5, 0, 19.8, NB0 - 0.2, PlatformH, 1.2, GenColliders.Stone);
             }
         }
 
@@ -299,6 +298,49 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
         }
 
+        /// <summary>
+        /// The tall brick front of the court's south-east part under the Kirtipur tower (nasal_chowk c_08, the photograph
+        /// everyone takes from the north-west corner): a raised stone plinth with steps up to a carved door at its north
+        /// end, the three red-framed arches of a small arcade and a second door; carved long-eared windows and a projecting
+        /// three-bay window on the first floor; a deep tile pent roof on carved figure struts; an upper storey of small
+        /// carved windows under the range's roof, which runs at the Kirtipur tower's skirt level.
+        /// </summary>
+        private static void KirtipurFront(ref KpFrame f, MeshData m)
+        {
+            int lod = f.Lod;
+            const double a0 = NA1, a1 = 25.0, b0 = NB0, b1 = -42.6, plinth = 0.6, pd = 0.9, ridge = 12.6;
+            double eave = KpTowers.RangeEave;
+            RoofSpec roof = KpFacade.Range(m, ref f, a0, a1, b0, b1, eave, ridge, 1.4, Kp.BrickRebuilt, Kp.Tile, false, lod);
+            double half;
+            Affine3 k = f.GridSide(a0, a1, b0, b1, 0, 3, out half);
+            // The plinth along the foot and its steps up at the north end (u < 0 is north on this west face).
+            Kp.Box(m, k, -half, half, -0.2, plinth, 0, pd, Kp.StoneGrey, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            for (int st = 1; st <= 2; st++)
+                Kp.Box(m, k, -half + 0.6, -half + 2.8, -0.2, plinth * (3 - st) / 3, pd, pd + 0.35 * st, Kp.Step, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            Kp.Band(m, k, -half, half, plinth, plinth + 0.25, 0.06, Kp.Step);
+            // Ground floor: the carved door at the north end, the red arcade, a second door to the south.
+            double top = Kp.Doorway(m, k, -half + 1.7, plinth, 1.1, 2.2, Kp.Wood, false, lod);
+            if (lod <= 1) Kp.Crest(m, k, -half + 1.7, top + 0.03, 0.04, 1.9, 1.0, Kp.Wood, lod);
+            for (int i = -1; i <= 1; i++) KpTowers.RedArch(m, k, 1.45 * i - 0.2, plinth, 1.2, 2.6, lod);
+            Kp.Doorway(m, k, half - 1.6, plinth, 1.0, 2.1, Kp.Wood, false, lod);
+            Kp.Band(m, k, -half, half, 3.6, 3.85, 0.1, Kp.Wood);
+            // First floor: carved windows either side of the projecting bay over the arcade.
+            Kp.FramedWindow(m, k, -half + 1.7, 4.55, 0.95, 1.2, false, lod);
+            Kp.FramedWindow(m, k, half - 1.6, 4.55, 0.95, 1.2, false, lod);
+            Kp.Bay(m, k, -0.2, 4.25, 3.2, 1.75, false, lod);
+            // The deep pent roof on figure struts, the upper storey and the cornice under the main eave.
+            Kp.Pent(m, k, -half, half, 8.7, 7.3, 1.75, 6.05, 1.55, Kp.Tile, true, lod);
+            for (int i = 0; i < 4; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / 4, 9.3, 0.8, 0.62, lod, 2);
+            Kp.Cornice(m, k, -half, half, eave - 0.1, 0.32, Kp.Wood, lod);
+            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, 9.0, 1.5, false, 227u, lod);
+            if (f.C != null)
+            {
+                f.GridBox(a0, a1, b0, b1, 0, ridge, GenColliderFlags.NoClimb, GenColliders.Brick);
+                f.GridBox(a0 - pd, a0, b0, b1, 0, plinth, GenColliderFlags.Walkable, GenColliders.Stone);
+                f.GridRamp(a0 - pd - 0.7, b1 - 1.7, 0, a0 - pd, b1 - 1.7, plinth, 1.1, GenColliders.Stone);
+            }
+        }
+
         /// <summary>The coronation platform: a low stone block with a moulded edge and potted plants along it, walkable.</summary>
         private static void Platform(ref KpFrame f, MeshData m)
         {
@@ -336,7 +378,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             // The arched door to the court (west, −u).
             Affine3 d = KpStack.Face(k, 180, 1.2);
             Kp.Panel(m, d, -0.42, 0.3, 0.42, 1.75, 0.01, Kp.Recess);
-            if (lod <= 1) ShikharaGenerator.Arch(m, d, 0, 1.75, 0.0, 0.84, 0.35, 0.09, 0.06, false, Kp.WhiteRelief, lod);
+            if (lod <= 1) ShikharaGenerator.Arch(m, d, 0, 1.75, 0.01, 0.84, 0.35, 0.09, 0.06, false, Kp.WhiteRelief, lod);
             f.Box(cx, cy, 1.45, 1.45, 102, 0, 4.2, GenColliderFlags.NoClimb, GenColliders.Stone);
         }
 
@@ -372,7 +414,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 {
                     double half;
                     Affine3 k = f.GridSide(UA0, UA1, UB0, UB1, 0, s, out half);
-                    KpFacade.Newar(m, Flip(k), half, 0, Floors2, 1, MulEave + 0.3, 2.4, -1, -1, true, false, lod + 1);
+                    KpFacade.Newar(m, Flip(k), half, 0, Floors2, 1, MulEave + 0.3, 2.4, -1, -1, true, false, 2);
                 }
             // Taleju's shrine on the south range: a gilt torana door and its small two-tier gilt roof over the ranges.
             double sx, sy;
@@ -432,15 +474,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         {
             int lod = f.Lod;
             double eave = KpTowers.RangeEave;
-            ShapeBrush brick = Kp.Brick, tile = Kp.Tile;
+            ShapeBrush brick = Kp.BrickRebuilt, tile = Kp.Tile;
             if (lod >= 3)
             {
                 Kp.Box(m, f.Grid, 22.2, 46.0, 0, eave, SouthB, HB0, brick, BoxFaces.All & ~BoxFaces.Bottom);
                 KpLod3.Pyramid(m, f.Grid, 34.1, -64.5, 12.9, 7.0, eave, LohanRidge, tile);
                 Kp.Box(m, f.Grid, 25.0, 55.0, 0, eave, HB0, -33.6, brick, BoxFaces.All & ~BoxFaces.Bottom);
                 KpLod3.Pyramid(m, f.Grid, 40.0, -46.0, 16.0, 13.4, eave, LohanRidge, tile);
-                Kp.Box(m, f.Grid, 57.0, 80.7, 0, 8.0, -66.6, -56.0, brick, BoxFaces.All & ~BoxFaces.Bottom);
-                KpLod3.Pyramid(m, f.Grid, 68.85, -61.3, 13.4, 6.8, 8.0, 10.6, tile);
+                Kp.Box(m, f.Grid, 57.0, 80.7, 0, 5.3, -66.6, -56.0, brick, BoxFaces.All & ~BoxFaces.Bottom);
+                KpLod3.Pyramid(m, f.Grid, 68.85, -61.3, 13.4, 6.8, 5.3, 9.6, tile);
                 return;
             }
             // The ranges: south (to the street), west, north, east.
@@ -455,8 +497,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 {
                     double half;
                     Affine3 k = f.GridSide(HA0, HA1, HB0, HB1, 0, s, out half);
-                    // The court faces one level coarser than the street front (seen from inside the court or above).
-                    KpFacade.Newar(m, Flip(k), half, 0.6, Floors4, 3, eave + 0.35, 2.0, 1, 2, true, false, lod + 1);
+                    // The court faces as dark openings and timber bands: the court is closed by its ranges and seen only from
+                    // the towers and the air.
+                    KpFacade.Newar(m, Flip(k), half, 0.6, Floors4, 3, eave + 0.35, 2.0, 1, 2, true, false, 2);
                 }
             }
             // The brick plinth round the court's edges with steps down to the floor, and the stone slab in the middle.
@@ -468,10 +511,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             {
                 double half;
                 Affine3 k = f.GridSide(22.2, 46.0, SouthB, HB0, 0, 2, out half);
-                KpFacade.Newar(m, k, half, 0.35, Floors4, 3, eave + 0.35, 2.1, 1, -1, false, false, lod);
+                SouthFace(m, k, half, eave, lod);
                 Kp.Box(m, k, -half, half, 0, 0.35, 0, 1.6, Kp.Step, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
                 Kp.Railing(m, k, -half + 0.3, half - 0.3, 1.45, 0.35, 0.95, lod);
-                if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, 22.2, 46.0, SouthB, HB0), south, 8.5, 1.5, false, 401u, lod);
+                if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, 22.2, 46.0, SouthB, HB0), south, 9.1, 1.5, false, 401u, lod);
             }
             // The two grey stone lions on tall pedestals: at the nine-storey tower's south-west corner and further east.
             LionAt(ref f, m, KpTowers.BA0 + 0.9, KpTowers.BB0 - 1.4, lod);
@@ -487,6 +530,41 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 f.GridWall(22.5, SouthB - 1.45, 45.7, SouthB - 1.45, 0, 1.3, 0.04);
                 f.GridBox(22.2, 46.0, SouthB - 1.6, SouthB, 0, 0.35, GenColliderFlags.Walkable, GenColliders.Stone);
             }
+        }
+
+        /// <summary>
+        /// The outer south face of the Lohan range on Basantapur (§3.16; photos basantapur_tower c_00, c_02, c_10): a brick
+        /// ground storey with a few small windows, a timber band, the second storey's carved long-eared windows, a carved
+        /// lattice band under the long pent roof that runs the whole range at mid height on carved figure struts, and above
+        /// it a short storey of small lattice windows under the main eave.
+        /// </summary>
+        private static void SouthFace(MeshData m, in Affine3 k, double half, double eave, int lod)
+        {
+            const double V0 = 0.35, F1 = 3.35, BandV = 6.15, PentEave = 7.35, PentTop = 8.85;
+            Kp.Band(m, k, -half, half, V0, V0 + 0.3, 0.07, Kp.Step);
+            for (int i = 0; i < 3; i++) Kp.Lattice(m, k, -0.62 * half + 0.62 * half * i, 1.85, 0.75, 0.95, lod, 2);
+            Kp.Band(m, k, -half, half, F1, F1 + 0.24, 0.1, Kp.Wood);
+            if (lod == 0) Kp.Band(m, k, -half, half, F1 + 0.24, F1 + 0.32, 0.05, Kp.WoodMid);
+            int nw = Math.Max(2, (int)Math.Round(2 * half / 3.9));
+            for (int i = 0; i < nw; i++)
+            {
+                double u = -half + 2 * half * (i + 0.5) / nw;
+                Kp.FramedWindow(m, k, u, 4.15, 1.0, 1.25, i == nw / 2, lod);
+            }
+            // The carved lattice band under the pent roof.
+            if (lod >= 2) Kp.Panel(m, k, -half + 0.2, BandV, half - 0.2, PentEave - 0.35, 0.03, Kp.Recess);
+            else
+            {
+                Kp.Band(m, k, -half, half, BandV - 0.16, BandV, 0.14, Kp.WoodBeam);
+                int nl = Math.Max(4, (int)Math.Round(2 * half / 1.2));
+                for (int i = 0; i < nl; i++)
+                    Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / nl, 0.5 * (BandV + PentEave - 0.3), 2 * half / nl - 0.32, PentEave - 0.3 - BandV - 0.25, lod, lod == 0 ? 2 : 0);
+            }
+            Kp.Pent(m, k, -half, half, PentTop, PentEave, 1.55, BandV - 0.15, 1.6, Kp.Tile, true, lod);
+            // The short storey above the pent roof.
+            int nt = Math.Max(2, (int)Math.Round(2 * half / 3.0));
+            for (int i = 0; i < nt; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / nt, PentTop + 0.6, 0.8, 0.62, lod, 2);
+            Kp.Cornice(m, k, -half, half, eave - 0.1, 0.32, Kp.Wood, lod);
         }
 
         /// <summary>A walkable brick plinth (width <paramref name="w"/>, height <paramref name="h"/>) round the inside of a court
@@ -526,13 +604,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         }
 
         /// <summary>
-        /// The east shop range (§3.16; OSM w906985353): two storeys under a deep hipped tile roof on struts, the ground
-        /// floor a row of shopfronts between carved posts with potted plants, facing the street.
+        /// The east shop range (§3.16; OSM w906985353; photo lalitpur_tower c_04): a row of shopfronts between carved posts
+        /// with potted plants, a low upper floor of small carved windows close under the eave at about 5 m, and the big
+        /// deep hipped tile roof on struts rising to about 9.6 m, lower than the Lalitpur tower's first roof.
         /// </summary>
         private static void ShopRange(ref KpFrame f, MeshData m)
         {
             int lod = f.Lod;
-            const double a0 = 57.0, a1 = 80.7, b0 = -66.6, b1 = -56.0, eave = 8.0, ridge = 10.8, f1 = 3.4;
+            const double a0 = 57.0, a1 = 80.7, b0 = -66.6, b1 = -56.0, eave = 5.3, ridge = 9.6, f1 = 3.1;
             RoofSpec roof = KpFacade.Range(m, ref f, a0, a1, b0, b1, eave, ridge, 1.9, Kp.Brick, Kp.Tile, false, lod);
             double half;
             Affine3 k = f.GridSide(a0, a1, b0, b1, 0, 2, out half);
@@ -559,9 +638,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             if (lod <= 1)
             {
                 int n = 10;
-                for (int i = 0; i < n; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / n, f1 + 1.9, 0.85, 1.25, lod, 2);
-                Kp.Cornice(m, k, -half, half, eave - 0.5, 0.4, Kp.Wood, lod);
-                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 1.0, 1.5, false, 431u, lod);
+                for (int i = 0; i < n; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / n, f1 + 1.0, 0.8, 0.6, lod, 2);
+                Kp.Cornice(m, k, -half, half, eave - 0.05, 0.3, Kp.Wood, lod);
+                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 0.35, 1.5, false, 431u, lod);
             }
             if (f.C != null) f.GridBox(a0, a1, b0, b1, 0, ridge, GenColliderFlags.NoClimb, GenColliders.Brick);
         }

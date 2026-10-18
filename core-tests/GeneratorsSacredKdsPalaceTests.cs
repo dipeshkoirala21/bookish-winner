@@ -127,6 +127,52 @@ namespace Ghumante.Core.Tests
             Assert.That(Math.Sqrt((cx - x) * (cx - x) + (cy - y) * (cy - y)), Is.LessThan(tol), part + " centre");
         }
 
+        /// <summary>Vertices of a material channel inside a palace-grid box (a0..a1, b0..b1, v0..v1 above the square).</summary>
+        private static int CountInGridBox(MeshData m, MaterialChannel channel, double a0, double a1, double b0, double b1, double v0, double v1)
+        {
+            KpFrame f = KpFrame.For(Tile(), 0, null);
+            int n = 0;
+            for (int i = 0; i < m.VertexCount; i++)
+            {
+                if ((int)Math.Round(m.Uv0[2 * i]) != (int)channel) continue;
+                double v = m.Positions[3 * i + 1] - KdsPalaceSite.LevelM;
+                if (v < v0 || v > v1) continue;
+                double x, y, a, b;
+                f.FromTile(m.Positions[3 * i], m.Positions[3 * i + 2], out x, out y);
+                KpFrame.ToGrid(x, y, out a, out b);
+                if (a >= a0 && a <= a1 && b >= b0 && b <= b1) n++;
+            }
+            return n;
+        }
+
+        /// <summary>
+        /// The long tile pent roofs at mid height along the Basantapur fronts (photos basantapur_tower c_02, c_10): on the
+        /// Lohan south range over its carved lattice band (eave about 7.3 m) and on the white south-west wing between its
+        /// second and top rows of windows (eave about 8.3 m), standing out over the square in front of each face.
+        /// </summary>
+        [Test]
+        public void PentRoofsRunAlongTheBasantapurFronts()
+        {
+            MeshData lohan = Part(KdsPalacePart.LohanChowk, 0), wing = Part(KdsPalacePart.SouthWing, 0);
+            int l = CountInGridBox(lohan, MaterialChannel.RoofTile, 22.0, 46.2, KpCourts.SouthB - 1.7, KpCourts.SouthB - 0.2, 7.2, 9.0);
+            int w = CountInGridBox(wing, MaterialChannel.RoofTile, KpRanges.WA0 - 0.2, KpRanges.WA1 + 0.2, KpRanges.WB0 - 1.6, KpRanges.WB0 - 0.2, 8.2, 9.9);
+            TestContext.WriteLine("pent roof tile vertices: Lohan " + l + ", white wing " + w);
+            Assert.That(l, Is.GreaterThanOrEqualTo(8), "the Lohan south range carries its pent roof over the square");
+            Assert.That(w, Is.GreaterThanOrEqualTo(8), "the white wing carries its pent roof over the square");
+        }
+
+        /// <summary>The Gaddi Baithak portico's three tall arched recesses (gaddi c_08, c_09): the arcade face stands about
+        /// 0.9 m out from the hall's west wall between the arches, from the podium to the capitals.</summary>
+        [Test]
+        public void GaddiPorticoHasItsArcadeOfRecesses()
+        {
+            MeshData g = Part(KdsPalacePart.GaddiBaithak, 0);
+            double a = KpGaddi.HA0;
+            int piers = CountInGridBox(g, MaterialChannel.Plaster, a - 1.0, a - 0.8, KpGaddi.PortB - 8.3, KpGaddi.PortB + 8.3, 7.0, 13.0);
+            TestContext.WriteLine("arcade face vertices " + piers);
+            Assert.That(piers, Is.GreaterThan(8), "the arcade face stands out of the hall wall");
+        }
+
         [Test]
         public void CatalogueCarriesTheMeasuredSiteAndItsParts()
         {

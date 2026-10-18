@@ -31,9 +31,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Cream = B(0xE9D9A6, MaterialChannel.Plaster);
         public static readonly ShapeBrush Glass = B(0x1E2427, MaterialChannel.Glass);
 
+        /// <summary>The orange-brown lattice of the round-headed ground-floor windows of the white Basantapur wing
+        /// (basantapur_tower c_02).</summary>
+        public static readonly ShapeBrush LatticeBrown = B(0x8A4A2C, MaterialChannel.WoodCarved);
+
         // --- Newar brick ranges and towers (§3.4, §3.11-3.16, §3.19) ----------------------------------------------------
         public static readonly ShapeBrush Brick = B(0x9C4A36, MaterialChannel.Brick);
         public static readonly ShapeBrush BrickNew = B(0xB5583E, MaterialChannel.Brick);
+
+        /// <summary>The brick of the Lohan Chowk complex as rebuilt in 2017-2023 (basantapur_tower c_00): lighter and pinker
+        /// than the old brick.</summary>
+        public static readonly ShapeBrush BrickRebuilt = B(0xAA5843, MaterialChannel.Brick);
         public static readonly ShapeBrush BrickGlazed = B(0x9A4532, MaterialChannel.BrickGlazed);
         public static readonly ShapeBrush BrickKumari = B(0xA6563F, MaterialChannel.Brick);
         public static readonly ShapeBrush Wood = B(0x3B2A20, MaterialChannel.WoodCarved);
@@ -45,10 +53,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Recess = B(0x1C1511, MaterialChannel.Plain, 0.6f);
 
         // --- Roofs ----------------------------------------------------------------------------------------------------
-        public static readonly ShapeBrush Tile = B(0x6E4B3A, MaterialChannel.RoofTile);
+        public static readonly ShapeBrush Tile = B(0x875A46, MaterialChannel.RoofTile);
         public static readonly ShapeBrush TileRidge = B(0x553829, MaterialChannel.RoofTile);
         public static readonly ShapeBrush TileMoss = B(0x6B6047, MaterialChannel.RoofTile);
-        public static readonly ShapeBrush TowerTile = B(0x6A4A3A, MaterialChannel.RoofTile);
+        public static readonly ShapeBrush TowerTile = B(0x8C5C49, MaterialChannel.RoofTile);
         public static readonly ShapeBrush Copper = B(0x6F8577, MaterialChannel.Metal);
         public static readonly ShapeBrush CopperSeam = B(0x5E7466, MaterialChannel.Metal);
         public static readonly ShapeBrush CopperDark = B(0x5A5446, MaterialChannel.Metal);
@@ -76,6 +84,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Sindoor = B(0x8E2B22, MaterialChannel.Paint);
         public static readonly ShapeBrush Cloak = B(0xD9541E, MaterialChannel.Fabric);
         public static readonly ShapeBrush Parasol = B(0x2A2422, MaterialChannel.Fabric);
+
+        /// <summary>The grey metal canopy of Hanuman's parasol (hanuman_gate c_14).</summary>
+        public static readonly ShapeBrush ParasolTop = B(0x5C5856, MaterialChannel.Metal);
         public static readonly ShapeBrush Grass = B(0x6F7A45, MaterialChannel.Grass);
         public static readonly ShapeBrush BrickPave = B(0xA0503A, MaterialChannel.Brick);
         public static readonly ShapeBrush GaddiWhite = B(0xF4F2EC, MaterialChannel.Plaster);
@@ -274,7 +285,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Panel(m, k, u - r + 0.08, v0, u + r - 0.08, v0 + pier, 0.008, WhiteRelief);
             Box(m, k, u - r, u - r + 0.08, v0, v0 + pier, 0, 0.035, WhiteTrim, BoxFaces.Wall);
             Box(m, k, u + r - 0.08, u + r, v0, v0 + pier, 0, 0.035, WhiteTrim, BoxFaces.Wall);
-            ShikharaGenerator.Arch(m, k, u, v0 + pier, 0.0, width - 0.16, rise, 0.08, 0.035, true, WhiteTrim, lod + (lod == 0 ? 1 : 0));
+            ShikharaGenerator.Arch(m, k, u, v0 + pier, 0.01, width - 0.16, rise, 0.08, 0.035, true, WhiteTrim, lod + (lod == 0 ? 1 : 0));
         }
 
         /// <summary>
@@ -331,6 +342,106 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
             if (lod == 0) Shapes.Sphere(m, SacredDraw.At(k, u, v + 0.42 * h, w + 0.1), b, Math.Min(0.09, 0.18 * r), 5);
             return v + h;
+        }
+
+        /// <summary>
+        /// A big carved Newar storey window (the windows of the Basantapur faces, photos basantapur_tower c_00, c_10,
+        /// lohan_south c_05): the dark opening with its lattice, a heavy dark frame, the lintel and the sill running out in
+        /// long ears (the signature T-shape of a Newar window seen from the square), a second stepped moulding over the
+        /// lintel and under the sill, and, with <paramref name="crest"/>, a carved crest over it. Centre u, sill v0.
+        /// LOD0 about 90 triangles (plus the crest), LOD1 the frame, LOD2 the dark opening and the lintel line.
+        /// </summary>
+        public static void FramedWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, bool crest, int lod)
+        {
+            const double F = 0.13;
+            double hu = 0.5 * ww, ear = Math.Min(0.5, 0.3 + 0.12 * ww), top = v0 + wh;
+            if (lod >= 2)
+            {
+                Panel(m, k, u - hu - F, v0, u + hu + F, top, 0.02, Recess);
+                Box(m, k, u - hu - F - ear, u + hu + F + ear, top, top + 0.16, 0, 0.12, Wood, BoxFaces.Front | BoxFaces.Top);
+                return;
+            }
+            Panel(m, k, u - hu, v0, u + hu, top, 0.01, Recess);
+            BoxFaces jamb = lod == 0 ? BoxFaces.Front | BoxFaces.Left | BoxFaces.Right : BoxFaces.Front;
+            Box(m, k, u - hu - F, u - hu, v0, top, 0, 0.12, Wood, jamb);
+            Box(m, k, u + hu, u + hu + F, v0, top, 0, 0.12, Wood, jamb);
+            // Lintel and sill with their ears, and the stepped mouldings beyond them.
+            Box(m, k, u - hu - F - ear, u + hu + F + ear, top, top + 0.17, 0, 0.15, Wood, BoxFaces.Wall | BoxFaces.Bottom);
+            Box(m, k, u - hu - F - ear, u + hu + F + ear, v0 - 0.17, v0, 0, 0.15, Wood, BoxFaces.Wall | BoxFaces.Bottom);
+            if (lod == 0)
+            {
+                Box(m, k, u - hu - F - 0.55 * ear, u + hu + F + 0.55 * ear, top + 0.17, top + 0.3, 0, 0.1, WoodMid, BoxFaces.Wall);
+                Box(m, k, u - hu - F - 0.55 * ear, u + hu + F + 0.55 * ear, v0 - 0.3, v0 - 0.17, 0, 0.1, WoodMid, BoxFaces.Front | BoxFaces.Bottom);
+                // The inner frame and the lattice (a close grid of slim bars, light between them).
+                Box(m, k, u - hu, u + hu, top - 0.07, top, 0.01, 0.08, WoodMid, BoxFaces.Front | BoxFaces.Bottom);
+                Box(m, k, u - hu, u + hu, v0, v0 + 0.07, 0.01, 0.08, WoodMid, BoxFaces.Front | BoxFaces.Top);
+                int nu = Math.Max(3, (int)Math.Round(ww / 0.2)), nv = Math.Max(3, (int)Math.Round(wh / 0.2));
+                for (int i = 1; i < nu; i++)
+                {
+                    double uu = u - hu + ww * i / nu;
+                    Panel(m, k, uu - 0.022, v0 + 0.07, uu + 0.022, top - 0.07, 0.05, Wood);
+                }
+                for (int i = 1; i < nv; i++)
+                {
+                    double vv = v0 + wh * i / nv;
+                    Panel(m, k, u - hu, vv - 0.022, u + hu, vv + 0.022, 0.054, Wood);
+                }
+            }
+            if (crest) Crest(m, k, u, top + (lod == 0 ? 0.3 : 0.17), 0.02, ww + 0.25, 0.42 * ww + 0.15, Wood, lod);
+        }
+
+        /// <summary>A flat half disc (an arch head's field) on the wall plane w facing +w: centre (u, v), half width r,
+        /// rise <paramref name="rise"/>, <paramref name="seg"/> segments.</summary>
+        public static void HalfDisc(MeshData m, in Affine3 k, double u, double v, double r, double rise, double w, in ShapeBrush b, int seg)
+        {
+            int c = SacredDraw.V(m, k, u, v, w, 0, 0, 1, b), first = m.VertexCount;
+            for (int i = 0; i <= seg; i++)
+            {
+                double t = Math.PI * i / seg;
+                SacredDraw.V(m, k, u + r * Math.Cos(t), v + rise * Math.Sin(t), w, 0, 0, 1, b);
+            }
+            for (int i = 0; i < seg; i++) SacredDraw.Tri(m, c, first + i, first + i + 1);
+        }
+
+        /// <summary>A recessed rectangular plaster panel (the blind panels of the Rana fronts on Basantapur, basantapur_tower
+        /// c_02): a shade darker field inside a slim raised frame.</summary>
+        public static void BlindPanel(MeshData m, in Affine3 k, double u, double v0, double pw, double ph, int lod)
+        {
+            if (lod >= 2) return;
+            double hu = 0.5 * pw;
+            Panel(m, k, u - hu + 0.06, v0 + 0.06, u + hu - 0.06, v0 + ph - 0.06, 0.006, WhiteRelief);
+            if (lod > 0) return;
+            Box(m, k, u - hu, u + hu, v0, v0 + 0.06, 0, 0.03, WhiteTrim, BoxFaces.Front | BoxFaces.Top);
+            Box(m, k, u - hu, u + hu, v0 + ph - 0.06, v0 + ph, 0, 0.03, WhiteTrim, BoxFaces.Front | BoxFaces.Bottom);
+            Box(m, k, u - hu, u - hu + 0.06, v0 + 0.06, v0 + ph - 0.06, 0, 0.03, WhiteTrim, BoxFaces.Front | BoxFaces.Right);
+            Box(m, k, u + hu - 0.06, u + hu, v0 + 0.06, v0 + ph - 0.06, 0, 0.03, WhiteTrim, BoxFaces.Front | BoxFaces.Left);
+        }
+
+        /// <summary>
+        /// A round-headed ground-floor window of the Rana wings on Basantapur (basantapur_tower c_02, c_10): a white
+        /// moulded surround with a semicircular head over an orange-brown lattice. Sill at v0.
+        /// </summary>
+        public static void ArchedLatticeWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, int lod)
+        {
+            double hu = 0.5 * ww, rect = wh - hu;
+            if (lod >= 2)
+            {
+                Panel(m, k, u - hu, v0, u + hu, v0 + rect, 0.02, LatticeBrown);
+                return;
+            }
+            Panel(m, k, u - hu, v0, u + hu, v0 + rect, 0.008, LatticeBrown);
+            HalfDisc(m, k, u, v0 + rect, hu, hu, 0.008, LatticeBrown, lod == 0 ? 8 : 5);
+            Box(m, k, u - hu - 0.12, u - hu, v0, v0 + rect, 0, 0.06, WhiteTrim, BoxFaces.Wall);
+            Box(m, k, u + hu, u + hu + 0.12, v0, v0 + rect, 0, 0.06, WhiteTrim, BoxFaces.Wall);
+            Box(m, k, u - hu - 0.16, u + hu + 0.16, v0 - 0.1, v0, 0, 0.09, WhiteTrim, BoxFaces.Wall | BoxFaces.Bottom);
+            ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.012, ww + 0.12, hu + 0.06, 0.12, 0.06, false, WhiteTrim, lod + 1);
+            if (lod > 0) return;
+            int n = Math.Max(2, (int)Math.Round(ww / 0.16));
+            for (int i = 1; i < n; i++)
+            {
+                double uu = u - hu + ww * i / n;
+                Panel(m, k, uu - 0.015, v0, uu + 0.015, v0 + rect, 0.02, Tint(LatticeBrown, 0.7f));
+            }
         }
 
         // =================================================================================================================
@@ -419,6 +530,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 Shapes.RoundedBox(m, SacredDraw.At(at, 0, 0.09, 0), b, 2.6 * r, 0.18, 2.6 * r, 0.03, 1);
                 Shapes.RoundedBox(m, SacredDraw.At(k, u, v1 - 0.09, w), b, 2.8 * r, 0.18, 2.8 * r, 0.03, 1);
             }
+        }
+
+        /// <summary>
+        /// A carved figure strut (tundal) from the wall at (u, va, wa) up and out to (u, vb, wb): a broad timber strut, at
+        /// LOD0 a standing deity figure carved on its outer face (a rounded body on a lotus block with a round head and a
+        /// small arched halo) and the bracket block at its foot; LOD1 the strut and the figure as one block.
+        /// </summary>
+        public static void FigureStrut(MeshData m, in Affine3 k, double u, double va, double wa, double vb, double wb, int lod)
+        {
+            if (lod >= 2) return;
+            Strut(m, k, u, va, wa, vb, wb, 0.085, Wood);
+            double dv = vb - va, dw = wb - wa, l = Math.Sqrt(dv * dv + dw * dw);
+            if (l < 0.3) return;
+            double cy = dv / l, sy = dw / l;
+            // Frame along the strut: x along u, y up the strut, z out of its lower face.
+            Affine3 f = SacredDraw.Basis(k, u, va, wa, 1, 0, 0, 0, cy, sy);
+            if (lod == 1)
+            {
+                SacredDraw.Box(m, f, -0.11, 0.11, 0.3 * l, 0.8 * l, 0.06, 0.16, WoodMid, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+                return;
+            }
+            Shapes.RoundedBox(m, SacredDraw.At(f, 0, 0.27 * l, 0.11), Wood, 0.24, 0.12, 0.1, 0.03, 1);
+            Shapes.RoundedBox(m, SacredDraw.At(f, 0, 0.5 * l, 0.12), WoodMid, 0.2, 0.36 * l, 0.1, 0.05, 1);
+            Shapes.Sphere(m, SacredDraw.At(f, 0, 0.73 * l, 0.13), WoodMid, 0.075, 6);
+            ShikharaGenerator.Arch(m, f, 0, 0.7 * l, 0.1, 0.26, 0.15, 0.04, 0.02, false, Wood, 1);
+            Box(m, k, u - 0.13, u + 0.13, va - 0.14, va + 0.02, 0, 0.16, Wood, BoxFaces.Wall | BoxFaces.Bottom);
         }
 
         /// <summary>A black iron railing from u0 to u1 at depth w: rails and bars every 0.15 m (LOD0), posts every 2 m.</summary>
@@ -604,6 +741,55 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             return lod == 0 ? SacredParts.Bells(m, k, r, spacing, size, true, lod) : 0;
         }
 
+        /// <summary>
+        /// A pent roof (a lean-to tile skirt) along a wall from u0 to u1, the mid-height roofs of the Lohan south range and
+        /// the white Basantapur wing (basantapur_tower c_02, c_10, lohan_south c_00): the tiled slope from the wall at
+        /// <paramref name="topV"/> (slightly concave) down to the eave at <paramref name="eaveV"/> standing
+        /// <paramref name="over"/> metres out, the wooden fascia, the dark soffit back to the wall, boards closing the ends,
+        /// tile courses (LOD0) and struts from <paramref name="footV"/> on the wall up under the soffit every
+        /// <paramref name="strutPitch"/> metres (LOD0-1; carved figure struts when <paramref name="carved"/>).
+        /// </summary>
+        public static void Pent(MeshData m, in Affine3 k, double u0, double u1, double topV, double eaveV, double over, double footV, double strutPitch,
+                                in ShapeBrush tile, bool carved, int lod)
+        {
+            const double Fh = 0.2;
+            double rise = topV - eaveV, midV = eaveV + 0.5 * rise - (lod <= 1 ? 0.05 * over : 0), midW = 0.5 * over;
+            double nl = Math.Sqrt(over * over + rise * rise), nv = over / nl, nw = rise / nl;
+            // The slope in two bands (concave), the upper a shade lighter.
+            FacingQuad(m, k, u0, topV, 0, u1, topV, 0, u1, midV, midW, u0, midV, midW, 0, nv, nw, Tint(tile, 1.05f));
+            FacingQuad(m, k, u0, midV, midW, u1, midV, midW, u1, eaveV, over, u0, eaveV, over, 0, nv * 0.9, nw * 1.1, tile);
+            // Flashing along the wall, the fascia, the soffit and the end boards.
+            Box(m, k, u0, u1, topV - 0.04, topV + 0.08, 0, 0.1, Tint(tile, 0.75f), BoxFaces.Front | BoxFaces.Top);
+            Box(m, k, u0 - 0.03, u1 + 0.03, eaveV - Fh, eaveV + 0.02, over - 0.07, over + 0.01, Wood, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+            double sv = topV - 0.35;
+            SacredDraw.Quad(m, k, u0, eaveV - Fh, over - 0.04, u1, eaveV - Fh, over - 0.04, u1, sv, 0.0, u0, sv, 0.0, 0, -1, 0, Ao(Wood, 0.5f));
+            if (lod <= 1)
+                for (int e = 0; e < 2; e++)
+                {
+                    double u = e == 0 ? u0 : u1, n = e == 0 ? -1 : 1;
+                    SacredDraw.Quad(m, k, u, topV, 0, u, midV, midW, u, eaveV - Fh, over - 0.04, u, sv, 0, n, 0, 0, Wood);
+                    SacredDraw.Tri(m, k, u, midV, midW, u, eaveV, over, u, eaveV - Fh, over - 0.04, n, 0, 0, Wood);
+                }
+            if (lod == 0)
+            {
+                // Tile courses: low risers across the slope.
+                for (int i = 1; i <= 4; i++)
+                {
+                    double t = i / 5.0, v = t < 0.5 ? topV + (midV - topV) * 2 * t : midV + (eaveV - midV) * (2 * t - 1), w = over * t;
+                    FacingQuad(m, k, u0, v, w, u1, v, w, u1, v + 0.045, w - 0.02, u0, v + 0.045, w - 0.02, 0, 0.3, 1, Tint(tile, 0.8f));
+                }
+            }
+            if (lod >= 2 || strutPitch <= 0) return;
+            int n2 = Math.Max(1, (int)Math.Round((u1 - u0) / strutPitch));
+            if (lod == 1) n2 = Math.Max(1, n2 / 2);
+            for (int i = 0; i < n2; i++)
+            {
+                double u = u0 + (u1 - u0) * (i + 0.5) / n2;
+                if (carved) FigureStrut(m, k, u, footV, 0.03, eaveV - Fh - 0.06, over - 0.3, lod);
+                else Strut(m, k, u, footV, 0.03, eaveV - Fh - 0.06, over - 0.3, 0.05, i % 2 == 0 ? Wood : WoodMid);
+            }
+        }
+
         /// <summary>A small white roof pavilion (dormer lantern) on a ridge at (u, v, w): a white box with a gabled tile cap.</summary>
         public static void Dormer(MeshData m, in Affine3 k, double u, double v, double w, double width, int lod)
         {
@@ -622,11 +808,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
 
         /// <summary>A guardian lion on a moulded pedestal at (u, w) of a frame, facing +w; painted white with stripes when
         /// <paramref name="painted"/> (the gate lions), grey stone otherwise (the pedestal lions on Basantapur). h is the lion's
-        /// height; <paramref name="quality"/> is the figure quality (the generic figure but for the Hanuman Dhoka pair).</summary>
+        /// height; <paramref name="quality"/> is the figure quality (the generic figure but for the Hanuman Dhoka pair); <paramref name="stoneBase"/>
+        /// puts painted lions on a grey stone pedestal (Kumari Ghar).</summary>
         public static void Lion(MeshData m, in Affine3 k, double u, double v, double w, double pedestal, double h, bool painted, int side, int lod,
-                                int quality = SacredFigures.Generic)
+                                int quality = SacredFigures.Generic, bool stoneBase = false)
         {
-            SacredParts.Pedestal(m, k, u, v, w, 0.32 * h, 0.42 * h, pedestal, painted ? Dado : StoneGrey, Math.Min(2, lod));
+            SacredParts.Pedestal(m, k, u, v, w, 0.32 * h, 0.42 * h, pedestal, painted && !stoneBase ? Dado : StoneGrey, Math.Min(2, lod));
             SacredFigures.Guardian(m, k, u, v + pedestal, w, h, GuardianKind.Lion, painted, quality, Math.Min(2, lod), side);
             if (!painted || lod > 0) return;
             // The red stripes of the Hanuman Dhoka and Singha Dhoka lions: thin bands round the legs and the chest.

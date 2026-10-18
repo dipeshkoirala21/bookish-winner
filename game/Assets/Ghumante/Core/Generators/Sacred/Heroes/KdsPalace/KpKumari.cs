@@ -90,7 +90,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double[] arches = { -8.4, -5.0, 5.0, 8.4 };
             foreach (double u in arches) Kp.ArchWindow(m, face, u, Plinth + 0.95, 1.25, 2.3, lod);
             // The lions on the upper step either side of the door.
-            for (int s = -1; s <= 1; s += 2) Kp.Lion(m, face, s * 2.25, Plinth, 0.95, 0.7, 1.55, true, s, lod);
+            for (int s = -1; s <= 1; s += 2) Kp.Lion(m, face, s * 2.25, Plinth, 0.95, 0.55, 1.55, true, s, lod, SacredFigures.Generic, true);
             // First floor: carved windows, big crests and small ones alternating.
             double[] big = { -8.4, -4.6, 0, 4.6, 8.4 }, small = { -6.5, -2.3, 2.3, 6.5 };
             foreach (double u in big) CrownWindow(m, face, u, Floor1 + 0.75, 1.15, 1.6, true, lod);

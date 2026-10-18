@@ -273,8 +273,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             {
                 Kp.Box(m, k, u - 0.43, u + 0.43, 0, 1.92, w - 0.43, w + 0.43, Kp.Sindoor);
                 Shapes.Cone(m, SacredDraw.At(k, u, 1.92, w), Kp.Cloak, 0.47, 1.7, 6, 0, 0, false);
-                Shapes.Cylinder(m, SacredDraw.At(k, u, 3.65, w), Kp.Cloak, 1.0, 0.45, 8, 0, 0, false, false);
-                Shapes.Cone(m, SacredDraw.At(k, u, 4.1, w), Kp.Parasol, 1.0, 0.4, 8, 0, 0, false);
+                Shapes.Cylinder(m, SacredDraw.At(k, u, 3.65, w), Kp.Valance, 1.0, 0.45, 8, 0, 0, false, false);
+                Shapes.Cone(m, SacredDraw.At(k, u, 4.1, w), Kp.ParasolTop, 1.0, 0.55, 8, 0, 0, false);
                 return;
             }
             Shapes.RoundedSlab(m, SacredDraw.At(k, u, 0, w), Kp.Step, 1.35, 1.35, 0.2, 0.06, 0.03, 2, sl);
@@ -303,16 +303,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             const double pv = 4.1, pr = 0.98;
             Shapes.Bar(m, SacredDraw.At(k, u, 0, w), Kp.Iron, 0, 1.9, -0.5, 0, pv, -0.5, 0.03, 6);
             Shapes.Bar(m, SacredDraw.At(k, u, 0, w), Kp.Iron, 0, pv - 0.1, -0.5, 0, pv + 0.02, 0, 0.025, 5);
-            Shapes.Dome(m, SacredDraw.At(k, u, pv - 0.02, w), Kp.Parasol, pr, 0.34, 16, true, sl);
-            Shapes.Sphere(m, SacredDraw.At(k, u, pv + 0.36, w), Kp.Gilt, 0.08, 8, sl);
+            Shapes.Dome(m, SacredDraw.At(k, u, pv - 0.02, w), Kp.ParasolTop, pr, 0.55, 16, true, sl);
+            Shapes.Sphere(m, SacredDraw.At(k, u, pv + 0.57, w), Kp.Gilt, 0.08, 8, sl);
             int seg = lod == 0 ? 28 : 14;
             int first = m.VertexCount;
             for (int i = 0; i <= seg; i++)
             {
                 double a = 2 * Math.PI * i / seg, ca = Math.Cos(a), sa = Math.Sin(a), drop = i % 2 == 0 ? 0.48 : 0.4, r = pr + 0.02;
                 SacredDraw.V(m, k, u + r * sa, pv, w + r * ca, sa, 0, ca, Kp.ValanceWhite);
-                SacredDraw.V(m, k, u + r * sa, pv - 0.1, w + r * ca, sa, 0, ca, Kp.Cloak);
-                SacredDraw.V(m, k, u + (r + 0.04) * sa, pv - drop, w + (r + 0.04) * ca, sa, -0.1, ca, Kp.Cloak);
+                SacredDraw.V(m, k, u + r * sa, pv - 0.1, w + r * ca, sa, 0, ca, Kp.Valance);
+                SacredDraw.V(m, k, u + (r + 0.04) * sa, pv - drop, w + (r + 0.04) * ca, sa, -0.1, ca, Kp.Valance);
             }
             for (int i = 0; i < seg; i++)
             {

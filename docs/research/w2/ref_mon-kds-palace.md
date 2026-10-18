@@ -119,16 +119,23 @@ site frame's metres (x east, y north, h above the square); photos are the common
 
 | View | Eye → look | Photo | Rounds |
 |---|---|---|---|
-| Gate from the forecourt | (-30, 1, 1.7) → (-12.4, -2.4, 4.5) | hanuman_gate c_14 | r1, r2, r4 |
-| Gate from the NW (in situ) | (-19, -2.5, 1.6) → (-11, 2, 6) | hanuman_gate c_06 | r2, r4 |
-| Taleju from Makhan Tole (street) | (53, 84, 1.6) → (45.5, 45, 16) | taleju c_02 | r2, r3, r4 |
+| v1 Gate from the forecourt | (-32, 4, 1.6) → (-12.4, -2.4, 5) | hanuman_gate c_14 | r1, r2, r4, r5 |
+| v2 Gate from the NW (in situ) | (-19, -2.5, 1.6) → (-11, 2, 6) | hanuman_gate c_06 | r2, r4, r5 |
+| v3 Nasal Chowk looking S (NW corner) | (-2, -13, 1.6) → (14, -50, 9) | nasal_chowk c_08 | r2-r7 |
+| v4 Nasal Chowk looking NNE | (-4, -54, 1.6) → (12, -8, 12) | panchamukhi c_10 | r2-r7 |
+| v5 Basantapur square looking NE | (-25, -100, 1.6) → (5, -67, 13) | basantapur_tower c_02 | r5 |
+| v6 Gaddi Baithak portico from the W | (-108, -62, 1.6) → (-88, -55, 9) | gaddi c_00, c_09 | r2-r5 |
+| v7 Taleju from Makhan Tole (N) | (46, 81, 1.6) → (45, 44, 17) | taleju c_25, c_02 | r2-r7 |
 | Taleju from the SW above (aerial 45°) | (10, 0, 40) → (45, 44, 8) | taleju c_26 | r3, r4 (+ LOD1, LOD2) |
-| Basantapur tower from the SW | (-12, -110, 1.6) → (2, -66, 14) | basantapur_tower c_10 | r2, r3, r4 (+ LOD1) |
-| Nasal Chowk looking S / NNE | (4, -14) → (1, -60, 11); (-4, -54) → (12, -8, 12) | nasal_chowk c_08; panchamukhi c_10 | r2, r3, r4 |
-| Gaddi Baithak portico from the W | (-112, -60, 1.6) → (-88, -54, 9) | gaddi c_09, c_00 | r2, r3, r4 |
-| Kumari Ghar from the N | (-101, -62, 1.6) → (-102, -78, 6.5) | c_kumari c_00 | r2, r4 |
-| Seto Bhairav screen from Jagannath | (-22, 13, 2) → (-8, 11, 4.5) | sweta_bhairav c_06 | r3, r4 |
-| Lalitpur tower from the SE street | (58, -90, 1.6) → (40, -71, 12) | lalitpur_tower c_04 | r2, r4 |
+| v8 Kumari Ghar from the N | (-99, -46, 1.6) → (-102, -75, 6.5) | c_kumari c_00 | r2, r4, r5 |
+| v9 Lalitpur tower from the SE street | (75, -92, 1.6) → (42, -71, 10) | lalitpur_tower c_04 | r2, r4-r7 |
+| v10 Seto Bhairav screen from Jagannath | (-22, 13, 2.5) → (-7, 12, 5) | sweta_bhairav c_06 | r3-r5 |
+| v11 Basantapur tower S face (rebuilt) | (-5, -97.7, 1.6) → (0.2, -73, 13) | basantapur_tower c_00 | r5, r6 |
+| v12 White wing and tower from the SW | (-32, -96, 1.6) → (2, -68, 11) | basantapur_tower c_02, c_10 | r5 |
+| v13 Gaddi Baithak from the SE | (-50, -95, 1.6) → (-70, -62, 9) | gaddi c_00 | r5 |
+
+The viewpoints are scripted in the preview tools (`tools/views.sh` next to the round folders); part renders against
+their photos are in each round's `png/` folder.
 
 What each round changed (render against photo):
 
@@ -139,18 +146,90 @@ What each round changed (render against photo):
   round roofs with the thin red-and-white fringe; strut feet clamped to the cornice.
 * r4: the gate's door opens into the passage (Narasimha visible; the block's west face no longer covers it); the
   triangle pass below; the in-situ NW gate view moved out of Jagannath.
+* r5 (Basantapur fronts, render | photo c_00, c_02, c_10): the fronts read as an office grid of small windows; the photos
+  show few, heavy Newar windows and long tile **pent roofs** at mid height. Now:
+  * a pent-roof kit piece (`Kp.Pent`: concave tiled slope, fascia, soffit, end boards, tile courses, plain or carved
+    figure struts) on the Lohan south range (eave 7.35 m over a carved lattice band, a short storey of small windows
+    above it under the main eave) and on the white SW wing (eave 8.35 m between the second and top rows of windows);
+  * `Kp.FramedWindow`: the big carved storey window with the long-eared lintel and sill (the T-shape of a Newar window
+    seen from the square), stepped mouldings, close lattice and an optional crest;
+  * the Basantapur tower's base faces rebuilt to the rebuilt south face (c_00): plain brick ground storey with thin
+    brick courses, three carved windows on the second storey (the middle one larger under a crest), a carved cornice,
+    the projecting three-bay window between two small windows, and under roof 1 the continuous lattice gallery on a row
+    of carved figure struts (`Kp.FigureStrut`); on the Nasal Chowk side the carved door and the three red-framed arches
+    over a raised stone plinth with steps (nasal_chowk c_08) in place of the generic lean-to;
+  * the white wing's ground floor of round-headed windows with orange-brown lattice (`Kp.ArchedLatticeWindow`),
+    recessed plaster panels between the shuttered windows (`Kp.BlindPanel`), four rows of openings as in c_02;
+  * colours: the tiles lighter and warmer (#875A46, tower #8C5C49, the rebuilt terracotta), the Lohan complex in the
+    rebuilt brick (#AA5843).
+* r5 (Gaddi Baithak portico, c_08, c_09, c_16): the three bays were flat teal windows on the wall; now an arcade face
+  0.9 m proud of the hall wall with three tall round-headed recesses (archivolt, soffit, shaded back wall) holding a
+  pedimented teal door and an arched teal window each; Ionic scrolls and an echinus ring on the six capitals; a row of
+  urns along the attic over the columns; the balustrade's piercings as slim crossed lozenges in dark grey.
+* r5 (Hanuman, c_14): the parasol's canopy is grey metal, taller (0.55 m), with the deep red valance (#B8262B).
+* r5 (Taleju from Makhan Tole, c_25, c_02): the ground body above the gilt windows was a bare brick field; now a carved
+  frieze of small panels clears the torana, the zone under the deep soffit behind the long struts is dark timber, and a
+  dark carved window flanks the three gilt windows on each side with a small carved window near each corner.
+* r5 (Kumari Ghar, c_00): the white lions stand on grey stone pedestals (they were red).
+* r5 (z-fighting): every arch's flat spandrels lifted off the wall plane they sat on (blind arches, Gaddi's windows, the
+  Hnulunche gate, the Singha Dhoka, the Seto Bhairav screen, the white shrine).
+* r6 (Nasal Chowk looking S, nasal_chowk c_08 from the north-west corner): the photograph everyone takes shows, under the
+  Kirtipur tower's copper hood, a tall brick front on a raised stone plinth with steps, a carved door, the three
+  red-framed arches of a small arcade, a projecting carved window and a deep pent roof; the model had the low red-post
+  veranda there. The south-east stretch of the court's east side is now that front (`KpCourts.KirtipurFront`: plinth
+  and steps, door with crest, red arcade, long-eared windows and the bay, pent roof on figure struts at 7.3 m, an upper
+  storey of small windows, the range roof at the Kirtipur skirt level); the low veranda keeps the northern stretch. The
+  Basantapur tower's Nasal Chowk face keeps a carved door and two small windows on the plinth. The in-situ view moved
+  to the north-west corner looking south-east, where the photo was taken.
+* r6 (Lalitpur tower and the east shop range, lalitpur_tower c_04): the shop range read taller than the tower's first
+  roof; in the photo its eave is about 5 m (shopfronts, a low upper floor of small carved windows close under the
+  eave) under a big deep roof. Eave 8.0 → 5.3 m, ridge 10.8 → 9.6 m. The in-situ view moved east along the street to
+  the photo's position.
+* r6 (streamed ground): the street south of the shop range floated over the levelled square because the derived road
+  heights (`StructureFallback`) were taken before the palace's ground was levelled; the streamer now levels the site
+  first (`HeroBuilder.PrepareGround` before `StructureFallback.Apply` in `TileBuild`).
+* r7 (v9 again, lalitpur_tower c_04): the street still tilted up to the shop range where the square's level zone ended
+  at the range; a level zone now covers the shop range and the street along its front (`KpGround`), so the street
+  meets the shopfronts flat as in the photo.
+* r7 (v7, taleju c_25 and c_02): the shop row under Taleju read as a band of flat colour; now dark open shopfronts with
+  narrow strips of hanging goods in a few colours, as in the photos.
+* r7 (v3/v4, panchamukhi c_10): the small white shrine stands at the court's south-east, in front of the east range
+  and right of the stone platform, where c_10 shows it.
 
 ### Triangle budget (LOD0 / LOD1 / LOD2, as built)
 
-The site is sixteen structures; Taleju, the one major temple, is about 30,000 at LOD0 (the round allows 60,000). The
-whole site is held to 200,000 at LOD0 (`KdsPalaceSite.SiteBudgetLod0`), above the round's ~150,000 guide for a
-single-temple site. The hero allocator shows a part at LOD0 only while it fills a third of the screen, so a handful at
-once at most (standing in Basantapur: the tower, Lohan, Kumari Ghar and the white wing, about 55,000). The pass that
-brought the site from 300,000 to about 200,000: a lean lattice window (44 triangles instead of 72; 16 at LOD1), standing
-seams as two-faced ribs every 1.9 m, carved figure struts only under the lowest roof (plain above), struts every 1.2-1.3
-m and bells every 0.85 m, tile courses every 1.7 m on the long ranges, the generic figure for the stone and Kumari and
-Singha Dhoka lions (the Hanuman Dhoka pair keeps the hero figure), small finials as cones from LOD1, and the enclosed
-courts (Mohan, Mul, Lohan) one level coarser than the street faces.
+| Part | LOD0 | LOD1 | LOD2 | LOD3 |
+|---|---|---|---|---|
+| Taleju | 32,334 | 13,356 | 1,605 | 82 |
+| Basantapur tower | 21,909 | 5,865 | 543 | 56 |
+| Nasal Chowk ranges | 17,324 | 5,963 | 886 | 44 |
+| Kumari Ghar | 17,157 | 6,193 | 694 | 26 |
+| Gate group (gate, Hanuman, lions, Narasimha) | 16,576 | 4,315 | 659 | 32 |
+| Lohan Chowk | 15,374 | 3,653 | 716 | 48 |
+| Degu Taleju | 14,724 | 4,293 | 703 | 56 |
+| Gaddi Baithak | 13,432 | 4,722 | 1,205 | 46 |
+| Dakha range (white forecourt range, museum block) | 12,040 | 5,084 | 890 | 42 |
+| Mohan Chowk | 11,032 | 2,782 | 845 | 26 |
+| Lalitpur tower | 10,120 | 2,869 | 463 | 36 |
+| South (white) wing | 7,892 | 3,084 | 350 | 32 |
+| Kirtipur tower | 7,780 | 1,961 | 339 | 38 |
+| Panch Mukhi | 7,300 | 2,023 | 593 | 96 |
+| Mul Chowk | 5,718 | 1,866 | 575 | 26 |
+| Bhaktapur tower | 3,748 | 749 | 197 | 52 |
+| **Site** | **214,460** | **68,778** | **11,263** | |
+
+The site is sixteen structures; Taleju, the one major temple, is about 32,000 at LOD0 (the round allows 60,000). The
+whole site is held to 220,000 at LOD0 (`KdsPalaceSite.SiteBudgetLod0`), above the round's ~150,000 guide for a
+single-temple site: r5-r7 added the pent roofs, the heavy Newar windows, Gaddi's arcade and the Kirtipur front (about
++15,000), and the closed courts were dropped one level to pay for part of it. The hero allocator shows a part at LOD0
+only while it fills a third of the screen, so a handful at once at most (standing in Basantapur: the tower, Lohan,
+Kumari Ghar and the white wing, about 62,000; in Nasal Chowk the ranges, the tower and Degu Taleju, about 54,000).
+Every part keeps LOD1 under 0.45 × LOD0, LOD2 under 0.12 × LOD0 and LOD3 at 200 or fewer (`KdsPalaceSite.Budgets`,
+checked by the tests). The pass that brought the site from 300,000 to about 200,000 in r4: a lean lattice window (44
+triangles instead of 72; 16 at LOD1), standing seams as two-faced ribs every 1.9 m, carved figure struts only under the
+lowest roof (plain above), struts every 1.2-1.3 m and bells every 0.85 m, tile courses every 1.7 m on the long ranges,
+the generic figure for the stone and Kumari and Singha Dhoka lions (the Hanuman Dhoka pair keeps the hero figure), small
+finials as cones from LOD1, and the enclosed courts (Mohan, Mul, Lohan) one level coarser than the street faces.
 
 ## 4. Known differences and open questions
 
@@ -164,3 +243,8 @@ courts (Mohan, Mul, Lohan) one level coarser than the street faces.
   merge).
 * The modern beige building east of Basantapur comes from the house grammar (not part of this site).
 * Not modelled: the interiors beyond the gate passage and the courts; the museum's modern fittings.
+* `TileBuild` now levels every hero site's ground (`HeroBuilder.PrepareGround`) before `StructureFallback` derives the
+  road heights, so the derived roads of any site with level zones sit on the levelled ground (for the palace: the
+  streets round Basantapur and the shop range). Sibling sites that flatten ground get the same order.
+* The Kirtipur front on Nasal Chowk's south-east side is read from c_08, the aerials and the OSM outline; what lies
+  behind it (the rooms between Nasal Chowk and Lohan Chowk) is massed only.

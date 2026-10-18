@@ -27,7 +27,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public const double TA0 = -11.6, TA1 = 0.9, TB0 = -56.0, TB1 = -9.6, TribhuvanEave = 13.5, TribhuvanRidge = 16.2;
 
         private static readonly double[] TribhuvanFloors = { 3.6, 7.0, 10.3 };
-        private static readonly double[] WingFloors = { 4.2, 8.2 };
         private static readonly double[] CourtFloors = { 4.0, 8.0 };
 
         public static void Dakha(ref KpFrame f, MeshData m)
@@ -186,10 +185,51 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             RoofSpec roof = KpFacade.Range(m, ref f, a0, a1, b0, b1, WingEave, WingRidge, 1.4, Kp.White, Kp.Tile, false, lod);
             double half;
             Affine3 s = f.GridSide(a0, a1, b0, b1, 0, 2, out half);
-            KpFacade.Rana(m, s, half, 0, WingFloors, 2, WingEave, foot, pitch, Kp.Teal, false, false, true, lod);
+            WingFace(m, s, half, foot, pitch, lod);
             Affine3 rk = KpFacade.RoofFrame(ref f, a0, a1, b0, b1);
-            if (lod <= 1) Kp.Struts(m, rk, roof, WingEave - 1.8, 1.4, false, seed, lod);
+            if (lod <= 1) Kp.Struts(m, rk, roof, WingEave - 1.4, 1.4, false, seed, lod);
             if (pavilion && lod <= 1) Kp.Dormer(m, rk, 0, WingRidge - 1.0, 0, 2.0, lod);
+        }
+
+        /// <summary>
+        /// The south face of a white wing on Basantapur (photos basantapur_tower c_02, c_10): a grey plinth; round-headed
+        /// windows with orange-brown lattice on the ground floor (blind arches between them on the range towards Gaddi
+        /// Baithak); two rows of windows with open teal shutters with recessed plaster panels between them; the long tile
+        /// pent roof on struts at about 8.4 m; a top row of windows under the main eave.
+        /// </summary>
+        private static void WingFace(MeshData m, in Affine3 k, double half, KpFoot foot, double pitch, int lod)
+        {
+            const double PentTop = 9.75, PentEave = 8.35;
+            Kp.Band(m, k, -half, half, 0, 0.35, 0.06, Kp.Step);
+            double margin = Math.Min(1.2, 0.12 * half);
+            int bays = Math.Max(1, (int)Math.Round((2 * half - 2 * margin) / pitch));
+            double bay = (2 * half - 2 * margin) / bays;
+            int arches = Math.Max(1, (int)Math.Round(2 * half / 3.3));
+            for (int i = 0; i < arches; i++)
+            {
+                double u = -half + 2 * half * (i + 0.5) / arches;
+                if (foot == KpFoot.BlindArches && i % 2 == 1) Kp.BlindArch(m, k, u, 0.55, 1.5, 2.4, lod);
+                else Kp.ArchedLatticeWindow(m, k, u, 0.85, 0.95, 1.9, lod);
+            }
+            Kp.Band(m, k, -half, half, 3.25, 3.4, 0.07, Kp.WhiteTrim);
+            Kp.Band(m, k, -half, half, 5.85, 6.0, 0.07, Kp.WhiteTrim);
+            // The top row under the deep eave reads as dark panes from LOD1 on.
+            int top = lod == 0 ? 0 : 2;
+            for (int i = 0; i < bays; i++)
+            {
+                double u = -half + margin + bay * (i + 0.5);
+                Kp.RanaWindow(m, k, u, 3.9, 0.95, 1.45, Kp.Teal, false, lod);
+                Kp.RanaWindow(m, k, u, 6.4, 0.95, 1.3, Kp.Teal, false, lod);
+                Kp.RanaWindow(m, k, u, 9.95, 0.9, 0.85, Kp.Teal, false, top);
+                if (i == bays - 1) continue;
+                double um = u + 0.5 * bay;
+                Kp.BlindPanel(m, k, um, 3.85, 0.72, 0.68, lod);
+                Kp.BlindPanel(m, k, um, 4.65, 0.72, 0.68, lod);
+                Kp.BlindPanel(m, k, um, 6.4, 0.72, 1.2, lod);
+                Kp.BlindPanel(m, k, um, 9.95, 0.6, 0.8, lod);
+            }
+            Kp.Pent(m, k, -half, half, PentTop, PentEave, 1.5, 7.95, 1.4, Kp.Tile, false, lod);
+            Kp.Band(m, k, -half - 0.05, half + 0.05, WingEave - 0.5, WingEave - 0.32, 0.12, Kp.WhiteTrim);
         }
     }
 }

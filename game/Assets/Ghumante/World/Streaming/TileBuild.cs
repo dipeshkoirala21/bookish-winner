@@ -637,10 +637,11 @@ namespace Ghumante.World.Streaming
             b.Chunks.Clear();
             int only = b.RefreshMask;
             bool detail = n.DrawsDetail && src.HasDetail;
+            // The bespoke heritage sites' ground (level courtyards and plazas) before anything reads the heights: the
+            // derived road heights below, the terrain and everything on it.
+            HeroBuilder.PrepareGround(src);
             // Before anything reads the tile's roads: one set of deck heights for roads, bridges, ground and traffic.
             if (detail && settings.DeriveStructures) StructureFallback.Apply(src);
-            // The bespoke heritage sites' ground (level courtyards and plazas) before the terrain and anything on it is meshed.
-            HeroBuilder.PrepareGround(src);
 
             if (Wants(only, TileLayers.Terrain))
             {

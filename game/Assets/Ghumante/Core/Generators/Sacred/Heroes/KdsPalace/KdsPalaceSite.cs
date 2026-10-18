@@ -97,9 +97,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public const int PartCount = 16;
 
         /// <summary>The whole palace at LOD0 (all sixteen parts over some 250 × 200 m; the hero allocator shows a part at LOD0
-        /// only while it fills a third of the screen, so a handful at most at once). Above the monuments round's ~150k guide
-        /// for a single-temple site: this site is sixteen structures.</summary>
-        public const int SiteBudgetLod0 = 200000;
+        /// only while it fills a third of the screen, so a handful at most at once: standing in Basantapur, the tower, the
+        /// Lohan front, the white wing and Kumari Ghar, about 70k). Above the monuments round's ~150k guide for a
+        /// single-temple site: this site is sixteen structures, one of them Taleju, a major temple of its own (about 32k of
+        /// its 60k allowance).</summary>
+        public const int SiteBudgetLod0 = 220000;
 
         private static readonly string[] Ids =
         {
@@ -140,18 +142,18 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         private static readonly int[][] Budgets =
         {
             new[] { 18000, 5200, 900, 200 }, // gate
-            new[] { 33000, 14000, 1700, 200 }, // Taleju
-            new[] { 18500, 5600, 800, 200 }, // Basantapur tower
-            new[] { 12000, 5200, 1500, 200 }, // Gaddi Baithak
+            new[] { 35000, 14800, 1800, 200 }, // Taleju
+            new[] { 24000, 6600, 800, 200 }, // Basantapur tower
+            new[] { 15000, 5400, 1500, 200 }, // Gaddi Baithak
             new[] { 20000, 9000, 900, 200 }, // Kumari Ghar
             new[] { 13500, 6200, 1100, 200 }, // Dakha
-            new[] { 6800, 2900, 400, 200 }, // south wing
+            new[] { 8800, 4000, 450, 200 }, // south wing
             new[] { 13000, 5800, 1500, 200 }, // Mohan
             new[] { 16500, 4900, 900, 200 }, // Degu Taleju
-            new[] { 16500, 7400, 1200, 200 }, // Nasal
+            new[] { 19000, 7400, 1200, 200 }, // Nasal
             new[] { 8000, 2400, 750, 200 }, // Panch Mukhi
             new[] { 7000, 2300, 750, 200 }, // Mul
-            new[] { 15500, 4300, 900, 200 }, // Lohan
+            new[] { 19500, 4300, 900, 200 }, // Lohan
             new[] { 8700, 2300, 450, 200 }, // Kirtipur
             new[] { 4300, 900, 300, 200 }, // Bhaktapur
             new[] { 11400, 3300, 600, 200 }, // Lalitpur

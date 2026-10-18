@@ -140,7 +140,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Box(m, w, uc - hw - wood, uc - hw, b0, spring, 0, 0.18, Kp.Wood, BoxFaces.Wall);
             Kp.Box(m, w, uc + hw, uc + hw + wood, b0, spring, 0, 0.18, Kp.Wood, BoxFaces.Wall);
             Kp.Box(m, w, uc - hw - 0.35, uc + hw + 0.35, b0 - 0.05, b0 + 0.12, 0, 0.22, Kp.Wood, BoxFaces.Wall);
-            ShikharaGenerator.Arch(m, w, uc, spring, 0.0, 2 * hw, hw, wood, 0.18, false, Kp.Wood, lod);
+            ShikharaGenerator.Arch(m, w, uc, spring, 0.012, 2 * hw, hw, wood, 0.18, false, Kp.Wood, lod);
             // The lattice: square bars clipped to the arch, heavier mullions and transoms between the 3 × 4 panels.
             double step = lod == 0 ? 0.24 : 0.48, top = spring + hw;
             for (double u = -hw + step; u < hw - 0.01; u += step)

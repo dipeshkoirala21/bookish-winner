@@ -30,6 +30,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
 
         private const double PedTop = 6.2, ShaftTop = 14.6, CapTop = 15.1, EntTop = 16.5, AtticTop = 18.6;
 
+        /// <summary>The dark grey of the balustrade's piercings.</summary>
+        private static readonly ShapeBrush Pierce = new ShapeBrush(MeshColor.FromHex(0x4A4844), MaterialChannel.Plain, 1f);
+
         public static void Build(ref KpFrame f, MeshData m)
         {
             int lod = f.Lod;
@@ -153,13 +156,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 Affine3 side = SacredDraw.Basis(k, e * (ph - 0.08), 0, 0, 0, 0, e, 0, 1, 0);
                 Balustrade(m, side, -PodiumDepth, 0, 0, PodiumTop, 0.95, lod);
             }
-            // The wall behind: three bays of arched windows on two storeys, framed by pilasters.
+            // The wall behind: three tall arched recesses between the columns (photos gaddi c_08, c_09, c_16), each with a
+            // pedimented teal door below and an arched teal window above.
             double[] bays = { -4.15, 0.0, 4.15 };
-            for (int i = 0; i < 3; i++)
-            {
-                TealArch(m, k, bays[i], PodiumTop + 0.2, 2.0, 4.8, lod);
-                TealArch(m, k, bays[i], 9.9, 2.0, 3.9, lod);
-            }
+            for (int i = 0; i < 3; i++) ArchBay(m, k, bays[i], PodiumTop, 13.2, 3.3, lod);
+            ArchFront(m, k, bays, PodiumTop, 13.2, 3.3, lod);
             // Pedestals (OSM: to 6.2 m), shafts with bases and capitals.
             for (int i = 0; i < ColumnU.Length; i++)
             {
@@ -168,6 +169,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 if (lod <= 1) Kp.Box(m, k, u - 0.76, u + 0.76, PedTop - 0.25, PedTop, ColumnW - 0.76, ColumnW + 0.76, Kp.GaddiShade, BoxFaces.All & ~BoxFaces.Bottom);
                 Column(m, SacredDraw.At(k, u, 0, ColumnW), PedTop, ShaftTop, 0.45, lod);
                 Kp.Box(m, k, u - 0.7, u + 0.7, ShaftTop, CapTop, ColumnW - 0.7, ColumnW + 0.7, Kp.GaddiWhite, BoxFaces.All);
+                if (lod == 0)
+                {
+                    // Ionic capital: the two scrolls (volutes) either side under the abacus, and the echinus ring.
+                    for (int e = -1; e <= 1; e += 2)
+                        Shapes.Cylinder(m, SacredDraw.Basis(k, u + e * 0.5, ShaftTop - 0.12, ColumnW - 0.62, 1, 0, 0, 0, 0, 1), Kp.GaddiWhite, 0.2, 1.24, 8, 0.04, 1, true, true);
+                    Shapes.Torus(m, SacredDraw.At(k, u, ShaftTop - 0.2, ColumnW), Kp.GaddiShade, 0.46, 0.08, 12, 4);
+                }
             }
             // The entablature over the columns, the attic and its segmental crest with urns.
             Kp.Box(m, k, -7.7, 7.7, CapTop, EntTop, -0.2, ColumnW + 0.85, Kp.GaddiWhite, BoxFaces.All & ~BoxFaces.Back);
@@ -177,6 +185,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Crest(m, SacredDraw.At(k, 0, AtticTop, ColumnW + 0.6), 2.5, 1.0, lod);
             if (lod <= 1)
             {
+                // The row of urns along the attic over the columns (gaddi c_09), the corner ones larger.
+                if (lod == 0)
+                    for (int i = 0; i < ColumnU.Length; i++)
+                        if (i != 0 && i != ColumnU.Length - 1) Urn(m, SacredDraw.At(k, ColumnU[i], AtticTop, ColumnW + 0.3) * Affine3.Scaling(0.75), lod);
                 for (int e = -1; e <= 1; e += 2)
                 {
                     Urn(m, SacredDraw.At(k, e * 7.6, AtticTop, ColumnW), lod);
@@ -237,13 +249,66 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Panel(m, w, gate - 1.1, 0.0, gate + 1.1, 2.9, 0.01, Kp.Recess);
             Kp.Box(m, w, gate - 1.35, gate - 1.1, 0, 2.9, 0, 0.18, Kp.Dado, BoxFaces.Wall);
             Kp.Box(m, w, gate + 1.1, gate + 1.35, 0, 2.9, 0, 0.18, Kp.Dado, BoxFaces.Wall);
-            ShikharaGenerator.Arch(m, w, gate, 2.9, 0.0, 2.2, 1.1, 0.25, 0.18, false, Kp.Dado, lod);
+            ShikharaGenerator.Arch(m, w, gate, 2.9, 0.012, 2.2, 1.1, 0.25, 0.18, false, Kp.Dado, lod);
             Kp.Panel(m, w, gate - 1.1, 2.9, gate + 1.1, 3.95, 0.006, Kp.Recess);
         }
 
         // ---------------------------------------------------------------------------------------------------------------
         // Parts
         // ---------------------------------------------------------------------------------------------------------------
+
+        /// <summary>The depth of the portico's arched recesses (the arcade face stands this far out from the hall wall).</summary>
+        private const double ArchDepth = 0.9;
+
+        /// <summary>
+        /// A tall arched recess of the portico (photos gaddi c_08, c_09): the round-headed opening of width
+        /// <paramref name="width"/> from v0 to <paramref name="top"/> (crown) in the arcade face that stands
+        /// <see cref="ArchDepth"/> out from the hall wall, with its moulded archivolt and soffit; inside, on the hall wall, a
+        /// teal door under a small triangular pediment and an arched teal window above.
+        /// </summary>
+        private static void ArchBay(MeshData m, in Affine3 k, double u, double v0, double top, double width, int lod)
+        {
+            double r = 0.5 * width, spring = top - r;
+            Affine3 back = SacredDraw.At(k, 0, 0, 0.01);
+            if (lod >= 2)
+            {
+                Kp.Panel(m, back, u - r, v0, u + r, spring, 0.0, Kp.GaddiShade);
+                TealArch(m, back, u, v0 + 0.3, 1.5, 3.4, lod);
+                return;
+            }
+            Kp.Panel(m, back, u - r, v0, u + r, spring, 0.0, Kp.Ao(Kp.GaddiShade, 0.8f));
+            Kp.HalfDisc(m, back, u, spring, r, r, 0.0, Kp.Ao(Kp.GaddiShade, 0.75f), lod == 0 ? 10 : 6);
+            ShikharaGenerator.Arch(m, k, u, spring, ArchDepth, width, r, 0.32, ArchDepth, false, Kp.GaddiWhite, lod);
+            // Inside: the door with its pediment, the arched window above.
+            Kp.Panel(m, back, u - 0.75, v0, u + 0.75, v0 + 3.3, 0.02, Kp.Tint(Kp.Teal, 0.85f));
+            Kp.Box(m, back, u - 0.95, u - 0.75, v0, v0 + 3.3, 0, 0.12, Kp.WhiteTrim, BoxFaces.Wall);
+            Kp.Box(m, back, u + 0.75, u + 0.95, v0, v0 + 3.3, 0, 0.12, Kp.WhiteTrim, BoxFaces.Wall);
+            Kp.Box(m, back, u - 1.1, u + 1.1, v0 + 3.3, v0 + 3.5, 0, 0.2, Kp.WhiteTrim, BoxFaces.Wall | BoxFaces.Bottom);
+            SacredDraw.Tri(m, back, u - 1.1, v0 + 3.5, 0.2, u + 1.1, v0 + 3.5, 0.2, u, v0 + 4.15, 0.2, 0, 0, 1, Kp.WhiteTrim);
+            if (lod == 0)
+            {
+                SacredDraw.Quad(m, back, u - 1.1, v0 + 3.5, 0.2, u, v0 + 4.15, 0.2, u, v0 + 4.15, 0.0, u - 1.1, v0 + 3.5, 0.0, -0.5, 0.85, 0, Kp.GaddiShade);
+                SacredDraw.Quad(m, back, u + 1.1, v0 + 3.5, 0.2, u, v0 + 4.15, 0.2, u, v0 + 4.15, 0.0, u + 1.1, v0 + 3.5, 0.0, 0.5, 0.85, 0, Kp.GaddiShade);
+                for (int i = 1; i < 4; i++) Kp.Box(m, back, u - 0.75, u + 0.75, v0 + 0.8 * i, v0 + 0.8 * i + 0.06, 0.02, 0.06, Kp.Teal, BoxFaces.Front);
+            }
+            TealArch(m, SacredDraw.At(back, 0, 0, 0.012), u, v0 + 5.2, 1.7, Math.Min(3.9, spring - v0 - 5.4 + r), lod);
+        }
+
+        /// <summary>The arcade face round the arched recesses: piers between and beside the openings (their sides are the
+        /// reveals) and the band over the arches up to the capitals.</summary>
+        private static void ArchFront(MeshData m, in Affine3 k, double[] bays, double v0, double top, double width, int lod)
+        {
+            double r = 0.5 * width, crown = top + 0.32, d = lod >= 2 ? 0.05 : ArchDepth - 0.01;
+            double prev = -8.2;
+            for (int i = 0; i <= bays.Length; i++)
+            {
+                double next = i < bays.Length ? bays[i] - r : 8.2;
+                if (next - prev > 0.02)
+                    Kp.Box(m, k, prev, next, v0, crown, 0, d, Kp.GaddiWhite, lod >= 2 ? BoxFaces.Front : BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                if (i < bays.Length) prev = bays[i] + r;
+            }
+            Kp.Box(m, k, -8.2, 8.2, crown, CapTop, 0, d, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+        }
 
         /// <summary>A tall round-arched window with teal glazing and frame (sill at v0, total height h with the arch).</summary>
         private static void TealArch(MeshData m, in Affine3 k, double u, double v0, double ww, double h, int lod)
@@ -256,7 +321,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
             Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.012, Kp.Tint(Kp.Teal, 0.82f));
             // The moulded arch at LOD0 (LOD1 keeps the glazed fan and the frame).
-            if (lod == 0) ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.0, ww, r, 0.14, 0.1, false, Kp.WhiteTrim, lod);
+            if (lod == 0) ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.008, ww, r, 0.14, 0.1, false, Kp.WhiteTrim, lod);
             // The arch's glazing (a fan of triangles) and the frame.
             int seg = lod == 0 ? 8 : 4;
             for (int i = 0; i < seg; i++)
@@ -319,13 +384,18 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             const double pitch = 0.6;
             int n = Math.Max(1, (int)Math.Round((u1 - u0) / pitch));
             double cell = (u1 - u0) / n, hv = 0.5 * (h - 0.24), vc = v + 0.5 * h;
+            ShapeBrush hole = Kp.Ao(Pierce, 0.85f);
             for (int i = 0; i < n; i++)
             {
-                double uc = u0 + cell * (i + 0.5), d = Math.Min(0.36 * cell, 0.75 * hv);
-                // A dark diamond (the quatrefoil's piercing) on both faces.
-                SacredDraw.Quad(m, k, uc - d, vc, w + 0.006, uc, vc - d, w + 0.006, uc + d, vc, w + 0.006, uc, vc + d, w + 0.006, 0, 0, 1, Kp.Ao(Kp.Recess, 0.85f));
-                if (lod == 0)
-                    SacredDraw.Quad(m, k, uc - d, vc, w - 0.076, uc, vc - d, w - 0.076, uc + d, vc, w - 0.076, uc, vc + d, w - 0.076, 0, 0, -1, Kp.Ao(Kp.Recess, 0.85f));
+                double uc = u0 + cell * (i + 0.5), d = Math.Min(0.3 * cell, 0.62 * hv), t = 0.32 * d;
+                // The pierced cross-and-star of each panel (gaddi c_09, c_16): two slim crossed lozenges, dark grey through
+                // the white stone, on both faces.
+                for (int side = 0; side < (lod == 0 ? 2 : 1); side++)
+                {
+                    double ww = side == 0 ? w + 0.006 : w - 0.076, nz = side == 0 ? 1 : -1;
+                    SacredDraw.Quad(m, k, uc - d, vc, ww, uc, vc - t, ww, uc + d, vc, ww, uc, vc + t, ww, 0, 0, nz, hole);
+                    SacredDraw.Quad(m, k, uc - t, vc, ww, uc, vc - d, ww, uc + t, vc, ww, uc, vc + d, ww, 0, 0, nz, hole);
+                }
             }
         }
 
