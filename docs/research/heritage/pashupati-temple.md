@@ -599,7 +599,18 @@ from the east bank they fill the frame (`cmp_eastbank.jpg`). This is a bigger er
 11. **mon-pashupati-river**: the ground cut extends to a = 51 m east of the courtyard north of the East Gate and to
     23 m round the south court; it only lowers ground standing above the courtyard level, so the ghat walk and the
     river are untouched, but a riverside ground prepared by the river package must run after it (or both become one
-    `PrepareGround` pass).
+    `PrepareGround` pass). Since the fixer round this package also cuts the riverside walk strip (a ≈ 28-40, b −26..+30)
+    level at −4.5 m below the courtyard (`PashupatiGround.WalkM`) and the East Gate stair's canyon under the stair line:
+    the river package's walk should sit at that level, its ghats below it; the stair ends at the walk's west edge
+    (a 34.75) on the mapped steps way.
+12. **roads / data**: the drawn footways into the West Gate, 185567049 (b +3.6) and 1328801417 (b −3.4), straddle the
+    gate's passage (now on the temple axis, b 0, −1.5..+1.5) instead of running through it; the gatehouse's own entrance
+    node n442150828 lies at b +3.6. Both should end at the gate's front on the axis (the model's passage is their portal;
+    the gate's bays keep off their drawn ends with `BoxClear`).
+13. **buildings**: beyond this site's own ring houses the generic house bands still draw saturated pink, green, teal and
+    orange flat-roof blocks right behind the courtyard in every east-bank view (complex/ref_09, c_area/c_40 show cream,
+    white and brick houses with rust-red roofs). A heritage-zone palette and pitched rust roofs within about 80 m of the
+    site (and the other heritage cores) are needed.
 
 ## 9. References and credits
 
@@ -681,11 +692,14 @@ Modelling decisions against the photos (recorded where they differ from §3/§4)
 * **Upper tier proportions.** The upper body is 6.8 × 7.0 m and the upper eave 11.8 × 12.0 m at 15.4 m (the OSM parts
   w1032559975 / w1032559974 map the sanctum core and an over-wide eave); the east-bank photos fit the roofs at 30-32°
   and the finial tip at 23.6 m.
-* **West Gate passage** 3.6 m south of the door axis (b = −3.6), on the OSM gatehouse w913170307 (b −3.4) and the
-  mapped footway through it (w1328801417, b −3.75); c_westgate and c_26 agree (from the forecourt the door shows right
-  of the Nandi). The inner buildings either side are trimmed to it: w913170311 ends at b −8.75 and w913170313 at
-  b −5.9 (their OSM outlines overlap the gatehouse), and the brass queue rail runs from the passage mouth (a −32) along
-  the Nandi's south side to the west flight.
+* **West Gate passage on the door axis** (b = 0; the judges' fixer round moved it from b −3.6): square on from the
+  forecourt the Nandi's gilt rump sits centred in the opening with the silver west door just beyond it (c_westgate/c_09,
+  c_05; c_westgate/c_26 from the threshold), and the great trident stands before the gate's north half (c_gje/c_00).
+  OSM maps the gatehouse w913170307 3.45 m south of that but is not consistent with itself: its entrance node
+  n442150828 lies at b +3.6 and the two footways to it, 185567049 (b +3.6) and 1328801417 (b −3.4), straddle the axis
+  (open issue 12). The buildings either side are carried up to the gate (InnerNorth w913170308 and the white link wall
+  from the Rana house r3442318 close the old slot at b +5; SouthFlank w913170311 and InnerSouth w913170313 meet its
+  south wall), so white walls abut it on both sides as in every photo and there is no second way in.
 * **East Gate** on its OSM outline, its door 2.3 m wide on the mapped steps way (centre b 6.65; the drawn way is 2.5 m
   wide there, so the piers stand beside it, not on it); the stair runs 11° off the site axis toward the riverside walk
   and ends at the walk's west edge (a 34.75), so its walls, rail and garlands stay off the drawn walk. The garlands hang
@@ -703,15 +717,31 @@ Modelling decisions against the photos (recorded where they differ from §3/§4)
   panels are blackened repoussé with silver standing deities under gilt aureoles; the gajur has bell-shaped corner
   pinnacles, a long slender stem under the parasol and a narrow streamer (c_area/c_27, c_28); the Nandi's horns are
   long crescents and its neck strap carries seven round bells a side (c_inner/c_00).
-* **Vasuki** stands 0.7 m west of its OSM square so its 4.7 m lower eave clears the east wing wall behind it (c_inner/c_07
-  shows the two touching).
+* **Vasuki** stands 1.2 m west of its OSM square so its broad 5.4 m lower eave clears the east wing wall behind it
+  (c_inner/c_07 shows the two touching); squat and spreading: roofs at about 21°, the upper eave 0.64 of the lower, a
+  short upper storey, upturned gilt corner tips.
 * **Small shrines.** The five other OSM squares carry white mini-shikharas (5.4, 4.6, 5.0, 4.3 m) and the white bell
   shrine (c_inner/c_01); the red pyramidal shrine stands between the Mukti Mandap and the East Gate (c_gje/c_03, c_04);
   the maroon fluted-dome shrines south-west of the temple (pagoda/ref_02, c_gje/c_03) and the row of grey stone linga
   shrines before the red railing wall behind the Nandi (c_inner/c_00) are placed from the photos [E].
 * **Kings' pillars** at a −6.5 and −3.4, b ≈ −12 [E], figures facing the temple; the Dharmashila and the Chandeshvar
   linga beside them [E][V].
-* **Araucarias** at (2, 44) and (12, 48), 28.5 and 30 m [E from c_gje/c_17, c_inner/c_07]; they stand in the tile to the
-  north and are the only things round the courtyard taller than the temple's upper eave.
+* **Araucarias** at (2, 44) and (14.8, 39.5), 28.5 and 30 m [E from c_gje/c_17, c_inner/c_07], pillar-and-dome
+  (mushroom) silhouettes; they and the columnar Araucaria are the only things round the courtyard taller than the
+  temple's upper eave. **The columnar Araucaria** with its umbrella crown stands west of the forecourt at (−84, 4),
+  about 36 m [E from c_westgate/c_29 and the east-bank sight lines of complex/ref_09 and c_area/c_40, where it rises just
+  right of and above the gajur from the high terraces; from the low classic spot it shows right of the gajur below its
+  tip].
+* **Judges' fixer round** (render|photo pairs in `previews/mon-pashupati-temple/f2/r1..r8`): the ground storey reads
+  dark (charcoal wood, blackened-bronze panels with modelled deities, gilt only on crowns, aureoles and frame lines,
+  pale stone only at the base course and quoins); the roofs are pale champagne brass; the struts are dark boards with
+  blue or green painted deities and red robes; the gajur is a stout bell with heavy knobs and gilt rods from the corner
+  pinnacles to the parasol; the doors are raised silver repoussé with the sun and moon roundels under gilt toranas; the
+  Nandi is one smooth lofted gilt mass with a round rump, crescent horns, a bell strap and the curled tail; the kings'
+  nagas arch high to a crowned head with the seven-headed hood over the king; the East Gate has its tall ogee pediment,
+  Om roundel and 1.65 m bell finial; the riverside walk is cut level at −4.5 m with the East Gate stair of 25 risers in
+  its canyon and the Mukti block, south-east block and east wing standing 5-6 m over the walk; the golden-door house
+  south of the West Gate is white with its gilt door between the painted eyes; the houses north of the courtyard are
+  cream and white under rust roofs. The site holds 143k triangles at LOD0 (ceilings in `PashupatiSite.Budgets`).
 * **Sacred rules kept**: the doors are closed (dark doorway panels, no interior); no bodies, fire or cremation; struts
   generic; the inner courtyard is modelled fully, the entry rule stays with the game's card (W2-O1).

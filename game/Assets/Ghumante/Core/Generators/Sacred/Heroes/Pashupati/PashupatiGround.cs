@@ -25,7 +25,28 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         private struct Zone
         {
             public double A0, A1, B0, B1, Rise, SlopeA0, SlopeA1, SlopeB0, SlopeB1, CutA0, CutA1, CutB0, CutB1;
+
+            /// <summary>A cut-only zone (<see cref="Cuts"/>): the ground inside is lowered to the level and never raised,
+            /// and beyond the zone it is only clamped from above.</summary>
+            public bool CutOnly;
+
+            /// <summary>The level at A1 when it differs from <see cref="Rise"/> (at A0): a ramp along a (the east stair's
+            /// canyon); NaN for a flat zone.</summary>
+            public double RiseA1;
+
+            public double LevelAt(double a)
+            {
+                if (double.IsNaN(RiseA1)) return Rise;
+                double t = (a - A0) / (A1 - A0);
+                return Rise + (RiseA1 - Rise) * (t < 0 ? 0 : t > 1 ? 1 : t);
+            }
         }
+
+        /// <summary>The riverside walk below the courtyard's east blocks (pashupati-temple.md 2.1: the east stair climbs 4.5 m
+        /// in about 25 risers; c_gje/c_01, c_gje/c_03, ov_bag/ref_01): the courtyard's east edge drops to it at the river
+        /// faces of the Mukti Mandap and south-east blocks and the east wing. This package only cuts the ground down to it
+        /// (never fills); the ghats and the river below are the river front package's (mon-pashupati-river).</summary>
+        public const double WalkM = -4.5;
 
         /// <summary>
         /// Width of the cut bands (m). The streamer draws a level-10 tile's terrain decimated (every second height
@@ -41,18 +62,45 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         {
             new Zone
             {
-                A0 = -36.7, A1 = 28.0, B0 = -24.0, B1 = 31.0, Rise = 0, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.6, CutA0 = CutM,
+                A0 = -36.7, A1 = 24.2, B0 = -24.0, B1 = 31.0, Rise = 0, RiseA1 = double.NaN, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.6, CutA0 = CutM,
                 CutA1 = CutM, CutB0 = CutM, CutB1 = CutM,
             },
             new Zone
             {
-                A0 = -30.0, A1 = 22.0, B0 = -36.0, B1 = -24.0, Rise = 0, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.5, CutA0 = CutM,
+                A0 = -30.0, A1 = 22.0, B0 = -36.0, B1 = -24.0, Rise = 0, RiseA1 = double.NaN, SlopeA0 = 0.5, SlopeA1 = 1.2, SlopeB0 = 0.5, SlopeB1 = 0.5, CutA0 = CutM,
                 CutA1 = 0, CutB0 = CutM, CutB1 = 0,
             },
             new Zone
             {
-                A0 = -78.0, A1 = -36.7, B0 = -20.0, B1 = 22.0, Rise = PashupatiSite.ForecourtRiseM, SlopeA0 = 0.25, SlopeA1 = 0.5, SlopeB0 = 0.3, SlopeB1 = 0.4,
+                A0 = -78.0, A1 = -36.7, B0 = -20.0, B1 = 22.0, Rise = PashupatiSite.ForecourtRiseM, RiseA1 = double.NaN, SlopeA0 = 0.25, SlopeA1 = 0.5, SlopeB0 = 0.3, SlopeB1 = 0.4,
                 CutA0 = CutM, CutA1 = 0, CutB0 = CutM, CutB1 = CutM,
+            },
+        };
+
+        /// <summary>
+        /// The cut-only zones east of the courtyard, applied after the level zones: the riverside terrace in front of the
+        /// Mukti Mandap and south-east blocks (from their river faces, a 28.4), the walk in front of the east wing (a 31),
+        /// both at <see cref="WalkM"/>, and the east stair's canyon, cut 0.35 m under the stair line from the gate sill
+        /// (a 24.2, level 0) to the walk (a 34.8), so neither the terrain nor its coarse drawn cells come through the treads.
+        /// Beyond each zone the ground is only clamped from above, steeply (1:8) toward the courtyard, whose east edge is
+        /// the blocks' vertical river faces and the stair's walls, and 1:1 elsewhere.
+        /// </summary>
+        private static readonly Zone[] Cuts =
+        {
+            new Zone
+            {
+                A0 = 28.4, A1 = 39.0, B0 = -26.0, B1 = 5.0, Rise = WalkM, RiseA1 = double.NaN, SlopeA0 = 8.0, SlopeA1 = 0.6, SlopeB0 = 1.0, SlopeB1 = 1.0,
+                CutOnly = true,
+            },
+            new Zone
+            {
+                A0 = 31.0, A1 = 39.0, B0 = 5.0, B1 = 30.0, Rise = WalkM, RiseA1 = double.NaN, SlopeA0 = 8.0, SlopeA1 = 0.6, SlopeB0 = 1.0, SlopeB1 = 1.0,
+                CutOnly = true,
+            },
+            new Zone
+            {
+                A0 = 24.2, A1 = 34.8, B0 = 4.7, B1 = 11.0, Rise = -0.35, RiseA1 = WalkM - 0.35, SlopeA0 = 8.0, SlopeA1 = 1.0, SlopeB0 = 8.0, SlopeB1 = 8.0,
+                CutOnly = true,
             },
         };
 
@@ -100,12 +148,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             PashupatiFrame f = PashupatiFrame.Plain(t, 0, null);
             // The site's tile-local bounding box with the blend reach.
             double minX = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxZ = double.MinValue;
-            for (int i = 0; i < Zones.Length; i++)
+            for (int i = 0; i < Zones.Length + Cuts.Length; i++)
             {
+                Zone zi = i < Zones.Length ? Zones[i] : Cuts[i - Zones.Length];
                 for (int q = 0; q < 4; q++)
                 {
-                    double a = (q & 1) == 0 ? Zones[i].A0 - BlendReachM - CutM : Zones[i].A1 + BlendReachM + CutM;
-                    double b = (q & 2) == 0 ? Zones[i].B0 - BlendReachM - CutM : Zones[i].B1 + BlendReachM + CutM;
+                    double a = (q & 1) == 0 ? zi.A0 - BlendReachM - CutM : zi.A1 + BlendReachM + CutM;
+                    double b = (q & 2) == 0 ? zi.B0 - BlendReachM - CutM : zi.B1 + BlendReachM + CutM;
                     double x, z;
                     f.ToTile(a, b, out x, out z);
                     minX = Math.Min(minX, x);
@@ -117,16 +166,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             if (maxX < 0 || maxZ < 0 || minX > size || minZ > size) return 0;
             int i0 = Math.Max(0, (int)Math.Floor(minX / cell)), i1 = Math.Min(n - 1, (int)Math.Ceiling(maxX / cell));
             int j0 = Math.Max(0, (int)Math.Floor(minZ / cell)), j1 = Math.Min(n - 1, (int)Math.Ceiling(maxZ / cell));
-            int changed = 0;
+            // The levelled heights (codes) in a work copy of the bounded window, then the drawn-cell cut over it.
+            int w = i1 - i0 + 1, hgt = j1 - j0 + 1;
+            var work = new ushort[w * hgt];
             for (int j = j0; j <= j1; j++)
             {
                 for (int i = i0; i <= i1; i++)
                 {
                     double a, b;
                     f.FromTile(i * cell, j * cell, out a, out b);
-                    int k = j * n + i;
-                    ushort q = t.HeightsQ[k];
-                    double h = Ght.Dequantize(q);
+                    double h = Ght.Dequantize(t.HeightsQ[j * n + i]);
                     // Inside a zone: its level exactly. Outside: clamp to each zone's cone, the nearest zone last.
                     double inside = LevelAt(a, b);
                     if (!double.IsNaN(inside))
@@ -135,32 +184,256 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     }
                     else
                     {
-                        int nearest = -1;
-                        double best = double.MaxValue;
-                        for (int z = 0; z < Zones.Length; z++)
+                        int nearest = Nearest(a, b);
+                        if (nearest >= 0)
                         {
-                            double d = Distance(Zones[z], a, b);
-                            if (d < best)
+                            for (int z = 0; z < Zones.Length; z++)
                             {
-                                best = d;
-                                nearest = z;
+                                if (z == nearest) continue;
+                                h = Clamp(Zones[z], f.Level, a, b, h);
                             }
+                            h = Clamp(Zones[nearest], f.Level, a, b, h);
                         }
-                        if (best > BlendReachM + CutM) continue;
-                        for (int z = 0; z < Zones.Length; z++)
-                        {
-                            if (z == nearest) continue;
-                            h = Clamp(Zones[z], f.Level, a, b, h);
-                        }
-                        h = Clamp(Zones[nearest], f.Level, a, b, h);
                     }
-                    ushort nq = Ght.Quantize(h);
-                    if (nq == q) continue;
+                    // The cuts east of the courtyard lower the ground (inside to their level, round them along their slope).
+                    for (int z = 0; z < Cuts.Length; z++) h = Cut(Cuts[z], f.Level, a, b, h);
+                    work[(j - j0) * w + (i - i0)] = Ght.Quantize(h);
+                }
+            }
+            DrawnCut(t, ref f, work, i0, j0, w, hgt);
+            int changed = 0;
+            for (int j = j0; j <= j1; j++)
+            {
+                for (int i = i0; i <= i1; i++)
+                {
+                    int k = j * n + i;
+                    ushort nq = work[(j - j0) * w + (i - i0)];
+                    if (nq == t.HeightsQ[k]) continue;
                     if (write) t.HeightsQ[k] = nq;
                     changed++;
                 }
             }
             return changed;
+        }
+
+        /// <summary>The level zone nearest site (a, b) within the blend reach and cut band, or −1.</summary>
+        private static int Nearest(double a, double b)
+        {
+            int nearest = -1;
+            double best = double.MaxValue;
+            for (int z = 0; z < Zones.Length; z++)
+            {
+                double d = Distance(Zones[z], a, b);
+                if (d < best)
+                {
+                    best = d;
+                    nearest = z;
+                }
+            }
+            return best <= BlendReachM + CutM ? nearest : -1;
+        }
+
+        /// <summary>The lowest height the zones' cones let a sample outside every zone keep (what <see cref="Clamp"/> would
+        /// raise it to), or −∞.</summary>
+        private static double ConeFloor(double level, double a, double b)
+        {
+            if (Nearest(a, b) < 0) return double.NegativeInfinity;
+            double floor = double.NegativeInfinity;
+            for (int z = 0; z < Zones.Length; z++)
+            {
+                Zone zi = Zones[z];
+                double da = a < zi.A0 ? zi.A0 - a : a > zi.A1 ? a - zi.A1 : 0, db = b < zi.B0 ? zi.B0 - b : b > zi.B1 ? b - zi.B1 : 0;
+                double ca = a < zi.A0 ? zi.CutA0 : a > zi.A1 ? zi.CutA1 : 0, cb = b < zi.B0 ? zi.CutB0 : b > zi.B1 ? zi.CutB1 : 0;
+                if (da > BlendReachM + ca || db > BlendReachM + cb) continue;
+                double sa = a < zi.A0 ? zi.SlopeA0 : zi.SlopeA1, sb = b < zi.B0 ? zi.SlopeB0 : zi.SlopeB1;
+                floor = Math.Max(floor, level + zi.Rise - Math.Sqrt(Sq(da * sa) + Sq(db * sb)));
+            }
+            return floor;
+        }
+
+        /// <summary>Clearance (m) the drawn terrain keeps under the east stair's line (its treads stand on the line).</summary>
+        private const double StairClearM = 0.12;
+
+        /// <summary>
+        /// The streamer draws the tile's terrain decimated (<see cref="PashupatiFrame.DrawnSteps"/>: 16 m cells on High and
+        /// Mid, 32 m on Low), and a cell spanning the courtyard's edge and the river bank would stand 3-4 m over the east
+        /// stair and the riverside terrace below the blocks' river faces, which the full grid's cut alone cannot lower. For
+        /// each drawn step, wherever the drawn surface stands above the stair's line (less <see cref="StairClearM"/>) or
+        /// above the terrace (<see cref="WalkM"/>), the corners of that triangle are lowered (in whole height codes, most
+        /// where the corner weighs most) until it does not. Never a corner inside a level zone (the courtyard and the
+        /// forecourt keep their floors on every tier) and never below the zones' cones, so preparing a prepared tile
+        /// changes nothing; corners hidden under the riverside blocks or the stair's solid flight may go deep, the others
+        /// (the terrace, the walk and the river beyond, the river front package's ground) at most 0.3 m under the walk.
+        /// </summary>
+        private static void DrawnCut(TileData t, ref PashupatiFrame f, ushort[] work, int i0, int j0, int w, int hgt)
+        {
+            int[] steps = PashupatiFrame.DrawnSteps(t);
+            int n = t.HeightsN;
+            double cell = t.Tile.Size / (n - 1);
+            // The ceilings: the stair (and its side walls' feet) and the terrace in front of the river faces.
+            int nz = (int)Math.Ceiling(PashupatiGates.StairRun / 0.5), nu = 9;
+            double hw = PashupatiGates.StairHalfWidth + 0.35, walkA1 = PashupatiGates.WalkEdgeA;
+            var pts = new double[3 * ((nz + 1) * nu + 8 * 30 + 6 * 20 + 2 * 8)];
+            int np = 0;
+            for (int iz = 0; iz <= nz; iz++)
+            {
+                double z = PashupatiGates.StairRun * iz / nz;
+                double cap = PashupatiGates.StairY(z, WalkM) - StairClearM;
+                for (int iu = 0; iu < nu; iu++)
+                {
+                    double a, b;
+                    PashupatiGates.StairPoint(z, -hw + 2 * hw * iu / (nu - 1), out a, out b);
+                    Add(ref f, pts, ref np, a, b, cap);
+                }
+            }
+            for (int ia = 0; ia < 8; ia++)
+            {
+                double a = 28.6 + (walkA1 - 28.6) * ia / 7;
+                for (int ib = 0; ib < 30; ib++)
+                {
+                    double b = -24.0 + (4.4 + 24.0) * ib / 29;
+                    if (b < -13.0 && a < 32.6) continue; // the south-east block reaches to a 32.6 there
+                    Add(ref f, pts, ref np, a, b, WalkM);
+                }
+            }
+            for (int ia = 0; ia < 6; ia++)
+            {
+                double a = 31.4 + (walkA1 - 31.4) * ia / 5;
+                for (int ib = 0; ib < 20; ib++) Add(ref f, pts, ref np, a, 13.6 + (25.0 - 13.6) * ib / 19, WalkM);
+            }
+            // Fixed corners (inside a level zone) and each corner's floor code.
+            var floorQ = new ushort[w * hgt];
+            var locked = new bool[w * hgt];
+            for (int j = 0; j < hgt; j++)
+            {
+                for (int i = 0; i < w; i++)
+                {
+                    double a, b;
+                    f.FromTile((i0 + i) * cell, (j0 + j) * cell, out a, out b);
+                    int k = j * w + i;
+                    locked[k] = !double.IsNaN(LevelAt(a, b));
+                    // Floors independent of the heights themselves, so a second pass finds nothing left to lower.
+                    double fl = Hidden(a, b) ? f.Level + WalkM - 6.0 : OnWalk(a, b) ? f.Level + WalkM - 0.3 : Ght.Dequantize(work[k]);
+                    fl = Math.Max(fl, ConeFloor(f.Level, a, b));
+                    floorQ[k] = (ushort)Math.Min(65535, Math.Max(0, Math.Ceiling((fl + 100.0) / 0.15 - 1e-6)));
+                }
+            }
+            // Until nothing moves (every move lowers a corner by at least one code and the floors bound them).
+            for (int round = 0; round < 1000; round++)
+            {
+                bool moved = false;
+                for (int si = steps.Length - 1; si >= -1; si--)
+                {
+                    int st = si < 0 ? 1 : steps[si];
+                    for (int p = 0; p < np; p++)
+                        moved |= LowerUnder(work, floorQ, locked, i0, j0, w, hgt, n, cell, st, pts[3 * p], pts[3 * p + 1], pts[3 * p + 2]);
+                }
+                if (!moved) break;
+            }
+        }
+
+        /// <summary>Whether site (a, b) lies on the riverside terrace or walk below the river faces (cut to <see cref="WalkM"/>).</summary>
+        private static bool OnWalk(double a, double b)
+        {
+            return a > 28.4 && a < 40.0 && b > -30.0 && b < 32.0;
+        }
+
+        /// <summary>Whether site (a, b) lies where the drawn terrain is hidden whatever its height: under the riverside
+        /// blocks east of the courtyard (the Mukti Mandap's and the south-east block, the east wing) or under the east
+        /// stair's solid flight.</summary>
+        private static bool Hidden(double a, double b)
+        {
+            if (a > 24.2 && a < 28.4 && b > -25.5 && b < 4.6) return true;
+            if (a > 24.2 && a < 32.2 && b > -25.5 && b < -13.2) return true;
+            if (a > 24.2 && a < 31.0 && b > 10.4 && b < 30.0) return true;
+            // The stair's footprint in its own frame (z down the stair, u across it).
+            double da = Math.Cos(PashupatiGates.StairSkewRad), db = Math.Sin(PashupatiGates.StairSkewRad);
+            double ra = a - PashupatiGates.EastFrontA, rb = b - PashupatiGates.EastB;
+            double z = ra * da + rb * db, u = ra * db - rb * da;
+            return z > 0 && z < PashupatiGates.StairRun && Math.Abs(u) < PashupatiGates.StairHalfWidth + 0.3;
+        }
+
+        private static void Add(ref PashupatiFrame f, double[] pts, ref int np, double a, double b, double cap)
+        {
+            double x, z;
+            f.ToTile(a, b, out x, out z);
+            pts[3 * np] = x;
+            pts[3 * np + 1] = z;
+            pts[3 * np + 2] = f.Level + cap;
+            np++;
+        }
+
+        /// <summary>Lower the free corners of the step-<paramref name="st"/> triangle under tile (x, z) (same diagonal rule
+        /// as <see cref="TerrainGrid.Surface"/>) until its surface there is at most <paramref name="cap"/>; true when any
+        /// corner moved.</summary>
+        private static bool LowerUnder(ushort[] work, ushort[] floorQ, bool[] locked, int i0, int j0, int w, int hgt, int n, double cell, int st, double x,
+                                       double z, double cap)
+        {
+            int q = (n - 1) / st;
+            double u = x / (cell * st), v = z / (cell * st);
+            if (u < 0 || v < 0 || u > q || v > q) return false;
+            int ci = Math.Min(q - 1, (int)Math.Floor(u)), cj = Math.Min(q - 1, (int)Math.Floor(v));
+            double fu = u - ci, fv = v - cj;
+            // Corners (column, row) in source samples and their barycentric weights.
+            int ia = ci * st, ja = cj * st, ib, jb, ic = (ci + 1) * st, jc = (cj + 1) * st;
+            double wa, wb, wc;
+            if (fu >= fv)
+            {
+                ib = (ci + 1) * st;
+                jb = cj * st;
+                wa = 1 - fu;
+                wb = fu - fv;
+                wc = fv;
+            }
+            else
+            {
+                ib = ci * st;
+                jb = (cj + 1) * st;
+                wa = 1 - fv;
+                wb = fv - fu;
+                wc = fu;
+            }
+            int ka = Index(ia, ja, i0, j0, w, hgt), kb = Index(ib, jb, i0, j0, w, hgt), kc = Index(ic, jc, i0, j0, w, hgt);
+            if (ka < 0 || kb < 0 || kc < 0) return false;
+            double h = wa * Ght.Dequantize(work[ka]) + wb * Ght.Dequantize(work[kb]) + wc * Ght.Dequantize(work[kc]);
+            if (h <= cap + 0.005) return false;
+            // The least lowering that brings the surface down (each free corner by its weight over the sum of the free
+            // weights squared), in whole codes; a corner held at its floor leaves the rest to the next round.
+            double sq = (locked[ka] || work[ka] <= floorQ[ka] ? 0 : wa * wa) + (locked[kb] || work[kb] <= floorQ[kb] ? 0 : wb * wb) +
+                        (locked[kc] || work[kc] <= floorQ[kc] ? 0 : wc * wc);
+            if (sq < 1e-4) return false;
+            double d = (h - cap) / sq;
+            bool moved = false;
+            moved |= Drop(work, floorQ, locked, ka, (int)Math.Ceiling(d * wa / 0.15 - 1e-6));
+            moved |= Drop(work, floorQ, locked, kb, (int)Math.Ceiling(d * wb / 0.15 - 1e-6));
+            moved |= Drop(work, floorQ, locked, kc, (int)Math.Ceiling(d * wc / 0.15 - 1e-6));
+            return moved;
+        }
+
+        private static int Index(int i, int j, int i0, int j0, int w, int hgt)
+        {
+            int li = i - i0, lj = j - j0;
+            return li < 0 || lj < 0 || li >= w || lj >= hgt ? -1 : lj * w + li;
+        }
+
+        private static bool Drop(ushort[] work, ushort[] floorQ, bool[] locked, int k, int codes)
+        {
+            if (locked[k] || codes <= 0) return false;
+            int to = Math.Max(floorQ[k], work[k] - codes);
+            if (to >= work[k]) return false;
+            work[k] = (ushort)to;
+            return true;
+        }
+
+        /// <summary>Lower h to a cut-only zone's level inside it, or to the level plus its slope times the distance outside
+        /// it (within <see cref="BlendReachM"/>); never raises it.</summary>
+        private static double Cut(in Zone z, double level, double a, double b, double h)
+        {
+            double da = a < z.A0 ? z.A0 - a : a > z.A1 ? a - z.A1 : 0, db = b < z.B0 ? z.B0 - b : b > z.B1 ? b - z.B1 : 0;
+            if (da > BlendReachM || db > BlendReachM) return h;
+            double sa = a < z.A0 ? z.SlopeA0 : z.SlopeA1, sb = b < z.B0 ? z.SlopeB0 : z.SlopeB1;
+            double above = Math.Sqrt(Sq(da * sa) + Sq(db * sb));
+            return Math.Min(h, level + z.LevelAt(a) + above);
         }
 
         private static double Distance(in Zone z, double a, double b)

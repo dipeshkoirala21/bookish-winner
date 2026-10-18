@@ -41,6 +41,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         public WinStyle Windows;
         public RoofKind Roof;
         public uint Seed;
+
+        /// <summary>No windows in the ground storey (its walls carry painted or carved work instead).</summary>
+        public bool BlindGround;
     }
 
     /// <summary>
@@ -59,13 +62,22 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         [ThreadStatic] private static double[] _pa, _pb;
 
         // OSM outlines in site metres (a, b), from the region pack (kathmandu_core, 2026-10-04 snapshot).
+        // The West Gate stands on the temple axis (b −4.8..+4.8, PashupatiGates.WestB): the buildings either side of it are
+        // trimmed back from it (their OSM outlines overlap the gatehouse mapped 3.45 m south) or carried up to it, so white
+        // walls abut the gate on both sides as in every photo (c_westgate/c_00, c_03, c_09) and no slot opens beside it.
         private static readonly double[] NorthFlank = { -42.6, 18.4, -49.6, 17.8, -49.0, 5.4, -41.7, 6.1 }; // r3442318
-        private static readonly double[] SouthFlank = { -33.6, -15.8, -34.21, -8.75, -39.27, -8.75, -38.6, -16.3 }; // w913170311 (north end left to the West Gate)
-        private static readonly double[] InnerSouth = { -23.2, -13.9, -23.43, -5.9, -31.83, -6.1, -31.6, -14.2 }; // w913170313 (north end left to the gate passage)
-        private static readonly double[] InnerNorth = { -35.4, 16.4, -34.7, 5.4, -29.3, 5.7, -30.0, 16.8 }; // w913170308
-        private static readonly double[] SouthWest = { -39.27, -8.75, -46.0, -9.0, -44.5, -29.5, -37.8, -29.0 }; // w913170310
+        private static readonly double[] NorthLink = { -41.75, 4.85, -34.75, 4.85, -34.75, 5.4, -41.7, 6.1 }; // the wall from r3442318 to the gate
+        private static readonly double[] SouthFlank = { -33.6, -15.8, -34.2, -4.85, -39.9, -4.85, -38.6, -16.3 }; // w913170311, carried up to the gate
+        private static readonly double[] InnerSouth = { -23.2, -13.9, -23.4, -3.2, -33.3, -3.2, -31.6, -14.2 }; // w913170313, to the gate's courtyard face
+        private static readonly double[] InnerNorth = { -35.4, 16.4, -34.7, 4.85, -29.3, 5.7, -30.0, 16.8 }; // w913170308, down to the gate
+        private static readonly double[] GoldenDoorHouse = { -39.3, -8.43, -46.03, -8.96, -45.51, -16.0, -38.74, -16.0 }; // w913170310, north part
+        private static readonly double[] SouthWest = { -38.74, -16.0, -45.51, -16.0, -44.51, -29.54, -37.79, -29.0 }; // w913170310, south part
         private static readonly double[] SouthWest2 = { -34.7, -31.3, -34.8, -29.1, -31.6, -29.0, -31.9, -16.1, -38.6, -16.3, -37.8, -29.0, -37.6, -31.4 }; // w913170312
         private static readonly double[] North = { -30.0, 16.8, -4.4, 18.5, -4.9, 27.9, -35.9, 25.8, -35.4, 16.4 }; // w913170309
+        // The houses north of the courtyard behind the Araucarias (w913217415, an L split into its two legs, and w913217414).
+        private static readonly double[] NorthHouseW = { 8.2, 33.9, 14.3, 34.7, 12.3, 48.9, 6.1, 49.0 }; // w913217415, south leg
+        private static readonly double[] NorthHouseN = { 6.1, 49.0, 12.3, 48.9, 23.9, 50.5, 24.7, 56.1, 5.5, 53.4 }; // w913217415, north leg
+        private static readonly double[] NorthHouseE = { 17.0, 40.3, 22.0, 41.0, 21.4, 45.3, 16.4, 44.5 }; // w913217414
         private static readonly double[] South = { -19.1, -25.1, -2.5, -23.3, -3.4, -14.8, -26.4, -17.3, -25.5, -25.9 }; // w913170317
         private static readonly double[] Mulbhatt = { -22.2, -39.2, -16.0, -37.6, -19.1, -25.1, -25.5, -25.9 }; // w913170301
         private static readonly double[] Priests2 = { -48.8, -41.9, -43.1, -40.6, -42.8, -42.0, -38.5, -41.1, -38.1, -42.9, -22.7, -39.5, -24.5, -31.3, -38.3, -34.3, -38.9, -31.2, -50.5, -33.8 }; // w913170302
@@ -99,15 +111,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         // ---------------------------------------------------------------------------------------------------------
 
         /// <summary>The west group (PT-04 flanks, PT-05 frontages): the white three-storey Rana-period house north of the
-        /// forecourt with its rust-red gable roof (r3442318), the white two-storey house south of the gate with the gilt
-        /// door between painted eyes, and the two-storey houses between the gate and the courtyard and round the
-        /// forecourt.</summary>
+        /// forecourt with its rust-red gable roof (r3442318) and the white wall linking it to the gate; directly south of
+        /// the gate the white two-storey golden-door house (the north part of w913170310: the gilt door between painted
+        /// eyes on its forecourt face, the red LED band, a rust roof with a dormer; c_westgate/c_03, c_00) and beyond it the
+        /// red-brick Newar house with carved windows (its south part, c_westgate/c_31); the two-storey houses between the
+        /// gate and the courtyard and round the forecourt.</summary>
         public static void WestBuildings(ref PashupatiFrame f, MeshData m)
         {
             double fr = PashupatiSite.ForecourtRiseM;
             Build(ref f, m, Plastered(NorthFlank, fr, 3, 2.9, WhitePlaster, WinStyle.Lattice, RoofKind.Gable, PashupatiKit.RustRoof, PashupatiKit.RustRib, 41u));
+            House link = Plastered(NorthLink, fr, 2, 3.0, WhitePlaster, WinStyle.Lattice, RoofKind.Flat, default, default, 47u);
+            link.Parapet = 0.5;
+            Build(ref f, m, link);
             House sf = Plastered(SouthFlank, fr, 2, 3.0, WhitePlaster, WinStyle.Lattice, RoofKind.Hip, PashupatiKit.RustRoof, PashupatiKit.RustRib, 42u);
             Build(ref f, m, sf);
+            House gd = Plastered(GoldenDoorHouse, fr, 2, 3.3, WhitePlaster, WinStyle.Plain, RoofKind.Hip, PashupatiKit.RustRoof, PashupatiKit.RustRib, 48u);
+            gd.Frame = PashupatiKit.WoodDark;
+            // The ground storey's white wall carries the gilt door and the painted eyes, no windows (c_westgate/c_03).
+            gd.BlindGround = true;
+            Build(ref f, m, gd);
             GoldenDoor(ref f, m);
             House isn = Plastered(InnerSouth, 0, 2, 3.0, CreamPlaster, WinStyle.Lattice, RoofKind.Hip, PashupatiKit.RustRoof, PashupatiKit.RustRib, 43u);
             isn.Dado = PashupatiKit.Br(0xA8322A, MaterialChannel.Paint);
@@ -125,6 +147,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         public static void NorthWing(ref PashupatiFrame f, MeshData m)
         {
             Build(ref f, m, Plastered(North, 0, 3, 2.85, WhitePlaster, WinStyle.Lattice, RoofKind.Hip, PashupatiKit.RustRoof, PashupatiKit.RustRib, 51u));
+            // North of the courtyard, round the Araucarias, the photos show cream and white plastered houses of two and
+            // three storeys under rust-red roofs (roof/ref_07, complex/ref_09, c_gje/c_12), where the house bands drew one
+            // saturated 13 m block (w913217414, w913217415).
+            Build(ref f, m, Plastered(NorthHouseW, Ground(ref f, NorthHouseW), 3, 2.9, CreamPlaster, WinStyle.Lattice, RoofKind.Hip, PashupatiKit.RustRoof,
+                                      PashupatiKit.RustRib, 52u));
+            Build(ref f, m, Plastered(NorthHouseN, Ground(ref f, NorthHouseN), 3, 2.8, WhitePlaster, WinStyle.Lattice, RoofKind.Hip, PashupatiKit.RustRoof,
+                                      PashupatiKit.RustRib, 53u));
+            Build(ref f, m, Plastered(NorthHouseE, Ground(ref f, NorthHouseE), 2, 3.0, CreamPlaster, WinStyle.Plain, RoofKind.Gable, PashupatiKit.RustRoof,
+                                      PashupatiKit.RustRib, 54u));
         }
 
         /// <summary>PT-13, the South Gate range (w913170317): a two-storey Newar building of red facing brick with a
@@ -172,7 +203,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// wooden balcony under a red awning roof along the river face, the ghat-level arcade and white parapets.</summary>
         public static void EastWing(ref PashupatiFrame f, MeshData m)
         {
-            double foot = Math.Min(-2.5, f.GroundAt(33.0, 18.0, -4.2));
+            double foot = Math.Min(-2.5, f.GroundAt(34.5, 18.0, -4.2));
             House h = Plastered(EastWingPlan, 0, 2, 3.4, WhitePlaster, WinStyle.Arched, RoofKind.Flat, default, default, 81u);
             h.Bottom = foot - 0.3;
             h.Floor = foot;
@@ -320,7 +351,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 
         /// <summary>The red-and-white crenellated parapet along a line at height y: cream panels between red piers with red
         /// caps and a red base band, 1.1 m.</summary>
-        private static void Crenellation(ref PashupatiFrame f, MeshData m, double a0, double b0, double a1, double b1, double y, int lod)
+        internal static void Crenellation(ref PashupatiFrame f, MeshData m, double a0, double b0, double a1, double b1, double y, int lod)
         {
             double ea = a1 - a0, eb = b1 - b0, el = Math.Sqrt(ea * ea + eb * eb);
             double da = ea / el, db = eb / el;
@@ -346,12 +377,42 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         {
             if (f.Lod >= 2) return;
             double fr = PashupatiSite.ForecourtRiseM;
-            // The face from (−39.3, −8.4) to (−38.6, −16.3) looks toward the forecourt (−a).
-            double ma = -39.0, mb = -12.2;
-            Affine3 x = f.Facing(ma - 0.02, fr, mb, -1, 0);
-            SacredDraw.Box(m, x, -0.75, 0.75, 0, 2.6, 0, 0.12, PashupatiKit.GiltRoof, BoxFaces.Wall);
-            SacredDraw.Box(m, x, -0.55, 0.55, 0.05, 2.4, 0.12, 0.14, PashupatiKit.GiltBright, BoxFaces.Front);
-            SacredParts.Torana(m, x, 0, 2.62, 0.02, 1.6, PashupatiKit.GiltBright, f.Lod);
+            // On the golden-door house's forecourt face, the edge from (−46.03, −8.96) to (−45.51, −16.0), at its middle.
+            double ea = -45.51 - -46.03, eb = -16.0 - -8.96, el = Math.Sqrt(ea * ea + eb * eb), na = eb / el, nb = -ea / el;
+            double ma = -45.77 + 0.02 * na, mb = -12.5 + 0.02 * nb;
+            Affine3 x = f.Facing(ma, fr, mb, na, nb);
+            // The door (c_westgate/c_03): a black surround with a peaked top, the thick gilt frame rising to an ogee point
+            // over the arch, and the two dark bronze leaves with raised panels and gilt bosses.
+            ShapeBrush black = PashupatiKit.Br(0x1E1B19, MaterialChannel.WoodCarved), brass = PashupatiKit.Br(0x3E3222, MaterialChannel.Metal);
+            SacredDraw.Box(m, x, -0.98, 0.98, 0, 2.75, 0, 0.1, black, BoxFaces.Wall);
+            SacredDraw.Tri(m, x, -0.98, 2.75, 0.1, 0.98, 2.75, 0.1, 0, 3.25, 0.1, 0, 0, 1, black);
+            SacredDraw.Panel(m, x, -0.62, 0.02, 0.62, 2.25, 0.12, brass);
+            if (f.Lod == 0)
+            {
+                for (int s = -1; s <= 1; s += 2)
+                    for (int r = 0; r < 3; r++)
+                    {
+                        double u0 = s * 0.08, u1 = s * 0.54, v0 = 0.2 + 0.68 * r, v1 = v0 + 0.56;
+                        SacredDraw.Box(m, x, Math.Min(u0, u1), Math.Max(u0, u1), v0, v1, 0.12, 0.15, PashupatiKit.Br(0x5E4C2C, MaterialChannel.Metal), BoxFaces.Front | BoxFaces.Wall);
+                        Shapes.Sphere(m, SacredDraw.At(x, s * 0.31, v0 + 0.28, 0.17), PashupatiKit.GiltBright, 0.05, 5);
+                    }
+            }
+            Path3 gf = PashupatiKit.PathS;
+            gf.Add(-0.72, 0.0, 0.15).Add(-0.72, 2.25, 0.15);
+            for (int i = 1; i < 8; i++)
+            {
+                double t = i / 8.0, u = -0.72 * Math.Cos(0.5 * Math.PI * t), v = 2.25 + 0.42 * Math.Sin(0.5 * Math.PI * t) + 0.18 * t * t;
+                gf.Add(u, v, 0.15);
+            }
+            gf.Add(0, 2.9, 0.15);
+            for (int i = 7; i >= 1; i--)
+            {
+                double t = i / 8.0, u = 0.72 * Math.Cos(0.5 * Math.PI * t), v = 2.25 + 0.42 * Math.Sin(0.5 * Math.PI * t) + 0.18 * t * t;
+                gf.Add(u, v, 0.15);
+            }
+            gf.Add(0.72, 2.25, 0.15).Add(0.72, 0.0, 0.15);
+            Shapes.Tube(m, x, PashupatiKit.GiltBright, gf, 0.08, f.Lod == 0 ? 6 : 4, true);
+            Shapes.Sphere(m, SacredDraw.At(x, 0, 2.98, 0.15), PashupatiKit.GiltBright, 0.08, 5);
             for (int s = -1; s <= 1; s += 2)
             {
                 // The painted eyes (white almond, dark pupil, black brow) either side.
@@ -361,6 +422,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             }
             SacredDraw.Box(m, x, -1.9, 1.9, 3.1, 3.55, 0, 0.12, PashupatiKit.Br(0x24201E, MaterialChannel.Plain), BoxFaces.Wall);
             SacredDraw.Box(m, x, -1.8, 1.8, 3.2, 3.45, 0.12, 0.13, PashupatiKit.Br(0xE0302A, MaterialChannel.Plain), BoxFaces.Front);
+            // The gabled dormer on the rust roof over the door (c_westgate/c_03): a white cheek box with a small window
+            // and its own rust gable roof, set back up the slope.
+            double eave = 2 * 3.3;
+            Affine3 d = SacredDraw.At(x, 0, eave - 0.1, -1.9);
+            SacredDraw.Box(m, d, -0.8, 0.8, 0, 1.35, -1.4, 0.0, WhitePlaster, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Panel(m, d, -0.4, 0.3, 0.4, 1.05, 0.012, Glass);
+            SacredDraw.Box(m, d, -0.48, 0.48, 0.22, 0.3, 0, 0.08, PashupatiKit.WoodDark, BoxFaces.Wall | BoxFaces.Top);
+            for (int s = -1; s <= 1; s += 2)
+                SacredDraw.Quad(m, d, s * 1.0, 1.25, 0.25, 0, 2.0, 0.25, 0, 2.0, -1.6, s * 1.0, 1.25, -1.6, s * 0.6, 0.8, 0, PashupatiKit.RustRoof);
+            SacredDraw.Tri(m, d, -0.8, 1.35, 0.01, 0.8, 1.35, 0.01, 0, 1.95, 0.01, 0, 0, 1, WhitePlaster);
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -374,7 +445,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             return new House
             {
                 Plan = plan, Bottom = floor - 0.4, Floor = floor, Storeys = storeys, StoreyM = storeyM, Wall = wall, Band = BandWhite, Frame = WindowWood,
-                Windows = win, WindowPitch = 2.3, Roof = roof, RoofB = roofB, RibB = ribB, Overhang = 0.7, Pitch = 0.42, Parapet = 0.8, MinWall = 2.2, Seed = seed,
+                Windows = win, WindowPitch = 2.6, Roof = roof, RoofB = roofB, RibB = ribB, Overhang = 0.7, Pitch = 0.42, Parapet = 0.8, MinWall = 2.2, Seed = seed,
             };
         }
 
@@ -395,9 +466,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 
         /// <summary>
         /// A house: walls swept round the outline (plinth course, an optional dado, a band at every floor, the parapet of a
-        /// flat roof), windows on every wall long enough (lattice, arched or plain; skipped below the ground), and the roof:
-        /// a terrace slab inside the parapet, or a hipped or gabled corrugated-metal roof with standing seams over the
-        /// outline's oriented box. LOD1 draws windows as dark panes, LOD2 walls and roof, LOD3 a box and a pyramid. Walls
+        /// flat roof), windows on every wall long enough that is not a party wall (lattice, arched or plain; skipped below
+        /// the ground), and the roof: a terrace slab inside the parapet, or a hipped or gabled corrugated-metal roof with
+        /// standing seams over the outline's oriented box. LOD1 draws windows as dark panes, LOD2 walls and roof, LOD3 a box and a pyramid. Walls
         /// along every edge are solid (never walked into).
         /// </summary>
         internal static void Build(ref PashupatiFrame f, MeshData m, in House h)
@@ -458,13 +529,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     double ea = _pa[j] - _pa[i], eb = _pb[j] - _pb[i], el = Math.Sqrt(ea * ea + eb * eb);
                     if (el < h.MinWall) continue;
                     double na = eb / el, nb = -ea / el, ma = 0.5 * (_pa[i] + _pa[j]), mb = 0.5 * (_pb[i] + _pb[j]);
+                    // A party wall (another building right outside it) has no windows.
+                    if (PartyWall(ref f, h.Plan, ma + 1.2 * na, mb + 1.2 * nb)) continue;
                     double ground = f.GroundAt(ma + 1.5 * na, mb + 1.5 * nb, h.Floor);
                     Affine3 x = f.Facing(ma, 0, mb, na, nb);
                     int k = Math.Max(1, (int)Math.Floor((el - 1.0) / h.WindowPitch));
                     for (int s = 0; s < h.Storeys; s++)
                     {
                         double sill = h.Floor + s * h.StoreyM + (s == 0 ? 0.9 : 0.75);
-                        if (sill < ground + 0.3) continue;
+                        if (sill < ground + 0.3 || (s == 0 && h.BlindGround)) continue;
                         double wh = Math.Min(1.6, h.StoreyM - 1.3), ww = h.Windows == WinStyle.Arched ? 0.85 : 1.0;
                         for (int q = 0; q < k; q++)
                         {
@@ -487,7 +560,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 var r = new PRoof
                 {
                     EaveU = eu, EaveW = ew, EaveV = -0.25, TopU = h.Roof == RoofKind.Gable ? eu : Math.Max(0.15, eu - ew), TopW = 0.12, TopV = rise, Lift = 0.0,
-                    FasciaH = 0.14, SeamPitch = lod == 0 ? 0.8 : 0, CurlSize = 0, Roof = h.RoofB, Seam = h.RibB, Fascia = PashupatiKit.Ao(h.RoofB, 0.8f), Curl = h.RibB,
+                    FasciaH = 0.14, SeamPitch = lod == 0 ? 1.0 : 0, CurlSize = 0, Roof = h.RoofB, Seam = h.RibB, Fascia = PashupatiKit.Ao(h.RoofB, 0.8f), Curl = h.RibB,
                 };
                 PashupatiKit.Roof(m, rk, r, lod);
                 PashupatiKit.Skirt(m, rk, hu, hw, 0, eu - 0.05, ew - 0.05, -0.39, 1, 2);
@@ -502,8 +575,66 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             for (int i = 0; i < n; i++)
             {
                 int j = (i + 1) % n;
-                f.Wall(_pa[i], _pb[i], _pa[j], _pb[j], h.Bottom, top, 0.25);
+                f.WallClear(_pa[i], _pb[i], _pa[j], _pb[j], h.Bottom, top, 0.25);
             }
+        }
+
+        /// <summary>Every outline the ring builds (site metres), for the party-wall test.</summary>
+        private static readonly double[][] Plans =
+        {
+            NorthFlank, NorthLink, SouthFlank, InnerSouth, InnerNorth, GoldenDoorHouse, SouthWest, SouthWest2, North, NorthHouseW, NorthHouseN, NorthHouseE,
+            South, Mulbhatt, Priests2, Priests3, SouthEast, EastWingPlan,
+        };
+
+        /// <summary>
+        /// Whether site (a, b), just outside a wall of <paramref name="own"/>, lies inside another building: one of the
+        /// ring's outlines or a compact OSM building of the tile (at most 60 m across, so no compound outline counts). Such
+        /// a wall is a party wall, and the houses draw no windows on it.
+        /// </summary>
+        private static bool PartyWall(ref PashupatiFrame f, double[] own, double a, double b)
+        {
+            for (int i = 0; i < Plans.Length; i++)
+                if (!ReferenceEquals(Plans[i], own) && InPlan(Plans[i], a, b)) return true;
+            if (f.Tile == null) return false;
+            double x, z;
+            f.ToTile(a, b, out x, out z);
+            x *= 100;
+            z *= 100;
+            var list = f.Tile.Buildings;
+            for (int i = 0; i < list.Count; i++)
+            {
+                int[] r = list[i].Rings[0];
+                int n = r.Length / 2, x0 = int.MaxValue, x1 = int.MinValue, z0 = int.MaxValue, z1 = int.MinValue;
+                for (int k = 0; k < n; k++)
+                {
+                    x0 = Math.Min(x0, r[2 * k]);
+                    x1 = Math.Max(x1, r[2 * k]);
+                    z0 = Math.Min(z0, r[2 * k + 1]);
+                    z1 = Math.Max(z1, r[2 * k + 1]);
+                }
+                if (x < x0 || x > x1 || z < z0 || z > z1 || x1 - x0 > 6000 || z1 - z0 > 6000) continue;
+                bool inside = false;
+                for (int k = 0, j = n - 1; k < n; j = k++)
+                {
+                    double xk = r[2 * k], zk = r[2 * k + 1], xj = r[2 * j], zj = r[2 * j + 1];
+                    if ((zk > z) != (zj > z) && x < (xj - xk) * (z - zk) / (zj - zk) + xk) inside = !inside;
+                }
+                if (inside) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Point in an outline given as (a, b) pairs.</summary>
+        private static bool InPlan(double[] plan, double a, double b)
+        {
+            int n = plan.Length / 2;
+            bool inside = false;
+            for (int k = 0, j = n - 1; k < n; j = k++)
+            {
+                double ak = plan[2 * k], bk = plan[2 * k + 1], aj = plan[2 * j], bj = plan[2 * j + 1];
+                if ((bk > b) != (bj > b) && a < (aj - ak) * (b - bk) / (bj - bk) + ak) inside = !inside;
+            }
+            return inside;
         }
 
         /// <summary>One window centred at u from its sill on face frame x.</summary>
@@ -518,7 +649,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             switch (h.Windows)
             {
                 case WinStyle.Lattice:
-                    SacredParts.LatticeWindow(m, x, u, sill + 0.5 * wh, 0, ww, wh, h.Frame, lod, 2);
+                    LatticeLight(m, x, u, sill, ww, wh, h.Frame);
                     break;
                 case WinStyle.Arched:
                 {
@@ -555,6 +686,20 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     SacredDraw.Box(m, x, u - hu - 0.06, u + hu + 0.06, sill + wh, sill + wh + 0.06, 0, 0.05, h.Frame, BoxFaces.Front | BoxFaces.Top);
                     break;
             }
+        }
+
+        /// <summary>A house's lattice window (about 20 triangles, the ring has hundreds): the dark recess, a flat frame proud
+        /// of the wall with a projecting sill and lintel, and two mullions of the lattice.</summary>
+        private static void LatticeLight(MeshData m, in Affine3 x, double u, double sill, double ww, double wh, in ShapeBrush frame)
+        {
+            double hu = 0.5 * ww, fw = 0.08, top = sill + wh;
+            SacredDraw.Panel(m, x, u - hu, sill, u + hu, top, 0.01, Looks.Recess);
+            SacredDraw.Panel(m, x, u - hu - fw, sill, u - hu, top, 0.05, frame);
+            SacredDraw.Panel(m, x, u + hu, sill, u + hu + fw, top, 0.05, frame);
+            SacredDraw.Box(m, x, u - hu - fw - 0.1, u + hu + fw + 0.1, top, top + fw, 0, 0.09, frame, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Top);
+            SacredDraw.Box(m, x, u - hu - fw - 0.1, u + hu + fw + 0.1, sill - fw, sill, 0, 0.09, frame, BoxFaces.Front | BoxFaces.Top);
+            for (int i = 1; i <= 2; i++)
+                SacredDraw.Panel(m, x, u - hu + ww * i / 3 - 0.025, sill, u - hu + ww * i / 3 + 0.025, top, 0.035, frame);
         }
 
         /// <summary>The oriented bounding box of an outline along its longest edge: centre, unit axis (along), half sizes.</summary>
