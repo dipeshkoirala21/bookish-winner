@@ -522,6 +522,28 @@ namespace Ghumante.Core.Driving
                 if (TryNearestOtherRoad(x, z, ref hit, out other) && (other.OnRoad || other.OnFootpath) && !DrawnByBridges(ref other)) hit = other;
             }
             found = found && (hit.OnRoad || hit.OnFootpath) && !DrawnByBridges(ref hit);
+            RoadSurfaceHit approach;
+            if (!found && ApproachOfStructure(x, z, nearY, out hit, out approach))
+            {
+                s.Height = approach.Y;
+                s.Nx = approach.Nx;
+                s.Ny = approach.Ny;
+                s.Nz = approach.Nz;
+                if (approach.OnFootpath)
+                {
+                    s.OnFootpath = true;
+                    s.Foot = FootSurface.Concrete;
+                    s.Surface = SurfaceGroup.Paved;
+                }
+                else
+                {
+                    s.OnRoad = true;
+                    s.Surface = SurfaceGroups.Of(hit.Road.Surface);
+                    s.Foot = FootSurfaces.OfRoad(hit.Road.Surface, hit.Road.RoadClass);
+                }
+                SetRoad(ref s, ref hit);
+                return !onDeck || OverDeckDrawn(x, z, nearY, ref s, ref deck, ref terrain);
+            }
             if (found) LayeredRoad(x, z, h, nearY, ref hit);
             if (found && hit.OnFootpath)
             {
@@ -539,10 +561,10 @@ namespace Ghumante.Core.Driving
                 // (The footpath band of a street ending at a deck reaches over the deck where nothing of it is drawn: over a
                 // deck only the drawn carriageway or the terrain counts.)
                 s = terrain;
-                return OverDeck(ref s, ref deck, ref terrain, nearY);
+                return OverDeckDrawn(x, z, nearY, ref s, ref deck, ref terrain);
             }
             found = found && TryRoadHeight(h, ref hit, out road, out spans, out deckGrade);
-            if (!found) return !onDeck || OverDeck(ref s, ref deck, ref terrain, nearY);
+            if (!found) return !onDeck || OverDeckDrawn(x, z, nearY, ref s, ref deck, ref terrain);
 
             RoadRecord r = hit.Road;
             s.OnRoad = true;
@@ -559,7 +581,33 @@ namespace Ghumante.Core.Driving
             s.Surface = SurfaceGroups.Of(r.Surface);
             s.Foot = FootSurfaces.OfRoad(r.Surface, r.RoadClass);
             SetRoad(ref s, ref hit);
-            return !onDeck || OverDeck(ref s, ref deck, ref terrain, nearY);
+            return !onDeck || OverDeckDrawn(x, z, nearY, ref s, ref deck, ref terrain);
+        }
+
+        /// <summary>
+        /// A stretch of a bridge or flyover way that the bridges package leaves to the roads layer (its approach beyond the
+        /// deck, draped or at the way's own heights): no ground road (the way is elevated), and no deck either, yet the roads
+        /// layer draws it, so it is walked and ridden as a ground road, on its drawn surface. True when one covers (x, z):
+        /// <paramref name="hit"/> becomes it and <paramref name="drawn"/> the surface the roads layer draws there. Only where the bridges package draws the tile's structures (its deck index):
+        /// there the drawn decks answer for the rest of the way. Owner playtest #2 ("characters get sucked in"): past both
+        /// ends of the Ring Road culvert bridge 756183449 the ground query answered the terrain 0.3-0.45 m under the drawn
+        /// carriageway.
+        /// </summary>
+        private bool ApproachOfStructure(double x, double z, float nearY, out RoadHit hit, out RoadSurfaceHit drawn)
+        {
+            hit = default(RoadHit);
+            drawn = default(RoadSurfaceHit);
+            RoadHit eh;
+            if (!TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Elevated, out eh)) return false;
+            if (!(eh.OnRoad || eh.OnFootpath) || eh.Tile == null) return false;
+            Entry e;
+            if (!_areas.TryGetValue(eh.Tile.Tile, out e) || !(e.Decks is BridgeDeckIndex) || e.Sampler == null || DrawnByBridges(ref eh)) return false;
+            // The surface the roads layer draws there (its own query: ribbons, caps, footpaths), when it is this way's.
+            RoadSurfaceQuery q = RoadSurfaceQuery.For(e.Source, e.Sampler, _roadOptions);
+            float near = float.IsInfinity(nearY) || float.IsNaN(nearY) ? float.PositiveInfinity : nearY;
+            if (!q.TrySample(x, z, near, out drawn) || drawn.Road >= 0 && drawn.Road != eh.RoadIndex) return false;
+            hit = eh;
+            return true;
         }
 
         /// <summary>Feet this far above a ground road's surface stand on another road there, not on it (see
@@ -669,6 +717,36 @@ namespace Ghumante.Core.Driving
             return true;
         }
 
+        /// <summary>
+        /// As <see cref="OverDeck"/>, then, where the deck answers, the road surface the roads layer draws there (the
+        /// asphalt ribbon over a road deck, at the roads package's grade, which eases into the approach and can lie a few
+        /// centimetres to 0.4 m over the deck's own surface near its ends) answers instead when it lies above the deck
+        /// within the deck's reach: the feet stand on what is drawn. Owner playtest #2 ("characters get sucked in"): over
+        /// the last metres of the Ring Road culvert bridge 756183449 the walker stood 0.39 m inside the drawn carriageway.
+        /// Only where the bridges package draws the tile's structures (its deck index). Always true.
+        /// </summary>
+        private bool OverDeckDrawn(double x, double z, float nearY, ref GroundSample ground, ref GroundSample deck, ref GroundSample terrain)
+        {
+            OverDeck(ref ground, ref deck, ref terrain, nearY);
+            if (!ground.OnDeck) return true;
+            int level = FinestRoadLevel();
+            Entry e;
+            if (level < 0 || !_areas.TryGetValue(TileId.At(level, x, z), out e) || e.Source == null || e.Sampler == null || !(e.Decks is BridgeDeckIndex))
+                return true;
+            float near = float.IsInfinity(nearY) || float.IsNaN(nearY) ? float.PositiveInfinity : nearY;
+            RoadSurfaceHit drawn;
+            if (!RoadSurfaceQuery.For(e.Source, e.Sampler, _roadOptions).TrySample(x, z, near, out drawn)) return true;
+            float reach = float.IsPositiveInfinity(near) ? float.PositiveInfinity : near + DeckStepUpM;
+            if (drawn.Y > ground.Height + DeckCoverM && drawn.Y <= reach)
+            {
+                ground.Height = drawn.Y;
+                ground.Nx = drawn.Nx;
+                ground.Ny = drawn.Ny;
+                ground.Nz = drawn.Nz;
+            }
+            return true;
+        }
+
         /// <summary>The road index of the tile a hit came from (null when that tile is gone).</summary>
         private RoadSpatialIndex IndexOf(ref RoadHit hit)
         {
@@ -754,8 +832,11 @@ namespace Ghumante.Core.Driving
                 // A deck the bridges package draws stands only where it is drawn: its record's heights (a straight line
                 // between the mapped points, where the drawn flights and landings may be fitted, extended or moved) are
                 // no walkable surface of their own (owner playtest #2 and #15: walkers floated or were blocked beside
-                // the drawn stairs).
-                if (DrawnByBridges(h.Tile, h.RoadIndex)) continue;
+                // the drawn stairs). The way's stretches the bridges package leaves to the roads layer (the approach of a
+                // culvert beyond its deck) are drawn there at these heights and walked on them: answered by the terrain,
+                // the Ring Road culvert bridge 756183449 had walkers 0.45 m inside the drawn carriageway on both
+                // approaches (owner playtest #2, "characters get sucked in").
+                if (DrawnByBridges(ref h)) continue;
                 if (found && !(y > deckY)) continue;
                 deckY = y;
                 hit = h;

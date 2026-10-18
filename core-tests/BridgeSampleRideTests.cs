@@ -451,16 +451,19 @@ namespace Ghumante.Core.Tests
         /// Playtest #2: "Bridges is not walkable or drivable at all. Characters gets sucked in. Character basically
         /// disappears when trying to cross the bridge." Every river bridge and flyover of the sample with a deck at least
         /// 15 m long and 1.5 m over the ground under it (the Bagmati and Bishnumati bridges, Kalopul, Setopul, Ratopul,
-        /// Thapathali, the Ring Road bridges and the Prithvi Path bridge at Tripureshwor that the owner's screenshot shows)
-        /// is walked and ridden across along the road it carries, from 1.5 m before the deck to 1.5 m beyond it in the left
-        /// lane: it is crossed and the feet never sink into the deck.
+        /// Thapathali, the Ring Road bridges), and the two decks of the Prithvi Path bridge at Tripureshwor that the
+        /// owner's screenshot shows (<see cref="OwnerScreenshotBridges"/>: a wide divided road with railings, its deck
+        /// only 0.1 m over the bank), is walked and ridden across along the road it carries, from 1.5 m before the deck
+        /// to 1.5 m beyond it in the left lane: it is crossed and the feet never sink into the deck.
         /// </summary>
         [Test]
         public void RiverBridgesAndFlyoversAreWalkedAndRiddenAcross()
         {
             Func<BridgeSpan, bool> want = sp =>
             {
-                if (sp.Stair || sp.Overbridge || sp.Foot || sp.Length < 15) return false;
+                if (sp.Stair || sp.Overbridge || sp.Foot) return false;
+                if (OwnerScreenshotBridges.Contains(sp.Record.OsmWayId)) return true;
+                if (sp.Length < 15) return false;
                 float rise = 0f;
                 for (int k = 0; k < sp.Count; k++) rise = Math.Max(rise, sp.Path.Y[k] - sp.Ground[k]);
                 return rise >= 1.5f;
@@ -469,6 +472,7 @@ namespace Ghumante.Core.Tests
             TileGroundQuery g = Ground(tiles);
             var bad = new StringBuilder();
             int spans = 0, runs = 0;
+            var owner = new HashSet<ulong>();
             foreach (TileId id in tiles)
             {
                 TileData t = StreamingSampleRegion.Tile(id);
@@ -476,6 +480,7 @@ namespace Ghumante.Core.Tests
                 {
                     if (!want(sp)) continue;
                     spans++;
+                    if (OwnerScreenshotBridges.Contains(sp.Record.OsmWayId)) owner.Add(sp.Record.OsmWayId);
                     int mid = sp.Count / 2;
                     double lane = 0.5 * Math.Min(sp.HalfL[mid], sp.HalfR[mid]);
                     List<double> across = BridgeProbe.RoadAround(t, sp.Road, sp.Path.X[mid], sp.Path.Z[mid], 0.5 * sp.Length + 1.5, lane);
@@ -496,9 +501,14 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine(spans + " bridges and flyovers, " + runs + " runs");
             Assert.That(spans, Is.GreaterThanOrEqualTo(25));
+            Assert.That(owner.Count, Is.EqualTo(OwnerScreenshotBridges.Count), "the owner's Prithvi Path bridge is in the sample");
             Assert.That(bad.ToString(), Is.Empty, "crossing the bridges and flyovers");
         }
     
+        /// <summary>The bridge of the owner's playtest screenshot (docs/W2_PLAYTEST_1.md, "shree tripura sundari grill
+        /// udhyog"): the two carriageways of Prithvi Path over the Bagmati channel at Tripureshwor, 23 m each.</summary>
+        private static readonly HashSet<ulong> OwnerScreenshotBridges = new HashSet<ulong> { 225426574UL, 225426579UL };
+
         /// <summary>What the streamer-style ground answers at a point: BRIDGE_LIGHT_POINT = "x,z,y;..." (diagnostics).</summary>
         [Test, Explicit]
         public void LightPoint()
@@ -523,6 +533,16 @@ namespace Ghumante.Core.Tests
                     TestContext.WriteLine("   nearest ground road " + rh.Road.OsmWayId + " " + rh.Road.RoadClass + " #" + rh.RoadIndex + " seg " + rh.Segment + " edge " + rh.EdgeDistanceM.ToString("F2")
                                           + " lat " + rh.LateralM.ToString("F2") + "/" + rh.HalfWidthM.ToString("F2") + " along " + rh.AlongM.ToString("F1") + " on " + rh.OnRoad + "/" + rh.OnFootpath
                                           + " surface " + (hs ? sy.ToString("F2") : "-") + " structure " + rh.Tile.RoadStructureOf(rh.RoadIndex).Kind);
+                }
+                if (g.TryNearestRoad(x, z, RoadSpatialIndex.MaxFootpathM, RoadFlags.None, RoadFlags.None, RoadLayer.Elevated, out rh))
+                {
+                    RoadSpatialIndex ri = g.RoadIndexOf(rh.Tile.Tile);
+                    float sy = 0f, sg;
+                    bool hs = ri != null && ri.TrySurfaceHeight(in rh, out sy, out sg);
+                    BridgeLayout bl = BridgeLayout.For(rh.Tile);
+                    TestContext.WriteLine("   nearest elevated road " + rh.Road.OsmWayId + " " + rh.Road.RoadClass + " #" + rh.RoadIndex + " seg " + rh.Segment + " edge " + rh.EdgeDistanceM.ToString("F2")
+                                          + " on " + rh.OnRoad + "/" + rh.OnFootpath + " along " + rh.AlongM.ToString("F1") + " surface " + (hs ? sy.ToString("F2") : "-")
+                                          + " bridges draw " + bl.Draws(rh.RoadIndex, rh.Segment) + " covers " + bl.CoversAlong(rh.RoadIndex, rh.AlongM));
                 }
                 float th;
                 if (g.TryTerrainHeight(x, z, out th)) TestContext.WriteLine("   terrain " + th.ToString("F2"));
