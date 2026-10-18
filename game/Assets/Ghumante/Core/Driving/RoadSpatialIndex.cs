@@ -121,9 +121,8 @@ namespace Ghumante.Core.Driving
         /// <summary>Deck beyond the carriageway edge on each side of a bridge or flyover (kerb), where its railing stands.</summary>
         public const float DeckKerbM = 0.5f;
 
-        /// <summary>Structural depth of a vehicle deck under its surface (for clearance and camera checks; the data contract's
-        /// <see cref="RoadStructureRecord.DeckDepthM"/>). A foot deck is thinner (<see cref="DeckDepthOf"/>).</summary>
-        public const float DeckThicknessM = RoadStructureRecord.DeckDepthM;
+        /// <summary>Structural depth of a deck under its surface (for clearance and camera checks).</summary>
+        public const float DeckThicknessM = 1.2f;
 
         private readonly TileData _tile;
         private readonly double _x0, _z0, _cell;
@@ -139,7 +138,6 @@ namespace Ghumante.Core.Driving
         private readonly bool[] _dual, _bridge;
         private readonly bool[] _elevated; // bridge or flyover (structure data, else the Bridge flag)
         private readonly float[][] _surfaceY; // absolute surface heights per point (RoadStructureRecord.DeckY), or null
-        private readonly float[] _deckDepth; // per road record: the deck depth under its surface (RoadStructureRecord.DeckDepthFor)
         private readonly int _elevatedSegs;
         private readonly bool _anyElevated;
         private readonly bool _anyGroundHeights; // a ground road (not a bridge or flyover) with structure heights
@@ -193,7 +191,6 @@ namespace Ghumante.Core.Driving
             _bridge = new bool[roads.Count];
             _elevated = new bool[roads.Count];
             _surfaceY = new float[roads.Count][];
-            _deckDepth = new float[roads.Count];
             bool structures = t.RoadStructures.Count == roads.Count && roads.Count > 0;
             TileHeightSampler terrain = null;
             for (int r = 0; r < roads.Count; r++)
@@ -202,10 +199,6 @@ namespace Ghumante.Core.Driving
                 {
                     RoadStructureRecord st = t.RoadStructures[r];
                     _elevated[r] = st.Kind == RoadStructureKind.Bridge || st.Kind == RoadStructureKind.Flyover;
-                    // A foot overbridge's deck is 0.6 m deep, as the pipeline reserved and the bridges package draws it: the
-                    // vehicle deck's 1.2 m stood a slab 0.6 m under the drawn deck over the road below (camera package: the
-                    // "unidentified overhead solid" at the Lainchaur foot overbridge, 4.4 m over the carriageway).
-                    _deckDepth[r] = st.DeckDepthFor(roads[r].RoadClass);
                     if (st.DeckY != null && st.DeckY.Length == roads[r].PointCount)
                     {
                         if (terrain == null && HasDraped(st.DeckY)) terrain = new TileHeightSampler(t, 1);
@@ -215,7 +208,6 @@ namespace Ghumante.Core.Driving
                 else
                 {
                     _elevated[r] = (roads[r].Flags & RoadFlags.Bridge) != 0;
-                    _deckDepth[r] = RoadStructureRecord.IsFootDeckClass(roads[r].RoadClass) ? RoadStructureRecord.FootDeckDepthM : DeckThicknessM;
                 }
             }
             _roadHalfWidth = new float[roads.Count];
@@ -1012,16 +1004,8 @@ namespace Ghumante.Core.Driving
             return true;
         }
 
-        /// <summary>The deck depth under the surface of road record <paramref name="roadIndex"/>'s deck:
-        /// <see cref="RoadStructureRecord.FootDeckDepthM"/> for a foot deck, else <see cref="DeckThicknessM"/>
-        /// (<see cref="RoadStructureRecord.DeckDepthFor"/>).</summary>
-        public float DeckDepthOf(int roadIndex)
-        {
-            return roadIndex >= 0 && roadIndex < _deckDepth.Length ? _deckDepth[roadIndex] : DeckThicknessM;
-        }
-
-        /// <summary>True when the slab of a bridge or flyover with structure heights (its surface down to its deck depth
-        /// below, <see cref="DeckDepthOf"/>, over its deck and railing) covers (x, z) and overlaps the heights
+        /// <summary>True when the slab of a bridge or flyover with structure heights (its surface down to
+        /// <see cref="DeckThicknessM"/> below, over its deck and railing) covers (x, z) and overlaps the heights
         /// (lowY, highY): a body spanning them there would stand inside the deck.</summary>
         public bool SlabOverlaps(double x, double z, float lowY, float highY, float pad = 0f)
         {
@@ -1045,13 +1029,13 @@ namespace Ghumante.Core.Driving
                     float[] ys = _surfaceY[r];
                     int sg = _seg[i];
                     float top = ys[sg] + (ys[sg + 1] - ys[sg]) * (float)t;
-                    if (top > lowY && top - _deckDepth[r] < highY) return true;
+                    if (top > lowY && top - DeckThicknessM < highY) return true;
                 }
             }
             return false;
         }
 
-        /// <summary>The lowest deck underside (surface − <see cref="DeckDepthOf"/>) of a bridge or flyover with
+        /// <summary>The lowest deck underside (surface − <see cref="DeckThicknessM"/>) of a bridge or flyover with
         /// structure heights above (x, z) and higher than <paramref name="fromY"/>, within its deck and railing.</summary>
         public bool TryCeiling(double x, double z, float fromY, out float undersideY)
         {
@@ -1076,7 +1060,7 @@ namespace Ghumante.Core.Driving
                     if (EdgeOf(i, px, pz, out t, out d) > DeckKerbM + 0.3) continue;
                     float[] ys = _surfaceY[r];
                     int sg = _seg[i];
-                    float under = ys[sg] + (ys[sg + 1] - ys[sg]) * (float)t - _deckDepth[r];
+                    float under = ys[sg] + (ys[sg + 1] - ys[sg]) * (float)t - DeckThicknessM;
                     if (under <= fromY || under >= undersideY) continue;
                     undersideY = under;
                     found = true;

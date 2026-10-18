@@ -139,13 +139,12 @@ namespace Ghumante.Core.Tests
         /// kerb return (the corner room clamp of the junction caps); the bus's front overhang swung 1.1 m into it and
         /// stopped. Bus corners (<see cref="RoadLayout.BusCornerRadiusM"/>: car roads both at least 6.5 m wide, at least
         /// 60° apart, outside the old cores) keep a 4.5 m kerb return, the corner house is trimmed back to it, and the
-        /// camera's bus on the centre line drives on. Where the arm of Ghumti Sadak, bending 4.5 m from the node, leaves no
-        /// room for the return's arc, the cap carries its apex (<see cref="JunctionCap.BusCorner"/>): the bus passes 0.34 m
-        /// clear of the house's drawn outline instead of 0.02 m. Open (docs/research/w2/ref_ride.md §4): the camera
-        /// package's bus 1.5 m left of the centre line still stops there. It keeps to the outside of the 46° bend
-        /// Bhaktithapa Road takes at the node, its front swings out over that short 14 m arm, and it reaches 0.54 m (0.65 m
-        /// before) into the corner house (with the house hidden) at the arm's right edge by its cut, which the bend keeps
-        /// the cap from widening; a bus steered from its front axle (<see cref="ProbeFrontAxleBus"/>) stops there too.
+        /// camera's bus on the centre line drives on. Open (docs/research/w2/ref_ride.md §4): the camera package's bus 1.5 m
+        /// left of the centre line still stops there. It keeps to the outside of the 46° bend Bhaktithapa Road takes at the
+        /// node, its front swings out over the short 14 m arm of Ghumti Sadak (which bends 4.5 m from the node, so the cap
+        /// has no room for a kerb return on that side), and it reaches 0.65 m into the corner house (with the house hidden)
+        /// at that arm's right edge by its cut; a bus steered from its front axle (<see cref="ProbeFrontAxleBus"/>) stops
+        /// there too.
         /// </summary>
         [Test]
         public void TheBusTurnsFromGhumtiSadakIntoBhaktithapaRoad()
@@ -162,8 +161,12 @@ namespace Ghumante.Core.Tests
         /// The "unidentified overhead solid" over the road north of Thamel (85.3130, 27.7178; ref_camera.md §7.1, the car's
         /// far view cut its boom there) is the foot overbridge at Lainchaur: OSM Footway 1268595053 (RSTR Flyover,
         /// FootOverbridge, layer 1) over Primary 176144636, drawn by the bridges package with railings. It is a real
-        /// structure, not a stray solid, and it leaves a bus, a truck and every chase camera's pivot the contract's 4.5 m
-        /// overhead clearance over the drawn road under it.
+        /// structure, not a stray solid: the lowest thing over the drawn road under it is that deck's slab in the road index
+        /// (<see cref="RoadSpatialIndex.SlabOverlaps"/>, the deck surface down to <see cref="RoadSpatialIndex.DeckThicknessM"/>),
+        /// 4.40 m over the carriageway at its lowest. Open (ref_ride.md §4): the slab takes the vehicle deck depth (1.2 m)
+        /// where the data and the drawn foot deck are 0.6 m deep (<see cref="RoadStructureRecord.FootDeckDepthM"/>), which
+        /// would leave 4.99 m; with that depth the camera package's chase boom snaps 1.75 m on its car ride under this bridge
+        /// (CharactersCameraRideTests), so the change waits for the camera and bridges packages.
         /// </summary>
         [Test]
         public void TheOverheadSolidNorthOfThamelIsTheLainchaurFootOverbridge()
@@ -188,13 +191,14 @@ namespace Ghumante.Core.Tests
             Assert.That(st.Kind, Is.EqualTo(RoadStructureKind.Flyover));
             Assert.That(st.Has(RoadStructureFlags.FootOverbridge), Is.True);
             Assert.That(RoadMesher.IsDrawn(t, bridge, null), Is.True);
-            // Along the road under the overbridge (±12 m of the crossing): the lowest thing over the drawn surface.
+            // Along the road under the overbridge (±12 m of the crossing): the lowest thing over the drawn surface, and the
+            // foot deck's surface over the same point.
             RoadLayout layout = RoadLayout.For(t);
             RoadCentreline c = layout.Centres[road];
             int seg;
             double along, lateral, dist;
             Assert.That(c.Nearest(x - t.Tile.X0, z - t.Tile.Z0, out seg, out along, out lateral, out dist), Is.True);
-            double lowest = double.MaxValue;
+            double lowest = double.MaxValue, deckOver = 0;
             string where = "";
             for (double s = along - 12; s <= along + 12; s += 0.5)
             for (double off = -3; off <= 3; off += 1.5)
@@ -202,19 +206,25 @@ namespace Ghumante.Core.Tests
                 double cx, cz, tx, tz;
                 c.At(s, out cx, out cz, out tx, out tz);
                 double px = t.Tile.X0 + cx - tz * off, pz = t.Tile.Z0 + cz + tx * off;
-                GroundSample s0;
+                GroundSample s0, deck;
                 if (!g.TrySample(px, pz, float.NegativeInfinity, out s0) || s0.OnDeck) continue;
                 double hit;
                 // A 0.3 m sphere cast straight up from 0.5 m over the road: whatever it meets first.
-                if (g.SphereCast(px, s0.Height + 0.5, pz, 0, 1, 0, 0.3, 10.0, out hit) && hit + 0.8 < lowest)
+                if (g.SphereCast(px, s0.Height + 0.5, pz, 0, 1, 0, 0.3, 10.0, out hit) && hit + 0.8 < lowest &&
+                    g.TrySample(px, pz, float.PositiveInfinity, out deck) && deck.OnDeck)
                 {
                     lowest = hit + 0.8;
+                    deckOver = deck.Height - s0.Height;
                     where = Where(px, pz);
                 }
             }
-            TestContext.WriteLine("lowest structure over Primary 176144636 under the overbridge: " + lowest.ToString("0.00") + " m at " + where);
+            TestContext.WriteLine("lowest structure over Primary 176144636 under the overbridge: " + lowest.ToString("0.00") + " m at " + where +
+                                  ", the foot deck's surface " + deckOver.ToString("0.00") + " m over the road there");
             Assert.That(lowest, Is.LessThan(8.0), "the overbridge is over this road");
-            Assert.That(lowest, Is.GreaterThanOrEqualTo(RoadClearance.MinOverheadClearanceM), "overhead clearance at " + where);
+            // Nothing but the deck's slab: the lowest obstacle is its underside in the road index (within the 0.3 m sphere's
+            // march step), and the drawn deck (0.6 m deep) clears the contract's 4.5 m.
+            Assert.That(lowest, Is.EqualTo(deckOver - RoadSpatialIndex.DeckThicknessM).Within(0.15), "the deck slab, nothing lower, at " + where);
+            Assert.That(deckOver - RoadStructureRecord.FootDeckDepthM, Is.GreaterThanOrEqualTo(RoadClearance.MinOverheadClearanceM), "the drawn foot deck's underside");
         }
 
         [Test, Explicit("probe")]

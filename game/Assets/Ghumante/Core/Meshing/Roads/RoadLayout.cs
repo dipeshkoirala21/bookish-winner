@@ -41,9 +41,7 @@ namespace Ghumante.Core.Meshing
         /// of corner k (straight runs along the edges and the kerb-return arc).</summary>
         public int[] ArmRightIndex, ArmLeftIndex;
 
-        /// <summary>Per corner k (between arm k and arm k + 1): the kerb-return radius drawn (0 = no arc; a bus corner
-        /// whose arc the setbacks clip is drawn as the apex of a <see cref="RoadLayout.BusCornerRadiusM"/> return joined
-        /// straight to the edges, and reports that radius).</summary>
+        /// <summary>Per corner k (between arm k and arm k + 1): the kerb-return radius drawn (0 = no arc).</summary>
         public float[] CornerRadiusM;
 
         /// <summary>Per corner (between arm k and arm k + 1): a bus corner (<see cref="RoadLayout.BusCornerMinAngleDeg"/>),
@@ -1792,8 +1790,8 @@ namespace Ghumante.Core.Meshing
         /// A corner between two car roads both drawn at least 6.5 m wide, at least <see cref="BusCornerMinAngleDeg"/> wide,
         /// outside the old cores: its kerb return keeps at least <see cref="BusCornerRadiusM"/> (of the design radius,
         /// <see cref="KerbReturnRadiusM"/>, 6 m) even where the pipeline trimmed the corner house to the straight corridors,
-        /// and where the arms' setbacks clip that arc its apex still is (<see cref="BusCornerApex"/>); the house is cut back
-        /// to the cap like any house in a corridor (decision 1, rideability beats exact footprints). A bus swinging round the corner, its front overhang 2.5 m ahead of the front
+        /// as far as the arms' setbacks allow, and the house is cut back to the cap like any house in a corridor (decision 1,
+        /// rideability beats exact footprints). A bus swinging round the corner, its front overhang 2.5 m ahead of the front
         /// axle, clears the corner house (camera package rides: the bus from Tanka Prasad Ghumti
         /// Sadak into Bhaktithapa Road stopped against the sharp corner of the house there, 85.32753, 27.69324).
         /// </summary>
@@ -1802,52 +1800,6 @@ namespace Ghumante.Core.Meshing
             if (oldCore || th < BusCornerMinAngleDeg * Math.PI / 180.0) return false;
             if (Profiles[a.Road].NoCars || Profiles[b.Road].NoCars) return false;
             return a.OffL + a.OffR >= 6.5 && b.OffL + b.OffR >= 6.5;
-        }
-
-        /// <summary>
-        /// The outline of a bus corner (<see cref="BusCorner"/>) whose kerb return the arms' setbacks clip (a short arm to
-        /// the next junction or bend): between arm <paramref name="a"/>'s left cut (<paramref name="lx"/>, <paramref name="lz"/>)
-        /// and arm <paramref name="b"/>'s right cut, whose edges meet at the corner (<paramref name="px"/>, <paramref name="pz"/>;
-        /// <paramref name="ta"/> and <paramref name="tb"/> metres out from the node), it adds the apex of a
-        /// <see cref="BusCornerRadiusM"/> return on the bisector, with the return's tangent point on each edge that lies
-        /// before that arm's cut. The corner house is cut back to these straight edges (decision 1), and a bus swinging round
-        /// the corner keeps its margin where the straight line between the cuts or a sharp corner left it none (camera
-        /// package: the bus from Tanka Prasad Ghumti Sadak into Bhaktithapa Road, whose arm of Ghumti Sadak bends 4.5 m from
-        /// the node, 85.32753, 27.69324: 0.34 m clear of the corner house instead of 0.02 m). False, adding nothing, where the
-        /// apex would not bulge the outline outwards (beyond the straight line between the cuts, seen from the node at
-        /// <paramref name="nx"/>, <paramref name="nz"/>) or a cut stops short of the corner by more than the return's tangent.
-        /// </summary>
-        private static bool BusCornerApex(in Arm a, in Arm b, double nx, double nz, double px, double pz, double ta, double tb, double th, double lx,
-                                          double lz, in RoadCut cb, List<double> xs, List<double> zs)
-        {
-            double half = 0.5 * th;
-            double tangent = BusCornerRadiusM / Math.Tan(half), apex = BusCornerRadiusM * (1.0 / Math.Sin(half) - 1.0);
-            double bisx = a.DX + b.DX, bisz = a.DZ + b.DZ, bl = Math.Sqrt(bisx * bisx + bisz * bisz);
-            if (bl < 1e-9) return false;
-            double qx = px + bisx / bl * apex, qz = pz + bisz / bl * apex;
-            double sb = b.Forward ? 1 : -1;
-            double brx = cb.CX - sb * cb.UX * (cb.Half - sb * cb.Shift), brz = cb.CZ - sb * cb.UZ * (cb.Half - sb * cb.Shift);
-            // The apex must lie beyond the straight line between the two cuts, on the far side from the node.
-            double ex = brx - lx, ez = brz - lz;
-            double sideQ = ex * (qz - lz) - ez * (qx - lx), sideN = ex * (nz - lz) - ez * (nx - lx);
-            if (!(sideQ * sideN < 0) || Math.Abs(sideQ) < 1e-6) return false;
-            // A cut short of the corner by more than the return's tangent would bulge the cap far beside that arm's ribbon.
-            if (a.Setback - ta < -tangent || b.Setback - tb < -tangent) return false;
-            // A tangent point only where it lies before the cut (measured on the drawn cut points, which follow the arm's
-            // own curve, not the straight edge from the node).
-            if ((lx - px) * a.DX + (lz - pz) * a.DZ > tangent + 0.05)
-            {
-                xs.Add(px + a.DX * tangent);
-                zs.Add(pz + a.DZ * tangent);
-            }
-            xs.Add(qx);
-            zs.Add(qz);
-            if ((brx - px) * b.DX + (brz - pz) * b.DZ > tangent + 0.05)
-            {
-                xs.Add(px + b.DX * tangent);
-                zs.Add(pz + b.DZ * tangent);
-            }
-            return true;
         }
 
         /// <summary>Largest angle step of a kerb-return arc.</summary>
@@ -1985,14 +1937,6 @@ namespace Ghumante.Core.Meshing
                 if (!hasP[k] || n < 2) continue;
                 // Kerb return: the circle tangent to a's left edge and b's right edge, as large as both setbacks allow.
                 double T = Math.Min(tan[k], Math.Min(a.Setback - ta[k], b.Setback - tb[k]) - 0.05);
-                // A bus corner whose kerb return the setbacks clip (a short arm to the next junction or bend): the return's
-                // apex, joined straight to the edges at its tangent points or the cuts, whichever is nearer.
-                if (bus[k] && T * Math.Tan(0.5 * theta[k]) < BusCornerRadiusM - 0.05 &&
-                    BusCornerApex(a, b, nx, nz, px[k], pz[k], ta[k], tb[k], theta[k], lx, lz, cuts[(k + 1) % n], xs, zs))
-                {
-                    radii[k] = (float)BusCornerRadiusM;
-                    continue;
-                }
                 if (T < 0.05)
                 {
                     // No room for an arc: where both cuts lie beyond the corner the edges meet at it (a sharp corner, never a
