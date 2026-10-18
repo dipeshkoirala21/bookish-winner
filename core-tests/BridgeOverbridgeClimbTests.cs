@@ -65,6 +65,14 @@ namespace Ghumante.Core.Tests
                     routes++;
                     StringBuilder trace = string.IsNullOrEmpty(only) ? null : new StringBuilder();
                     ProbeRun run = BridgeProbe.Follow(w, VehicleSpec.Walker(), r.Waypoints, 1f, r.StartY + 0.05f, 120f, trace);
+                    // (As the gating test does: where the longest route runs over one of the known stair data quirks, the next
+                    // route between two feet on either side of the road crosses it, as a player takes the other stair.)
+                    for (int c = 0; c < r.Alternatives.Count && !(run.Reached && run.MaxY > r.DeckY - 0.3f && run.BridgeSink < 0.25f); c++)
+                    {
+                        report.Append(t.Tile).Append(" overbridge ").Append(r.Way).Append(" route ").Append(c + 1).Append(" (").Append(c == 0 ? r.Note : r.AlternativeNotes[c - 1])
+                              .Append(") failed: ").Append(run).Append('\n');
+                        run = BridgeProbe.Follow(w, VehicleSpec.Walker(), r.Alternatives[c], 1f, r.AlternativeStartY[c] + 0.05f, 120f, null);
+                    }
                     if (trace != null)
                     {
                         var wp = new StringBuilder("waypoints:");

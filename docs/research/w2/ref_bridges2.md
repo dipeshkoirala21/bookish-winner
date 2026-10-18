@@ -87,18 +87,45 @@ of a fitted flight the ground followed that ramp half a metre above the pavement
 * A landing is cut back off a flight more than 0.3 m below it (0.45 m, the step-up exactly, still stopped walkers), and
   the cut samples the flight's walking line as well as its edges.
 
+**Stair feet on the ground (second session of this round).** Every stair now ends on the pavement it serves, as the
+photographs show (the last tread a riser over the footpath, never in the air, never sunk into the bank):
+
+* A generated flight (a deck end with nothing mapped) and the return flight of a dog-leg take the smallest whole number
+  of standard risers whose foot, a flight's length on, lies that many risers below the top (`StandardToGround`): a few
+  rounds of "drop to the ground under the last foot" never settled on a slope, and the west stair of the Durbar Marg
+  overbridge 112449587 ended 0.45 m under the terrain.
+* A mapped flight whose free foot is still in the air runs on along its grade until the line meets the ground, searched
+  along it (`FootOnGround`; the steps 1268595050 of the Ring Road overbridge 1268595049 ended 0.9 m over the pavement),
+  and one whose foot lies under the ground (a stair moved with an extended deck end onto higher ground) ends where its
+  grade line enters the bank (`LandingAlong`; the stair 1433527430 of the overbridge 1433527431 ended 0.56 m under it).
+* A foot way joining a stair at its end node and carrying straight on under a flight run on past the mapped foot is
+  covered there too (`JoinedCover`): its ribbon, a brick ramp up to the stair's mapped foot 1.5 m over the street, stood
+  through the lower treads of the Ring Road steps 1268595061 and gave walkers coming down a step up.
+* A flight clipped off a deck starts at the first point off it, up to 0.1 m past the deck edge; the deck index carries
+  its top 0.15 m back at its top height (`BridgeDeckIndex.TopLipM`), so walkers reaching the top of the sidewalk stairs
+  of the Tripureshwor overbridge 268851407 no longer drop through that sliver to the street.
+* Steep stretches inside a foot deck are split where the mapped heights turn (a dip or a crest), so each flight runs one
+  way, and a single mapped point of a foot deck that dips (or peaks) more than 0.3 m between two level neighbours is
+  evened out (`FootDips`): on the deck 112116412 of the Jamal overbridge a 0.7 m dip 1.5 m before the joint with the
+  deck 112116410 became one chord flight 0.7 m under that joint, so neither deck reached the other.
+* The stair generated at an overbridge end is laid out before the deck's own flights, so a flight of the deck that the
+  generated stair leaves from runs its treads out to the deck edge at the railing gap (the west end of 112116410 left a
+  0.4 m strip of nothing between the two).
+
 ## 3. Rideability before and after (headless, the real walker and motorbike)
 
 `core-tests/BridgeSampleRideTests.cs` builds the ground query the streamer builds on High (the same deck index, solids
 and terrain step) over the committed `kathmandu_core` sample and drives `ArcadeVehicle` along the lines a player
 follows. The same tests run on main (`64155f3`) and on this branch:
 
-| Test (owner complaint) | main 64155f3 | this round |
-|---|---|---|
-| `RiversideRoadsPassUnderTheDhobiKholaBridges` (#2: Kalopul, Setopul, Ratopul, Bhatkeko Pul; 22 runs) | 19 runs stopped | 0 |
-| `EveryStairFlightIsClimbedAndDescended` (#15: every flight up and down) | 44 of 135 flights (60 of 270 runs) stopped | 5 of 123 flights (8 of 246 runs), all on the data quirks below |
-| `RiverBridgesAndFlyoversAreWalkedAndRiddenAcross` (#2: 57 bridges and flyovers, walk and ride) | 21 of 114 runs stopped | 0 |
-| `BridgeOverbridgeClimbTests.EveryOverbridgeCanBeClimbedAndCrossed` (explicit, #15: foot to foot over each of the 15 overbridges on the drawn world) | 3 crossed | 10 crossed |
+| Test (owner complaint) | main 64155f3 | session start (e9482ef) | this round |
+|---|---|---|---|
+| `RiversideRoadsPassUnderTheDhobiKholaBridges` (#2: Kalopul, Setopul, Ratopul, Bhatkeko Pul; 22 runs) | 19 runs stopped | 0 | 0 |
+| `EveryStairFlightIsClimbedAndDescended` (#15: every flight up and down) | 44 of 135 flights (60 of 270 runs) stopped | 5 of 123 flights (8 runs), data quirks | 5 of 125 flights (8 runs), the same data quirks |
+| `RiverBridgesAndFlyoversAreWalkedAndRiddenAcross` (#2: walk and ride; now with the owner's Prithvi Path bridge) | 21 of 114 runs stopped | 0 of 114 | 0 of 118 (59 decks) |
+| `EveryFootOverbridgeIsCrossedFootToFoot` (new, gating, #15: foot to foot over each of the 15 overbridges) | - | 10 crossed | 15 crossed (one, 1174960075, on its second route: the data quirk below) |
+| `BridgeOverbridgeClimbTests.EveryOverbridgeCanBeClimbedAndCrossed` (explicit, #15, the same on the drawn world) | 3 crossed | 10 crossed | 15 crossed |
+| `BridgeCrossingTests.ProbeEveryBridge` (explicit, #2, drawn world: 227 decks walked, walked back, ridden, walkway, and every road under them; 915 runs) | - | 57 bad (22 sunk into what is drawn), unders 9 of 68 bad | 50 bad (10 sunk), unders 10 of 68 bad |
 
 (The flight count falls because flights lying wholly on a deck, or on a deck's own end flight, are left to the deck.)
 The crossing test's rider slows to 18 km/h for a bend of more than 50 degrees in the next 12 m: at the half-throttle
@@ -108,6 +135,21 @@ The drawn-world probes (`BridgeCrossingTests`, explicit: every span walked, ridd
 it; `BridgeOverbridgeClimbTests`, explicit: foot to foot over every overbridge) measure the feet against the drawn
 meshes as well (a sink into a drawn surface is the owner's "sucked in").
 
+**The owner's bridge.** The screenshot's bridge ("shree tripura sundari grill udhyog", a wide divided road with
+railings) is Prithvi Path over the Bagmati channel at Tripureshwor (ways 225426574 and 225426579, decks 23 m long, only
+0.1 m over the bank, so the rise filter of the crossing test left it out). It is now gated by name: walked and ridden
+across both carriageways, feet never more than 0.03 m inside the drawn deck (drawn world: walk, walk back, ride and
+walkway all clear).
+
+**Walked on what is drawn.** Two causes of the remaining sinks were the roads layer drawing a bridge way where the
+ground query did not look: the approach stretches of a bridge or flyover way beyond its deck (the way is elevated, so
+no ground road, and the bridges package draws no deck there) are now walked on the surface the roads layer draws there
+(`TileGroundQuery.ApproachOfStructure`, through the roads package's own `RoadSurfaceQuery`), and over a deck the
+asphalt ribbon the roads layer lays on it answers where it lies above the deck within reach (`OverDeckDrawn`). On the
+Ring Road culvert bridge 756183449 the walker had stood 0.33 m and 0.46 m inside the drawn carriageway on its two
+approaches; now within 0.04 m. A structure way's record heights count where the bridges package does not draw that
+stretch (the check is per segment, as the drawing is).
+
 **Known data quirks (open issues for the data package).** The flights still failing all come from structure heights
 that the data's derivation gives ways which only touch a stair or a deck end: a sidewalk sharing a node with the foot of
 a stair, or with the end of a deck, gets that node's height and climbs over it in a hump of flights that runs under the
@@ -115,19 +157,38 @@ deck or the stair beside it. The four ways are listed in the test (`StairDataQui
 the stair joint of overbridge 268851407 (and the 1.2 m way 1429946087 from that joint to the deck), the sidewalk
 301779943 through the end of overbridge 112449571, the sidewalk 1174960072 at the foot of the steps 1174960074 (whose
 foot node is mapped 1.5 m over the street), and the footway 1368711450 across the end of the road bridge 1540981400, its
-steps mapped to tops 1.3 m under the deck and 2.5 m inside its edge. The explicit climb probe still finds no foot-to-foot route
-over 1433527429, 112449580, 112116409 and 1268595049 (its walk graph splits into pieces at the joints of several mapped
-ways; one stair foot of 1433527429 lies 0.56 m under the terrain), and stops on 268851407 at the joint above; these stay
-open issues, although every flight of them outside the quirks passes the gating test.
+steps mapped to tops 1.3 m under the deck and 2.5 m inside its edge. The route over 1174960075 that starts up the
+sidewalk hump 1174960072 still stops under the steps 1174960074; the next route over that overbridge crosses it. The
+other routes the first session left open (1433527429, 112449580, 112116409, 1268595049, 268851407) are all crossed now
+(stair feet on the ground, the flight top lip, the deck zones split and evened out).
 
 **Trench walls under a bridge approach.** The retaining wall of a lowered riverside road stood 0.2 m out of the
 approach road of the Dallu bridge where that road crosses the wall line on the bank; the wall now opens wherever a road
 (its footpaths too) on the bank crosses the wall line below the wall's top.
 
+**Open issues for other packages (found by these probes).**
+
+* Roads: at the east end of the Ring Road culvert bridge 756183449 the drawn roads mesh lies 0.2-0.3 m over what the
+  roads package's own `RoadSurfaceQuery` answers there (the query says 1296.68, the mesh 1296.9 at (527566.7,
+  167203.1)); walkers stand on the query's surface, so they are up to 0.3 m inside the drawn ribbon for 3 m.
+* Props: `PropPlacement.DeckSpot` stands a generated lamp (3 m pole, r 0.08 m) on foot overbridge decks wherever the deck
+  has a walkway, also in a railing gap where a stair or another deck joins: on the Jamal overbridge one stands in the gap
+  of the deck 112116412 where the deck 112116410 joins (529608.5, 165631.0), and the drawn-world walker turning there
+  stops at it. Lamps on a deck should skip `BridgeSpan.InGap`.
+* Data: the four stair quirks above (sidewalk humps through stair joints and deck ends) and the dip in the derived heights
+  of 112116412 (evened out here).
+* Roads/ride (minimal edits made here, to be taken over): `RibbonMesher` and `RoadSurfaceQuery` skip the stretches a
+  stair of the bridges package covers (`BridgeLayout.CoversAlong`), `RoadSpatialIndex.TryNearestExcept` serves the
+  layered road choice, and `MeshingRoadDetailTests` skips covered stretches.
+
 ## 4. Photographs (reference only, not copied into the repository)
 
-New Openverse searches for this round failed (rate-limited, as in the data package's round); the comparisons use the
-photographs already collected in `/home/user/wt/refs/bridges/` for the bridges package:
+New Openverse searches for this round failed (rate-limited, as in the data package's round; again in the second
+session for "Kathmandu pedestrian overhead bridge stairs", "overhead bridge Kathmandu", "Kathmandu footbridge" and
+"pedestrian bridge Nepal"); the comparisons use the photographs already collected in `/home/user/wt/refs/bridges/` for
+the bridges package. The second session's changes are to where stairs end and meet, not to how they look: each stair
+now lands on the footpath with its last tread one riser over it, as in `overbridge2/ref_00.jpg`. Before and after renders
+from the drawn world: `/home/user/wt/previews/bridges2/s3_*_before_after.png`.
 
 | File | What it shows | Credit |
 |---|---|---|

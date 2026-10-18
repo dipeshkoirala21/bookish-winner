@@ -1303,6 +1303,51 @@ namespace Ghumante.Core.Meshing.Bridges
             return sp.Length - open > 1.0;
         }
 
+        /// <summary>A single mapped point of a foot deck this much lower (or higher) than both its neighbours, while they
+        /// lie within it of each other, is a glitch of the derived heights (<see cref="FootDips"/>).</summary>
+        private const float DipM = 0.3f;
+
+        /// <summary>
+        /// The heights of foot deck <paramref name="ri"/> between points <paramref name="k0"/> and <paramref name="k1"/>
+        /// with single-point dips and crests evened out: a point more than <see cref="DipM"/> below (or above) both its
+        /// neighbours, which lie within <see cref="DipM"/> of each other and within 3 m of it, and that no other way
+        /// shares, takes the height on the line between them. Such a V in the derived structure heights of a level
+        /// walkway became two flights of steps down and up again (the deck 112116412 of the Jamal overbridge dips
+        /// 0.7 m at a point 1.5 m before the joint with the deck 112116410). The record itself is not changed (a copy, or
+        /// the record's own array when nothing changes).
+        /// </summary>
+        private float[] FootDips(TileData t, int ri, float[] y, double[] along, int k0, int k1)
+        {
+            float[] result = y;
+            int[] p = t.Roads[ri].Points;
+            for (int i = k0 + 1; i < k1; i++)
+            {
+                float a = y[i - 1], b = y[i], c = y[i + 1];
+                if (float.IsNaN(a) || float.IsNaN(b) || float.IsNaN(c) || Math.Abs(a - c) > DipM) continue;
+                if (!(Math.Min(a, c) - b > DipM || b - Math.Max(a, c) > DipM)) continue;
+                double la = along[i] - along[i - 1], lc = along[i + 1] - along[i];
+                if (la > 3.0 || lc > 3.0 || la + lc < 1e-6) continue;
+                if (SharedPoint(t, ri, p[2 * i], p[2 * i + 1])) continue;
+                if (result == y) result = (float[])y.Clone();
+                result[i] = (float)(a + (c - a) * la / (la + lc));
+            }
+            return result;
+        }
+
+        /// <summary>True when a road of <paramref name="t"/> other than <paramref name="ri"/> has a point at tile-local
+        /// (x, z) cm.</summary>
+        private static bool SharedPoint(TileData t, int ri, int x, int z)
+        {
+            for (int j = 0; j < t.Roads.Count; j++)
+            {
+                if (j == ri) continue;
+                int[] q = t.Roads[j].Points;
+                for (int i = 0; i + 1 < q.Length; i += 2)
+                    if (q[i] == x && q[i + 1] == z) return true;
+            }
+            return false;
+        }
+
         private static bool AllSteep(RoadRecord r, float[] y, int a, int b)
         {
             for (int k = a; k < b; k++)
@@ -1351,7 +1396,7 @@ namespace Ghumante.Core.Meshing.Bridges
             sp.EndCut = postCtx && BorderOf(p[2 * k1], p[2 * k1 + 1], sizeCm) >= 0;
             sp.StartEnd = sp.StartCut ? SpanEnd.Cut : SpanEnd.Ground;
             sp.EndEnd = sp.EndCut ? SpanEnd.Cut : SpanEnd.Ground;
-            float[] deck = rec.DeckY;
+            float[] deck = sp.Foot && !stair ? FootDips(t, ri, rec.DeckY, along, k0, k1) : rec.DeckY;
             if (preCtx && !float.IsNaN(deck[k0 - 1]))
             {
                 sp.HasPre = true;
