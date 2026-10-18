@@ -53,7 +53,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 
         public int Lod;
 
-        /// <summary>Colliders of LOD0 (null at the other LODs).</summary>
+        /// <summary>The colliders the build makes (null when it is asked for none: the part builder's LOD1-3, see
+        /// <see cref="PashupatiSite.Build(HeritageRecord, TileData, int, MeshData, GenColliders, SacredStats)"/>).</summary>
         public GenColliders C;
 
         /// <summary>The OSM outlines of the tile (site metres), when the build has a tile.</summary>
@@ -80,14 +81,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         }
 
         /// <summary>The distinct terrain decimation steps the streamer draws <paramref name="tile"/> with on the three
-        /// tiers (the tile as its own area: <see cref="StreamingConfig.TerrainStep"/>).</summary>
+        /// tiers (the tile as its own area, with and without detail: <see cref="StreamingConfig.TerrainStep(SelectedNode, int)"/>,
+        /// what TileBuild meshes it with; a tile that draws detail, the site with it, takes the tier's
+        /// <see cref="StreamingConfig.DetailTerrainQuads"/>, the other near-ring tiles the ring's quads).</summary>
         public static int[] DrawnSteps(TileData tile)
         {
             int n = 0;
-            var steps = new int[3];
+            var steps = new int[6];
             for (int tier = StreamingConfig.TierLow; tier <= StreamingConfig.TierHigh; tier++)
+            for (int detail = 0; detail < 2; detail++)
             {
-                int s = StreamingConfig.ForTier(tier).TerrainStep(tile.Tile, tile.Tile, tile.HeightsN);
+                int s = StreamingConfig.ForTier(tier).TerrainStep(new SelectedNode(tile.Tile, tile.Tile, detail == 1), tile.HeightsN);
                 if (Array.IndexOf(steps, s, 0, n) < 0) steps[n++] = s;
             }
             Array.Resize(ref steps, n);
@@ -407,8 +411,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         }
 
         /// <summary>
-        /// Build one part of the site at a LOD into <paramref name="m"/> (tile-local, absolute heights) with its LOD0
-        /// colliders; returns its triangles, 0 when the site is not in <paramref name="tile"/>.
+        /// Build one part of the site at a LOD into <paramref name="m"/> (tile-local, absolute heights) with its
+        /// colliders; returns its triangles, 0 when the site is not in <paramref name="tile"/>. The hero builder's entry:
+        /// like the generic generators it makes the colliders at whichever LOD it is handed them, since the streamer hands
+        /// them to the first LOD it builds (TileBuild.BuildHeroes), LOD1 on Low, which never draws LOD0
+        /// (BandConfig.HeroLod0AllowedFor). The site's colliders are laid out from its measured plan, not from its mesh:
+        /// LOD1 makes exactly LOD0's set (every box, ramp, cylinder and wall), LOD2 drops a few small ones, LOD3 has none.
         /// </summary>
         public static int Build(HeritageRecord r, TileData tile, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
@@ -417,11 +425,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             if (m == null) throw new ArgumentNullException(nameof(m));
             PashupatiPart part;
             if (!TryPart(r.Id, out part) || !InTile(tile)) return 0;
-            return Build(part, tile, lod, m, c, stats);
+            return Build(part, tile, lod, m, c, stats, true);
         }
 
-        /// <summary>Build one part (see the other overload).</summary>
+        /// <summary>Build one part (see the other overload), its colliders only at LOD0.</summary>
         public static int Build(PashupatiPart part, TileData tile, int lod, MeshData m, GenColliders c, SacredStats stats)
+        {
+            return Build(part, tile, lod, m, c, stats, false);
+        }
+
+        private static int Build(PashupatiPart part, TileData tile, int lod, MeshData m, GenColliders c, SacredStats stats, bool collidersAtAnyLod)
         {
             lod = Math.Max(0, Math.Min(3, lod));
             stats?.Clear();
@@ -429,7 +442,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             ShapeAo.EnsureUv(m);
             m.HasUv0 = true;
             // The site reads its levelled ground from the frame (PashupatiGround.Prepared): the tile is never altered.
-            PashupatiFrame f = PashupatiFrame.For(tile, lod, lod == 0 ? c : null);
+            PashupatiFrame f = PashupatiFrame.For(tile, lod, lod == 0 || collidersAtAnyLod ? c : null);
             switch (part)
             {
                 case PashupatiPart.Temple:

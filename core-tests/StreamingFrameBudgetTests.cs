@@ -268,7 +268,12 @@ namespace Ghumante.Core.Tests
             TileBuild b = StreamingScene.Build(id, settings, ground);
             TileExtras e = b.TakeExtras();
             Assert.That(e.Colliders, Is.Not.Null);
-            Assert.That(e.Colliders.Count, Is.GreaterThan(500), "a dense tile's dressing");
+            // Trunks, street-prop poles and the parked vehicles nobody can borrow. Since the first playtest (#3) every parked
+            // vehicle the player can drive is a community-fleet one, registered round the player by ExploreSession rather
+            // than in this static set (StreamingSceneTests.DressingCollidersAreASetOfTheirOwn): Asan's set went from 1695
+            // colliders, nearly all parked-vehicle boxes, to 200 (198 trunk and pole cylinders, 2 boxes), so the probes below
+            // run round the cylinders as well as the boxes.
+            Assert.That(e.Colliders.Count, Is.GreaterThan(150), "a dense tile's dressing");
             Assert.That(e.PreparedColliders, Is.Not.Null, "indexed on the worker");
             ulong key = id.Key | TileGroundQuery.StaticSetKeyBit;
             Assert.That(e.PreparedColliders.TileKey, Is.EqualTo(key));
@@ -299,6 +304,24 @@ namespace Ghumante.Core.Tests
                 bool rc = prepared.SphereCast(x - 3, box.CY, z - 3, 0.7071, 0, 0.7071, 0.3, 10, out hc);
                 Assert.That(rc, Is.EqualTo(ra));
                 Assert.That(hc, Is.EqualTo(ha).Within(1e-9));
+                if (ra) hits++;
+            }
+            for (int i = 0; i < e.Colliders.Cylinders.Count; i += 3)
+            {
+                ColliderCylinder cyl = e.Colliders.Cylinders[i];
+                double x = id.X0 + cyl.CX, z = id.Z0 + cyl.CZ;
+                for (int k = 0; k < 3; k++)
+                {
+                    double px = x + (k - 1) * 0.4, pz = z + (k - 1) * 0.3;
+                    bool a = raw.IsBlocked(px, pz, cyl.Bottom + 0.05f), c = prepared.IsBlocked(px, pz, cyl.Bottom + 0.05f);
+                    Assert.That(c, Is.EqualTo(a), "cylinder " + i + " at " + px.ToString("0.0") + ", " + pz.ToString("0.0"));
+                    if (a) blocked++;
+                }
+                double ha, hc, y = 0.5 * (cyl.Bottom + cyl.Top);
+                bool ra = raw.SphereCast(x - 3, y, z - 3, 0.7071, 0, 0.7071, 0.3, 10, out ha);
+                bool rc = prepared.SphereCast(x - 3, y, z - 3, 0.7071, 0, 0.7071, 0.3, 10, out hc);
+                Assert.That(rc, Is.EqualTo(ra), "cylinder " + i + " cast");
+                Assert.That(hc, Is.EqualTo(ha).Within(1e-9), "cylinder " + i + " cast distance");
                 if (ra) hits++;
             }
             prepared.Unregister(key);

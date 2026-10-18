@@ -171,6 +171,27 @@ namespace Ghumante.Core.Tests
             Assert.That(s.Heroes.HiddenRefs, Does.Contain(HeritageRecord.WayRelationRef("w913170309")), "north wing hidden");
         }
 
+        /// <summary>Low never draws a hero's LOD0 (BandConfig.HeroLod0AllowedFor): its tile build starts at LOD1 and hands
+        /// the colliders to that LOD. The site still stands there as solid and walkable as on High.</summary>
+        [Test]
+        public void TheStreamedTileOnLowHasTheSameCollidersAsOnHigh()
+        {
+            TileBuild low = StreamingScene.Build(GeneratorsSacredPashupatiPreview.TempleTile, StreamingScene.Settings(0, 10));
+            TileBuild high = StreamingScene.Build(GeneratorsSacredPashupatiPreview.TempleTile, StreamingScene.Settings(2, 10));
+            foreach (HeroPiece p in low.Heroes) Assert.That(p.Tris0, Is.EqualTo(0), p.Id + ": no LOD0 on Low");
+            Assert.That(high.HeroColliders, Is.Not.Null, "High");
+            Assert.That(low.HeroColliders, Is.Not.Null, "Low has the site's colliders");
+            Assert.That(low.HeroColliders.Boxes.Count, Is.EqualTo(high.HeroColliders.Boxes.Count), "boxes");
+            Assert.That(low.HeroColliders.Ramps.Count, Is.EqualTo(high.HeroColliders.Ramps.Count), "ramps");
+            Assert.That(low.HeroColliders.Cylinders.Count, Is.EqualTo(high.HeroColliders.Cylinders.Count), "cylinders");
+            Assert.That(low.HeroColliders.Walls.Count, Is.EqualTo(high.HeroColliders.Walls.Count), "walls");
+            for (int i = 0; i < high.HeroColliders.Boxes.Count; i++) Assert.That(low.HeroColliders.Boxes[i], Is.EqualTo(high.HeroColliders.Boxes[i]), "box " + i);
+            for (int i = 0; i < high.HeroColliders.Ramps.Count; i++) Assert.That(low.HeroColliders.Ramps[i], Is.EqualTo(high.HeroColliders.Ramps[i]), "ramp " + i);
+            for (int i = 0; i < high.HeroColliders.Cylinders.Count; i++)
+                Assert.That(low.HeroColliders.Cylinders[i], Is.EqualTo(high.HeroColliders.Cylinders[i]), "cylinder " + i);
+            for (int i = 0; i < high.HeroColliders.Walls.Count; i++) Assert.That(low.HeroColliders.Walls[i], Is.EqualTo(high.HeroColliders.Walls[i]), "wall " + i);
+        }
+
         [Test]
         public void PlinthsStairsAndFloorsAreWalkable()
         {
