@@ -154,6 +154,7 @@ namespace Ghumante.Core.Meshing
                 pads.Pads.Add(Fit(cap.X, cap.Z, new[] { px }, new[] { pz }, cap.TopRoad, false, natural));
                 for (int k = 0; k < cap.ArmRoads.Length; k++) pads._cutPad[CutKey(cap.ArmRoads[k], cap.ArmCutS[k])] = index;
             }
+            pads.MergeSteepNeighbours(lay, natural);
             foreach (RoadRing ring in lay.Rings)
             {
                 var polysX = new List<double[]>();
@@ -183,6 +184,91 @@ namespace Ghumante.Core.Meshing
                 foreach (RingArm arm in ring.Arms) pads._cutPad[CutKey(arm.Road, arm.Cut.S)] = index;
             }
             return pads;
+        }
+
+        /// <summary>Steepest grade of the stretch of road between two neighbouring junction platforms (a steep street between
+        /// two junctions; the platforms themselves stay within <see cref="MaxGrade"/>).</summary>
+        public const float MaxArmGrade = 0.15f;
+
+        /// <summary>
+        /// Junction caps joined by a stretch of road too short to climb from one platform to the other within
+        /// <see cref="MaxArmGrade"/> (two junctions a few metres apart on a hillside, each levelled on its own) share one
+        /// platform: the plane through the natural ground of all their outlines. Before this the stub between them rose
+        /// up to 1.5 m in half a metre, a cliff in the road (cut/fill package, Kalimati and Swayambhu lanes).
+        /// </summary>
+        private void MergeSteepNeighbours(RoadLayout lay, Func<double, double, float> natural)
+        {
+            int n = Pads.Count;
+            if (n < 2) return;
+            var parent = new int[n];
+            for (int k = 0; k < n; k++) parent[k] = k;
+            bool any = false;
+            for (int i = 0; i < lay.Cuts.Length; i++)
+            {
+                RoadCut[] cuts = lay.Cuts[i];
+                if (cuts == null) continue;
+                // Drawn stretches run from the end of one gap (cuts[2m + 1]) to the start of the next (cuts[2m + 2]).
+                for (int k = 1; k + 1 < cuts.Length; k += 2)
+                {
+                    RoadCut a = cuts[k], b = cuts[k + 1];
+                    int pa = PadOfCut(i, a.S), pb = PadOfCut(i, b.S);
+                    if (pa < 0 || pb < 0 || pa == pb) continue;
+                    double len = Math.Max(0.0, b.S - a.S);
+                    float ha = Pads[pa].Height(a.CX, a.CZ), hb = Pads[pb].Height(b.CX, b.CZ);
+                    if (Math.Abs(ha - hb) <= MaxArmGrade * len + 0.05) continue;
+                    int ra = Find(parent, pa), rb = Find(parent, pb);
+                    if (ra == rb) continue;
+                    parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
+                    any = true;
+                }
+            }
+            if (!any) return;
+            var groups = new Dictionary<int, List<int>>();
+            for (int k = 0; k < n; k++)
+            {
+                int r = Find(parent, k);
+                List<int> l;
+                if (!groups.TryGetValue(r, out l)) groups[r] = l = new List<int>(2);
+                l.Add(k);
+            }
+            foreach (KeyValuePair<int, List<int>> g in groups)
+            {
+                List<int> members = g.Value;
+                if (members.Count < 2) continue;
+                var px = new List<double[]>();
+                var pz = new List<double[]>();
+                double cx = 0, cz = 0;
+                int top = -1, topPrio = int.MinValue;
+                foreach (int m in members)
+                {
+                    RoadPad p = Pads[m];
+                    px.AddRange(p.PolyX);
+                    pz.AddRange(p.PolyZ);
+                    cx += p.CX;
+                    cz += p.CZ;
+                    int prio = p.TopRoad >= 0 && p.TopRoad < lay.Tile.Roads.Count ? RoadStyle.Priority(lay.Tile.Roads[p.TopRoad].RoadClass) : int.MinValue;
+                    if (prio > topPrio)
+                    {
+                        topPrio = prio;
+                        top = p.TopRoad;
+                    }
+                }
+                cx /= members.Count;
+                cz /= members.Count;
+                RoadPad merged = Fit(cx, cz, px.ToArray(), pz.ToArray(), top, false, natural);
+                // Every member answers with the shared platform (indices, and so every cut's pad, stay as they are).
+                foreach (int m in members) Pads[m] = merged;
+            }
+        }
+
+        private static int Find(int[] parent, int k)
+        {
+            while (parent[k] != k)
+            {
+                parent[k] = parent[parent[k]];
+                k = parent[k];
+            }
+            return k;
         }
 
         /// <summary>The least-squares plane through the natural terrain at the outline's points and centre, its gradient

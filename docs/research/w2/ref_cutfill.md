@@ -67,21 +67,67 @@ The carved ground keeps the natural colour where it moved less than 3 cm and tak
 
 1. **Level roads** (`RoadGrade`): the profile follows the smoothed natural drape along the road; across it the carriageway
    has only camber or superelevation (at most 6 %). Every pin is absolute: tile seams, knees, junction platforms, deck ends.
-2. **The carved surface** (`TerrainCarve`), per tile and terrain step, built from the bench (road surface less its lift):
+   * A free road end that stops on a junction platform it is not cut by (a lane ending on the edge of a square) is pinned
+     to that platform's plane (`PadPin`) instead of hanging at its own drape height.
+   * A street that runs over another drawn road (crossing it at a node without a junction cap, or skirting it) follows that
+     road's surface there, at any angle (`FollowPins`), so the two never step against each other.
+   * The grade cache keys natural and carved samplers apart, so a carved tile never reuses a grade made on natural ground.
+2. **Junction platforms** (`RoadPads`): one least-squares plane per junction cap or roundabout through the natural ground,
+   its fall held to 6 %. Two platforms joined by a short arm that would have to climb more than 15 % between them
+   (`MaxArmGrade`) are merged into one platform, so the arm is level with both and no stub ramp is left between two caps.
+3. **The carved surface** (`TerrainCarve`), per tile and terrain step, built from the bench (road surface less its lift):
    * under every road's drawn extent (carriageway with footpaths or shoulders, junction caps, roundabouts) the surface
      everyone stands on is exactly the bench (`ExtentAt`), for gentle streets and hill roads alike, whatever the grid draws
      hidden under the road;
    * beside a hill road (natural ground 0.35-0.7 m off the bench and a hillside falling 8-15 % across it) the ground is cut
      at 1 : 1 after the verge and filled at 1 : 1.5, steepening beyond 6 m, with breast and gabion walls;
+   * ramps onto bridge decks keep their extent and embankment up to the station where the deck takes over (found by
+     bisection), so a ramp is never left floating over natural ground before the abutment;
    * the coarse grid is carved beside hill roads and lowered (up to 3 m) under every road so no ground rises through it;
-     cells where that is not enough are refined into 4 m sub-quads (High and Mid; the Low tier's 32 m cells are never
-     refined and keep the coarse carve).
-3. **Everyone reads it**: the terrain mesh draws it, `TileHeightSampler` answers it (so the ground query, the lane graph,
+     a vertex that is not under any road is never lowered more than 0.25 m below the bench of the street it is lowered for
+     (`OffRoadBelowM`), so lowering for a road does not dig trenches beside it; cells where that is not enough are refined
+     into 4 m sub-quads (High and Mid; the Low tier's 32 m cells are never refined and keep the coarse carve);
+   * at a tile seam the carve on both sides is measured in metres along the border, so a road crossing the seam at a
+     shallow angle is carved the same on both tiles (no trench along the border).
+4. **Everyone reads it**: the terrain mesh draws it, `TileHeightSampler` answers it (so the ground query, the lane graph,
    the solids, buildings, trees and props stand on it), junction caps are drawn on it, parked vehicles pitch and roll to
    the road under their wheels and never hang over an edge, street animals lie only where the drawn road surface carries
    their whole body, and the parapets and breast walls are solids.
 
-## 5. Sources
+## 5. Before and after (sample pack, High tier terrain step)
+
+Measured by `RoadCutHillTests` and `TerrainCarveTests` (core-tests) at five hill places of the sample region: Gaurighat
+(10/520/162, the owner's screenshot), the Pashupati bank (10/520/161), Chabahil to Gaurighat (10/520/162), Swayambhu
+(10/514/162) and Balaju below Nagarjun (10/515/164). "Before" is the base the package started from.
+
+| Measure | Before | After |
+|---|---|---|
+| Worst cross-fall of a drawn road (13,968 pieces) | up to 45 % (the road banked with the hillside) | 6.0 %, none over 6 % |
+| Parked bikes and cars, all five places | worst float 0.595 m, worst sink 0.577 m (2,055 contacts) | 0.058 m / 0.056 m (2,050 contacts, none off by more than 10 cm) |
+| Street dogs and cows | worst float 2.397 m, worst sink 0.989 m | 0.032 m / 0.031 m |
+| Walkers | worst float 0.418 m, worst sink 0.495 m | 0.036 m / 0.017 m |
+| Gaurighat only | a bike 0.590 m in the air, a lying dog 1.746 m in the air | worst float: bike 0.052 m, dog 0.019 m |
+| Terrain seams (104) | - | 0 border vertices off the neighbour's edge by more than 1 cm |
+| Walls and parapets | none | Gaurighat 42 breast-wall bays (all with higher ground behind), 99 parapet runs (98 at a drop of 1 m or more); Swayambhu 275 bays and 394 runs; Balaju 28 bays and 23 runs |
+| Roads floating over the terrain (whole sample) | - | worst centre 0.15 m; worst edge 1.19 m with 6 of 1.19 million edge samples over 0.8 m |
+
+Previews (outside the repository): `/home/user/wt/previews/cutfill/before`, `after2` (the same eye per place) and
+`compare/*_before_after.jpg`, `compare/ref_*.jpg` (game next to the reference photos).
+
+What the side-by-side views show:
+
+* **Gaurighat street**: before, the road tilts with the slope and the scooters lean off it; after, the road is level
+  across, a guard rail on posts runs along the downhill edge, the uphill side is cut back in earth.
+* **Gaurighat and Balaju from the side**: a stepped fill wall (courses stepping back) under the road with white posts on
+  top, and an earth cut with a stone breast wall above the road, as in the stepped gabion walls of `gabion_wall` ref_09
+  and ref_11 and the cut-and-wall hill road of `Nepal_road_construction` ref_05.
+* **Swayambhu**: the tall cut on the hill side is grey rock above the earth band with a breast wall at its foot. The
+  photos (`Swayambhunath_road` ref_01, `Nepal_landslide_road` ref_08) show far rougher faces with loose stone and plants:
+  the game's cut face is a smooth plane banded only by height (open issue).
+* **Pashupati bank**: an earth embankment beside the road on the downhill side where before the road hung over the
+  slope.
+
+## 6. Sources
 
 * [Nepal Road Standard 2070 summary slides (camber by surface)](https://www.scribd.com/document/875617775/Chapter-3)
 * [Engineering aspect design for local road network in Nepal](https://roadsforwater.org/wp-content/uploads/2020/11/Engineering-Aspect-Design-for-Local-Road-Network-in-Nepal.pdf)

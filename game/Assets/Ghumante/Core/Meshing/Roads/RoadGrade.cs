@@ -170,6 +170,10 @@ namespace Ghumante.Core.Meshing
             public TileData Tile;
             public TileId Area;
             public int Step;
+
+            /// <summary>The sampler carves (a natural sampler of the same tile, area and step gets its own grade: the profile
+            /// is clamped onto the terrain only there, so results never depend on which sampler asked first).</summary>
+            public bool Carve;
             public float LiftM, ClassLiftStepM, PieceLiftStepM, KerbHeightM;
             public int PieceLiftLevels;
             public bool Smooth;
@@ -222,7 +226,7 @@ namespace Ghumante.Core.Meshing
                     if (TileCache.TryGetValue(t, out list))
                     {
                         foreach (Key e in list)
-                            if (e.Area == ths.Area && e.Step == ths.Step && e.Matches(o)) return e.Grade;
+                            if (e.Area == ths.Area && e.Step == ths.Step && e.Carve == ths.CarveOn && e.Matches(o)) return e.Grade;
                     }
                 }
             }
@@ -238,6 +242,7 @@ namespace Ghumante.Core.Meshing
                 {
                     key.Area = ths.Area;
                     key.Step = ths.Step;
+                    key.Carve = ths.CarveOn;
                     List<Key> list;
                     if (!TileCache.TryGetValue(t, out list))
                     {
@@ -245,7 +250,7 @@ namespace Ghumante.Core.Meshing
                         TileCache.Add(t, list);
                     }
                     foreach (Key e in list)
-                        if (e.Area == key.Area && e.Step == key.Step && e.Matches(o)) return e.Grade; // built meanwhile
+                        if (e.Area == key.Area && e.Step == key.Step && e.Carve == key.Carve && e.Matches(o)) return e.Grade; // built meanwhile
                     if (list.Count >= 6) list.RemoveAt(0);
                     list.Add(key);
                 }
@@ -439,6 +444,13 @@ namespace Ghumante.Core.Meshing
                     if (cuts != null && cuts.Length > 0 && (start ? cuts[0].S <= s + 0.5 : cuts[cuts.Length - 1].S >= s - 0.5)) continue;
                     int pk = start ? (r.HasPrevContext ? 1 : 0) : (r.HasNextContext ? r.PointCount - 2 : r.PointCount - 1);
                     if (deckEnds.ContainsKey(EndKey(r, pk))) continue;
+                    // An end on a junction platform it is not cut by: in the platform's plane, as the arms are.
+                    Pin padPin;
+                    if (PadPin(i, start, out padPin))
+                    {
+                        pins.Add(new KeyValuePair<int, Pin>(i, padPin));
+                        continue;
+                    }
                     // The road the end runs into: the one whose carriageway holds the end point, nearest its centreline.
                     int best = -1;
                     double bestS = 0, bestD = double.MaxValue;
@@ -487,12 +499,10 @@ namespace Ghumante.Core.Meshing
         /// <summary>Spacing of the pins that hold a piece to the road it runs alongside.</summary>
         public const double FollowStepM = 3.0;
 
-        /// <summary>Two pieces run alongside each other where their directions differ by less than this (degrees).</summary>
-        public const double FollowMaxAngleDeg = 35.0;
-
         /// <summary>
-        /// Pieces running over another piece alongside it (their drawn centre on the other's carriageway: a slip road
-        /// merging into the main road, an arm at an acute fork, a lane or path drawn over a wider street): the lesser piece
+        /// Pieces running over another piece (their drawn centre on the other's carriageway, at any angle: a slip road
+        /// merging into the main road, an arm at an acute fork, a lane or path drawn over a wider street, a street crossing
+        /// another at a node without a junction cap): the lesser piece
         /// (lower class, a link below its class, then the shorter) is held to the greater's drawn surface plane over the
         /// whole stretch, pin by pin every <see cref="FollowStepM"/>, then fades to its own profile; its own seams, knees and
         /// junction platforms hold, the stretch followed only from <see cref="FollowClearM"/> beyond them. Each piece is level
@@ -524,7 +534,6 @@ namespace Ghumante.Core.Meshing
                 box[4 * i + 2] = x1 + m;
                 box[4 * i + 3] = z1 + m;
             }
-            double cosMax = Math.Cos(FollowMaxAngleDeg * Math.PI / 180.0);
             var pins = new List<KeyValuePair<int, Pin>>();
             for (int i = 0; i < n; i++)
             {
@@ -544,7 +553,7 @@ namespace Ghumante.Core.Meshing
                     double runStart = -1, runEnd = -1;
                     for (double s = 0.5; s <= li - 0.5 + 1e-9; s += 1.0)
                     {
-                        bool on = !Layout.InGap(i, s) && !Layout.InAbsorbed(i, s) && !NearOwnPin(p, c.ArcAt(s)) && CentreOn(i, s, j) && Parallel(i, s, j, cosMax);
+                        bool on = !Layout.InGap(i, s) && !Layout.InAbsorbed(i, s) && !NearOwnPin(p, c.ArcAt(s)) && CentreOn(i, s, j);
                         if (on)
                         {
                             if (runStart < 0) runStart = s;
@@ -580,21 +589,6 @@ namespace Ghumante.Core.Meshing
         {
             RoadRecord r = Tile.Roads[i];
             return 2 * RoadStyle.Priority(r.RoadClass) + ((r.Flags & RoadFlags.Link) != 0 ? 0 : 1);
-        }
-
-        /// <summary>True when road <paramref name="i"/> at raw along <paramref name="s"/> runs alongside road
-        /// <paramref name="j"/> (their directions within the angle whose cosine is <paramref name="cosMax"/>).</summary>
-        private bool Parallel(int i, double s, int j, double cosMax)
-        {
-            RoadCentreline c = Layout.Centres[i], cj = Layout.Centres[j];
-            double x, z, tx, tz;
-            c.At(s, out x, out z, out tx, out tz);
-            int seg;
-            double a, lat, dist;
-            if (!cj.Nearest(x, z, out seg, out a, out lat, out dist)) return false;
-            double xj, zj, txj, tzj;
-            cj.At(a, out xj, out zj, out txj, out tzj);
-            return Math.Abs(tx * txj + tz * tzj) >= cosMax;
         }
 
         /// <summary>Pins holding road <paramref name="i"/> to road <paramref name="j"/>'s drawn surface plane from raw along
@@ -724,17 +718,73 @@ namespace Ghumante.Core.Meshing
                 }
                 Piece lp = _pieces[lead >> 1];
                 float bench = ((lead & 1) == 0 ? lp.P[0] : lp.P[lp.N - 1]) - lp.Lift;
+                // A node on a junction platform (roads meeting on a roundabout's or cap's outline without being cut by it):
+                // every end there lies in the platform's plane, as its arms do.
+                Pin padPin;
+                bool onPad = PadPin(lead >> 1, (lead & 1) == 0, out padPin);
                 foreach (int e in ends)
                 {
                     int i = e >> 1;
                     bool start = (e & 1) == 0;
                     atNode.Add(e);
+                    if (onPad && PadPin(i, start, out padPin))
+                    {
+                        pins.Add(new KeyValuePair<int, Pin>(i, padPin));
+                        continue;
+                    }
                     pins.Add(new KeyValuePair<int, Pin>(i, new Pin
                     {
                         L = start ? 0 : _pieces[i].Length, Fade = PinFadeM, Land = 1.0, Abs = true, AbsY = bench + _pieces[i].Lift, Bank = 0f,
                     }));
                 }
             }
+        }
+
+        /// <summary>A free end this close outside a junction platform's outline still lies on it.</summary>
+        private const double PadEndTolM = 0.05;
+
+        /// <summary>
+        /// The pin of a free end of piece <paramref name="i"/> that lies on a junction platform (<see cref="RoadPads"/>) without
+        /// being one of its arms (a lane or a path meeting a roundabout or a cap on its outline): the end row lies in the
+        /// platform's plane at the cap's lift, as an arm's does, held as far as its centre lies on the platform (also where
+        /// it skirts the outline again, up to <see cref="MaxJoinLandM"/>), then fades to the piece's own profile. Before
+        /// this such an end kept its own profile and stood up to 2 m over the platform the carve levels under it (cut/fill
+        /// package). False where the end is on no platform.
+        /// </summary>
+        private bool PadPin(int i, bool start, out Pin pin)
+        {
+            pin = default(Pin);
+            RoadCentreline c = Layout.Centres[i];
+            int k = start ? 0 : c.Count - 1;
+            double x = c.X[k], z = c.Z[k];
+            int pad = -1;
+            double bestD = PadEndTolM;
+            for (int q = 0; q < Pads.Pads.Count; q++)
+            {
+                RoadPad pq = Pads.Pads[q];
+                if (x < pq.MinX - PadEndTolM || x > pq.MaxX + PadEndTolM || z < pq.MinZ - PadEndTolM || z > pq.MaxZ + PadEndTolM) continue;
+                double d = pq.Distance(x, z);
+                if (d > bestD) continue;
+                bestD = d;
+                pad = q;
+            }
+            if (pad < 0) return false;
+            RoadPad pd = Pads.Pads[pad];
+            float lift = pd.TopRoad >= 0 && pd.TopRoad < Tile.Roads.Count ? RoadMesher.LiftOf(Tile.Roads[pd.TopRoad], _o) + JunctionMesher.CapExtraLiftM : _pieces[i].Lift;
+            double s = c.S[k], land = 0;
+            for (double d = 1; d <= Math.Min(MaxJoinLandM, c.RawLengthM / 3); d += 1)
+            {
+                double px, pz, tx, tz;
+                c.At(start ? s + d : s - d, out px, out pz, out tx, out tz);
+                if (pd.Distance(px, pz) <= PadEndTolM) land = d; // also where it skirts the outline again
+            }
+            double ux = -c.Tz[k], uz = c.Tx[k];
+            pin = new Pin
+            {
+                L = start ? 0 : _pieces[i].Length, Fade = PinFadeM, Land = land + 1.0, Abs = true, AbsY = pd.Height(x, z) + lift,
+                Bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(pd.Gx * ux + pd.Gz * uz))), Plane = true, X = x, Z = z, Gx = pd.Gx, Gz = pd.Gz,
+            };
+            return true;
         }
 
         /// <summary>The drawn surface of road <paramref name="j"/> near raw along <paramref name="sj"/> as a plane through

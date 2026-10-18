@@ -308,6 +308,14 @@ namespace Ghumante.Core.Meshing
         /// <summary>Diagnostics: the refinement threshold and the lowering reach in use (tests tune them).</summary>
         internal static float TuneRefineMove = RefineMoveM, TuneMaxLower = MaxLowerM;
 
+        /// <summary>A coarse vertex beside a road (the corner of a cell reaching in under it) is lowered no deeper than this
+        /// under the bench of the road it is lowered for; where the cell needs more it is refined. Before, such corners
+        /// went down with the whole triangle and the blocks of the old town between their streets sank up to 1.3 m under
+        /// the street at Asan, and the temples and houses standing on them with them.</summary>
+        public const float OffRoadBelowM = 0.25f;
+
+        private bool[] _underRoad;
+
         /// <summary>Diagnostics: judge refinement on the hill roads' carve only (the gentle streets' verges beside a road
         /// do not refine a cell; they still shape a refined one).</summary>
         internal static bool TuneStrongCriterion = true;
@@ -586,6 +594,17 @@ namespace Ghumante.Core.Meshing
             }
             IndexElements();
             if (PreCarveOn) PreCarve();
+            // Which coarse vertices lie under a road's drawn extent (lowered as far as needed); one beside a road is never
+            // lowered below the street it is lowered for (OffRoadBelowM), so the blocks between the streets, and every
+            // house, temple and tree standing on them, keep the street's level instead of sinking under it.
+            _underRoad = new bool[side * side];
+            for (int k = 0; k <= q; k++)
+            for (int l = 0; l <= q; l++)
+            {
+                float b;
+                double gx, gz;
+                _underRoad[k * side + l] = ExtentAt(_offX + l * Grid.CellM, _offZ + k * Grid.CellM, out b, out gx, out gz);
+            }
             CoarseLower();
             if (_refine) Rasterise();
             else _heights = new float[0];
@@ -668,21 +687,34 @@ namespace Ghumante.Core.Meshing
                 pos.Sort();
                 run.Clear();
                 bool clipStart = seamStart;
-                double prev = double.NegativeInfinity;
+                double prev = double.NegativeInfinity, lastOk = double.NaN, lastOff = double.NaN;
+                RoadCut[] runCuts = lay.Cuts[i];
                 foreach (double s in pos)
                 {
-                    if (s - prev < 1e-4) continue;
+                    // A junction cut's own row is never dropped for a station a hair before it (inside the cap's gap): the
+                    // run would start a station late and leave a strip of the ribbon beside the cap with no bench under it.
+                    if (s - prev < 1e-4 && (s == prev || !IsCut(runCuts, s))) continue;
                     prev = s;
                     Station st;
                     if (!StationAt(grade, lay, i, s, lift, seamStart, seamEnd, arcLen, out st))
                     {
-                        // Not drawn here (inside a junction cap or ring, absorbed, on a deck): the run ends clipped.
+                        // Not drawn here (inside a junction cap or ring, absorbed, on a deck): the run ends clipped. A ramp
+                        // running onto a deck ends exactly where the deck takes over, not at the station before.
+                        if (run.Count > 0 && DeckTakeover(grade, lay, i, lastOk, s, lift, seamStart, seamEnd, arcLen, out st)) run.Add(st);
                         if (run.Count > 0) FlushRun(run, clipStart, true);
                         run.Clear();
                         clipStart = true;
+                        lastOk = double.NaN;
+                        lastOff = s;
                         continue;
                     }
+                    if (run.Count == 0 && DeckTakeover(grade, lay, i, s, lastOff, lift, seamStart, seamEnd, arcLen, out Station first))
+                    {
+                        // Coming off a deck: the ramp's run starts where the deck hands over.
+                        run.Add(first);
+                    }
                     run.Add(st);
+                    lastOk = s;
                 }
                 // A tile-border end is clipped (the seam extension continues it); a free end or a knee is rounded.
                 FlushRun(run, clipStart, seamEnd);
@@ -691,6 +723,14 @@ namespace Ghumante.Core.Meshing
                 if (seamStart) Extension(grade, lay, i, c, 0, lift);
                 if (seamEnd) Extension(grade, lay, i, c, c.Count - 1, lift);
             }
+        }
+
+        private static bool IsCut(RoadCut[] cuts, double s)
+        {
+            if (cuts == null) return false;
+            for (int k = 0; k < cuts.Length; k++)
+                if (cuts[k].S == s) return true;
+            return false;
         }
 
         // The ribbon's rows of the road being collected (RibbonMesher's candidates: every centreline point and junction
@@ -839,7 +879,9 @@ namespace Ghumante.Core.Meshing
             st = default(Station);
             if (lay.InGap(i, s) || lay.InAbsorbed(i, s) || grade.OnDeck(i, s)) return false;
             RoadGrade.Row row = grade.RowAt(i, s);
-            if (row.DeckW > 0.01f) return false;
+            // The ramp onto a deck end stands on its approach embankment up to where the deck takes over (OnDeck); before,
+            // its ribbon rose off the carved ground with nothing under it (up to 2 m at Teku and Balaju bridge ends).
+            if (row.DeckW >= 0.5f) return false;
             RoadCentreline c = lay.Centres[i];
             double x, z, tx, tz;
             c.At(s, out x, out z, out tx, out tz);
@@ -866,6 +908,28 @@ namespace Ghumante.Core.Meshing
             st.Tz = tz;
             st.S = wall ? 1f : Strength(st);
             return true;
+        }
+
+        /// <summary>
+        /// Where a ramp meets a deck between raw along <paramref name="ok"/> (a station of the run) and
+        /// <paramref name="off"/> (on the deck): the station at the last position before the deck takes over
+        /// (<see cref="RoadGrade.OnDeck"/>), found by bisection to a few centimetres. False when <paramref name="off"/> is
+        /// not on a deck (a cap, a gap or an absorbed stretch ends the run on its own row).
+        /// </summary>
+        private bool DeckTakeover(RoadGrade grade, RoadLayout lay, int i, double ok, double off, float lift, bool seamStart, bool seamEnd, double arcLen,
+                                  out Station st)
+        {
+            st = default(Station);
+            if (double.IsNaN(ok) || double.IsNaN(off) || double.IsInfinity(ok) || double.IsInfinity(off) || Math.Abs(off - ok) < 0.05) return false;
+            if (lay.InGap(i, off) || lay.InAbsorbed(i, off) || !grade.OnDeck(i, off) && grade.RowAt(i, off).DeckW < 0.5f) return false;
+            double a = ok, b = off;
+            for (int k = 0; k < 12 && Math.Abs(b - a) > 0.03; k++)
+            {
+                double m = 0.5 * (a + b);
+                if (grade.OnDeck(i, m) || grade.RowAt(i, m).DeckW >= 0.5f || lay.InGap(i, m) || lay.InAbsorbed(i, m)) b = m;
+                else a = m;
+            }
+            return Math.Abs(a - ok) > 0.02 && StationAt(grade, lay, i, a, lift, seamStart, seamEnd, arcLen, out st);
         }
 
         /// <summary>
@@ -1059,7 +1123,7 @@ namespace Ghumante.Core.Meshing
         {
             double s = c.S[k];
             RoadGrade.Row row = grade.RowAt(i, s);
-            if (row.DeckW > 0.01f) return;
+            if (row.DeckW >= 0.5f) return;
             double x = c.X[k], z = c.Z[k], tx = c.Tx[k], tz = c.Tz[k];
             if (k == 0)
             {
@@ -1398,10 +1462,11 @@ namespace Ghumante.Core.Meshing
                 : _coarse[v00] + fu * (_coarse[v11] - _coarse[v01]) + fv * (_coarse[v01] - _coarse[v00]);
             if (h <= allowed + 0.005) return false;
             float excess = (float)(h - allowed) + 0.01f;
+            float beside = allowed - StreetCutTolM - OffRoadBelowM;
             bool moved = false;
-            moved |= Lower(v00, excess, i, j);
-            moved |= Lower(vb, excess, fu >= fv ? i + 1 : i, fu >= fv ? j : j + 1);
-            moved |= Lower(v11, excess, i + 1, j + 1);
+            moved |= Lower(v00, excess, i, j, beside);
+            moved |= Lower(vb, excess, fu >= fv ? i + 1 : i, fu >= fv ? j : j + 1, beside);
+            moved |= Lower(v11, excess, i + 1, j + 1, beside);
             return moved;
         }
 
@@ -1438,12 +1503,13 @@ namespace Ghumante.Core.Meshing
         /// before its cell is refined (the road surface stands its lift, 25 cm or more, above the bench).</summary>
         private const float PokeTolM = 0.03f;
 
-        private bool Lower(int idx, float by, int l, int k)
+        private bool Lower(int idx, float by, int l, int k, float beside = float.NegativeInfinity)
         {
             int q = Grid.Quads;
             if (by <= 0f) return false;
             if (l <= 0 || k <= 0 || l >= q || k >= q) return false; // the tile border stays (the neighbour does not know)
             float floor = _natural[idx] - TuneMaxLower;
+            if (!_underRoad[idx]) floor = Math.Max(floor, Math.Min(beside, _coarse[idx]));
             float v = Math.Max(floor, _coarse[idx] - by);
             if (v >= _coarse[idx]) return false;
             _coarse[idx] = v;
@@ -1612,8 +1678,30 @@ namespace Ghumante.Core.Meshing
         /// </summary>
         public bool ExtentAt(double lx, double lz, out float bench, out double gx, out double gz)
         {
+            int owner;
+            return ExtentAt(lx, lz, out bench, out gx, out gz, out owner);
+        }
+
+        /// <summary>Which road's drawn extent <see cref="ExtentAt(double, double, out float, out double, out double)"/> answers
+        /// at tile-local (<paramref name="lx"/>, <paramref name="lz"/>): its road index, <see cref="PadOwner"/> for a junction
+        /// platform, -1 where no extent lies (diagnostics and tests: where two roads' extents overlap, the bench under one
+        /// is the other's).</summary>
+        internal int ExtentOwner(double lx, double lz)
+        {
+            float bench;
+            double gx, gz;
+            int owner;
+            return ExtentAt(lx, lz, out bench, out gx, out gz, out owner) ? owner : -1;
+        }
+
+        /// <summary><see cref="ExtentOwner"/> of a junction platform.</summary>
+        internal const int PadOwner = -2;
+
+        private bool ExtentAt(double lx, double lz, out float bench, out double gx, out double gz, out int owner)
+        {
             bench = 0f;
             gx = gz = 0;
+            owner = -1;
             if (_xstart == null) return false;
             double lim = _ecells * ElemCellM;
             if (lx < -0.5 || lz < -0.5 || lx > lim + 0.5 || lz > lim + 0.5) return false;
@@ -1632,6 +1720,7 @@ namespace Ghumante.Core.Meshing
                     bench = p.Height(lx, lz);
                     gx = p.Gx;
                     gz = p.Gz;
+                    owner = PadOwner;
                     return true;
                 }
                 double len = _len[e], tp, off, wl;
@@ -1661,6 +1750,7 @@ namespace Ghumante.Core.Meshing
                 if (pd >= bestPd) continue;
                 bestPd = pd;
                 found = true;
+                owner = _road[e];
                 float a0 = _a0a[e] + (_a0b[e] - _a0a[e]) * t, a1 = _a1a[e] + (_a1b[e] - _a1a[e]) * t;
                 bool inside = off < el && off > er;
                 double co = off > el ? el : off < er ? er : off;
@@ -2039,9 +2129,9 @@ namespace Ghumante.Core.Meshing
         /// The drawn ground on the tile border at tile-local (lx, lz) over the natural ground <paramref name="natural"/>
         /// there: what both tiles of a seam draw alike, from what both know identically. That is the natural border line,
         /// cut down to every crossing road's seam landing (level at the bench, both tiles pin it to the same height) under
-        /// its drawn extent and its verge, and at the cut slope beyond (<see cref="CutSlope"/>, measured square to the
-        /// road: the seam row lies on the border line). The fill below a crossing stays natural on the border (the road's
-        /// skirt closes it), as does every other road's cut and fill (relaxed over <see cref="BorderFadeM"/>).
+        /// its drawn extent and its verge, and at the cut slope beyond (<see cref="CutSlope"/>, measured along the border
+        /// line from the end of the seam row, which lies on it). The fill below a crossing stays natural on the border (the
+        /// road's skirt closes it), as does every other road's cut and fill (relaxed over <see cref="BorderFadeM"/>).
         /// </summary>
         private float BorderCarved(double lx, double lz, float natural)
         {
@@ -2060,7 +2150,10 @@ namespace Ghumante.Core.Meshing
                 double ww = c.WX * c.WX + c.WZ * c.WZ;
                 if (ww < 1e-9) continue;
                 double o = ((lx - c.X) * c.WX + (lz - c.Z) * c.WZ) / ww;
-                double d = o >= 0 ? o - c.CL : -o - c.CR;
+                // Beyond the seam row's extent, in metres along the border: a road crossing the border at a shallow angle
+                // climbs away from its seam landing beside the border line, so the cut must not run on at the seam's bench
+                // for tens of metres along it (a trench 5 m deep along a border at a steep lane, 10/522/164).
+                double d = (o >= 0 ? o - c.CL : -o - c.CR) * Math.Sqrt(ww);
                 if (d > MaxReachM + verge) continue;
                 float cut = d <= verge ? c.Bench : c.Bench + CutSlope * (float)(d - verge);
                 if (cut < h) h = cut;

@@ -86,6 +86,13 @@ namespace Ghumante.Core.Meshing
             return new TileHeightSampler(source, area, step, TileNeighbours.None, false);
         }
 
+        /// <summary>True when this sampler answers the carved surface (false for <see cref="Natural"/> samplers and the
+        /// terrain-only tiles the streamer does not carve).</summary>
+        public bool CarveOn
+        {
+            get { return _carveOn; }
+        }
+
         /// <summary>The grid this sampler follows (default when the source has no heights).</summary>
         public TerrainGrid Grid
         {

@@ -304,6 +304,8 @@ namespace Ghumante.Core.Tests
         [Test]
         public void SampleRoadsFollowTheRenderedSurfaceAndJoinAcrossTiles()
         {
+            // The legacy (Wave 1) ribbons on the natural terrain: the road cut and fill (TerrainCarve) carves the terrain to
+            // the Wave 2 layout's level benches and drawn extents, which the legacy ribbons do not follow.
             var o = new RoadOptions { WidthModel = false };
             int pieces = 0, joins = 0, triangles = 0, looseJoins = 0;
             double worst = 0, worstJoin = 0;
@@ -311,7 +313,7 @@ namespace Ghumante.Core.Tests
             foreach (TileId id in StreamingSampleRegion.TilesAt(10))
             {
                 TileData t = StreamingSampleRegion.Tile(id);
-                var s = new TileHeightSampler(t, 2);
+                var s = TileHeightSampler.Natural(t, t.Tile, 2);
                 m.Clear();
                 int drawn = RoadMesher.Build(t, s, o, m);
                 int expected = 0;
@@ -332,7 +334,7 @@ namespace Ghumante.Core.Tests
             foreach (TileId id in StreamingSampleRegion.TilesAt(10))
             {
                 TileData t = StreamingSampleRegion.Tile(id);
-                var s = new TileHeightSampler(t, 2);
+                var s = TileHeightSampler.Natural(t, t.Tile, 2);
                 foreach (RoadRecord r in t.Roads)
                 {
                     if (!RoadMesher.IsDrawn(r, o)) continue;
@@ -395,7 +397,7 @@ namespace Ghumante.Core.Tests
                         if (q.OsmWayId == r.OsmWayId && q.HasPrevContext && q.Points[2] == ncx && q.Points[3] == ncz) next = q;
                     if (next == null || !RoadMesher.IsDrawn(next, o)) continue;
                     var nm = new MeshData();
-                    var sn = new TileHeightSampler(tn, 2);
+                    var sn = TileHeightSampler.Natural(tn, tn.Tile, 2);
                     RoadMesher.Build(OnlyRoad(tn, next), sn, o, nm);
                     // Draped: both meshes have the cut point on the border at the same height.
                     double along = vertical ? id.Z0 + cz / 100.0 : id.X0 + cx / 100.0;
