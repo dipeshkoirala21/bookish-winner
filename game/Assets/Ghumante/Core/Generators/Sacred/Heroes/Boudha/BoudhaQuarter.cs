@@ -45,7 +45,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         {
             if (lod >= 3)
             {
+                // The far quarter (rooftop and aerial views: the hero slice steps the smaller parts down to this): the
+                // wall's faces with the niche band, the paving in wide sectors, the house bodies with their front bands and
+                // hip roofs, the gompas' blocks and gilt roofs.
+                BoudhaWall.Build(m, null, f, part, 3);
                 int v3 = m.VertexCount, i3 = m.IndexCount;
+                Paving(m, null, tile, f, part, 3);
+                SacredDraw.Bake(m, v3, i3, f.Level + PaveTop);
+                v3 = m.VertexCount;
+                i3 = m.IndexCount;
                 BoudhaRing.Build(m, null, tile, f, part, 3);
                 BoudhaGompas.Build(m, null, tile, f, part, 3);
                 SacredDraw.Bake(m, v3, i3, f.Level);
@@ -130,7 +138,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
             double a0, a1;
             Range(part, out a0, out a1);
-            double stepDeg = lod == 0 ? 1.5 : lod == 1 ? 3.0 : 7.5;
+            double stepDeg = lod == 0 ? 1.5 : lod == 1 ? 3.0 : lod == 2 ? 7.5 : 15.0;
             int steps = (int)Math.Round((a1 - a0) / stepDeg);
             double y = PaveTop;
             ShapeBrush flag = BoudhaKit.B(BoudhaKit.StoneFlag, MaterialChannel.Flagstone), kerb = BoudhaKit.B(BoudhaKit.StoneKerb, MaterialChannel.Stone);

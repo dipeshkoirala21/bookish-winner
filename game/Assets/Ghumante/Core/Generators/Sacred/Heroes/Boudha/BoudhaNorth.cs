@@ -24,7 +24,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     {
         /// <summary>Ajima shrine: plinth top, eave and finial tip above the kora; its half width across the axis and its
         /// depth from the wall line back (into the compound) and forward (into the kora).</summary>
-        public const double PlinthTop = 0.9, EaveY = 3.9, RoofTop = 5.5, Tip = 7.1, HalfW = 2.8, Back = 2.2, Front = 3.0;
+        public const double PlinthTop = 0.9, EaveY = 3.9, RoofTop = 4.95, Tip = 7.0, HalfW = 2.8, Back = 2.2, Front = 3.0;
 
         /// <summary>The gate pavilions' centres either side of the axis (m) and width.</summary>
         public const double PavilionU = 5.5, PavilionW = 4.2;
@@ -55,7 +55,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         {
             ShapeBrush brick = BoudhaKit.B(MeshColor.FromHex(0xA64B32), MaterialChannel.Brick), brickTop = BoudhaKit.B(MeshColor.FromHex(0xB5603E), MaterialChannel.Brick);
             ShapeBrush lattice = BoudhaKit.B(BoudhaKit.LatticeDark, MaterialChannel.WoodCarved), wood = BoudhaKit.B(MeshColor.FromHex(0x3A2418), MaterialChannel.Wood);
-            ShapeBrush gilt = BoudhaKit.B(MeshColor.FromHex(0xC9A24A), MaterialChannel.Gilt), giltLit = BoudhaKit.Gilt;
+            ShapeBrush gilt = BoudhaKit.B(MeshColor.FromHex(0xC29944), MaterialChannel.Gilt), giltLit = BoudhaKit.Gilt;
             double y0 = -BoudhaQuarter.CompoundTop - 0.3;
             // Plinth with a brick coping, and the two steps in front.
             Mould mo = SacredDraw.M;
@@ -103,8 +103,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     for (int sz = 0; sz < 2; sz++)
                         SacredDraw.Box(m, a, sx * bw - 0.12, sx * bw + 0.12, by0, by1, (sz == 0 ? bz0 : bz1) - 0.12, (sz == 0 ? bz0 : bz1) + 0.12, wood, BoxFaces.All & ~BoxFaces.Bottom);
             }
-            // The roof: a broad shallow gilt hip, eaves 1 m out, a short ridge.
-            double ex = HalfW + 0.5, ez0 = -Back - 0.4, ez1 = Front + 0.55, rh = 0.45;
+            // The roof: a broad, low gilt hip (c05: about a fifth as high as it is deep), eaves 1 m out, a long ridge across.
+            double ex = HalfW + 0.65, ez0 = -Back - 0.45, ez1 = Front + 0.65, rh = 1.4;
             double rz = 0.5 * (ez0 + ez1), rise = RoofTop - EaveY, hzd = 0.5 * (ez1 - ez0);
             for (int s = -1; s <= 1; s += 2)
             {
@@ -116,8 +116,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             SacredDraw.Quad(m, a, -ex, EaveY - 0.03, ez0, ex, EaveY - 0.03, ez0, ex, EaveY - 0.03, ez1, -ex, EaveY - 0.03, ez1, 0, -1, 0, BoudhaKit.B(MeshColor.FromHex(0x5A3A22), MaterialChannel.Wood, 0.7f));
             if (lod == 0)
             {
-                // Standing-seam ribs down the front and back slopes.
-                ShapeBrush rib = BoudhaKit.B(BoudhaKit.GiltLit, MaterialChannel.Gilt);
+                // Standing-seam ribs down the front and back slopes: darker brass lines on the sheet (around/03, c04).
+                ShapeBrush rib = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt);
                 for (int s = -1; s <= 1; s += 2)
                     for (int q = -6; q <= 6; q++)
                     {
@@ -146,9 +146,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             Mould pm = SacredDraw.M;
             pm.Add(0.22, RoofTop - 0.1, gilt).Add(0.22, RoofTop + 0.12).Add(0.1, RoofTop + 0.14).Add(0.1, RoofTop + 0.3).Add(0.0, RoofTop + 0.32).Add(0.0, RoofTop + 0.45);
             SacredDraw.RectRing(m, a, 0, rz, 0.2, 0.2, pm, true, gilt);
-            double vy = RoofTop + 0.45 + 0.55;
-            Shapes.Sphere(m, SacredDraw.At(a, 0, vy - 0.55, rz), giltLit, 0.16, lod == 0 ? 8 : 5);
-            Shapes.Sphere(m, SacredDraw.At(a, 0, vy, rz), giltLit, 0.14, lod == 0 ? 8 : 5);
+            // The vishvavajra stands about a metre across (c05, tamang/07).
+            const double vs = 1.4;
+            double vy = RoofTop + 0.45 + 0.55 * vs;
+            Shapes.Sphere(m, SacredDraw.At(a, 0, RoofTop + 0.6, rz), giltLit, 0.18, lod == 0 ? 8 : 5);
+            Shapes.Sphere(m, SacredDraw.At(a, 0, vy, rz), giltLit, 0.14 * vs, lod == 0 ? 8 : 5);
             int arms = lod >= 2 ? 2 : 4;
             for (int q = 0; q < arms; q++)
             {
@@ -156,7 +158,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 double ang = q * 0.5 * Math.PI;
                 double dx = Math.Sin(ang), dy = Math.Cos(ang);
                 if (lod >= 2 && q == 1) continue;
-                VajraArm(m, a, 0, vy, rz, dx, dy, giltLit, lod);
+                VajraArm(m, SacredDraw.At(a, 0, vy, rz) * Affine3.Scaling(vs), 0, 0, 0, dx, dy, giltLit, lod);
             }
             if (lod <= 1)
             {

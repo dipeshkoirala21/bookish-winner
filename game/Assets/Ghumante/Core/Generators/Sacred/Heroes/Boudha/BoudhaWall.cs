@@ -224,6 +224,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double total = 0;
             for (int r = 0; r < runs; r++) total += s1[r] - s0[r];
             ShapeBrush w = BoudhaKit.B(BoudhaKit.LimeWhite, MaterialChannel.Plaster), foot = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster);
+            if (lod >= 3)
+            {
+                // The far wall (the hero slice steps a quarter down to this from the rooftops and the air): the white faces,
+                // the coping and the band of dark niches under their yellow valances, no solids.
+                for (int r = 0; r < runs; r++) WallRun(m, null, f, k, pu, pv, n, per, s0[r], s1[r], 0, cuts, part, w, foot, 3);
+                SacredDraw.Bake(m, v0, i0, f.Level);
+                return 0;
+            }
             int niche = 0, drawn = 0;
             for (int r = 0; r < runs; r++)
             {
@@ -337,6 +345,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 // A local frame on the centre line: x along the edge, z toward the stupa (the kora face is z < 0).
                 Affine3 e = SacredDraw.Basis(k, ax, 0, az, dx / l, 0, dz / l, 0, 1, 0);
                 double x0 = i == 0 ? 0 : -0.12, x1 = i + 2 == cnt ? l : l + 0.12;
+                if (lod >= 3)
+                {
+                    for (int s = -1; s <= 1; s += 2)
+                    {
+                        double z = s * HalfThick;
+                        SacredDraw.Quad(m, e, x0, y0, z, x1, y0, z, x1, h + 0.1, z, x0, h + 0.1, z, 0, 0, s, w);
+                    }
+                    SacredDraw.Quad(m, e, x0, h + 0.1, -HalfThick, x1, h + 0.1, -HalfThick, x1, h + 0.1, HalfThick, x0, h + 0.1, HalfThick, 0, 1, 0, cope);
+                    double zb = -HalfThick - 0.015, xa = x0 + 0.3, xb = x1 - 0.3;
+                    if (xb > xa)
+                    {
+                        SacredDraw.Quad(m, e, xa, sill, zb, xb, sill, zb, xb, sill + nh, zb, xa, sill + nh, zb, 0, 0, -1, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
+                        SacredDraw.Quad(m, e, xa, sill + nh, zb, xb, sill + nh, zb, xb, sill + nh + 0.24, zb, xa, sill + nh + 0.24, zb, 0, 0, -1,
+                                        BoudhaKit.B(BoudhaKit.NicheValance, MaterialChannel.Fabric));
+                    }
+                    continue;
+                }
                 if (lod >= 1)
                 {
                     // Far: each face one quad from the foot to the coping (the niches are drawn proud of it), the coping

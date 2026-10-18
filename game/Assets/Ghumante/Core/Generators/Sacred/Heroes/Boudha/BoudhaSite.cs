@@ -118,23 +118,26 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public const float HeightM = 44.8f;
 
         /// <summary>LOD triangle ceilings of the Great Stupa (the curated hero). LOD0 stays under the High tier's
-        /// 60,000-triangle hero slice with every quarter and the gate at LOD2 beside it (51,000 + 7,380), so aerial and
-        /// rooftop views keep the whole site; LOD0 carries the 64 prayer-flag lines.</summary>
-        public const int BudgetLod0 = 51000, BudgetLod1 = 14500, BudgetLod2 = 3840, BudgetLod3 = 240;
+        /// 60,000-triangle hero slice with the nearer quarters stepped down beside it, so aerial and rooftop views keep the
+        /// whole site; LOD0 carries the 64 prayer-flag lines, LOD1 (seen from the rooftops beside a LOD0 quarter) their 32
+        /// continuous ribbons of colour.</summary>
+        public const int BudgetLod0 = 51000, BudgetLod1 = 17000, BudgetLod2 = 4000, BudgetLod3 = 240;
 
         /// <summary>The whole site's LOD0 ceiling on the High tier: the parts' LOD0 budgets stay within it.</summary>
         public const int SiteBudgetLod0 = 150000;
 
         // LOD0..3 ceilings of the other parts: LOD1 is 30 % and LOD2 8 % of LOD0. The north quarter carries the Ajima
-        // entrance and the Guru Lhakhang, the west the Jamchen and the Dhabzang, so they get the larger shares.
+        // entrance and the Guru Lhakhang, the west the Jamchen and the Dhabzang, so they get the larger shares. LOD3 is the
+        // far quarter the hero slice steps the smaller parts down to from the rooftops and the air (the wall with its niche
+        // band, the paving, the house bodies with their front bands and roofs), so it keeps up to 800.
         private static readonly int[][] PartBudget =
         {
             null,
-            new[] { 24000, 7200, 1960, 360 },
-            new[] { 17500, 5250, 1460, 360 },
-            new[] { 17000, 5100, 1400, 360 },
-            new[] { 23500, 7050, 1880, 360 },
-            new[] { 9500, 2850, 760, 120 },
+            new[] { 24500, 7350, 1960, 800 },
+            new[] { 16500, 4950, 1460, 800 },
+            new[] { 19000, 5700, 1520, 800 },
+            new[] { 24500, 7350, 1960, 800 },
+            new[] { 12500, 3750, 1000, 240 },
         };
 
         private static readonly string[] Suffix = { "", ".north", ".east", ".south", ".west", ".gate" };
@@ -187,7 +190,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             switch (p)
             {
                 case BoudhaPart.Stupa: return HeightM;
-                case BoudhaPart.Gate: return (float)BoudhaGate.Top;
+                case BoudhaPart.Gate: return (float)Math.Max(BoudhaGate.Top, BoudhaRing.TopOf(BoudhaPart.Gate));
                 default: return (float)BoudhaRing.TopOf(p);
             }
         }
@@ -332,6 +335,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     break;
                 case BoudhaPart.Gate:
                     BoudhaGate.Build(m, cc, tile, f, lod);
+                    {
+                        // The brick house east of the gate on the road frontage (the gate's own street front).
+                        int gv = m.VertexCount, gi = m.IndexCount;
+                        BoudhaRing.Build(m, cc, tile, f, BoudhaPart.Gate, lod);
+                        SacredDraw.Bake(m, gv, gi, f.Level);
+                    }
                     break;
                 default:
                     niches = BoudhaQuarter.Build(m, cc, tile, f, part, lod);

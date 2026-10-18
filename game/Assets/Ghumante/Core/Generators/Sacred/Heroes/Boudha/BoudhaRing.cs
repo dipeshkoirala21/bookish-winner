@@ -51,6 +51,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>A rooftop pole with a vertical five-colour banner.</summary>
         FlagPole = 32,
+
+        /// <summary>A street house (the lane to the main gate and Boudha Main Road): every free face of 3 m or more is a
+        /// shop front, not only the faces toward the stupa.</summary>
+        Street = 64,
+
+        /// <summary>Newar-revival tile pent eaves (jhingati) along the fronts at every floor line above the first storey
+        /// and at the roof line (the brick houses either side of the main gate).</summary>
+        Eaves = 128,
     }
 
     /// <summary>One building round the kora that the site rebuilds: OSM way, the quarter that builds it, storeys (the
@@ -97,10 +105,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public const double MumtyH = 2.6, CafeH = 2.55, TankH = 2.2, PoleH = 4.5;
 
         private const uint Ochre = 0xE8C35A, BrickRed = 0xB5442E, Salmon = 0xE39A7A, Cream = 0xF1E6CC, PaleGreen = 0xBFD8B0, White = 0xF2EFE8;
-        private const uint Orange = 0xE58A3A, ExposedBrick = 0xA64B32, OchreDeep = 0xE3B84E, Pink = 0xE7A9A0, SkyBlue = 0xA9C9DE;
+        private const uint Orange = 0xE58A3A, ExposedBrick = 0xA64B32, OchreDeep = 0xE3B84E, Pink = 0xE7A9A0;
 
         private const HouseFlags C = HouseFlags.Cafe, P = HouseFlags.Pitched, B = HouseFlags.Balcony, T = HouseFlags.Tanks, M = HouseFlags.Mumty,
-                                 F = HouseFlags.FlagPole;
+                                 F = HouseFlags.FlagPole, St = HouseFlags.Street, Ev = HouseFlags.Eaves;
 
         private const BoudhaPart N = BoudhaPart.North, E = BoudhaPart.East, S = BoudhaPart.South, W = BoudhaPart.West;
 
@@ -132,30 +140,34 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             new RingHouse(912270787, S, 4, HouseLook.Painted, Pink, 2, B | M),
             new RingHouse(912276969, S, 4, HouseLook.Painted, BrickRed, 3, P | B),
             new RingHouse(912276521, S, 4, HouseLook.Painted, Salmon, 0, C | T),
-            new RingHouse(912276520, S, 6, HouseLook.Brick, ExposedBrick, 4, P),
-            new RingHouse(911869018, S, 4, HouseLook.Painted, Orange, 1, P | B),
+            new RingHouse(912276520, S, 6, HouseLook.Brick, ExposedBrick, 4, P | St),
+            // The lane to the main gate (Commons "Boudhanath entrance gate and its premises", 2019-2022): exposed brick
+            // with tile pent eaves west of the gate, the red-brick front with white window frames beyond it.
+            new RingHouse(911869018, S, 4, HouseLook.Brick, ExposedBrick, 1, P | St | Ev),
             new RingHouse(517160028, S, 1, HouseLook.Painted, White, 2, HouseFlags.None),
-            new RingHouse(911869019, S, 5, HouseLook.Painted, BrickRed, 3, P),
+            new RingHouse(911869019, S, 5, HouseLook.Painted, BrickRed, 3, P | St | Ev),
             new RingHouse(912278963, S, 4, HouseLook.Painted, Ochre, 0, C),
             new RingHouse(912278964, S, 5, HouseLook.Painted, Cream, 4, T | M),
             new RingHouse(912278965, S, 5, HouseLook.Brick, ExposedBrick, 1, C | F),
-            new RingHouse(912280177, W, 6, HouseLook.Painted, SkyBlue, 2, B | T),
-            new RingHouse(912280176, W, 5, HouseLook.Painted, Salmon, 3, C),
+            new RingHouse(912280177, W, 6, HouseLook.Brick, ExposedBrick, 2, B | T | Ev),
+            new RingHouse(912280176, W, 5, HouseLook.Painted, OchreDeep, 3, C),
             new RingHouse(911869025, W, 5, HouseLook.Brick, ExposedBrick, 0, C | M),
             new RingHouse(911869026, W, 5, HouseLook.Painted, Ochre, 4, B | T),
             new RingHouse(911869027, W, 5, HouseLook.Painted, Cream, 1, C | F),
             new RingHouse(911869028, W, 4, HouseLook.Painted, BrickRed, 2, P | B),
             new RingHouse(209530023, W, 2, HouseLook.Jamchen, OchreDeep, 0, HouseFlags.None),
             new RingHouse(911869029, W, 3, HouseLook.Brick, ExposedBrick, 3, T),
-            new RingHouse(912280174, W, 4, HouseLook.Painted, PaleGreen, 4, C | M),
+            new RingHouse(912280174, W, 4, HouseLook.Brick, ExposedBrick, 4, C | M | Ev),
             new RingHouse(912280388, W, 4, HouseLook.Painted, Salmon, 0, B | T),
             new RingHouse(209312596, W, 3, HouseLook.Painted, Ochre, 1, C),
             new RingHouse(517236636, W, 3, HouseLook.Brick, ExposedBrick, 2, T | F),
-            new RingHouse(517236635, W, 3, HouseLook.Painted, Cream, 3, B | M),
+            new RingHouse(517236635, W, 3, HouseLook.Painted, BrickRed, 3, B | M),
             new RingHouse(912261800, W, 4, HouseLook.Painted, BrickRed, 4, C),
             new RingHouse(912261799, N, 5, HouseLook.Painted, Ochre, 0, B | T | M),
             new RingHouse(912262363, N, 4, HouseLook.Brick, ExposedBrick, 1, C),
             new RingHouse(912262534, N, 4, HouseLook.Painted, Salmon, 2, B | F),
+            // East of the main gate on Boudha Main Road (the ATM front), built with the gate.
+            new RingHouse(912276519, BoudhaPart.Gate, 5, HouseLook.Brick, ExposedBrick, 2, St | Ev | T),
         };
 
         /// <summary>Awning stripe colours (alternating with white), by <see cref="RingHouse.Awning"/>.</summary>
@@ -409,7 +421,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             ShapeBrush trim = brick ? BoudhaKit.B(MeshColor.FromHex(0x5A3422), MaterialChannel.Wood) : BoudhaKit.B(MeshColor.FromHex(0xF4F1EA), MaterialChannel.Plaster);
             ShapeBrush foot = BoudhaKit.B(MeshColor.Scale(MeshColor.FromHex(h.Wall), 0.72f), MaterialChannel.Plaster);
             double top = BodyTop(h.Storeys);
-            bool pitched = (h.Flags & HouseFlags.Pitched) != 0 && lod <= 2;
+            bool pitched = (h.Flags & HouseFlags.Pitched) != 0;
             bool hip = false;
             double rcu = 0, rcv = 0, rau = 0, rav = 0, rha = 0, rhb = 0;
             if (pitched)
@@ -417,14 +429,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 double area = Math.Abs(BoudhaKit.Area(pu, pv, n));
                 hip = OrientedRect(pu, pv, n, out rcu, out rcv, out rau, out rav, out rha, out rhb) && area >= 0.82 * 4 * rha * rhb;
             }
-            if (lod <= 2) ClassifyEdges(tile, f, h.Way, pu, pv, n);
+            ClassifyEdges(tile, f, h.Way, pu, pv, n, (h.Flags & HouseFlags.Street) != 0);
 
             // Body: base course, the wall, a string course over the shops (and at every floor on brick fronts), the
             // cornice and, on flat roofs, the parapet with its coping.
             Mould mo = SacredDraw.M;
             if (lod >= 3)
             {
-                mo.Add(0, -0.3, wall).Add(0, top + 0.6);
+                // The far ring (rooftop and aerial views keep the quarters the hero slice steps down here): the plain
+                // body to the roof, or to the parapet's top under a flat roof.
+                mo.Add(0, -0.3, wall).Add(0, hip ? top : top + 0.6);
             }
             else if (lod == 2)
             {
@@ -478,12 +492,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 if (lod <= 1) RoofExtras(m, k, h, pu, pv, n, lod == 0 ? top : y, lod, seed);
             }
 
-            // Facades toward the kora and the lanes.
-            if (lod <= 2)
+            // Facades toward the kora and the lanes (far off the kora fronts only).
             {
                 for (int i = 0; i < n; i++)
                 {
-                    if (_kind[i] == KindPlain) continue;
+                    if (_kind[i] == KindPlain || (lod >= 3 && _kind[i] != KindFront)) continue;
                     int j = (i + 1) % n;
                     double du = pu[j] - pu[i], dv = pv[j] - pv[i], l = Math.Sqrt(du * du + dv * dv);
                     if (l < 2.2) continue;
@@ -507,8 +520,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
         }
 
-        /// <summary>Mark every outline edge front, side or plain (see <see cref="House"/>) into the edge scratch.</summary>
-        private static void ClassifyEdges(TileData tile, in BoudhaFrame f, ulong way, double[] pu, double[] pv, int n)
+        /// <summary>Mark every outline edge front, side or plain (see <see cref="House"/>) into the edge scratch; a
+        /// <paramref name="street"/> house fronts every free face of 3 m or more.</summary>
+        private static void ClassifyEdges(TileData tile, in BoudhaFrame f, ulong way, double[] pu, double[] pv, int n, bool street)
         {
             for (int i = 0; i < n; i++)
             {
@@ -526,7 +540,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     if (InsideAnyBuilding(tile, f, 2 * way, su, sv)) blocked++;
                 }
                 if (blocked >= 2) continue;
-                if (toward > 0.35) _kind[i] = KindFront;
+                if (toward > 0.35 || (street && l >= 3.0)) _kind[i] = KindFront;
                 else if (toward > -0.6 && l >= 3.0) _kind[i] = KindSide;
             }
         }
@@ -544,11 +558,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (half < 0.6) return;
             int bays = Math.Max(1, (int)Math.Round(2 * half / 3.1));
             double bw = 2 * half / bays;
-            if (lod == 2)
+            if (lod >= 2)
             {
-                // Fronts only: a dark band per storey and the coloured awning band over the shops.
+                // Fronts only: a dark band per storey and the coloured awning band over the shops (LOD2 and the far ring).
                 if (!front) return;
-                ShapeBrush glass = BoudhaKit.B(MeshColor.FromHex(0x3A342E), MaterialChannel.Glass, 0.8f);
+                ShapeBrush glass = BoudhaKit.B(MeshColor.FromHex(h.Look == HouseLook.Brick ? 0x2E2420u : 0x3A342Eu), MaterialChannel.Glass, 0.8f);
                 for (int s = 1; s < h.Storeys; s++)
                 {
                     double y = Plinth + ShopH + (s - 1) * FloorH + 0.85;
@@ -577,6 +591,39 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if ((h.Flags & HouseFlags.Balcony) != 0 && front && h.Storeys >= 3)
             {
                 for (int s = 1; s < h.Storeys; s += 2) Balcony(m, e, h, half, Plinth + ShopH + (s - 1) * FloorH, lod);
+            }
+            if ((h.Flags & HouseFlags.Eaves) != 0 && lod <= 1)
+            {
+                // Tile pent eaves at the floor lines from the second floor up (above the 4.5 m overhead clearance of the
+                // lane and the road) and under the parapet.
+                for (int s = 2; s < h.Storeys; s++) TileEave(m, e, 0.5 * len, Plinth + ShopH + (s - 1) * FloorH - 0.05, lod);
+                if ((h.Flags & HouseFlags.Pitched) == 0) TileEave(m, e, 0.5 * len, BodyTop(h.Storeys) - 0.32, lod);
+            }
+        }
+
+        /// <summary>A Newar tile pent eave (jhingati) along the wall of frame <paramref name="e"/>, its top edge on the wall
+        /// at <paramref name="y"/>: the red-brown tiled slope 0.65 m out and down, the dark timber soffit and (near) the
+        /// tile courses and the carved dentil band under it.</summary>
+        private static void TileEave(MeshData m, in Affine3 e, double half, double y, int lod)
+        {
+            ShapeBrush tile = BoudhaKit.B(MeshColor.FromHex(0x8E3B2A), MaterialChannel.RoofTile), wood = BoudhaKit.B(MeshColor.FromHex(0x3A2418), MaterialChannel.Wood, 0.7f);
+            double d = 0.65, drop = 0.3, x0 = -half - 0.05, x1 = half + 0.05;
+            SacredDraw.Quad(m, e, x0, y, 0, x1, y, 0, x1, y - drop, d, x0, y - drop, d, 0, 0.91, 0.42, tile);
+            SacredDraw.Quad(m, e, x0, y - drop - 0.06, d, x1, y - drop - 0.06, d, x1, y - 0.12, 0, x0, y - 0.12, 0, 0, -1, 0.2, wood);
+            SacredDraw.Quad(m, e, x0, y - drop - 0.06, d, x1, y - drop - 0.06, d, x1, y - drop, d, x0, y - drop, d, 0, 0, 1, wood);
+            if (lod > 0) return;
+            // Tile courses: three darker ribs down the slope, and the dentils under the soffit.
+            ShapeBrush rib = BoudhaKit.B(MeshColor.FromHex(0x6E2C20), MaterialChannel.RoofTile);
+            for (int q = 1; q <= 3; q++)
+            {
+                double t = q / 4.0, yy = y - drop * t + 0.012, z = d * t;
+                SacredDraw.Quad(m, e, x0, yy - 0.025, z + 0.02, x1, yy - 0.025, z + 0.02, x1, yy, z - 0.03, x0, yy, z - 0.03, 0, 0.91, 0.42, rib);
+            }
+            int dent = Math.Max(2, (int)((x1 - x0) / 0.6));
+            for (int q = 0; q < dent; q++)
+            {
+                double x = x0 + (q + 0.5) * (x1 - x0) / dent;
+                SacredDraw.Box(m, e, x - 0.06, x + 0.06, y - 0.32, y - 0.2, 0, 0.12, wood, BoxFaces.Front | BoxFaces.Bottom);
             }
         }
 
@@ -661,8 +708,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 case HouseLook.Brick:
                 {
+                    // The Newar-revival fronts by the gate and on the kora (gate/Commons 2019-2022) show dark carved
+                    // lattice in the openings, not glass: a deep brown carved panel inside the frame.
                     ShapeBrush wood = BoudhaKit.B(MeshColor.FromHex(0x3A2418), MaterialChannel.WoodCarved);
-                    SacredDraw.Panel(m, e, x0, y0, x1, y1, 0.01, glass);
+                    SacredDraw.Panel(m, e, x0, y0, x1, y1, 0.01, BoudhaKit.B(MeshColor.FromHex(0x241812), MaterialChannel.WoodCarved, 0.85f));
                     if (lod == 0)
                     {
                         // Carved frame whose lintel and sill run out past it (tiki jhya style), and two muntins.

@@ -310,7 +310,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double a = 360.0 * (j + 0.5) / count;
                 Affine3 nf = SacredDraw.At(k * Affine3.Yaw(a), 0, 0, RingR1);
-                SacredDraw.Box(m, nf, -0.5 * nw - 0.06, 0.5 * nw + 0.06, yb - 0.06, yb + nh + 0.06, -0.02, 0.04, frame, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+                SacredDraw.Box(m, nf, -0.5 * nw - 0.06, 0.5 * nw + 0.06, yb - 0.06, yb + nh + 0.06, -0.02, 0.04, frame, BoxFaces.Front | BoxFaces.Top);
                 SacredDraw.Panel(m, nf, -0.5 * nw, yb, 0.5 * nw, yb + nh, 0.045, dark);
                 if (lod == 0)
                 {
@@ -371,7 +371,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static readonly double[] RowsLod2 = { 0, 0.15, 0.3, 0.45, 0.66, 0.8, 1.0 };
 
-        private static readonly uint PaleWash = MeshColor.FromHex(0xF2DFA2), CapWash = MeshColor.FromHex(0xEFCB66);
+        private static readonly uint PaleWash = MeshColor.FromHex(0xF0D894), CapWash = MeshColor.FromHex(0xEDC862);
 
         private static void Dome(MeshData m, in Affine3 k, int lod)
         {
@@ -404,9 +404,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double a0 = 2 * Math.PI * j / Arcs, a1 = 2 * Math.PI * (j + 1) / Arcs;
                 // The arch over lobe j (a ribbon of constant width along the arcade line, lifted off the surface).
-                DomeRibbon(m, k, a0, a1, segs, 0.55, 0.03, false, sb);
+                DomeRibbon(m, k, a0, a1, segs, 0.45, 0.03, false, sb);
                 // The leg at a0 down the dome from the springing to the niche band, wider where the two arches meet.
-                Leg(m, k, a0, ArcSpring + 0.02, LegFoot, 0.75, 0.5, lod == 0 ? 6 : 2, 0.03, sb);
+                Leg(m, k, a0, ArcSpring + 0.02, LegFoot, 0.62, 0.4, lod == 0 ? 6 : 2, 0.03, sb);
                 if (lod == 0)
                 {
                     // The softer saffron line of the cap's scallops, and two pale drips down each lobe from its crown.
@@ -512,7 +512,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private static void Eyes(MeshData m, in Affine3 f, double z, int lod)
         {
             int seg = lod == 0 ? 12 : 6;
-            double ye = HarmikaBase + 0.52 * (HarmikaTop - HarmikaBase), ew = 0.85, eh = 0.3;
+            // Big, wide-open eyes filling the face between the dome and the valance (spire/06, eyes/00): each about 0.27
+            // of the face wide, the brows close under the drape's frill.
+            double ye = HarmikaBase + 0.57 * (HarmikaTop - HarmikaBase), ew = 0.95, eh = 0.36;
             ShapeBrush white = BoudhaKit.B(0xFFFFFFFFu, MaterialChannel.Paint), red = BoudhaKit.B(BoudhaKit.EyeRed, MaterialChannel.Paint);
             ShapeBrush blueD = BoudhaKit.B(BoudhaKit.EyeBlueDark, MaterialChannel.Paint), blueL = BoudhaKit.B(BoudhaKit.EyeBlueLight, MaterialChannel.Paint);
             ShapeBrush ink = BoudhaKit.B(BoudhaKit.Ink, MaterialChannel.Paint), brow = BoudhaKit.B(BoudhaKit.Brow, MaterialChannel.Paint);
@@ -520,27 +522,27 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double xc = s * 1.35;
                 // Red-orange contour round the almond (wider, pointed at the outer corner), then the white almond.
-                Almond(m, f, xc + s * 0.06, ye - 0.02, z, ew + 0.16, eh + 0.12, eh + 0.18, s, seg, red);
-                Almond(m, f, xc, ye, z + 0.004, ew, eh, eh * 0.8, s, seg, white);
+                Almond(m, f, xc + s * 0.06, ye - 0.02, z, ew + 0.16, eh + 0.12, 0.85 * eh + 0.16, s, seg, red);
+                Almond(m, f, xc, ye, z + 0.004, ew, eh, eh * 0.85, s, seg, white);
                 // Iris: dark blue ring, light blue, black pupil; looking slightly down.
-                Disc(m, f, xc, ye - 0.04, z + 0.008, 0.26, seg, blueD);
-                Disc(m, f, xc, ye - 0.04, z + 0.011, 0.19, seg, blueL);
-                Disc(m, f, xc, ye - 0.04, z + 0.014, 0.1, Math.Max(6, seg - 4), ink);
+                Disc(m, f, xc, ye - 0.05, z + 0.008, 0.3, seg, blueD);
+                Disc(m, f, xc, ye - 0.05, z + 0.011, 0.22, seg, blueL);
+                Disc(m, f, xc, ye - 0.05, z + 0.014, 0.12, Math.Max(6, seg - 4), ink);
                 // Black upper lid line and the thick dark brow sweeping up and out, meeting the other over the nose.
-                Arc(m, f, xc, ye + 0.02, z + 0.016, ew + 0.04, eh + 0.04, 0.07, s, seg, ink);
-                Arc(m, f, xc + s * 0.1, ye + 0.42, z + 0.006, ew + 0.32, 0.28, 0.16, s, seg, brow);
+                Arc(m, f, xc, ye + 0.02, z + 0.016, ew + 0.04, eh + 0.04, 0.08, s, seg, ink);
+                Arc(m, f, xc + s * 0.1, ye + 0.5, z + 0.006, ew + 0.36, 0.3, 0.18, s, seg, brow);
             }
             // The nose "१": a white teardrop with a red spiral; the urna dot between the brows.
-            double ny = ye - 0.72;
-            Disc(m, f, 0, ny, z + 0.004, 0.3, seg, white);
-            Spiral(m, f, 0, ny, z + 0.008, 0.24, lod == 0 ? 28 : 14, 0.05, red);
-            Disc(m, f, 0, ye + 0.5, z + 0.006, 0.09, seg, blueD);
-            Disc(m, f, 0, ye + 0.5, z + 0.009, 0.05, seg, red);
+            double ny = ye - 0.8;
+            Disc(m, f, 0, ny, z + 0.004, 0.34, seg, white);
+            Spiral(m, f, 0, ny, z + 0.008, 0.27, lod == 0 ? 28 : 14, 0.055, red);
+            Disc(m, f, 0, ye + 0.6, z + 0.006, 0.1, seg, blueD);
+            Disc(m, f, 0, ye + 0.6, z + 0.009, 0.055, seg, red);
         }
 
         /// <summary>An almond on plane z: half width hw, the upper lid up by <paramref name="up"/>, the lower lid down
         /// by <paramref name="down"/>; the outer corner (side s) a little sharper and lower.</summary>
-        private static void Almond(MeshData m, in Affine3 f, double xc, double yc, double z, double hw, double up, double down, int s, int seg, in ShapeBrush b)
+        internal static void Almond(MeshData m, in Affine3 f, double xc, double yc, double z, double hw, double up, double down, int s, int seg, in ShapeBrush b)
         {
             int c = SacredDraw.V(m, f, xc, yc, z, 0, 0, 1, b), first = m.VertexCount;
             for (int i = 0; i < 2 * seg; i++)
@@ -564,7 +566,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             for (int i = 0; i < 2 * seg; i++) SacredDraw.Tri(m, c, first + i, first + (i + 1) % (2 * seg));
         }
 
-        private static void Disc(MeshData m, in Affine3 f, double xc, double yc, double z, double rad, int seg, in ShapeBrush b)
+        internal static void Disc(MeshData m, in Affine3 f, double xc, double yc, double z, double rad, int seg, in ShapeBrush b)
         {
             int c = SacredDraw.V(m, f, xc, yc, z, 0, 0, 1, b), first = m.VertexCount;
             for (int i = 0; i < seg; i++)
@@ -577,7 +579,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>A crescent stroke over an eye: half width hw, rising <paramref name="rise"/>, thickness th thinning
         /// toward the inner end and sweeping up at the outer end (side s).</summary>
-        private static void Arc(MeshData m, in Affine3 f, double xc, double yc, double z, double hw, double rise, double th, int s, int seg, in ShapeBrush b)
+        internal static void Arc(MeshData m, in Affine3 f, double xc, double yc, double z, double hw, double rise, double th, int s, int seg, in ShapeBrush b)
         {
             int first = m.VertexCount;
             for (int i = 0; i <= seg; i++)
@@ -592,7 +594,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         }
 
         /// <summary>A flat spiral stroke (the red spiral in the nose).</summary>
-        private static void Spiral(MeshData m, in Affine3 f, double xc, double yc, double z, double r, int n, double w, in ShapeBrush b)
+        internal static void Spiral(MeshData m, in Affine3 f, double xc, double yc, double z, double r, int n, double w, in ShapeBrush b)
         {
             int first = m.VertexCount;
             for (int i = 0; i < n; i++)
@@ -755,9 +757,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>
         /// The prayer-flag lines: sixteen bundles fanning from under the canopy to the four arm ends and the four body
-        /// corners of T1 and to eight darchor poles on the compound wall (boudha.md 3.1.6). LOD0 three lines a bundle with
-        /// flags nearly edge to edge, LOD1 two with every other flag, LOD2 one coloured ribbon a bundle. Returns the
-        /// lines.
+        /// corners of T1 and to eight darchor poles on the compound wall (boudha.md 3.1.6). LOD0 four lines a bundle on
+        /// their cords, small flags (0.5 × 0.42 m) every metre swung alternately in the breeze; LOD1 two lines a bundle as
+        /// continuous ribbons of colour; LOD2 one coarser ribbon a bundle. Returns the lines.
         /// </summary>
         private static int Flags(MeshData m, in BoudhaFrame f, int lod)
         {
@@ -778,14 +780,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double a0 = dir + 0.18 * spread, su = r0 * Math.Sin(a0), sv = r0 * Math.Cos(a0);
                     double side = 1.8 * spread, tu = Math.Cos(dir), tv = -Math.Sin(dir);
                     double fu = eu + side * tu, fv = ev + side * tv, fy = ey + 0.25 * Math.Abs(spread);
-                    if (lod <= 1)
-                    {
-                        BoudhaKit.FlagLine(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, 0.05 + 0.012 * j, lod, 0.1);
-                    }
+                    double span = Math.Sqrt((fu - su) * (fu - su) + (fv - sv) * (fv - sv)), sag = (0.05 + 0.012 * j) * span;
+                    if (lod == 0)
+                        BoudhaKit.FlagRun(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, sag, 0.5, 0.42, 1.0, 25, true, 0.08, b + j);
+                    else if (lod == 1)
+                        BoudhaKit.FlagRun(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, sag, 1.45, 0.4, 1.45, 18, false, 0.08, b + j);
                     else
-                    {
-                        Ribbon(m, k, su, y0, sv, fu, fy, fv);
-                    }
+                        BoudhaKit.FlagRun(m, k, su, y0, sv, fu, fy, fv, 0.06 * span, 3.0, 0.5, 3.0, 0, false, 0.05, b);
                     lines++;
                 }
             }
@@ -819,22 +820,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             u = r * Math.Sin(ang);
             v = r * Math.Cos(ang);
             y = BoudhaWall.PoleTop;
-        }
-
-        /// <summary>A far-view flag bundle: a narrow two-sided ribbon striped in the five colours.</summary>
-        private static void Ribbon(MeshData m, in Affine3 k, double u0, double y0, double v0, double u1, double y1, double v1)
-        {
-            int seg = 10;
-            double du = u1 - u0, dv = v1 - v0, l = Math.Sqrt(du * du + dv * dv), nu = -dv / l, nv = du / l, sag = 0.06 * l;
-            for (int i = 0; i < seg; i++)
-            {
-                double ta = (double)i / seg, tb = (i + 1.0) / seg;
-                double ya = y0 + (y1 - y0) * ta - 4 * sag * ta * (1 - ta), yb = y0 + (y1 - y0) * tb - 4 * sag * tb * (1 - tb);
-                ShapeBrush c = BoudhaKit.B(SacredPalette.Flags[i % 5], MaterialChannel.Fabric);
-                for (int s = -1; s <= 1; s += 2)
-                    SacredDraw.Quad(m, k, u0 + du * ta, ya, v0 + dv * ta, u0 + du * tb, yb, v0 + dv * tb, u0 + du * tb, yb - 0.5, v0 + dv * tb, u0 + du * ta, ya - 0.5,
-                                    v0 + dv * ta, s * nu, 0, s * nv, c);
-            }
         }
 
         // ------------------------------------------------------------------------------------------------ LOD3

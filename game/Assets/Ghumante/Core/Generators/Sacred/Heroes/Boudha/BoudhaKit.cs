@@ -20,7 +20,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public static readonly uint DomeWhite = MeshColor.FromHex(0xF4F0E6);
         public static readonly uint Weathered = MeshColor.FromHex(0xD9D4C8);
         public static readonly uint TerraceFloor = MeshColor.FromHex(0xC39A86);
-        public static readonly uint SaffronArc = MeshColor.FromHex(0xE3A73A);
+        public static readonly uint SaffronArc = MeshColor.FromHex(0xDEA640);
         public static readonly uint YellowWash = MeshColor.FromHex(0xF2D27A);
         public static readonly uint GiltPanel = MeshColor.FromHex(0xC9A050);
         public static readonly uint GiltLit = MeshColor.FromHex(0xE0BC63);
@@ -416,14 +416,45 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ flags
 
-        /// <summary>A prayer-flag line in the local frame (see <see cref="StupaGenerator.FlagLine"/>), with Boudha's
-        /// flag size and pitch; returns the flags.</summary>
-        public static int FlagLine(MeshData m, in Affine3 k, double u0, double y0, double v0, double u1, double y1, double v1, double sagFrac, int lod,
-                                   double start)
+        /// <summary>The cotton cord of a flag line (pale, weathered).</summary>
+        public static readonly uint Cord = MeshColor.FromHex(0xE6DFD0);
+
+        /// <summary>
+        /// A prayer-flag line (lungta; boudha.md 3.1.6, flags/*) in frame <paramref name="k"/> from (u0, y0, v0) to (u1, y1,
+        /// v1), hanging in a parabola <paramref name="sag"/> deep at mid-span: flags <paramref name="fw"/> wide and
+        /// <paramref name="fh"/> tall under the cord every <paramref name="pitch"/> metres (pitch = fw: a continuous ribbon of
+        /// colour, the far form) from fraction <paramref name="start"/> of the way on, in the five colours blue, white, red,
+        /// green, yellow from <paramref name="phase"/>; two-sided, each flag turned <paramref name="flutterDeg"/> about the cord,
+        /// alternately to either side (the breeze), so their faces show from below and from the air; with
+        /// <paramref name="cord"/> the cord itself as a thin pale wire. Returns the flags.
+        /// </summary>
+        public static int FlagRun(MeshData m, in Affine3 k, double u0, double y0, double v0, double u1, double y1, double v1, double sag, double fw, double fh,
+                                  double pitch, double flutterDeg, bool cord, double start, int phase)
         {
-            double du = u1 - u0, dv = v1 - v0, span = Math.Sqrt(du * du + dv * dv);
-            double fw = lod == 0 ? 0.6 : 1.0, fh = 0.45, pitch = lod == 0 ? 1.05 : 2.2;
-            return StupaGenerator.FlagLine(m, k, u0, y0, v0, u1, y1, v1, sagFrac * span, fw, fh, pitch, true, start, lod == 0 ? 0 : 1);
+            double du = u1 - u0, dv = v1 - v0, dy = y1 - y0, l = Math.Sqrt(du * du + dv * dv);
+            if (l < 1e-6) return 0;
+            double len = Math.Sqrt(l * l + dy * dy);
+            // The horizontal normal of the line's vertical plane.
+            double nu = -dv / l, nv = du / l;
+            if (cord) Shapes.Wire(m, k, B(Cord, MaterialChannel.Fabric), u0, y0, v0, u1, y1, v1, sag, 0.014, 3, 3);
+            int flags = Math.Max(1, (int)((1 - start) * len / Math.Max(0.1, pitch)));
+            double step = (1 - start) / flags, half = 0.5 * Math.Min(fw, pitch) / len;
+            double fl = flutterDeg * Math.PI / 180.0, cf = Math.Cos(fl), sf = Math.Sin(fl);
+            for (int q = 0; q < flags; q++)
+            {
+                double c = start + (q + 0.5) * step, a = c - half, b = c + half;
+                double ya = y0 + dy * a - 4 * sag * a * (1 - a), yb = y0 + dy * b - 4 * sag * b * (1 - b);
+                double ua = u0 + du * a, va = v0 + dv * a, ub = u0 + du * b, vb = v0 + dv * b;
+                // The flag hangs down from the cord, swung out to one side; its face normal is the hang turned up.
+                double s = (q & 1) == 0 ? 1 : -1;
+                double hy = -fh * cf, hs = s * fh * sf;
+                double fnu = s * cf * nu, fny = sf, fnv = s * cf * nv;
+                ShapeBrush col = B(SacredPalette.Flags[(q + phase) % 5], MaterialChannel.Fabric);
+                for (int side = -1; side <= 1; side += 2)
+                    SacredDraw.Quad(m, k, ua, ya - 0.01, va, ub, yb - 0.01, vb, ub + hs * nu, yb + hy, vb + hs * nv, ua + hs * nu, ya + hy, va + hs * nv,
+                                    side * fnu, side * fny, side * fnv, col);
+            }
+            return flags;
         }
 
         // ------------------------------------------------------------------------------------------------ steps

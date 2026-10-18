@@ -113,7 +113,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>Height of a mini-Boudha chorten, half its square base and its dome's radius (spire/06: the dome
         /// nearly fills the base, the harmika about 0.4 of the dome's width).</summary>
-        public const double MiniH = 7.3, MiniBase = 2.2, MiniDomeR = 1.95;
+        public const double MiniH = 7.5, MiniBase = 2.2, MiniDomeR = 1.95;
 
         /// <summary>
         /// A mini-Boudha chorten (spire/06, Bibek KC): a white two-step square base, a white dome with a small gilt niche
@@ -149,8 +149,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 Shapes.Frustum(m, SacredDraw.At(fr, 0, ny + 0.85, nz + 0.1) * Affine3.Yaw(45), gilt, 0.55, 0.07, 0.38, 4, 0, 0, true, false);
                 if (lod == 0) SacredParts.Torana(m, fr, 0, ny + 0.65, nz + 0.31, 0.54, gilt, lod);
             }
-            // Harmika with the eyes: tall and broad (about 0.4 of the dome's width, spire/06).
-            double hh = 0.95, hw = 0.75;
+            // Harmika with the eyes: tall and broad (about 0.42 of the dome's width and 0.68 of its own width tall,
+            // spire/06).
+            double hh = 1.1, hw = 0.82;
             Mould hm = SacredDraw.M;
             if (lod >= 2) hm.Add(0, top - 0.15, w).Add(0, top + hh + 0.12);
             else hm.Add(0, top - 0.15, w).Add(0, top + hh).Add(0.08, top + hh + 0.02).Add(0.08, top + hh + 0.12);
@@ -160,12 +161,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 for (int s = 0; s < 4; s++)
                 {
                     Affine3 face = fr * Affine3.Yaw(90 * s);
-                    MiniEyes(m, face, top + 0.55, hw + 0.006, 1.5, lod);
+                    MiniEyes(m, face, top + 0.62, hw + 0.006, 2 * hw, lod);
                 }
             }
             // The gilt square spire: thirteen steps from almost the harmika's width to about half of it, then the
             // parasol and the finial.
-            double sy = top + hh + 0.12, sh0 = 2.3, b0 = 0.66, b1 = 0.36;
+            double sy = top + hh + 0.12, sh0 = 2.3, b0 = 0.7, b1 = 0.36;
             if (lod == 0)
             {
                 int steps = 13;
@@ -192,23 +193,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (lod == 0) Shapes.Sphere(m, SacredDraw.At(fr, 0, py + 0.5, 0), gilt, 0.13, 8);
         }
 
-        /// <summary>The painted eyes on a mini chorten's harmika face (blue irises, black brows, the red "१" nose),
-        /// <paramref name="sc"/> times the 0.5 m harmika's size.</summary>
-        private static void MiniEyes(MeshData m, in Affine3 f, double y, double z, double sc, int lod)
+        /// <summary>The painted eyes on a mini chorten's harmika face <paramref name="w"/> wide (spire/06): white almonds
+        /// with dark blue irises looking a little down, the dark brows sweeping up and out, the red "१" nose below between
+        /// them; the eye centre line at <paramref name="y"/> on the face plane z.</summary>
+        private static void MiniEyes(MeshData m, in Affine3 f, double y, double z, double w, int lod)
         {
             ShapeBrush white = BoudhaKit.B(0xFFFFFFFFu, MaterialChannel.Paint), blue = BoudhaKit.B(BoudhaKit.EyeBlueDark, MaterialChannel.Paint);
-            ShapeBrush ink = BoudhaKit.B(BoudhaKit.Brow, MaterialChannel.Paint), red = BoudhaKit.B(BoudhaKit.EyeRed, MaterialChannel.Paint);
+            ShapeBrush brow = BoudhaKit.B(BoudhaKit.Brow, MaterialChannel.Paint), red = BoudhaKit.B(BoudhaKit.EyeRed, MaterialChannel.Paint);
+            int seg = lod == 0 ? 5 : 4;
             for (int s = -1; s <= 1; s += 2)
             {
-                double xc = s * 0.19 * sc;
-                SacredDraw.Quad(m, f, xc - 0.13 * sc, y, z, xc, y - 0.05 * sc, z, xc + 0.13 * sc, y, z, xc, y + 0.06 * sc, z, 0, 0, 1, white);
-                SacredDraw.Quad(m, f, xc - 0.045 * sc, y - 0.04 * sc, z + 0.003, xc + 0.045 * sc, y - 0.04 * sc, z + 0.003, xc + 0.045 * sc, y + 0.045 * sc, z + 0.003,
-                                xc - 0.045 * sc, y + 0.045 * sc, z + 0.003, 0, 0, 1, blue);
-                SacredDraw.Quad(m, f, xc - 0.15 * sc, y + 0.09 * sc, z + 0.002, xc + 0.15 * sc, y + 0.09 * sc, z + 0.002, xc + 0.13 * sc, y + 0.13 * sc, z + 0.002,
-                                xc - 0.13 * sc, y + 0.13 * sc, z + 0.002, 0, 0, 1, ink);
+                double xc = s * 0.25 * w;
+                // The dark lid line round the white almond (the harmika is white too), then the almond and the iris.
+                BoudhaStupa.Almond(m, f, xc, y, z, 0.16 * w, 0.072 * w, 0.056 * w, s, seg, brow);
+                BoudhaStupa.Almond(m, f, xc, y, z + 0.002, 0.145 * w, 0.058 * w, 0.044 * w, s, seg, white);
+                BoudhaStupa.Disc(m, f, xc, y - 0.006 * w, z + 0.004, 0.05 * w, 6, blue);
+                BoudhaStupa.Arc(m, f, xc + s * 0.02 * w, y + 0.1 * w, z + 0.002, 0.18 * w, 0.05 * w, 0.035 * w, s, 4, brow);
             }
-            SacredDraw.Quad(m, f, -0.03 * sc, y - 0.26 * sc, z + 0.002, 0.03 * sc, y - 0.26 * sc, z + 0.002, 0.03 * sc, y - 0.08 * sc, z + 0.002, -0.03 * sc, y - 0.08 * sc,
-                            z + 0.002, 0, 0, 1, red);
+            if (lod == 0) BoudhaStupa.Spiral(m, f, 0, y - 0.17 * w, z + 0.002, 0.05 * w, 8, 0.02 * w, red);
+            else SacredDraw.Panel(m, f, -0.015 * w, y - 0.22 * w, 0.015 * w, y - 0.1 * w, z + 0.002, red);
         }
 
         // ------------------------------------------------------------------------------------------------ statues

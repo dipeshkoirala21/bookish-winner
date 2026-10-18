@@ -129,6 +129,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 SacredDraw.Box(m, g, -hx, hx, -0.3, top, -hz, hz, ochre, BoxFaces.All & ~BoxFaces.Bottom);
                 Shapes.Frustum(m, SacredDraw.At(g, 0, top, -0.3 * hz) * Affine3.Yaw(45), BoudhaKit.Gilt, 3.6, 0.3, 3.0, 4, 0, 0, false, false);
+                // The maroon frieze under the roof line and the dark portico across the front.
+                SacredDraw.Panel(m, g, -hx, top - 0.85, hx, top, hz + 0.02, maroon);
+                SacredDraw.Panel(m, g, -hx + 1.0, plinth, hx - 1.0, ground, hz + 0.02, BoudhaKit.B(MeshColor.FromHex(0x5A1E18), MaterialChannel.Paint, 0.7f));
                 return;
             }
             // Body: stone plinth, the walls with a maroon frieze under a dark cornice and the parapet.
@@ -244,7 +247,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// columns with painted capitals and cloud-scroll brackets, the multi-banded beam over them, and white lattice
         /// screens between the outer columns when asked.
         /// </summary>
-        private static void Portico(MeshData m, in Affine3 g, double px, double hz, double y0, double y1, int columns, in ShapeBrush col, int lod, bool screens)
+        private static void Portico(MeshData m, in Affine3 g, double px, double hz, double y0, double y1, int columns, in ShapeBrush col, int lod, bool screens,
+                                    bool pilasters = false)
         {
             double zw = hz - PorticoDepth, beam0 = y1 - 0.85;
             ShapeBrush mural = BoudhaKit.B(MeshColor.FromHex(0x6E2A24), MaterialChannel.Paint), shade = BoudhaKit.B(MeshColor.FromHex(0x4A2220), MaterialChannel.Plaster, 0.6f);
@@ -257,14 +261,20 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             // Close the walls beside the portico (the body ring stops at the front plane).
             if (lod <= 1)
             {
-                // Mural panels: the four Guardian Kings, as bright painted panels either side of the door.
-                uint[] kings = { 0x2E6A3A, 0xC8382E, 0x2E5DA8, 0xE8B530 };
+                // Mural panels: the four Guardian Kings either side of the door (jamchen/00, bell/09): dark painted grounds
+                // (deep green, maroon, indigo, umber) each with its king in his colour, a broad robed figure under a pale
+                // face, so the wall reads as murals, not as stripes of colour.
+                uint[] grounds = { 0x34463C, 0x4A2C28, 0x2C3650, 0x4A3E2A }, robes = { 0x3A6A46, 0x9A3A30, 0x34508A, 0xB08A3A };
                 for (int q = 0; q < 4; q++)
                 {
                     double xa = q < 2 ? -px + 0.3 + q * 0.5 * (px - 1.6) : 1.3 + (q - 2) * 0.5 * (px - 1.6), xb = xa + 0.5 * (px - 1.6) - 0.2;
-                    SacredDraw.Panel(m, g, xa, y0 + 0.6, xb, beam0 - 0.3, zw + 0.01, BoudhaKit.B(MeshColor.FromHex(kings[q]), MaterialChannel.Paint));
+                    double ya = y0 + 0.6, yb = beam0 - 0.3, xm = 0.5 * (xa + xb), hw2 = 0.5 * (xb - xa);
+                    SacredDraw.Panel(m, g, xa, ya, xb, yb, zw + 0.01, BoudhaKit.B(MeshColor.FromHex(grounds[q]), MaterialChannel.Paint));
+                    // The king: a robe widening to the feet, his armour collar.
+                    SacredDraw.Quad(m, g, xm - 0.6 * hw2, ya + 0.2, zw + 0.015, xm + 0.6 * hw2, ya + 0.2, zw + 0.015, xm + 0.3 * hw2, yb - 0.7, zw + 0.015,
+                                    xm - 0.3 * hw2, yb - 0.7, zw + 0.015, 0, 0, 1, BoudhaKit.B(MeshColor.FromHex(robes[q]), MaterialChannel.Paint));
                     if (lod == 0)
-                        Shapes.Ellipsoid(m, SacredDraw.At(g, 0.5 * (xa + xb), beam0 - 0.75, zw + 0.02), BoudhaKit.B(MeshColor.FromHex(0xE8C8A0), MaterialChannel.Paint), 0.22, 0.26, 0.03, 6, false);
+                        Shapes.Ellipsoid(m, SacredDraw.At(g, xm, yb - 0.45, zw + 0.02), BoudhaKit.B(MeshColor.FromHex(0xE8C8A0), MaterialChannel.Paint), 0.2, 0.24, 0.03, 6, false);
                 }
                 // The door: a gilt frame, red leaves or yellow curtains, a red valance.
                 SacredDraw.Box(m, g, -1.05, 1.05, y0, y0 + 2.7, zw, zw + 0.12, BoudhaKit.Gilt, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
@@ -296,7 +306,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             for (int q = 0; q < columns; q++)
             {
                 double x = -px + 0.35 + (2 * px - 0.7) * q / (columns - 1);
-                Column(m, g, x, hz - 0.3, y0, beam0, col, lod);
+                // With corner pilasters (Jamchen, jamchen/00) only the two inner columns stand free, broad and richly capped.
+                if (!pilasters || (q > 0 && q < columns - 1)) Column(m, g, x, hz - 0.3, y0, beam0, col, lod, pilasters ? 0.28 : 0.2);
                 if (screens && (q == 0 || q == columns - 2) && lod <= 1)
                 {
                     // White steel lattice screens in the outer bays.
@@ -311,9 +322,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>A Tibetan column: a square shaft (chamfered), a painted capital of stacked blocks and the cloud-scroll
         /// bracket (zhu) spreading under the beam.</summary>
-        private static void Column(MeshData m, in Affine3 g, double x, double z, double y0, double y1, in ShapeBrush col, int lod)
+        private static void Column(MeshData m, in Affine3 g, double x, double z, double y0, double y1, in ShapeBrush col, int lod, double w)
         {
-            double w = 0.2;
             Mould mo = SacredDraw.M;
             mo.Add(0.05, y0, BoudhaKit.B(MeshColor.FromHex(0x9C978E), MaterialChannel.Stone)).Add(0.05, y0 + 0.2).Add(0, y0 + 0.22, col).Add(0, y1 - 0.7);
             if (lod == 0)
@@ -503,22 +513,27 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
         }
 
+        private const double BellLip = 1.35;
+
         /// <summary>The Big Bell on the kora in front of the Guru Lhakhang (bell/00-09, gompa2/01): a silver-bronze bell
         /// hanging in a gilt horseshoe-arch frame on a low stone base, at (x, z) of frame g.</summary>
         private static void BigBell(MeshData m, in Affine3 g, double x, double z, int lod)
         {
             ShapeBrush gilt = BoudhaKit.Gilt, bronze = BoudhaKit.B(MeshColor.FromHex(0xA9A39A), MaterialChannel.Metal), stone = BoudhaKit.B(MeshColor.FromHex(0x8E8A82), MaterialChannel.Stone);
-            double y0 = BoudhaQuarter.PaveTop, span = 1.15, ph = 2.5;
+            // Proportions from bell/04 and bell/08 (by the post span): the posts stand 1.75 over the base, the horseshoe
+            // springs just above them, and the bell (1.25 across the lip) hangs from the crown of the arch with its lip at
+            // 1.1 over the base, its own crown close under the arch.
+            double y0 = BoudhaQuarter.PaveTop, span = 1.15, ph = 2.0;
             Affine3 b = SacredDraw.At(g, x, y0, z);
             SacredDraw.Box(m, b, -span - 0.35, span + 0.35, -0.05, 0.25, -0.45, 0.45, stone, BoxFaces.All & ~BoxFaces.Bottom);
             if (lod >= 2)
             {
                 // Far: the two posts, a flat gilt arch board over them and the bell.
                 for (int s = -1; s <= 1; s += 2)
-                    SacredDraw.Box(m, b, s * span - 0.16, s * span + 0.16, 0.25, ph, -0.16, 0.16, gilt, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-                SacredDraw.Box(m, b, -span - 0.2, span + 0.2, ph, ph + 0.9, -0.15, 0.15, gilt, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top);
+                    SacredDraw.Box(m, b, s * span - 0.16, s * span + 0.16, 0.25, ph + 0.6, -0.16, 0.16, gilt, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                SacredDraw.Box(m, b, -span - 0.2, span + 0.2, ph + 0.6, ph + 1.3, -0.15, 0.15, gilt, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top);
                 Profile2 fp = BoudhaKit.Prof;
-                fp.Add(0, 0.95).Add(0.52, 0.95, true).Add(0.3, 1.9).Add(0, 2.06);
+                fp.Add(0, BellLip).Add(0.62, BellLip, true).Add(0.36, BellLip + 1.1).Add(0, BellLip + 1.3);
                 Shapes.Lathe(m, b, bronze, fp, 5);
                 return;
             }
@@ -540,18 +555,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 Shapes.Ellipsoid(m, SacredDraw.At(b, 0, ph + 0.35 + span + 0.38, 0), gilt, 0.2, 0.32, 0.1, 8, false);
                 Shapes.Cone(m, SacredDraw.At(b, 0, ph + 0.35 + span + 0.6, 0), gilt, 0.08, 0.3, 6, 0, 0, false);
             }
-            // Crossbar and the bell.
-            Shapes.Bar(m, b, gilt, -span, ph + 0.15, 0, span, ph + 0.15, 0, 0.07, lod == 0 ? 6 : 4);
+            // The bell, hung from the crown of the arch by a short gilt shank (no crossbar: bell/04, bell/08).
+            double l = BellLip, crown = l + 1.3, archIn = ph + 0.35 + span + 0.05 - 0.24;
             Profile2 p = BoudhaKit.Prof;
-            if (lod >= 1) p.Add(0, 0.95).Add(0.52, 0.95, true).Add(0.42, 1.25).Add(0.3, 1.9).Add(0.06, 2.06).Add(0, 2.06);
-            else p.Add(0, 0.95).Add(0.52, 0.95, true).Add(0.5, 1.02).Add(0.42, 1.25).Add(0.35, 1.6).Add(0.3, 1.9).Add(0.24, 2.02).Add(0.06, 2.06).Add(0, 2.06);
+            if (lod >= 1) p.Add(0, l).Add(0.62, l, true).Add(0.52, l + 0.3).Add(0.38, l + 1.05).Add(0.08, crown).Add(0, crown);
+            else p.Add(0, l).Add(0.62, l, true).Add(0.6, l + 0.08).Add(0.52, l + 0.3).Add(0.44, l + 0.7).Add(0.38, l + 1.05).Add(0.3, l + 1.22).Add(0.08, crown).Add(0, crown);
             if (lod == 0) p.Smooth(1);
             Shapes.Lathe(m, b, bronze, p, lod == 0 ? 16 : lod == 1 ? 8 : 6);
-            if (lod == 0)
-            {
-                Shapes.Torus(m, SacredDraw.At(b, 0, 1.18, 0), bronze, 0.47, 0.03, seg + 6, 4);
-                Shapes.Bar(m, b, gilt, 0, 2.05, 0, 0, ph + 0.15, 0, 0.05, 5);
-            }
+            Shapes.Bar(m, b, gilt, 0, crown - 0.02, 0, 0, archIn + 0.05, 0, lod == 0 ? 0.06 : 0.05, lod == 0 ? 5 : 4);
+            if (lod == 0) Shapes.Torus(m, SacredDraw.At(b, 0, l + 0.25, 0), bronze, 0.555, 0.03, seg + 6, 4);
         }
 
         // ------------------------------------------------------------------------------------------------ Jamchen
@@ -574,7 +586,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
             double px = hx - 0.9;
             OpenGround(m, g, hx, hz, px, plinth, ground, marble, ochre, 0.06);
-            Portico(m, g, px, hz, plinth, ground, 4, maroon, lod, true);
+            Portico(m, g, px, hz, plinth, ground, 4, maroon, lod, true, true);
             // Three green marble steps in front of the door.
             ShapeBrush green = BoudhaKit.B(MeshColor.FromHex(0x4E6B5A), MaterialChannel.Stone);
             for (int s = 0; s < 3; s++)
@@ -618,21 +630,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     for (int q = 0; q < nEnds; q++)
                     {
                         double x = -px - 0.2 + (q + 0.5) * (2 * px + 0.4) / nEnds;
-                        SacredDraw.Box(m, g, x - 0.07, x + 0.07, ground - 0.16, ground - 0.02, hz + 0.1, hz + 0.24, BoudhaKit.B(MeshColor.FromHex(ends[q % 3]), MaterialChannel.Paint),
+                        SacredDraw.Box(m, g, x - 0.07, x + 0.07, ground - 0.32, ground - 0.18, hz + 0.1, hz + 0.24, BoudhaKit.B(MeshColor.FromHex(ends[q % 3]), MaterialChannel.Paint),
                                        BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Bottom);
                     }
                 }
             }
-            // The deep portico eave: a dark slab sloping out 1.3 m past the front, its navy soffit and a gilt edge.
-            double ez0 = hz - 0.3, ez1 = hz + 1.3, ey0 = ground, ey1 = eaveTop;
-            SacredDraw.Quad(m, g, -hx - 0.35, ey1, ez0, hx + 0.35, ey1, ez0, hx + 0.35, ey0 + 0.12, ez1, -hx - 0.35, ey0 + 0.12, ez1, 0, 0.9937, 0.1118, slate);
-            SacredDraw.Quad(m, g, -hx - 0.35, ey0 - 0.02, ez1, hx + 0.35, ey0 - 0.02, ez1, hx + 0.35, ey0 - 0.02, ez0, -hx - 0.35, ey0 - 0.02, ez0, 0, -1, 0, navy);
-            SacredDraw.Quad(m, g, -hx - 0.35, ey0 - 0.02, ez1, -hx - 0.35, ey0 + 0.12, ez1, hx + 0.35, ey0 + 0.12, ez1, hx + 0.35, ey0 - 0.02, ez1, 0, 0, 1,
-                            lod == 0 ? BoudhaKit.Gilt : slate);
+            // The deep portico eave (jamchen/00): a dark slab sloping steeply out 1.3 m past the front from just under the
+            // gallery rail, its navy soffit rising back to the beam (seen from the kora as a broad dark band) and a gilt edge.
+            double ez0 = hz - 0.3, ez1 = hz + 1.3, ey0 = ground, ey1 = eaveTop + 0.2, lip = ground, sof = ground - 0.45;
+            double tn = Math.Sqrt((ez1 - ez0) * (ez1 - ez0) + (ey1 - lip) * (ey1 - lip)), sn = Math.Sqrt((ez1 - ez0) * (ez1 - ez0) + (ey0 - sof) * (ey0 - sof));
+            SacredDraw.Quad(m, g, -hx - 0.35, ey1, ez0, hx + 0.35, ey1, ez0, hx + 0.35, lip, ez1, -hx - 0.35, lip, ez1, 0, (ez1 - ez0) / tn, (ey1 - lip) / tn, slate);
+            SacredDraw.Quad(m, g, -hx - 0.35, sof, ez1, hx + 0.35, sof, ez1, hx + 0.35, ey0, ez0, -hx - 0.35, ey0, ez0, 0, -(ez1 - ez0) / sn, (ey0 - sof) / sn, navy);
+            SacredDraw.Quad(m, g, -hx - 0.35, sof, ez1, -hx - 0.35, lip, ez1, hx + 0.35, lip, ez1, hx + 0.35, sof, ez1, 0, 0, 1, slate);
+            SacredDraw.Panel(m, g, -hx - 0.35, sof, hx + 0.35, sof + (lod == 0 ? 0.08 : 0.1), ez1 + 0.01, BoudhaKit.Gilt);
             for (int s = -1; s <= 1; s += 2)
             {
                 double x = s * (hx + 0.35);
-                SacredDraw.Quad(m, g, x, ey0 - 0.02, ez0, x, ey1, ez0, x, ey0 + 0.12, ez1, x, ey0 - 0.02, ez1, s, 0, 0, slate);
+                SacredDraw.Quad(m, g, x, ey0, ez0, x, ey1, ez0, x, lip, ez1, x, sof, ez1, s, 0, 0, slate);
             }
             // Upper storey, set back behind the gallery: ochre walls under a red cornice.
             Mould mo = SacredDraw.M;
@@ -685,6 +699,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 SacredDraw.Box(m, g, -hx, hx, -0.3, top, -hz, hz, white, BoxFaces.All & ~BoxFaces.Bottom);
                 Shapes.Frustum(m, SacredDraw.At(g, 0, top, 0) * Affine3.Yaw(45), BoudhaKit.Gilt, 2.6, 0.3, 2.0, 4, 0, 0, false, false);
+                SacredDraw.Panel(m, g, -hx, top - 0.8, hx, top, hz + 0.02, maroon);
                 return;
             }
             Mould mo = SacredDraw.M;

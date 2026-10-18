@@ -10,8 +10,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     /// flat paved level. <see cref="KoraLevel"/> is that level (the 10th percentile of the terrain on the kora ring,
     /// r 50-60 m, so it also holds after flattening); <see cref="Apply"/> flattens a decoded tile's height grid to it
     /// within <see cref="BoudhaSite.PlazaRadiusM"/> of the T1 centroid and clamps the terrain beyond to a 1:4 cone of
-    /// slopes back to the original over <see cref="BoudhaSite.PlazaBlendM"/>, so the terrain mesh, the sampler, the
-    /// ground query and every placer agree on one flat plaza. Idempotent. The streamer calls it on every decoded tile
+    /// slopes back to the original over <see cref="BoudhaSite.PlazaBlendM"/> (leaving the drawn roads beyond the plaza on
+    /// their own ground), so the terrain mesh, the sampler, the ground query and every placer agree on one flat plaza.
+    /// Idempotent. The streamer calls it on every decoded tile
     /// before meshing (<see cref="HeroBuilder.PrepareGround"/> in TileBuild.Execute).
     /// </summary>
     public static class BoudhaGround
@@ -93,6 +94,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (i0 > i1 || j0 > j1) return 0;
             double level = KoraLevel(t, ox, oz);
             ushort lq = Ght.Quantize(level);
+            // Beyond the plaza the drawn roads keep their own ground: Boudha Main Road runs through the blend south of the
+            // main gate, and a cone across a carriageway would lift the ground under one edge and leave the other on the
+            // original terrain (the ribbon then floats at that edge). Cells within a cell and a metre of a drawn
+            // carriageway are left as they are (the drawn-road index works on the roads alone, not the heights).
+            SacredDrawnRoads roads = t.Roads.Count > 0 ? SacredDrawnRoads.For(t) : null;
+            double keep = Math.Min(SacredDrawnRoads.FarM - 0.5, Math.Max(2.0, cell + 1.0));
             int changed = 0;
             for (int j = j0; j <= j1; j++)
             {
@@ -109,6 +116,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     }
                     else
                     {
+                        if (roads != null && roads.SignedDistance(i * cell, j * cell) < keep) continue;
                         // A cone of slopes (1:4) round the plaza: the terrain is clamped to within (r − r0) / 4 of the level,
                         // so a second pass changes nothing.
                         double band = (r - r0) * BlendSlope, h = Ght.Dequantize(q), l = Ght.Dequantize(lq);

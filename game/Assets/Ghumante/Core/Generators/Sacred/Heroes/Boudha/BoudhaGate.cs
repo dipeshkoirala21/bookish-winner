@@ -476,23 +476,24 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             ShapeBrush gilt = BoudhaKit.Gilt, teal = BoudhaKit.B(MeshColor.FromHex(0x3E9C94), MaterialChannel.Paint);
             var ctrl = new Path3(8);
             double y = RoofY + 0.25;
-            ctrl.Add(s * 2.6, y + 0.05, 0.1).Add(s * 2.1, y + 0.4, -0.1).Add(s * 1.6, y + 0.12, 0.1).Add(s * 1.15, y + 0.42, 0.0).Add(s * 0.8, y + 0.52, 0.0);
+            // The commons photos: big gilt dragons whose humps rise as high as the chorten's bulb, heads raised to it.
+            ctrl.Add(s * 2.6, y + 0.05, 0.1).Add(s * 2.15, y + 0.62, -0.1).Add(s * 1.65, y + 0.18, 0.1).Add(s * 1.2, y + 0.68, 0.0).Add(s * 0.86, y + 0.8, 0.0);
             Path3 path = lod == 0 ? Curves.CatmullRom(ctrl, new Path3(32), 4) : ctrl;
-            Shapes.Tube(m, g, gilt, path, 0.16, lod == 0 ? 8 : 5, true, false, default, 0.06);
+            Shapes.Tube(m, g, gilt, path, 0.2, lod == 0 ? 8 : 5, true, false, default, 0.07);
             if (lod == 0)
             {
                 // Teal dorsal fins along the humps and two clawed legs gripping the roof.
-                double[] fin = { 2.1, 0.57, 1.6, 0.29, 1.15, 0.59 };
+                double[] fin = { 2.15, 0.84, 1.65, 0.38, 1.2, 0.9 };
                 for (int q = 0; q < fin.Length; q += 2)
                     Shapes.Cone(m, SacredDraw.At(g, s * fin[q], y + fin[q + 1], 0), teal, 0.09, 0.22, 5, 0, 0, false);
                 for (int q = 0; q < 2; q++)
                 {
                     double lx = s * (q == 0 ? 2.25 : 1.3);
-                    Shapes.Bar(m, g, gilt, lx, y + (q == 0 ? 0.3 : 0.2), 0.05, lx + s * 0.12, y - 0.2, 0.18, 0.05, 4);
+                    Shapes.Bar(m, g, gilt, lx, y + (q == 0 ? 0.45 : 0.3), 0.05, lx + s * 0.12, y - 0.2, 0.18, 0.06, 4);
                 }
             }
             // Head: a snout and jaw, horns, a teal crest.
-            Affine3 h = SacredDraw.At(g, s * 0.66, y + 0.6, 0);
+            Affine3 h = SacredDraw.At(g, s * 0.7, y + 0.92, 0) * Affine3.Scaling(1.3);
             Shapes.Ellipsoid(m, h, gilt, 0.2, 0.16, 0.16, lod == 0 ? 8 : 5, false);
             Shapes.Bar(m, h, gilt, -s * 0.05, 0.02, 0, -s * 0.38, 0.1, 0, 0.08, 5);
             if (lod == 0)
