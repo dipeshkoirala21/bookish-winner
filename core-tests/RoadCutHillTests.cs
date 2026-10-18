@@ -111,13 +111,15 @@ namespace Ghumante.Core.Tests
 
         private struct Tally
         {
-            public int Count;
+            public int Count, Over3, Over10;
             public double Float, Sink;
             public string FloatAt, SinkAt;
 
             public void Add(double off, string what)
             {
                 Count++;
+                if (Math.Abs(off) > 0.03) Over3++;
+                if (Math.Abs(off) > 0.10) Over10++;
                 if (off > Float)
                 {
                     Float = off;
@@ -132,8 +134,8 @@ namespace Ghumante.Core.Tests
 
             public string Line(string name)
             {
-                return string.Format(CultureInfo.InvariantCulture, "{0,-26} {1,5} contacts, worst float {2,5:0.000} m ({3}), worst sink {4,5:0.000} m ({5})",
-                                     name, Count, Float, FloatAt ?? "-", Sink, SinkAt ?? "-");
+                return string.Format(CultureInfo.InvariantCulture, "{0,-26} {1,5} contacts ({6} off by more than 3 cm, {7} by more than 10 cm), worst float {2,5:0.000} m ({3}), worst sink {4,5:0.000} m ({5})",
+                                     name, Count, Float, FloatAt ?? "-", Sink, SinkAt ?? "-", Over3, Over10);
             }
         }
 
@@ -166,14 +168,19 @@ namespace Ghumante.Core.Tests
         }
 
         private static void Measure(DrawnGround g, TileData t, double gx, double gz, float y, double headingRad, List<double> contacts, ref Tally tally, string what,
-                                    float sameSurfaceM = float.PositiveInfinity)
+                                    float sameSurfaceM = float.PositiveInfinity, float pitchDeg = 0f, float rollDeg = 0f)
         {
             double fx = Math.Sin(headingRad), fz = Math.Cos(headingRad), rx = fz, rz = -fx;
+            double p = pitchDeg * Math.PI / 180.0, r = rollDeg * Math.PI / 180.0;
             for (int k = 0; k + 2 < contacts.Count; k += 3)
             {
-                double cx = gx - t.Tile.X0 + fx * contacts[k] + rx * contacts[k + 1];
-                double cz = gz - t.Tile.Z0 + fz * contacts[k] + rz * contacts[k + 1];
-                float cy = y + (float)contacts[k + 2], ground;
+                // Unity's Euler(pitch, yaw, roll): roll about forward, then pitch about right, then the yaw (heading).
+                double lf = contacts[k], lr = contacts[k + 1], lu = contacts[k + 2];
+                double r1 = lr * Math.Cos(r) - lu * Math.Sin(r), u1 = lr * Math.Sin(r) + lu * Math.Cos(r);
+                double u2 = u1 * Math.Cos(p) - lf * Math.Sin(p), f2 = u1 * Math.Sin(p) + lf * Math.Cos(p);
+                double cx = gx - t.Tile.X0 + fx * f2 + rx * r1;
+                double cz = gz - t.Tile.Z0 + fz * f2 + rz * r1;
+                float cy = y + (float)u2, ground;
                 if (!g.TryHeight(cx, cz, cy, out ground)) continue;
                 if (Math.Abs(cy - ground) > sameSurfaceM) continue; // a kerb or deck edge between the feet, not a slope
                 tally.Add(cy - ground, what + " " + Where(t, cx, cz));
@@ -225,11 +232,15 @@ namespace Ghumante.Core.Tests
                         contacts.Add(ws.X);
                         contacts.Add(ws.Y - ws.Radius);
                     }
-                    Measure(g, t, gx, gz, v.Y, v.YawDeg * Math.PI / 180.0, contacts, ref parked, "parked " + e.AssetId);
+                    Measure(g, t, gx, gz, v.Y, v.YawDeg * Math.PI / 180.0, contacts, ref parked, "parked " + e.AssetId, float.PositiveInfinity, v.PitchDeg,
+                            v.RollDeg);
                 }
                 // Street dogs and cows of the traffic sim around the place.
                 Tally animals = default(Tally);
-                var sim = new AnimalSim(graph, AnimalSettings.High(), 7);
+                // As LifeHost wires it: the animals stand on the carved ground of the committed tiles.
+                var ground = new CarvedGround();
+                ground.Add(CarvedGround.Prepare(t, 1));
+                var sim = new AnimalSim(graph, AnimalSettings.High(), 7) { Ground = ground };
                 sim.SetFocus(px, pz, (float)place.RadiusM);
                 var poses = new AnimalPose[256];
                 for (int step = 0; step < 6; step++)
@@ -243,20 +254,25 @@ namespace Ghumante.Core.Tests
                         bool cow = a.Kind == AnimalKind.Cow;
                         bool lying = a.ClipId == (byte)AnimalClip.Sleep || a.ClipId == (byte)AnimalClip.Lie;
                         Contacts(contacts, cow ? (lying ? 0.8 : 0.7) : (lying ? 0.4 : 0.25), cow ? (lying ? 0.35 : 0.2) : (lying ? 0.15 : 0.08));
-                        Measure(g, t, a.X, a.Z, a.Y, a.HeadingRad, contacts, ref animals, (cow ? "cow " : "dog ") + (lying ? "lying" : "up"));
+                        Measure(g, t, a.X, a.Z, a.Y, a.HeadingRad, contacts, ref animals, (cow ? "cow " : "dog ") + (lying ? "lying" : "up"), float.PositiveInfinity,
+                                a.PitchDeg, a.RollDeg);
                     }
                 }
                 // Walkers: standing on the drawn ground at their centre, heading along the street.
                 Tally walkers = default(Tally);
                 RoadLayout lay = RoadLayout.For(t);
+                RoadGrade grade = RoadGrade.For(t, h, new RoadOptions());
                 Contacts(contacts, 0.13, 0.11);
                 for (int i = 0; i < t.Roads.Count; i++)
                 {
                     RoadCentreline c = lay.Centres[i];
                     if (c == null || c.Count < 2 || !lay.DrawsRibbon(i)) continue;
+                    // Bridge and flyover decks are drawn at their own heights by the bridges package.
+                    if (grade.Has(i) && grade.IsAbsolute(i)) continue;
                     RoadWidthProfile prof = lay.Profiles[i];
                     for (double s = 2; s < c.RawLengthM - 2; s += 6)
                     {
+                        if (grade.Has(i) && grade.OnDeck(i, s)) continue;
                         double x, z, tx, tz;
                         c.At(s, out x, out z, out tx, out tz);
                         double gx0 = t.Tile.X0 + x, gz0 = t.Tile.Z0 + z;
@@ -296,6 +312,8 @@ namespace Ghumante.Core.Tests
         private static void Merge(ref Tally all, in Tally t)
         {
             all.Count += t.Count;
+            all.Over3 += t.Over3;
+            all.Over10 += t.Over10;
             if (t.Float > all.Float)
             {
                 all.Float = t.Float;

@@ -279,11 +279,15 @@ namespace Ghumante.World.Instancing
                 if (!h.TryHeight(t.Tile.X0 + ox, t.Tile.Z0 + oz, out y)) continue; // samplers take game metres
                 y += RoadLiftM;
                 RoadSurfaceHit hit;
+                float pitch = 0f, roll = 0f;
                 if (surface != null && surface.TrySample(t.Tile.X0 + ox, t.Tile.Z0 + oz, y, out hit))
                 {
                     // The drawn surface near the lifted terrain, or nothing: a vehicle never stands under a deck or in fill.
                     if (hit.OnDeck || Math.Abs(hit.Y - y) >= 1.5f) continue;
                     y = hit.Y;
+                    // Every wheel on the drawn surface of a sloping street (cut/fill package): pitch and roll to it; a
+                    // vehicle with a wheel over the road's edge (a drop, a cutting) is not parked there.
+                    if (!Pose(surface, t, VehicleMesher.Wheels(e), ox, oz, fx, fz, ref y, out pitch, out roll)) continue;
                 }
                 if (side > 0)
                 {
@@ -298,13 +302,72 @@ namespace Ghumante.World.Instancing
                 output.Add(new ParkedVehicle
                 {
                     X = (float)ox, Y = y, Z = (float)oz,
-                    YawDeg = (float)(Math.Atan2(fx, fz) * 180.0 / Math.PI),
+                    YawDeg = (float)(Math.Atan2(fx, fz) * 180.0 / Math.PI), PitchDeg = pitch, RollDeg = roll,
                     Variant = variant,
                     Livery = e.PickLivery(WorldHash.Fnv1a(key, PurposeLivery)),
                     CommunityFleet = variant != VehicleCatalog.Bicycle && WorldHash.Unit(key, PurposeFleet) < CommunityFleetShare,
                     Id = WorldHash.Fnv1a(key, 0),
                 });
             }
+        }
+
+        /// <summary>
+        /// The pose that stands a parked vehicle's wheels on the drawn road surface (cut/fill package, owner playtest at
+        /// Gaurighat: "half of the motorcycle is in the air"): the surface under each wheel (<paramref name="wheels"/>,
+        /// right/forward from the origin at the rear axle) fitted with a plane, whose height at the origin becomes
+        /// <paramref name="y"/> and whose fall along and across the vehicle become its pitch (Unity Euler x, positive noses
+        /// down) and roll (Euler z, positive raises the right side). Two-wheelers stand upright on their stand (no roll).
+        /// False when a wheel has no road surface under it within 0.6 m (it would hang over the road's edge).
+        /// </summary>
+        internal static bool Pose(RoadSurfaceQuery surface, TileData t, WheelSocket[] wheels, double ox, double oz, double fx, double fz, ref float y,
+                                  out float pitchDeg, out float rollDeg)
+        {
+            pitchDeg = rollDeg = 0f;
+            if (wheels == null || wheels.Length < 2) return true;
+            double rx = fz, rz = -fx;
+            // Least squares plane h = c + a * forward + b * right through the surface under the wheels.
+            double s1 = 0, sf = 0, sr = 0, sff = 0, sfr = 0, srr = 0, sh = 0, sfh = 0, srh = 0;
+            float minR = float.MaxValue, maxR = float.MinValue;
+            foreach (WheelSocket w in wheels)
+            {
+                double wx = t.Tile.X0 + ox + fx * w.Z + rx * w.X, wz = t.Tile.Z0 + oz + fz * w.Z + rz * w.X;
+                RoadSurfaceHit hit;
+                if (!surface.TrySample(wx, wz, y, out hit) || hit.OnDeck || Math.Abs(hit.Y - y) >= 0.6f) return false;
+                double h = hit.Y;
+                s1 += 1;
+                sf += w.Z;
+                sr += w.X;
+                sff += w.Z * w.Z;
+                sfr += w.Z * w.X;
+                srr += w.X * w.X;
+                sh += h;
+                sfh += w.Z * h;
+                srh += w.X * h;
+                minR = Math.Min(minR, w.X);
+                maxR = Math.Max(maxR, w.X);
+            }
+            bool track = maxR - minR > 0.3f; // a car's, a tempo's or a rickshaw's wheels span a track; a bike's do not
+            double c, a, b = 0;
+            if (track)
+            {
+                // Cramer's rule on the 3 x 3 normal equations.
+                double det = s1 * (sff * srr - sfr * sfr) - sf * (sf * srr - sfr * sr) + sr * (sf * sfr - sff * sr);
+                if (Math.Abs(det) < 1e-9) return true;
+                c = (sh * (sff * srr - sfr * sfr) - sf * (sfh * srr - sfr * srh) + sr * (sfh * sfr - sff * srh)) / det;
+                a = (s1 * (sfh * srr - sfr * srh) - sh * (sf * srr - sfr * sr) + sr * (sf * srh - sfh * sr)) / det;
+                b = (s1 * (sff * srh - sfh * sfr) - sf * (sf * srh - sfh * sr) + sh * (sf * sfr - sff * sr)) / det;
+            }
+            else
+            {
+                double det = s1 * sff - sf * sf;
+                if (Math.Abs(det) < 1e-9) return true;
+                a = (s1 * sfh - sf * sh) / det;
+                c = (sh - a * sf) / s1;
+            }
+            y = (float)c;
+            pitchDeg = (float)(-Math.Atan(a) * 180.0 / Math.PI);
+            rollDeg = (float)(Math.Atan(b) * 180.0 / Math.PI);
+            return true;
         }
     }
 

@@ -42,6 +42,9 @@ namespace Ghumante.Wildlife
             public uint Rgb;
             public Vector3 Pos;
             public float HeadingDeg, ClipTime, Speed;
+
+            /// <summary>Pitch and roll laying a street animal on the ground under it (cut/fill package; 0 for the herds).</summary>
+            public float PitchDeg, RollDeg;
             public FaunaClip Clip;
             public int Owner;
             public uint Seed;
@@ -145,7 +148,7 @@ namespace Ghumante.Wildlife
                     Push(ref n, new Candidate
                     {
                         Species = sp, Pattern = pat, Rgb = rgb, Pos = at, HeadingDeg = a.HeadingRad * Mathf.Rad2Deg, Clip = clip,
-                        ClipTime = clipTime, Speed = a.SpeedMps, Owner = a.AgentId, Seed = h,
+                        PitchDeg = a.PitchDeg, RollDeg = a.RollDeg, ClipTime = clipTime, Speed = a.SpeedMps, Owner = a.AgentId, Seed = h,
                     }, d);
                 }
             }
@@ -200,7 +203,7 @@ namespace Ghumante.Wildlife
                 int level = _level[i];
                 if (level < 0) continue;
                 Candidate c = _cand[i];
-                Matrix4x4 m = Matrix4x4.TRS(c.Pos, Quaternion.Euler(0f, c.HeadingDeg, 0f), Vector3.one);
+                Matrix4x4 m = Matrix4x4.TRS(c.Pos, Quaternion.Euler(c.PitchDeg, c.HeadingDeg, c.RollDeg), Vector3.one);
                 Vector4 tint = Tint.Hex(c.Rgb);
                 bool done = false;
                 if (level <= 1)

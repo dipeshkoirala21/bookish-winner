@@ -218,9 +218,7 @@ namespace Ghumante.Core.Meshing
             TerrainCarve c = Carve;
             if (c != null)
             {
-                int q = _grid.Quads;
-                int i = Math.Max(0, Math.Min(q - 1, (int)Math.Floor(u))), j = Math.Max(0, Math.Min(q - 1, (int)Math.Floor(v)));
-                if (c.IsRefined(i, j))
+                if (c.Carves(u, v))
                 {
                     double gx, gz;
                     c.Surface(u, v, out gx, out gz);

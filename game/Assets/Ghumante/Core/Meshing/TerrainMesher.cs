@@ -113,7 +113,7 @@ namespace Ghumante.Core.Meshing
                     float px = (float)(l * g.CellM);
                     float h = carve != null ? carve.CoarseVertex(k, l) : g.VertexHeight(source, k, l);
                     double gx, gz;
-                    if (carve != null && LoweredNear(carve, k, l, q)) CoarseGradient(carve, k, l, q, g.CellM, out gx, out gz);
+                    if (carve != null && MovedNear(carve, k, l, q)) CoarseGradient(carve, k, l, q, g.CellM, out gx, out gz);
                     else g.VertexGradient(source, k, l, out gx, out gz);
                     Biome biome;
                     if (bn == 0) biome = Biome.None;
@@ -125,15 +125,31 @@ namespace Ghumante.Core.Meshing
                     float nx, ny, nz;
                     TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
                     uint c = o.SlopeColours ? BiomePalette.Ground(biome, o.Season, ny) : BiomePalette.Rgba(biome, o.Season);
+                    // A coarse vertex carved beside a hill road shows the cut or fill (TerrainCarve.PreCarve).
+                    bool carved = carve != null && carve.IsCarvedVertex(k, l);
+                    float delta = carved ? h - carve.NaturalVertex(k, l) : 0f;
+                    double wx = area.X0 + px, wz = area.Z0 + pz;
                     if (!o.Detail)
                     {
+                        if (carved)
+                        {
+                            MaterialChannel unused;
+                            float uw;
+                            c = CutFill.Blend(c, MaterialChannel.Plain, delta, ny, h, wx, wz, out unused, out uw);
+                        }
                         m.AddVertex(px, h, pz, nx, ny, nz, c);
                         continue;
                     }
-                    double wx = area.X0 + px, wz = area.Z0 + pz;
                     MaterialChannel ch;
                     float ao;
                     c = TerrainLook.Colour(biome, o.Season, c, ny, h, wx, wz, out ch, out ao);
+                    if (carved)
+                    {
+                        MaterialChannel cch;
+                        float w;
+                        c = CutFill.Blend(c, ch, delta, ny, h, wx, wz, out cch, out w);
+                        if (w > 0.5f) ch = cch;
+                    }
                     if (relief > 0f)
                     {
                         float mx, mz;
@@ -169,15 +185,15 @@ namespace Ghumante.Core.Meshing
             CarvedCells(source, area, g, carve, o, crop, bn, n, relief, baseV, skirt, m);
         }
 
-        /// <summary>True when coarse vertex (k, l) or one of its four neighbours was lowered under a gentle street.</summary>
-        private static bool LoweredNear(TerrainCarve carve, int k, int l, int q)
+        /// <summary>True when coarse vertex (k, l) or one of its four neighbours was moved by the carve.</summary>
+        private static bool MovedNear(TerrainCarve carve, int k, int l, int q)
         {
-            if (carve.IsLowered(k, l)) return true;
-            if (k > 0 && carve.IsLowered(k - 1, l) || k < q && carve.IsLowered(k + 1, l)) return true;
-            return l > 0 && carve.IsLowered(k, l - 1) || l < q && carve.IsLowered(k, l + 1);
+            if (carve.IsMoved(k, l)) return true;
+            if (k > 0 && carve.IsMoved(k - 1, l) || k < q && carve.IsMoved(k + 1, l)) return true;
+            return l > 0 && carve.IsMoved(k, l - 1) || l < q && carve.IsMoved(k, l + 1);
         }
 
-        /// <summary>Central differences of the lowered coarse heights (one-sided on the border).</summary>
+        /// <summary>Central differences of the coarse heights as drawn (one-sided on the border).</summary>
         private static void CoarseGradient(TerrainCarve carve, int k, int l, int q, double cell, out double gx, out double gz)
         {
             int l0 = Math.Max(0, l - 1), l1 = Math.Min(q, l + 1), k0 = Math.Max(0, k - 1), k1 = Math.Min(q, k + 1);
@@ -367,7 +383,7 @@ namespace Ghumante.Core.Meshing
                 float nat = (float)Carve.CoarseSurface(gi / (double)r, gj / (double)r, out du, out dv);
                 int v;
                 if (gi % r == 0 && gj % r == 0 && Math.Abs(h - nat) < 1e-4f) v = BaseV + gj / r * Side + gi / r;
-                else v = Emit(gi, gj, h, nat);
+                else v = Emit(gi, gj, h, Carve.NaturalSurface(gi / (double)r, gj / (double)r));
                 Sc.Index[idx] = v;
                 Sc.Stamp[idx] = Sc.Mark;
                 return v;

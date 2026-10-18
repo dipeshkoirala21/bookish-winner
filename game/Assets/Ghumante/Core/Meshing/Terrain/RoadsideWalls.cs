@@ -1,9 +1,21 @@
 using System;
+using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Meshing.Roads;
 
 namespace Ghumante.Core.Meshing
 {
+    /// <summary>A barrier the carve builds, for the solids (game metres): a parapet or guard rail along a drop beside a
+    /// road, or a breast wall holding a cut (<see cref="TerrainCarve.CopyBarriers"/>).</summary>
+    public struct CarveBarrier
+    {
+        public double AX, AZ, BX, BZ;
+        public float Bottom, Top;
+
+        /// <summary>A breast wall holding a cut (else a parapet or guard rail along a drop).</summary>
+        public bool Wall;
+    }
+
     public sealed partial class TerrainCarve
     {
         /// <summary>Depth of a retaining wall block beyond the corridor (one terrain sub-quad, so the steep carved face
@@ -22,13 +34,17 @@ namespace Ghumante.Core.Meshing
         /// <summary>How far each course steps back (the wall's batter).</summary>
         public const float GabionStepM = 0.15f;
 
-        /// <summary>Spacing of the parapet posts along a big drop.</summary>
-        public const float PostSpacingM = 2.5f;
+        /// <summary>Spacing of the parapet posts along a big drop (the Low tier's coarse grids: twice that).</summary>
+        public const float PostSpacingM = 3f;
 
-        /// <summary>Drop beside the corridor (within 2.5 m) above which the road edge gets a parapet.</summary>
-        public const float ParapetDropM = 1.5f;
+        /// <summary>Drop of the carved ground <see cref="ParapetReachM"/> beyond the road's drawn extent above which its edge
+        /// gets parapet posts (a real drop: the hillside falls more than 50 % below the embankment's crest).</summary>
+        public const float ParapetDropM = 2f;
 
-        private const uint GabionStone = 0x8F8B82FFu, GabionBack = 0x4A4844FFu, MasonryStone = 0x9C978EFFu, Coping = 0xB3AEA4FFu;
+        /// <summary>How far beyond the drawn extent the drop is measured.</summary>
+        public const float ParapetReachM = 4f;
+
+        private const uint GabionStone = 0x8F8B82FFu, MasonryStone = 0x9C978EFFu, Coping = 0xB3AEA4FFu;
         private const uint PostWhite = 0xEDEBE3FFu, PostBlack = 0x2B2B2BFFu, RailSteel = 0xB2B6B8FFu;
 
         /// <summary>
@@ -85,7 +101,7 @@ namespace Ghumante.Core.Meshing
         private float Drawn(double lx, double lz)
         {
             double gx, gz;
-            return (float)Surface((lx - _offX) / Grid.CellM, (lz - _offZ) / Grid.CellM, out gx, out gz);
+            return (float)DrawnSurface((lx - _offX) / Grid.CellM, (lz - _offZ) / Grid.CellM, out gx, out gz);
         }
 
         private void Wall(MeshData m, int e, int side, float wa, float wb)
@@ -104,12 +120,23 @@ namespace Ghumante.Core.Meshing
                 float w = Math.Abs(wa + (wb - wa) * tm);
                 if (w < 0.5f) continue;
                 // A breast wall stands where the cut slope starts (beyond the verge), a fill wall at the drawn edge.
-                float e0 = Ext(e, side, t0) + (cutSideOf(wa, wb) ? _verge[e] : 0f), e1 = Ext(e, side, t1) + (cutSideOf(wa, wb) ? _verge[e] : 0f);
+                float e0 = Ext(e, side, t0) + (cutSide ? WallVergeM : 0f), e1 = Ext(e, side, t1) + (cutSide ? WallVergeM : 0f);
                 float b0 = EdgeBench(e, side, t0), b1 = EdgeBench(e, side, t1);
                 double fx0, fz0, fx1, fz1;
                 At(e, t0, side, e0, out fx0, out fz0);
                 At(e, t1, side, e1, out fx1, out fz1);
                 uint jitter = WallHash(e, side, i);
+                if (!_refine)
+                {
+                    // The Low tier's coarse grids: one battered stone face per bay.
+                    float lb0 = cutSide ? b0 - 0.15f : Math.Min(b0 - 0.6f, b0 - w), lb1 = cutSide ? b1 - 0.15f : Math.Min(b1 - 0.6f, b1 - w);
+                    float lt0 = cutSide ? b0 + w : b0 + 0.06f, lt1 = cutSide ? b1 + w : b1 + 0.06f;
+                    double bx = cutSide ? ux : -ux, bz = cutSide ? uz : -uz;
+                    double sx = cutSide ? 0 : depth;
+                    Quad(m, fx0 + ux * sx, lb0, fz0 + uz * sx, fx1 + ux * sx, lb1, fz1 + uz * sx, fx1 + ux * sx + bx * 0.1 * w, lt1, fz1 + uz * sx + bz * 0.1 * w,
+                         fx0 + ux * sx + bx * 0.1 * w, lt0, fz0 + uz * sx + bz * 0.1 * w, (float)-bx, 0.1f, (float)-bz, MasonryStone, MaterialChannel.Stone, 0.85f);
+                    continue;
+                }
                 if (cutSide)
                 {
                     // A breast wall: from the verge up to the cut ground behind it, the courses stepping back into the hill.
@@ -127,11 +154,6 @@ namespace Ghumante.Core.Meshing
                              jitter);
                 }
             }
-        }
-
-        private static bool cutSideOf(float wa, float wb)
-        {
-            return wa + wb > 0f;
         }
 
         private static uint WallHash(int e, int side, int i)
@@ -173,8 +195,8 @@ namespace Ghumante.Core.Meshing
                 return;
             }
             float hMax = Math.Max(top0 - base0, top1 - base1);
-            int courses = Math.Max(1, (int)Math.Ceiling(hMax / GabionCourseM - 0.15f));
-            const double Gap = 0.05;
+            int courses = Math.Max(1, Math.Min(4, (int)Math.Ceiling(hMax / GabionCourseM - 0.15f)));
+            const double Gap = 0.0; // courses meet (no backing behind them)
             double lx = x1 - x0, lz = z1 - z0, l = Math.Sqrt(lx * lx + lz * lz);
             double gx = l > 1e-6 ? lx / l * Gap : 0, gz = l > 1e-6 ? lz / l * Gap : 0;
             for (int c = 0; c < courses; c++)
@@ -186,9 +208,7 @@ namespace Ghumante.Core.Meshing
                 double ax0 = x0 + bx * set, az0 = z0 + bz * set, ax1 = x1 + bx * set, az1 = z1 + bz * set;
                 uint stone = MeshColor.Scale(GabionStone, 0.9f + 0.2f * (((jitter >> (c * 3 % 24)) & 255) / 255f));
                 float ao = 0.75f + 0.25f * f1;
-                // Dark backing (stone fill seen between baskets), then the basket face inset by the gap.
-                Quad(m, ax0 + bx * 0.05, y00, az0 + bz * 0.05, ax1 + bx * 0.05, y10, az1 + bz * 0.05, ax1 + bx * 0.05, y11, az1 + bz * 0.05, ax0 + bx * 0.05,
-                     y01, az0 + bz * 0.05, nx, 0f, nz, GabionBack, MaterialChannel.Stone, 0.5f);
+                // The basket face (the course's own shade; the course steps and ledges read as the baskets).
                 Quad(m, ax0 + gx, y00 + (float)Gap, az0 + gz, ax1 - gx, y10 + (float)Gap, az1 - gz, ax1 - gx, y11 - (float)Gap, az1 - gz, ax0 + gx,
                      y01 - (float)Gap, az0 + gz, nx, 0.05f, nz, stone, MaterialChannel.Stone, ao);
                 // The ledge on top of this course (to the next course's face, or the wall's top surface).
@@ -205,12 +225,13 @@ namespace Ghumante.Core.Meshing
         private void Parapet(MeshData m, int e, int side, float wa, float wb)
         {
             double len = _len[e];
-            int n = Math.Max(1, (int)Math.Round(len / PostSpacingM));
+            RoadClass cls = _road[e] >= 0 && _road[e] < Source.Roads.Count ? Source.Roads[_road[e]].RoadClass : RoadClass.Residential;
+            if (!HasParapet(cls, wa, wb)) return;
+            int n = Math.Max(1, (int)Math.Round(len / (_refine ? PostSpacingM : 2f * PostSpacingM)));
             double sign = side == 0 ? 1 : -1;
             double ux = -_dz[e] * sign, uz = _dx[e] * sign;
-            RoadClass cls = _road[e] >= 0 && _road[e] < Source.Roads.Count ? Source.Roads[_road[e]].RoadClass : RoadClass.Residential;
-            if (RoadWidthModel.IsFootClass(cls)) return;
-            bool rail = Major(cls);
+            bool rail = Major(cls) && _refine;
+            float lift = RoadMesher.LiftOf(Source.Roads[_road[e]], new RoadOptions());
             double prevX = 0, prevZ = 0;
             float prevY = 0f;
             bool prev = false;
@@ -218,22 +239,18 @@ namespace Ghumante.Core.Meshing
             {
                 if (k == 0 && (_flags[e] & ClipStart) == 0 && e > 0) { } // posts at segment starts are shared with the previous end
                 float t = (float)k / n;
-                float ext = Ext(e, side, t) - 0.2f;
+                float ext = Ext(e, side, t) + PostOffsetM;
                 float bench = EdgeBench(e, side, t);
                 double px, pz;
                 At(e, t, side, ext, out px, out pz);
-                float w = wa + (wb - wa) * t;
-                double ox, oz;
-                At(e, t, side, Ext(e, side, t) + 2.5, out ox, out oz);
-                bool drop = w < -0.5f || bench - Drawn(ox, oz) > ParapetDropM;
+                bool drop = DropAt(e, side, t, wa, wb);
                 if (!drop)
                 {
                     prev = false;
                     continue;
                 }
-                float gy = Drawn(px, pz);
-                if (gy < bench - 0.3f || gy > bench + 0.4f) gy = bench; // stand on the verge
-                if (k < n || (_flags[e] & ClipEnd) != 0) Post(m, px, gy, pz, ux, uz);
+                float gy = bench + lift; // on the road's outer edge (shoulder or footpath)
+                if (k < n || (_flags[e] & ClipEnd) != 0) Post(m, px, gy, pz, ux, uz, !_refine);
                 if (rail && prev)
                 {
                     // A W-beam between this post and the previous one, on the road side of the posts.
@@ -250,14 +267,117 @@ namespace Ghumante.Core.Meshing
             }
         }
 
-        /// <summary>A parapet post: white concrete, 0.18 m square, 0.8 m tall, with a black band at the top.</summary>
-        private static void Post(MeshData m, double x, float y, double z, double ux, double uz)
+        /// <summary>Which roads get parapet posts along their drops: the main roads (trunk to tertiary) wherever the ground
+        /// falls away, other carriageways only along a wall holding their fill (Kathmandu's lanes run beside open drops);
+        /// never footways, paths or steps.</summary>
+        private static bool HasParapet(RoadClass cls, float wa, float wb)
+        {
+            if (RoadWidthModel.IsFootClass(cls)) return false;
+            return Major(cls) || Math.Min(wa, wb) < -0.5f;
+        }
+
+        /// <summary>True when the ground falls away beside segment <paramref name="e"/> at fraction <paramref name="t"/> on
+        /// <paramref name="side"/>: a wall holds the fill there, or the carved ground <see cref="ParapetReachM"/> beyond the
+        /// drawn extent lies more than <see cref="ParapetDropM"/> below the road's edge. Measured on the carve of the tile's full-resolution ground,
+        /// so every tier and the solids agree.</summary>
+        private bool DropAt(int e, int side, float t, float wa, float wb)
+        {
+            float w = wa + (wb - wa) * t;
+            if (w < -0.5f) return true;
+            double ox, oz;
+            At(e, t, side, Ext(e, side, t) + ParapetReachM, out ox, out oz);
+            return EdgeBench(e, side, t) - CarvedAt(ox, oz, SourceNatural(ox, oz)) > ParapetDropM;
+        }
+
+        /// <summary>
+        /// The barriers of the carve for the solids (game metres; appended to <paramref name="into"/>, returns how many):
+        /// the parapets and guard rails along every drop (<see cref="AppendWalls"/> draws them; a body walking or riding off
+        /// the road's edge there is stopped, from below the bench to 0.9 m above the road) and the breast walls holding the
+        /// cuts (their face, from the verge up to the cut ground behind). Built from the bench and the full-resolution
+        /// ground, so the solids of the 8 m sampler match what every tier draws.
+        /// </summary>
+        public int CopyBarriers(List<CarveBarrier> into)
+        {
+            if (into == null) throw new ArgumentNullException(nameof(into));
+            int before = into.Count;
+            double x0 = Source.Tile.X0, z0 = Source.Tile.Z0;
+            for (int e = 0; e < _segCount; e++)
+            {
+                RoadClass cls = _road[e] >= 0 && _road[e] < Source.Roads.Count ? Source.Roads[_road[e]].RoadClass : RoadClass.Residential;
+                float lift = _road[e] >= 0 && _road[e] < Source.Roads.Count ? RoadMesher.LiftOf(Source.Roads[_road[e]], new RoadOptions()) : 0.25f;
+                for (int side = 0; side < 2; side++)
+                {
+                    float wa = side == 0 ? _wla[e] : _wra[e], wb = side == 0 ? _wlb[e] : _wrb[e];
+                    // Parapets: the drop stretches between posts (as Parapet draws them).
+                    if (HasParapet(cls, wa, wb))
+                    {
+                        int n = Math.Max(1, (int)Math.Round(_len[e] / (_refine ? PostSpacingM : 2f * PostSpacingM)));
+                        bool prev = false;
+                        double pxPrev = 0, pzPrev = 0;
+                        float bPrev = 0f;
+                        for (int k = 0; k <= n; k++)
+                        {
+                            float t = (float)k / n;
+                            if (!DropAt(e, side, t, wa, wb))
+                            {
+                                prev = false;
+                                continue;
+                            }
+                            double px, pz;
+                            At(e, t, side, Ext(e, side, t) + PostOffsetM, out px, out pz);
+                            float bench = EdgeBench(e, side, t);
+                            if (prev)
+                                into.Add(new CarveBarrier
+                                {
+                                    AX = x0 + pxPrev, AZ = z0 + pzPrev, BX = x0 + px, BZ = z0 + pz, Bottom = Math.Min(bPrev, bench) - 0.3f,
+                                    Top = Math.Max(bPrev, bench) + lift + 0.9f,
+                                });
+                            prev = true;
+                            pxPrev = px;
+                            pzPrev = pz;
+                            bPrev = bench;
+                        }
+                    }
+                    // Breast walls: the face line of every bay with a cut wall.
+                    if (wa + wb <= 0f || Math.Max(wa, wb) < 0.5f) continue;
+                    int bays = Math.Max(1, (int)Math.Ceiling(_len[e] / GabionLengthM));
+                    for (int i = 0; i < bays; i++)
+                    {
+                        float t0 = (float)i / bays, t1 = (float)(i + 1) / bays, tm = 0.5f * (t0 + t1);
+                        float w = wa + (wb - wa) * tm;
+                        if (w < 0.5f) continue;
+                        double ax, az, bx, bz;
+                        At(e, t0, side, Ext(e, side, t0) + WallVergeM, out ax, out az);
+                        At(e, t1, side, Ext(e, side, t1) + WallVergeM, out bx, out bz);
+                        float b0 = EdgeBench(e, side, t0), b1 = EdgeBench(e, side, t1);
+                        into.Add(new CarveBarrier
+                        {
+                            AX = x0 + ax, AZ = z0 + az, BX = x0 + bx, BZ = z0 + bz, Bottom = Math.Min(b0, b1) - 0.3f, Top = Math.Max(b0, b1) + w, Wall = true,
+                        });
+                    }
+                }
+            }
+            return into.Count - before;
+        }
+
+        /// <summary>A parapet post: white concrete, 0.18 m square, standing 0.78 m above the road surface
+        /// <paramref name="y"/> with a black band at the top, its foot sunk 0.5 m into the embankment's crest.</summary>
+        private static void Post(MeshData m, double x, float y, double z, double ux, double uz, bool lite)
         {
             const double H = 0.09;
             double vx = -uz, vz = ux; // along the road
-            Box(m, x, y - 0.1f, z, ux, uz, vx, vz, H, 0.68f, PostWhite, MaterialChannel.Paint, 0.9f);
+            if (lite)
+            {
+                Box(m, x, y - 0.5f, z, ux, uz, vx, vz, H, 1.28f, PostWhite, MaterialChannel.Paint, 0.9f);
+                return;
+            }
+            Box(m, x, y - 0.5f, z, ux, uz, vx, vz, H, 1.08f, PostWhite, MaterialChannel.Paint, 0.9f);
             Box(m, x, y + 0.58f, z, ux, uz, vx, vz, H, 0.2f, PostBlack, MaterialChannel.Paint, 1f);
         }
+
+        /// <summary>Parapet posts and guard rails stand this far beyond the road's drawn extent, on the crest of the
+        /// embankment (never on the carriageway, footpath or shoulder).</summary>
+        public const float PostOffsetM = 0.15f;
 
         /// <summary>An upright box (four sides and a top) of half side <paramref name="h"/> and height <paramref name="height"/>
         /// standing at (x, y, z).</summary>

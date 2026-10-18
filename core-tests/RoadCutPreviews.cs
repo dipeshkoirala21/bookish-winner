@@ -143,10 +143,12 @@ namespace Ghumante.Core.Tests
                     VehicleMesher.BuildWheel(s.Radius, s.Width, VehicleLod.Lod1, wheel);
                     ObjDump.Append(body, wheel, s.X, s.Y, s.Z);
                 }
-                Place(life, body, v.X, v.Y, v.Z, v.YawDeg);
+                Place(life, body, v.X, v.Y, v.Z, v.YawDeg, v.PitchDeg, v.RollDeg);
                 vehicles++;
             }
-            var sim = new AnimalSim(TrafficData.Graph, AnimalSettings.High(), 7);
+            var ground = new CarvedGround();
+            ground.Add(CarvedGround.Prepare(t, 1));
+            var sim = new AnimalSim(TrafficData.Graph, AnimalSettings.High(), 7) { Ground = ground };
             sim.SetFocus(id.X0 + cx, id.Z0 + cz, R);
             sim.Step(37f, 10f, 0f);
             var poses = new AnimalPose[256];
@@ -204,22 +206,38 @@ namespace Ghumante.Core.Tests
                                   " animals, terrain " + terrain.TriangleCount + " roads " + roads.TriangleCount);
         }
 
-        /// <summary>Appends <paramref name="src"/> turned by <paramref name="yawDeg"/> (clockwise from north, Unity's Y) at
-        /// tile-local (x, y, z).</summary>
-        private static void Place(MeshData dst, MeshData src, float x, float y, float z, float yawDeg)
+        /// <summary>Appends <paramref name="src"/> turned as Unity's <c>Quaternion.Euler(pitch, yaw, roll)</c> (roll about
+        /// forward, then pitch about right, then yaw clockwise from north) at tile-local (x, y, z).</summary>
+        private static void Place(MeshData dst, MeshData src, float x, float y, float z, float yawDeg, float pitchDeg = 0f, float rollDeg = 0f)
         {
             int v0 = dst.VertexCount;
             ObjDump.Append(dst, src, 0, 0, 0);
             double a = yawDeg * Math.PI / 180.0, c = Math.Cos(a), s = Math.Sin(a);
+            double p = pitchDeg * Math.PI / 180.0, cp = Math.Cos(p), sp = Math.Sin(p);
+            double r = rollDeg * Math.PI / 180.0, cr = Math.Cos(r), sr = Math.Sin(r);
             for (int v = v0; v < dst.VertexCount; v++)
             {
-                float px = dst.Positions[3 * v], pz = dst.Positions[3 * v + 2];
-                dst.Positions[3 * v] = (float)(x + px * c + pz * s);
-                dst.Positions[3 * v + 1] += y;
-                dst.Positions[3 * v + 2] = (float)(z - px * s + pz * c);
-                float nx = dst.Normals[3 * v], nz = dst.Normals[3 * v + 2];
-                dst.Normals[3 * v] = (float)(nx * c + nz * s);
-                dst.Normals[3 * v + 2] = (float)(-nx * s + nz * c);
+                for (int k = 0; k < 2; k++)
+                {
+                    float[] arr = k == 0 ? dst.Positions : dst.Normals;
+                    double px = arr[3 * v], py = arr[3 * v + 1], pz = arr[3 * v + 2];
+                    // Roll (z), pitch (x), yaw (y).
+                    double x1 = px * cr - py * sr, y1 = px * sr + py * cr;
+                    double y2 = y1 * cp - pz * sp, z2 = y1 * sp + pz * cp;
+                    double x3 = x1 * c + z2 * s, z3 = -x1 * s + z2 * c;
+                    if (k == 0)
+                    {
+                        arr[3 * v] = (float)(x + x3);
+                        arr[3 * v + 1] = (float)(y + y2);
+                        arr[3 * v + 2] = (float)(z + z3);
+                    }
+                    else
+                    {
+                        arr[3 * v] = (float)x3;
+                        arr[3 * v + 1] = (float)y2;
+                        arr[3 * v + 2] = (float)z3;
+                    }
+                }
             }
         }
     }

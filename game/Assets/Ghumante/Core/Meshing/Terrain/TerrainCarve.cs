@@ -62,12 +62,14 @@ namespace Ghumante.Core.Meshing
         /// <summary>Farthest the cut and fill of a road reach beyond its corridor.</summary>
         public const float MaxReachM = 20f;
 
-        /// <summary>Side of the refined sub-quads on the fine terrain steps (16 m cells and finer); coarser cells use
-        /// <see cref="CoarseSubCellM"/>.</summary>
-        public const float SubCellM = 2f;
+        /// <summary>Side of the refined sub-quads on the fine terrain steps (16 m cells and finer: the High and Mid tiers'
+        /// detail tiles, the 8 m samplers of the lane graph and the solids).</summary>
+        public const float SubCellM = 4f;
 
-        /// <summary>Side of the refined sub-quads on cells coarser than 16 m (the Low tier's 32 m detail tiles).</summary>
-        public const float CoarseSubCellM = 4f;
+        /// <summary>Side of the refined sub-quads on cells coarser than 16 m (the Low tier's 32 m detail tiles); 0: those are
+        /// not refined at all (the Low tier's terrain slice cannot afford it): their coarse grid is carved and lowered
+        /// (<see cref="PreCarve"/>, <see cref="CoarseLower"/>) and the samplers still answer the bench under every road.</summary>
+        public const float CoarseSubCellM = 0f;
 
         /// <summary>A cell is refined (drawn with carved sub-quads) where the carve moves a sub-vertex under a road's drawn
         /// extent or its verge by more than this (the bench of a hill road; the cut that keeps the ground of a gentle street
@@ -77,7 +79,7 @@ namespace Ghumante.Core.Meshing
         /// <summary>A cell is also refined where the carve moves a sub-vertex anywhere by more than this (the visible cut
         /// slopes, embankments and walls of hill roads); smaller differences beside gentle city streets are not worth the
         /// triangles, so those keep their natural ground.</summary>
-        public const float RefineMoveM = 0.5f;
+        public const float RefineMoveM = 0.8f;
 
         /// <summary>A road is cut and filled into the hillside (level bench, verge, slopes and walls) where the natural ground
         /// across its drawn extent departs from the level bench by more than this; below it the road is a street on gentle
@@ -121,7 +123,7 @@ namespace Ghumante.Core.Meshing
         public const float WallSlope = 12f;
 
         /// <summary>Retaining walls lower than this are not built (an open slope does).</summary>
-        public const float WallMinM = 1.0f;
+        public const float WallMinM = 1.5f;
 
         /// <summary>Tallest retaining wall; above it the face steepens into rock.</summary>
         public const float WallMaxM = 5.0f;
@@ -189,10 +191,12 @@ namespace Ghumante.Core.Meshing
 
         private readonly List<RoadPad> _pads = new List<RoadPad>();
 
-        // Element grid (tile-local).
+        // Element grids (tile-local): every element by its box grown by its reach (strong) or verge (weak), and every
+        // element by its drawn extent only (the analytic surface under roads, ExtentAt).
         private const double ElemCellM = 8.0;
         private int _ecells;
         private int[] _estart, _eitems;
+        private int[] _xstart, _xitems;
 
         // ------------------------------------------------------------------------------------------------------------
         // Drawn surface
@@ -207,26 +211,77 @@ namespace Ghumante.Core.Meshing
         /// <summary>Side of a sub-quad in metres.</summary>
         public readonly double SubM;
 
-        /// <summary>Level verge between a road's drawn extent and its cut slope (one sub-quad diagonal plus a margin).</summary>
+        /// <summary>
+        /// Level verge (the side drain and shoulder) between a hill road's drawn extent and its cut slope: just wide enough
+        /// that no sub-quad straddling the road's edge rises through the road surface (the bench plus a lift of at least
+        /// 25 cm): a triangle from a sub-vertex on the bench inside the extent to one on a 1 : 1 slope outside it rises at
+        /// most k (L - v)² / 4L over the edge for a sub-quad diagonal L and verge v, held to <see cref="PokeAllowM"/>.
+        /// </summary>
         public readonly float VergeM;
+
+        /// <summary>Verge of a street on gentle ground (one sub-quad diagonal plus a margin): the ground beside it in a
+        /// refined cell stays within <see cref="StreetCutTolM"/> of its bench that far out, whatever the natural ground
+        /// does beyond.</summary>
+        public readonly float StreetVergeM;
+
+        /// <summary>Where a breast wall stands beyond a hill road's drawn extent (one sub-quad diagonal plus a margin: its
+        /// face rises metres within <see cref="WallFaceM"/>, so no sub-quad may reach from it over the road).</summary>
+        public readonly float WallVergeM;
+
+        /// <summary>Verge beside every road on a grid that refines nothing (the Low tier's 32 m cells): a side drain and
+        /// shoulder.</summary>
+        public const float UnrefinedVergeM = 1.5f;
+
+        /// <summary>Most the terrain of a sub-quad straddling a road's edge may rise over the bench at the edge (the road
+        /// surface stands its lift, 25 cm or more, above the bench).</summary>
+        public const float PokeAllowM = 0.18f;
 
         private readonly int[] _block; // per grid cell (row-major from the south-west): start into _heights, or -1
 
-        /// <summary>The coarse grid's vertex heights after the gentle streets' cut (row-major from the south-west).</summary>
+        /// <summary>The coarse grid's vertex heights as drawn: carved beside the roads (<see cref="PreCarve"/>) and lowered
+        /// under them (<see cref="CoarseLower"/>), row-major from the south-west.</summary>
         private readonly float[] _coarse;
 
-        private readonly bool[] _lowered;
+        /// <summary>The coarse grid's natural vertex heights.</summary>
+        private readonly float[] _natural;
+
+        private readonly byte[] _moved;
+
+        /// <summary>Per grid cell: the coarse lowering could not bring the ground under a road down to its bench (a
+        /// deeper bump than <see cref="MaxLowerM"/>), so the cell is refined.</summary>
+        private readonly bool[] _poke;
+
         private float[] _heights;
         private readonly double _offX, _offZ; // area origin in tile-local metres
+
+        /// <summary>This grid refines cells at all (<see cref="CoarseSubCellM"/>).</summary>
+        private readonly bool _refine;
 
         /// <summary>Grid cells refined (drawn with carved sub-quads).</summary>
         public int RefinedCells { get; private set; }
 
-        /// <summary>Coarse grid vertices lowered under gentle streets (<see cref="StreetCutTolM"/>).</summary>
+        /// <summary>Grid cells refined because the coarse lowering could not hide the ground under a road.</summary>
+        public int PokedCells { get; private set; }
+
+        /// <summary>Coarse grid vertices moved by the carve (carved beside a road or lowered under one).</summary>
         public int LoweredVertices { get; private set; }
 
-        /// <summary>The most a coarse vertex is lowered under a gentle street (deeper bumps of the surface model are left).</summary>
-        public const float MaxLowerM = 1.5f;
+        /// <summary>The most a coarse vertex is lowered under a road (deeper bumps of the surface model refine the cell).</summary>
+        public const float MaxLowerM = 3f;
+
+        /// <summary>Diagnostics: the sub-quad sides in use (tests tune them).</summary>
+        internal static float TuneSubCellM = SubCellM, TuneCoarseSubCellM = CoarseSubCellM;
+
+        /// <summary>Diagnostics: the refinement threshold and the lowering reach in use (tests tune them).</summary>
+        internal static float TuneRefineMove = RefineMoveM, TuneMaxLower = MaxLowerM;
+
+        /// <summary>Diagnostics: judge refinement on the hill roads' carve only (the gentle streets' verges beside a road
+        /// do not refine a cell; they still shape a refined one).</summary>
+        internal static bool TuneStrongCriterion = true;
+
+        /// <summary>Carve the coarse grid vertices beside the roads too (diagnostics: off leaves them natural, so only
+        /// refined cells show the cut and fill).</summary>
+        internal static bool PreCarveOn = true;
 
         /// <summary>Road segments and junction platforms the carve follows.</summary>
         public int ElementCount
@@ -237,8 +292,12 @@ namespace Ghumante.Core.Meshing
         /// <summary>Diagnostics (tests): record why cells are refined.</summary>
         internal static bool DiagOn;
 
+        /// <summary>While pre-carving the coarse grid: only the hill roads' cut and fill count (not the gentle streets'
+        /// verges).</summary>
+        private bool _strongOnly;
+
         internal readonly int[] DiagBuckets = new int[4];
-        internal int DiagCutOnly, DiagNatDiff;
+        internal int DiagCutOnly;
 
         /// <summary>Diagnostics: a PPM map of the tile (8 px per grid cell): refined cells red, lowered vertices blue, segments
         /// by strength (white strong, grey weak), pads (yellow hill, dark yellow gentle).</summary>
@@ -261,7 +320,7 @@ namespace Ghumante.Core.Meshing
             }
             for (int k = 0; k <= q; k++)
             for (int l = 0; l <= q; l++)
-                if (IsLowered(k, l))
+                if (IsMoved(k, l))
                 {
                     int x = Math.Min(w - 1, l * px), y = w - 1 - Math.Min(w - 1, k * px);
                     for (int d = -2; d <= 2; d++)
@@ -344,6 +403,7 @@ namespace Ghumante.Core.Meshing
             public int Step;
             public TerrainCarve Carve;
             public bool Done;
+            public int Generation;
             public readonly object Gate = new object();
         }
 
@@ -351,6 +411,10 @@ namespace Ghumante.Core.Meshing
         private static readonly object CacheLock = new object();
 
         [ThreadStatic] private static int _building;
+
+        /// <summary>Diagnostics (tests that tune the carve): carves built before the generation changed are not reused by
+        /// samplers created afterwards.</summary>
+        internal static volatile int CacheGeneration;
 
         /// <summary>Carving on (default). Off: every sampler and terrain mesh is the natural surface (diagnostics only).</summary>
         public static bool Enabled = true;
@@ -381,14 +445,14 @@ namespace Ghumante.Core.Meshing
                     Cache.Add(src, list);
                 }
                 foreach (Slot s in list)
-                    if (s.Area == sampler.Area && s.Step == sampler.Step)
+                    if (s.Area == sampler.Area && s.Step == sampler.Step && s.Generation == CacheGeneration)
                     {
                         slot = s;
                         break;
                     }
                 if (slot == null)
                 {
-                    slot = new Slot { Area = sampler.Area, Step = sampler.Step };
+                    slot = new Slot { Area = sampler.Area, Step = sampler.Step, Generation = CacheGeneration };
                     if (list.Count >= 4) list.RemoveAt(0);
                     list.Add(slot);
                 }
@@ -400,7 +464,7 @@ namespace Ghumante.Core.Meshing
                 try
                 {
                     var c = new TerrainCarve(src, sampler);
-                    slot.Carve = c.RefinedCells > 0 || c.LoweredVertices > 0 ? c : null;
+                    slot.Carve = c.ElementCount > 0 ? c : null;
                 }
                 finally
                 {
@@ -420,12 +484,26 @@ namespace Ghumante.Core.Meshing
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Source = src;
             Grid = sampler.Grid;
-            double target = Grid.CellM > 16.0 + 1e-6 ? CoarseSubCellM : SubCellM;
+            double target = Grid.CellM > 16.0 + 1e-6 ? TuneCoarseSubCellM : TuneSubCellM;
+            _refine = target > 0.0;
+            if (!_refine) target = Grid.CellM;
             int sub = 1;
             while (Grid.CellM / (sub * 2) >= target - 1e-6 && sub < 32) sub *= 2;
             Sub = sub;
             SubM = Grid.CellM / sub;
-            VergeM = (float)(SubM * Math.Sqrt(2.0) + 0.3);
+            if (_refine)
+            {
+                double diag = SubM * Math.Sqrt(2.0);
+                VergeM = (float)Math.Max(1.0, diag - Math.Sqrt(4.0 * diag * PokeAllowM / CutSlope) + 0.2);
+                StreetVergeM = (float)(diag + 0.3);
+                WallVergeM = (float)(diag + 0.3);
+            }
+            else
+            {
+                // Nothing is refined, so nothing can rise through a road but the coarse triangles the lowering handles:
+                // the verges are the real drain and shoulder.
+                VergeM = StreetVergeM = WallVergeM = UnrefinedVergeM;
+            }
             _offX = Grid.Area.X0 - src.Tile.X0;
             _offZ = Grid.Area.Z0 - src.Tile.Z0;
             int q = Grid.Quads;
@@ -434,9 +512,11 @@ namespace Ghumante.Core.Meshing
             _heights = new float[0];
             int side = q + 1;
             _coarse = new float[side * side];
-            _lowered = new bool[side * side];
+            _natural = new float[side * side];
+            _moved = new byte[side * side];
+            _poke = new bool[q * q];
             for (int k = 0; k <= q; k++)
-            for (int l = 0; l <= q; l++) _coarse[k * side + l] = Grid.VertexHeight(src, k, l);
+            for (int l = 0; l <= q; l++) _coarse[k * side + l] = _natural[k * side + l] = Grid.VertexHeight(src, k, l);
             RoadGrade grade = RoadGrade.For(src, sampler, new RoadOptions());
             CollectSegments(grade);
             foreach (RoadPad p in grade.Pads.Pads)
@@ -444,17 +524,53 @@ namespace Ghumante.Core.Meshing
                 _pads.Add(p);
                 _padS.Add(p.Hill ? 1f : 0f);
             }
-            CoarseLower();
             IndexElements();
-            Rasterise();
+            if (PreCarveOn) PreCarve();
+            CoarseLower();
+            if (_refine) Rasterise();
+            else _heights = new float[0];
             BuildMs = sw.Elapsed.TotalMilliseconds;
         }
 
         /// <summary>The natural ground as this area's grid draws it (tile-local metres).</summary>
         private float Natural(double lx, double lz)
         {
-            double cm = Grid.CellM, du, dv;
-            return (float)CoarseSurface((lx - _offX) / cm, (lz - _offZ) / cm, out du, out dv);
+            double cm = Grid.CellM;
+            return (float)GridSurface(_natural, (lx - _offX) / cm, (lz - _offZ) / cm);
+        }
+
+        /// <summary>A surface of this area's grid at area-local fractional grid coordinates (u, v), clamped, split along the
+        /// (i, j)-(i+1, j+1) diagonal as <see cref="TerrainGrid.Surface"/>.</summary>
+        private double GridSurface(float[] heights, double u, double v)
+        {
+            double du, dv;
+            return GridSurface(heights, u, v, out du, out dv);
+        }
+
+        private double GridSurface(float[] heights, double u, double v, out double dhdu, out double dhdv)
+        {
+            int q = Grid.Quads, side = q + 1;
+            if (u < 0) u = 0;
+            else if (u > q) u = q;
+            if (v < 0) v = 0;
+            else if (v > q) v = q;
+            int i = (int)Math.Floor(u), j = (int)Math.Floor(v);
+            if (i > q - 1) i = q - 1;
+            if (j > q - 1) j = q - 1;
+            double fu = u - i, fv = v - j;
+            int b = j * side + i;
+            double h00 = heights[b], h10 = heights[b + 1], h01 = heights[b + side], h11 = heights[b + side + 1];
+            if (fu >= fv)
+            {
+                dhdu = h10 - h00;
+                dhdv = h11 - h10;
+            }
+            else
+            {
+                dhdu = h11 - h01;
+                dhdv = h01 - h00;
+            }
+            return h00 + fu * dhdu + fv * dhdv;
         }
 
         private void CollectSegments(RoadGrade grade)
@@ -614,7 +730,15 @@ namespace Ghumante.Core.Meshing
         {
             double ux = -tz, uz = tx;
             float weak = 1f - st.S;
-            float verge = st.Wall ? 0.3f : VergeM * st.S;
+            float verge = st.Wall ? 0.3f : st.S >= 0.99f ? VergeM : StreetVergeM;
+            if (st.S <= 0f && !st.Wall)
+            {
+                // A street on gentle ground: the bench under its drawn extent and a verge no higher than the bench plus
+                // StreetCutTolM beside it, nothing beyond (no slopes, no walls).
+                st.RL = st.RR = verge + 0.5f;
+                st.WL = st.WR = 0f;
+                return;
+            }
             float tolC = weak * StreetCutTolM, tolF = weak * StreetFillTolM;
             for (int side = 0; side < 2; side++)
             {
@@ -624,13 +748,16 @@ namespace Ghumante.Core.Meshing
                 float bench = st.A0 + edge * st.A1;
                 float kc = (st.Wall ? WallSlope : CutSlope) + weak * WeakSlope, kf = (st.Wall ? WallSlope : FillSlope) + weak * WeakSlope;
                 float wall = 0f;
-                if (!st.Wall && st.S >= 0.5f)
+                // Retaining walls hold carriageways; footways, paths and steps keep open slopes.
+                if (!st.Wall && st.S >= 0.5f && !RoadWidthModel.IsFootClass(Source.Roads[st.Road].RoadClass))
                 {
                     float ec = float.NegativeInfinity, ef = float.NegativeInfinity, ec6 = 0f, ef6 = 0f;
                     for (int d = 0; d <= (int)SteepenStartM; d++)
                     {
-                        float rc = Natural(st.X + ux * sign * (ext + verge + d), st.Z + uz * sign * (ext + verge + d)) - bench;
-                        float rf = Natural(st.X + ux * sign * (ext + d), st.Z + uz * sign * (ext + d)) - bench;
+                        // On the tile's full-resolution ground, so every tier (and the solids, built on the 8 m sampler)
+                        // builds the same walls.
+                        float rc = SourceNatural(st.X + ux * sign * (ext + verge + d), st.Z + uz * sign * (ext + verge + d)) - bench;
+                        float rf = SourceNatural(st.X + ux * sign * (ext + d), st.Z + uz * sign * (ext + d)) - bench;
                         float c = rc - kc * d, f = -rf - kf * d;
                         if (c > ec) ec = c;
                         if (f > ef) ef = f;
@@ -650,8 +777,10 @@ namespace Ghumante.Core.Meshing
                     float nat = Natural(st.X + ux * off, st.Z + uz * off);
                     float dc = Math.Max(0f, d - verge);
                     float sf = Math.Max(0f, d - SteepenStartM), sc = Math.Max(0f, dc - SteepenStartM);
-                    float lo = bench - tolF - kf * d - st.S * SteepenRate * sf * sf + Math.Min(0f, wall);
-                    float hi = bench + tolC + kc * dc + st.S * SteepenRate * sc * sc + Math.Max(0f, wall);
+                    // The wall as Bounds raises it: a breast wall from its verge out, a fill wall from the drawn edge.
+                    float lift = WallLift(wall, d);
+                    float lo = bench - tolF - kf * d - st.S * SteepenRate * sf * sf + Math.Min(0f, lift);
+                    float hi = bench + tolC + kc * dc + st.S * SteepenRate * sc * sc + Math.Max(0f, lift);
                     if (nat < lo - 0.005f || nat > hi + 0.005f) last = d;
                 }
                 float reach = last < 0f ? 1.0f : Math.Min(MaxReachM, last + 3f);
@@ -845,7 +974,7 @@ namespace Ghumante.Core.Meshing
             bool wall = a.Wall || b.Wall;
             _kc[k] = wall ? WallSlope : CutSlope;
             _kf[k] = wall ? WallSlope : FillSlope;
-            _verge[k] = wall ? 0.3f : VergeM;
+            _verge[k] = wall ? 0.3f : Math.Min(a.S, b.S) >= 0.99f ? VergeM : StreetVergeM;
             _sa[k] = a.S;
             _sb[k] = b.S;
             _wla[k] = a.WL;
@@ -895,22 +1024,69 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>
-        /// The gentle streets' cut: wherever the coarse terrain triangles would rise more than <see cref="StreetCutTolM"/>
-        /// above the bench under the drawn extent of a street on gentle ground (or a junction cap on one), the corners of
-        /// that triangle are lowered (never on the tile border, at most <see cref="MaxLowerM"/>), so no ground shows
-        /// through a road without refining the grid. Hill roads are held by the fine carve instead.
+        /// The coarse grid beside the hill roads: every coarse vertex outside all drawn extents (and off the tile border)
+        /// takes the carved height of the strong (hill road) elements there, so the cells the carve does not refine still
+        /// show the cut and fill at the grid's own resolution, an earthwork smoothed over one cell rather than none. Streets
+        /// on gentle ground leave the ground beside them alone.
+        /// </summary>
+        private void PreCarve()
+        {
+            int q = Grid.Quads, side = q + 1;
+            double cm = Grid.CellM;
+            _strongOnly = true;
+            try
+            {
+                for (int k = 1; k < q; k++)
+                for (int l = 1; l < q; l++)
+                {
+                    double lx = _offX + l * cm, lz = _offZ + k * cm;
+                    float b;
+                    double gx, gz;
+                    if (ExtentAt(lx, lz, out b, out gx, out gz)) continue;
+                    int idx = k * side + l;
+                    float v = CarvedAt(lx, lz, _natural[idx]);
+                    if (Math.Abs(v - _natural[idx]) < 0.02f) continue;
+                    _coarse[idx] = v;
+                    _moved[idx] = MovedCarved;
+                }
+            }
+            finally
+            {
+                _strongOnly = false;
+            }
+        }
+
+        /// <summary>
+        /// The ground under every road as the coarse grid draws it: wherever a coarse triangle would rise more than
+        /// <see cref="StreetCutTolM"/> above the bench under a drawn extent (a street, a cap, a ring, a hill road), its
+        /// corners are lowered (never on the tile border, at most <see cref="MaxLowerM"/>), so no ground shows through a
+        /// road without refining the grid. Cells where that is not enough (a deeper bump of the city's surface model, a
+        /// deep cutting) are marked for refinement (<see cref="_poke"/>). The ground under a road is hidden by it; what
+        /// everyone stands on there is the bench itself (<see cref="ExtentAt"/>).
         /// </summary>
         private void CoarseLower()
         {
-            const double Step = 1.5;
-            for (int pass = 0; pass < 4; pass++)
+            int q = Grid.Quads, side = q + 1;
+            double cm = Grid.CellM;
+            // Coarse vertices under an extent: straight to the bench (plus the tolerance).
+            for (int k = 1; k < q; k++)
+            for (int l = 1; l < q; l++)
+            {
+                double lx = _offX + l * cm, lz = _offZ + k * cm;
+                float b;
+                double gx, gz;
+                if (!ExtentAt(lx, lz, out b, out gx, out gz)) continue;
+                Lower(k * side + l, _coarse[k * side + l] - (b + StreetCutTolM), l, k);
+            }
+            // Triangles reaching in under an extent from outside it: sampled along every extent's edges and across it.
+            for (int pass = 0; pass < 5; pass++)
             {
                 bool any = false;
+                bool check = pass == 4;
                 for (int e = 0; e < _segCount; e++)
                 {
-                    if (Math.Min(_sa[e], _sb[e]) >= 0.99f || _kc[e] == WallSlope) continue;
                     double len = _len[e];
-                    int nu = Math.Max(1, (int)Math.Ceiling(len / Step));
+                    int nu = Math.Max(1, (int)Math.Ceiling(len / LowerStepM));
                     double ux = -_dz[e], uz = _dx[e];
                     for (int iu = 0; iu <= nu; iu++)
                     {
@@ -919,30 +1095,60 @@ namespace Ghumante.Core.Meshing
                         float el = _ela[e] + (_elb[e] - _ela[e]) * t, er = _era[e] + (_erb[e] - _era[e]) * t;
                         float a0 = _a0a[e] + (_a0b[e] - _a0a[e]) * t, a1 = _a1a[e] + (_a1b[e] - _a1a[e]) * t;
                         double x = _ax[e] + _dx[e] * len * t, z = _az[e] + _dz[e] * len * t;
-                        int na = Math.Max(1, (int)Math.Ceiling((cl + cr) / Step));
+                        int na = Math.Max(1, (int)Math.Ceiling((cl + cr) / LowerStepM));
                         for (int ia = 0; ia <= na; ia++)
                         {
                             double off = -cr + (cl + cr) * ia / na;
                             double co = off > el ? el : off < er ? er : off;
-                            if (LowerAt(x + ux * off, z + uz * off, a0 + (float)co * a1 + StreetCutTolM)) any = true;
+                            float allowed = a0 + (float)co * a1 + StreetCutTolM;
+                            if (check) Poke(x + ux * off, z + uz * off, allowed);
+                            else if (LowerAt(x + ux * off, z + uz * off, allowed)) any = true;
                         }
                     }
                 }
                 for (int pi = 0; pi < _pads.Count; pi++)
                 {
                     RoadPad p = _pads[pi];
-                    if (p.Hill) continue;
-                    for (double z = p.MinZ; z <= p.MaxZ + 1e-6; z += Step)
-                    for (double x = p.MinX; x <= p.MaxX + 1e-6; x += Step)
-                        if (p.Distance(x, z) <= 0 && LowerAt(x, z, p.Height(x, z) + StreetCutTolM)) any = true;
+                    for (int g = 0; g < p.PolyX.Length; g++)
+                    {
+                        double[] px = p.PolyX[g], pz = p.PolyZ[g];
+                        int n = px.Length;
+                        for (int i = 0, j = n - 1; i < n; j = i++)
+                        {
+                            double ex = px[i] - px[j], ez = pz[i] - pz[j];
+                            int ns = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(ex * ex + ez * ez) / LowerStepM));
+                            for (int s = 0; s < ns; s++)
+                            {
+                                double x = px[j] + ex * s / ns, z = pz[j] + ez * s / ns;
+                                float allowed = p.Height(x, z) + StreetCutTolM;
+                                if (check) Poke(x, z, allowed);
+                                else if (LowerAt(x, z, allowed)) any = true;
+                            }
+                        }
+                    }
+                    for (double z = p.MinZ; z <= p.MaxZ + 1e-6; z += LowerStepM)
+                    for (double x = p.MinX; x <= p.MaxX + 1e-6; x += LowerStepM)
+                    {
+                        if (p.Distance(x, z) > 0) continue;
+                        float allowed = p.Height(x, z) + StreetCutTolM;
+                        if (check) Poke(x, z, allowed);
+                        else if (LowerAt(x, z, allowed)) any = true;
+                    }
                 }
-                if (!any) break;
+                if (!any && !check) pass = 3; // settled: go straight to the check pass
             }
-            int n = 0;
-            foreach (bool b in _lowered)
-                if (b) n++;
-            LoweredVertices = n;
+            int moved = 0;
+            foreach (byte b in _moved)
+                if (b != 0) moved++;
+            LoweredVertices = moved;
+            int pokes = 0;
+            foreach (bool b in _poke)
+                if (b) pokes++;
+            PokedCells = pokes;
         }
+
+        /// <summary>Spacing of the samples the coarse lowering checks along and across every extent.</summary>
+        private const double LowerStepM = 1.25;
 
         /// <summary>Lowers the coarse triangle under tile-local (x, z) so its surface there is at most
         /// <paramref name="allowed"/>; true when a vertex moved.</summary>
@@ -966,89 +1172,135 @@ namespace Ghumante.Core.Meshing
             return moved;
         }
 
+        /// <summary>Marks the cell under tile-local (x, z) for refinement when the coarse surface there still rises above
+        /// <paramref name="allowed"/> (the lowering hit <see cref="MaxLowerM"/> or the tile border).</summary>
+        private void Poke(double x, double z, float allowed)
+        {
+            int q = Grid.Quads;
+            double u = (x - _offX) / Grid.CellM, v = (z - _offZ) / Grid.CellM;
+            if (u < 0 || v < 0 || u > q || v > q) return;
+            if (GridSurface(_coarse, u, v) <= allowed + PokeTolM) return;
+            int i = Math.Min(q - 1, (int)Math.Floor(u)), j = Math.Min(q - 1, (int)Math.Floor(v));
+            _poke[j * q + i] = true;
+            // The cells around every corner of the offending triangle that stands above the road: refined together, the
+            // corner itself takes the carved height (a refined cell's corner shared with an unrefined one keeps it).
+            int side = q + 1;
+            double fu = u - i, fv = v - j;
+            int bi = fu >= fv ? i + 1 : i, bj = fu >= fv ? j : j + 1;
+            PokeAround(i, j, allowed, side);
+            PokeAround(bi, bj, allowed, side);
+            PokeAround(i + 1, j + 1, allowed, side);
+        }
+
+        private void PokeAround(int l, int k, float allowed, int side)
+        {
+            int q = Grid.Quads;
+            if (_coarse[k * side + l] <= allowed + PokeTolM) return;
+            for (int jj = k - 1; jj <= k; jj++)
+            for (int ii = l - 1; ii <= l; ii++)
+                if (ii >= 0 && jj >= 0 && ii < q && jj < q) _poke[jj * q + ii] = true;
+        }
+
+        /// <summary>How far the coarse ground under a road may still rise above the bench plus <see cref="StreetCutTolM"/>
+        /// before its cell is refined (the road surface stands its lift, 25 cm or more, above the bench).</summary>
+        private const float PokeTolM = 0.03f;
+
         private bool Lower(int idx, float by, int l, int k)
         {
             int q = Grid.Quads;
+            if (by <= 0f) return false;
             if (l <= 0 || k <= 0 || l >= q || k >= q) return false; // the tile border stays (the neighbour does not know)
-            float floor = Grid.VertexHeight(Source, k, l) - MaxLowerM;
+            float floor = _natural[idx] - TuneMaxLower;
             float v = Math.Max(floor, _coarse[idx] - by);
             if (v >= _coarse[idx]) return false;
             _coarse[idx] = v;
-            _lowered[idx] = true;
+            if (_moved[idx] == 0) _moved[idx] = MovedLowered;
             return true;
         }
 
-        /// <summary>Height of coarse grid vertex (row k, column l): the natural one, lowered under gentle streets.</summary>
+        private const byte MovedLowered = 1, MovedCarved = 2;
+
+        /// <summary>Height of coarse grid vertex (row k, column l) as drawn: the natural one, carved beside hill roads and
+        /// lowered under roads.</summary>
         public float CoarseVertex(int k, int l)
         {
             return _coarse[k * (Grid.Quads + 1) + l];
         }
 
-        /// <summary>True when coarse vertex (row k, column l) was lowered under a gentle street.</summary>
-        public bool IsLowered(int k, int l)
+        /// <summary>True when coarse vertex (row k, column l) was moved by the carve (lowered under a road or carved beside a
+        /// hill road).</summary>
+        public bool IsMoved(int k, int l)
         {
-            return _lowered[k * (Grid.Quads + 1) + l];
+            return _moved[k * (Grid.Quads + 1) + l] != 0;
         }
 
-        /// <summary>The coarse surface (natural, lowered under gentle streets) at area-local fractional grid coordinates
-        /// (u, v), clamped to the grid, with its gradient per quad, split as <see cref="TerrainGrid.Surface"/>.</summary>
+        /// <summary>True when coarse vertex (row k, column l) was carved beside a hill road (visible earthwork: it takes the
+        /// cut or fill colour), not only lowered under a road (hidden by it).</summary>
+        public bool IsCarvedVertex(int k, int l)
+        {
+            return _moved[k * (Grid.Quads + 1) + l] == MovedCarved;
+        }
+
+        /// <summary>The natural height of coarse grid vertex (row k, column l).</summary>
+        public float NaturalVertex(int k, int l)
+        {
+            return _natural[k * (Grid.Quads + 1) + l];
+        }
+
+        /// <summary>The natural surface of this area's grid at area-local fractional grid coordinates (u, v), clamped.</summary>
+        public float NaturalSurface(double u, double v)
+        {
+            return (float)GridSurface(_natural, u, v);
+        }
+
+        /// <summary>The coarse surface as drawn (natural, carved beside hill roads, lowered under roads) at area-local
+        /// fractional grid coordinates (u, v), clamped to the grid, with its gradient per quad, split as
+        /// <see cref="TerrainGrid.Surface"/>.</summary>
         public double CoarseSurface(double u, double v, out double dhdu, out double dhdv)
         {
-            int q = Grid.Quads, side = q + 1;
-            if (u < 0) u = 0;
-            else if (u > q) u = q;
-            if (v < 0) v = 0;
-            else if (v > q) v = q;
-            int i = (int)Math.Floor(u), j = (int)Math.Floor(v);
-            if (i > q - 1) i = q - 1;
-            if (j > q - 1) j = q - 1;
-            double fu = u - i, fv = v - j;
-            int b = j * side + i;
-            double h00 = _coarse[b], h10 = _coarse[b + 1], h01 = _coarse[b + side], h11 = _coarse[b + side + 1];
-            if (fu >= fv)
-            {
-                dhdu = h10 - h00;
-                dhdv = h11 - h10;
-            }
-            else
-            {
-                dhdu = h11 - h01;
-                dhdv = h01 - h00;
-            }
-            return h00 + fu * dhdu + fv * dhdv;
+            return GridSurface(_coarse, u, v, out dhdu, out dhdv);
         }
 
-        /// <summary>True when element <paramref name="e"/> cuts and fills a hillside (gentle streets only lower the coarse
-        /// grid).</summary>
+        /// <summary>True when element <paramref name="e"/> cuts and fills a hillside (gentle streets only hold the bench
+        /// under their extent and a verge beside it).</summary>
         private bool Strong(int e)
         {
             return e < _segCount ? _sa[e] > 0f || _sb[e] > 0f : _padS[e - _segCount] > 0f;
         }
 
-        /// <summary>Buckets every element into the 8 m element grid by its box grown by its extent and reach.</summary>
+        /// <summary>Buckets every element into the 8 m element grids: by its box grown by its extent and reach (or verge),
+        /// and by its drawn extent alone.</summary>
         private void IndexElements()
         {
             double size = Source.Tile.Size;
             _ecells = Math.Max(1, (int)Math.Ceiling(size / ElemCellM));
+            Index(false, out _estart, out _eitems);
+            Index(true, out _xstart, out _xitems);
+        }
+
+        private void Index(bool extentOnly, out int[] start, out int[] items)
+        {
+            double size = Source.Tile.Size;
             int nc = _ecells * _ecells;
             var count = new int[nc];
             int total = _segCount + _pads.Count;
+            start = new int[nc + 1];
+            items = new int[0];
             for (int pass = 0; pass < 2; pass++)
             {
                 int[] fill = null;
                 if (pass == 1)
                 {
-                    _estart = new int[nc + 1];
-                    for (int k = 0; k < nc; k++) _estart[k + 1] = _estart[k] + count[k];
-                    _eitems = new int[_estart[nc]];
+                    for (int k = 0; k < nc; k++) start[k + 1] = start[k] + count[k];
+                    items = new int[start[nc]];
                     fill = new int[nc];
-                    Array.Copy(_estart, fill, nc);
+                    Array.Copy(start, fill, nc);
                 }
                 for (int e = 0; e < total; e++)
                 {
-                    if (!Strong(e)) continue;
                     double x0, z0, x1, z1;
-                    Box(e, out x0, out z0, out x1, out z1);
+                    if (extentOnly) ExtentBox(e, out x0, out z0, out x1, out z1);
+                    else Box(e, out x0, out z0, out x1, out z1);
                     if (x1 < 0 || z1 < 0 || x0 > size || z0 > size) continue;
                     int i0 = ECell(x0), i1 = ECell(x1), j0 = ECell(z0), j1 = ECell(z1);
                     for (int j = j0; j <= j1; j++)
@@ -1056,7 +1308,7 @@ namespace Ghumante.Core.Meshing
                     {
                         int cell = j * _ecells + i;
                         if (pass == 0) count[cell]++;
-                        else _eitems[fill[cell]++] = e;
+                        else items[fill[cell]++] = e;
                     }
                 }
             }
@@ -1075,17 +1327,135 @@ namespace Ghumante.Core.Meshing
                 return;
             }
             RoadPad p = _pads[e - _segCount];
-            double m = MaxReachM + 0.5;
+            double m = (Strong(e) ? MaxReachM : StreetVergeM + 0.5) + 0.5;
             x0 = p.MinX - m;
             x1 = p.MaxX + m;
             z0 = p.MinZ - m;
             z1 = p.MaxZ + m;
         }
 
+        /// <summary>The box of element <paramref name="e"/>'s drawn extent (tile-local, 0.25 m margin).</summary>
+        private void ExtentBox(int e, out double x0, out double z0, out double x1, out double z1)
+        {
+            if (e < _segCount)
+            {
+                double r = Math.Max(Math.Max(_cla[e], _clb[e]), Math.Max(_cra[e], _crb[e])) + 0.25;
+                double bx = _ax[e] + _dx[e] * _len[e], bz = _az[e] + _dz[e] * _len[e];
+                x0 = Math.Min(_ax[e], bx) - r;
+                x1 = Math.Max(_ax[e], bx) + r;
+                z0 = Math.Min(_az[e], bz) - r;
+                z1 = Math.Max(_az[e], bz) + r;
+                return;
+            }
+            RoadPad p = _pads[e - _segCount];
+            x0 = p.MinX - 0.25;
+            x1 = p.MaxX + 0.25;
+            z0 = p.MinZ - 0.25;
+            z1 = p.MaxZ + 0.25;
+        }
+
         private int ECell(double v)
         {
             int c = (int)Math.Floor(v / ElemCellM);
             return c < 0 ? 0 : c >= _ecells ? _ecells - 1 : c;
+        }
+
+        // ------------------------------------------------------------------------------------------------------------
+        // The surface under the roads
+        // ------------------------------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The bench (the road surface less its lift) under tile-local (<paramref name="lx"/>, <paramref name="lz"/>) when the
+        /// point lies on a road's drawn extent (a carriageway with its footpaths or shoulders between its cuts, a junction cap,
+        /// a roundabout and its entries), with its gradient per metre; false elsewhere. Where extents overlap, a junction
+        /// platform wins, then the road the point lies deepest inside (farthest in from its carriageway edge). This is what
+        /// the samplers answer there for every road, gentle street or hill road, whatever the grid draws under it (the road
+        /// hides it), so the ground query, the lane graph and every placer stand exactly on the road surface.
+        /// </summary>
+        public bool ExtentAt(double lx, double lz, out float bench, out double gx, out double gz)
+        {
+            bench = 0f;
+            gx = gz = 0;
+            if (_xstart == null) return false;
+            double lim = _ecells * ElemCellM;
+            if (lx < -0.5 || lz < -0.5 || lx > lim + 0.5 || lz > lim + 0.5) return false;
+            int cell = ECell(lz) * _ecells + ECell(lx);
+            float bestPd = float.PositiveInfinity;
+            bool found = false;
+            int end = _xstart[cell + 1];
+            for (int q = _xstart[cell]; q < end; q++)
+            {
+                int e = _xitems[q];
+                if (e >= _segCount)
+                {
+                    RoadPad p = _pads[e - _segCount];
+                    if (lx < p.MinX - 1e-6 || lx > p.MaxX + 1e-6 || lz < p.MinZ - 1e-6 || lz > p.MaxZ + 1e-6) continue;
+                    if (p.Distance(lx, lz) > 1e-6) continue;
+                    bench = p.Height(lx, lz);
+                    gx = p.Gx;
+                    gz = p.Gz;
+                    return true;
+                }
+                double px = lx - _ax[e], pz = lz - _az[e];
+                double u = px * _dx[e] + pz * _dz[e], lat = _dx[e] * pz - _dz[e] * px, len = _len[e];
+                byte f = _flags[e];
+                double off;
+                float t;
+                bool radial = false;
+                if (u < 0)
+                {
+                    if ((f & ClipStart) != 0) continue;
+                    t = 0f;
+                    off = Math.Sqrt(lat * lat + u * u);
+                    if (lat < 0) off = -off;
+                    radial = true;
+                }
+                else if (u > len)
+                {
+                    if ((f & ClipEnd) != 0) continue;
+                    t = 1f;
+                    double o = u - len;
+                    off = Math.Sqrt(lat * lat + o * o);
+                    if (lat < 0) off = -off;
+                    radial = true;
+                }
+                else
+                {
+                    t = (float)(u / len);
+                    off = lat;
+                }
+                bool left = off >= 0;
+                float ext = left ? _cla[e] + (_clb[e] - _cla[e]) * t : _cra[e] + (_crb[e] - _cra[e]) * t;
+                float a = (float)Math.Abs(off);
+                if (a > ext + 1e-4f) continue;
+                float el = _ela[e] + (_elb[e] - _ela[e]) * t, er = _era[e] + (_erb[e] - _era[e]) * t;
+                float pd = a - (left ? el : -er);
+                if (pd >= bestPd) continue;
+                bestPd = pd;
+                found = true;
+                float a0 = _a0a[e] + (_a0b[e] - _a0a[e]) * t, a1 = _a1a[e] + (_a1b[e] - _a1a[e]) * t;
+                bool inside = off < el && off > er;
+                double co = off > el ? el : off < er ? er : off;
+                bench = a0 + (float)co * a1;
+                double along = radial ? 0.0 : (_a0b[e] - _a0a[e] + co * (_a1b[e] - _a1a[e])) / len;
+                double lateral = inside ? a1 : 0.0;
+                // Left of travel is (-dz, dx).
+                gx = _dx[e] * along - _dz[e] * lateral;
+                gz = _dz[e] * along + _dx[e] * lateral;
+            }
+            return found;
+        }
+
+        /// <summary>True when area-local fractional grid point (u, v) lies on a drawn road extent or in a refined cell (the
+        /// surface there is the carve's, with its facet normal).</summary>
+        public bool Carves(double u, double v)
+        {
+            int q = Grid.Quads;
+            int i = Math.Max(0, Math.Min(q - 1, (int)Math.Floor(u))), j = Math.Max(0, Math.Min(q - 1, (int)Math.Floor(v)));
+            if (_block[j * q + i] >= 0) return true;
+            float b;
+            double gx, gz;
+            return ExtentAt(_offX + u * Grid.CellM, _offZ + v * Grid.CellM, out b, out gx, out gz);
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -1159,6 +1529,7 @@ namespace Ghumante.Core.Meshing
             {
                 int e = _eitems[q];
                 int best = e;
+                if (_strongOnly && !Strong(e)) continue;
                 if (e < _segCount)
                 {
                     // Every listed segment of this run (they are contiguous in the list): the nearest, then walk along the
@@ -1259,9 +1630,29 @@ namespace Ghumante.Core.Meshing
                 if (!Bounds(e, lx, lz, 0f, out say)) continue;
                 sb.Append(e < _segCount ? "seg " + e + " run " + _run[e] + " road " + _road[e] + " d " + Math.Sqrt(SegDist2(e, lx, lz)).ToString("0.0") : "pad " + (e - _segCount))
                   .Append(" lo ").Append(say.Lo.ToString("0.00")).Append(" hi ").Append(say.Hi.ToString("0.00")).Append(" pd ").Append(say.Pd.ToString("0.00"))
-                  .Append('\n');
+                  .Append(" ext ").Append(say.Ext.ToString("0.00"));
+                if (e < _segCount)
+                    sb.Append(" S ").Append(_sa[e].ToString("0.00")).Append('/').Append(_sb[e].ToString("0.00")).Append(" verge ").Append(_verge[e].ToString("0.00"))
+                      .Append(" kc ").Append(_kc[e].ToString("0.0")).Append(" cl ").Append(_cla[e].ToString("0.0")).Append(" el ").Append(_ela[e].ToString("0.0"))
+                      .Append(" wl ").Append(_wla[e].ToString("0.0")).Append('/').Append(_wlb[e].ToString("0.0")).Append(" wr ").Append(_wra[e].ToString("0.0"))
+                      .Append('/').Append(_wrb[e].ToString("0.0"));
+                sb.Append('\n');
             }
             return sb.ToString();
+        }
+
+        /// <summary>How far a retaining wall of height <paramref name="wall"/> (positive a breast wall, negative a fill wall)
+        /// shifts the bounds at <paramref name="dF"/> metres beyond the drawn extent: a breast wall rises over
+        /// <see cref="WallFaceM"/> from <see cref="WallVergeM"/> out, a fill wall drops over it from the drawn edge.</summary>
+        private float WallLift(float wall, float dF)
+        {
+            if (wall > 0f)
+            {
+                float dw = dF - WallVergeM;
+                return dw <= 0f ? 0f : wall * (dw >= WallFaceM ? 1f : dw / WallFaceM);
+            }
+            if (wall < 0f) return wall * (dF >= WallFaceM ? 1f : dF / WallFaceM);
+            return 0f;
         }
 
         /// <summary>Cut and fill bounds of element <paramref name="e"/> at (lx, lz); false when it does not reach.</summary>
@@ -1307,8 +1698,7 @@ namespace Ghumante.Core.Meshing
                 reach = left ? _rl[e] : _rr[e];
                 if (dF > reach) return false;
                 str = _sa[e] + (_sb[e] - _sa[e]) * t;
-                if (str <= 0f) return false;
-                float verge = _verge[e] * str;
+                float verge = _verge[e];
                 dC = a > ext + verge ? a - ext - verge : 0f;
                 say.Pd = a - (left ? el : -er);
                 double co = off > el ? el : off < er ? er : off;
@@ -1317,26 +1707,31 @@ namespace Ghumante.Core.Meshing
                 kf = _kf[e];
                 g = _ga[e] + (_gb[e] - _ga[e]) * t;
                 float wall = left ? _wla[e] + (_wlb[e] - _wla[e]) * t : _wra[e] + (_wrb[e] - _wra[e]) * t;
-                if (wall > 0f) wallLift = wall * (dC >= WallFaceM ? 1f : dC / WallFaceM);
-                else if (wall < 0f) wallLift = wall * (dF >= WallFaceM ? 1f : dF / WallFaceM);
+                wallLift = WallLift(wall, dF);
             }
             else
             {
                 RoadPad p = _pads[e - _segCount];
                 if (lx < p.MinX - MaxReachM || lx > p.MaxX + MaxReachM || lz < p.MinZ - MaxReachM || lz > p.MaxZ + MaxReachM) return false;
                 str = _padS[e - _segCount];
-                if (str <= 0f) return false;
                 double d = p.Distance(lx, lz);
-                if (d > MaxReachM) return false;
+                if (d > (str > 0f ? MaxReachM : StreetVergeM + 0.5)) return false;
                 dF = (float)d;
                 say.Ext = dF;
-                float pv = VergeM * str;
+                float pv = str >= 0.99f ? VergeM : StreetVergeM;
                 dC = dF > pv ? dF - pv : 0f;
                 say.Pd = dF;
                 bench = p.Height(lx, lz);
                 kc = CutSlope;
                 kf = FillSlope;
                 g = 1f;
+            }
+            if (dF <= 0f)
+            {
+                // Under the drawn extent (carriageway with its footpaths or shoulders, cap, ring): exactly the bench, for
+                // every road, so the ground everyone stands on is the road surface less its lift.
+                say.Lo = say.Hi = bench;
+                return true;
             }
             float weak = 1f - str;
             kc += weak * WeakSlope;
@@ -1354,7 +1749,8 @@ namespace Ghumante.Core.Meshing
 
         private sealed class Scratch
         {
-            public float[] Val = new float[0], Nat = new float[0], Ext = new float[0];
+            public float[] Val = new float[0], Coarse = new float[0], Judge = new float[0];
+            public bool[] OnRoad = new bool[0];
             public int[] Stamp = new int[0];
             public int Mark;
 
@@ -1362,8 +1758,9 @@ namespace Ghumante.Core.Meshing
             {
                 if (Val.Length >= n) return;
                 Val = new float[n];
-                Nat = new float[n];
-                Ext = new float[n];
+                Coarse = new float[n];
+                Judge = new float[n];
+                OnRoad = new bool[n];
                 Stamp = new int[n];
                 Mark = 0;
             }
@@ -1371,6 +1768,14 @@ namespace Ghumante.Core.Meshing
 
         [ThreadStatic] private static Scratch _scratch;
 
+        /// <summary>
+        /// Refines the cells where the coarse grid cannot draw the carve: around the hill roads wherever the carved ground
+        /// beside a road (its verge, cut slope, embankment or wall) departs from the coarse surface by more than
+        /// <see cref="RefineMoveM"/>, and wherever the coarse lowering could not bring the ground under a road down to its
+        /// bench (<see cref="_poke"/>). A sub-vertex takes the carved height (the bench under a road's extent, the cut and
+        /// fill beside it) only when every cell around it is refined, else the coarse surface, so a refined cell meets its
+        /// unrefined neighbours on their straight edges without cracks.
+        /// </summary>
         private void Rasterise()
         {
             int q = Grid.Quads, r = Sub, side = q * r + 1;
@@ -1383,7 +1788,7 @@ namespace Ghumante.Core.Meshing
                 sc.Mark = 1;
             }
             int mark = sc.Mark;
-            // Candidate cells: under some element's reach.
+            // Candidate cells: under a hill road's reach, or poked.
             var candidate = new bool[q * q];
             double cm = Grid.CellM;
             int total = _segCount + _pads.Count;
@@ -1397,59 +1802,39 @@ namespace Ghumante.Core.Meshing
                 for (int j = j0; j <= j1; j++)
                 for (int i = i0; i <= i1; i++) candidate[j * q + i] = true;
             }
-            // Pass 1: carved and natural heights at every sub-vertex of the candidate cells; a cell is refined where the
-            // carve cuts one under a road (or its verge) by more than RefineCutM or moves it anywhere by more than RefineMoveM.
+            for (int cell = 0; cell < q * q; cell++)
+                if (_poke[cell]) candidate[cell] = true;
+            // Pass 1: the carved and the coarse surfaces at every sub-vertex of the candidate cells.
             var refinedFlag = new bool[q * q];
             var refined = new List<int>(256);
             for (int cell = 0; cell < q * q; cell++)
             {
                 if (!candidate[cell]) continue;
                 int ci = cell % q, cj = cell / q;
-                bool moved = false;
+                bool moved = _poke[cell];
+                float worst = 0f;
                 for (int b = 0; b <= r; b++)
                 for (int a = 0; a <= r; a++)
                 {
                     int gi = ci * r + a, gj = cj * r + b, idx = gj * side + gi;
-                    if (sc.Stamp[idx] != mark)
-                    {
-                        double lx = _offX + gi * SubM, lz = _offZ + gj * SubM, du, dv;
-                        float nat = (float)CoarseSurface(gi / (double)r, gj / (double)r, out du, out dv);
-                        sc.Nat[idx] = nat;
-                        float ext;
-                        sc.Val[idx] = CarvedAt(lx, lz, nat, out ext);
-                        sc.Ext[idx] = ext;
-                        sc.Stamp[idx] = mark;
-                    }
-                    float move = sc.Val[idx] - sc.Nat[idx];
-                    if (Math.Abs(move) > (sc.Ext[idx] <= VergeM ? RefineCutM : RefineMoveM)) moved = true;
+                    if (sc.Stamp[idx] != mark) Sample(sc, idx, gi, gj, r);
+                    if (sc.OnRoad[idx]) continue; // hidden by the road (and answered analytically)
+                    float d = Math.Abs(sc.Judge[idx] - sc.Coarse[idx]);
+                    if (d > worst) worst = d;
                 }
-                if (moved)
+                if (worst > TuneRefineMove) moved = true;
+                if (!moved) continue;
+                refined.Add(cell);
+                refinedFlag[cell] = true;
+                if (DiagOn)
                 {
-                    refined.Add(cell);
-                    refinedFlag[cell] = true;
-                    if (DiagOn)
-                    {
-                        float maxCut = 0f, maxMove = 0f, maxNatDiff = 0f;
-                        for (int b = 0; b <= r; b++)
-                        for (int a = 0; a <= r; a++)
-                        {
-                            int idx = (cj * r + b) * side + ci * r + a;
-                            float mv = sc.Val[idx] - sc.Nat[idx];
-                            if (sc.Ext[idx] <= VergeM && -mv > maxCut) maxCut = -mv;
-                            if (Math.Abs(mv) > maxMove) maxMove = Math.Abs(mv);
-                            double lx = _offX + (ci * r + a) * SubM, lz = _offZ + (cj * r + b) * SubM;
-                            float n1 = TerrainGrid.SourceSurface(Source, Source.Tile.X0 + lx, Source.Tile.Z0 + lz);
-                            maxNatDiff = Math.Max(maxNatDiff, Math.Abs(n1 - sc.Nat[idx]));
-                        }
-                        int bucket = maxMove < 0.5f ? 0 : maxMove < 1f ? 1 : maxMove < 2f ? 2 : 3;
-                        DiagBuckets[bucket]++;
-                        if (maxCut > 0f && maxMove <= RefineMoveM) DiagCutOnly++;
-                        if (maxNatDiff > 0.3f) DiagNatDiff++;
-                    }
+                    int bucket = worst < 0.5f ? 0 : worst < 1f ? 1 : worst < 2f ? 2 : 3;
+                    DiagBuckets[bucket]++;
+                    if (_poke[cell]) DiagCutOnly++;
                 }
             }
-            // Pass 2: a sub-vertex takes the carved height only when every cell around it is refined (else the natural
-            // height, on the unrefined neighbour's straight edge).
+            // Pass 2: a sub-vertex takes the carved height only when every cell around it is refined (else the coarse
+            // surface, on the unrefined neighbour's straight edge).
             int per = (r + 1) * (r + 1);
             _heights = new float[refined.Count * per];
             for (int k = 0; k < refined.Count; k++)
@@ -1468,19 +1853,49 @@ namespace Ghumante.Core.Meshing
                         for (int ii = ia; ii <= ib && all; ii++)
                         {
                             // Cells off the grid count as refined (the tile border: both tiles keep their own carve there,
-                            // which the border fade holds to the natural ground).
+                            // which the border fade holds to the natural ground; the skirts close the rest).
                             if (ii < 0 || jj < 0 || ii >= q || jj >= q) continue;
                             if (!refinedFlag[jj * q + ii]) all = false;
                         }
                     }
-                    _heights[start + b * (r + 1) + a] = all ? sc.Val[idx] : sc.Nat[idx];
+                    _heights[start + b * (r + 1) + a] = all ? sc.Val[idx] : sc.Coarse[idx];
                 }
             }
             RefinedCells = refined.Count;
         }
 
+        /// <summary>Fills the scratch at global sub-grid point (gi, gj): the carved height (the bench on a road's extent, the
+        /// natural ground clamped into every road's cut and fill bounds elsewhere) and the coarse surface as drawn.</summary>
+        private void Sample(Scratch sc, int idx, int gi, int gj, int r)
+        {
+            double u = gi / (double)r, v = gj / (double)r;
+            double lx = _offX + gi * SubM, lz = _offZ + gj * SubM;
+            sc.Coarse[idx] = (float)GridSurface(_coarse, u, v);
+            float bench;
+            double gx, gz;
+            if (ExtentAt(lx, lz, out bench, out gx, out gz))
+            {
+                sc.Val[idx] = bench;
+                sc.OnRoad[idx] = true;
+            }
+            else
+            {
+                float nat = (float)GridSurface(_natural, u, v);
+                sc.Val[idx] = CarvedAt(lx, lz, nat);
+                if (TuneStrongCriterion)
+                {
+                    _strongOnly = true;
+                    sc.Judge[idx] = CarvedAt(lx, lz, nat);
+                    _strongOnly = false;
+                }
+                else sc.Judge[idx] = sc.Val[idx];
+                sc.OnRoad[idx] = false;
+            }
+            sc.Stamp[idx] = sc.Mark;
+        }
+
         // ------------------------------------------------------------------------------------------------------------
-        // Queries (the drawn surface)
+        // Queries
         // ------------------------------------------------------------------------------------------------------------
 
         /// <summary>True when grid cell (i, j) (column, row from the south-west) is drawn with carved sub-quads.</summary>
@@ -1498,11 +1913,29 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>
-        /// The drawn surface at area-local fractional grid coordinates (u, v) in quads, clamped to the grid, with the facet
-        /// gradient per metre: the carved sub-quads in refined cells (each split along its (a, b)-(a+1, b+1) diagonal, as
-        /// the coarse cells are), the natural grid elsewhere.
+        /// The carved surface everyone stands on at area-local fractional grid coordinates (u, v) in quads, clamped to the
+        /// grid, with its gradient per metre: on a road's drawn extent the bench under it (<see cref="ExtentAt"/>: the road
+        /// surface less its lift, whatever the grid draws hidden under the road), elsewhere exactly the drawn terrain
+        /// (<see cref="DrawnSurface"/>). The samplers, the ground query, the lane graph and every placer read this.
         /// </summary>
         public double Surface(double u, double v, out double gx, out double gz)
+        {
+            int q = Grid.Quads;
+            if (u < 0) u = 0;
+            else if (u > q) u = q;
+            if (v < 0) v = 0;
+            else if (v > q) v = q;
+            float bench;
+            if (ExtentAt(_offX + u * Grid.CellM, _offZ + v * Grid.CellM, out bench, out gx, out gz)) return bench;
+            return DrawnSurface(u, v, out gx, out gz);
+        }
+
+        /// <summary>
+        /// The drawn terrain at area-local fractional grid coordinates (u, v) in quads, clamped to the grid, with the facet
+        /// gradient per metre: the carved sub-quads in refined cells (each split along its (a, b)-(a+1, b+1) diagonal, as
+        /// the coarse cells are), the coarse grid (carved beside hill roads, lowered under roads) elsewhere.
+        /// </summary>
+        public double DrawnSurface(double u, double v, out double gx, out double gz)
         {
             int q = Grid.Quads;
             if (u < 0) u = 0;

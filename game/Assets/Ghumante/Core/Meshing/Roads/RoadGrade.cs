@@ -83,13 +83,20 @@ namespace Ghumante.Core.Meshing
         {
             public double L, Fade, Land;
 
-            /// <summary>Absolute target (centre height and cross-fall), else relative to the terrain under each vertex.</summary>
+            /// <summary>Absolute target (centre height and cross-fall); every pin is absolute since the cut/fill package
+            /// (seams, knees, junction platforms, deck ends).</summary>
             public bool Abs;
 
-            public float AbsY, Bank, Rel;
+            public float AbsY, Bank;
 
-            /// <summary>For a relative pin: the absolute plane the terrain carve uses (the junction platform).</summary>
-            public float BenchY, BenchBank;
+            /// <summary>A plane the piece lies in near the pin (a junction platform, or the surface of the road a minor road
+            /// runs into): its gradient per metre (tile-local x, z) about (<see cref="X"/>, <see cref="Z"/>), where its height
+            /// is <see cref="AbsY"/>. Rows away from the pin take the plane's height at their centre and its fall across
+            /// them; the pin's own row keeps <see cref="Bank"/> (its section may be oblique, as a junction cut's is).</summary>
+            public bool Plane;
+
+            public double X, Z;
+            public float Gx, Gz;
         }
 
         private sealed class Piece
@@ -256,13 +263,189 @@ namespace Ghumante.Core.Meshing
                 if (!float.IsNaN(s.DeckY[first])) deckEnds[EndKey(r, first)] = s.DeckY[first] + DeckSurfacingM;
                 if (!float.IsNaN(s.DeckY[last])) deckEnds[EndKey(r, last)] = s.DeckY[last] + DeckSurfacingM;
             }
+            // The roads meeting at each junction platform (for the arms' overlap).
+            _padRoads = new List<int>[Pads.Pads.Count];
             for (int i = 0; i < t.Roads.Count; i++)
             {
-                if (!RoadMesher.IsDrawn(t, i, null)) continue;
-                RoadCentreline c = Layout.Centres[i];
-                if (c == null || c.Count < 2) continue;
-                _pieces[i] = Build(i, deckEnds);
+                RoadCut[] cuts = Layout.Cuts[i];
+                if (cuts == null) continue;
+                foreach (RoadCut cu in cuts)
+                {
+                    int pad = Pads.PadOfCut(i, cu.S);
+                    if (pad < 0) continue;
+                    List<int> l = _padRoads[pad] ?? (_padRoads[pad] = new List<int>(4));
+                    if (!l.Contains(i)) l.Add(i);
+                }
             }
+            _drawn = new bool[t.Roads.Count];
+            for (int i = 0; i < t.Roads.Count; i++)
+            {
+                RoadCentreline c = Layout.Centres[i];
+                _drawn[i] = RoadMesher.IsDrawn(t, i, null) && c != null && c.Count >= 2;
+            }
+            for (int i = 0; i < t.Roads.Count; i++)
+                if (_drawn[i]) _pieces[i] = Build(i, deckEnds);
+            if (_o.SmoothProfile) JoinPins(deckEnds);
+        }
+
+        private readonly List<int>[] _padRoads;
+
+        /// <summary>Pieces that get a profile (drawn, with a centreline).</summary>
+        private readonly bool[] _drawn;
+
+        /// <summary>Longest stretch of an arm held in its junction's plane, or of a minor road held in the surface of the road
+        /// it runs into.</summary>
+        public const double MaxJoinLandM = 20.0;
+
+        /// <summary>
+        /// How far (raw metres) from junction cut <paramref name="cut"/> outward along road <paramref name="i"/> its drawn
+        /// carriageway still overlaps the carriageway of another arm of the same platform (an acute fork), plus a metre; 0
+        /// where none does. At most <see cref="MaxJoinLandM"/> and a third of the piece.
+        /// </summary>
+        private double ArmOverlapM(int i, in RoadCut cut, bool outwardUp, int pad, double len)
+        {
+            List<int> arms = pad >= 0 && pad < _padRoads.Length ? _padRoads[pad] : null;
+            if (arms == null || arms.Count < 2) return 0;
+            double max = Math.Min(MaxJoinLandM, len / 3), last = 0;
+            for (double d = 1; d <= max; d += 1)
+            {
+                double s = outwardUp ? cut.S + d : cut.S - d;
+                if (s <= 0 || s >= Layout.Centres[i].RawLengthM || Layout.InGap(i, s)) break;
+                bool hit = false;
+                foreach (int j in arms)
+                    if (j != i && Overlaps(i, s, j))
+                    {
+                        hit = true;
+                        break;
+                    }
+                if (hit) last = d;
+            }
+            return last > 0 ? last + 1.0 : 0;
+        }
+
+        /// <summary>True when the carriageway of road <paramref name="i"/> at raw along <paramref name="s"/> (centre or either
+        /// edge) lies on the drawn carriageway of road <paramref name="j"/>.</summary>
+        private bool Overlaps(int i, double s, int j)
+        {
+            RoadCentreline c = Layout.Centres[i];
+            RoadWidthProfile prof = Layout.Profiles[i];
+            double x, z, tx, tz;
+            c.At(s, out x, out z, out tx, out tz);
+            double half = 0.5 * prof.DrawnAt(s), shift = prof.ShiftAt(s);
+            for (int q = -1; q <= 1; q++)
+            {
+                double off = shift + q * half;
+                double sj;
+                if (OnCarriageway(j, x - tz * off, z + tx * off, out sj)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>True when tile-local (x, z) lies on the drawn carriageway of road <paramref name="j"/> (outside its
+        /// junction gaps); <paramref name="sj"/> is the raw along there.</summary>
+        private bool OnCarriageway(int j, double x, double z, out double sj)
+        {
+            sj = 0;
+            RoadCentreline c = Layout.Centres[j];
+            if (!_drawn[j]) return false;
+            int seg;
+            double lat, dist;
+            if (!c.Nearest(x, z, out seg, out sj, out lat, out dist)) return false;
+            if (sj <= 0 || sj >= c.RawLengthM || Layout.InGap(j, sj) || Layout.InAbsorbed(j, sj)) return false;
+            RoadWidthProfile prof = Layout.Profiles[j];
+            return Math.Abs(lat - prof.ShiftAt(sj)) <= 0.5 * prof.DrawnAt(sj) + 0.05;
+        }
+
+        /// <summary>
+        /// Minor roads running into another road without a junction cap (a lane or a path ending on a street, steps meeting
+        /// a lane): the free end lies in the other road's surface plane, held over the stretch where the two carriageways
+        /// overlap, then fades to its own profile, so the two ribbons meet without a step (each is level across on its own,
+        /// and before this they met at different heights on a hillside). Only proper T-joins: the end must lie on the other
+        /// road away from that road's own ends; tile seams, knees, junction cuts and deck ends keep their pins.
+        /// </summary>
+        private void JoinPins(Dictionary<long, float> deckEnds)
+        {
+            int n = _pieces.Length;
+            var pins = new List<KeyValuePair<int, Pin>>();
+            for (int i = 0; i < n; i++)
+            {
+                Piece p = _pieces[i];
+                if (p == null || p.AllDeck || p.Synthetic) continue;
+                RoadRecord r = Tile.Roads[i];
+                RoadCentreline c = Layout.Centres[i];
+                RoadCut[] cuts = Layout.Cuts[i];
+                for (int end = 0; end < 2; end++)
+                {
+                    bool start = end == 0;
+                    if (start ? r.HasPrevContext : r.HasNextContext) continue;
+                    if (Layout.Knees[2 * i + end].Has) continue;
+                    int k = start ? 0 : c.Count - 1;
+                    double s = c.S[k];
+                    if (cuts != null && cuts.Length > 0 && (start ? cuts[0].S <= s + 0.5 : cuts[cuts.Length - 1].S >= s - 0.5)) continue;
+                    int pk = start ? (r.HasPrevContext ? 1 : 0) : (r.HasNextContext ? r.PointCount - 2 : r.PointCount - 1);
+                    if (deckEnds.ContainsKey(EndKey(r, pk))) continue;
+                    // The road the end runs into: the one whose carriageway holds the end point, nearest its centreline.
+                    int best = -1;
+                    double bestS = 0, bestD = double.MaxValue;
+                    for (int j = 0; j < n; j++)
+                    {
+                        if (j == i || _pieces[j] == null || _pieces[j].AllDeck || _pieces[j].Synthetic) continue;
+                        double sj;
+                        if (!OnCarriageway(j, c.X[k], c.Z[k], out sj)) continue;
+                        RoadCentreline cj = Layout.Centres[j];
+                        if (sj < 1.0 || sj > cj.RawLengthM - 1.0) continue; // an end-to-end join, not a T
+                        int seg;
+                        double a, lat, dist;
+                        cj.Nearest(c.X[k], c.Z[k], out seg, out a, out lat, out dist);
+                        if (dist < bestD)
+                        {
+                            bestD = dist;
+                            best = j;
+                            bestS = sj;
+                        }
+                    }
+                    if (best < 0) continue;
+                    // The other road's surface plane at the end point (its bench, this piece's own lift on top).
+                    float h0, gx, gz;
+                    if (!SurfacePlane(best, bestS, c.X[k], c.Z[k], out h0, out gx, out gz)) continue;
+                    double land = 0;
+                    for (double d = 1; d <= Math.Min(MaxJoinLandM, c.RawLengthM / 3); d += 1)
+                    {
+                        double sd = start ? s + d : s - d;
+                        if (Overlaps(i, sd, best)) land = d;
+                    }
+                    double ux = -c.Tz[k], uz = c.Tx[k];
+                    pins.Add(new KeyValuePair<int, Pin>(i, new Pin
+                    {
+                        L = start ? 0 : c.LengthM, Fade = PinFadeM, Land = land + 1.0, Abs = true, AbsY = h0 - _pieces[best].Lift + p.Lift,
+                        Bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(gx * ux + gz * uz))), Plane = true, X = c.X[k], Z = c.Z[k], Gx = gx, Gz = gz,
+                    }));
+                }
+            }
+            foreach (KeyValuePair<int, Pin> e in pins) _pieces[e.Key].AddPin(e.Value);
+        }
+
+        /// <summary>The drawn surface of road <paramref name="j"/> near raw along <paramref name="sj"/> as a plane through
+        /// tile-local (x, z): its height there and its gradient per metre.</summary>
+        private bool SurfacePlane(int j, double sj, double x, double z, out float h0, out float gx, out float gz)
+        {
+            h0 = gx = gz = 0f;
+            RoadCentreline c = Layout.Centres[j];
+            double cx, cz, tx, tz;
+            c.At(sj, out cx, out cz, out tx, out tz);
+            double ux = -tz, uz = tx;
+            double off = (x - cx) * ux + (z - cz) * uz;
+            double s1 = Math.Min(c.RawLengthM, sj + 1.0), s0 = Math.Max(0.0, sj - 1.0);
+            if (s1 - s0 < 0.5) return false;
+            Row r = RowExact(j, sj), ra = RowExact(j, s0), rb = RowExact(j, s1);
+            if (!r.Valid) return false;
+            h0 = BenchY(r, off);
+            float across = BenchY(r, off + 1.0) - h0;
+            double arc = c.ArcAt(s1) - c.ArcAt(s0);
+            float along = arc > 1e-6 ? (float)((BenchY(rb, off) - BenchY(ra, off)) / arc) : 0f;
+            gx = (float)(along * tx + across * ux);
+            gz = (float)(along * tz + across * uz);
+            return true;
         }
 
         private static long EndKey(RoadRecord r, int k)
@@ -422,7 +605,46 @@ namespace Ghumante.Core.Meshing
             return true;
         }
 
+        /// <summary>
+        /// The cross-section row of road <paramref name="road"/> at raw along <paramref name="s"/> as the ribbon draws it:
+        /// the ribbon's rows stand on the centreline points and the junction cuts (<c>RibbonMesher</c>) and its quads
+        /// are linear between them, so between two such rows the surface is the linear blend of the two (collapsed to one
+        /// level plane per row: profile, cross-fall and the junction and seam pins), and everything that reads the grade
+        /// (the carve's bench, the road surface query, the lane graph, every placer) stands on what is drawn. Rows touching a
+        /// deck, and unsmoothed profiles (terrain-relative), are evaluated as they are.
+        /// </summary>
         internal Row RowAt(int road, double s)
+        {
+            Piece p = _pieces[road];
+            if (p == null || !_o.SmoothProfile || p.AllDeck || p.Synthetic) return RowExact(road, s);
+            RoadCentreline c = Layout.Centres[road];
+            if (c == null || c.Count < 2 || s <= c.S[0] || s >= c.S[c.Count - 1]) return RowExact(road, s);
+            int k = c.SegmentAt(s);
+            double a = c.S[k], b = c.S[k + 1];
+            RoadCut[] cuts = Layout.Cuts[road];
+            if (cuts != null)
+                for (int q = 0; q < cuts.Length; q++)
+                {
+                    double cs = cuts[q].S;
+                    if (cs <= s && cs > a) a = cs;
+                    if (cs >= s && cs < b) b = cs;
+                }
+            if (b - a < 1e-6 || s - a < 1e-6 || b - s < 1e-6) return RowExact(road, s);
+            Row ra = RowExact(road, a), rb = RowExact(road, b);
+            if (!ra.Valid || !rb.Valid || ra.DeckW > 0f || rb.DeckW > 0f) return RowExact(road, s);
+            float pa = BenchY(ra, 0), ba = BenchY(ra, 1) - pa, pb = BenchY(rb, 0), bb = BenchY(rb, 1) - pb;
+            float t = (float)((s - a) / (b - a));
+            double arc = c.ArcAt(b) - c.ArcAt(a);
+            var r = new Row
+            {
+                Valid = true, Lift = ra.Lift, P = pa + (pb - pa) * t, B = ba + (bb - ba) * t, G = arc > 1e-6 ? (float)((pb - pa) / arc) : ra.G,
+                Clamp = ra.Clamp && rb.Clamp,
+            };
+            return r;
+        }
+
+        /// <summary>The row at raw along <paramref name="s"/> evaluated exactly (profile, pins, deck blend).</summary>
+        private Row RowExact(int road, double s)
         {
             var r = new Row();
             Piece p = _pieces[road];
@@ -449,12 +671,20 @@ namespace Ghumante.Core.Meshing
                 float w = d <= 0 ? 1f : (float)(1.0 - Smoothstep(d / pin.Fade));
                 if (w <= best) continue;
                 best = w;
+                float y = pin.AbsY, bank = pin.Bank;
+                if (pin.Plane && Math.Abs(l - pin.L) > 1e-3)
+                {
+                    double cx, cz, tx, tz;
+                    Layout.Centres[road].At(s, out cx, out cz, out tx, out tz);
+                    y = pin.AbsY + (float)(pin.Gx * (cx - pin.X) + pin.Gz * (cz - pin.Z));
+                    bank = Math.Max(-MaxBank, Math.Min(MaxBank, (float)(pin.Gx * -tz + pin.Gz * tx)));
+                }
                 r.PinAbs = pin.Abs;
-                r.PinRel = pin.Rel;
-                r.PinAbsY = pin.AbsY;
-                r.PinBank = pin.Bank;
-                r.PinBenchY = pin.Abs ? pin.AbsY : pin.BenchY;
-                r.PinBenchBank = pin.Abs ? pin.Bank : pin.BenchBank;
+                r.PinRel = 0f;
+                r.PinAbsY = y;
+                r.PinBank = bank;
+                r.PinBenchY = y;
+                r.PinBenchBank = bank;
             }
             r.PinW = best;
             bool lowered = false;
@@ -786,26 +1016,29 @@ namespace Ghumante.Core.Meshing
                 {
                     int top = tops != null && g < tops.Length ? tops[g] : -1;
                     float pinLift = top >= 0 ? RoadMesher.LiftOf(Tile.Roads[top], _o) + JunctionMesher.CapExtraLiftM : lift;
-                    // Drawn on the carved terrain under the end row, as the cap or ring is; the carve's bench is the
-                    // junction platform's plane.
+                    // The end row lies in the junction's levelled platform (RoadPads: a plane through the natural ground,
+                    // its fall held to 6 %), exactly where the cap or ring is drawn: the carved surface under every cap and
+                    // ring is that plane (TerrainCarve.ExtentAt), so the row is level across within the plane's 6 % and
+                    // meets the cap's edge vertex for vertex, on gentle street corners and hillsides alike.
                     RoadCut cut = cuts[g];
                     int pad = Pads.PadOfCut(i, cut.S);
-                    float benchY, benchBank = 0f;
                     if (pad >= 0)
                     {
+                        // Where the arm still overlaps another arm of the same junction (an acute fork), it stays in the
+                        // platform's plane, so the overlapping ribbons lie in one surface; then it fades to its own profile.
                         RoadPad pd = Pads.Pads[pad];
-                        benchY = pd.Height(cut.CX, cut.CZ) + pinLift;
-                        benchBank = (float)(pd.Gx * cut.UX + pd.Gz * cut.UZ);
-                        if (pd.Hill)
+                        double land = ArmOverlapM(i, cut, (g & 1) != 0, pad, len);
+                        p.AddPin(new Pin
                         {
-                            // A junction on a hillside: the terrain is carved to its levelled plane, the cap lies in it,
-                            // and so does the end row (level across within the plane's 6 %).
-                            p.AddPin(new Pin { L = c.ArcAt(cut.S), Fade = PinFadeM, Abs = true, AbsY = benchY, Bank = benchBank });
-                            continue;
-                        }
+                            L = c.ArcAt(cut.S), Fade = PinFadeM, Land = land, Abs = true, AbsY = pd.Height(cut.CX, cut.CZ) + pinLift,
+                            Bank = (float)(pd.Gx * cut.UX + pd.Gz * cut.UZ), Plane = true, X = cut.CX, Z = cut.CZ, Gx = pd.Gx, Gz = pd.Gz,
+                        });
                     }
-                    else benchY = NaturalTerrain(cut.CX, cut.CZ) + pinLift;
-                    p.AddPin(new Pin { L = c.ArcAt(cut.S), Fade = PinFadeM, Rel = pinLift, BenchY = benchY, BenchBank = benchBank });
+                    else
+                    {
+                        // No platform (a degenerate cap): level at the natural ground of the cut's centre.
+                        p.AddPin(new Pin { L = c.ArcAt(cut.S), Fade = PinFadeM, Abs = true, AbsY = NaturalTerrain(cut.CX, cut.CZ) + pinLift });
+                    }
                 }
             }
             // Free ends on a deck: ramp to the deck height.

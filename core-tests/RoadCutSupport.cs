@@ -17,11 +17,14 @@ namespace Ghumante.Core.Tests
         private const double CellM = 4.0;
         private readonly List<float> _p = new List<float>();
         private readonly List<int> _tri = new List<int>();
+        private readonly List<int> _layer = new List<int>();
+        private int _layers;
         private readonly Dictionary<long, List<int>> _cells = new Dictionary<long, List<int>>();
 
         /// <summary>Adds the up-facing triangles (geometric normal y at least <paramref name="minUp"/>) of a mesh.</summary>
         public void Add(MeshData m, float minUp = 0.2f)
         {
+            int layer = _layers++;
             int baseV = _p.Count / 3;
             for (int v = 0; v < m.VertexCount; v++)
             {
@@ -42,6 +45,7 @@ namespace Ghumante.Core.Tests
                 _tri.Add(a);
                 _tri.Add(b);
                 _tri.Add(c);
+                _layer.Add(layer);
                 double x0 = Math.Min(ax, Math.Min(_p[3 * b], _p[3 * c])), x1 = Math.Max(ax, Math.Max(_p[3 * b], _p[3 * c]));
                 double z0 = Math.Min(az, Math.Min(_p[3 * b + 2], _p[3 * c + 2])), z1 = Math.Max(az, Math.Max(_p[3 * b + 2], _p[3 * c + 2]));
                 for (long j = (long)Math.Floor(z0 / CellM); j <= (long)Math.Floor(z1 / CellM); j++)
@@ -81,6 +85,21 @@ namespace Ghumante.Core.Tests
             }
             y = best;
             return found;
+        }
+
+        /// <summary>Diagnostics: every drawn surface under tile-local (x, z) as "layer:height" pairs.</summary>
+        public string All(double x, double z)
+        {
+            List<int> l;
+            if (!_cells.TryGetValue((long)Math.Floor(z / CellM) * 1000003L + (long)Math.Floor(x / CellM), out l)) return "-";
+            var sb = new System.Text.StringBuilder();
+            foreach (int id in l)
+            {
+                double h;
+                if (!Height(id, x, z, out h)) continue;
+                sb.Append(' ').Append(_layer[id]).Append(':').Append(h.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return sb.ToString();
         }
 
         private bool Height(int id, double px, double pz, out double h)

@@ -69,7 +69,39 @@ namespace Ghumante.Core.Traffic
             public float ClipTime, Phase;
             public bool OnRoad;
             public double Dist;
+
+            /// <summary>The lane point the animal is placed beside and the lateral direction there (for
+            /// <see cref="AnimalSim.Ground"/>).</summary>
+            public double BX, BZ, RX, RZ;
+
+            public float BY, LaneW;
+
+            /// <summary>Pose on the ground (degrees, Unity Euler x and z; see <see cref="AnimalPose.PitchDeg"/>).</summary>
+            public float Pitch, Roll;
         }
+
+        /// <summary>
+        /// Optional (cut/fill package, owner playtest: "the dog looks like it is sleeping in the air"): the surface the
+        /// animals stand on. With it each animal stands exactly on the drawn road surface under it (the carriageway, a
+        /// footpath top, a shoulder, a junction cap: the same at every tier), and one placed beside the kerb where no road
+        /// surface is drawn (a cutting, an embankment, a verge) is moved back toward its lane, 0.5 m at a time, until it lies
+        /// on the road's edge. Without it every animal takes its lane's height.
+        /// </summary>
+        public Meshing.IStandSurface Ground;
+
+        /// <summary>Most the ground under an animal may differ from its lane's surface (a kerb, a shoulder's fall).</summary>
+        public const float SettleMaxM = 0.6f;
+
+        private struct Settled
+        {
+            public int Lane;
+            public float S, Lat, OutLat, Y;
+
+            /// <summary>Rise of the ground per metre along the lane and to its right under the body.</summary>
+            public float Along, Right;
+        }
+
+        private readonly Dictionary<int, Settled> _settled = new Dictionary<int, Settled>();
 
         private readonly List<Animal> _animals = new List<Animal>();
         private readonly Dictionary<int, Animal> _byId = new Dictionary<int, Animal>();
@@ -193,6 +225,7 @@ namespace Ghumante.Core.Traffic
             // Nearest first, capped.
             _animals.Sort((a, b) => a.Dist != b.Dist ? a.Dist.CompareTo(b.Dist) : a.Id.CompareTo(b.Id));
             if (_animals.Count > _s.MaxAnimals) _animals.RemoveRange(_s.MaxAnimals, _animals.Count - _s.MaxAnimals);
+            if (Ground != null) SettleAll();
             PushObstacles();
             Publish();
         }
@@ -254,9 +287,115 @@ namespace Ghumante.Core.Traffic
             a.X = x + rx * a.Lat;
             a.Z = z + rz * a.Lat;
             a.Y = y;
+            a.BX = x;
+            a.BZ = z;
+            a.BY = y;
+            a.RX = rx;
+            a.RZ = rz;
+            a.S0 = s1;
+            a.LaneW = l.Width;
             a.Heading = hd + (a.Clip == (byte)AnimalClip.Walk && Math.Cos((_time + a.Phase) * 0.08) < 0 ? (float)Math.PI : 0f);
             a.ClipTime = (_time + a.Phase) % 4f;
             _animals.Add(a);
+        }
+
+        /// <summary>Stands every kept animal on <see cref="Ground"/> (cached per animal while its lane point and lateral
+        /// do not change: lying and sitting animals cost one lookup).</summary>
+        private void SettleAll()
+        {
+            if (_settled.Count > 8 * Math.Max(16, _s.MaxAnimals)) _settled.Clear();
+            for (int i = 0; i < _animals.Count; i++)
+            {
+                Animal a = _animals[i];
+                Settled c;
+                if (!_settled.TryGetValue(a.Id, out c) || c.Lane != a.Lane || c.S != a.S0 || c.Lat != a.Lat)
+                {
+                    c = new Settled { Lane = a.Lane, S = a.S0, Lat = a.Lat };
+                    Settle(a, out c.OutLat, out c.Y, out c.Along, out c.Right);
+                    _settled[a.Id] = c;
+                }
+                a.X = a.BX + a.RX * c.OutLat;
+                a.Z = a.BZ + a.RZ * c.OutLat;
+                a.Y = c.Y;
+                // Lay the body on the ground: the lane runs along (-RZ, RX); an animal facing the other way sees both
+                // slopes reversed.
+                double hx = Math.Sin(a.Heading), hz = Math.Cos(a.Heading);
+                float dir = -a.RZ * hx + a.RX * hz >= 0 ? 1f : -1f;
+                a.Pitch = (float)(-Math.Atan(dir * c.Along) * 180.0 / Math.PI);
+                a.Roll = (float)(Math.Atan(dir * c.Right) * 180.0 / Math.PI);
+                _animals[i] = a;
+            }
+        }
+
+        /// <summary>The lateral an animal ends up at and the height of the surface under it: its own lateral when a road
+        /// surface is drawn there within <see cref="SettleMaxM"/> of its lane's surface, else stepped back toward its lane
+        /// (0.5 m at a time) until one is; its lane's point and height where none answers.</summary>
+        private void Settle(in Animal a, out float lat, out float y, out float along, out float right)
+        {
+            float inner = -0.5f * a.LaneW + 0.35f; // just inside the kerb lane's outer edge
+            lat = a.Lat;
+            y = a.BY;
+            along = right = 0f;
+            float target = Math.Max(a.Lat, Math.Min(inner, 0f));
+            // The body's footprint (half length along the lane, half width across it), lying or standing.
+            bool cow = a.Kind == AnimalKind.Cow;
+            float hl = cow ? 0.85f : 0.45f, hw = cow ? 0.4f : 0.2f;
+            double fx = -a.RZ, fz = a.RX; // along the lane (the lateral is its right)
+            for (int k = 0; k < 8; k++)
+            {
+                float t = k == 7 ? target : Math.Min(target, a.Lat + 0.5f * k);
+                float gy;
+                float sa, sr;
+                if (StandsLevel(a.BX + a.RX * t, a.BZ + a.RZ * t, a.BY, fx, fz, a.RX, a.RZ, hl, hw, out gy, out sa, out sr))
+                {
+                    lat = t;
+                    y = gy;
+                    along = sa;
+                    right = sr;
+                    return;
+                }
+                if (t >= target) break;
+            }
+            lat = target;
+            // No road surface wide enough under it (its lane leaves the drawn road here): whatever is drawn under it.
+            float any;
+            bool road;
+            if (Ground.TryStand(a.BX + a.RX * target, a.BZ + a.RZ * target, a.BY, out any, out road) && Math.Abs(any - a.BY) <= 1.5f) y = any;
+        }
+
+        /// <summary>Most a body's footprint may depart from one plane (a kerb, a cap edge or a drop under it does more).</summary>
+        private const float FootprintFlatM = 0.03f;
+
+        /// <summary>
+        /// True when a drawn road surface lies under the centre and the four corners of a body's footprint at (x, z), on one
+        /// plane within <see cref="FootprintFlatM"/> (no kerb, cap edge or drop under it; a street's grade and camber are
+        /// fine: the body lies on them), falling at most 30 % along and 15 % across, within <see cref="SettleMaxM"/> of
+        /// <paramref name="nearY"/>. <paramref name="y"/> is the surface under the centre, <paramref name="along"/> and
+        /// <paramref name="right"/> its rise per metre along (fx, fz) and toward (rx, rz).
+        /// </summary>
+        private bool StandsLevel(double x, double z, float nearY, double fx, double fz, double rx, double rz, float hl, float hw, out float y, out float along,
+                                 out float right)
+        {
+            along = right = 0f;
+            bool road;
+            if (!Ground.TryStand(x, z, nearY, out y, out road) || !road || Math.Abs(y - nearY) > SettleMaxM) return false;
+            // Corners: (-,-), (+,-), (-,+), (+,+) in (along, right).
+            float h0 = 0f, h1 = 0f, h2 = 0f, h3 = 0f;
+            for (int c = 0; c < 4; c++)
+            {
+                double a = (c & 1) != 0 ? hl : -hl, b = (c & 2) != 0 ? hw : -hw;
+                float cy;
+                if (!Ground.TryStand(x + fx * a + rx * b, z + fz * a + rz * b, y, out cy, out road) || !road || Math.Abs(cy - y) > 0.5f) return false;
+                if (c == 0) h0 = cy;
+                else if (c == 1) h1 = cy;
+                else if (c == 2) h2 = cy;
+                else h3 = cy;
+            }
+            float twist = 0.25f * (h3 - h2 - h1 + h0), mid = 0.25f * (h0 + h1 + h2 + h3);
+            along = (h1 + h3 - h0 - h2) / (4f * hl);
+            right = (h2 + h3 - h0 - h1) / (4f * hw);
+            if (Math.Abs(twist) > FootprintFlatM || Math.Abs(mid - y) > FootprintFlatM || Math.Abs(along) > 0.3f || Math.Abs(right) > 0.15f) return false;
+            return true;
         }
 
         private void PushObstacles()
@@ -289,7 +428,7 @@ namespace Ghumante.Core.Traffic
                     _front[i] = new AnimalPose
                     {
                         X = a.X, Z = a.Z, Y = a.Y, HeadingRad = a.Heading, SpeedMps = a.Speed, Kind = a.Kind, Tint = a.Tint, ClipId = a.Clip,
-                        ClipTime = a.ClipTime, AgentId = a.Id,
+                        ClipTime = a.ClipTime, AgentId = a.Id, PitchDeg = a.Pitch, RollDeg = a.Roll,
                     };
                 }
                 _frontCount = _animals.Count;

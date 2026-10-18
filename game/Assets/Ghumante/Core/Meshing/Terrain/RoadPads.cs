@@ -31,9 +31,9 @@ namespace Ghumante.Core.Meshing
         /// <summary>A roundabout (else a junction cap).</summary>
         public readonly bool Ring;
 
-        /// <summary>The junction sits on a hillside (<see cref="RoadPads.IsHillside"/>): the terrain is carved to its plane
-        /// exactly and the arms' end rows lie in that plane; else it lies on the natural ground of a gentle street corner and
-        /// the arms meet the ground under them.</summary>
+        /// <summary>The junction sits on a hillside (<see cref="RoadPads.IsHillside"/>): the terrain around it is cut and
+        /// filled to its plane with slopes and walls like a hill road's. Every pad, hillside or gentle street corner, is the
+        /// surface under its cap or ring (<see cref="TerrainCarve.ExtentAt"/>) and the plane its arms' end rows lie in.</summary>
         public readonly bool Hill;
 
         internal RoadPad(double cx, double cz, float h0, float gx, float gz, double[][] px, double[][] pz, int top, bool ring, bool hill)
