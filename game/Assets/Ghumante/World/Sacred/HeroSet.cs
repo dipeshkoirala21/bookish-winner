@@ -50,6 +50,13 @@ namespace Ghumante.World.Sacred
             if (db != null && db.Count > 0)
             {
                 foreach (HeritageRecord r in db.Heritage) set.Add(r);
+                // Bespoke heritage sites (Core/Generators/Sacred/Heroes/<Site>/) build some of their structures as heroes of
+                // their own (HeroRecipe.SiteOf: their own LODs), added with the curated hero they belong to.
+                foreach (HeroRecipe part in HeroCatalog.S1)
+                {
+                    HeritageRecord parent, own;
+                    if (part.SiteOf != null && db.TryGetHeritage(part.SiteOf, out parent) && !db.TryGetHeritage(part.Id, out own)) set.Add(HeroCatalog.ToRecord(part));
+                }
             }
             else
             {

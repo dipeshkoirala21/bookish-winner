@@ -42,9 +42,9 @@ namespace Ghumante.Core.Generators.Sacred
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (anchorTile == null) throw new ArgumentNullException(nameof(anchorTile));
             if (m == null) throw new ArgumentNullException(nameof(m));
-            HeroRecipe recipe = Merge(r);
             // Bespoke heritage sites (Heroes/<Site>/): structure-by-structure models instead of the parametric forms.
-            if (Heroes.Boudha.BoudhaSite.Handles(recipe)) return Heroes.Boudha.BoudhaSite.Build(r, recipe, anchorTile, lod, m, c, stats);
+            if (Heroes.Boudha.BoudhaSite.Handles(r.Id)) return Heroes.Boudha.BoudhaSite.Build(r, anchorTile, lod, m, c, stats);
+            HeroRecipe recipe = Merge(r);
             double x, z;
             int building;
             if (!TryLocate(r, recipe, anchorTile, out x, out z, out building)) return 0;

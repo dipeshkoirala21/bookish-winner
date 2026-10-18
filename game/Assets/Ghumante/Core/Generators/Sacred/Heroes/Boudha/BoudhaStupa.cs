@@ -143,32 +143,59 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 }
                 SacredDraw.Ring(m, k, pu, pv, n, mo);
                 SacredDraw.Cap(m, k, pu, pv, n, 0, y1, true, floor);
-                if (i == 0)
-                {
-                    // T1's low parapet along its outer edge, with small chorten finials (corner/02, pair_3).
-                    Mould pp = SacredDraw.M;
-                    double ph = 0.5;
-                    pp.Add(-0.02, y1 - 0.01, wall).Add(-0.02, y1 + ph).Add(-0.1, y1 + ph + 0.06, cope, false).Add(-0.3, y1 + ph + 0.06, false).Add(-0.38, y1 + ph)
-                      .Add(-0.38, y1 - 0.01, wall);
-                    if (lod <= 1) SacredDraw.Ring(m, k, pu, pv, n, pp);
-                    if (lod == 0)
-                    {
-                        double per = BoudhaKit.Perimeter(pu, pv, n);
-                        int count = (int)(per / 3.2);
-                        for (int q = 0; q < count; q++)
-                        {
-                            double u, v, tu, tv;
-                            BoudhaKit.AtLength(pu, pv, n, (q + 0.5) * per / count, out u, out v, out tu, out tv);
-                            // Inward of a counter-clockwise outline: the edge turned left.
-                            double iu = -tv, iv = tu;
-                            BoudhaKit.FinialChorten(m, SacredDraw.At(k, u + 0.2 * iu, y1 + ph + 0.06, v + 0.2 * iv), 0.75, lod);
-                        }
-                    }
-                }
+                if (i == 0 && lod <= 1) Parapet(m, k, pu, pv, n, y1, lod);
                 if (c != null)
                 {
                     // Walkable body and arms (a cross is two overlapping boxes per axis plus the body).
                     AddCrossColliders(c, f, pu, pv, y0 - sink, y1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// T1's low parapet along its outer edge with the small chorten finials on it (corner/02, pair_3), edge by edge, left
+        /// open where the compound stairs arrive on the north and south arm ends (<see cref="BoudhaTerraces.ParapetGap"/>).
+        /// </summary>
+        private static void Parapet(MeshData m, in Affine3 k, double[] pu, double[] pv, int n, double y1, int lod)
+        {
+            ShapeBrush wall = BoudhaKit.White, cope = BoudhaKit.B(MeshColor.FromHex(0xF6F3EC), MaterialChannel.Plaster);
+            const double ph = 0.5, th = 0.36, step = 0.25;
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                double du = pu[j] - pu[i], dv = pv[j] - pv[i], l = Math.Sqrt(du * du + dv * dv);
+                if (l < 0.05) continue;
+                // The arm-end edges: north (points 7 → 8) and south (17 → 18) of the cross outline.
+                int arm = i == 7 ? 0 : i == 17 ? 2 : -1;
+                // Frame on the edge: x along it, +z inward (the parapet stands just inside the outer face).
+                Affine3 e = SacredDraw.Basis(k, pu[i], y1, pv[i], du / l, 0, dv / l, 0, 1, 0);
+                double a = 0;
+                int pieces = (int)Math.Ceiling(l / step);
+                bool open = false;
+                for (int q = 0; q <= pieces; q++)
+                {
+                    double x = Math.Min(l, q * step);
+                    double u = pu[i] + du * x / l, v = pv[i] + dv * x / l;
+                    bool gap = arm >= 0 && BoudhaTerraces.ParapetGap(arm, u);
+                    if (q == pieces || gap != open)
+                    {
+                        if (!open && x - a > 0.05)
+                        {
+                            SacredDraw.Box(m, e, a, x, -0.01, ph, 0.02, th, wall, BoxFaces.Front | BoxFaces.Back);
+                            SacredDraw.Box(m, e, a - 0.04, x + 0.04, ph, ph + 0.06, -0.02, th + 0.04, cope, BoxFaces.All & ~BoxFaces.Bottom);
+                            if (lod == 0)
+                            {
+                                int count = (int)((x - a) / 4.0);
+                                for (int f = 0; f < count; f++)
+                                {
+                                    double fx = a + (f + 0.5) * (x - a) / count;
+                                    BoudhaKit.FinialChorten(m, SacredDraw.At(e, fx, ph + 0.06, 0.5 * th), 0.75, lod);
+                                }
+                            }
+                        }
+                        a = x;
+                        open = gap;
+                    }
                 }
             }
         }
@@ -231,9 +258,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double halfW = q == 0 ? 1.95 : 1.5;
                     double across = q == 0 ? -0.5 : (i == 2 ? 0 : cUpper);
                     // Frame at the foot, +z running inward (up the flight).
-                    Affine3 outward = Dir(k, q, endUpper + run, yLow, q == 1 || q == 2 ? -across : across);
+                    Affine3 outward = Dir(k, q, endUpper + run, 0, q == 1 || q == 2 ? -across : across);
                     Affine3 inward = outward * Affine3.Yaw(180);
-                    BoudhaKit.Flight(m, c, inward, halfW, run, yLow, yHigh, 0.35, 0.55, tread, cheek, lod);
+                    BoudhaKit.Flight(m, c, inward, halfW, run, yLow, yHigh, 0.35, 0.55, tread, cheek, lod >= 1 ? 2 : 0);
                     if (q == 0 && lod <= 1)
                     {
                         BoudhaKit.Handrail(m, inward, -halfW + 0.15, run, yLow, yHigh, 0.9, rail, lod);
@@ -255,8 +282,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 {
                     double t = (i + 0.5) / n, z = run * t, y = y0 + (y1 - y0) * t + 0.55;
                     Affine3 p = SacredDraw.At(f, s * (x + 0.2), y, z);
-                    Shapes.Frustum(m, p, clay, 0.13, 0.2, 0.3, 8, 0, 0, false, true);
-                    Shapes.Ellipsoid(m, SacredDraw.At(p, 0, 0.42, 0), leaf, 0.24, 0.2, 0.24, 6, false);
+                    Shapes.Frustum(m, p, clay, 0.13, 0.2, 0.3, 6, 0, 0, false, false);
+                    Shapes.Ellipsoid(m, SacredDraw.At(p, 0, 0.42, 0), leaf, 0.24, 0.2, 0.24, 5, false);
                 }
             }
         }
@@ -265,7 +292,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static void Ring(MeshData m, in Affine3 k, int lod)
         {
-            int seg = lod == 0 ? 96 : lod == 1 ? 48 : 24;
+            int seg = lod == 0 ? 72 : lod == 1 ? 32 : 24;
             ShapeBrush w = BoudhaKit.White, sh = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster);
             Profile2 p = BoudhaKit.Prof;
             p.Add(0, T3Top - 0.05).Add(RingR0, T3Top - 0.05, true).Add(RingR0, RingStep - 0.08, true).Add(RingR0 + 0.06, RingStep - 0.04, false)
@@ -286,8 +313,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 SacredDraw.Panel(m, nf, -0.5 * nw, yb, 0.5 * nw, yb + nh, 0.055, dark);
                 if (lod == 0)
                 {
-                    Shapes.Ellipsoid(m, SacredDraw.At(nf, 0, yb + 0.16, 0.06), fig, 0.11, 0.13, 0.04, 5, false);
-                    Shapes.Sphere(m, SacredDraw.At(nf, 0, yb + 0.34, 0.06), fig, 0.06, 5);
+                    // The seated Amitabha in the niche: a lap and body and the head, as flat gilt reliefs.
+                    SacredDraw.Quad(m, nf, -0.14, yb + 0.04, 0.06, 0.14, yb + 0.04, 0.06, 0.08, yb + 0.28, 0.06, -0.08, yb + 0.28, 0.06, 0, 0, 1, fig);
+                    SacredDraw.Quad(m, nf, -0.05, yb + 0.29, 0.065, 0.05, yb + 0.29, 0.065, 0.05, yb + 0.39, 0.065, -0.05, yb + 0.39, 0.065, 0, 0, 1, fig);
                     if (j % 2 == 0)
                     {
                         // A festoon hanging from the dome foot over this niche and the next.
@@ -299,7 +327,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                         double rad = (a2 - a) * Math.PI / 180.0;
                         bx = (RingR1 + 0.12) * Math.Sin(rad);
                         bz = (RingR1 + 0.12) * Math.Cos(rad);
-                        Shapes.Wire(m, g0, red, ax, RingTop + 0.02, az, bx, RingTop + 0.02, bz, 0.22, 0.045, 5, 4);
+                        Shapes.Wire(m, g0, red, ax, RingTop + 0.02, az, bx, RingTop + 0.02, bz, 0.22, 0.045, 3, 2);
                     }
                 }
             }
@@ -330,7 +358,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static void Dome(MeshData m, in Affine3 k, int lod)
         {
-            int seg = lod == 0 ? 96 : lod == 1 ? 48 : 24, rows = lod == 0 ? 24 : lod == 1 ? 12 : 6;
+            int seg = lod == 0 ? 72 : lod == 1 ? 32 : 24, rows = lod == 0 ? 18 : lod == 1 ? 8 : 6;
             // The dome as a grid so the yellow wash can follow the scallop line vertex by vertex.
             int first = m.VertexCount;
             for (int r = 0; r <= rows; r++)
@@ -585,7 +613,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static void Crown(MeshData m, in Affine3 k, int lod)
         {
-            int seg = lod == 0 ? 32 : lod == 1 ? 16 : 8;
+            int seg = lod == 0 ? 32 : lod == 1 ? 12 : 8;
             ShapeBrush g = BoudhaKit.B(BoudhaKit.GiltBright, MaterialChannel.Gilt), gl = BoudhaKit.B(BoudhaKit.GiltLit, MaterialChannel.Gilt);
             // Neck on the top step.
             Profile2 p = BoudhaKit.Prof;
@@ -608,9 +636,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double y = NeckTop + 0.95;
             for (int i = 0; i < bands.Length; i++)
             {
+                // Far off the stripes merge into one red band over the whole height.
+                if (lod >= 2 && i != 3) continue;
                 Profile2 b = BoudhaKit.Prof;
                 double r = 2.24 + 0.012 * i;
-                b.Add(r, y - 0.12 * (i + 1)).Add(r, y - 0.12 * i);
+                if (lod >= 2) b.Add(r, y - 0.12 * bands.Length).Add(r, y);
+                else b.Add(r, y - 0.12 * (i + 1)).Add(r, y - 0.12 * i);
                 Shapes.Lathe(m, k, BoudhaKit.B(bands[i], MaterialChannel.Fabric), b, seg);
             }
             double skirtTop = y - 0.12 * bands.Length;
@@ -642,11 +673,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             // lantern frame whose legs meet at the top (spire/05, c04, general3/00).
             Profile2 fn = BoudhaKit.Prof;
             double yf = CanopyTop;
-            fn.Add(0, yf).Add(0.48, yf, true).Add(0.42, yf + 0.25).Add(0.3, yf + 0.5).Add(0.36, yf + 0.62, true).Add(0.2, yf + 0.7).Add(0.32, yf + 0.86)
+            if (lod >= 2) fn.Add(0, yf).Add(0.48, yf, true).Add(0.3, yf + 0.5).Add(0.36, yf + 1.1).Add(0.12, yf + 1.5).Add(0.07, yf + 2.4).Add(0.04, yf + 3.6).Add(0, Tip - 0.02);
+            else fn.Add(0, yf).Add(0.48, yf, true).Add(0.42, yf + 0.25).Add(0.3, yf + 0.5).Add(0.36, yf + 0.62, true).Add(0.2, yf + 0.7).Add(0.32, yf + 0.86)
               .Add(0.36, yf + 1.1).Add(0.25, yf + 1.35).Add(0.12, yf + 1.5, true).Add(0.16, yf + 1.62).Add(0.1, yf + 1.75, true).Add(0.07, yf + 2.4)
               .Add(0.2, yf + 2.55, true).Add(0.05, yf + 2.65).Add(0.04, yf + 3.6).Add(0, Tip - 0.02);
             if (lod <= 1) fn.Smooth(1);
-            Shapes.Lathe(m, k, g, fn, lod == 0 ? 16 : 8);
+            Shapes.Lathe(m, k, g, fn, lod == 0 ? 16 : lod == 1 ? 8 : 6);
             if (lod <= 1)
             {
                 double legR = 0.95, top = Tip - 0.35;
@@ -665,13 +697,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>
         /// The prayer-flag lines: sixteen bundles fanning from under the canopy to the four arm ends and the four body
-        /// corners of T1 and to eight darchor poles on the compound wall (boudha.md 3.1.6). LOD0 five lines a bundle with
-        /// flags nearly edge to edge, LOD1 three with every other flag, LOD2 one coloured ribbon a bundle. Returns the
+        /// corners of T1 and to eight darchor poles on the compound wall (boudha.md 3.1.6). LOD0 three lines a bundle with
+        /// flags nearly edge to edge, LOD1 two with every other flag, LOD2 one coloured ribbon a bundle. Returns the
         /// lines.
         /// </summary>
         private static int Flags(MeshData m, in Affine3 k, int lod)
         {
-            int per = lod == 0 ? 5 : lod == 1 ? 3 : 1, lines = 0;
+            int per = lod == 0 ? 3 : lod == 1 ? 2 : 1, lines = 0;
             double y0 = NeckTop - 0.15, r0 = 1.5;
             double[] pu = BoudhaKit.U2, pv = BoudhaKit.V2;
             int n = Terrace(0, pu, pv);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Meshing;
@@ -8,7 +9,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 {
     /// <summary>
     /// Where the Boudhanath site stands in a tile: the centroid of the lowest terrace (OSM w56688295, the hero anchor),
-    /// the stupa axis (the centre of the upper terraces, 0.8 m north of it on the site axis), the site axes turned
+    /// the stupa axis (the centre of the upper terraces, 1.85 m north of it on the site axis), the site axes turned
     /// <see cref="BoudhaSite.AxisBearingDeg"/> clockwise from north (faces and stairs at 9°, 99°, 189° and 279°) and the
     /// kora level (the plaza is one flat level; boudha.md 2.3). <see cref="Site"/> maps site-local (u east', y up,
     /// v north') at the stupa axis on the kora to tile-local metres with absolute heights.
@@ -42,22 +43,47 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double y;
             Site.Point(u, 0, v, out x, out y, out z);
         }
+
+        /// <summary>Site-local (u, v) of a tile-local (x, z).</summary>
+        public void ToSite(double x, double z, out double u, out double v)
+        {
+            double a = BoudhaSite.AxisBearingDeg * Math.PI / 180.0, c = Math.Cos(a), s = Math.Sin(a);
+            double dx = x - AX, dz = z - AZ;
+            u = dx * c - dz * s;
+            v = dx * s + dz * c;
+        }
+    }
+
+    /// <summary>The structure groups of the bespoke Boudhanath site, each built as a hero of its own (its own LODs in the
+    /// hero allocator, picked by its own screen height): the Great Stupa on its terraces, the four quarters of the kora
+    /// (compound wall, gates and houses, ring of houses and gompas, plaza) and the main gate on Boudha Main Road.</summary>
+    public enum BoudhaPart : byte
+    {
+        Stupa = 0,
+        North = 1,
+        East = 2,
+        South = 3,
+        West = 4,
+        Gate = 5,
     }
 
     /// <summary>
     /// The bespoke Boudhanath heritage site (W2 monuments round; docs/research/heritage/boudha.md): every structure
-    /// modelled to its measured plan, section and colours instead of the parametric stupa template. One hero
-    /// (<c>her.ktm.boudhanath</c>, the curated DB's record) builds the whole site: the Great Stupa (S1), the compound wall
-    /// with the 147 prayer-wheel niches (S2), the Ajima shrine and the north entrance (S3, S4), the Guru Lhakhang and the
-    /// Big Bell (S5), the main gate on Boudha Main Road (S6), the ring of houses round the kora (S7), the Jamchen
-    /// Lhakhang (S8), Old Dhabzang (S9), the peace park statue (S10) and the paved plaza with its props. The front-row
-    /// houses it rebuilds are hidden from the house bands (<see cref="HiddenWays"/> through
-    /// <see cref="HeroRecipe.Hide"/>). Four LODs: LOD0 the full site (≤ <see cref="BudgetLod0"/> triangles), LOD1 about
-    /// 30 %, LOD2 about 8 % (both keep the silhouette), LOD3 the far shape (dome, tower, ring).
+    /// modelled to its measured plan, section and colours instead of the parametric stupa template. The curated hero
+    /// (<c>her.ktm.boudhanath</c>) builds the Great Stupa (S1: terraces, chortens, statues, stairs, ring, dome, harmika,
+    /// spire, crown and the prayer flags); five parts (<see cref="BoudhaPart"/>, <see cref="HeroRecipe.SiteOf"/>) build
+    /// the rest by quarter of the kora (45° either side of the four site axes): the compound wall with the 147
+    /// prayer-wheel niches (S2), the north entrance with the Ajima shrine, its gate pavilions and the NE compound house
+    /// (S3, S4), the Guru Lhakhang and the Big Bell (S5), the ring of houses round the kora (S7), the Jamchen Lhakhang
+    /// (S8), Old Dhabzang (S9), the compound's lamp houses, kilns, flagpoles and trees and the paved plaza; and the main
+    /// gate on Boudha Main Road with the paved lane (S6). The front-row houses a quarter rebuilds are hidden from the house
+    /// bands (<see cref="HideRefs"/> through <see cref="HeroRecipe.Hide"/>). Four LODs per part: LOD0 the full detail,
+    /// LOD1 about 30 %, LOD2 about 8 % (both keep the silhouette), LOD3 the far shape. The whole site stays within about
+    /// 150,000 triangles at LOD0.
     /// </summary>
     public static class BoudhaSite
     {
-        /// <summary>The curated hero id.</summary>
+        /// <summary>The curated hero id (the Great Stupa).</summary>
         public const string HeroId = "her.ktm.boudhanath";
 
         /// <summary>The site axes: faces and stairs at 9°, 99°, 189° and 279° (all three terraces in OSM: −9.0 to −9.1°).</summary>
@@ -78,40 +104,132 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <see cref="PlazaBlendM"/> (boudha.md 2.3: flatten r ≤ 75 m and the south lane).</summary>
         public const double PlazaRadiusM = 86.0, PlazaBlendM = 16.0;
 
-        /// <summary>LOD triangle ceilings of the whole site (W2 monuments round: about 150 k per site at LOD0 on High,
-        /// LOD1 about 30 %, LOD2 about 8 %).</summary>
-        public const int BudgetLod0 = 150000, BudgetLod1 = 45000, BudgetLod2 = 12000, BudgetLod3 = 400;
-
         /// <summary>Total height of the stupa above the kora (finial tip; boudha.md 3.1.1, photo-measured).</summary>
         public const float HeightM = 44.8f;
 
-        /// <summary>The front-row buildings round the kora the site rebuilds (OSM way ids; boudha.md 3.7, every building
-        /// with an unobstructed face toward the stupa within 78 m), plus the gompas it models (Guru Lhakhang w520755992,
-        /// Old Dhabzang w209312611, Jamchen w209530023).</summary>
-        public static readonly ulong[] HiddenWays =
+        /// <summary>LOD triangle ceilings of the Great Stupa (the curated hero). LOD0 stays well under the High tier's
+        /// 60,000-triangle hero slice so the kora quarter in front of the viewer keeps a detailed LOD beside it.</summary>
+        public const int BudgetLod0 = 48000, BudgetLod1 = 14500, BudgetLod2 = 3840, BudgetLod3 = 240;
+
+        /// <summary>The whole site's LOD0 ceiling on the High tier: the parts' LOD0 budgets stay within it.</summary>
+        public const int SiteBudgetLod0 = 150000;
+
+        // LOD0..3 ceilings of the other parts: LOD1 is 30 % and LOD2 8 % of LOD0. The north quarter carries the Ajima
+        // entrance and the Guru Lhakhang, the west the Jamchen and the Dhabzang, so they get the larger shares.
+        private static readonly int[][] PartBudget =
         {
-            520755992, 520756005, 517234573, 911869006, 911869007, 911869008, 209312611, 912264293, 912264291, 912264292, 912264454, 912264453,
-            912264591, 912264590, 912264589, 912264741, 912269948, 912269941, 211905448, 912269936, 912270352, 912270787, 912276969, 912276521,
-            912276520, 911869018, 517160028, 911869019, 912278963, 912278964, 912278965, 912280177, 912280176, 911869026, 911869027, 911869028,
-            209530023, 911869029, 912280174, 912280388, 209312596, 517236636, 517236635, 912261800, 912261799, 912262363, 912262534,
+            null,
+            new[] { 23000, 6900, 1850, 360 },
+            new[] { 18000, 5400, 1500, 360 },
+            new[] { 18000, 5400, 1500, 360 },
+            new[] { 22500, 6750, 1800, 360 },
+            new[] { 8500, 2550, 680, 120 },
         };
 
-        /// <summary>The hide refs in the curated form ("w123"), for <see cref="HeroRecipe.Hide"/>.</summary>
-        public static string[] HideRefs()
+        private static readonly string[] Suffix = { "", ".north", ".east", ".south", ".west", ".gate" };
+
+        private static readonly string[] Names =
         {
-            var s = new string[HiddenWays.Length];
-            for (int i = 0; i < s.Length; i++) s[i] = "w" + HiddenWays[i].ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return s;
+            "Boudhanath", "Boudhanath north kora (Ajima, Guru Lhakhang)", "Boudhanath east kora", "Boudhanath south kora",
+            "Boudhanath west kora (Jamchen Lhakhang)", "Boudha Gate",
+        };
+
+        /// <summary>The hero id of a part.</summary>
+        public static string IdOf(BoudhaPart p)
+        {
+            return HeroId + Suffix[(int)p];
         }
 
-        /// <summary>True for the hero this site builds.</summary>
-        public static bool Handles(HeroRecipe r)
+        /// <summary>The part a hero id names (false for any other hero).</summary>
+        public static bool TryPart(string id, out BoudhaPart p)
         {
-            return r != null && string.Equals(r.Id, HeroId, StringComparison.Ordinal);
+            p = BoudhaPart.Stupa;
+            if (id == null || !id.StartsWith(HeroId, StringComparison.Ordinal)) return false;
+            for (int i = 0; i < Suffix.Length; i++)
+            {
+                if (id.Length != HeroId.Length + Suffix[i].Length) continue;
+                if (string.CompareOrdinal(id, HeroId.Length, Suffix[i], 0, Suffix[i].Length) != 0) continue;
+                p = (BoudhaPart)i;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>True for the heroes this site builds (the curated hero and its parts).</summary>
+        public static bool Handles(string id)
+        {
+            BoudhaPart p;
+            return TryPart(id, out p);
+        }
+
+        /// <summary>Per-LOD triangle ceilings of a part (LOD0..3).</summary>
+        public static int[] BudgetOf(BoudhaPart p)
+        {
+            if (p == BoudhaPart.Stupa) return new[] { BudgetLod0, BudgetLod1, BudgetLod2, BudgetLod3 };
+            return (int[])PartBudget[(int)p].Clone();
+        }
+
+        /// <summary>The height of a part's tallest structure above the kora (m): the stupa's finial; a quarter's tallest
+        /// house, gompa roof ornament or flagpole; the main gate's crest finial.</summary>
+        public static float TopOf(BoudhaPart p)
+        {
+            switch (p)
+            {
+                case BoudhaPart.Stupa: return HeightM;
+                case BoudhaPart.Gate: return (float)BoudhaGate.Top;
+                default: return (float)BoudhaRing.TopOf(p);
+            }
+        }
+
+        /// <summary>The front-row buildings round the kora a quarter rebuilds (OSM refs "w123"; boudha.md 3.7), with the
+        /// gompas it models (Guru Lhakhang w520755992, Old Dhabzang w209312611, Jamchen w209530023).</summary>
+        public static string[] HideRefs(BoudhaPart p)
+        {
+            var l = new List<string>();
+            for (int i = 0; i < BoudhaRing.Houses.Length; i++)
+                if (BoudhaRing.Houses[i].Part == p) l.Add("w" + BoudhaRing.Houses[i].Way.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return l.ToArray();
+        }
+
+        /// <summary>Every OSM way the site rebuilds (all quarters).</summary>
+        public static IEnumerable<ulong> HiddenWays
+        {
+            get
+            {
+                for (int i = 0; i < BoudhaRing.Houses.Length; i++) yield return BoudhaRing.Houses[i].Way;
+            }
+        }
+
+        /// <summary>The catalogue recipes of the five parts after the curated hero (added to the region's heroes with it by
+        /// World/Sacred/HeroSet).</summary>
+        public static IEnumerable<HeroRecipe> Parts()
+        {
+            for (int i = 1; i < Suffix.Length; i++)
+            {
+                var p = (BoudhaPart)i;
+                yield return new HeroRecipe
+                {
+                    Id = IdOf(p), Name = Names[i], Osm = "w" + T1Way, Form = HeroForm.Bespoke, Kind = p == BoudhaPart.Gate ? HeritageKind.Gate : HeritageKind.Gompa,
+                    SiteOf = HeroId, Lat = Lat, Lon = Lon, HeightM = TopOf(p), PlanW = 30f, PlanD = 30f, Measured = true, BudgetTris = BudgetOf(p),
+                    Hide = HideRefs(p),
+                };
+            }
+        }
+
+        /// <summary>The quarter of the kora a site-local point lies in (by its bearing from the stupa axis, 45° either side
+        /// of the four site axes).</summary>
+        public static BoudhaPart QuarterOf(double u, double v)
+        {
+            double a = Math.Atan2(u, v) * 180.0 / Math.PI;
+            if (a < 0) a += 360;
+            if (a >= 315 || a < 45) return BoudhaPart.North;
+            if (a < 135) return BoudhaPart.East;
+            if (a < 225) return BoudhaPart.South;
+            return BoudhaPart.West;
         }
 
         /// <summary>Locate the site in a tile (false when its anchor is not in it).</summary>
-        internal static bool TryFrame(HeritageRecord r, HeroRecipe recipe, TileData tile, out BoudhaFrame f)
+        internal static bool TryFrame(HeritageRecord r, TileData tile, out BoudhaFrame f)
         {
             f = default(BoudhaFrame);
             double ox = double.NaN, oz = double.NaN;
@@ -127,7 +245,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double x, z;
                 int b;
-                if (!HeroBuilder.TryLocate(r, recipe, tile, out x, out z, out b)) return false;
+                if (!HeroBuilder.TryLocate(r, HeroBuilder.Merge(r), tile, out x, out z, out b)) return false;
                 ox = x;
                 oz = z;
             }
@@ -166,36 +284,55 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         }
 
         /// <summary>
-        /// Build the whole site at one LOD into <paramref name="m"/> (tile-local, absolute Y) with its colliders at LOD0;
-        /// returns the triangles added, 0 when the anchor is not in <paramref name="tile"/>.
+        /// Build one part of the site (the hero <paramref name="r"/> names it) at one LOD into <paramref name="m"/>
+        /// (tile-local, absolute Y) with its colliders at LOD0; returns the triangles added, 0 when the anchor is not in
+        /// <paramref name="tile"/>.
         /// </summary>
-        public static int Build(HeritageRecord r, HeroRecipe recipe, TileData tile, int lod, MeshData m, GenColliders c, SacredStats stats)
+        public static int Build(HeritageRecord r, TileData tile, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
+            if (r == null) throw new ArgumentNullException(nameof(r));
             if (tile == null) throw new ArgumentNullException(nameof(tile));
             if (m == null) throw new ArgumentNullException(nameof(m));
+            BoudhaPart part;
+            if (!TryPart(r.Id, out part)) return 0;
             BoudhaFrame f;
-            if (!TryFrame(r, recipe, tile, out f)) return 0;
-            int t0 = m.TriangleCount, v0 = m.VertexCount, i0 = m.IndexCount;
+            if (!TryFrame(r, tile, out f)) return 0;
+            int t0 = m.TriangleCount;
             m.HasUv0 = true;
             lod = Math.Max(0, Math.Min(3, lod));
-            if (lod >= 3)
+            GenColliders cc = lod == 0 ? c : null;
+            switch (part)
             {
-                BoudhaStupa.Far(m, f);
-                SacredDraw.Bake(m, v0, i0, f.Level);
-            }
-            else
-            {
-                GenColliders cc = lod == 0 ? c : null;
-                BoudhaStupa.Build(m, cc, f, lod, stats);
-                BoudhaWall.Build(m, cc, f, lod);
+                case BoudhaPart.Stupa:
+                    if (lod >= 3)
+                    {
+                        int v0 = m.VertexCount, i0 = m.IndexCount;
+                        BoudhaStupa.Far(m, f);
+                        SacredDraw.Bake(m, v0, i0, f.Level);
+                    }
+                    else
+                    {
+                        BoudhaStupa.Build(m, cc, f, lod, stats);
+                        BoudhaTerraces.Build(m, cc, f, lod);
+                    }
+                    break;
+                case BoudhaPart.Gate:
+                    BoudhaGate.Build(m, cc, tile, f, lod);
+                    break;
+                default:
+                    BoudhaQuarter.Build(m, cc, tile, f, part, lod);
+                    break;
             }
             if (stats != null)
             {
-                stats.TopM = (float)BoudhaStupa.Tip;
-                stats.PlinthTopM = (float)BoudhaStupa.T3Top;
-                stats.Terraces = 3;
-                stats.Rings = 13;
-                stats.DoorYawDeg = (float)(AxisBearingDeg + 180.0);
+                stats.TopM = TopOf(part);
+                if (part == BoudhaPart.Stupa)
+                {
+                    stats.PlinthTopM = (float)BoudhaStupa.T3Top;
+                    stats.Terraces = 3;
+                    stats.Rings = 13;
+                    stats.DoorYawDeg = (float)(AxisBearingDeg + 180.0);
+                }
             }
             return m.TriangleCount - t0;
         }

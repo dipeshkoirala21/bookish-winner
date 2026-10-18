@@ -16,21 +16,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     {
         // ------------------------------------------------------------------------------------------------ palette
 
-        public static readonly uint WallWhite = MeshColor.FromHex(0xF2EEE6);
         public static readonly uint LimeWhite = MeshColor.FromHex(0xEEEAE0);
         public static readonly uint DomeWhite = MeshColor.FromHex(0xF4F0E6);
         public static readonly uint Weathered = MeshColor.FromHex(0xD9D4C8);
         public static readonly uint TerraceFloor = MeshColor.FromHex(0xC39A86);
-        public static readonly uint TerraceFloorShade = MeshColor.FromHex(0xA6857A);
         public static readonly uint SaffronArc = MeshColor.FromHex(0xE3A73A);
         public static readonly uint YellowWash = MeshColor.FromHex(0xF2D27A);
         public static readonly uint GiltPanel = MeshColor.FromHex(0xC9A050);
         public static readonly uint GiltLit = MeshColor.FromHex(0xE0BC63);
         public static readonly uint GiltBright = MeshColor.FromHex(0xE2B54A);
         public static readonly uint GiltShade = MeshColor.FromHex(0xA87C2E);
-        public static readonly uint GiltLine = MeshColor.FromHex(0x8A6420);
         public static readonly uint ClothRed = MeshColor.FromHex(0xC8202A);
-        public static readonly uint ClothRedDark = MeshColor.FromHex(0x9E1820);
         public static readonly uint ClothYellow = MeshColor.FromHex(0xF2C230);
         public static readonly uint ClothBlue = MeshColor.FromHex(0x2E5DA8);
         public static readonly uint ClothGreen = MeshColor.FromHex(0x2F6A3A);
@@ -44,8 +40,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public static readonly uint StoneFlag = MeshColor.FromHex(0x8C8A86);
         public static readonly uint StoneKerb = MeshColor.FromHex(0x6E6A64);
         public static readonly uint PlazaBrick = MeshColor.FromHex(0x9C5A40);
-        public static readonly uint PlazaBrickSun = MeshColor.FromHex(0xB66B4C);
-        public static readonly uint LaneStone = MeshColor.FromHex(0x7F7E7A);
         public static readonly uint Terracotta = MeshColor.FromHex(0xB5603E);
         public static readonly uint Leaf = MeshColor.FromHex(0x3F7A34);
         public static readonly uint LeafLight = MeshColor.FromHex(0x5E9A3E);
@@ -56,7 +50,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public static readonly uint LatticeDark = MeshColor.FromHex(0x2A2018);
         public static readonly uint Teal = MeshColor.FromHex(0x2E4A4E);
         public static readonly uint TibetanYellow = MeshColor.FromHex(0xE3CC3A);
-        public static readonly uint Turquoise = MeshColor.FromHex(0x2FB5A8);
         public static readonly uint EyeBlueDark = MeshColor.FromHex(0x1F4E9A);
         public static readonly uint EyeBlueLight = MeshColor.FromHex(0x73B9E6);
         public static readonly uint EyeRed = MeshColor.FromHex(0xD8402A);
@@ -306,33 +299,40 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double hw = steps[i] * s, rh = rises[i] * s;
                 Mould mo = SacredDraw.M;
-                mo.Add(0, y - (i == 0 ? 0.2 : 0), i == 0 ? sh : w).Add(0, y + rh - 0.08 * s).Add(0.05 * s, y + rh - 0.06 * s, w).Add(0.05 * s, y + rh);
+                if (lod >= 2) mo.Add(0, y - (i == 0 ? 0.2 : 0), i == 0 ? sh : w).Add(0, y + rh, w);
+                else mo.Add(0, y - (i == 0 ? 0.2 : 0), i == 0 ? sh : w).Add(0, y + rh - 0.08 * s).Add(0.05 * s, y + rh - 0.06 * s, w).Add(0.05 * s, y + rh);
                 SacredDraw.RectRing(m, f, 0, 0, hw, hw, mo, true, w);
                 y += rh;
             }
-            int seg = lod == 0 ? 20 : lod == 1 ? 12 : 8;
+            int seg = lod == 0 ? 12 : lod == 1 ? 8 : 6;
             Profile2 p = Prof;
             double r0 = 1.12 * s;
-            // Lotus collar, then the bell body flaring out and closing up into the shoulder.
-            p.Add(0, y).Add(r0, y, true).Add(r0, y + 0.18 * s).Add(0.98 * r0, y + 0.22 * s, true).Add(1.04 * r0, y + 0.3 * s)
-             .Add(0.98 * r0, y + 0.42 * s).Add(0.9 * r0, y + 0.7 * s).Add(0.86 * r0, y + 1.1 * s).Add(0.8 * r0, y + 1.42 * s).Add(0.62 * r0, y + 1.7 * s)
-             .Add(0.36 * r0, y + 1.86 * s).Add(0, y + 1.9 * s);
-            if (lod <= 1) p.Smooth(lod == 0 ? 2 : 1);
-            Shapes.Lathe(m, f, w, p, seg);
+            // Lotus collar, then the bell body flaring out and closing up into the shoulder (fewer stations far off).
+            if (lod >= 2)
+                p.Add(0, y).Add(r0, y, true).Add(r0, y + 0.3 * s, true).Add(0.86 * r0, y + 1.1 * s).Add(0.55 * r0, y + 1.74 * s).Add(0, y + 1.9 * s);
+            else if (lod == 1)
+                p.Add(0, y).Add(r0, y, true).Add(r0, y + 0.22 * s, true).Add(0.98 * r0, y + 0.42 * s).Add(0.86 * r0, y + 1.1 * s).Add(0.62 * r0, y + 1.7 * s)
+                 .Add(0, y + 1.9 * s);
+            else
+                p.Add(0, y).Add(r0, y, true).Add(r0, y + 0.18 * s).Add(0.98 * r0, y + 0.22 * s, true).Add(1.04 * r0, y + 0.3 * s)
+                 .Add(0.98 * r0, y + 0.42 * s).Add(0.9 * r0, y + 0.7 * s).Add(0.86 * r0, y + 1.1 * s).Add(0.8 * r0, y + 1.42 * s).Add(0.62 * r0, y + 1.7 * s)
+                 .Add(0.36 * r0, y + 1.86 * s).Add(0, y + 1.9 * s);
+                        Shapes.Lathe(m, f, w, p, seg);
             y += 1.84 * s;
             // Harmika: a small square box with a cornice.
             double hh = 0.42 * s, hwid = 0.42 * s;
             Mould hm = SacredDraw.M;
-            hm.Add(0, y, w).Add(0, y + hh).Add(0.08 * s, y + hh).Add(0.08 * s, y + hh + 0.1 * s);
+            if (lod >= 2) hm.Add(0, y, w).Add(0, y + hh + 0.1 * s);
+            else hm.Add(0, y, w).Add(0, y + hh).Add(0.08 * s, y + hh).Add(0.08 * s, y + hh + 0.1 * s);
             SacredDraw.RectRing(m, f, 0, 0, hwid, hwid, hm, true, w);
             y += hh + 0.1 * s;
             // Spire of 13 rings (a tapering, ringed cone) and the finial.
             ShapeBrush sp = giltSpire ? Gilt : w;
             double sh0 = 1.35 * s;
-            if (lod <= 1)
+            if (lod == 0)
             {
                 Profile2 q = Prof;
-                int rings = lod == 0 ? 7 : 4;
+                int rings = 4;
                 double rb = 0.32 * s, rt = 0.14 * s;
                 q.Add(0, y);
                 for (int i = 0; i < rings; i++)
@@ -341,16 +341,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     q.Add(rr, y + sh0 * t0, true).Add(rr1 * 1.08, y + sh0 * (t0 + 0.5 / rings)).Add(rr1 * 0.9, y + sh0 * t1, true);
                 }
                 q.Add(0.0, y + sh0);
-                Shapes.Lathe(m, f, sp, q, lod == 0 ? 10 : 6);
+                Shapes.Lathe(m, f, sp, q, 6);
             }
             else
             {
-                Shapes.Cone(m, SacredDraw.At(f, 0, y, 0), sp, 0.32 * s, sh0, 5, 0, 0, false);
+                Shapes.Cone(m, SacredDraw.At(f, 0, y, 0), sp, 0.32 * s, sh0, lod == 1 ? 6 : 5, 0, 0, false);
             }
             y += sh0;
             // Parasol disc, a moon and sun and the gilt tip.
-            Shapes.Cylinder(m, SacredDraw.At(f, 0, y, 0), Gilt, 0.26 * s, 0.07 * s, lod == 0 ? 10 : 6, 0, 0, true, true);
-            Shapes.Sphere(m, SacredDraw.At(f, 0, y + 0.22 * s, 0), Gilt, 0.1 * s, lod == 0 ? 8 : 5);
+            if (lod <= 1) Shapes.Cylinder(m, SacredDraw.At(f, 0, y, 0), Gilt, 0.26 * s, 0.07 * s, lod == 0 ? 10 : 6, 0, 0, true, true);
+            if (lod == 0) Shapes.Sphere(m, SacredDraw.At(f, 0, y + 0.22 * s, 0), Gilt, 0.1 * s, 6);
             Shapes.Cone(m, SacredDraw.At(f, 0, y + 0.3 * s, 0), Gilt, 0.06 * s, 0.35 * s, 5, 0, 0, false);
         }
 
@@ -358,20 +358,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// spike; <paramref name="h"/> is the total height.</summary>
         public static void FinialChorten(MeshData m, in Affine3 f, double h, int lod)
         {
+            // Square in plan (a four-sided lathe turned 45°): a plinth block, the bulb and the spike; about 40 triangles,
+            // since there are hundreds of them on the terrace parapet and the compound wall.
             ShapeBrush w = White;
             Profile2 p = Prof;
-            double r = 0.28 * h;
+            double r = 0.3 * h;
             if (lod >= 1)
-            {
-                p.Add(0, 0).Add(r, 0, true).Add(r, 0.2 * h, true).Add(0.7 * r, 0.25 * h).Add(0.85 * r, 0.45 * h).Add(0.5 * r, 0.62 * h).Add(0.12 * r, 0.75 * h)
-                 .Add(0.05 * r, h, true).Add(0, h);
-                Shapes.Lathe(m, f, w, p, 4, default, 45);
-                return;
-            }
-            p.Add(0, 0).Add(r, 0, true).Add(r, 0.12 * h, true).Add(0.78 * r, 0.12 * h, true).Add(0.78 * r, 0.22 * h, true).Add(0.62 * r, 0.24 * h)
-             .Add(0.82 * r, 0.36 * h).Add(0.84 * r, 0.46 * h).Add(0.62 * r, 0.6 * h).Add(0.25 * r, 0.68 * h, true).Add(0.2 * r, 0.75 * h)
-             .Add(0.06 * r, 0.95 * h).Add(0, h);
-            Shapes.Lathe(m, f, w, p, 6, default, 45);
+                p.Add(0, 0).Add(r, 0, true).Add(r, 0.22 * h, true).Add(0.85 * r, 0.42 * h).Add(0.35 * r, 0.66 * h, true).Add(0.06 * r, h, true).Add(0, h);
+            else
+                p.Add(0, 0).Add(r, 0, true).Add(r, 0.18 * h, true).Add(0.72 * r, 0.24 * h, true).Add(0.9 * r, 0.42 * h).Add(0.55 * r, 0.62 * h, true)
+                 .Add(0.06 * r, h, true).Add(0, h);
+            Shapes.Lathe(m, f, w, p, 4, default, 45);
         }
 
         // ------------------------------------------------------------------------------------------------ cloth
@@ -424,7 +421,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                                    double start)
         {
             double du = u1 - u0, dv = v1 - v0, span = Math.Sqrt(du * du + dv * dv);
-            double fw = 0.34, fh = 0.38, pitch = lod == 0 ? 0.56 : 1.4;
+            double fw = 0.4, fh = 0.42, pitch = lod == 0 ? 0.95 : 2.2;
             return StupaGenerator.FlagLine(m, k, u0, y0, v0, u1, y1, v1, sagFrac * span, fw, fh, pitch, true, start, lod == 0 ? 0 : 1);
         }
 

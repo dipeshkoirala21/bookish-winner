@@ -54,6 +54,14 @@ namespace Ghumante.Core.Tests
             return null;
         }
 
+        /// <summary>The catalogue record of a site part (the region DB holds only the curated hero; HeroSet adds the parts).</summary>
+        private static HeritageRecord PartRecord(BoudhaPart part)
+        {
+            HeroRecipe recipe;
+            Assert.That(HeroCatalog.TryGet(BoudhaSite.IdOf(part), out recipe), Is.True, part.ToString());
+            return HeroCatalog.ToRecord(recipe);
+        }
+
         private static CuratedDb _db;
 
         private static CuratedDb Curated()
@@ -77,24 +85,38 @@ namespace Ghumante.Core.Tests
         [Test]
         public void TheStreamedTileBuildsTheBespokeSiteWithinItsBudgets()
         {
+            // Every part of the site is its own hero in the anchor tile (so each picks its LOD by its own screen size),
+            // each within its ceilings, LOD1 about 30 % and LOD2 about 8 % of LOD0, the whole within the site's budget.
             TileBuild b = High;
-            HeroPiece p = default(HeroPiece);
-            bool found = false;
-            foreach (HeroPiece h in b.Heroes)
-                if (h.Id == BoudhaSite.HeroId)
-                {
-                    p = h;
-                    found = true;
-                }
-            Assert.That(found, Is.True, "Boudhanath is built in its anchor tile");
-            TestContext.WriteLine("Boudha tris LOD0..3: " + p.Tris0 + " " + p.Tris1 + " " + p.Tris2 + " " + p.Tris3 + ", top " + (p.TopY - p.GroundY));
-            Assert.That(p.Tris0, Is.LessThanOrEqualTo(BoudhaSite.BudgetLod0));
-            Assert.That(p.Tris1, Is.LessThanOrEqualTo(BoudhaSite.BudgetLod1));
-            Assert.That(p.Tris2, Is.LessThanOrEqualTo(BoudhaSite.BudgetLod2));
-            Assert.That(p.Tris3, Is.LessThanOrEqualTo(BoudhaSite.BudgetLod3));
-            Assert.That(p.Tris0, Is.GreaterThan(60000), "LOD0 is the full bespoke site, not a template");
-            Assert.That(p.Tris1, Is.LessThanOrEqualTo(0.4 * p.Tris0));
-            Assert.That(p.Tris2, Is.LessThanOrEqualTo(0.12 * p.Tris0));
+            int total = 0, budget = 0;
+            foreach (BoudhaPart part in new[] { BoudhaPart.Stupa, BoudhaPart.North, BoudhaPart.East, BoudhaPart.South, BoudhaPart.West, BoudhaPart.Gate })
+            {
+                string id = BoudhaSite.IdOf(part);
+                HeroPiece p = default(HeroPiece);
+                bool found = false;
+                foreach (HeroPiece h in b.Heroes)
+                    if (h.Id == id)
+                    {
+                        p = h;
+                        found = true;
+                    }
+                Assert.That(found, Is.True, id + " is built in its anchor tile");
+                int[] cap = BoudhaSite.BudgetOf(part);
+                TestContext.WriteLine(id + " tris LOD0..3: " + p.Tris0 + " " + p.Tris1 + " " + p.Tris2 + " " + p.Tris3 + " of " + string.Join(" ", cap) + ", top " +
+                                      (p.TopY - p.GroundY));
+                Assert.That(p.Tris0, Is.LessThanOrEqualTo(cap[0]), id);
+                Assert.That(p.Tris1, Is.LessThanOrEqualTo(cap[1]), id);
+                Assert.That(p.Tris2, Is.LessThanOrEqualTo(cap[2]), id);
+                Assert.That(p.Tris3, Is.LessThanOrEqualTo(cap[3]), id);
+                Assert.That(p.Tris0, Is.GreaterThan(part == BoudhaPart.Stupa ? 40000 : part == BoudhaPart.Gate ? 4000 : 12000), id + " LOD0 is bespoke, not a template");
+                Assert.That(p.Tris1, Is.LessThanOrEqualTo(0.35 * p.Tris0), id);
+                Assert.That(p.Tris2, Is.LessThanOrEqualTo(0.1 * p.Tris0), id);
+                Assert.That(p.Tris3, Is.GreaterThan(0), id);
+                total += p.Tris0;
+                budget += cap[0];
+            }
+            Assert.That(budget, Is.LessThanOrEqualTo(BoudhaSite.SiteBudgetLod0), "the parts' ceilings add up to the site's");
+            Assert.That(total, Is.LessThanOrEqualTo(BoudhaSite.SiteBudgetLod0));
         }
 
         [Test]
@@ -131,7 +153,7 @@ namespace Ghumante.Core.Tests
                 if (b.OsmRef == 2 * BoudhaSite.T1Way) ring = b.Rings[0];
             Assert.That(ring, Is.Not.Null);
             BoudhaFrame f;
-            Assert.That(BoudhaSite.TryFrame(r, HeroBuilder.Merge(r), t, out f), Is.True);
+            Assert.That(BoudhaSite.TryFrame(r, t, out f), Is.True);
             double[] pu = new double[32], pv = new double[32];
             int n = BoudhaStupa.Terrace(0, pu, pv);
             Affine3Inv(f, out double c, out double s);
@@ -206,7 +228,21 @@ namespace Ghumante.Core.Tests
             }
             Assert.That(t1 && t2 && t3, Is.True, "walkable terrace tops at 4.0, 8.0, 10.5 m");
             Assert.That(gen.Ramps.Count, Is.GreaterThanOrEqualTo(4), "stairs as walkable ramps");
-            Assert.That(gen.Walls.Count, Is.GreaterThan(18), "the compound wall's runs are solid");
+            // A ramp from the compound ground up to T1 (the north compound stair through the west gate pavilion).
+            bool up = false;
+            foreach (GenRamp q in gen.Ramps)
+                if (Math.Abs(Math.Min(q.Y0, q.Y1) - level - BoudhaQuarter.CompoundTop) < 0.05 && Math.Abs(Math.Max(q.Y0, q.Y1) - level - BoudhaStupa.T1Top) < 0.05)
+                    up = true;
+            Assert.That(up, Is.True, "a stair from the compound ground to the lowest terrace");
+            // The quarters: the compound wall's runs are solid and the kora slab is walkable at its paving height.
+            var kora = new GenColliders();
+            foreach (BoudhaPart part in new[] { BoudhaPart.North, BoudhaPart.East, BoudhaPart.South, BoudhaPart.West })
+                HeroBuilder.Build(PartRecord(part), t, 0, new MeshData(), kora);
+            Assert.That(kora.Walls.Count, Is.GreaterThan(18), "the compound wall's runs are solid");
+            int slab = 0;
+            foreach (GenBox b in kora.Boxes)
+                if ((b.Flags & GenColliderFlags.Walkable) != 0 && Math.Abs(b.CY + b.HalfY - level - BoudhaQuarter.PaveTop) < 0.02) slab++;
+            Assert.That(slab, Is.GreaterThan(60), "the kora paving is walkable all round");
         }
 
         // ------------------------------------------------------------------------------------------------- previews
@@ -226,7 +262,7 @@ namespace Ghumante.Core.Tests
             double ox, oz;
             Assert.That(BoudhaGround.TryCentre(src, out ox, out oz), Is.True);
             double level = BoudhaGround.KoraLevel(src, ox, oz);
-            float x0 = (float)(ox - 260), z0 = (float)(oz - 260), x1 = (float)(ox + 260), z1 = (float)(oz + 260);
+            float x0 = (float)(ox - 170), z0 = (float)(oz - 170), x1 = (float)(ox + 170), z1 = (float)(oz + 170);
             var layers = new List<(string, MeshData)>
             {
                 ("terrain", ObjDump.Crop(StreamingScene.Layer(b, TileLayers.Terrain), x0, z0, x1, z1, true)),
@@ -240,15 +276,24 @@ namespace Ghumante.Core.Tests
             var far = new MeshData();
             BuildingMesher.Build(src, b.Sampler, s.Buildings, far);
             layers.Add(("buildings_b1", ObjDump.Crop(ObjDump.Crop(far, x0 - 300, z0 - 300, x1 + 300, z1 + 300, true), x0, z0, x1, z1, false)));
-            HeritageRecord r = Record();
-            for (int lod = 0; lod < 4; lod++)
-            {
-                var m = new MeshData();
-                int tris = HeroBuilder.Build(r, src, lod, m, null);
-                layers.Add(("hero" + lod, m));
-                TestContext.WriteLine("hero LOD" + lod + ": " + tris + " triangles, " + m.VertexCount + " vertices");
-            }
+            // The site's parts exactly as the streamed tile carries them (its hero layer, part = hero × 4 + LOD), and their
+            // placement for the preview's LOD choice (WorldStreamer: screen height, then the hero slice).
             CultureInfo c = CultureInfo.InvariantCulture;
+            var heroes = new StringBuilder("# id cx cz groundY topY tris0 tris1 tris2 tris3 (tile-local = Unity x, z)\n");
+            foreach (HeroPiece h in b.Heroes)
+            {
+                BoudhaPart part;
+                if (!BoudhaSite.TryPart(h.Id, out part)) continue;
+                for (int lod = 0; lod < 4; lod++)
+                {
+                    int want = h.Index * 4 + lod;
+                    MeshData m = StreamingScene.Layer(b, TileLayers.Heroes, q => q == want);
+                    layers.Add(("part_" + part.ToString().ToLowerInvariant() + "_lod" + lod, m));
+                    TestContext.WriteLine(part + " LOD" + lod + ": " + m.TriangleCount + " triangles, " + m.VertexCount + " vertices");
+                }
+                heroes.AppendFormat(c, "{0} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5} {6} {7} {8}\n", part.ToString().ToLowerInvariant(), h.CX, h.CZ, h.GroundY, h.TopY,
+                                    h.Tris0, h.Tris1, h.Tris2, h.Tris3);
+            }
             var directives = new[]
             {
                 "Boudhanath site, tile " + Tile + " of kathmandu_core (High tier); tile-local metres, absolute height",
@@ -261,6 +306,7 @@ namespace Ghumante.Core.Tests
                 ObjDump.Write(mesh, "boudha/" + name + ".obj", directives);
             }
             File.WriteAllText(Path.Combine(ObjDump.Dir, "boudha", "centre.txt"), string.Format(c, "{0:0.###} {1:0.###} {2:0.###}\n", ox, level, oz));
+            File.WriteAllText(Path.Combine(ObjDump.Dir, "boudha", "heroes.txt"), heroes.ToString());
         }
     }
 }

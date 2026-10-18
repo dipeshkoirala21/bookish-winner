@@ -26,6 +26,9 @@ namespace Ghumante.Core.Generators.Sacred
         KumariGhar = 16,
         GoldenTemple = 17,
         PeacockWindow = 18,
+
+        /// <summary>A structure group of a bespoke heritage site (Heroes/&lt;Site&gt;/), built by the site's own code.</summary>
+        Bespoke = 19,
     }
 
     /// <summary>
@@ -47,6 +50,11 @@ namespace Ghumante.Core.Generators.Sacred
         /// <summary>Centrepiece heroes use the class A budget (25,000 / 8,000 / 2,000 / 200), the others class B
         /// (12,000 / 3,000 / 800 / 200; W2_DESIGN 3.2).</summary>
         public bool Centrepiece;
+
+        /// <summary>A part of a bespoke heritage site built as its own hero (its own LODs in the hero allocator): the id of
+        /// the curated hero it belongs to. World/Sacred/HeroSet adds it, anchored in the same tile, whenever the region's
+        /// curated DB holds that hero (Pashupatinath: the gates, the Mukti Mandap and the courtyard groups).</summary>
+        public string SiteOf;
 
         public float CoreFrac, TierShrink, VahanaDistM;
         public bool VahanaGaruda, Pataka, NoStair, GiltBalcony, Figures;
@@ -183,18 +191,17 @@ namespace Ghumante.Core.Generators.Sacred
 
             // --- Boudhanath and Swayambhunath ---------------------------------------------------------------------
             // Boudhanath: the bespoke site (Heroes/Boudha, docs/research/heritage/boudha.md) builds the stupa as measured (44.8 m to
-            // the finial tip above the kora, axes at 9°/189°), the compound wall, the north entrance, the gompas, the main gate and
-            // the ring of houses it hides; the stupa numbers below document the section.
+            // the finial tip above the kora, axes at 9°/189°; the numbers below document the section); its parts build the four
+            // quarters of the kora (compound wall, north entrance, gompas, the ring of houses they hide, the plaza) and the main gate.
             l.Add(new HeroRecipe
             {
                 Id = "her.ktm.boudhanath", Name = "Boudhanath", Osm = "w56688295", Form = HeroForm.Stupa, Kind = HeritageKind.Stupa, Centrepiece = true,
                 Lat = 27.721445, Lon = 85.362004, PlanW = 81.5f, PlanD = 79.4f, HeightM = Heroes.Boudha.BoudhaSite.HeightM, YawDeg = 189f, DomeDiameterM = 33.5f,
                 DrumDiameterM = 38f, Terraces = 3, TerraceWidths = new[] { 81.5f, 62.5f, 49.8f }, TerraceTops = new[] { 4f, 8f, 10.5f }, DomeRiseM = 11.7f,
                 HarmikaHM = 4.6f, HarmikaWM = 7f, SpireHM = 9.1f, ParasolHM = 3.5f, FinialHM = 4.2f, FlagLines = 80, WheelNiches = true,
-                StupaStyle = StupaStyle.Boudha, GateDistM = 0f, Measured = true, Hide = Heroes.Boudha.BoudhaSite.HideRefs(),
-                BudgetTris = new[] { Heroes.Boudha.BoudhaSite.BudgetLod0, Heroes.Boudha.BoudhaSite.BudgetLod1, Heroes.Boudha.BoudhaSite.BudgetLod2,
-                                     Heroes.Boudha.BoudhaSite.BudgetLod3 },
+                StupaStyle = StupaStyle.Boudha, GateDistM = 0f, Measured = true, BudgetTris = Heroes.Boudha.BoudhaSite.BudgetOf(Heroes.Boudha.BoudhaPart.Stupa),
             });
+            l.AddRange(Heroes.Boudha.BoudhaSite.Parts());
             l.Add(new HeroRecipe
             {
                 Id = "her.ktm.swayambhunath", Name = "Swayambhunath", Osm = "w201223707", Form = HeroForm.Stupa, Kind = HeritageKind.Stupa, Centrepiece = true,
