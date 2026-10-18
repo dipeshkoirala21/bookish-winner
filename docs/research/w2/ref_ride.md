@@ -34,6 +34,11 @@ Photos are references only (Openverse, open licences, listed in §5). None is co
    junction caps with their kerb returns, rings and islands, and a lowered underpass in its cutting
    (`Meshing/Roads/DrawnRoadSurface`, attached to `RoadSpatialIndex.DrawnSurface` on the streaming worker from the uploaded
    roads layer). Kerb faces and road-edge skirts are steps, never ramps: up-facing triangles only, normal y ≥ 0.75.
+   Where two drawn pieces overlap a step apart (at most `DrawnRoadSurface.CoveredM` = 0.45 m, the ground query's step-up:
+   a mapped sidewalk drawn at road level inside a raised paver footpath, a path ribbon over a lane, two tiles' caps at a
+   seam), the lower one is hidden under the upper one, and the feet stand on the upper one, the surface the player sees.
+   Before, a walker coming along the lower piece stayed on it, up to 0.45 m inside the visible surface (the walk harness,
+   §3). Pieces farther apart (a street over a lowered underpass) keep the level nearest the feet.
 2. **Every drawn carriageway is road for the wheels.** On the drawn surface the sample reports `OnRoad` with the road's
    own surface and class, so the widened edges and the junction caps have asphalt grip and top speed, not the biome's
    dirt. The drawn material picks the foot surface (stone flags in Asan, pavers on footpaths, grass on islands).
@@ -51,7 +56,11 @@ Photos are references only (Openverse, open licences, listed in §5). None is co
    that stops at an open station ends halfway to it, so it never reaches into that road.
 6. **Footpaths and caps stay inside the final corridor** the houses were trimmed to: tile-border footpath pins are
    clamped one profile step in, and kerb-return fillets use only the corridor room at their corner, so they never pave
-   over trimmed houses (except bus corners, rule 8).
+   over trimmed houses (except bus corners, rule 8). The first segment at a tile-border cut takes its footpaths from the
+   cut row alone (`RibbonMesher.SegmentKinds`), the border pin both tiles share, so the kerb runs on across the seam even
+   where the border crosses the road at an angle and one tile's corridor ends the footpath within the first profile step
+   (that tile dropped the footpath from the whole segment, the other kept it: a kerb step at 43 seam vertices, e.g. Secondary
+   199430771 at 85.30214, 27.70385, `seam_cmp.png`).
 7. **Junction caps meet their arms level** (`Meshing/Roads/CapLevels`). A cap is drawn a lift above the terrain, where
    the pinned ribbon ends of draped arms meet it. An arm whose ribbon follows structure heights at its cut (a lowered
    underpass, a ramp onto a deck) carries the cap with it: exactly the ribbon's end row on that arm's cut section, and
@@ -66,23 +75,40 @@ Photos are references only (Openverse, open licences, listed in §5). None is co
 
 ## 3. Evidence: the whole kathmandu_core sample, before and after
 
-The harness lives in /home/user/wt/previews/ride/harness (`dotnet build -p:SrcRoot=<tree>`, then `Ride <tree> all`). It
-streams all 60 leaf tiles with `TileBuild.Execute` at High tier and wires the ground query as `WorldRoot.Build` does
-(deck and corridor factories). Before means main 97012ab; after means w2d/ride.
+The harness lives in /home/user/wt/previews/ride/harness (`dotnet build -p:SrcRoot=<tree>`, then `Ride <tree> all`,
+`Ride <tree> walk 40`, `Ride <tree> offroad`). It streams all 60 leaf tiles with `TileBuild.Execute` at High tier and
+wires the ground query as `WorldRoot.Build` does (deck and corridor factories). Before means main 64155f3; after means
+w2d/ride. Feet are measured against the level the player sees (rule 1: a drawn level covered by another at most 0.45 m
+above it counts as that one), on both sides of the table.
 
-| Check (owner item) | Before (main 97012ab) | After (w2d/ride) |
+The walk harness is the explorer on foot (`ArcadeVehicle` with the game's walker spec, running at full stick, the game's
+1/60 s fixed step, no road assist): 45 000 walks of up to 40 m along the middle of every drawn footpath, the centre of
+every lane, galli, footway, path, steps and dhoka passage, and across every junction cap from each arm's cut to the next.
+
+| Check (owner item) | Before (main 64155f3) | After (w2d/ride) |
 |---|---|---|
-| Feet: drawn road surface samples (1 m grid) whose ground is 3 cm or more off (#8) | 5 074 287 of 7.58 M (66.9 %), 3.12 M of them sunk, worst > 1 m at Indra Chowk caps | 170 (0.002 %): most within about 2 m of a tile seam, where two tiles' junction caps overlap; a few where two drawn pieces overlap within 0.2 m (for example a path ribbon drawn 0.14 m over a secondary road, where the ground stands on the road) |
-| Wheels "off road" on a drawn carriageway, cap or shoulder (#9) | 74 884 m² (1.02 %): the widened edges and caps at the biome's dirt top speed | 0 |
-| Drivable width lost to a solid or an unclimbable step (#9) | 2.92 km of half-width, 583 cross-sections ≥ 0.3 m | 0.86 km, 268 (mostly the sample's outer edge and the riverside cuttings) |
-| Invisible walls on open ground ≥ 0.45 m from every drawn house (#14) | 30 433 m² (27 031 m² in trimmed houses, 2 497 m² in dropped ones) | 352 m² (315 m² are the retaining walls of cuttings, which are drawn; 3 m² in trimmed houses) |
-| Solids on a drawn road clear of the drawn houses (#1, non-sacred) | 817 m² (722 m² house walls, 76 m² railings and retaining walls) | 25 m² (21 m² bridge railings on bridge decks, the bridges2 package's) |
-| Motorbike rides every drawn motor road at its centre | 98.5 % of 11 147 finished, 167 stuck | 99.8 % of 11 154, 19 stuck |
-| ... and 0.9 m inside the drawn left edge (#9) | 98.1 % of 11 109, 212 stuck | 99.1 % of 11 114, 97 stuck (74 at lowered riverside roads whose terrain is not carved yet, §4) |
+| Feet: drawn road surface samples (1 m grid) whose ground is 3 cm or more off (#8) | 5 075 273 of 7.72 M (66.9 %), 3.13 M of them sunk, worst > 1 m at Indra Chowk caps | 47 (0.0006 %), 3 sunk; most within about 10 m of a tile seam, where the feet stand on the neighbouring tile's cap up to 0.6 m over this tile's piece |
+| Walk harness: walker steps on the drawn surface with the feet 3 cm or more off it (#8) | 5 036 531 of 10.24 M (49.2 %), 3.15 M of them sunk; 78 769 steps 0.3-1 m off | 548 of 8.92 M (0.006 %), 361 sunk, in 13 places; the worst a footbridge deck 0.47 m under its drawn path (Path 762800882, the bridges package's deck, §4) |
+| Walk harness: walks that get through (#9, #14) | 98.5 % of 45 065, 656 stuck (218 against a solid) | 99.6 % of 45 240, 170 stuck (7 against a solid; most others at lowered roads and their junction caps beside uncarved terrain, §4) |
+| Wheels "off road" on a drawn carriageway, cap or shoulder (#9) | 74 885 m² of 7.32 M (1.02 %): the widened edges and caps at the biome's dirt top speed | 0 of 7.28 M |
+| Drivable width lost to a solid or an unclimbable step (#9) | 2.91 km of half-width, 578 cross-sections ≥ 0.3 m | 0.78 km, 248 (mostly the sample's outer edge and the riverside cuttings) |
+| Invisible walls on open ground ≥ 0.45 m from every drawn house (#14) | 30 409 m² (27 031 m² in trimmed houses, 2 497 m² in dropped ones) | 312 m² (300 m² are the retaining walls of cuttings, which are drawn; 3 m² in trimmed houses) |
+| Solids on a drawn road clear of the drawn houses (#1, non-sacred) | 817 m² (722 m² house walls, 76 m² railings and retaining walls) | 25 m² (22 m² bridge railings on bridge decks, the bridges2 package's) |
+| Motorbike rides every drawn motor road at its centre | 98.5 % of 11 147 finished, 167 stuck | 99.9 % of 11 154, 15 stuck |
+| ... and 0.9 m inside the drawn left edge (#9) | 98.1 % of 11 109, 212 stuck | 99.5 % of 11 114, 53 stuck (most at lowered riverside roads and underpasses whose terrain is not carved yet, §4) |
 
 Core tests (they fail on main for the reasons above):
 
-* `RideFeetTests.FeetStandOnTheDrawnRoadSurface` and `WalkersFeetStayOnTheDrawnSurface` (#8).
+* `RideFeetTests.FeetStandOnTheDrawnRoadSurface` and `WalkersFeetStayOnTheDrawnSurface` (#8), measured against the
+  level the player sees; `FeetStepOntoTheDrawnPieceThatCoversAnother` (the mapped sidewalk Footway 802516424 inside the
+  raised footpath of Primary 169442477: feet 0.27 m inside the visible footpath before) and
+  `WalkersOnLanesAndFootwaysStandOnTheVisibleSurface` (654 walks along the lanes and foot ways of Asan and Indra Chowk:
+  827 steps sunk up to 0.45 m before, none after).
+* `RideCameraSpotsTests` for the camera package's spots: the bus through the Ratna Park junction on Kantipath (centre
+  and 1.5 m left), the bus turning into Bhaktithapa Road on the centre line, and the Lainchaur foot overbridge north of
+  Thamel identified as the overhead solid.
+* `MeshingRoadDetailTests.RibbonsAreContinuousAcrossEveryTileSeam` (43 border vertices without a partner across the seam
+  with the corridor-clamped footpaths before the cut-segment rule, 1 after, within the 3 allowed).
 * `DrivableTests.DrawnCarriagewaysAreRoadForTheWheels` and `TheDrivableWidthIsTheDrawnWidth` (#9).
 * `DrivableTests.NoSolidStandsWhereNothingIsDrawn` (#14 and #1).
 * `DrivableTests.RidesEveryDrawnRoadToItsEdge`.
@@ -99,6 +125,8 @@ Previews (/home/user/wt/previews/ride/):
 * `kalanki_roads_cmp.png` and `kalanki_side_cmp.png`: the underpass is drawn now. `kalanki_after_street*.png` is the
   view from inside it, with and without the terrain.
 * `cmp_thamel_lane.png`: a Thamel lane photo against the game at eye height.
+* `seam_cmp.png`: the border of tiles 515/161 and 516/161 at Secondary 199430771 (85.30214, 27.70385), before and
+  after the cut-segment rule: the footpath now runs on to the seam in both tiles.
 
 ## 4. Open issues for other packages
 
@@ -111,10 +139,37 @@ Previews (/home/user/wt/previews/ride/):
   1123582689) and Balkhu (Ring Road decks) the solid railing stands on the drawn deck footpath (`map_teku.png`, magenta).
   Move the solid railing to the drawn railing line (BridgeLayout `InnerL`/`InnerR`), or take the railings from
   BridgeColliders, as the bridges2 WIP does for covered roads.
+* **bridges2 (small foot decks):** the deck of the footbridge Path 762800882 (85.35720, 27.71187) stands 0.47 m under
+  the path ribbon the roads layer draws over it (deck query 1304.47 m, drawn 1304.94 m): a walker on it is 0.4 m inside
+  the drawn path, the worst of the walk harness's 13 remaining places (§3).
 * **data / roads (RSTR heights):** a few lowered pieces end metres below the junction they join (Residential 328701965
   at Balkhu ends 4.4 m under the at-grade junction). The drawn surface has a step there that no carve fixes.
 * **roads:** where a junction cap reaches over a tile border onto the neighbour's ribbon, the two tiles' surfaces overlap
   by up to 2 m at a 4-6 cm height difference. The ground stands on the upper one, which is the visible one.
+* **camera + bridges (Lainchaur foot overbridge, 85.3130, 27.7178):** the camera package's "unidentified overhead solid"
+  north of Thamel is the foot overbridge at Lainchaur (OSM Footway 1268595053, RSTR Flyover, FootOverbridge, layer 1) over
+  Primary 176144636, drawn by the bridges package with railings: a real structure, nothing stray
+  (`RideCameraSpotsTests.TheOverheadSolidNorthOfThamelIsTheLainchaurFootOverbridge`). The road index stands every deck's
+  slab `RoadSpatialIndex.DeckThicknessM` = 1.2 m deep (the vehicle deck depth), so under this foot deck, drawn 0.6 m deep
+  (`RoadStructureRecord.FootDeckDepthM`), an undrawn 0.6 m of slab hangs 4.40 m over the carriageway where the drawn deck
+  clears 4.99 m. Taking the foot deck depth there (tried: `RoadSpatialIndex.DeckDepthOf`) makes the camera package's car
+  chase boom snap 1.75 m (portrait) on its Thamel-Ratna Park ride under this bridge
+  (`CharactersCameraRideTests.TheCameraStaysSteadyOnRealStreets`), so the change waits until the chase boom passes under
+  a thinner slab smoothly. No vehicle is affected (a bus is 3.2 m tall).
+* **roads / camera (bus turning from Tanka Prasad Ghumti Sadak into Bhaktithapa Road, 85.32753, 27.69324):** the camera
+  package's bus on the centre line now drives on (bus corners keep a 4.5 m kerb return, rule 8;
+  `RideCameraSpotsTests.TheBusTurnsFromGhumtiSadakIntoBhaktithapaRoad`). Its bus 1.5 m left of the centre line still
+  stops there: it keeps to the outside of the 46° bend Bhaktithapa Road takes at the node, its front overhang swings out
+  over the 14 m arm of Ghumti Sadak, which bends 4.5 m from the node, so the cap has no room for a kerb return on that
+  side, and it reaches 0.65 m into the corner house (with the house hidden). Drawing the apex of a 4.5 m return there
+  (tried) cut that to 0.54 m, still not clear, and moved the centre-line bus's chase boom by 0.5 m in a frame
+  (`CharactersCameraRideTests`, bus Maitighar-Baneshwor). It needs a flared junction (the arm widened before its bend) or a
+  bus autopilot that keeps to the inside of the turn.
+* **cutfill / data / bridges2 (the walk harness's stuck walks, §3):** most of the 170 walks that stop are at the lowered
+  riverside roads and their junction caps (Teku, Kalimati, Balkhu, Thapathali, Ratna Park), where the uncarved terrain
+  stands over the drawn edge or the RSTR heights step at a junction. A few are the stair approaches of the Ratna Park foot
+  overbridges (OSM Steps 112116413, 112116415, 112449579, 112449580, RSTR Approach): the walker climbs the drawn stair
+  ramp and stops where it meets the deck (owner #15, the bridges2 package's).
 
 ## 5. Photo credits (Openverse; reference only)
 
