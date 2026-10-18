@@ -120,8 +120,9 @@ All of them run on the feet tiles: Asan, Indra Chowk, Thamel's edge and Kalanki.
 Previews (/home/user/wt/previews/ride/):
 
 * `map_asan.png`, `map_thamel.png`, `map_teku.png`, `map_balkhu.png`, `map_kalanki.png` and `map_institutional.png`:
-  top-down before and after, with the drawn road surface, drawn houses, invisible walls, solids on roads, off-road
-  wheels and feet off the surface. Rendered by `tools/mapviz.py` from `Ride <tree> map lat lon half step`.
+  top-down before (main 64155f3) and after (this branch's final code), with the drawn road surface, drawn houses,
+  invisible walls, solids on roads, off-road wheels and feet off the surface. Rendered by `tools/mapviz.py` from
+  `Ride <tree> map lat lon half step`.
 * `kalanki_roads_cmp.png` and `kalanki_side_cmp.png`: the underpass is drawn now. `kalanki_after_street*.png` is the
   view from inside it, with and without the terrain.
 * `cmp_thamel_lane.png`: a Thamel lane photo against the game at eye height.
