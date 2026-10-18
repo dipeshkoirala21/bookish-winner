@@ -85,6 +85,11 @@ namespace Ghumante.Core.Meshing.Roads
 
         // Centreline segments (tile-local): A, B, raw along at A and B, reach (largest extent from the centreline), road.
         private readonly double[] _ax, _az, _bx, _bz, _s0, _s1, _reach;
+
+        /// <summary>The ribbon's row directions (left normals of the curve) at each segment's two points: its quads fan
+        /// between them on a bend (cut/fill package: on a steep curved street the perpendicular projection answered the
+        /// surface up to 15 cm off what is drawn).</summary>
+        private readonly double[] _wax, _waz, _wbx, _wbz;
         private readonly int[] _road;
         private readonly int[] _cellStart, _items;
         private readonly bool _anyLowered;
@@ -127,6 +132,10 @@ namespace Ghumante.Core.Meshing.Roads
             var s1 = new List<double>();
             var reach = new List<double>();
             var road = new List<int>();
+            var wax = new List<double>();
+            var waz = new List<double>();
+            var wbx = new List<double>();
+            var wbz = new List<double>();
             for (int i = 0; i < t.Roads.Count; i++)
             {
                 if (!RoadMesher.IsDrawn(t, i, o) || !Layout.DrawsRibbon(i) || !Grade.Has(i)) continue;
@@ -150,8 +159,16 @@ namespace Ghumante.Core.Meshing.Roads
                     s1.Add(c.S[k + 1]);
                     reach.Add(rch);
                     road.Add(i);
+                    wax.Add(-c.Tz[k]);
+                    waz.Add(c.Tx[k]);
+                    wbx.Add(-c.Tz[k + 1]);
+                    wbz.Add(c.Tx[k + 1]);
                 }
             }
+            _wax = wax.ToArray();
+            _waz = waz.ToArray();
+            _wbx = wbx.ToArray();
+            _wbz = wbz.ToArray();
             _ax = ax.ToArray();
             _az = az.ToArray();
             _bx = bx.ToArray();
@@ -245,14 +262,40 @@ namespace Ghumante.Core.Meshing.Roads
                 if (!on) continue;
                 Pick(ref hit, ref found, Junction(lx, lz, Grade.Terrain(lx, lz) + lift, 0.5f * ring.WidthM), limit);
             }
-            // Ribbons.
+            // Ribbons. A point near a bend lies over two segments of the same road (the inside of the bend, or past a
+            // segment's end within the bend tolerance): it is on the one it projects onto inside its length, not on the
+            // other's clamped end (on a steep street that answered the surface a metre up or down the hill; cut/fill
+            // package, Gaurighat). A cell lists a road's segments one after another.
             {
                 int cell = CellOf(lz) * _cells + CellOf(lx);
+                int runRoad = -1;
+                double runOver = double.PositiveInfinity;
+                RoadSurfaceHit runHit = default(RoadSurfaceHit);
                 for (int q = _cellStart[cell]; q < _cellStart[cell + 1]; q++)
                 {
+                    int g = _items[q];
+                    if (_road[g] != runRoad)
+                    {
+                        if (runRoad >= 0 && !double.IsPositiveInfinity(runOver)) Pick(ref hit, ref found, runHit, limit);
+                        runRoad = _road[g];
+                        runOver = double.PositiveInfinity;
+                    }
                     RoadSurfaceHit h;
-                    if (Ribbon(_items[q], lx, lz, out h)) Pick(ref hit, ref found, h, limit);
+                    double over;
+                    if (!Ribbon(g, lx, lz, out h, out over)) continue;
+                    if (!double.IsPositiveInfinity(runOver) && Math.Abs(h.Y - runHit.Y) > 1f)
+                    {
+                        // Another level of the same road (a switchback passing over or under itself): its own candidate.
+                        Pick(ref hit, ref found, h, limit);
+                        continue;
+                    }
+                    if (over < runOver - 1e-6 || over <= runOver + 1e-6 && h.Y > runHit.Y)
+                    {
+                        runOver = over;
+                        runHit = h;
+                    }
                 }
+                if (runRoad >= 0 && !double.IsPositiveInfinity(runOver)) Pick(ref hit, ref found, runHit, limit);
             }
             return found;
         }
@@ -318,23 +361,56 @@ namespace Ghumante.Core.Meshing.Roads
             if (hOk && !bOk || hOk == bOk && (hOk ? h.Y > best.Y : h.Y < best.Y)) best = h;
         }
 
+        /// <summary>
+        /// Inverse of the fanned quad C(t) + off · W(t) with C(t) = t (ex, ez) and W(t) = (wax, waz) + t (dwx, dwz), for the
+        /// point (qx, qz) relative to its start: the fraction <paramref name="t"/> along (outside [0, 1] beyond the ends) and
+        /// the lateral offset <paramref name="lat"/> along the row direction there, in the ribbon's offset units (left
+        /// positive; the ribbon places a vertex at offset d of a row at C + d · W).
+        /// </summary>
+        private static void FanParam(double qx, double qz, double ex, double ez, double wax, double waz, double dwx, double dwz, out double t, out double lat)
+        {
+            double l2 = ex * ex + ez * ez;
+            double lin = l2 > 1e-12 ? (qx * ex + qz * ez) / l2 : 0;
+            // (Q - t E) x (Wa + t dW) = 0.
+            double c2 = -(ex * dwz - ez * dwx);
+            double c1 = qx * dwz - qz * dwx - (ex * waz - ez * wax);
+            double c0 = qx * waz - qz * wax;
+            if (Math.Abs(c2) <= 1e-9 * (Math.Abs(c1) + 1e-12)) t = Math.Abs(c1) > 1e-12 ? -c0 / c1 : lin;
+            else
+            {
+                double disc = c1 * c1 - 4 * c2 * c0;
+                if (disc < 0) t = lin;
+                else
+                {
+                    double sq = Math.Sqrt(disc), q = -0.5 * (c1 + (c1 >= 0 ? sq : -sq));
+                    double t1 = q / c2, t2 = Math.Abs(q) > 1e-18 ? c0 / q : t1;
+                    double d1 = t1 < 0 ? -t1 : t1 > 1 ? t1 - 1 : 0, d2 = t2 < 0 ? -t2 : t2 > 1 ? t2 - 1 : 0;
+                    t = d1 < d2 || d1 == d2 && Math.Abs(t1 - 0.5) <= Math.Abs(t2 - 0.5) ? t1 : t2;
+                }
+            }
+            double wx = wax + dwx * t, wz = waz + dwz * t, w2 = wx * wx + wz * wz;
+            double rx = qx - ex * t, rz = qz - ez * t;
+            lat = w2 > 1e-12 ? (rx * wx + rz * wz) / w2 : 0;
+        }
+
         /// <summary>The ribbon of segment <paramref name="g"/> at tile-local (lx, lz), as RibbonMesher and RoadSweep draw it.</summary>
-        private bool Ribbon(int g, double lx, double lz, out RoadSurfaceHit hit)
+        private bool Ribbon(int g, double lx, double lz, out RoadSurfaceHit hit, out double overshoot)
         {
             hit = default(RoadSurfaceHit);
+            overshoot = 0;
             double ax = _ax[g], az = _az[g], ex = _bx[g] - ax, ez = _bz[g] - az;
             double l2 = ex * ex + ez * ez;
             double l = Math.Sqrt(l2);
             double dirx = l > 1e-12 ? ex / l : 1, dirz = l > 1e-12 ? ez / l : 0;
-            // Signed lateral offset from the centreline (left of travel positive).
-            double lat = dirx * (lz - az) - dirz * (lx - ax);
+            // Where the point lies in the ribbon's quad between the segment's two rows: the centre runs straight between
+            // the points and the row direction blends from one point's to the other's, so on a bend the quads fan.
+            double t, lat;
+            FanParam(lx - ax, lz - az, ex, ez, _wax[g], _waz[g], _wbx[g] - _wax[g], _wbz[g] - _waz[g], out t, out lat);
             if (Math.Abs(lat) > _reach[g]) return false;
-            // Along the segment; on the outside of a bend the ribbon's quads reach a little past the segment's ends (its
-            // rows turn with the curve), so a point may lie up to a fraction of its lateral offset beyond them.
-            double u = l > 1e-12 ? ((lx - ax) * dirx + (lz - az) * dirz) : 0;
-            double over = 0.3 * Math.Abs(lat) + 0.02;
+            // A little past the segment's ends (the next quad answers there; a gap between the two is a float error).
+            double u = t * l, over = 0.02;
             if (u < -over || u > l + over) return false;
-            double t = l > 1e-12 ? u / l : 0;
+            overshoot = u < 0 ? -u : u > l ? u - l : 0;
             t = t < 0 ? 0 : t > 1 ? 1 : t;
             int road = _road[g];
             double s = _s0[g] + (_s1[g] - _s0[g]) * t;

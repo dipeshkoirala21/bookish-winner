@@ -168,6 +168,13 @@ namespace Ghumante.Core.Meshing
             /// <summary>Unit direction along the road (for the reach).</summary>
             public double Tx, Tz;
 
+            /// <summary>The ribbon's section direction here (left of travel; not unit length): its rows stand on the
+            /// centreline points and the junction cuts, each with its own direction (a cut's oblique section, a tile
+            /// border's border line), and its quads blend linearly between them, so the drawn edges between two rows are
+            /// straight chords from one row's edge points to the next. Offsets (<see cref="EL"/>, <see cref="CL"/>...)
+            /// are measured along it, exactly as the ribbon places its vertices.</summary>
+            public double WX, WZ;
+
             public int Road;
         }
 
@@ -180,6 +187,13 @@ namespace Ghumante.Core.Meshing
         private float[] _rl = new float[0], _rr = new float[0], _ga = new float[0], _gb = new float[0], _kc = new float[0], _kf = new float[0];
         private float[] _wla = new float[0], _wlb = new float[0], _wra = new float[0], _wrb = new float[0], _verge = new float[0];
         private float[] _sa = new float[0], _sb = new float[0];
+
+        /// <summary>The ribbon's section direction at each end of a segment (<see cref="Station.WX"/>).</summary>
+        private double[] _wxa = new double[0], _wza = new double[0], _wxb = new double[0], _wzb = new double[0];
+
+        /// <summary>Longest section direction at either end of a segment (an oblique cut or border section is longer
+        /// than 1), for the element boxes.</summary>
+        private float[] _wmax = new float[0];
         private readonly List<float> _padS = new List<float>();
         private int[] _road = new int[0], _run = new int[0];
         private byte[] _flags = new byte[0];
@@ -590,12 +604,12 @@ namespace Ghumante.Core.Meshing
                 float lift = grade.LiftOf(i);
                 bool seamStart = r.HasPrevContext, seamEnd = r.HasNextContext;
                 double arcLen = c.LengthM;
-                // Sample positions: the profile's stations and every cut (runs end exactly where the ribbon stops).
+                // Sample positions: the profile's stations, every centreline point (where the ribbon's rows stand, so
+                // no segment spans a bend of the drawn edges) and every cut (runs end exactly where the ribbon stops).
+                Rows(lay, i, c);
                 pos.Clear();
                 for (int k = 0; k < n; k++) pos.Add(c.AlongAtArc(k * step));
-                RoadCut[] cs = lay.Cuts[i];
-                if (cs != null)
-                    foreach (RoadCut cut in cs) pos.Add(cut.S);
+                for (int k = 0; k < _rowS.Count; k++) pos.Add(_rowS[k]);
                 pos.Sort();
                 run.Clear();
                 bool clipStart = seamStart;
@@ -624,6 +638,145 @@ namespace Ghumante.Core.Meshing
             }
         }
 
+        // The ribbon's rows of the road being collected (RibbonMesher's candidates: every centreline point and junction
+        // cut, a tile-border end's section on the border line): raw along and section direction.
+        private readonly List<double> _rowS = new List<double>(64), _rowUx = new List<double>(64), _rowUz = new List<double>(64);
+
+        /// <summary>A tile-border end's section is never flatter than this sine against the road (RibbonMesher).</summary>
+        private const double MinCutSine = 1.0 / 3.0;
+
+        /// <summary>The ribbon's rows of road <paramref name="i"/> as RibbonMesher stands them (before it thins them, within
+        /// its 5 cm plan tolerance): every centreline point with the curve's left normal there, every junction cut with
+        /// its section direction, and a tile-border end with its section on the border line.</summary>
+        private void Rows(RoadLayout lay, int i, RoadCentreline c)
+        {
+            _rowS.Clear();
+            _rowUx.Clear();
+            _rowUz.Clear();
+            RoadCut[] cuts = lay.Cuts[i];
+            RoadRecord r = Source.Roads[i];
+            int sizeCm = (int)Math.Round(Source.Tile.Size * 100.0);
+            int next = 0;
+            for (int k = 0; k < c.Count; k++)
+            {
+                double s = c.S[k];
+                while (cuts != null && next < cuts.Length && cuts[next].S < s - 1e-6)
+                {
+                    RoadCut cu = cuts[next++];
+                    if (_rowS.Count > 0 && cu.S <= _rowS[_rowS.Count - 1] + 1e-6) continue;
+                    AddRow(cu.S, cu.UX, cu.UZ);
+                }
+                if (cuts != null && next < cuts.Length && Math.Abs(cuts[next].S - s) <= 1e-6)
+                {
+                    RoadCut cu = cuts[next++];
+                    AddRow(cu.S, cu.UX, cu.UZ);
+                    continue;
+                }
+                if (_rowS.Count > 0 && s <= _rowS[_rowS.Count - 1] + 1e-9) continue;
+                double tx = c.Tx[k], tz = c.Tz[k], ux = -tz, uz = tx;
+                if (k == 0 && c.StartCut || k == c.Count - 1 && c.EndCut)
+                {
+                    int pi = k == 0 ? 1 : r.PointCount - 2;
+                    int xCm = r.Points[2 * pi], zCm = r.Points[2 * pi + 1];
+                    int border = xCm == 0 || xCm == sizeCm ? 0 : zCm == 0 || zCm == sizeCm ? 1 : -1;
+                    if (border >= 0)
+                    {
+                        // The section lies on the border line, where both tiles' ribbons meet.
+                        double ex = border == 0 ? 0 : 1, ez = border == 0 ? 1 : 0;
+                        double crs = ex * tz - ez * tx;
+                        if (Math.Abs(crs) < MinCutSine) crs = crs >= 0 ? MinCutSine : -MinCutSine;
+                        ux = -ex / crs;
+                        uz = -ez / crs;
+                    }
+                }
+                AddRow(s, ux, uz);
+            }
+            while (cuts != null && next < cuts.Length)
+            {
+                RoadCut cu = cuts[next++];
+                if (_rowS.Count > 0 && cu.S <= _rowS[_rowS.Count - 1] + 1e-6) continue;
+                AddRow(cu.S, cu.UX, cu.UZ);
+            }
+        }
+
+        private void AddRow(double s, double ux, double uz)
+        {
+            _rowS.Add(s);
+            _rowUx.Add(ux);
+            _rowUz.Add(uz);
+        }
+
+        /// <summary>The ribbon's section direction at raw along <paramref name="s"/> of the road whose rows are loaded: the
+        /// linear blend of the two rows around it (the ribbon's quads are bilinear between its rows).</summary>
+        private void RowDirection(double s, out double wx, out double wz)
+        {
+            int n = _rowS.Count;
+            if (n == 0)
+            {
+                wx = 0;
+                wz = 1;
+                return;
+            }
+            if (s <= _rowS[0] || n == 1)
+            {
+                wx = _rowUx[0];
+                wz = _rowUz[0];
+                return;
+            }
+            if (s >= _rowS[n - 1])
+            {
+                wx = _rowUx[n - 1];
+                wz = _rowUz[n - 1];
+                return;
+            }
+            int lo = 0, hi = n - 1;
+            while (hi - lo > 1)
+            {
+                int mid = (lo + hi) >> 1;
+                if (_rowS[mid] <= s) lo = mid;
+                else hi = mid;
+            }
+            double ds = _rowS[hi] - _rowS[lo], f = ds > 1e-12 ? (s - _rowS[lo]) / ds : 0;
+            wx = _rowUx[lo] + (_rowUx[hi] - _rowUx[lo]) * f;
+            wz = _rowUz[lo] + (_rowUz[hi] - _rowUz[lo]) * f;
+        }
+
+        /// <summary>How far the footpath of a profile side reaches at raw along <paramref name="s"/> where it is drawn (at
+        /// least <see cref="RoadWidthModel.MinFootpathM"/>), 0 where none is (as RoadLayout.CorridorSides reads it).</summary>
+        private static float FootReach(RoadWidthProfile p, float[] foot, double s)
+        {
+            if (p.Count <= 1) return p.Count == 1 && foot[0] > 0f ? Math.Max(foot[0], RoadWidthModel.MinFootpathM) : 0f;
+            int i = (int)Math.Floor(s / Math.Max(1e-6, p.StepM));
+            i = i < 0 ? 0 : i > p.Count - 2 ? p.Count - 2 : i;
+            float v = Math.Max(foot[i], foot[i + 1]);
+            return v > 0f ? Math.Max(v, RoadWidthModel.MinFootpathM) : 0f;
+        }
+
+        /// <summary>The extent reaches this far beyond the outer edge of a drawn footpath or shoulder: the ribbon and the
+        /// road surface query level them on the bench from the kerb to the outer edge (they add the terrain's rise between
+        /// the two, which is the bench's on the extent), so the outer edge must lie on it wherever the two place it.</summary>
+        public const float SideMarginM = 0.15f;
+
+        /// <summary>
+        /// How far the drawn surface beside each carriageway edge of road <paramref name="i"/> reaches at raw along
+        /// <paramref name="s"/>, as the ribbon's side treatments draw them (RibbonMesher, RoadSweep.Side): a footpath, else
+        /// a shoulder (not on a dual carriageway's outer side, which drops in a skirt), each with <see cref="SideMarginM"/>,
+        /// else nothing (a skirt); the median side of a dual carriageway reaches half the median; a lowered stretch's
+        /// retaining walls stand at the edges.
+        /// </summary>
+        private static void DrawnSides(RoadLayout lay, int i, double s, bool lowered, out float left, out float right)
+        {
+            left = right = 0f;
+            if (lowered) return;
+            RoadWidthProfile prof = lay.Profiles[i];
+            bool dual = prof.Dual;
+            float shoulder = lay.ShoulderAt(i, s);
+            float footL = FootReach(prof, prof.FootLeft, s), footR = dual ? 0f : FootReach(prof, prof.FootRight, s);
+            left = footL > 0f ? footL + SideMarginM : shoulder > 0f && !dual ? shoulder + SideMarginM : 0f;
+            right = dual ? 0.5f * Math.Max(RoadWidthModel.MinMedianM, lay.Attrs[i].MedianCm / 100f) : footR > 0f ? footR + SideMarginM :
+                shoulder > 0f ? shoulder + SideMarginM : 0f;
+        }
+
         /// <summary>The station of road <paramref name="i"/> at raw along <paramref name="s"/>; false where the ribbon is not
         /// drawn there (cap gaps, absorbed stretches, decks).</summary>
         private bool StationAt(RoadGrade grade, RoadLayout lay, int i, double s, float lift, bool seamStart, bool seamEnd, double arcLen, out Station st)
@@ -637,14 +790,16 @@ namespace Ghumante.Core.Meshing
             c.At(s, out x, out z, out tx, out tz);
             RoadWidthProfile prof = lay.Profiles[i];
             float half = 0.5f * prof.DrawnAt(s), shift = prof.ShiftAt(s);
-            float left, right;
-            lay.CorridorSides(i, s, out left, out right);
             bool wall = grade.LoweringAt(i, s) > 0.01f;
+            float left, right;
+            DrawnSides(lay, i, s, wall, out left, out right);
             float y0 = grade.BenchY(row, 0), y1 = grade.BenchY(row, 1);
+            double wx, wz;
+            RowDirection(s, out wx, out wz);
             st = new Station
             {
-                X = x, Z = z, A0 = y0 - lift, A1 = y1 - y0, EL = shift + half, ER = shift - half, CL = Math.Max(left, shift + half),
-                CR = Math.Max(right, -(shift - half)), Wall = wall, Road = i,
+                X = x, Z = z, A0 = y0 - lift, A1 = y1 - y0, EL = shift + half, ER = shift - half, CL = shift + half + left, CR = -(shift - half) + right,
+                Wall = wall, Road = i, WX = wx, WZ = wz,
             };
             // Seam landing: no border fade within the level landing (both tiles carve it alike), ramping in beyond.
             double l = c.ArcAt(s);
@@ -859,15 +1014,23 @@ namespace Ghumante.Core.Meshing
             RoadWidthProfile prof = lay.Profiles[i];
             float half = 0.5f * prof.DrawnAt(s), shift = prof.ShiftAt(s);
             float left, right;
-            lay.CorridorSides(i, s, out left, out right);
+            DrawnSides(lay, i, s, false, out left, out right);
             float y0 = grade.BenchY(row, 0);
             // Going outward the travel direction is reversed at the start: left and right swap.
             bool flip = k == 0;
             float el = flip ? -(shift - half) : shift + half, er = flip ? -(shift + half) : shift - half;
             float cl = flip ? right : left, cr = flip ? left : right;
+            // The end row's section (on the border line), its left reversed with the travel direction at the start.
+            double wx, wz;
+            RowDirection(s, out wx, out wz);
+            if (flip)
+            {
+                wx = -wx;
+                wz = -wz;
+            }
             var a = new Station
             {
-                X = x, Z = z, A0 = y0 - lift, A1 = 0f, EL = el, ER = er, CL = Math.Max(cl, el), CR = Math.Max(cr, -er), G = 0f, Road = i, Tx = tx, Tz = tz,
+                X = x, Z = z, A0 = y0 - lift, A1 = 0f, EL = el, ER = er, CL = el + cl, CR = -er + cr, G = 0f, Road = i, Tx = tx, Tz = tz, WX = wx, WZ = wz,
             };
             a.S = Strength(a);
             Reach(ref a, tx, tz);
@@ -940,6 +1103,8 @@ namespace Ghumante.Core.Meshing
                 if (Math.Abs(sa.G + (sb.G - sa.G) * t - s.G) > 0.05f) return false;
                 if (Math.Abs(sa.WL + (sb.WL - sa.WL) * t - s.WL) > 0.1f || Math.Abs(sa.WR + (sb.WR - sa.WR) * t - s.WR) > 0.1f) return false;
                 if (s.RL > Math.Max(sa.RL, sb.RL) || s.RR > Math.Max(sa.RR, sb.RR)) return false;
+                // The ribbon's section direction blends linearly (its edges stay where the ribbon draws them).
+                if (Math.Abs(sa.WX + (sb.WX - sa.WX) * f - s.WX) > 0.004 || Math.Abs(sa.WZ + (sb.WZ - sa.WZ) * f - s.WZ) > 0.004) return false;
             }
             return true;
         }
@@ -984,6 +1149,11 @@ namespace Ghumante.Core.Meshing
             _road[k] = a.Road;
             _run[k] = -1;
             _flags[k] = flags;
+            _wxa[k] = a.WX;
+            _wza[k] = a.WZ;
+            _wxb[k] = b.WX;
+            _wzb[k] = b.WZ;
+            _wmax[k] = (float)Math.Max(1.0, Math.Max(Math.Sqrt(a.WX * a.WX + a.WZ * a.WZ), Math.Sqrt(b.WX * b.WX + b.WZ * b.WZ)));
         }
 
         private void GrowSegments(int cap)
@@ -1021,6 +1191,11 @@ namespace Ghumante.Core.Meshing
             Array.Resize(ref _wrb, cap);
             Array.Resize(ref _road, cap);
             Array.Resize(ref _run, cap);
+            Array.Resize(ref _wxa, cap);
+            Array.Resize(ref _wza, cap);
+            Array.Resize(ref _wxb, cap);
+            Array.Resize(ref _wzb, cap);
+            Array.Resize(ref _wmax, cap);
         }
 
         /// <summary>
@@ -1087,10 +1262,10 @@ namespace Ghumante.Core.Meshing
                 {
                     double len = _len[e];
                     int nu = Math.Max(1, (int)Math.Ceiling(len / LowerStepM));
-                    double ux = -_dz[e], uz = _dx[e];
                     for (int iu = 0; iu <= nu; iu++)
                     {
                         float t = (float)iu / nu;
+                        double ux = _wxa[e] + (_wxb[e] - _wxa[e]) * t, uz = _wza[e] + (_wzb[e] - _wza[e]) * t;
                         float cl = _cla[e] + (_clb[e] - _cla[e]) * t, cr = _cra[e] + (_crb[e] - _cra[e]) * t;
                         float el = _ela[e] + (_elb[e] - _ela[e]) * t, er = _era[e] + (_erb[e] - _era[e]) * t;
                         float a0 = _a0a[e] + (_a0b[e] - _a0a[e]) * t, a1 = _a1a[e] + (_a1b[e] - _a1a[e]) * t;
@@ -1318,7 +1493,7 @@ namespace Ghumante.Core.Meshing
         {
             if (e < _segCount)
             {
-                double r = Math.Max(Math.Max(_cla[e], _clb[e]) + _rl[e], Math.Max(_cra[e], _crb[e]) + _rr[e]) + 0.5;
+                double r = Math.Max(Math.Max(_cla[e], _clb[e]) * _wmax[e] + _rl[e], Math.Max(_cra[e], _crb[e]) * _wmax[e] + _rr[e]) + 0.5;
                 double bx = _ax[e] + _dx[e] * _len[e], bz = _az[e] + _dz[e] * _len[e];
                 x0 = Math.Min(_ax[e], bx) - r;
                 x1 = Math.Max(_ax[e], bx) + r;
@@ -1339,7 +1514,7 @@ namespace Ghumante.Core.Meshing
         {
             if (e < _segCount)
             {
-                double r = Math.Max(Math.Max(_cla[e], _clb[e]), Math.Max(_cra[e], _crb[e])) + 0.25;
+                double r = Math.Max(Math.Max(_cla[e], _clb[e]), Math.Max(_cra[e], _crb[e])) * _wmax[e] + 0.25;
                 double bx = _ax[e] + _dx[e] * _len[e], bz = _az[e] + _dz[e] * _len[e];
                 x0 = Math.Min(_ax[e], bx) - r;
                 x1 = Math.Max(_ax[e], bx) + r;
@@ -1396,34 +1571,24 @@ namespace Ghumante.Core.Meshing
                     gz = p.Gz;
                     return true;
                 }
-                double px = lx - _ax[e], pz = lz - _az[e];
-                double u = px * _dx[e] + pz * _dz[e], lat = _dx[e] * pz - _dz[e] * px, len = _len[e];
+                double len = _len[e], tp, off, wl;
+                Param(e, lx, lz, out tp, out off, out wl);
                 byte f = _flags[e];
-                double off;
                 float t;
                 bool radial = false;
-                if (u < 0)
+                if (tp < 0 || tp > 1)
                 {
-                    if ((f & ClipStart) != 0) continue;
-                    t = 0f;
-                    off = Math.Sqrt(lat * lat + u * u);
-                    if (lat < 0) off = -off;
+                    // Beyond a free end the extent is rounded (a clipped end stops on its section, as the ribbon does).
+                    bool start = tp < 0;
+                    if ((f & (start ? ClipStart : ClipEnd)) != 0) continue;
+                    t = start ? 0f : 1f;
+                    double ex = lx - (start ? _ax[e] : _ax[e] + _dx[e] * len), ez = lz - (start ? _az[e] : _az[e] + _dz[e] * len);
+                    double we = start ? Math.Sqrt(_wxa[e] * _wxa[e] + _wza[e] * _wza[e]) : Math.Sqrt(_wxb[e] * _wxb[e] + _wzb[e] * _wzb[e]);
+                    off = Math.Sqrt(ex * ex + ez * ez) / Math.Max(1e-6, we) * (off < 0 ? -1 : 1);
+                    wl = we;
                     radial = true;
                 }
-                else if (u > len)
-                {
-                    if ((f & ClipEnd) != 0) continue;
-                    t = 1f;
-                    double o = u - len;
-                    off = Math.Sqrt(lat * lat + o * o);
-                    if (lat < 0) off = -off;
-                    radial = true;
-                }
-                else
-                {
-                    t = (float)(u / len);
-                    off = lat;
-                }
+                else t = (float)tp;
                 bool left = off >= 0;
                 float ext = left ? _cla[e] + (_clb[e] - _cla[e]) * t : _cra[e] + (_crb[e] - _cra[e]) * t;
                 float a = (float)Math.Abs(off);
@@ -1438,10 +1603,11 @@ namespace Ghumante.Core.Meshing
                 double co = off > el ? el : off < er ? er : off;
                 bench = a0 + (float)co * a1;
                 double along = radial ? 0.0 : (_a0b[e] - _a0a[e] + co * (_a1b[e] - _a1a[e])) / len;
-                double lateral = inside ? a1 : 0.0;
-                // Left of travel is (-dz, dx).
-                gx = _dx[e] * along - _dz[e] * lateral;
-                gz = _dz[e] * along + _dx[e] * lateral;
+                double lateral = inside ? a1 / Math.Max(1e-6, wl) : 0.0;
+                // Left of travel is the section direction there.
+                double sx = (_wxa[e] + (_wxb[e] - _wxa[e]) * t) / Math.Max(1e-6, wl), sz = (_wza[e] + (_wzb[e] - _wza[e]) * t) / Math.Max(1e-6, wl);
+                gx = _dx[e] * along + sx * lateral;
+                gz = _dz[e] * along + sz * lateral;
             }
             return found;
         }
@@ -1483,21 +1649,58 @@ namespace Ghumante.Core.Meshing
         /// projects beyond a clipped end).</summary>
         private double SegDist2(int e, double lx, double lz)
         {
-            double px = lx - _ax[e], pz = lz - _az[e];
-            double u = px * _dx[e] + pz * _dz[e];
-            double lat = _dx[e] * pz - _dz[e] * px;
-            if (u < 0)
+            double t, off, wl;
+            Param(e, lx, lz, out t, out off, out wl);
+            if (t < 0)
             {
                 if ((_flags[e] & ClipStart) != 0) return double.PositiveInfinity;
-                return lat * lat + u * u;
+                double px = lx - _ax[e], pz = lz - _az[e];
+                return px * px + pz * pz;
             }
-            if (u > _len[e])
+            if (t > 1)
             {
                 if ((_flags[e] & ClipEnd) != 0) return double.PositiveInfinity;
-                double o = u - _len[e];
-                return lat * lat + o * o;
+                double px = lx - _ax[e] - _dx[e] * _len[e], pz = lz - _az[e] - _dz[e] * _len[e];
+                return px * px + pz * pz;
             }
-            return lat * lat;
+            double d = off * wl;
+            return d * d;
+        }
+
+        /// <summary>
+        /// Where tile-local (<paramref name="px"/>, <paramref name="pz"/>) lies on segment <paramref name="e"/> as the ribbon
+        /// draws it: the centre runs straight from the segment's start to its end and the section direction blends linearly
+        /// from one end's to the other's (<see cref="Station.WX"/>), so the point is C(t) + off · W(t) for the fraction
+        /// <paramref name="t"/> along (outside [0, 1] beyond the ends) and the offset <paramref name="off"/> (left positive,
+        /// in the stations' offset units); <paramref name="wl"/> is the length of W(t) (metres per offset unit).
+        /// </summary>
+        private void Param(int e, double px, double pz, out double t, out double off, out double wl)
+        {
+            double len = _len[e], dx = _dx[e] * len, dz = _dz[e] * len;
+            double wax = _wxa[e], waz = _wza[e], ex = _wxb[e] - wax, ez = _wzb[e] - waz;
+            double qx = px - _ax[e], qz = pz - _az[e];
+            // (Q - t D) x (Wa + t E) = 0: the point lies on the section through C(t).
+            double c2 = -(dx * ez - dz * ex);
+            double c1 = qx * ez - qz * ex - (dx * waz - dz * wax);
+            double c0 = qx * waz - qz * wax;
+            double lin = len > 1e-9 ? (qx * dx + qz * dz) / (len * len) : 0;
+            if (Math.Abs(c2) <= 1e-9 * (Math.Abs(c1) + 1e-12)) t = Math.Abs(c1) > 1e-12 ? -c0 / c1 : lin;
+            else
+            {
+                double disc = c1 * c1 - 4 * c2 * c0;
+                if (disc < 0) t = lin;
+                else
+                {
+                    double sq = Math.Sqrt(disc), q = -0.5 * (c1 + (c1 >= 0 ? sq : -sq));
+                    double t1 = q / c2, t2 = Math.Abs(q) > 1e-18 ? c0 / q : t1;
+                    double d1 = t1 < 0 ? -t1 : t1 > 1 ? t1 - 1 : 0, d2 = t2 < 0 ? -t2 : t2 > 1 ? t2 - 1 : 0;
+                    t = d1 < d2 || d1 == d2 && Math.Abs(t1 - 0.5) <= Math.Abs(t2 - 0.5) ? t1 : t2;
+                }
+            }
+            double wx = wax + ex * t, wz = waz + ez * t, w2 = wx * wx + wz * wz;
+            wl = Math.Sqrt(w2);
+            double rx = qx - dx * t, rz = qz - dz * t;
+            off = w2 > 1e-12 ? (rx * wx + rz * wz) / w2 : 0;
         }
 
         /// <summary>
@@ -1662,45 +1865,35 @@ namespace Ghumante.Core.Meshing
             float bench, kc, kf, g, reach, wallLift = 0f, dF, dC, str;
             if (e < _segCount)
             {
-                double px = lx - _ax[e], pz = lz - _az[e];
-                double u = px * _dx[e] + pz * _dz[e];
-                double lat = _dx[e] * pz - _dz[e] * px;
-                double len = _len[e];
+                double len = _len[e], tp, off, wl;
+                Param(e, lx, lz, out tp, out off, out wl);
                 byte f = _flags[e];
-                double off;
                 float t;
-                if (u < 0)
+                if (tp < 0 || tp > 1)
                 {
-                    if ((f & ClipStart) != 0) return false;
-                    t = 0f;
-                    off = Math.Sqrt(lat * lat + u * u);
-                    if (lat < 0) off = -off;
+                    bool start = tp < 0;
+                    if ((f & (start ? ClipStart : ClipEnd)) != 0) return false;
+                    t = start ? 0f : 1f;
+                    double ex = lx - (start ? _ax[e] : _ax[e] + _dx[e] * len), ez = lz - (start ? _az[e] : _az[e] + _dz[e] * len);
+                    double we = start ? Math.Sqrt(_wxa[e] * _wxa[e] + _wza[e] * _wza[e]) : Math.Sqrt(_wxb[e] * _wxb[e] + _wzb[e] * _wzb[e]);
+                    off = Math.Sqrt(ex * ex + ez * ez) / Math.Max(1e-6, we) * (off < 0 ? -1 : 1);
+                    wl = we;
                 }
-                else if (u > len)
-                {
-                    if ((f & ClipEnd) != 0) return false;
-                    t = 1f;
-                    double o = u - len;
-                    off = Math.Sqrt(lat * lat + o * o);
-                    if (lat < 0) off = -off;
-                }
-                else
-                {
-                    t = (float)(u / len);
-                    off = lat;
-                }
+                else t = (float)tp;
                 bool left = off >= 0;
                 float ext = left ? _cla[e] + (_clb[e] - _cla[e]) * t : _cra[e] + (_crb[e] - _cra[e]) * t;
                 float el = _ela[e] + (_elb[e] - _ela[e]) * t, er = _era[e] + (_erb[e] - _era[e]) * t;
-                float a = (float)Math.Abs(off);
-                dF = a > ext ? a - ext : 0f;
-                say.Ext = a - ext;
+                float a = (float)Math.Abs(off), sw = (float)wl;
+                // Distances in metres from the drawn extent's edge (the offsets are in section units).
+                float beyond = (a - ext) * sw;
+                dF = beyond > 0f ? beyond : 0f;
+                say.Ext = beyond;
                 reach = left ? _rl[e] : _rr[e];
                 if (dF > reach) return false;
                 str = _sa[e] + (_sb[e] - _sa[e]) * t;
                 float verge = _verge[e];
-                dC = a > ext + verge ? a - ext - verge : 0f;
-                say.Pd = a - (left ? el : -er);
+                dC = beyond > verge ? beyond - verge : 0f;
+                say.Pd = (a - (left ? el : -er)) * sw;
                 double co = off > el ? el : off < er ? er : off;
                 bench = _a0a[e] + (_a0b[e] - _a0a[e]) * t + (float)co * (_a1a[e] + (_a1b[e] - _a1a[e]) * t);
                 kc = _kc[e];
@@ -1862,6 +2055,87 @@ namespace Ghumante.Core.Meshing
                 }
             }
             RefinedCells = refined.Count;
+            LowerRefined(sc, refined, side);
+        }
+
+        /// <summary>
+        /// No refined sub-triangle rises through a road: where one has a corner on a road's drawn extent and another well
+        /// above that road's bench (two roads at different heights within one sub-quad, as on a switchback or a lane
+        /// beside a street a storey below it, or a road and the hillside above it), the extent is sampled inside the
+        /// sub-quad and every corner above the bench plus <see cref="StreetCutTolM"/> there is lowered to it (a corner
+        /// under the higher road is hidden by it; one on the slope between them becomes the foot of the cut). Corners
+        /// shared with an unrefined cell or on the tile border stay, as the coarse grid and the neighbour need them.
+        /// </summary>
+        private void LowerRefined(Scratch sc, List<int> refined, int side)
+        {
+            int q = Grid.Quads, r = Sub, w = r + 1;
+            const int Samples = 4;
+            for (int pass = 0; pass < 3; pass++)
+            {
+                bool any = false;
+                foreach (int cell in refined)
+                {
+                    int ci = cell % q, cj = cell / q, start = _block[cell];
+                    for (int b = 0; b < r; b++)
+                    for (int a = 0; a < r; a++)
+                    {
+                        int gi = ci * r + a, gj = cj * r + b;
+                        float low = float.PositiveInfinity;
+                        for (int k = 0; k < 4; k++)
+                        {
+                            int idx = (gj + (k >> 1)) * side + gi + (k & 1);
+                            if (sc.OnRoad[idx] && sc.Val[idx] < low) low = sc.Val[idx];
+                        }
+                        if (float.IsPositiveInfinity(low)) continue;
+                        int o = start + b * w + a;
+                        float h00 = _heights[o], h10 = _heights[o + 1], h01 = _heights[o + w], h11 = _heights[o + w + 1];
+                        if (Math.Max(Math.Max(h00, h10), Math.Max(h01, h11)) <= low + StreetCutTolM + 0.005f) continue;
+                        for (int sv = 0; sv <= Samples; sv++)
+                        for (int su = 0; su <= Samples; su++)
+                        {
+                            double fu = su / (double)Samples, fv = sv / (double)Samples;
+                            float bench;
+                            double gx, gz;
+                            if (!ExtentAt(_offX + (gi + fu) * SubM, _offZ + (gj + fv) * SubM, out bench, out gx, out gz)) continue;
+                            float allowed = bench + StreetCutTolM;
+                            h00 = _heights[o];
+                            h10 = _heights[o + 1];
+                            h01 = _heights[o + w];
+                            h11 = _heights[o + w + 1];
+                            bool lower = fu >= fv;
+                            double h = lower ? h00 + fu * (h10 - h00) + fv * (h11 - h10) : h00 + fu * (h11 - h01) + fv * (h01 - h00);
+                            if (h <= allowed + 0.005) continue;
+                            bool moved = LowerSub(gi, gj, allowed);
+                            moved |= LowerSub(gi + 1, gj + 1, allowed);
+                            moved |= lower ? LowerSub(gi + 1, gj, allowed) : LowerSub(gi, gj + 1, allowed);
+                            if (moved) any = true;
+                        }
+                    }
+                }
+                if (!any) break;
+            }
+        }
+
+        /// <summary>Lowers global sub-vertex (gi, gj) to at most <paramref name="to"/> in every refined cell that holds it;
+        /// false when it may not move (on the tile border or shared with an unrefined cell) or is already low enough.</summary>
+        private bool LowerSub(int gi, int gj, float to)
+        {
+            int q = Grid.Quads, r = Sub, last = q * r;
+            if (gi <= 0 || gj <= 0 || gi >= last || gj >= last) return false;
+            int ia = gi % r == 0 ? gi / r - 1 : gi / r, ib = gi / r, ja = gj % r == 0 ? gj / r - 1 : gj / r, jb = gj / r;
+            for (int cj = ja; cj <= jb; cj++)
+            for (int ci = ia; ci <= ib; ci++)
+                if (_block[cj * q + ci] < 0) return false;
+            bool changed = false;
+            for (int cj = ja; cj <= jb; cj++)
+            for (int ci = ia; ci <= ib; ci++)
+            {
+                int k = _block[cj * q + ci] + (gj - cj * r) * (r + 1) + gi - ci * r;
+                if (_heights[k] <= to) continue;
+                _heights[k] = to;
+                changed = true;
+            }
+            return changed;
         }
 
         /// <summary>Fills the scratch at global sub-grid point (gi, gj): the carved height (the bench on a road's extent, the

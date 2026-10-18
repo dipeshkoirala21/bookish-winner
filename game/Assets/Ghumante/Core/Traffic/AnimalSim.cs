@@ -99,6 +99,9 @@ namespace Ghumante.Core.Traffic
 
             /// <summary>Rise of the ground per metre along the lane and to its right under the body.</summary>
             public float Along, Right;
+
+            /// <summary>A drawn road surface carries the whole body somewhere across its lane.</summary>
+            public bool Ok;
         }
 
         private readonly Dictionary<int, Settled> _settled = new Dictionary<int, Settled>();
@@ -304,6 +307,7 @@ namespace Ghumante.Core.Traffic
         private void SettleAll()
         {
             if (_settled.Count > 8 * Math.Max(16, _s.MaxAnimals)) _settled.Clear();
+            int kept = 0;
             for (int i = 0; i < _animals.Count; i++)
             {
                 Animal a = _animals[i];
@@ -311,9 +315,12 @@ namespace Ghumante.Core.Traffic
                 if (!_settled.TryGetValue(a.Id, out c) || c.Lane != a.Lane || c.S != a.S0 || c.Lat != a.Lat)
                 {
                     c = new Settled { Lane = a.Lane, S = a.S0, Lat = a.Lat };
-                    Settle(a, out c.OutLat, out c.Y, out c.Along, out c.Right);
+                    c.Ok = Settle(a, out c.OutLat, out c.Y, out c.Along, out c.Right);
                     _settled[a.Id] = c;
                 }
+                // Nowhere across its lane does a drawn road surface carry the whole body (the lane leaves the drawn road
+                // here, over a cutting or an embankment): the animal is not there rather than hanging over an edge.
+                if (!c.Ok) continue;
                 a.X = a.BX + a.RX * c.OutLat;
                 a.Z = a.BZ + a.RZ * c.OutLat;
                 a.Y = c.Y;
@@ -323,44 +330,42 @@ namespace Ghumante.Core.Traffic
                 float dir = -a.RZ * hx + a.RX * hz >= 0 ? 1f : -1f;
                 a.Pitch = (float)(-Math.Atan(dir * c.Along) * 180.0 / Math.PI);
                 a.Roll = (float)(Math.Atan(dir * c.Right) * 180.0 / Math.PI);
-                _animals[i] = a;
+                _animals[kept++] = a;
             }
+            if (kept < _animals.Count) _animals.RemoveRange(kept, _animals.Count - kept);
         }
 
-        /// <summary>The lateral an animal ends up at and the height of the surface under it: its own lateral when a road
-        /// surface is drawn there within <see cref="SettleMaxM"/> of its lane's surface, else stepped back toward its lane
-        /// (0.5 m at a time) until one is; its lane's point and height where none answers.</summary>
-        private void Settle(in Animal a, out float lat, out float y, out float along, out float right)
+        /// <summary>Step of the lateral search for a place to stand.</summary>
+        private const float SettleStepM = 0.25f;
+
+        /// <summary>
+        /// The lateral an animal ends up at and the height of the surface under it: its own lateral when a drawn road
+        /// surface carries its whole body there (<see cref="StandsLevel"/>) within <see cref="SettleMaxM"/> of its lane's
+        /// surface, else the first such lateral stepping in toward its lane and across it (<see cref="SettleStepM"/> at a
+        /// time) up to the lane's far edge. False when there is none (the animal is then not placed).
+        /// </summary>
+        private bool Settle(in Animal a, out float lat, out float y, out float along, out float right)
         {
-            float inner = -0.5f * a.LaneW + 0.35f; // just inside the kerb lane's outer edge
             lat = a.Lat;
             y = a.BY;
             along = right = 0f;
-            float target = Math.Max(a.Lat, Math.Min(inner, 0f));
             // The body's footprint (half length along the lane, half width across it), lying or standing.
             bool cow = a.Kind == AnimalKind.Cow;
             float hl = cow ? 0.85f : 0.45f, hw = cow ? 0.4f : 0.2f;
+            float far = 0.5f * a.LaneW - hw;
             double fx = -a.RZ, fz = a.RX; // along the lane (the lateral is its right)
-            for (int k = 0; k < 8; k++)
+            for (float t = a.Lat; t <= Math.Max(a.Lat, far) + 1e-4f; t += SettleStepM)
             {
-                float t = k == 7 ? target : Math.Min(target, a.Lat + 0.5f * k);
                 float gy;
                 float sa, sr;
-                if (StandsLevel(a.BX + a.RX * t, a.BZ + a.RZ * t, a.BY, fx, fz, a.RX, a.RZ, hl, hw, out gy, out sa, out sr))
-                {
-                    lat = t;
-                    y = gy;
-                    along = sa;
-                    right = sr;
-                    return;
-                }
-                if (t >= target) break;
+                if (!StandsLevel(a.BX + a.RX * t, a.BZ + a.RZ * t, a.BY, fx, fz, a.RX, a.RZ, hl, hw, out gy, out sa, out sr)) continue;
+                lat = t;
+                y = gy;
+                along = sa;
+                right = sr;
+                return true;
             }
-            lat = target;
-            // No road surface wide enough under it (its lane leaves the drawn road here): whatever is drawn under it.
-            float any;
-            bool road;
-            if (Ground.TryStand(a.BX + a.RX * target, a.BZ + a.RZ * target, a.BY, out any, out road) && Math.Abs(any - a.BY) <= 1.5f) y = any;
+            return false;
         }
 
         /// <summary>Most a body's footprint may depart from one plane (a kerb, a cap edge or a drop under it does more).</summary>

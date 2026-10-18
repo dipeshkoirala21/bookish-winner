@@ -82,8 +82,10 @@ namespace Ghumante.Core.Meshing
         private void At(int e, double t, int side, double off, out double x, out double z)
         {
             double sign = side == 0 ? 1 : -1;
-            x = _ax[e] + _dx[e] * _len[e] * t + -_dz[e] * sign * off;
-            z = _az[e] + _dz[e] * _len[e] * t + _dx[e] * sign * off;
+            // Along the ribbon's section direction there, as the extent's offsets are measured.
+            double wx = _wxa[e] + (_wxb[e] - _wxa[e]) * t, wz = _wza[e] + (_wzb[e] - _wza[e]) * t;
+            x = _ax[e] + _dx[e] * _len[e] * t + wx * sign * off;
+            z = _az[e] + _dz[e] * _len[e] * t + wz * sign * off;
         }
 
         private float Ext(int e, int side, float t)
@@ -104,13 +106,30 @@ namespace Ghumante.Core.Meshing
             return (float)DrawnSurface((lx - _offX) / Grid.CellM, (lz - _offZ) / Grid.CellM, out gx, out gz);
         }
 
+        /// <summary>How deep a wall block may reach outward from tile-local (x0, z0) along (ux, uz) before it would stand on
+        /// another road's drawn extent (a lane or path running along the top of the cut, a street below the fill): the
+        /// largest of <paramref name="depth"/> and the clear distance less a margin; 0 when there is no room for a wall.</summary>
+        private double ClearDepth(double x0, double z0, double ux, double uz, double depth)
+        {
+            const double Step = 0.25, Margin = 0.15;
+            for (double d = 0.0; d <= depth + 1e-6; d += Step)
+            {
+                float b;
+                double gx, gz;
+                if (!ExtentAt(x0 + ux * d, z0 + uz * d, out b, out gx, out gz)) continue;
+                double clear = d - Margin;
+                return clear < 0.3 ? 0.0 : clear;
+            }
+            return depth;
+        }
+
         private void Wall(MeshData m, int e, int side, float wa, float wb)
         {
             double len = _len[e];
             int n = Math.Max(1, (int)Math.Ceiling(len / GabionLengthM));
             double sign = side == 0 ? 1 : -1;
             double ux = -_dz[e] * sign, uz = _dx[e] * sign; // outward (away from the road)
-            double depth = WallDepthM;
+            double fullDepth = WallDepthM;
             RoadClass cls = _road[e] >= 0 && _road[e] < Source.Roads.Count ? Source.Roads[_road[e]].RoadClass : RoadClass.Residential;
             bool cutSide = wa + wb > 0f;
             bool gabion = !cutSide || Major(cls);
@@ -125,6 +144,12 @@ namespace Ghumante.Core.Meshing
                 double fx0, fz0, fx1, fz1;
                 At(e, t0, side, e0, out fx0, out fz0);
                 At(e, t1, side, e1, out fx1, out fz1);
+                // Never over another road: the block stops short of any drawn extent behind it (a breast wall) or between
+                // it and the valley (a fill wall's body); no room at all, no wall (the terrain carve meets that road).
+                double depth = Math.Min(ClearDepth(fx0 + ux * 0.05, fz0 + uz * 0.05, ux, uz, fullDepth), ClearDepth(fx1 + ux * 0.05, fz1 + uz * 0.05, ux, uz, fullDepth));
+                double fxm = 0.5 * (fx0 + fx1), fzm = 0.5 * (fz0 + fz1);
+                depth = Math.Min(depth, ClearDepth(fxm + ux * 0.05, fzm + uz * 0.05, ux, uz, fullDepth));
+                if (depth <= 0.0) continue;
                 uint jitter = WallHash(e, side, i);
                 if (!_refine)
                 {
@@ -243,7 +268,7 @@ namespace Ghumante.Core.Meshing
                 float bench = EdgeBench(e, side, t);
                 double px, pz;
                 At(e, t, side, ext, out px, out pz);
-                bool drop = DropAt(e, side, t, wa, wb);
+                bool drop = DropAt(e, side, t, wa, wb) && !OnOtherRoad(px, pz);
                 if (!drop)
                 {
                     prev = false;
@@ -265,6 +290,14 @@ namespace Ghumante.Core.Meshing
                 prevZ = pz;
                 prevY = gy;
             }
+        }
+
+        /// <summary>True when tile-local (x, z) (beyond a road's own extent) lies on another road's drawn extent.</summary>
+        private bool OnOtherRoad(double x, double z)
+        {
+            float b;
+            double gx, gz;
+            return ExtentAt(x, z, out b, out gx, out gz);
         }
 
         /// <summary>Which roads get parapet posts along their drops: the main roads (trunk to tertiary) wherever the ground
@@ -318,13 +351,13 @@ namespace Ghumante.Core.Meshing
                         for (int k = 0; k <= n; k++)
                         {
                             float t = (float)k / n;
-                            if (!DropAt(e, side, t, wa, wb))
+                            double px, pz;
+                            At(e, t, side, Ext(e, side, t) + PostOffsetM, out px, out pz);
+                            if (!DropAt(e, side, t, wa, wb) || OnOtherRoad(px, pz))
                             {
                                 prev = false;
                                 continue;
                             }
-                            double px, pz;
-                            At(e, t, side, Ext(e, side, t) + PostOffsetM, out px, out pz);
                             float bench = EdgeBench(e, side, t);
                             if (prev)
                                 into.Add(new CarveBarrier
@@ -349,6 +382,10 @@ namespace Ghumante.Core.Meshing
                         double ax, az, bx, bz;
                         At(e, t0, side, Ext(e, side, t0) + WallVergeM, out ax, out az);
                         At(e, t1, side, Ext(e, side, t1) + WallVergeM, out bx, out bz);
+                        // As Wall draws it: no bay where another road leaves no room behind the face.
+                        double sgn = side == 0 ? 1 : -1, ox = -_dz[e] * sgn, oz = _dx[e] * sgn;
+                        if (ClearDepth(ax + ox * 0.05, az + oz * 0.05, ox, oz, WallDepthM) <= 0.0 || ClearDepth(bx + ox * 0.05, bz + oz * 0.05, ox, oz, WallDepthM) <= 0.0 ||
+                            ClearDepth(0.5 * (ax + bx) + ox * 0.05, 0.5 * (az + bz) + oz * 0.05, ox, oz, WallDepthM) <= 0.0) continue;
                         float b0 = EdgeBench(e, side, t0), b1 = EdgeBench(e, side, t1);
                         into.Add(new CarveBarrier
                         {

@@ -77,7 +77,15 @@ namespace Ghumante.Core.Meshing
         public const float MaxGradeChangePerM = 0.01f;
 
         /// <summary>Smoothing length of the cross-fall.</summary>
-        public const double BankSmoothingM = 6.0;
+        public const double BankSmoothingM = 10.0;
+
+        /// <summary>
+        /// Largest change of the cross-fall per metre along the road: the superelevation runoff, over which the edges rise
+        /// or fall against the centreline at about 1 : 100 on a 5 m carriageway (IRC hill road practice allows 1 : 60, plain
+        /// roads 1 : 150), so a carriageway turning its fall from one side to the other does so over 15 m or more and is
+        /// never twisted between two of its drawn rows.
+        /// </summary>
+        public const float BankRunoffPerM = 0.004f;
 
         private struct Pin
         {
@@ -367,6 +375,8 @@ namespace Ghumante.Core.Meshing
         {
             int n = _pieces.Length;
             var pins = new List<KeyValuePair<int, Pin>>();
+            var atNode = new HashSet<int>();
+            NodePins(deckEnds, pins, atNode);
             for (int i = 0; i < n; i++)
             {
                 Piece p = _pieces[i];
@@ -378,7 +388,7 @@ namespace Ghumante.Core.Meshing
                 {
                     bool start = end == 0;
                     if (start ? r.HasPrevContext : r.HasNextContext) continue;
-                    if (Layout.Knees[2 * i + end].Has) continue;
+                    if (Layout.Knees[2 * i + end].Has || atNode.Contains(2 * i + end)) continue;
                     int k = start ? 0 : c.Count - 1;
                     double s = c.S[k];
                     if (cuts != null && cuts.Length > 0 && (start ? cuts[0].S <= s + 0.5 : cuts[cuts.Length - 1].S >= s - 0.5)) continue;
@@ -423,6 +433,68 @@ namespace Ghumante.Core.Meshing
                 }
             }
             foreach (KeyValuePair<int, Pin> e in pins) _pieces[e.Key].AddPin(e.Value);
+        }
+
+        /// <summary>
+        /// Pieces of different ways ending at one map node without a junction cap or a knee (a way split where the class or
+        /// the name changes, a lane starting where two streets meet end to end): every free end at the node is held level at
+        /// one height, the bench of the leading piece's own profile there (highest class, then the longest) plus each
+        /// piece's lift, so the ribbons meet without a step. Before, each end kept its own smoothed profile and they met up
+        /// to 0.6 m apart on a hillside (Swayambhu).
+        /// </summary>
+        private void NodePins(Dictionary<long, float> deckEnds, List<KeyValuePair<int, Pin>> pins, HashSet<int> atNode)
+        {
+            var nodes = new Dictionary<long, List<int>>();
+            for (int i = 0; i < _pieces.Length; i++)
+            {
+                Piece p = _pieces[i];
+                if (p == null || p.AllDeck || p.Synthetic) continue;
+                RoadRecord r = Tile.Roads[i];
+                RoadCentreline c = Layout.Centres[i];
+                RoadCut[] cuts = Layout.Cuts[i];
+                for (int end = 0; end < 2; end++)
+                {
+                    bool start = end == 0;
+                    if (start ? r.HasPrevContext : r.HasNextContext) continue;
+                    if (Layout.Knees[2 * i + end].Has) continue;
+                    double s = c.S[start ? 0 : c.Count - 1];
+                    if (cuts != null && cuts.Length > 0 && (start ? cuts[0].S <= s + 0.5 : cuts[cuts.Length - 1].S >= s - 0.5)) continue;
+                    int pk = start ? 0 : r.PointCount - 1;
+                    long key = EndKey(r, pk);
+                    if (deckEnds.ContainsKey(key)) continue;
+                    List<int> l;
+                    if (!nodes.TryGetValue(key, out l)) nodes[key] = l = new List<int>(3);
+                    l.Add(2 * i + end);
+                }
+            }
+            foreach (KeyValuePair<long, List<int>> node in nodes)
+            {
+                List<int> ends = node.Value;
+                if (ends.Count < 2) continue;
+                int lead = -1;
+                foreach (int e in ends)
+                {
+                    if (lead < 0) lead = e;
+                    else
+                    {
+                        int a = e >> 1, b = lead >> 1;
+                        int pa = RoadStyle.Priority(Tile.Roads[a].RoadClass), pb = RoadStyle.Priority(Tile.Roads[b].RoadClass);
+                        if (pa > pb || pa == pb && _pieces[a].Length > _pieces[b].Length + 1e-6) lead = e;
+                    }
+                }
+                Piece lp = _pieces[lead >> 1];
+                float bench = ((lead & 1) == 0 ? lp.P[0] : lp.P[lp.N - 1]) - lp.Lift;
+                foreach (int e in ends)
+                {
+                    int i = e >> 1;
+                    bool start = (e & 1) == 0;
+                    atNode.Add(e);
+                    pins.Add(new KeyValuePair<int, Pin>(i, new Pin
+                    {
+                        L = start ? 0 : _pieces[i].Length, Fade = PinFadeM, Land = 1.0, Abs = true, AbsY = bench + _pieces[i].Lift, Bank = 0f,
+                    }));
+                }
+            }
         }
 
         /// <summary>The drawn surface of road <paramref name="j"/> near raw along <paramref name="sj"/> as a plane through
@@ -947,6 +1019,10 @@ namespace Ghumante.Core.Meshing
             }
             Smooth(bank, n, BankSmoothingM / p.Step, p.B, sc);
             for (int k = 0; k < n; k++) p.B[k] = Math.Max(-MaxBank, Math.Min(MaxBank, p.B[k]));
+            // Runoff: the fall changes at most BankRunoffPerM per metre (forward, then backward so every pair holds).
+            float runoff = (float)(BankRunoffPerM * p.Step);
+            for (int k = 1; k < n; k++) p.B[k] = Math.Max(p.B[k - 1] - runoff, Math.Min(p.B[k - 1] + runoff, p.B[k]));
+            for (int k = n - 2; k >= 0; k--) p.B[k] = Math.Max(p.B[k + 1] - runoff, Math.Min(p.B[k + 1] + runoff, p.B[k]));
             // The level (banked) section balanced on the natural terrain across the carriageway (five points): the terrain
             // carve cuts what lies above it and fills what lies below.
             for (int k = 0; k < n; k++)
