@@ -411,53 +411,129 @@ namespace Ghumante.Core.Tests
         /// owner's "sucked in".</summary>
         private const float DeepSinkM = 0.25f;
 
+        /// <summary>
+        /// Every bridge and flyover deck of the sample (owner playtest #2): walked and ridden across along the road it carries
+        /// (from 6 m before the deck to 6 m beyond it, in the left lane, following the streets that continue it), walked
+        /// back the other way, its left walkway walked on the deck from end to end, and every road under it walked and
+        /// ridden 30 m to each side. A run fails when it stops, or when the feet sink into a drawn bridge or deck surface
+        /// (<see cref="DeepSinkM"/>), or when a run under the deck is carried onto it; a stop at a pole, tree or parked
+        /// vehicle of the dressing (other packages; the player steers around it) is counted apart. Prints the totals, the
+        /// causes of the stops and every span.
+        /// </summary>
         [Test, Explicit]
         public void ProbeEveryBridge()
         {
             BridgeWorld w = BridgeWorld.Around(BridgeTiles(), 1);
-            var report = new StringBuilder();
-            int spans = 0, walkBad = 0, rideBad = 0, underBad = 0, unders = 0;
+            BridgeSweep r = Sweep(w, null);
+            TestContext.WriteLine(r.Summary());
+            TestContext.WriteLine(r.Report.ToString());
+        }
+
+        /// <summary>The totals of <see cref="Sweep"/>.</summary>
+        internal sealed class BridgeSweep
+        {
+            public int Spans, Runs, Bad, Dressing, Unders, UnderBad, Sunk;
+            public readonly SortedDictionary<string, int> Causes = new SortedDictionary<string, int>();
+            public readonly StringBuilder Report = new StringBuilder();
+
+            public string Summary()
+            {
+                var sb = new StringBuilder();
+                sb.Append("spans ").Append(Spans).Append(", runs ").Append(Runs).Append(": bad ").Append(Bad).Append(" (sunk ").Append(Sunk).Append("), stopped by dressing ")
+                  .Append(Dressing).Append("; unders ").Append(Unders).Append(" bad ").Append(UnderBad).Append("\n   stop causes:");
+                foreach (KeyValuePair<string, int> kv in Causes) sb.Append(' ').Append(kv.Key).Append('=').Append(kv.Value);
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>Runs <see cref="ProbeEveryBridge"/> over the bridge tiles of <paramref name="w"/>; <paramref name="ways"/>
+        /// narrows it to those spans (null: every span).</summary>
+        internal static BridgeSweep Sweep(BridgeWorld w, ICollection<ulong> ways)
+        {
+            var r = new BridgeSweep();
             foreach (TileId id in BridgeTiles())
             {
                 TileData t = w.Tile(id);
                 if (t == null || !t.HasDetail) continue;
-                BridgeLayout l = BridgeLayout.For(t);
-                foreach (BridgeSpan sp in l.Spans)
+                foreach (BridgeSpan sp in BridgeLayout.For(t).Spans)
                 {
-                    if (sp.Stair || sp.Overbridge || sp.Length < 8 || !Wanted(sp)) continue;
+                    if (sp.Stair || sp.Overbridge || sp.Length < 8 || !Wanted(sp) || ways != null && !ways.Contains(sp.Record.OsmWayId)) continue;
                     float rise = 0f;
                     for (int k = 0; k < sp.Count; k++) rise = Math.Max(rise, sp.Path.Y[k] - sp.Ground[k]);
-                    if (rise < 1.0f && sp.Crossings.Count == 0) continue;
-                    spans++;
-                    double before = sp.StartEnd == SpanEnd.Ground ? 8 : 3, after = sp.EndEnd == SpanEnd.Ground ? 8 : 3;
-                    BridgeProbe.Lane foot = sp.WalkL[sp.Count / 2] >= 0.6 && !sp.Foot ? BridgeProbe.Lane.LeftWalk : sp.Foot ? BridgeProbe.Lane.Centre : BridgeProbe.Lane.LeftLane;
-                    ProbeRun walk = BridgeProbe.Follow(w, VehicleSpec.Walker(), BridgeProbe.Along(sp, t.Tile, foot, before, after, false), 1f);
-                    ProbeRun walkBack = BridgeProbe.Follow(w, VehicleSpec.Walker(), BridgeProbe.Along(sp, t.Tile, foot, before, after, true), 1f);
-                    bool wOk = walk.Reached && walkBack.Reached && walk.BridgeSink < DeepSinkM && walkBack.BridgeSink < DeepSinkM;
-                    if (!wOk) walkBad++;
-                    report.Append(t.Tile).Append(' ').Append(Name(t, sp)).Append(" rise ").Append(rise.ToString("F1")).Append('\n');
-                    report.Append("   walk  ").Append(walk).Append(" | back ").Append(walkBack).Append('\n').Append(BridgeProbe.Why(w, walk)).Append(BridgeProbe.Why(w, walkBack));
-                    if (!sp.Foot)
+                    r.Spans++;
+                    r.Report.Append(t.Tile).Append(' ').Append(Name(t, sp)).Append(" rise ").Append(rise.ToString("F1")).Append(" length ").Append(sp.Length.ToString("F0")).Append('\n');
+                    int mid = sp.Count / 2;
+                    double lane = 0.5 * Math.Min(sp.HalfL[mid], sp.HalfR[mid]);
+                    List<double> across = BridgeProbe.RoadAround(t, sp.Road, sp.Path.X[mid], sp.Path.Z[mid], 0.5 * sp.Length + 6, sp.Foot ? 0 : lane);
+                    List<double> back = BridgeProbe.RoadAround(t, sp.Road, sp.Path.X[mid], sp.Path.Z[mid], 0.5 * sp.Length + 6, sp.Foot ? 0 : -lane);
+                    BridgeProbe.Reverse(back);
+                    Run(w, r, "walk", VehicleSpec.Walker(), across, 1f, float.NaN, false);
+                    Run(w, r, "back", VehicleSpec.Walker(), back, 1f, float.NaN, false);
+                    if (!sp.Foot) Run(w, r, "ride", VehicleSpec.Motorbike(), across, 0.5f, float.NaN, false);
+                    if (!sp.Foot && sp.WalkL[mid] >= 0.6)
                     {
-                        ProbeRun ride = BridgeProbe.Follow(w, VehicleSpec.Motorbike(), BridgeProbe.Along(sp, t.Tile, BridgeProbe.Lane.LeftLane, before, after, false), 0.5f);
-                        bool rOk = ride.Reached && ride.BridgeSink < DeepSinkM;
-                        if (!rOk) rideBad++;
-                        report.Append("   ride  ").Append(ride).Append('\n').Append(BridgeProbe.Why(w, ride));
+                        // The left walkway on the deck, end to end (the walking line in its middle).
+                        List<double> walkway = BridgeProbe.Along(sp, t.Tile, BridgeProbe.Lane.LeftWalk, 0, 0, false);
+                        Trim(walkway, 1.0);
+                        if (walkway.Count >= 4) Run(w, r, "walkway", VehicleSpec.Walker(), walkway, 1f, float.NaN, false);
                     }
                     foreach (BridgeCrossing c in sp.Crossings)
                     {
-                        unders++;
+                        r.Unders++;
                         List<double> line = BridgeProbe.RoadAround(t, c.Road, c.X, c.Z, 30, Math.Min(1.5, 0.3 * c.LowHalfM));
-                        ProbeRun uw = BridgeProbe.Follow(w, VehicleSpec.Walker(), line, 1f, c.LowY + 0.3f);
-                        ProbeRun ur = BridgeProbe.Follow(w, VehicleSpec.Motorbike(), line, 0.5f, c.LowY + 0.3f);
-                        bool uOk = uw.Reached && ur.Reached && !uw.EverOnDeck && !ur.EverOnDeck && uw.BridgeSink < DeepSinkM;
-                        if (!uOk) underBad++;
-                        report.Append("   under ").Append(t.Roads[c.Road].OsmWayId).Append(" walk ").Append(uw).Append(" | ride ").Append(ur).Append('\n').Append(BridgeProbe.Why(w, uw)).Append(BridgeProbe.Why(w, ur));
+                        int before = r.Bad;
+                        r.Report.Append("   under ").Append(t.Roads[c.Road].OsmWayId).Append('\n');
+                        Run(w, r, "under walk", VehicleSpec.Walker(), line, 1f, c.LowY + 0.3f, true);
+                        Run(w, r, "under ride", VehicleSpec.Motorbike(), line, 0.5f, c.LowY + 0.3f, true);
+                        if (r.Bad > before) r.UnderBad++;
                     }
                 }
             }
-            TestContext.WriteLine("spans " + spans + ": walk bad " + walkBad + ", ride bad " + rideBad + "; unders " + unders + " bad " + underBad);
-            TestContext.WriteLine(report.ToString());
+            return r;
+        }
+
+        private static void Run(BridgeWorld w, BridgeSweep r, string what, VehicleSpec spec, List<double> line, float throttle, float startY, bool under)
+        {
+            r.Runs++;
+            ProbeRun run = BridgeProbe.Follow(w, spec, line, throttle, startY);
+            bool sunk = run.BridgeSink >= DeepSinkM;
+            bool carried = under && run.EverOnDeck;
+            bool dressing = !run.Reached && run.Cause == "dressing";
+            bool ok = (run.Reached || dressing) && !sunk && !carried;
+            if (!run.Reached)
+            {
+                int c0;
+                r.Causes.TryGetValue(run.Cause, out c0);
+                r.Causes[run.Cause] = c0 + 1;
+            }
+            if (dressing) r.Dressing++;
+            if (sunk) r.Sunk++;
+            if (!ok) r.Bad++;
+            r.Report.Append("   ").Append(what.PadRight(10)).Append(ok ? "ok  " : "BAD ").Append(run).Append(carried ? " CARRIED ONTO THE DECK" : "").Append('\n');
+            if (!run.Reached && !dressing) r.Report.Append(BridgeProbe.Why(w, run));
+        }
+
+        /// <summary>Cuts <paramref name="m"/> metres off both ends of a waypoint line.</summary>
+        private static void Trim(List<double> pts, double m)
+        {
+            for (int end = 0; end < 2; end++)
+            {
+                double left = m;
+                while (pts.Count >= 4 && left > 0)
+                {
+                    int a = end == 0 ? 0 : pts.Count - 2, b = end == 0 ? 2 : pts.Count - 4;
+                    double dx = pts[b] - pts[a], dz = pts[b + 1] - pts[a + 1], l = Math.Sqrt(dx * dx + dz * dz);
+                    if (l > left)
+                    {
+                        pts[a] += dx / l * left;
+                        pts[a + 1] += dz / l * left;
+                        break;
+                    }
+                    left -= l;
+                    if (end == 0) pts.RemoveRange(0, 2);
+                    else pts.RemoveRange(pts.Count - 2, 2);
+                }
+            }
         }
     }
 }

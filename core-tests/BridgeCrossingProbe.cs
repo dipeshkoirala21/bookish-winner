@@ -155,6 +155,61 @@ namespace Ghumante.Core.Tests
             return sb.ToString();
         }
 
+        /// <summary>What stopped a body with feet at <paramref name="y"/> heading (dx, dz) at (x, z), in one word: "bridge"
+        /// (a solid of the bridges package), "dressing" (a registered pole, tree or parked vehicle), "house" (a footprint),
+        /// "solid" (another tile solid: a road-based railing or wall), "overhead" (a deck or slab at body height),
+        /// "step" (the ground ahead too high to climb), "drop" (no ground ahead) or "other".</summary>
+        public string StopCause(double x, double z, float y, double dx, double dz, float climb)
+        {
+            float low = y + TileGroundQuery.StepUpM, high = y + 1.6f;
+            // The nearest blocker within 0.6 m of the point 0.3 m ahead names the cause.
+            double best = 0.6;
+            string cause = null;
+            var prims = new List<SolidPrim>();
+            double ax = x + dx * 0.3, az = z + dz * 0.3;
+            foreach (KeyValuePair<TileId, TileBuild> kv in Builds)
+            {
+                prims.Clear();
+                Ground.SolidsOf(kv.Key, prims);
+                foreach (SolidPrim p in prims)
+                {
+                    double qx, qz;
+                    SolidSet.Closest(p.Ax, p.Az, p.Bx, p.Bz, ax, az, out qx, out qz);
+                    double d = Math.Sqrt((qx - ax) * (qx - ax) + (qz - az) * (qz - az)) - p.Radius;
+                    if (d > best || p.Top <= low || p.Bottom >= high) continue;
+                    best = d;
+                    cause = IsBridgeSolid(in p) ? "bridge" : p.Group >= 0 ? "house" : "solid";
+                }
+                StructureColliders c = kv.Value.Colliders;
+                if (c == null) continue;
+                double x0 = kv.Key.X0, z0 = kv.Key.Z0;
+                foreach (ColliderCylinder cy in c.Cylinders)
+                {
+                    double d = Math.Sqrt((x0 + cy.CX - ax) * (x0 + cy.CX - ax) + (z0 + cy.CZ - az) * (z0 + cy.CZ - az)) - cy.Radius;
+                    if (d > best || cy.Top <= low || cy.Bottom >= high) continue;
+                    best = d;
+                    cause = "dressing";
+                }
+                foreach (OrientedBox b in c.Boxes)
+                {
+                    double d = Math.Sqrt((x0 + b.CX - ax) * (x0 + b.CX - ax) + (z0 + b.CZ - az) * (z0 + b.CZ - az)) - Math.Max(b.HalfX, b.HalfZ);
+                    if (d > best || b.Top <= low || b.Bottom >= high) continue;
+                    best = d;
+                    cause = "dressing";
+                }
+            }
+            if (cause != null) return cause;
+            if (Ground.InsideSolid(ax, az, y)) return "house";
+            GroundSample g;
+            if (!Ground.TrySample(ax, az, y, out g))
+            {
+                GroundSample g2;
+                return Ground.TrySample(ax, az, y + 2f, out g2) ? "overhead" : "drop";
+            }
+            if (g.Height - y > climb) return "step";
+            return "other";
+        }
+
         /// <summary>The road with structure heights or an elevated deck whose centreline passes nearest (x, z) (the road a
         /// railing or retaining wall there most likely follows), as "way@distance".</summary>
         private static string LoweredNear(TileData t, RoadSpatialIndex idx, double x, double z)
@@ -550,12 +605,15 @@ namespace Ghumante.Core.Tests
         public CollisionBody Body;
         public bool EverOnDeck;
 
+        /// <summary>What stopped the run (<see cref="BridgeWorld.StopCause"/>), null when it arrived.</summary>
+        public string Cause;
+
         public override string ToString()
         {
             return (Reached ? "ok" : "STOPPED at (" + StopX.ToString("F1") + ", " + StopZ.ToString("F1") + ", y " + StopY.ToString("F2") + ")")
                    + " bsink " + BridgeSink.ToString("F2") + " sink " + WorstSink.ToString("F2") + (WorstSink > 0.05f ? "[" + "TARB"[SinkLayer < 0 ? 0 : SinkLayer] + (SinkOnDeck ? "d" : "g") + " " + SinkX.ToString("F0") + "," + SinkZ.ToString("F0") + "]" : "") + " float " + WorstFloat.ToString("F2") + " y " + MinY.ToString("F1") + ".." + MaxY.ToString("F1")
                    + (EverOnDeck ? " deck" : "") + ((Events & StepEvents.HitWall) != 0 ? " hitwall" : "") + ((Events & StepEvents.Landed) != 0 ? " landed" : "")
-                   + ((Events & StepEvents.StuckRecovered) != 0 ? " stuck" : "");
+                   + ((Events & StepEvents.StuckRecovered) != 0 ? " stuck" : "") + (Cause != null ? " cause " + Cause : "");
         }
     }
 
@@ -706,6 +764,7 @@ namespace Ghumante.Core.Tests
                     run.StopDirZ = ddz / dl;
                 }
             }
+            if (!run.Reached) run.Cause = w.StopCause(run.StopX, run.StopZ, run.StopY, run.StopDirX, run.StopDirZ, spec.TurnInPlace ? ArcadeVehicle.WalkerMaxClimbM : ArcadeVehicle.MaxClimbM);
             if (trace != null && !run.Reached) trace.Append("blockers at the stop:\n").Append(w.Blockers(v.X, v.Z, v.Y));
             return run;
         }

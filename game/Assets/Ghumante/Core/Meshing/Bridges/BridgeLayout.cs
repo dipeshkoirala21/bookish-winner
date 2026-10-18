@@ -669,6 +669,22 @@ namespace Ghumante.Core.Meshing.Bridges
             return false;
         }
 
+        /// <summary>True when the structure of a deck span of the layout (out to its deck edge) covers tile-local (x, z) with
+        /// its soffit below <paramref name="top"/>.</summary>
+        private bool DeckBelow(double x, double z, float top)
+        {
+            foreach (BridgeSpan d in Spans)
+            {
+                if (d.Stair) continue;
+                double s, lat;
+                int k;
+                if (!Project(d, x, z, out s, out lat, out k) || s < d.Path.Start || s > d.Path.End || !d.HasDeck(s)) continue;
+                if (lat > d.EdgeL(k) + 0.2 || lat < -d.EdgeR(k) - 0.2) continue;
+                if (d.Path.YAt(s) - d.Lerp(d.Depth, s) < top) return true;
+            }
+            return false;
+        }
+
         /// <summary>A trench needs a retaining wall where the road runs this far below its draped surface (the ground behind
         /// it plus the road's lift): where the ground query gives it a hard edge.</summary>
         public const float TrenchWallMinCutM = 0.5f;
@@ -715,7 +731,11 @@ namespace Ghumante.Core.Meshing.Bridges
                     float top = Math.Max(y + 0.4f, behind) + 1.0f;
                     // Another road's carriageway (not its footpaths: the road continuing this one keeps its wall line
                     // there) at a level the wall would stand in: a street joining the cutting or crossing it at grade.
-                    clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude, true) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude, true);
+                    // Nor under a deck whose soffit the wall would reach: the bridge's own abutment holds the bank there
+                    // (owner playtest #2: the wall of the track under the Ganeshman Singh Path bridge stood up through
+                    // the deck's walkway).
+                    clear[i] = !Corridors.Conflict(wx, wz, y - 0.1f, top, exclude, true) && !Corridors.Conflict(bx, bz, y - 0.1f, top, exclude, true)
+                               && !DeckBelow(wx, wz, top) && !DeckBelow(bx, bz, top);
                 }
                 List<double> runs = side > 0 ? sp.RailRunsL : sp.RailRunsR;
                 double from = double.NaN, last = double.NaN;
@@ -2479,7 +2499,9 @@ namespace Ghumante.Core.Meshing.Bridges
         }
 
         /// <summary>Length of a wing wall (up to 10 m, 30° splayed back along the approach) before it would enter
-        /// another road's corridor.</summary>
+        /// another road's corridor. Only the approach (a road leaving the deck's end node within 40° of the deck's axis)
+        /// is exempt: a street joining the junction at the deck end, a riverside road passing under the end span, keeps
+        /// its corridor free (owner playtest #2: the wing walls of the Thapathali bridge stood across the road under it).</summary>
         private double WingLength(BridgeSpan sp, double s, int dir, int side, int endPoint)
         {
             double px, pz, ux, uz, nx, nz, tx, tz;
@@ -2491,12 +2513,40 @@ namespace Ghumante.Core.Meshing.Bridges
             double dx = -tx * dir * 0.866 + nx * side * 0.5, dz = -tz * dir * 0.866 + nz * side * 0.5;
             float gFront = sp.Lerp(sp.Ground, s + dir * 3.0);
             double len = Math.Max(2.0, Math.Min(10.0, 1.6 * (y - gFront)));
-            long key = endPoint >= 0 ? EndKey(sp, endPoint) : -1;
+            bool[] exclude = ApproachExclusions(sp, endPoint, -tx * dir, -tz * dir);
             float g = sp.Lerp(sp.Ground, s);
             for (double d = 0.5; d <= len; d += 0.5)
-                if (Corridors.Blocks(sx + dx * d, sz + dz * d, g - 1.5f, y, sp.Road, key))
+                if (Corridors.Conflict(sx + dx * d, sz + dz * d, g - 1.5f, y, exclude))
                     return Math.Max(0, d - 0.6);
             return len;
+        }
+
+        /// <summary>The span's own road and the roads that leave its end node <paramref name="endPoint"/> within 40° of
+        /// (ox, oz), the direction away from the deck (its approach).</summary>
+        private bool[] ApproachExclusions(BridgeSpan sp, int endPoint, double ox, double oz)
+        {
+            var exclude = new bool[Tile.Roads.Count];
+            exclude[sp.Road] = true;
+            if (endPoint < 0) return exclude;
+            int[] p = sp.Record.Points;
+            int ex = p[2 * endPoint], ez = p[2 * endPoint + 1];
+            for (int j = 0; j < Tile.Roads.Count; j++)
+            {
+                if (exclude[j]) continue;
+                int[] q = Tile.Roads[j].Points;
+                int n = q.Length / 2;
+                for (int i = 0; i < n && !exclude[j]; i++)
+                {
+                    if (q[2 * i] != ex || q[2 * i + 1] != ez) continue;
+                    for (int nb = i - 1; nb <= i + 1; nb += 2)
+                    {
+                        if (nb < 0 || nb >= n) continue;
+                        double fx = (q[2 * nb] - ex) / 100.0, fz = (q[2 * nb + 1] - ez) / 100.0, fl = Math.Sqrt(fx * fx + fz * fz);
+                        if (fl > 1e-6 && (fx * ox + fz * oz) / fl > 0.766) exclude[j] = true;
+                    }
+                }
+            }
+            return exclude;
         }
 
         private static long EndKey(BridgeSpan sp, int point)
