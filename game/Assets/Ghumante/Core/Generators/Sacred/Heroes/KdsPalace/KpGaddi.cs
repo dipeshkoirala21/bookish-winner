@@ -9,7 +9,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
     /// hall (41.4 × 16.3 m) whose south front on Basantapur carries paired engaged giant columns over two storeys of tall
     /// arched teal windows, projecting end bays, a balustraded parapet with a small central gable and the dark red-brown
     /// pitched roof behind; the west portico of six giant columns (pairs at the ends, two singles between) on tall
-    /// pedestals over a balustraded podium with its stair, the iron candelabra on the podium corners, the entablature and
+    /// pedestals over a 4 m balustraded podium, the iron candelabra on the podium corners, the entablature and
     /// the attic with its segmental crest; the white Hnulunche range north of it (pierced parapet, teal-shuttered windows,
     /// the dark carved oriel, the red-framed arched gateway) and the white ranges round Nucha Chowk. Lime white, teal
     /// glazing, black iron: no other colour.
@@ -20,7 +20,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public const double HA0 = -74.3, HA1 = -32.7, HB0 = -80.6, HB1 = -64.2, Cornice = 17.4, Parapet = 18.7, RidgeV = 21.0;
 
         /// <summary>The portico's axis (palace grid b), the podium's top and depth, the column line's distance out.</summary>
-        public const double PortB = -71.4, PodiumTop = 2.4, PodiumDepth = 4.3, ColumnW = 1.6;
+        public const double PortB = -71.4, PodiumTop = 4.0, PodiumDepth = 4.3, ColumnW = 1.6;
 
         /// <summary>The portico's columns (offsets along the front from its axis; pairs at the ends, two singles between).</summary>
         private static readonly double[] ColumnU = { -6.95, -5.95, -2.35, 1.85, 5.95, 6.95 };
@@ -28,7 +28,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>The Hnulunche west range (OSM w420797472).</summary>
         public const double NA0 = -77.5, NA1 = -70.2, NB0 = -62.5, NB1 = -44.0, NEave = 10.8;
 
-        private const double PedTop = 5.2, ShaftTop = 14.6, CapTop = 15.1, EntTop = 16.5, AtticTop = 19.0;
+        private const double PedTop = 6.2, ShaftTop = 14.6, CapTop = 15.1, EntTop = 16.5, AtticTop = 18.6;
 
         public static void Build(ref KpFrame f, MeshData m)
         {
@@ -139,34 +139,28 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             int lod = f.Lod;
             Affine3 k = f.GridFace(HA0, PortB, 0, 282);
             const double ph = 8.8;
-            // The podium with its balustrade (open at the stair) and the stair up from the square.
+            // The podium (OSM w420797500: 4 m) with its plain white face, a moulded base and cornice, and the pierced
+            // balustrade along its top (photos gaddi c_00, c_08, c_09, c_16: no stair on the west front).
             Kp.Box(m, k, -ph, ph, -0.2, PodiumTop, 0, PodiumDepth, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
-            Kp.Band(m, k, -ph, ph, 0, 0.35, 0.05, Kp.GaddiShade);
-            const double sw = 3.2;
-            Balustrade(m, SacredDraw.At(k, 0, 0, 0), -ph, -sw, PodiumDepth - 0.08, PodiumTop, 0.9, lod);
-            Balustrade(m, SacredDraw.At(k, 0, 0, 0), sw, ph, PodiumDepth - 0.08, PodiumTop, 0.9, lod);
+            Kp.Band(m, k, -ph, ph, 0, 0.45, 0.08, Kp.GaddiShade);
+            Kp.Box(m, SacredDraw.At(k, 0, 0, PodiumDepth), -ph - 0.1, ph + 0.1, PodiumTop - 0.3, PodiumTop, -0.05, 0.12, Kp.GaddiShade, BoxFaces.Wall | BoxFaces.Bottom | BoxFaces.Top);
+            if (lod <= 1)
+                for (int e = -1; e <= 1; e += 2)
+                    Kp.Box(m, SacredDraw.At(k, 0, 0, PodiumDepth), e * 5.2 - 1.9, e * 5.2 + 1.9, 0.9, PodiumTop - 0.7, 0, 0.05, Kp.GaddiShade, BoxFaces.Front);
+            Balustrade(m, SacredDraw.At(k, 0, 0, 0), -ph, ph, PodiumDepth - 0.08, PodiumTop, 0.95, lod);
             for (int e = -1; e <= 1; e += 2)
             {
                 Affine3 side = SacredDraw.Basis(k, e * (ph - 0.08), 0, 0, 0, 0, e, 0, 1, 0);
-                Balustrade(m, side, -PodiumDepth, 0, 0, PodiumTop, 0.9, lod);
-            }
-            int steps = 11;
-            double rise = PodiumTop / steps, run = 0.3;
-            for (int i = 0; i < steps; i++)
-            {
-                double top = PodiumTop - rise * i;
-                Kp.Box(m, k, -sw, sw, -0.2, top, PodiumDepth, PodiumDepth + run * (i + 1), Kp.Ao(Kp.Step, i % 2 == 0 ? 1f : 0.95f),
-                       BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
-                if (lod >= 2) i++;
+                Balustrade(m, side, -PodiumDepth, 0, 0, PodiumTop, 0.95, lod);
             }
             // The wall behind: three bays of arched windows on two storeys, framed by pilasters.
             double[] bays = { -4.15, 0.0, 4.15 };
             for (int i = 0; i < 3; i++)
             {
-                TealArch(m, k, bays[i], PodiumTop + 0.2, 2.0, 5.0, lod);
-                TealArch(m, k, bays[i], 9.0, 2.0, 4.6, lod);
+                TealArch(m, k, bays[i], PodiumTop + 0.2, 2.0, 4.8, lod);
+                TealArch(m, k, bays[i], 9.9, 2.0, 3.9, lod);
             }
-            // Pedestals, shafts with bases and capitals.
+            // Pedestals (OSM: to 6.2 m), shafts with bases and capitals.
             for (int i = 0; i < ColumnU.Length; i++)
             {
                 double u = ColumnU[i];
@@ -180,10 +174,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Box(m, k, -7.95, 7.95, EntTop - 0.3, EntTop, -0.2, ColumnW + 1.1, Kp.GaddiShade, BoxFaces.All & ~BoxFaces.Back);
             Kp.Box(m, k, -8.2, 8.2, EntTop, AtticTop, -0.2, ColumnW + 0.6, Kp.GaddiWhite, BoxFaces.All & ~BoxFaces.Back);
             Kp.Box(m, k, -8.4, 8.4, AtticTop - 0.25, AtticTop, -0.2, ColumnW + 0.8, Kp.GaddiShade, BoxFaces.All & ~BoxFaces.Back);
-            Crest(m, SacredDraw.At(k, 0, AtticTop, ColumnW + 0.6), 3.4, 1.7, lod);
+            Crest(m, SacredDraw.At(k, 0, AtticTop, ColumnW + 0.6), 2.5, 1.0, lod);
             if (lod <= 1)
             {
-                for (int e = -1; e <= 1; e += 2) Urn(m, SacredDraw.At(k, e * 7.6, AtticTop, ColumnW), lod);
+                for (int e = -1; e <= 1; e += 2)
+                {
+                    Urn(m, SacredDraw.At(k, e * 7.6, AtticTop, ColumnW), lod);
+                    // The scroll volutes either side of the crest.
+                    Shapes.Torus(m, SacredDraw.Basis(k, e * 3.0, AtticTop + 0.45, ColumnW + 0.3, 0, 0, 1, 0, 1, 0), Kp.GaddiWhite, 0.38, 0.12, lod == 0 ? 14 : 8, 6,
+                                 new ShapeLod(lod), e > 0 ? 180 : -90, 270, true);
+                }
                 // Panels on the attic face.
                 for (int e = -1; e <= 1; e += 2)
                     Kp.Box(m, k, e * 5.4 - 1.4, e * 5.4 + 1.4, EntTop + 0.5, AtticTop - 0.6, ColumnW + 0.6, ColumnW + 0.66, Kp.GaddiShade, BoxFaces.Front);
@@ -195,9 +195,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFrame.FromGrid(HA0 - 0.5 * PodiumDepth, PortB, out x, out y);
             f.Box(x, y, 0.5 * PodiumDepth, ph, 102, 0, PodiumTop, GenColliderFlags.Walkable, GenColliders.Stone);
             double x0, y0, x1, y1;
-            KpFrame.FromGrid(HA0 - PodiumDepth - run * steps, PortB, out x0, out y0);
-            KpFrame.FromGrid(HA0 - PodiumDepth, PortB, out x1, out y1);
-            f.Ramp(x0, y0, 0, x1, y1, PodiumTop, sw, GenColliders.Stone);
             for (int i = 0; i < ColumnU.Length; i++)
             {
                 double cx, cy;
@@ -206,11 +203,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
             // The balustrade along the podium's edge (the camera passes over it).
             KpFrame.FromGrid(HA0 - PodiumDepth + 0.08, PortB - ph, out x0, out y0);
-            KpFrame.FromGrid(HA0 - PodiumDepth + 0.08, PortB - sw, out x1, out y1);
-            f.Wall(x0, y0, x1, y1, PodiumTop, PodiumTop + 0.9, 0.08);
-            KpFrame.FromGrid(HA0 - PodiumDepth + 0.08, PortB + sw, out x0, out y0);
             KpFrame.FromGrid(HA0 - PodiumDepth + 0.08, PortB + ph, out x1, out y1);
-            f.Wall(x0, y0, x1, y1, PodiumTop, PodiumTop + 0.9, 0.08);
+            f.Wall(x0, y0, x1, y1, PodiumTop, PodiumTop + 0.95, 0.08);
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -261,7 +255,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 return;
             }
             Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.012, Kp.Tint(Kp.Teal, 0.82f));
-            ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.0, ww, r, 0.14, 0.1, false, Kp.WhiteTrim, lod);
+            // The moulded arch at LOD0 (LOD1 keeps the glazed fan and the frame).
+            if (lod == 0) ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.0, ww, r, 0.14, 0.1, false, Kp.WhiteTrim, lod);
             // The arch's glazing (a fan of triangles) and the frame.
             int seg = lod == 0 ? 8 : 4;
             for (int i = 0; i < seg; i++)
@@ -282,18 +277,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>A giant column shaft with a moulded base (frame at its axis on the square's level).</summary>
         private static void Column(MeshData m, in Affine3 k, double v0, double v1, double r, int lod)
         {
-            int seg = SacredParts.Seg(14, lod);
+            int seg = lod == 0 ? 14 : lod == 1 ? 7 : 5;
             var p = new Profile2(10);
             p.Add(0, 0, true).Add(r + 0.14, 0, true).Add(r + 0.14, 0.14, true).Add(r + 0.06, 0.26).Add(r, 0.4, true).Add(0.94 * r, v1 - v0 - 0.3).Add(r + 0.05, v1 - v0 - 0.15, true)
              .Add(r + 0.05, v1 - v0, true).Add(0, v1 - v0, true);
-            Shapes.Lathe(m, SacredDraw.At(k, 0, v0, 0), Kp.GaddiWhite, lod >= 2 ? p : p.Smooth(1), seg, new ShapeLod(Math.Min(2, lod)));
+            Shapes.Lathe(m, SacredDraw.At(k, 0, v0, 0), Kp.GaddiWhite, lod >= 1 ? p : p.Smooth(1), seg, new ShapeLod(Math.Min(2, lod)));
         }
 
         /// <summary>An engaged half column on a wall face (u, from v0 to v1, radius r) with a base and capital block.</summary>
         private static void EngagedColumn(MeshData m, in Affine3 k, double u, double v0, double v1, double r, int lod)
         {
             Affine3 at = SacredDraw.Basis(k, u, v0, 0, 1, 0, 0, 0, 1, 0);
-            Shapes.Lathe(m, at, Kp.GaddiWhite, HalfShaft(r, v1 - v0), lod == 0 ? 8 : 5, new ShapeLod(Math.Min(2, lod)), 270, 180, false);
+            if (lod == 0) Shapes.Lathe(m, at, Kp.GaddiWhite, HalfShaft(r, v1 - v0), 8, new ShapeLod(0), 270, 180, false);
+            else Kp.Box(m, k, u - r, u + r, v0, v1, 0, 0.6 * r, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
             Kp.Box(m, k, u - r - 0.12, u + r + 0.12, v0, v0 + 0.45, 0, r + 0.12, Kp.GaddiShade, BoxFaces.Wall);
             Kp.Box(m, k, u - r - 0.15, u + r + 0.15, v1 - 0.4, v1, 0, r + 0.15, Kp.GaddiWhite, BoxFaces.Wall | BoxFaces.Bottom);
         }
@@ -307,19 +303,20 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
 
         /// <summary>
         /// A pierced (quatrefoil) balustrade from u0 to u1 standing on v at depth w: a base, a top rail and a band of dark
-        /// pierced openings between short white posts (LOD2: a white band).
+        /// pierced openings between short white posts (LOD1 on: a shaded band).
         /// </summary>
         private static void Balustrade(MeshData m, in Affine3 k, double u0, double u1, double w, double v, double h, int lod)
         {
             Kp.Box(m, k, u0, u1, v, v + 0.12, w - 0.14, w + 0.08, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top);
             Kp.Box(m, k, u0, u1, v + h - 0.12, v + h, w - 0.14, w + 0.08, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top | BoxFaces.Bottom);
-            if (lod >= 2)
+            if (lod >= 1)
             {
+                // LOD1 on: the pierced band reads as a shaded strip.
                 Kp.Box(m, k, u0, u1, v + 0.12, v + h - 0.12, w - 0.08, w + 0.02, Kp.GaddiShade, BoxFaces.Front | BoxFaces.Back);
                 return;
             }
             Kp.Box(m, k, u0, u1, v + 0.12, v + h - 0.12, w - 0.07, w + 0.0, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Back);
-            double pitch = lod == 0 ? 0.6 : 1.2;
+            const double pitch = 0.6;
             int n = Math.Max(1, (int)Math.Round((u1 - u0) / pitch));
             double cell = (u1 - u0) / n, hv = 0.5 * (h - 0.24), vc = v + 0.5 * h;
             for (int i = 0; i < n; i++)

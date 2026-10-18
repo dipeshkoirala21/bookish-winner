@@ -27,22 +27,155 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// nudged 0.3 m east to clear the inner shrines).</summary>
         public const double RingU = 0.5, RingW = -2.75, TU = 0.4, TW = 0.4;
 
-        /// <summary>The stages: centre u, centre w, half u, half w, top. Stage 8 is the compound wall (see <see cref="Wall"/>).</summary>
+        /// <summary>
+        /// The twelve stages: centre u, centre w, half u, half w, top. Stages 1-7 are the broad grassy terraces with low
+        /// brick risers (the first two at the OSM outlines w1414600808 and w420797418, the seventh the shelf the twelve outer
+        /// shrines stand on); stage 8 is the compound wall (<see cref="Wall"/>, its top the compound floor); stages 9-12 are
+        /// the brick upper plinth round the temple, the last with the iron railing.
+        /// </summary>
         private static readonly double[] Stages =
         {
-            0.0, 0.0, 23.85, 22.65, 0.5,
-            0.2, -0.4, 22.9, 22.1, 1.0,
-            0.4, -1.0, 21.6, 21.2, 2.0,
-            RingU, RingW, 16.1, 15.8, 2.5,
-            RingU, RingW, 15.6, 15.3, 3.0,
-            RingU, RingW, 15.1, 14.8, 3.5,
-            RingU, RingW, 14.6, 14.3, 4.0,
-            RingU, RingW, 14.2, 13.9, 4.4,
-            TU, TW, 11.0, 10.6, 5.0,
-            TU, TW, 10.6, 10.2, 5.6,
-            TU, TW, 10.3, 9.9, 6.2,
-            TU, TW, 10.0, 9.6, PlinthTopM,
+            0.10, 0.00, 23.85, 22.80, 0.45,
+            0.15, -0.15, 22.05, 21.10, 0.80,
+            0.22, -0.35, 21.75, 21.15, 1.10,
+            0.28, -0.55, 21.45, 21.20, 1.40,
+            0.34, -0.75, 21.15, 21.25, 1.65,
+            0.40, -0.90, 20.90, 21.25, 1.85,
+            RingU, -1.00, 20.70, 21.20, 2.00,
+            RingU, RingW, WallHu, WallHw, CompoundFloor,
+            TU, TW, 12.40, 12.00, 4.80,
+            TU, TW, 11.80, 11.40, 5.45,
+            TU, TW, 11.20, 10.80, 6.10,
+            TU, TW, 10.60, 10.30, PlinthTopM,
         };
+
+        /// <summary>The compound wall: half sizes round the ring centre, thickness, the half width of the south stair gap,
+        /// the compound floor (the wall's top) and the coping on it.</summary>
+        public const double WallHu = 16.35, WallHw = 15.85, WallT = 0.6, WallGap = 1.55, CompoundFloor = 4.1, WallTop = CompoundFloor + 0.28;
+
+        /// <summary>The twelve outer two-roof shrines on the seventh stage (frame u, w; OSM w1414610434..445, regularised round
+        /// the ring centre: corners at ±18.1 / ±17.65, the middle pair of each side ±5.3 from its centre).</summary>
+        private static readonly double[] Outer =
+        {
+            RingU - 18.1, RingW - 17.65, RingU - 5.3, RingW - 17.65, RingU + 5.3, RingW - 17.65, RingU + 18.1, RingW - 17.65,
+            RingU + 18.1, RingW - 5.3, RingU + 18.1, RingW + 5.3, RingU + 18.1, RingW + 17.65, RingU + 5.3, RingW + 17.65,
+            RingU - 5.3, RingW + 17.65, RingU - 18.1, RingW + 17.65, RingU - 18.1, RingW + 5.3, RingU - 18.1, RingW - 5.3,
+        };
+
+        /// <summary>The four smaller shrines inside the wall at the compound's corners (OSM w1415152802..805).</summary>
+        private static readonly double[] Inner =
+        {
+            RingU - 14.2, RingW - 12.4, RingU + 14.2, RingW - 12.4, RingU + 14.2, RingW + 12.9, RingU - 14.2, RingW + 12.9,
+        };
+
+        /// <summary>The temple's three storeys and roofs at the OSM spans: roof 1 33.2 × 32.4 m with its eave at 12 m rising to
+        /// 19 m, roof 2 24.9 × 24.3 m from 19.5 to 25 m, roof 3 18.4 × 17.9 m from 26.5 to 31 m; the bodies 16.8, 14.6 and 9.7 m
+        /// across (OSM w1414024864, w1413440908, w1413440906).</summary>
+        private static readonly KpTier[] Temple =
+        {
+            // The ground body (OSM w1414024864, 19.8 × 19.2 m) under the very wide lowest roof: three gilt windows close
+            // together in the middle of each face (photo taleju c_25), the long struts and the deep soffit above them.
+            new KpTier
+            {
+                Base = PlinthTopM, WallU = 9.6, WallW = 9.35, Eave = 12.0, EaveU = 16.6, EaveW = 16.2, Top = 19.0, Walls = KpWalls.GiltPanels, Windows = 3, WinSill = 0.9,
+                WinH = 2.8, WinSpread = 0.33,
+            },
+            new KpTier
+            {
+                Base = 19.0, WallU = 6.6, WallW = 6.4, Eave = 19.6, EaveU = 12.45, EaveW = 12.15, Top = 25.0, Walls = KpWalls.GiltPanels, Windows = 3, WinSill = 0.6,
+                WinH = 1.9, WinSpread = 0.45,
+            },
+            new KpTier
+            {
+                Base = 25.0, WallU = 4.2, WallW = 4.1, Eave = 26.5, EaveU = 9.2, EaveW = 8.95, Top = 31.0, ApexU = 0.35, ApexW = 0.35, Walls = KpWalls.GiltPanels,
+                Windows = 1, WinSill = 0.6, WinH = 1.6,
+            },
+        };
+
+        /// <summary>The red-ochre precinct wall on the west (frame u of its outer face, its w extent, height) and the Singha
+        /// Dhoka's place on it (local ≈ (17.5, 45), §3.10).</summary>
+        public const double GateU = -26.6, WallW0 = -24.0, WallW1 = 21.0, GateW = -5.4, RedWallH = 3.9;
+
+        /// <summary>The shop row on the north foot (OSM w1374620543, 55.8 × 7.2 m, 3 m).</summary>
+        public const double ShopU0 = -32.0, ShopU1 = 22.8, ShopW0 = 21.3, ShopW1 = 28.5, ShopEave = 2.45, ShopRidge = 3.3;
+
+        /// <summary>Local site metres of frame (u, w).</summary>
+        public static void Local(double u, double w, out double x, out double y)
+        {
+            double r = Bearing * Math.PI / 180.0, s = Math.Sin(r), c = Math.Cos(r);
+            double r2 = (Bearing - 90) * Math.PI / 180.0, s2 = Math.Sin(r2), c2 = Math.Cos(r2);
+            x = CX + u * s + w * s2;
+            y = CY + u * c + w * c2;
+        }
+
+        public static void Build(ref KpFrame f, MeshData m)
+        {
+            Affine3 k = f.Plan(CX, CY, 0, Bearing);
+            if (f.Lod >= 3)
+            {
+                Lod3(ref f, m, k);
+                return;
+            }
+            Plinth(ref f, m, k);
+            Wall(ref f, m, k, Stages[6 * 5 + 4]);
+            Shrines(ref f, m, k);
+            // The south stair: from the square up the terraces to the seventh stage, then through the wall's gap to the
+            // compound (the way up from Trishul Chowk).
+            Steps(ref f, m, k, RingU, Stages[1] - Stages[3] - 0.9, RingW - WallHw - 2.6, 0, Stages[6 * 5 + 4], 1.6);
+            Steps(ref f, m, k, RingU, RingW - WallHw - 2.6, RingW - WallHw + WallT + 0.1, Stages[6 * 5 + 4], CompoundFloor, WallGap);
+            Steps(ref f, m, k, TU, TW - Stages[8 * 5 + 3] - 2.0, TW - Stages[11 * 5 + 3], CompoundFloor, PlinthTopM, 1.3);
+            TempleBody(ref f, m, k);
+            SinghaDhoka(ref f, m, k);
+            ShopRow(ref f, m, k);
+        }
+
+        /// <summary>Stages 1-7 and 9-12 with their walkable colliders; grass tufts in the joints of the terraces.</summary>
+        private static void Plinth(ref KpFrame f, MeshData m, in Affine3 k)
+        {
+            int lod = f.Lod;
+            double below = 0.3;
+            for (int i = 0; i < 12; i++)
+            {
+                if (i == 7) continue;
+                double cu = Stages[5 * i], cw = Stages[5 * i + 1], hu = Stages[5 * i + 2], hw = Stages[5 * i + 3], top = Stages[5 * i + 4];
+                double v0 = i == 0 ? -below : i == 8 ? CompoundFloor - 0.1 : Stages[5 * (i - 1) + 4] - 0.1;
+                bool terrace = i < 7;
+                if (lod >= 2 && terrace && i % 2 == 1 && i != 6) continue;
+                KpStack.Stage(m, k, cu, cw, hu, hw, v0, top, Kp.Ao(Kp.Brick, 0.95f), terrace ? Kp.Grass : Kp.BrickPave, lod);
+                if (terrace && lod == 0)
+                {
+                    // Moss and grass along the foot of the next riser.
+                    if (i < 6)
+                    {
+                        double nu = Stages[5 * (i + 1) + 2], nw = Stages[5 * (i + 1) + 3], ncu = Stages[5 * (i + 1)], ncw = Stages[5 * (i + 1) + 1];
+                        Kp.Box(m, k, ncu - nu - 0.18, ncu + nu + 0.18, top, top + 0.06, ncw - nw - 0.18, ncw - nw, Kp.Tint(Kp.Grass, 0.85f), BoxFaces.Top | BoxFaces.Front);
+                        Kp.Box(m, k, ncu - nu - 0.18, ncu + nu + 0.18, top, top + 0.06, ncw + nw, ncw + nw + 0.18, Kp.Tint(Kp.Grass, 0.85f), BoxFaces.Top | BoxFaces.Back);
+                    }
+                }
+                if (f.C != null)
+                {
+                    double x, y;
+                    Local(cu, cw, out x, out y);
+                    f.Box(x, y, hu, hw, Bearing, 0, top, GenColliderFlags.Walkable, terrace ? GenColliders.Grass : GenColliders.Brick);
+                }
+            }
+            // The iron railing round the top stage (gap at the south stair).
+            if (lod <= 1)
+            {
+                double cu = TU, cw = TW, hu = Stages[11 * 5 + 2] - 0.25, hw = Stages[11 * 5 + 3] - 0.25;
+                for (int s = 0; s < 4; s++)
+                {
+                    Affine3 face = KpStack.Face(SacredDraw.At(k, cu, 0, cw), 90 * s, s % 2 == 0 ? hu : hw);
+                    double half = s % 2 == 0 ? hw : hu;
+                    if (s == 3)
+                    {
+                        Kp.Railing(m, face, -half, -1.5, 0, PlinthTopM, 1.0, lod);
+                        Kp.Railing(m, face, 1.5, half, 0, PlinthTopM, 1.0, lod);
+                    }
+                    else Kp.Railing(m, face, -half, half, 0, PlinthTopM, 1.0, lod);
+                }
+            }
+        }
 
         /// <summary>The compound wall (stage 8): four brick walls with a coping round the raised compound (its floor at
         /// <see cref="CompoundFloor"/>), a gap in the south wall where the stair comes up.</summary>
@@ -56,6 +189,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             WallPiece(ref f, m, k, u1 - t, u1, w0 + t, w1 - t, v0);
             WallPiece(ref f, m, k, u0, RingU - WallGap, w0, w0 + t, v0);
             WallPiece(ref f, m, k, RingU + WallGap, u1, w0, w0 + t, v0);
+            // The carved doorway in the middle of the north wall (photo taleju c_25): a proud brick frame, a dark door, a
+            // carved timber frame and crest.
+            Affine3 nf = KpStack.Face(SacredDraw.At(k, RingU, 0, RingW), 90, WallHw);
+            Kp.Box(m, nf, -1.7, 1.7, v0 - 0.1, WallTop + 0.75, 0, 0.45, Kp.Tint(Kp.Brick, 1.06f), BoxFaces.Wall | BoxFaces.Top);
+            Affine3 nd = SacredDraw.At(nf, 0, 0, 0.45);
+            double top = Kp.Doorway(m, nd, 0, v0 + 0.25, 0.95, 1.9, Kp.Wood, false, lod);
+            Kp.Crest(m, nd, 0, top + 0.02, 0.02, 1.9, 1.0, Kp.Wood, lod);
             if (f.C == null) return;
             double x, y;
             Local(RingU, RingW, out x, out y);
@@ -114,13 +254,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Affine3 at = SacredDraw.At(k, u, 0, w);
             if (lod >= 2)
             {
-                Kp.Box(m, at, -1.25 * s, 1.25 * s, v, v + 1.0 * s, -1.2 * s, 1.2 * s, Kp.Brick, BoxFaces.All & ~BoxFaces.Bottom);
+                Kp.Box(m, at, -1.3 * s, 1.3 * s, v, v + 1.0 * s, -1.3 * s, 1.3 * s, Kp.Brick, BoxFaces.All & ~BoxFaces.Bottom);
                 Kp.Box(m, at, -0.7 * s, 0.7 * s, v + 1.0 * s, v + 2.2 * s, -0.7 * s, 0.7 * s, Kp.Brick, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
                 KpLod3.Pyramid(m, at, 0, 0, 1.25 * s, 1.25 * s, v + 2.2 * s, v + 3.9 * s, Kp.TileMoss);
                 return;
             }
-            KpStack.Stage(m, at, 0, 0, 1.6 * s, 1.5 * s, v, v + 0.5 * s, SacredParts.PlinthBrick, Kp.BrickPave, lod);
-            KpStack.Stage(m, at, 0, 0, 1.2 * s, 1.15 * s, v + 0.5 * s, v + 1.0 * s, Kp.Brick, Kp.BrickPave, lod);
+            KpStack.Stage(m, at, 0, 0, 1.45 * s, 1.45 * s, v, v + 0.5 * s, Kp.Tint(Kp.Brick, 1.08f), Kp.BrickPave, lod);
+            KpStack.Stage(m, at, 0, 0, 1.15 * s, 1.15 * s, v + 0.5 * s, v + 1.0 * s, Kp.Brick, Kp.BrickPave, lod);
             var t = new KpTier[2];
             t[0] = new KpTier { Base = v + 1.0 * s, WallU = 0.72 * s, WallW = 0.72 * s, Eave = v + 2.2 * s, EaveU = 1.3 * s, EaveW = 1.3 * s, Top = v + 2.75 * s, Walls = KpWalls.Plain };
             t[1] = new KpTier { Base = v + 2.75 * s, WallU = 0.5 * s, WallW = 0.5 * s, Eave = v + 3.15 * s, EaveU = 0.95 * s, EaveW = 0.95 * s, Top = v + 3.75 * s, ApexU = 0.1, ApexW = 0.1, Walls = KpWalls.Plain };
@@ -133,11 +273,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Affine3 fc = KpStack.Face(at, snap, 0.72 * s);
             Kp.Panel(m, fc, -0.28 * s, v + 1.15 * s, 0.28 * s, v + 1.95 * s, 0.01, Kp.Recess);
             if (lod == 0) ShikharaGenerator.Arch(m, fc, 0, v + 1.75 * s, 0.01, 0.56 * s, 0.2 * s, 0.05, 0.04, true, Kp.Wood, 1);
-            Kp.Finial(m, at, 0, v + 3.7 * s, 0, 0.5 * s, 0.1 * s, lod);
+            Kp.Finial(m, at, 0, v + 3.7 * s, 0, 0.5 * s, 0.1 * s, Math.Max(2, lod));
             if (f.C == null) return;
             double x, y;
             Local(u, w, out x, out y);
-            f.Box(x, y, 1.6 * s, 1.5 * s, Bearing, v, v + 3.9 * s, GenColliderFlags.NoClimb, GenColliders.Brick);
+            f.Box(x, y, 1.45 * s, 1.45 * s, Bearing, v, v + 3.9 * s, GenColliderFlags.NoClimb, GenColliders.Brick);
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -151,12 +291,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpRoofLook look = KpRoofLook.CopperBells(Kp.Copper);
             look.Fascia = Kp.Wood;
             look.BellSpacing = 1.1;
-            look.StrutPitch = 1.15;
+            look.StrutPitch = 1.3;
+            look.Horns = false;
+            // The copper slopes are concave: shallow at the eave (from the street the lowest roof shows only its edge over
+            // the deep soffit, photo taleju c_02), steep near the storey above.
+            look.Sag = 0.075;
             KpStack.Build(m, t, Temple, 3, Kp.Brick, look, 1301u, lod);
+            // The deep soffits of the two lower roofs: dense dark rafters (the lattice ceiling seen from the street).
+            for (int i = 0; i < 2; i++)
+            {
+                KpTier ti = Temple[i];
+                double tu = Temple[i + 1].WallU, tw = Temple[i + 1].WallW;
+                Kp.SoffitRafters(m, t, ti.EaveU, ti.EaveW, ti.Eave, tu, tw, ti.Top, ti.WallU, ti.WallW, i == 0 ? 0.32 : 0.45, lod);
+            }
             Kp.Finial(m, t, 0, 30.95, 0, 4.05, 0.62, lod, true);
-            // The west door with its gilt torana, and the pataka banners hanging from the top.
-            Affine3 door = KpStack.Face(t, 180, Temple[0].WallU);
-            Kp.Doorway(m, door, 0, PlinthTopM + 0.1, 1.5, 2.6, Kp.Gilt, true, lod);
+            // The pataka banners hanging from the top down the west and east faces.
             if (lod == 0)
                 for (int s = 0; s < 4; s += 2)
                 {
@@ -193,12 +342,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             const double gw = 3.6, gh = 8.2, proud = 0.6;
             Kp.Box(m, wall, gu - gw, gu + gw, -0.2, gh, -1.2, proud, Kp.RedOchre, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             Crest(m, wall, gu - gw, gu + gw, gh, proud, lod);
-            Affine3 roofAt = SacredDraw.At(wall, gu, 0, -0.3);
-            var t = new KpTier[2];
-            t[0] = new KpTier { Base = gh + 0.5, WallU = 1.7, WallW = 1.1, Eave = gh + 1.6, EaveU = 2.7, EaveW = 2.0, Top = gh + 2.2, Walls = KpWalls.GiltPanels, Windows = 1 };
-            t[1] = new KpTier { Base = gh + 2.2, WallU = 1.2, WallW = 0.8, Eave = gh + 2.9, EaveU = 2.0, EaveW = 1.5, Top = gh + 3.6, ApexU = 0.5, ApexW = 0.12, Walls = KpWalls.Plain };
-            KpStack.Build(m, roofAt, t, 2, Kp.RedOchre, KpRoofLook.CopperBells(Kp.CopperDark), 1311u, Math.Max(1, lod));
-            Kp.Finial(m, roofAt, 0, gh + 3.55, 0, 0.6, 0.14, lod);
+            // A teal band under the cornice, then the white stepped crest rising in three steps to a small gilt kalash.
+            Kp.Box(m, wall, gu - gw, gu + gw, gh - 0.75, gh - 0.55, proud, proud + 0.05, Kp.Green, BoxFaces.Front | BoxFaces.Bottom);
+            for (int i = 0; i < 3; i++)
+            {
+                double hw2 = gw - 0.15 - 0.75 * (i + 1), v0 = gh + 0.6 + 0.42 * i;
+                Kp.Box(m, wall, gu - hw2, gu + hw2, v0, v0 + 0.42, -1.0 + 0.1 * i, proud - 0.1 - 0.12 * i, Kp.WhiteTrim, BoxFaces.All & ~BoxFaces.Bottom);
+            }
+            Affine3 top = SacredDraw.At(wall, gu, 0, -0.2);
+            Kp.Finial(m, top, 0, gh + 0.6 + 1.26, 0, 0.7, 0.16, lod);
             // The door: black studded leaves in a dark carved torana arch.
             Affine3 face = SacredDraw.At(wall, 0, 0, proud);
             double dw = 1.7, dh = 3.0;
@@ -236,7 +388,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             f.Wall(x0, y0, x1, y1, 0, RedWallH, 0.35);
             double gx, gy;
             Local(GateU + 0.3, GateW, out gx, out gy);
-            f.Box(gx, gy, 0.9, gw, Bearing, 0, gh + 3.6, GenColliderFlags.NoClimb, GenColliders.Brick);
+            f.Box(gx, gy, 0.9, gw, Bearing, 0, gh + 1.9, GenColliderFlags.NoClimb, GenColliders.Brick);
             for (int s = -1; s <= 1; s += 2)
             {
                 double lx, ly;
@@ -259,34 +411,75 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         // The north shop row
         // ---------------------------------------------------------------------------------------------------------------
 
-        /// <summary>The long single-storey shop row on the plinth's north foot: a red-brown gabled tile roof over a row of open
-        /// shopfronts with red cloth awnings, facing Makhan Tole.</summary>
+        /// <summary>
+        /// The long single-storey shop row on the plinth's north foot (OSM w1374620543; photos taleju c_02, c_25): a brick
+        /// back wall against the plinth and a lean-to roof of terracotta tiles sloping down to the street, its fascia over a
+        /// row of open shopfronts between timber posts, the goods (cloth, shoes, pots) hanging in the openings, facing
+        /// Makhan Tole.
+        /// </summary>
         private static void ShopRow(ref KpFrame f, MeshData m, in Affine3 k)
         {
             int lod = f.Lod;
             double cu = 0.5 * (ShopU0 + ShopU1), cw = 0.5 * (ShopW0 + ShopW1), hu = 0.5 * (ShopU1 - ShopU0), hw = 0.5 * (ShopW1 - ShopW0);
             Affine3 at = SacredDraw.At(k, cu, 0, cw);
-            Kp.Box(m, at, -hu, hu, -0.2, ShopEave + 0.15, -hw, hw, Kp.Brick, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-            Kp.Ridge(m, at, hu, hw, ShopEave, ShopRidge, 0.9, Kp.GaddiRoof, false, lod);
+            ShapeBrush tile = B2(0xA4593F, MaterialChannel.RoofTile);
+            // The block under the roof.
+            Kp.Box(m, at, -hu, hu, -0.2, ShopEave, -hw, hw, Kp.Brick, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+            // The lean-to: the back edge against the plinth at the ridge height, the eave 0.9 m out over the street.
+            const double over = 0.9;
+            double wb = -hw, wf = hw + over, vb = ShopRidge, vf = ShopEave;
+            SacredDraw.Quad(m, at, -hu - 0.3, vf, wf, hu + 0.3, vf, wf, hu + 0.3, vb, wb, -hu - 0.3, vb, wb, 0, wf - wb, vb - vf, tile);
+            // The gable ends and the fascia board.
+            for (int e = -1; e <= 1; e += 2)
+            {
+                double ue = e * (hu + 0.01);
+                SacredDraw.Quad(m, at, ue, -0.2, -hw, ue, -0.2, hw, ue, vf + (vb - vf) * over / (wf - wb), hw, ue, vb, wb, e, 0, 0, Kp.Brick);
+            }
+            Kp.Box(m, at, -hu - 0.3, hu + 0.3, vf - 0.22, vf, wf - 0.06, wf, Kp.Wood, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+            SacredDraw.Quad(m, at, -hu - 0.3, vf - 0.22, wf - 0.06, hu + 0.3, vf - 0.22, wf - 0.06, hu + 0.3, vf + 0.1, hw, -hu - 0.3, vf + 0.1, hw, 0, -1, 0,
+                            Kp.Ao(Kp.Wood, 0.55f));
+            if (lod == 0)
+            {
+                // Tile courses: low ridges across the slope.
+                int courses = 9;
+                for (int i = 1; i < courses; i++)
+                {
+                    double tt = (double)i / courses, w = wf + (wb - wf) * tt, v = vf + (vb - vf) * tt;
+                    Kp.Box(m, at, -hu - 0.3, hu + 0.3, v - 0.01, v + 0.05, w - 0.05, w + 0.05, Kp.Tint(tile, 0.8f), BoxFaces.Top | BoxFaces.Front);
+                }
+            }
             Affine3 front = KpStack.Face(at, 90, hw);
-            int shops = 18;
+            int shops = 22;
             double bay = 2 * hu / shops;
             for (int i = 0; i < shops; i++)
             {
                 double u = -hu + bay * (i + 0.5);
-                Kp.Panel(m, front, u - 0.5 * bay + 0.15, 0.1, u + 0.5 * bay - 0.15, ShopEave - 0.3, 0.01, Kp.Ao(Kp.Recess, 0.9f));
+                Kp.Panel(m, front, u - 0.5 * bay + 0.12, 0.05, u + 0.5 * bay - 0.12, ShopEave - 0.35, 0.01, Kp.Ao(Kp.Recess, 0.9f));
                 if (lod >= 2) continue;
-                // A red cloth awning sloping out over the shopfront.
-                SacredDraw.Quad(m, front, u - 0.5 * bay + 0.1, ShopEave - 0.2, 0.05, u + 0.5 * bay - 0.1, ShopEave - 0.2, 0.05, u + 0.5 * bay - 0.1, ShopEave - 0.75, 1.4,
-                                u - 0.5 * bay + 0.1, ShopEave - 0.75, 1.4, 0, 0.93, 0.37, i % 3 == 2 ? Kp.Valance : Kp.Cloak);
-                if (lod == 0) Kp.Box(m, front, u - 0.5 * bay + 0.2, u + 0.5 * bay - 0.2, 0, 0.8, 0.0, 0.6, i % 2 == 0 ? Kp.Cream : Kp.Leaves, BoxFaces.Front | BoxFaces.Top);
+                // Goods in the opening: hanging cloth and shawls in bright colours, a low counter.
+                uint h = (uint)(i * 2654435761u);
+                ShapeBrush goods = (h >> 7) % 4 == 0 ? Kp.Cloak : (h >> 7) % 4 == 1 ? Kp.Cream : (h >> 7) % 4 == 2 ? Kp.GateBlue : Kp.Green;
+                Kp.Panel(m, front, u - 0.5 * bay + 0.25, 0.9, u - 0.05, ShopEave - 0.45, 0.06, goods);
+                if (lod == 0)
+                {
+                    Kp.Panel(m, front, u + 0.08, 1.1, u + 0.5 * bay - 0.25, ShopEave - 0.45, 0.05, (h >> 11) % 2 == 0 ? Kp.Tint(Kp.Cloak, 1.2f) : Kp.Tint(Kp.Teal, 1.3f));
+                    Kp.Box(m, front, u - 0.5 * bay + 0.2, u + 0.5 * bay - 0.2, 0, 0.75, 0.0, 0.55, Kp.WoodMid, BoxFaces.Front | BoxFaces.Top);
+                }
             }
             for (int i = 0; i <= shops; i++)
-                Kp.Box(m, front, -hu + bay * i - 0.09, -hu + bay * i + 0.09, 0, ShopEave, 0, 0.12, Kp.Wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                Kp.Box(m, front, -hu + bay * i - 0.09, -hu + bay * i + 0.09, 0, ShopEave - 0.2, 0, 0.12, Kp.Wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+            Kp.Band(m, front, -hu, hu, ShopEave - 0.45, ShopEave - 0.2, 0.16, Kp.WoodBeam);
             if (f.C == null) return;
+            // The solid stops 1.3 m inside the open shopfronts: Makhan Tole's drawn carriageway runs up to the front.
+            const double FrontGap = 1.3;
             double x, y;
-            Local(cu, cw, out x, out y);
-            f.Box(x, y, hu, hw, Bearing, 0, ShopRidge, GenColliderFlags.NoClimb, GenColliders.Brick);
+            Local(cu, cw - 0.5 * FrontGap, out x, out y);
+            f.Box(x, y, hu, hw - 0.5 * FrontGap, Bearing, 0, ShopRidge, GenColliderFlags.NoClimb, GenColliders.Brick);
+        }
+
+        private static ShapeBrush B2(uint rgb, MaterialChannel ch)
+        {
+            return new ShapeBrush(MeshColor.FromHex(rgb), ch, 1f);
         }
 
         private static void Lod3(ref KpFrame f, MeshData m, in Affine3 k)

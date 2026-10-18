@@ -29,7 +29,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Shutter = B(0x3A2C24, MaterialChannel.Wood);
         public static readonly ShapeBrush Green = B(0x1F7A55, MaterialChannel.Paint);
         public static readonly ShapeBrush Cream = B(0xE9D9A6, MaterialChannel.Plaster);
-        public static readonly ShapeBrush Glass = B(0x2C3438, MaterialChannel.Glass);
+        public static readonly ShapeBrush Glass = B(0x1E2427, MaterialChannel.Glass);
 
         // --- Newar brick ranges and towers (§3.4, §3.11-3.16, §3.19) ----------------------------------------------------
         public static readonly ShapeBrush Brick = B(0x9C4A36, MaterialChannel.Brick);
@@ -48,8 +48,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Tile = B(0x6E4B3A, MaterialChannel.RoofTile);
         public static readonly ShapeBrush TileRidge = B(0x553829, MaterialChannel.RoofTile);
         public static readonly ShapeBrush TileMoss = B(0x6B6047, MaterialChannel.RoofTile);
-        public static readonly ShapeBrush TowerTile = B(0x5A3E30, MaterialChannel.RoofTile);
-        public static readonly ShapeBrush Copper = B(0x7F9686, MaterialChannel.Metal);
+        public static readonly ShapeBrush TowerTile = B(0x6A4A3A, MaterialChannel.RoofTile);
+        public static readonly ShapeBrush Copper = B(0x6F8577, MaterialChannel.Metal);
         public static readonly ShapeBrush CopperSeam = B(0x5E7466, MaterialChannel.Metal);
         public static readonly ShapeBrush CopperDark = B(0x5A5446, MaterialChannel.Metal);
         public static readonly ShapeBrush DeguCopper = B(0x5C5A4C, MaterialChannel.Metal);
@@ -74,7 +74,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Silver = B(0xC9CED6, MaterialChannel.Metal);
         public static readonly ShapeBrush RedOchre = B(0xC4472E, MaterialChannel.Plaster);
         public static readonly ShapeBrush Sindoor = B(0x8E2B22, MaterialChannel.Paint);
-        public static readonly ShapeBrush Cloak = B(0xC8102E, MaterialChannel.Fabric);
+        public static readonly ShapeBrush Cloak = B(0xD9541E, MaterialChannel.Fabric);
         public static readonly ShapeBrush Parasol = B(0x2A2422, MaterialChannel.Fabric);
         public static readonly ShapeBrush Grass = B(0x6F7A45, MaterialChannel.Grass);
         public static readonly ShapeBrush BrickPave = B(0xA0503A, MaterialChannel.Brick);
@@ -139,12 +139,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Band(m, k, u0 - 0.04, u1 + 0.04, v + s, v + 2 * s, 0.12, Tint(b, 1.12f));
             Band(m, k, u0 - 0.08, u1 + 0.08, v + 2 * s, v + h, 0.19, b);
             if (lod > 0) return;
-            // A row of small carved blocks (dentils) on the middle step.
+            // A row of small carved blocks (dentils) on the middle step (front and underside: seen from the street).
             int n = Math.Max(2, (int)((u1 - u0) / 0.45));
             for (int i = 0; i < n; i++)
             {
                 double u = u0 + (u1 - u0) * (i + 0.5) / n;
-                SacredDraw.Box(m, k, u - 0.07, u + 0.07, v + s + 0.03, v + 2 * s - 0.03, 0.12, 0.17, b, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Bottom);
+                SacredDraw.Box(m, k, u - 0.07, u + 0.07, v + s + 0.03, v + 2 * s - 0.03, 0.12, 0.17, b, BoxFaces.Front | BoxFaces.Bottom);
             }
         }
 
@@ -161,7 +161,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 Panel(m, k, u - 0.5 * ww, vc - 0.5 * wh, u + 0.5 * ww, vc + 0.5 * wh, 0.02, Recess);
                 return;
             }
-            SacredParts.LatticeWindow(m, k, u, vc, 0, ww, wh, Wood, lod, bars);
+            LatticeFrame(m, k, u, vc, ww, wh, Wood, lod, bars);
+        }
+
+        /// <summary>The palace's lattice window body, built lean for the many hundred windows of the courts: the dark
+        /// opening, slim jambs (no hidden tops), the head with its ears and the sill; LOD0 adds the lattice as thin proud bars
+        /// (front faces only) in both directions.</summary>
+        private static void LatticeFrame(MeshData m, in Affine3 k, double u, double vc, double ww, double wh, in ShapeBrush frame, int lod, int bars)
+        {
+            const double Fw = 0.08, Ear = 0.12;
+            double hu = 0.5 * ww, hv = 0.5 * wh;
+            Panel(m, k, u - hu, vc - hv, u + hu, vc + hv, 0.01, Recess);
+            BoxFaces jamb = lod == 0 ? BoxFaces.Front | BoxFaces.Left | BoxFaces.Right : BoxFaces.Front;
+            SacredDraw.Box(m, k, u - hu - Fw, u - hu, vc - hv, vc + hv, 0, 0.09, frame, jamb);
+            SacredDraw.Box(m, k, u + hu, u + hu + Fw, vc - hv, vc + hv, 0, 0.09, frame, jamb);
+            SacredDraw.Box(m, k, u - hu - Fw - Ear, u + hu + Fw + Ear, vc + hv, vc + hv + Fw, 0, 0.1, frame,
+                           lod == 0 ? BoxFaces.Wall | BoxFaces.Bottom : BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+            SacredDraw.Box(m, k, u - hu - Fw - Ear, u + hu + Fw + Ear, vc - hv - Fw, vc - hv, 0, 0.1, frame,
+                           lod == 0 ? BoxFaces.Wall : BoxFaces.Front | BoxFaces.Top);
+            if (lod >= 1 || bars <= 0) return;
+            const double Bw = 0.025, Proud = 0.045;
+            for (int i = 1; i <= bars; i++)
+            {
+                double uu = u - hu + ww * i / (bars + 1), vv = vc - hv + wh * i / (bars + 1);
+                Panel(m, k, uu - Bw, vc - hv, uu + Bw, vc + hv, Proud, frame);
+                Panel(m, k, u - hu, vv - Bw, u + hu, vv + Bw, Proud + 0.004, frame);
+            }
         }
 
         /// <summary>A Newar window with a cusped arch head (the upper windows of Kumari Ghar and the palace courts): a carved
@@ -174,7 +199,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 return;
             }
             double archRise = 0.36 * ww;
-            SacredParts.LatticeWindow(m, k, u, v0 + 0.5 * (wh - archRise), 0, ww, wh - archRise, Wood, lod, lod == 0 ? 3 : 0);
+            LatticeFrame(m, k, u, v0 + 0.5 * (wh - archRise), ww, wh - archRise, Wood, lod, lod == 0 ? 3 : 0);
             ShikharaGenerator.Arch(m, k, u, v0 + wh - archRise, 0.02, ww, archRise, 0.09, 0.08, true, Wood, lod);
             Panel(m, k, u - 0.5 * ww, v0 + wh - archRise, u + 0.5 * ww, v0 + wh - 0.05, 0.015, Recess);
         }
@@ -275,6 +300,39 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             return t;
         }
 
+        /// <summary>
+        /// A carved timber crest (the tympanum of a Newar window or door hood): a pointed arch with a scalloped (flame)
+        /// edge, half width 0.5·<paramref name="width"/> and height <paramref name="h"/>, standing on its base line at
+        /// (u, v) on the wall plane w, with a recessed inner field and a boss at LOD0. Cheap: about 60-150 triangles.
+        /// Returns its top.
+        /// </summary>
+        public static double Crest(MeshData m, in Affine3 k, double u, double v, double w, double width, double h, in ShapeBrush b, int lod)
+        {
+            double r = 0.5 * width;
+            int seg = lod == 0 ? 10 : lod == 1 ? 8 : 4;
+            double[] x = ShapeScratch.U, z = ShapeScratch.W;
+            for (int pass = 0; pass < (lod == 0 ? 2 : 1); pass++)
+            {
+                double sc = pass == 0 ? 1 : 0.72;
+                int n = 0;
+                for (int i = 0; i <= seg; i++)
+                {
+                    double a = Math.PI * i / seg, sa = Math.Sin(a);
+                    double edge = pass == 0 && lod == 0 && i % 2 == 1 ? 0.93 : 1.0;
+                    x[n] = sc * r * Math.Cos(a) * edge;
+                    z[n] = -(sc * h * Math.Pow(sa, 0.8) * (0.86 + 0.14 * Math.Pow(sa, 14)) * edge);
+                    n++;
+                }
+                // Basis: x = u, extrusion y = +w (outward), z = x × y = −v.
+                Affine3 f = SacredDraw.Basis(k, u, v + (pass == 0 ? 0 : 0.06 * h), w + (pass == 0 ? 0 : 0.07), 1, 0, 0, 0, 0, 1);
+                ShapeBrush br = pass == 0 ? b : Tint(b, 0.75f);
+                if (lod >= 1 || pass == 1) Shapes.BevelExtrude(m, f, br, x, z, n, pass == 0 ? 0.08 : 0.03, 0, 0, BevelStyle.Chamfer, true, false);
+                else Shapes.BevelExtrude(m, f, br, x, z, n, 0.08, 0.02, 1, BevelStyle.Chamfer, true, false);
+            }
+            if (lod == 0) Shapes.Sphere(m, SacredDraw.At(k, u, v + 0.42 * h, w + 0.1), b, Math.Min(0.09, 0.18 * r), 5);
+            return v + h;
+        }
+
         // =================================================================================================================
         // Galleries, colonnades, railings
         // =================================================================================================================
@@ -351,6 +409,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 }
                 Affine3 at = SacredDraw.At(k, u, v0, w);
                 Shapes.Cylinder(m, SacredDraw.At(k, u, v0 + 0.18, w), b, r, v1 - v0 - 0.36, SacredParts.Seg(10, lod), 0, 0, false, false);
+                if (lod >= 1)
+                {
+                    // Square base and capital blocks.
+                    Box(m, k, u - 1.3 * r, u + 1.3 * r, v0, v0 + 0.18, w - 1.3 * r, w + 1.3 * r, b, BoxFaces.All & ~BoxFaces.Bottom);
+                    Box(m, k, u - 1.4 * r, u + 1.4 * r, v1 - 0.18, v1, w - 1.4 * r, w + 1.4 * r, b, BoxFaces.All & ~BoxFaces.Top);
+                    continue;
+                }
                 Shapes.RoundedBox(m, SacredDraw.At(at, 0, 0.09, 0), b, 2.6 * r, 0.18, 2.6 * r, 0.03, 1);
                 Shapes.RoundedBox(m, SacredDraw.At(k, u, v1 - 0.09, w), b, 2.8 * r, 0.18, 2.8 * r, 0.03, 1);
             }
@@ -388,7 +453,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// optional red valance. Returns the spec (for struts).
         /// </summary>
         public static RoofSpec Ridge(MeshData m, in Affine3 k, double hu, double hw, double eaveV, double ridgeV, double over, in ShapeBrush tile, bool fringe, int lod,
-                                     double coursePitch = 1.1)
+                                     double coursePitch = 1.7)
         {
             double eu = hu + over, ew = hw + over;
             double tu = Math.Max(0.12, eu - ew), tw = Math.Max(0.12, ew - eu);
@@ -418,24 +483,117 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// standing seams instead of tile courses (the copper roofs).
         /// </summary>
         public static RoofSpec Tier(MeshData m, in Affine3 k, double eu, double ew, double eaveV, double tu, double tw, double topV, double wu, double ww,
-                                    in ShapeBrush roof, in ShapeBrush fascia, bool metal, bool fringe, int lod, double lift = 0.05)
+                                    in ShapeBrush roof, in ShapeBrush fascia, bool metal, bool fringe, int lod, double lift = 0.05, double sag = 0.015)
         {
             double t = (eu - wu) / Math.Max(1e-6, eu - tu);
             var r = new RoofSpec
             {
                 EaveU = eu, EaveW = ew, EaveV = eaveV, TopU = tu, TopW = tw, TopV = topV, WallU = wu, WallW = ww,
-                WallTopV = Math.Max(eaveV + 0.05, eaveV + t * (topV - eaveV) - 0.22), Lift = lift * Math.Max(eu, ew), Sag = 0.015 * Math.Min(eu - tu, ew - tw),
-                FasciaH = Math.Min(0.26, 0.1 + 0.012 * Math.Max(eu, ew)), CoursePitch = 0.75, Gilt = metal, Fringe = fringe, FringeH = 0.4, FringePitch = 0.5,
+                WallTopV = Math.Max(eaveV + 0.05, eaveV + t * (topV - eaveV) - 0.22), Lift = lift * Math.Max(eu, ew), Sag = sag * Math.Min(eu - tu, ew - tw),
+                FasciaH = Math.Min(0.26, 0.1 + 0.012 * Math.Max(eu, ew)), CoursePitch = metal ? 0 : 1.05, Gilt = false, Fringe = fringe, FringeH = 0.4, FringePitch = 0.5,
                 Horns = lift > 0.02, Roof = roof, Ridge = metal ? CopperSeam : Tint(roof, 0.75f), Fascia = fascia, Soffit = Ao(Wood, 0.55f), Horn = fascia,
             };
             SacredParts.Roof(m, k, r, Math.Min(2, lod));
+            // Copper sheet: standing seams that follow the sagging slope (the kit's straight seams would float over it).
+            if (metal && lod == 0) Seams(m, k, r, 1.9);
             return r;
+        }
+
+        /// <summary>A quad wound so its front faces the given normal (whatever order the corners come in).</summary>
+        public static void FacingQuad(MeshData m, in Affine3 k, double u0, double v0, double w0, double u1, double v1, double w1, double u2, double v2,
+                                      double w2, double u3, double v3, double w3, double nu, double nv, double nw, in ShapeBrush b)
+        {
+            double ax = u1 - u0, ay = v1 - v0, az = w1 - w0, bx = u2 - u0, by = v2 - v0, bz = w2 - w0;
+            double cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+            if (cx * nu + cy * nv + cz * nw >= 0) SacredDraw.Quad(m, k, u0, v0, w0, u1, v1, w1, u2, v2, w2, u3, v3, w3, nu, nv, nw, b);
+            else SacredDraw.Quad(m, k, u3, v3, w3, u2, v2, w2, u1, v1, w1, u0, v0, w0, nu, nv, nw, b);
+        }
+
+        /// <summary>The standing seams of a copper roof: low ribs (a two-faced ridge) down the slope about every
+        /// <paramref name="pitch"/> metres, sampled along the curved slope so they lie on it.</summary>
+        public static void Seams(MeshData m, in Affine3 k, in RoofSpec r, double pitch)
+        {
+            ShapeBrush b = r.Ridge;
+            const int Steps = 4;
+            const double Half = 0.035, Rise = 0.045;
+            for (int s = 0; s < 4; s++)
+            {
+                double len = 2 * (s % 2 == 0 ? r.EaveU : r.EaveW);
+                int n = Math.Max(3, (int)Math.Round(len / pitch));
+                double su = s == 0 ? 1 : s == 2 ? -1 : 0, sw = s == 1 ? 1 : s == 3 ? -1 : 0;
+                for (int j = 0; j < n; j++)
+                {
+                    double a = -0.95 + 1.9 * (j + 0.5) / n;
+                    double pu = 0, pv = 0, pw = 0, pnu = 0, pnv = 0, pnw = 0;
+                    for (int q = 0; q <= Steps; q++)
+                    {
+                        double tt = 0.02 + 0.95 * q / Steps, u, v, w, nu, nv, nw;
+                        SacredParts.RoofPoint(r, s, a, tt, out u, out v, out w);
+                        SacredParts.RoofNormal(r, s, a, tt, out nu, out nv, out nw);
+                        if (q > 0)
+                        {
+                            // Left and right faces of the rib between the previous sample and this one.
+                            for (int side = -1; side <= 1; side += 2)
+                            {
+                                double ex = side * Half;
+                                double a0u = pu + su * ex, a0v = pv, a0w = pw + sw * ex, a1u = u + su * ex, a1v = v, a1w = w + sw * ex;
+                                double t0u = pu + Rise * pnu, t0v = pv + Rise * pnv, t0w = pw + Rise * pnw;
+                                double t1u = u + Rise * nu, t1v = v + Rise * nv, t1w = w + Rise * nw;
+                                double fu = 0.5 * (pnu + nu) + side * su, fv = 0.5 * (pnv + nv), fw = 0.5 * (pnw + nw) + side * sw;
+                                FacingQuad(m, k, a0u, a0v, a0w, a1u, a1v, a1w, t1u, t1v, t1w, t0u, t0v, t0w, fu, fv, fw, b);
+                            }
+                        }
+                        pu = u; pv = v; pw = w; pnu = nu; pnv = nv; pnw = nw;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dense dark rafters under a deep temple soffit (Taleju's lowest roofs, photo taleju c_25): thin battens from the
+        /// fascia back to the wall every <paramref name="pitch"/> metres on all four sides, hanging a hand under the soffit.
+        /// The roof's rings are the arguments of <see cref="Tier"/>. LOD0 only.
+        /// </summary>
+        public static void SoffitRafters(MeshData m, in Affine3 k, double eu, double ew, double eaveV, double tu, double tw, double topV, double wu, double ww,
+                                         double pitch, int lod)
+        {
+            if (lod > 0) return;
+            double t = (eu - wu) / Math.Max(1e-6, eu - tu);
+            var r = new RoofSpec
+            {
+                EaveU = eu, EaveW = ew, EaveV = eaveV, TopU = tu, TopW = tw, TopV = topV, WallU = wu, WallW = ww,
+                WallTopV = Math.Max(eaveV + 0.05, eaveV + t * (topV - eaveV) - 0.22), FasciaH = Math.Min(0.26, 0.1 + 0.012 * Math.Max(eu, ew)),
+            };
+            ShapeBrush b = Ao(WoodBeam, 0.5f);
+            for (int s = 0; s < 4; s++)
+            {
+                double len = 2 * (s % 2 == 0 ? eu : ew);
+                int n = Math.Max(4, (int)Math.Round(len / pitch));
+                double ou, ow;
+                SacredParts.Out(s, out ou, out ow);
+                for (int i = 1; i < n; i++)
+                {
+                    double a = -1 + 2.0 * i / n, pu, pv, pw, qu, qw;
+                    SacredParts.RoofPoint(r, s, a, 0, out pu, out pv, out pw);
+                    pv -= r.FasciaH + 0.02;
+                    SacredParts.OnRect(s, a, wu, ww, out qu, out qw);
+                    double qv = r.WallTopV - 0.02;
+                    // Along-eave direction for the batten's width.
+                    double su = Math.Abs(ow), sw = Math.Abs(ou), hw = 0.025;
+                    SacredDraw.Quad(m, k, pu - su * hw, pv - 0.07, pw - sw * hw, pu + su * hw, pv - 0.07, pw + sw * hw, qu + su * hw, qv - 0.07, qw + sw * hw,
+                                    qu - su * hw, qv - 0.07, qw - sw * hw, 0, -1, 0, b);
+                }
+            }
         }
 
         /// <summary>Carved struts under a roof every <paramref name="pitch"/> metres along each wall (LOD0 and LOD1).</summary>
         public static int Struts(MeshData m, in Affine3 k, in RoofSpec r, double footV, double pitch, bool rich, uint seed, int lod)
         {
             if (lod >= 2) return 0;
+            // The struts' feet sit on the cornice a little under the soffit (the photographed struts are about as long as
+            // the eave is deep), never down the wall.
+            double over = Math.Max(r.EaveU - r.WallU, r.EaveW - r.WallW);
+            footV = Math.Max(footV, r.WallTopV - (1.15 * over + 0.45));
             int pu = Math.Max(2, (int)Math.Round(2 * r.WallU / pitch)), pw = Math.Max(2, (int)Math.Round(2 * r.WallW / pitch));
             return SacredParts.Struts(m, k, r, footV, pu, pw, rich, Wood, seed, lod);
         }
@@ -463,11 +621,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         // =================================================================================================================
 
         /// <summary>A guardian lion on a moulded pedestal at (u, w) of a frame, facing +w; painted white with stripes when
-        /// <paramref name="painted"/> (the gate lions), grey stone otherwise. h is the lion's height.</summary>
-        public static void Lion(MeshData m, in Affine3 k, double u, double v, double w, double pedestal, double h, bool painted, int side, int lod)
+        /// <paramref name="painted"/> (the gate lions), grey stone otherwise (the pedestal lions on Basantapur). h is the lion's
+        /// height; <paramref name="quality"/> is the figure quality (the generic figure but for the Hanuman Dhoka pair).</summary>
+        public static void Lion(MeshData m, in Affine3 k, double u, double v, double w, double pedestal, double h, bool painted, int side, int lod,
+                                int quality = SacredFigures.Generic)
         {
             SacredParts.Pedestal(m, k, u, v, w, 0.32 * h, 0.42 * h, pedestal, painted ? Dado : StoneGrey, Math.Min(2, lod));
-            SacredFigures.Guardian(m, k, u, v + pedestal, w, h, GuardianKind.Lion, painted, SacredFigures.Hero, Math.Min(2, lod), side);
+            SacredFigures.Guardian(m, k, u, v + pedestal, w, h, GuardianKind.Lion, painted, quality, Math.Min(2, lod), side);
             if (!painted || lod > 0) return;
             // The red stripes of the Hanuman Dhoka and Singha Dhoka lions: thin bands round the legs and the chest.
             for (int s = -1; s <= 1; s += 2)
@@ -478,7 +638,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>A gilt finial (gajur) from v0 at (u, w).</summary>
         public static double Finial(MeshData m, in Affine3 k, double u, double v0, double w, double h, double r, int lod, bool taleju = false)
         {
-            return SacredParts.Gajur(m, SacredDraw.At(k, u, 0, w), v0, h, r, Gilt, Math.Min(2, lod), taleju);
+            // Small finials (under 2 m) are a gilt cone from LOD1 on; the big ones keep their rings to LOD1.
+            int fl = lod >= 1 && h < 2.0 ? 2 : Math.Min(2, lod);
+            return SacredParts.Gajur(m, SacredDraw.At(k, u, 0, w), v0, h, r, Gilt, fl, taleju);
         }
 
         /// <summary>A potted plant (terracotta pot and a leafy crown) at (u, v, w).</summary>
@@ -499,7 +661,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 bool tall = i % 2 == 0;
                 double hh = tall ? h : 0.7 * h, rr = tall ? 0.22 : 0.17;
                 if (lod >= 2 && !tall) continue;
-                Finial(m, k, u + 0.4 * i, v + 0.25, w, hh, rr, lod);
+                // The middle one carries the detail; the others one LOD coarser.
+                Finial(m, k, u + 0.4 * i, v + 0.25, w, hh, rr, i == 0 ? lod : Math.Min(2, lod + 1));
             }
         }
 

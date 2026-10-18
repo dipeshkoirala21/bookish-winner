@@ -62,7 +62,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFacade.Court(m, ref f, -33.0, -22.5, -62.8, -52.5, Kp.Flags);
             if (lod == 0)
             {
-                // The court faces: rows of shuttered windows (seen from the towers and the air).
+                // The court faces: rows of shuttered windows as flat dark panes (seen only from the towers and the air).
                 CourtFaces(ref f, m, -35.0, -24.0, -38.0, DB0);
                 CourtFaces(ref f, m, -33.0, -22.5, -62.8, -52.5);
             }
@@ -107,7 +107,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             // The black balcony on its struts, the upper windows behind it.
             double bv = DakhaBalcony - PlatformH;
             Kp.Gallery(m, k, -half - 0.05, half + 0.05, bv, 1.0, 0.95, 0.95, lod);
-            for (int i = 0; i < wins; i++) Kp.RanaWindow(m, k, -half + 2 * half * (i + 0.5) / wins, bv + 0.45, 0.9, 1.75, Kp.Shutter, false, lod);
+            // (Behind the balcony they read as dark panes from LOD1 on.)
+            for (int i = 0; i < wins; i++) Kp.RanaWindow(m, k, -half + 2 * half * (i + 0.5) / wins, bv + 0.45, 0.9, 1.75, Kp.Shutter, false, lod == 0 ? 0 : 2);
             Kp.Band(m, k, -half - 0.05, half + 0.05, DakhaEave - PlatformH - 0.6, DakhaEave - PlatformH - 0.4, 0.14, Kp.WhiteTrim);
             if (lod <= 1) Kp.Struts(m, rk, roof, DakhaEave - 1.9, 1.35, false, 501u, lod);
             if (lod <= 1)
@@ -141,7 +142,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 int n = Math.Max(1, (int)Math.Round(2 * half / 3.0));
                 for (int fl = 0; fl < 2; fl++)
                     for (int i = 0; i < n; i++)
-                        Kp.RanaWindow(m, k, -half + 2 * half * (i + 0.5) / n, CourtFloors[fl] + 0.7, 0.85, 1.5, Kp.Shutter, true, 1);
+                        Kp.RanaWindow(m, k, -half + 2 * half * (i + 0.5) / n, CourtFloors[fl] + 0.7, 0.85, 1.5, Kp.Shutter, true, 2);
             }
         }
 
@@ -170,8 +171,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 KpLod3.Pyramid(m, g, 0.5 * (RA0 + RA1), 0.5 * (RB0 + RB1), 12.0, 7.4, WingEave, WingRidge, Kp.Tile);
                 return;
             }
-            Wing(ref f, m, WA0, WA1, WB0, WB1, KpFoot.Lattice, 2.6, true, 601u);
-            Wing(ref f, m, RA0, RA1, RB0, RB1, KpFoot.BlindArches, 2.8, false, 607u);
+            Wing(ref f, m, WA0, WA1, WB0, WB1, KpFoot.Lattice, 3.9, true, 601u);
+            Wing(ref f, m, RA0, RA1, RB0, RB1, KpFoot.BlindArches, 3.9, false, 607u);
             if (f.C != null)
             {
                 f.GridBox(WA0, WA1, WB0, WB1, 0, WingRidge, GenColliderFlags.NoClimb, GenColliders.Brick);

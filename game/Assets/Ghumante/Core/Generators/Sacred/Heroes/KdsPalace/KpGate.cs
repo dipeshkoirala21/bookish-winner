@@ -25,6 +25,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>The door's centre on the west face (palace grid b) and Hanuman's (b and his distance out of the wall).</summary>
         public const double DoorB = -4.9, HanumanB = -1.4, HanumanOut = 1.3;
 
+        /// <summary>The door opening: its sill above the square, clear width and height (m).</summary>
+        public const double DoorSill = 0.45, DoorW = 1.45, DoorH = 2.6;
+
         /// <summary>Agamchhen's centre on the block (palace grid) and its finial top.</summary>
         public const double AgamA = -7.0, AgamB = 0.6, AgamTopM = 23.0;
 
@@ -42,7 +45,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double uDoor = -(DoorB - bm), uHan = -(HanumanB - bm);
             // The block: walls (the west front dressed below), the roof, the gallery.
             Affine3 g = f.Grid;
-            Kp.Box(m, g, A0, A1, -0.2, EaveV - 0.3, B0, B1, Kp.White, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+            if (lod >= 2) Kp.Box(m, g, A0, A1, -0.2, EaveV - 0.3, B0, B1, Kp.White, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+            else
+            {
+                // The west face is left open at the door so the passage (and Narasimha) behind it shows.
+                Kp.Box(m, g, A0, A1, -0.2, EaveV - 0.3, B0, B1, Kp.White, BoxFaces.Front | BoxFaces.Back | BoxFaces.Right);
+                double dl = uDoor - 0.5 * DoorW, dr = uDoor + 0.5 * DoorW, top = EaveV - 0.3;
+                Kp.Panel(m, west, -half, -0.2, dl, top, 0, Kp.White);
+                Kp.Panel(m, west, dr, -0.2, half, top, 0, Kp.White);
+                Kp.Panel(m, west, dl, DoorSill + DoorH, dr, top, 0, Kp.White);
+                Kp.Panel(m, west, dl, -0.2, dr, DoorSill, 0, Kp.White);
+            }
             Kp.Ridge(m, SacredDraw.At(g, 0.5 * (A0 + A1), 0, bm), 0.5 * (A1 - A0), 0.5 * (B1 - B0), EaveV, RidgeV, 1.05, Kp.TileMoss, false, lod);
             WestFront(ref f, m, west, half, uDoor, uHan);
             Gate(ref f, m, west, uDoor);
@@ -97,7 +110,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 if (lod >= 2) Kp.Box(m, k, u - 2.4, u + 2.4, 0, top, 0, depth, Kp.Step, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
                 else Shapes.RoundedBox(m, SacredDraw.At(k, u, top - 0.08, 0.5 * depth), Kp.Ao(Kp.Step, s == 2 ? 1f : 0.9f), 4.8, 0.16, depth, 0.025, 1);
             }
-            double sill = 0.45, dw = 1.45, dh = 2.6, top0 = sill + dh, jamb = 0.3;
+            double sill = DoorSill, dw = DoorW, dh = DoorH, top0 = sill + dh, jamb = 0.3;
             // The passage behind the door (the Narasimha niche is on its north wall, the court's light far at its end).
             Passage(ref f, m, k, u, sill, dw, dh);
             // Gilt repoussé jambs and lintel.
@@ -201,7 +214,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             for (int s = -1; s <= 1; s += 2)
             {
                 double ul = u + s * (p1 + 0.75);
-                Kp.Lion(m, k, ul, 0, 0.72, 0.85, 1.45, true, s, lod);
+                Kp.Lion(m, k, ul, 0, 0.72, 0.85, 1.45, true, s, lod, SacredFigures.Hero);
                 if (lod <= 1)
                 {
                     // The rider seated on the lion's back.
@@ -229,7 +242,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             SacredDraw.Quad(m, k, u - hu, sill, -depth, u - hu, sill, 0, u - hu, sill + dh, 0, u - hu, sill + dh, -depth, 1, 0, 0, wall);
             SacredDraw.Quad(m, k, u + hu, sill, -depth, u + hu, sill, 0, u + hu, sill + dh, 0, u + hu, sill + dh, -depth, -1, 0, 0, wall);
             SacredDraw.Quad(m, k, u - hu, sill + dh, -depth, u + hu, sill + dh, -depth, u + hu, sill + dh, 0, u - hu, sill + dh, 0, 0, -1, 0, Kp.Ao(Kp.Wood, 0.5f));
-            Kp.Panel(m, k, u - hu, sill, u + hu, sill + dh, -depth, Kp.Ao(Kp.Wood, 0.45f));
+            Kp.Panel(m, k, u - hu, sill, u + hu, sill + dh, -depth, Kp.Ao(Kp.BrickNew, 0.85f)); // the sunlit court at the end
             // The carved door leaves stand open against the passage walls.
             SacredDraw.Quad(m, k, u - hu + 0.06, sill, -0.15, u - hu + 0.06, sill, -0.15 - hu, u - hu + 0.06, sill + dh, -0.15 - hu, u - hu + 0.06, sill + dh, -0.15, 1, 0, 0,
                             Kp.Ao(Kp.WoodMid, 0.6f));
@@ -269,7 +282,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Shapes.RoundedBox(m, SacredDraw.At(k, u, 0.6, w), Kp.Tint(Kp.Sindoor, 0.8f), 0.86, 0.8, 0.86, 0.05, 2, sl);
             Shapes.RoundedBox(m, SacredDraw.At(k, u, 1.4, w), Kp.Sindoor, 0.84, 0.8, 0.84, 0.05, 2, sl);
             Shapes.RoundedBox(m, SacredDraw.At(k, u, 1.86, w), Kp.Tint(Kp.Sindoor, 1.2f), 1.0, 0.12, 1.0, 0.03, 1, sl);
-            // The cloaked figure: a bell of red cloth narrowing to broad shoulders, the head a sindoor-red knob.
+            // The cloaked figure: a bell of red-orange cloth narrowing to broad shoulders, the head a knob under the cloth.
             const double fv = 1.92;
             var p = new Profile2(16);
             p.Add(0, 0, true).Add(0.45, 0, true).Add(0.47, 0.12).Add(0.43, 0.5).Add(0.41, 0.9).Add(0.4, 1.18).Add(0.31, 1.3).Add(0.16, 1.36).Add(0, 1.37, true);

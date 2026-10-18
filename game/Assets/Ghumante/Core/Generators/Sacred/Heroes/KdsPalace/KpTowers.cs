@@ -32,7 +32,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>The Lalitpur tower's base.</summary>
         public const double LA0 = 46.0, LA1 = 57.0, LB0 = -69.6, LB1 = -58.6;
 
-        private static readonly double[] BaseFloors = { 3.4, 6.8 };
+        private static readonly double[] BaseFloors = { 3.6, 7.4 };
         private static readonly double[] LowFloors = { 3.0, 6.0 };
 
         // =============================================================================================================
@@ -51,12 +51,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double am = 0.5 * (BA0 + BA1), bm = 0.5 * (BB0 + BB1), hu = 0.5 * (BA1 - BA0), hw = 0.5 * (BB1 - BB0);
             Affine3 k = PlanAt(ref f, am, bm);
             var t = new KpTier[4];
-            t[0] = new KpTier { Base = 0, WallU = hu, WallW = hw, Eave = RangeEave, EaveU = hu + 2.4, EaveW = hw + 2.4, Top = 11.7, Walls = KpWalls.Plain };
-            t[1] = new KpTier { Base = 11.7, WallU = 5.3, WallW = 5.3, Eave = 15.0, EaveU = 7.7, EaveW = 7.7, Top = 16.5, Walls = KpWalls.Lattice };
-            t[2] = new KpTier { Base = 16.5, WallU = 4.6, WallW = 4.6, Eave = 20.0, EaveU = 6.9, EaveW = 6.9, Top = 21.4, Walls = KpWalls.Brick, Windows = 2 };
+            // Measured on the photographs (c_10 from the south-west before 2015, c_00 of the rebuilt south face): the upper
+            // storeys stay nearly as wide as the base (13.5-14.6 m) and every roof overhangs it by 2.5-3 m, eaves at about
+            // 11, 16.5, 20.5 and 25 m, the top roof a short ridge with the three gilt finials to 30 m.
+            t[0] = new KpTier { Base = 0, WallU = hu, WallW = hw, Eave = 11.0, EaveU = hu + 2.5, EaveW = hw + 2.5, Top = 13.6, Walls = KpWalls.Plain };
+            t[1] = new KpTier { Base = 13.6, WallU = 6.5, WallW = 6.4, Eave = 16.4, EaveU = 9.4, EaveW = 9.3, Top = 18.6, Walls = KpWalls.Lattice };
+            t[2] = new KpTier { Base = 18.6, WallU = 6.3, WallW = 6.2, Eave = 20.6, EaveU = 8.9, EaveW = 8.8, Top = 22.4, Walls = KpWalls.Brick, Windows = 3, WinSill = 0.3, WinH = 1.2 };
             t[3] = new KpTier
             {
-                Base = 21.4, WallU = 4.1, WallW = 4.1, Eave = 25.0, EaveU = 6.4, EaveW = 6.2, Top = 28.3, ApexU = 1.6, ApexW = 0.22, Walls = KpWalls.Lattice,
+                Base = 22.4, WallU = 6.0, WallW = 5.9, Eave = 25.0, EaveU = 7.9, EaveW = 7.8, Top = 28.6, ApexU = 2.2, ApexW = 0.25, Walls = KpWalls.Lattice,
             };
             if (lod >= 3)
             {
@@ -65,25 +68,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
             KpRoofLook look = KpRoofLook.TilePlain(Kp.TowerTile);
             look.StrutPitch = 1.15;
-            KpStack.Build(m, k, t, 4, Kp.BrickNew, look, 91u, lod);
+            KpStack.Build(m, k, t, 4, Kp.Tint(Kp.Brick, 0.92f), look, 91u, lod);
             // The three gilt finials on the top ridge.
-            for (int i = -1; i <= 1; i++) Kp.Finial(m, k, 1.3 * i, 28.25, 0, i == 0 ? 1.75 : 1.4, i == 0 ? 0.24 : 0.2, lod);
+            for (int i = -1; i <= 1; i++) Kp.Finial(m, k, 1.7 * i, 28.55, 0, i == 0 ? 1.45 : 1.15, i == 0 ? 0.24 : 0.2, lod);
             // The base storeys: carved windows on the faces that show (S onto Basantapur, N onto Nasal Chowk, E onto Lohan).
             double half;
             Affine3 s = f.GridSide(BA0, BA1, BB0, BB1, 0, 2, out half);
-            KpFacade.Newar(m, s, half, 0, BaseFloors, 2, RangeEave + 0.35, 2.3, 1, -1, false, false, lod);
+            KpFacade.Newar(m, s, half, 0, BaseFloors, 2, 11.2, 2.3, 1, -1, false, false, lod);
             Affine3 n = f.GridSide(BA0, BA1, BB0, BB1, 0, 0, out half);
-            KpFacade.Newar(m, n, half, 0, BaseFloors, 2, RangeEave + 0.35, 2.3, 1, -1, false, true, lod);
+            KpFacade.Newar(m, n, half, 0, BaseFloors, 2, 11.2, 2.3, 1, -1, false, true, lod);
             if (lod <= 1)
             {
                 Affine3 e = f.GridSide(BA0, BA1, BB0, BB1, 0, 1, out half);
-                KpFacade.Newar(m, e, half, 0, BaseFloors, 2, RangeEave + 0.35, 2.6, -1, -1, false, false, Math.Max(1, lod));
+                KpFacade.Newar(m, e, half, 0, BaseFloors, 2, 11.2, 2.6, -1, -1, false, false, Math.Max(1, lod));
             }
             // Storeys 5-6: a carved balcony window at the centre of each face.
             if (lod <= 1)
                 for (int q = 0; q < 4; q++)
-                    Kp.Bay(m, KpStack.Face(k, 90 * q, 4.6), 0, 17.4, 2.4, 1.7, false, lod);
-            Colliders(ref f, BA0, BA1, BB0, BB1, 28.3);
+                    Kp.Bay(m, KpStack.Face(k, 90 * q, 6.25), 0, 18.9, 2.6, 1.5, false, lod);
+            Colliders(ref f, BA0, BA1, BB0, BB1, 28.6);
         }
 
         // =============================================================================================================

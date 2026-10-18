@@ -96,6 +96,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>Number of parts.</summary>
         public const int PartCount = 16;
 
+        /// <summary>The whole palace at LOD0 (all sixteen parts over some 250 × 200 m; the hero allocator shows a part at LOD0
+        /// only while it fills a third of the screen, so a handful at most at once). Above the monuments round's ~150k guide
+        /// for a single-temple site: this site is sixteen structures.</summary>
+        public const int SiteBudgetLod0 = 200000;
+
         private static readonly string[] Ids =
         {
             GateId, TalejuId, TowerId, GaddiId, KumariId, GateId + ".dakha", GateId + ".south_wing", GateId + ".mohan_chowk", GateId + ".degu_taleju",
@@ -111,7 +116,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         };
 
         /// <summary>Highest point of each part above the square (m), as built.</summary>
-        private static readonly float[] Tops = { 23.0f, 35.0f, 30.0f, 21.0f, 15.6f, 16.2f, 17.4f, 14.6f, 26.0f, 13.6f, 25.0f, 12.2f, 16.4f, 23.0f, 19.5f, 21.0f };
+        private static readonly float[] Tops = { 23.2f, 35.5f, 30.0f, 21.4f, 15.9f, 18.3f, 17.9f, 16.9f, 26.2f, 17.0f, 25.2f, 15.0f, 14.8f, 23.1f, 19.6f, 21.0f };
 
         /// <summary>Bearing of each part's main facade or door.</summary>
         private static readonly float[] Doors = { 282f, 283f, 192f, 281f, 10f, 12f, 192f, 282f, 282f, 12f, 192f, 12f, 192f, 282f, 102f, 192f };
@@ -125,30 +130,31 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
 
         private static readonly float[] Plans =
         {
-            12f, 16f, 66f, 75f, 14f, 14f, 46f, 36f, 21f, 25f, 38f, 52f, 40f, 14f, 27f, 41f, 14f, 16f, 20f, 47f, 9f, 9f, 34f, 34f, 38f, 38f, 9f, 9f, 9f, 9f, 11f,
+            16f, 10f, 66f, 75f, 14f, 14f, 46f, 36f, 21f, 25f, 38f, 52f, 40f, 14f, 27f, 41f, 14f, 16f, 20f, 47f, 9f, 9f, 34f, 34f, 38f, 38f, 9f, 9f, 9f, 9f, 11f,
             11f,
         };
 
-        /// <summary>Per-part LOD ceilings (LOD0..3). The whole site is about 150,000 triangles at LOD0 (the monuments round's
-        /// allowance: up to about 60,000 for a major temple and 150,000 for a site); LOD1 about 30 %, LOD2 about 8 %.</summary>
+        /// <summary>Per-part LOD ceilings (LOD0..3): each part as built with about 10 % headroom, Taleju (the one major temple)
+        /// well under the round's 60,000; the whole site is held to <see cref="SiteBudgetLod0"/>. LOD1 is about a third of
+        /// LOD0 (the enclosed courts drop a level), LOD2 under an eighth.</summary>
         private static readonly int[][] Budgets =
         {
-            new[] { 20000, 6500, 1800, 200 }, // gate
-            new[] { 48000, 15000, 4200, 200 }, // Taleju
-            new[] { 18000, 5600, 1600, 200 }, // Basantapur tower
-            new[] { 18000, 5600, 1600, 200 }, // Gaddi Baithak
-            new[] { 16000, 5000, 1400, 200 }, // Kumari Ghar
-            new[] { 14000, 4400, 1200, 200 }, // Dakha
-            new[] { 9000, 2800, 800, 200 }, // south wing
-            new[] { 9000, 2800, 800, 200 }, // Mohan
-            new[] { 14000, 4400, 1200, 200 }, // Degu Taleju
-            new[] { 12000, 3800, 1000, 200 }, // Nasal
-            new[] { 9000, 2800, 800, 200 }, // Panch Mukhi
-            new[] { 7000, 2200, 600, 200 }, // Mul
-            new[] { 16000, 5000, 1400, 200 }, // Lohan
-            new[] { 7000, 2200, 600, 200 }, // Kirtipur
-            new[] { 6000, 1900, 500, 200 }, // Bhaktapur
-            new[] { 7000, 2200, 600, 200 }, // Lalitpur
+            new[] { 18000, 5200, 900, 200 }, // gate
+            new[] { 33000, 14000, 1700, 200 }, // Taleju
+            new[] { 18500, 5600, 800, 200 }, // Basantapur tower
+            new[] { 12000, 5200, 1500, 200 }, // Gaddi Baithak
+            new[] { 20000, 9000, 900, 200 }, // Kumari Ghar
+            new[] { 13500, 6200, 1100, 200 }, // Dakha
+            new[] { 6800, 2900, 400, 200 }, // south wing
+            new[] { 13000, 5800, 1500, 200 }, // Mohan
+            new[] { 16500, 4900, 900, 200 }, // Degu Taleju
+            new[] { 16500, 7400, 1200, 200 }, // Nasal
+            new[] { 8000, 2400, 750, 200 }, // Panch Mukhi
+            new[] { 7000, 2300, 750, 200 }, // Mul
+            new[] { 15500, 4300, 900, 200 }, // Lohan
+            new[] { 8700, 2300, 450, 200 }, // Kirtipur
+            new[] { 4300, 900, 300, 200 }, // Bhaktapur
+            new[] { 11400, 3300, 600, 200 }, // Lalitpur
         };
 
         /// <summary>The hero id of a part.</summary>
@@ -264,6 +270,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 r.YawDeg = Doors[i];
                 r.PlanW = Plans[2 * i];
                 r.PlanD = Plans[2 * i + 1];
+                // Built by this site's code (the generic form tests and builders leave it alone).
+                r.Form = HeroForm.Bespoke;
                 r.Measured = true;
                 r.BudgetTris = BudgetOf(part);
                 r.Hide = HideRefs(part);

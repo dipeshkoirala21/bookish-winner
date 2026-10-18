@@ -51,12 +51,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFacade.Court(m, ref f, MA0, MA1, MB0, MB1, Kp.Flags);
             if (lod <= 1)
             {
-                // Court faces: carved windows on three floors.
+                // Court faces: carved windows on three floors (one level coarser than the outer faces: the court is only
+                // seen from inside it or from above).
                 for (int s = 0; s < 4; s++)
                 {
                     double half;
                     Affine3 k = f.GridSide(MA0, MA1, MB0, MB1, 0, s, out half);
-                    KpFacade.Newar(m, Flip(k), half, 0, Floors3, 2, MohanEave + 0.3, 2.6, -1, -1, false, s == 0, Math.Max(1, lod));
+                    KpFacade.Newar(m, Flip(k), half, 0, Floors3, 2, MohanEave + 0.3, 2.6, -1, -1, false, s == 0, lod + 1);
                 }
                 // The east face on the lane to Taleju.
                 double h;
@@ -109,6 +110,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double x, y;
             KpFrame.FromGrid(a, b, out x, out y);
             Affine3 k = f.Plan(x, y, 0, 102);
+            if (lod >= 2)
+            {
+                // LOD2: the turret's box and one roof.
+                Kp.Box(m, k, -half, half, from - 0.5, from + 2.6, -half, half, Kp.Brick, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                KpLod3.Pyramid(m, k, 0, 0, half + 1.0, half + 1.0, from + 2.6, from + 5.4, Kp.Tile);
+                return;
+            }
             var t = new KpTier[2];
             t[0] = new KpTier { Base = from, WallU = half, WallW = half, Eave = from + 2.6, EaveU = half + 1.0, EaveW = half + 1.0, Top = from + 3.3, Walls = KpWalls.Brick, Windows = 1 };
             t[1] = new KpTier { Base = from + 3.3, WallU = 0.85 * half, WallW = 0.85 * half, Eave = from + 4.4, EaveU = half + 0.6, EaveW = half + 0.6, Top = from + 5.4, ApexU = 0.15, ApexW = 0.15, Walls = KpWalls.Lattice };
@@ -364,7 +372,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 {
                     double half;
                     Affine3 k = f.GridSide(UA0, UA1, UB0, UB1, 0, s, out half);
-                    KpFacade.Newar(m, Flip(k), half, 0, Floors2, 1, MulEave + 0.3, 2.4, -1, -1, true, false, Math.Max(1, lod));
+                    KpFacade.Newar(m, Flip(k), half, 0, Floors2, 1, MulEave + 0.3, 2.4, -1, -1, true, false, lod + 1);
                 }
             // Taleju's shrine on the south range: a gilt torana door and its small two-tier gilt roof over the ranges.
             double sx, sy;
@@ -375,7 +383,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             t[1] = new KpTier { Base = MulRidge + 0.5, WallU = 1.2, WallW = 1.2, Eave = 10.9, EaveU = 1.9, EaveW = 1.9, Top = 11.7, ApexU = 0.15, ApexW = 0.15, Walls = KpWalls.GiltPanels, Windows = 1 };
             KpRoofLook gl = KpRoofLook.CopperBells(Kp.Gilt);
             gl.Fascia = Kp.GiltDeep;
-            KpStack.Build(m, sk, t, 2, Kp.Brick, gl, 307u, Math.Max(1, lod));
+            KpStack.Build(m, sk, t, 2, Kp.Brick, gl, 307u, lod == 0 ? 1 : 2);
             Kp.Finial(m, sk, 0, 11.65, 0, 0.55, 0.14, lod);
             if (lod <= 1)
             {
@@ -398,7 +406,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 Affine3 e = f.GridSide(51.2, 57.0, -28.7, -20.3, 0, 1, out half);
                 KpFacade.Newar(m, e, half, 0, Floors3, 2, 11.8, 2.2, 1, -1, false, true, lod);
                 Affine3 e2 = f.GridSide(24.5, 50.9, -20.3, 1.1, 0, 1, out half);
-                KpFacade.Newar(m, e2, half, 0, Floors2, 1, MulEave + 0.3, 2.4, -1, -1, false, false, Math.Max(1, lod));
+                KpFacade.Newar(m, e2, half, 0, Floors2, 1, MulEave + 0.3, 2.4, -1, -1, false, false, lod + 1);
             }
             if (f.C != null)
             {
@@ -412,7 +420,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         // =============================================================================================================
 
         /// <summary>Lohan court (palace grid; §3.12: 11 × 17 m) and the line of the south facade on Basantapur.</summary>
-        public const double HA0 = 35.0, HA1 = 46.0, HB0 = -58.5, HB1 = -41.5, SouthB = -70.5, LohanRidge = 13.4;
+        public const double HA0 = 35.0, HA1 = 46.0, HB0 = -58.5, HB1 = -41.5, SouthB = -70.5, LohanRidge = 14.4;
 
         /// <summary>
         /// Lohan Chowk (§3.12, §3.16): four-storey brick ranges round the court with colonnades, a three-bay window centred
@@ -447,7 +455,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 {
                     double half;
                     Affine3 k = f.GridSide(HA0, HA1, HB0, HB1, 0, s, out half);
-                    KpFacade.Newar(m, Flip(k), half, 0.6, Floors4, 3, eave + 0.35, 2.0, 1, 2, true, false, lod);
+                    // The court faces one level coarser than the street front (seen from inside the court or above).
+                    KpFacade.Newar(m, Flip(k), half, 0.6, Floors4, 3, eave + 0.35, 2.0, 1, 2, true, false, lod + 1);
                 }
             }
             // The brick plinth round the court's edges with steps down to the floor, and the stone slab in the middle.
@@ -462,7 +471,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 KpFacade.Newar(m, k, half, 0.35, Floors4, 3, eave + 0.35, 2.1, 1, -1, false, false, lod);
                 Kp.Box(m, k, -half, half, 0, 0.35, 0, 1.6, Kp.Step, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
                 Kp.Railing(m, k, -half + 0.3, half - 0.3, 1.45, 0.35, 0.95, lod);
-                if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, 22.2, 46.0, SouthB, HB0), south, 8.5, 1.5, true, 401u, lod);
+                if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, 22.2, 46.0, SouthB, HB0), south, 8.5, 1.5, false, 401u, lod);
             }
             // The two grey stone lions on tall pedestals: at the nine-storey tower's south-west corner and further east.
             LionAt(ref f, m, KpTowers.BA0 + 0.9, KpTowers.BB0 - 1.4, lod);
@@ -552,7 +561,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 int n = 10;
                 for (int i = 0; i < n; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / n, f1 + 1.9, 0.85, 1.25, lod, 2);
                 Kp.Cornice(m, k, -half, half, eave - 0.5, 0.4, Kp.Wood, lod);
-                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 1.0, 1.5, true, 431u, lod);
+                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 1.0, 1.5, false, 431u, lod);
             }
             if (f.C != null) f.GridBox(a0, a1, b0, b1, 0, ridge, GenColliderFlags.NoClimb, GenColliders.Brick);
         }

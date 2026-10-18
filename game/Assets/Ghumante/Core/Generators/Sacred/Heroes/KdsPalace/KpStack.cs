@@ -21,6 +21,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>Windows per face (0 = none).</summary>
         public int Windows;
 
+        /// <summary>The windows' sill above the storey's base and their height (0 = 0.35 m and up to 1.6 m).</summary>
+        public double WinSill, WinH;
+
+        /// <summary>How far the outer windows of a face sit from its middle, as a fraction of the half width (0 = 0.62).</summary>
+        public double WinSpread;
+
         public static KpTier Square(double baseV, double wall, double eave, double eaveHalf, double top, double apex = 0.3)
         {
             return new KpTier { Base = baseV, WallU = wall, WallW = wall, Eave = eave, EaveU = eaveHalf, EaveW = eaveHalf, Top = top, ApexU = apex, ApexW = apex };
@@ -47,22 +53,30 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
     internal struct KpRoofLook
     {
         public ShapeBrush Roof, Fascia;
-        public bool Metal, Fringe, Struts, RichStruts, Bells, Horns;
+        public bool Metal, Fringe, Struts, Bells, Horns;
+
+        /// <summary>Carved figure struts under the lowest roof (the ones seen close); the roofs above get plain struts.</summary>
+        public bool RichStruts;
+
         public double StrutPitch, BellSpacing;
+
+        /// <summary>How much the slopes sag (concave, shallow at the eave and steep at the top), as a fraction of the roof's
+        /// run (0 = the kit's 0.015).</summary>
+        public double Sag;
 
         public static KpRoofLook TileFringe(in ShapeBrush tile)
         {
-            return new KpRoofLook { Roof = tile, Fascia = Kp.Wood, Fringe = true, Struts = true, RichStruts = true, Bells = true, Horns = true, StrutPitch = 0.9, BellSpacing = 0.55 };
+            return new KpRoofLook { Roof = tile, Fascia = Kp.Wood, Fringe = true, Struts = true, RichStruts = true, Bells = true, Horns = true, StrutPitch = 1.2, BellSpacing = 0.85 };
         }
 
         public static KpRoofLook TilePlain(in ShapeBrush tile)
         {
-            return new KpRoofLook { Roof = tile, Fascia = Kp.Wood, Struts = true, RichStruts = true, Bells = false, Horns = true, StrutPitch = 1.0, BellSpacing = 0.6 };
+            return new KpRoofLook { Roof = tile, Fascia = Kp.Wood, Struts = true, RichStruts = true, Bells = false, Horns = false, StrutPitch = 1.3, BellSpacing = 0.85 };
         }
 
         public static KpRoofLook CopperBells(in ShapeBrush copper)
         {
-            return new KpRoofLook { Roof = copper, Fascia = Kp.Wood, Metal = true, Struts = true, RichStruts = true, Bells = true, Horns = true, StrutPitch = 0.9, BellSpacing = 0.5 };
+            return new KpRoofLook { Roof = copper, Fascia = Kp.Wood, Metal = true, Struts = true, RichStruts = true, Bells = true, Horns = true, StrutPitch = 1.2, BellSpacing = 0.85 };
         }
     }
 
@@ -91,10 +105,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 double wallTop = t.Eave + frac * (t.Top - t.Eave) - 0.15;
                 Storey(m, k, t, wallTop, wall, lod, seed + (uint)i);
                 RoofSpec r = Kp.Tier(m, k, t.EaveU, t.EaveW, t.Eave, tu, tw, t.Top, t.WallU, t.WallW, look.Roof, look.Fascia, look.Metal, look.Fringe, lod,
-                                     look.Horns ? 0.05 : 0.015);
+                                     look.Horns ? 0.05 : 0.015, look.Sag > 0 ? look.Sag : 0.015);
                 if (eaveOut != null && i < eaveOut.Length) eaveOut[i] = t.EaveU;
                 if (look.Struts && lod <= 1)
-                    Kp.Struts(m, k, r, Math.Max(t.Base + 0.4, wallTop - Math.Min(2.2, 0.9 * (t.EaveU - t.WallU) + 0.6)), look.StrutPitch, look.RichStruts, seed * 7u + (uint)i, lod);
+                    Kp.Struts(m, k, r, Math.Max(t.Base + 0.4, wallTop - Math.Min(2.2, 0.9 * (t.EaveU - t.WallU) + 0.6)), look.StrutPitch, look.RichStruts && i == 0, seed * 7u + (uint)i, lod);
                 if (look.Bells) Kp.Bells(m, k, r, look.BellSpacing, 0.9, lod);
                 if (last && lod <= 1 && t.ApexU > 0.15 && Math.Abs(t.ApexU - t.ApexW) > 0.05)
                 {
@@ -137,14 +151,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 double half = s % 2 == 0 ? t.WallU : t.WallW, depth = s % 2 == 0 ? t.WallW : t.WallU;
                 Affine3 side = SacredDraw.Turn(k, 0, 0, 0, s * 0.5 * Math.PI);
                 Affine3 face = SacredDraw.At(side, 0, 0, depth);
-                double sill = t.Base + 0.35, wh = Math.Min(1.6, h - 0.9);
+                double sill = t.Base + (t.WinSill > 0 ? t.WinSill : 0.35), wh = t.WinH > 0 ? Math.Min(t.WinH, h - 0.6 - (sill - t.Base)) : Math.Min(1.6, h - 0.9);
                 if (wh < 0.4) continue;
                 switch (t.Walls)
                 {
                     case KpWalls.Lattice:
                     {
                         // A continuous band of carved lattice panels between posts.
-                        int n = Math.Max(2, (int)Math.Round(2 * half / 0.85));
+                        int n = Math.Max(2, (int)Math.Round(2 * half / 1.15));
                         if (lod >= 2)
                         {
                             Kp.Panel(m, face, -half + 0.1, sill, half - 0.1, sill + wh, 0.02, Kp.Recess);
@@ -160,23 +174,38 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                     case KpWalls.GiltPanels:
                     {
                         int n = Math.Max(1, t.Windows);
+                        double spread = t.WinSpread > 0 ? t.WinSpread : 0.62;
                         for (int q = 0; q < n; q++)
                         {
-                            double u = n == 1 ? 0 : -0.62 * half + 1.24 * half * q / (n - 1), ww = Math.Min(1.1, 1.1 * half / n);
+                            double u = n == 1 ? 0 : -spread * half + 2 * spread * half * q / (n - 1), ww = Math.Min(t.WinH > 0 ? 0.62 * t.WinH : 1.1, 1.1 * half / n);
                             if (lod >= 2)
                             {
-                                Kp.Panel(m, face, u - 0.5 * ww, sill, u + 0.5 * ww, sill + wh, 0.03, Kp.Gilt);
+                                Kp.Panel(m, face, u - 0.5 * ww, sill, u + 0.5 * ww, sill + wh, 0.03, Kp.GiltDeep);
                                 continue;
                             }
-                            // A gilt window panel in a carved dark frame.
-                            Kp.Box(m, face, u - 0.5 * ww - 0.12, u + 0.5 * ww + 0.12, sill - 0.1, sill + wh + 0.12, 0, 0.08, Kp.Wood, BoxFaces.Wall | BoxFaces.Bottom);
-                            Kp.Box(m, face, u - 0.5 * ww, u + 0.5 * ww, sill, sill + wh, 0.08, 0.12, Kp.Gilt, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+                            // A gilt window (Taleju, Degu Taleju): a carved dark frame, a dark lattice behind gilt bars and a
+                            // gilt cusped arch over it; the middle one carries the gilt torana.
+                            double arch = 0.3 * ww, rect = wh - arch;
+                            Kp.Box(m, face, u - 0.5 * ww - 0.14, u + 0.5 * ww + 0.14, sill - 0.12, sill + wh + 0.1, 0, 0.08, Kp.Wood, BoxFaces.Wall | BoxFaces.Bottom);
+                            Kp.Panel(m, face, u - 0.5 * ww, sill, u + 0.5 * ww, sill + wh, 0.085, Kp.Recess);
+                            Kp.Box(m, face, u - 0.5 * ww, u - 0.5 * ww + 0.08, sill, sill + rect, 0.08, 0.14, Kp.Gilt, BoxFaces.Front | BoxFaces.Right);
+                            Kp.Box(m, face, u + 0.5 * ww - 0.08, u + 0.5 * ww, sill, sill + rect, 0.08, 0.14, Kp.Gilt, BoxFaces.Front | BoxFaces.Left);
+                            Kp.Box(m, face, u - 0.5 * ww, u + 0.5 * ww, sill, sill + 0.1, 0.08, 0.14, Kp.Gilt, BoxFaces.Front | BoxFaces.Top);
+                            ShikharaGenerator.Arch(m, face, u, sill + rect, 0.1, ww, arch, 0.08, 0.04, true, Kp.Gilt, lod);
                             if (lod == 0)
                             {
-                                Kp.Box(m, face, u - 0.03, u + 0.03, sill, sill + wh, 0.12, 0.15, Kp.GiltDeep, BoxFaces.Front);
-                                Kp.Box(m, face, u - 0.5 * ww, u + 0.5 * ww, sill + 0.5 * wh - 0.03, sill + 0.5 * wh + 0.03, 0.12, 0.15, Kp.GiltDeep, BoxFaces.Front);
+                                for (int i = 1; i < 4; i++)
+                                {
+                                    double uu = u - 0.5 * ww + ww * i / 4;
+                                    Kp.Box(m, face, uu - 0.02, uu + 0.02, sill + 0.1, sill + rect, 0.09, 0.12, Kp.GiltDeep, BoxFaces.Front);
+                                }
+                                for (int i = 1; i < 5; i++)
+                                {
+                                    double vv = sill + 0.1 + (rect - 0.1) * i / 5;
+                                    Kp.Box(m, face, u - 0.5 * ww + 0.08, u + 0.5 * ww - 0.08, vv - 0.02, vv + 0.02, 0.09, 0.12, Kp.GiltDeep, BoxFaces.Front);
+                                }
                             }
-                            if (q == n / 2 && lod <= 1) SacredParts.Torana(m, face, u, sill + wh + 0.14, 0.04, ww + 0.5, Kp.Gilt, lod);
+                            if (q == n / 2 && lod <= 1) SacredParts.Torana(m, face, u, sill + wh + 0.14, 0.04, ww + 0.7, Kp.Gilt, 1);
                         }
                         break;
                     }

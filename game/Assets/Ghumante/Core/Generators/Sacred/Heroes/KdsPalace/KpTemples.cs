@@ -8,9 +8,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
     /// The temples that ride on the palace (kds-palace.md §3.4, §3.8): Degu Taleju, three dark copper roofs with bells on
     /// struts over a gilt-panelled body, standing on a massive brick tower that ends at 13 m in a tile skirt and a brick
     /// parapet (finial 26 m), with the two-storey brick range on its south-west whose red-valanced eave runs above the Seto
-    /// Bhairav screen (the screen itself is the kds-temples set's; its bay is left plain here); and Panch Mukhi Hanuman, a
-    /// white drum at Nasal Chowk's north-east corner carrying five stacked round roofs with red-and-white valances
-    /// (finial 25 m).
+    /// Bhairav screen (modelled here on its host wall: the arched lattice with its red fringe, lamps and stone base); and
+    /// Panch Mukhi Hanuman, a white drum at Nasal Chowk's north-east corner carrying five stacked round roofs with
+    /// red-and-white valances (finial 25 m).
     /// </summary>
     internal static class KpTemples
     {
@@ -21,7 +21,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public const double SA0 = -11.4, SA1 = -3.5, SB0 = 6.0, SB1 = 12.6, SetoEave = 7.0, SetoRidge = 9.2;
 
         /// <summary>The bay of the Seto Bhairav screen on the range's west face (palace grid b) and its height.</summary>
-        public const double ScreenB0 = 7.7, ScreenB1 = 11.1, ScreenTop = 5.2;
+        public const double ScreenB0 = 7.4, ScreenB1 = 11.4, ScreenTop = 5.0;
 
         /// <summary>Panch Mukhi's centre (palace grid) and its drum's radius.</summary>
         public const double PA = 20.6, PB = -3.8, DrumR = 3.5;
@@ -103,6 +103,91 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         }
 
         /// <summary>
+        /// The Seto (Sweta) Bhairav screen (§3.4; photos sweta_bhairav c_01, c_06-c_08): a tall round-topped arch about
+        /// 3.2 m wide and 4.6 m high in a dark carved frame, filled with a square timber lattice divided into 3 × 4 panels,
+        /// the red fringed valance following the arch, two brass lamps hanging on chains in front, and the carved stone
+        /// base panel with a guardian figure at each end. Closed, as all year but Indra Jatra (the gilt mask is not shown).
+        /// </summary>
+        private static void Screen(MeshData m, in Affine3 w, double uc, int lod)
+        {
+            const double hw = 1.6, b0 = 0.9, spring = 2.95, wood = 0.2;
+            // The carved stone base panel and its two guardians.
+            Kp.Box(m, w, uc - hw - 0.25, uc + hw + 0.25, -0.1, b0, 0, 0.3, Kp.StoneGrey, BoxFaces.Wall | BoxFaces.Top);
+            if (lod <= 1)
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    double gu = uc + s * (hw - 0.05);
+                    Shapes.Ellipsoid(m, SacredDraw.At(w, gu, 0.42, 0.42), Kp.Carved, 0.2, 0.34, 0.14, lod == 0 ? 8 : 5, false);
+                    Shapes.Sphere(m, SacredDraw.At(w, gu, 0.86, 0.42), Kp.Carved, 0.13, lod == 0 ? 7 : 4);
+                }
+            if (lod == 0) Kp.Box(m, w, uc - 0.9, uc + 0.9, 0.25, 0.7, 0.3, 0.34, Kp.Tint(Kp.StoneGrey, 0.85f), BoxFaces.Front);
+            // The dark opening behind the lattice: the rectangle and the half disc of the arch.
+            Kp.Panel(m, w, uc - hw, b0, uc + hw, spring, 0.012, Kp.Recess);
+            int seg = lod == 0 ? 12 : lod == 1 ? 8 : 4;
+            for (int i = 0; i < seg; i++)
+            {
+                double a0 = Math.PI * i / seg, a1 = Math.PI * (i + 1) / seg;
+                SacredDraw.Tri(m, w, uc, spring, 0.012, uc + hw * Math.Cos(a0), spring + hw * Math.Sin(a0), 0.012, uc + hw * Math.Cos(a1), spring + hw * Math.Sin(a1), 0.012,
+                               0, 0, 1, Kp.Recess);
+            }
+            if (lod >= 2)
+            {
+                Kp.Box(m, w, uc - hw - wood, uc - hw, b0, spring, 0, 0.15, Kp.Wood, BoxFaces.Front);
+                Kp.Box(m, w, uc + hw, uc + hw + wood, b0, spring, 0, 0.15, Kp.Wood, BoxFaces.Front);
+                return;
+            }
+            // The frame: jambs, sill and the arch band.
+            Kp.Box(m, w, uc - hw - wood, uc - hw, b0, spring, 0, 0.18, Kp.Wood, BoxFaces.Wall);
+            Kp.Box(m, w, uc + hw, uc + hw + wood, b0, spring, 0, 0.18, Kp.Wood, BoxFaces.Wall);
+            Kp.Box(m, w, uc - hw - 0.35, uc + hw + 0.35, b0 - 0.05, b0 + 0.12, 0, 0.22, Kp.Wood, BoxFaces.Wall);
+            ShikharaGenerator.Arch(m, w, uc, spring, 0.0, 2 * hw, hw, wood, 0.18, false, Kp.Wood, lod);
+            // The lattice: square bars clipped to the arch, heavier mullions and transoms between the 3 × 4 panels.
+            double step = lod == 0 ? 0.24 : 0.48, top = spring + hw;
+            for (double u = -hw + step; u < hw - 0.01; u += step)
+            {
+                double h = spring + Math.Sqrt(Math.Max(0, hw * hw - u * u)) - 0.04;
+                bool heavy = Math.Abs(Math.Abs(u) - hw / 3) < 0.5 * step;
+                double t = heavy ? 0.045 : 0.018;
+                Kp.Box(m, w, uc + u - t, uc + u + t, b0, h, 0.02, heavy ? 0.1 : 0.06, Kp.Wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+            }
+            for (double v = b0 + step; v < top - 0.05; v += step)
+            {
+                double half = v <= spring ? hw : Math.Sqrt(Math.Max(0, hw * hw - (v - spring) * (v - spring))) - 0.03;
+                if (half < 0.1) continue;
+                bool heavy = Math.Abs(v - (b0 + (spring - b0) / 3)) < 0.5 * step || Math.Abs(v - (b0 + 2 * (spring - b0) / 3)) < 0.5 * step || Math.Abs(v - spring) < 0.5 * step;
+                double t = heavy ? 0.045 : 0.018;
+                Kp.Box(m, w, uc - half, uc + half, v - t, v + t, 0.02, heavy ? 0.1 : 0.06, Kp.Wood, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+            }
+            // The red fringe following the arch, a white band at its top.
+            int n = lod == 0 ? 22 : 10, first = m.VertexCount;
+            double rr = hw + wood + 0.08;
+            for (int i = 0; i <= n; i++)
+            {
+                double a = Math.PI * i / n, c = Math.Cos(a), sa = Math.Sin(a), d = i % 2 == 0 ? 0.36 : 0.27;
+                double pu = uc + rr * c, pv = spring + rr * sa;
+                SacredDraw.V(m, w, pu, pv + 0.08, 0.26, 0, 0.2, 1, Kp.ValanceWhite);
+                SacredDraw.V(m, w, pu, pv - 0.02, 0.26, 0, 0.2, 1, Kp.Valance);
+                SacredDraw.V(m, w, pu, pv - d, 0.28, 0, 0.1, 1, Kp.Valance);
+            }
+            for (int i = 0; i < n; i++)
+            {
+                int a = first + 3 * i, b = a + 3;
+                SacredDraw.Quad(m, a, b, b + 1, a + 1);
+                SacredDraw.Quad(m, a + 1, b + 1, b + 2, a + 2);
+            }
+            // The two brass lamps on chains from iron brackets.
+            for (int s = -1; s <= 1; s += 2)
+            {
+                double lu = uc + s * (hw - 0.35);
+                Shapes.Bar(m, w, Kp.Iron, lu, spring + 1.2, 0.0, lu, spring + 1.2, 0.55, 0.025, 4);
+                Shapes.Cylinder(m, SacredDraw.At(w, lu, spring - 0.15, 0.55), Kp.Iron, 0.012, 1.35, 4, 0, 0, false, false);
+                var p = new Profile2(8);
+                p.Add(0, 0, true).Add(0.1, 0.04).Add(0.2, 0.16, true).Add(0.17, 0.24).Add(0.07, 0.36).Add(0, 0.42, true);
+                Shapes.Lathe(m, SacredDraw.At(w, lu, spring - 0.6, 0.55), Kp.GiltDeep, p, lod == 0 ? 10 : 6);
+            }
+        }
+
+        /// <summary>
         /// The two-storey brick range of the Seto Bhairav screen (§3.4): carved lattice windows and round oculus windows,
         /// a carved bay window, a red fringed valance along its eave and the plain bay where the screen stands.
         /// </summary>
@@ -118,7 +203,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Band(m, w, -half, u0 - 0.1, SetoFloors[0] - 0.1, SetoFloors[0] + 0.12, 0.1, Kp.Wood);
             Kp.Band(m, w, u1 + 0.1, half, SetoFloors[0] - 0.1, SetoFloors[0] + 0.12, 0.1, Kp.Wood);
             Kp.Cornice(m, w, -half, half, SetoEave - 0.5, 0.4, Kp.Wood, lod);
-            // The screen's bay (u0..u1 up to ScreenTop) is left as plain wall for the screen.
+            // The Seto Bhairav screen in its bay.
+            Screen(m, w, 0.5 * (u0 + u1), lod);
             // Windows either side: a carved bay window to the south, oculus and lattice windows to the north.
             if (lod <= 1)
             {
@@ -143,11 +229,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>Panch Mukhi's five roofs: eave radius, eave height, top radius (the drum above), top height.</summary>
         private static readonly double[] Roofs =
         {
-            5.0, 13.4, 3.0, 14.8,
-            4.25, 16.2, 2.5, 17.3,
-            3.5, 18.5, 2.0, 19.5,
-            2.75, 20.6, 1.5, 21.4,
-            2.0, 22.3, 0.14, 23.9,
+            5.6, 13.4, 3.1, 14.9,
+            4.8, 16.2, 2.6, 17.4,
+            4.0, 18.6, 2.1, 19.6,
+            3.2, 20.7, 1.6, 21.5,
+            2.4, 22.4, 0.14, 24.0,
         };
 
         /// <summary>
@@ -248,7 +334,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
             // The valance: a white band and red drops round the eave.
             int n = lod == 0 ? 2 * seg : seg, first = m.VertexCount;
-            double drop = 0.38 + 0.04 * er;
+            double drop = 0.22 + 0.025 * er;
             for (int i = 0; i <= n; i++)
             {
                 double a = 2 * Math.PI * i / n, c = Math.Cos(a), s = Math.Sin(a), d = i % 2 == 0 ? drop : 0.75 * drop, r = er + 0.06;
