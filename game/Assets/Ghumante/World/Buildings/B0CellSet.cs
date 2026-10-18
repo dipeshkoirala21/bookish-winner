@@ -407,10 +407,23 @@ namespace Ghumante.World.Buildings
             get { return _frame; }
         }
 
-        /// <summary>True when B0 has nothing left to build or upload for the centre of the last <see cref="Update"/>.</summary>
+        /// <summary>True when B0 has nothing left to build or upload for the centre of the last <see cref="Update"/>. Not
+        /// while the cells that Update showed moved the band across <see cref="PruneShare"/>: its choice of builds used the
+        /// share of the frame before (the last upload of a stop showing at 0.85 or more of the budget leaves prunes and raises
+        /// for the next Update to find).</summary>
         public bool Settled
         {
-            get { return !_running && _jobs[0] == null && _jobs[1] == null && _ready.Count == 0 && _bestTile == null && BlocksWaiting == 0 && _unindexed == 0; }
+            get
+            {
+                return !_running && _jobs[0] == null && _jobs[1] == null && _ready.Count == 0 && _bestTile == null && BlocksWaiting == 0 && _unindexed == 0 &&
+                       _overBudget == OverPruneShare;
+            }
+        }
+
+        /// <summary>The shown cells hold more than <see cref="PruneShare"/> of the tier's B0 budget.</summary>
+        private bool OverPruneShare
+        {
+            get { return ShownTris > PruneShare * _bands.B0BudgetTris; }
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -464,7 +477,7 @@ namespace Ghumante.World.Buildings
             if (_disposed) return;
             _frame++;
             double now = _clockMs();
-            _overBudget = ShownTris > PruneShare * _bands.B0BudgetTris;
+            _overBudget = OverPruneShare;
             _projectedTris = WantedTris() + PendingDelta();
             if (_hasLast) _sliceMs = Math.Max(SliceMs, Math.Min(MaxSliceMs, WorkerDuty * (now - _lastMs)));
             Track(camX, camZ, now);

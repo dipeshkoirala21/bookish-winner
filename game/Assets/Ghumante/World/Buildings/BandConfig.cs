@@ -88,10 +88,13 @@ namespace Ghumante.World.Buildings
         /// (B0CellSet.RaiseCapTris; a house that does not fit is drawn at the flat level until houses leaving make room).</summary>
         public int B0BudgetTris;
 
-        /// <summary>GPU bytes of B0 cell meshes kept resident, shown and cached (25 / 50 / 80 MB; the cells shown at
-        /// Asan take 3 / 8 / 15 MB): the least recently needed cells are evicted beyond it. With the tiles and the vehicle
+        /// <summary>GPU bytes of B0 cell meshes kept resident, shown and cached (8 / 50 / 80 MB; the cells shown at
+        /// Asan take 2 / 7 / 15 MB): the least recently needed cells are evicted beyond it. With the tiles and the vehicle
         /// caches it holds the mesh memory of W2_DESIGN 10.4 (100 / 180 / 250 MB; core-tests MeshingBuildingB0CellTests:
-        /// High at Basantapur, the heaviest tile set, has 141.9 MB of tile meshes).</summary>
+        /// High at Basantapur, the heaviest tile set, has 150.3 MB of tile meshes). Low's share is what its 450 m detail
+        /// radius leaves (StreamingConfig): four detail tiles meet at a tile corner, 65.8 MB of tile meshes at Asan and
+        /// 73.0 MB at the sample's heaviest corner, plus 16.8 MB of vehicle caches, so its flat 35 m band keeps 8 MB, under
+        /// three times the 3 MB its cells peak at on the Thamel to Asan ride.</summary>
         public long CellCacheBytes;
 
         /// <summary>Hero slice in triangles (W2_DESIGN 10.4: 20 k / 40 k / 60 k).</summary>
@@ -135,7 +138,7 @@ namespace Ghumante.World.Buildings
             };
         }
 
-        private static readonly long[] CacheMegabytes = { 25, 50, 80 };
+        private static readonly long[] CacheMegabytes = { 8, 50, 80 };
         private static readonly float[] LiteRadii = { 0f, 30f, 55f };
         private static readonly float[] BuildPads = { 1f, 4f, 6f };
         private static readonly float[] Leads = { 0.5f, 2f, 3f };

@@ -63,7 +63,7 @@ namespace Ghumante.Tests.EditMode
                 Assert.AreEqual(0f, inner, "a B1 block standing in for its B0 cells starts at the camera");
             }
             BandConfig low = BandConfig.ForTier(0), mid = BandConfig.ForTier(1), high = BandConfig.ForTier(2);
-            Assert.AreEqual(new long[] { 25L << 20, 50L << 20, 80L << 20 }, new[] { low.CellCacheBytes, mid.CellCacheBytes, high.CellCacheBytes },
+            Assert.AreEqual(new long[] { 8L << 20, 50L << 20, 80L << 20 }, new[] { low.CellCacheBytes, mid.CellCacheBytes, high.CellCacheBytes },
                             "the B0 cell cache is budgeted in bytes");
             Assert.AreEqual(new[] { 20000, 40000, 60000 }, new[] { low.HeroBudgetTris, mid.HeroBudgetTris, high.HeroBudgetTris });
             Assert.IsFalse(low.HeroLod0Allowed, "Low never uses hero LOD0");
