@@ -254,17 +254,20 @@ rides' chase camera, `core-tests/WorldRendering*`, previews in `/home/user/wt/pr
 `docs/research/w2/ref_stable.md`):
 
 * **Band hand-off by stencil** (`ToonLitInput.hlsl GhBandClip`, `WorldMaterialDefaults.SetBandOrder`,
-  `ToonLitLayout.BandStencil`): the building bands draw inner to outer (queues 2000-2004: near ring, lite ring, B1, B2,
-  B3); each marks one of URP's user stencil bits where it draws and draws only where no inner band marked. The outgoing
-  band dithers out over the 4 m fade; the incoming band draws its whole fade-in undithered and fills exactly the pixels the
-  outgoing one left. The two bands are different meshes of a house (the near ring recesses windows, the lite ring and B1
-  lay them on the wall), so complementary dithers evaluated at their two depths left holes into the houses (0.5-1.6% of
-  the ring's wall pixels) and, with the first fix's 12% overlap, drew both on one wall (z-fighting on 7-9%). Now no pixel
-  draws both, and the holes left (0.03-0.4%) are places where two bands' meshes disagree by more than the ring (open
-  issue). Shadow casters of both bands overlap over the whole fade (a shadow cast twice is the same shadow; a cut at one
-  distance let light through where the meshes differ). The outline pass tests the stencil but never marks (a hull behind
-  a dithered-out face must not hide the outer band). The source materials get their order in `ApplyExtras`, the B0 rings'
-  copies in `DetailCells.RingMaterial` and the streamer's band copies in `WorldStreamer.BandMaterial`.
+  `ToonLitLayout.BandStencil`): the building bands draw inner to outer (queues 2000 B0, 2002 B1, 2003 B2, 2004 B3; B0 is
+  one band since perf-cells' `B0CellSet` draws each house once, and nothing draws at 2001, `BandOrderLite`, the playtest
+  base's lite ring) around the band centre, `BandAnchor` (the player while the chase camera is within
+  `BandAnchor.ChaseRangeM`, 30 m, of it; the camera otherwise); each marks one of URP's user stencil bits where it draws
+  and draws only where no inner band marked. The outgoing band dithers out over the 4 m fade; the incoming band draws its
+  whole fade-in undithered and fills exactly the pixels the outgoing one left. The two bands are different meshes of a
+  house (B0's near level recesses windows, B1 lays them on the wall; on the playtest base the near and lite rings were two
+  such bands), so complementary dithers evaluated at their two depths left holes into the houses (0.5-1.6% of the ring's
+  wall pixels) and, with the first fix's 12% overlap, drew both on one wall (z-fighting on 7-9%). Now no pixel draws
+  both, and the holes left (0.03-0.4%) are places where two bands' meshes disagree by more than the ring (open issue).
+  Shadow casters of both bands overlap over the whole fade (a shadow cast twice is the same shadow; a cut at one distance
+  let light through where the meshes differ). The outline pass tests the stencil but never marks (a hull behind a
+  dithered-out face must not hide the outer band). The source materials get their order in `ApplyExtras` and the
+  streamer's band copies in `WorldStreamer.BandMaterial` (the B0 cells draw with its B0 copy).
 * **Z-fighting** (`core-tests/WorldRenderingZFightTests`, a coplanar scan in double precision relative to each mesh,
   shading compared at the overlap, area by material-channel pair in the report): on the playtest base (64155f3) the
   near- and lite-ring houses at the three spots had 9 778 visibly different coplanar pairs over 405 m², 291 m² of them
@@ -325,9 +328,9 @@ walla. Footsteps, engines, horns, bells, birds and aircraft keep their W2_DESIGN
   stands proud of the solids, so walking between two houses at Hiti Pokhari the near plane cut into a house on 354 of 681
   frames (the house beside the camera seen through, as in the owner's screenshot). Sweep with at least the near-plane
   corner reach plus the relief depth, or lower the near clip in tight spaces.
-- **perf-cells merge**: its `DetailCells` draws every B0 house with the streamer's one B0 material (switched per house),
-  so `RingMaterial` and its `SetBandOrder` line go; `WorldStreamer.BandMaterial` already gives that material the B0
-  order. `WorldRenderingBandSeamTests.TheShaderHandsOverByStencil` checks the ring line only while `RingMaterial` exists.
+- **perf-cells merge**: done. `DetailCells` draws every B0 house with the streamer's one B0 material, so `RingMaterial`
+  and its `SetBandOrder` line are gone; `WorldStreamer.BandMaterial` gives that material the B0 order.
+  `WorldRenderingBandSeamTests.TheShaderHandsOverByStencil` checks the ring line only while `RingMaterial` exists.
 - **Shell gaps** (buildings): `ShopInterior` boxes 1.4 m deep on houses shallower than that at the opening poke out of the
   side wall (seen from behind); side walls drawn by `SideFacade` are seen from inside where the plot's neighbour wall is
   not drawn (Hiti Pokhari osm 478100038, Asan osm 1813422468, Kalopul osm 479929266).

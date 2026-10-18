@@ -6,6 +6,7 @@ using Ghumante.Core.Geo;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Streaming;
 using Ghumante.Core.Synth;
+using Ghumante.World.Buildings;
 using Ghumante.World.Streaming;
 using NUnit.Framework;
 
@@ -85,8 +86,10 @@ namespace Ghumante.Core.Tests
         /// Repro and fix: with the B0 cells first in a frame, perf-cells' first wiring lowered
         /// <see cref="StreamingScheduler.UploadBudgetBytes"/> to what they left, but the tick's first tile chunk always
         /// went whatever its size, so frames copied up to 0.5 + 1 MB (1.14 MB in 3 frames of this run before the fix).
-        /// Now the reserved bytes handed to the tick, and a lowered budget too, keep every frame within the 1 MiB cap,
-        /// and both the cells and the tiles still finish.
+        /// Now the reserved bytes handed to the tick keep every frame within the 1 MiB cap, and both the cells and the
+        /// tiles still finish. A lowered budget holds the first chunk too here, where B0 goes first only after starved
+        /// frames (never <see cref="StreamingScheduler.MaxHeldTicks"/> frames in a row); beyond that the scheduler lets
+        /// the held chunk go (<see cref="UrgentB0FirstFramesInARowStayWithinTheFrameCap"/>).
         /// </summary>
         [Test]
         public void B0CellsAndTileChunksTogetherStayWithinTheFrameCap()
@@ -148,8 +151,87 @@ namespace Ghumante.Core.Tests
             TestContext.WriteLine("frame bytes, B0 first then tiles: lowered budget worst {0:0.00} MB, {1} frames over 1 MiB; " +
                                   "reserved bytes worst {2:0.00} MB, settled in {3} frames", legacyWorst / 1048576.0, legacyOver,
                                   reservedWorst / 1048576.0, reservedFrames);
-            Assert.That(legacyOver, Is.EqualTo(0), "a lowered budget is a cap too (the tick's first chunk no longer always goes)");
+            Assert.That(legacyOver, Is.EqualTo(0), "a lowered budget holds the tick's first chunk while B0 goes first fewer than MaxHeldTicks frames in a row");
             Assert.That(reservedWorst, Is.LessThanOrEqualTo(cap));
+        }
+
+        /// <summary>
+        /// Integration review (944b18b): the merged <c>WorldStreamer.Tick</c> (perf-cells' upload share on perf-roads'
+        /// scheduler) lowered <see cref="StreamingScheduler.UploadBudgetBytes"/> to what the B0 cells left when they went
+        /// first and ticked with nothing reserved, so once B0 went first <see cref="StreamingScheduler.MaxHeldTicks"/>
+        /// frames in a row (a house riding brings in on every frame: <see cref="B0UploadShare.First"/> with an urgent
+        /// build waiting) the scheduler forced the held tile chunk through beside B0's half megabyte. Here B0 is urgent on
+        /// 24 frames in a row out of every 26 while the dense detail tiles at Asan stream in, each frame run as the
+        /// streamer runs it (B0 first, the tiles' tick, B0 after with what they left; the real <see cref="B0UploadShare"/>).
+        /// With the lowered budget frames copied more than the 1 MiB cap; with the B0 bytes reserved (the streamer now)
+        /// none does, the held chunk waits for a frame without B0 first, and the tiles and the cells both finish.
+        /// </summary>
+        [Test]
+        public void UrgentB0FirstFramesInARowStayWithinTheFrameCap()
+        {
+            const long cap = 1L << 20;
+            const int urgentRun = 24, period = 26, cellsMade = 240;
+            var worst = new long[2];
+            var over = new int[2];
+            var longestRun = new int[2];
+            var frames = new int[2];
+            int maxHeld = 0;
+            for (int mode = 0; mode < 2; mode++)
+            {
+                bool reserved = mode == 1;
+                var sink = new CountingSink();
+                double x, z;
+                var cells = new FakeCells();
+                var share = new B0UploadShare();
+                int made = 0, frame = 0, run = 0;
+                using (StreamingScheduler s = NewScheduler(sink, out x, out z))
+                {
+                    maxHeld = s.MaxHeldTicks;
+                    Assert.That(urgentRun, Is.GreaterThan(maxHeld), "B0 goes first more than MaxHeldTicks frames in a row");
+                    while (!s.IsSettled || cells.Waiting.Count > 0 || made < cellsMade)
+                    {
+                        Assert.That(frame++, Is.LessThan(20000), "streaming and the cells finish: " + s.Stats.Format());
+                        bool urgent = made < cellsMade && frame % period < urgentRun;
+                        if (urgent) cells.Waiting.Enqueue(500000 + 20000 * (made++ % 5));
+                        sink.FrameBytes = 0;
+                        // WorldStreamer.Tick: B0 first (urgent or starved), the tiles, then B0 with what the tiles left.
+                        bool waiting = cells.Waiting.Count > 0;
+                        long b0 = 0;
+                        long first = share.First(cap, waiting, waiting && urgent);
+                        if (first > 0) b0 = cells.Upload(first, true);
+                        if (reserved)
+                        {
+                            s.Tick(x, z, b0);
+                        }
+                        else
+                        {
+                            // The merged wiring (944b18b).
+                            s.UploadBudgetBytes = Math.Max(1, cap - b0);
+                            s.Tick(x, z);
+                            s.UploadBudgetBytes = cap;
+                        }
+                        Assert.That(s.Stats.TickUploadBytes, Is.EqualTo(sink.FrameBytes), "the tick reports what it uploaded");
+                        long after = share.After(cap, b0 + sink.FrameBytes, waiting, first > 0, 1.0);
+                        if (after > 0) b0 += cells.Upload(after, false);
+                        share.EndFrame(waiting, b0);
+                        run = first > 0 ? run + 1 : 0;
+                        longestRun[mode] = Math.Max(longestRun[mode], run);
+                        long total = sink.FrameBytes + b0;
+                        worst[mode] = Math.Max(worst[mode], total);
+                        if (total > cap) over[mode]++;
+                        if (reserved) Assert.That(total, Is.LessThanOrEqualTo(cap), "frame " + frame + ": tiles " + sink.FrameBytes + " + B0 " + b0);
+                    }
+                    frames[mode] = frame;
+                    Assert.That(s.Stats.Failed, Is.EqualTo(0));
+                    Assert.That(s.NextChunkBytes, Is.EqualTo(0), "nothing waits once settled");
+                }
+            }
+            TestContext.WriteLine("frame bytes with B0 urgent {0} frames in a row: lowered budget worst {1:0.000} MB, {2} frames over 1 MiB, settled in {3} frames; " +
+                                  "reserved bytes worst {4:0.000} MB, {5} over, settled in {6} frames (longest B0-first runs {7} and {8})", urgentRun,
+                                  worst[0] / 1048576.0, over[0], frames[0], worst[1] / 1048576.0, over[1], frames[1], longestRun[0], longestRun[1]);
+            for (int mode = 0; mode < 2; mode++) Assert.That(longestRun[mode], Is.GreaterThan(maxHeld), "B0 went first more than MaxHeldTicks frames in a row");
+            Assert.That(over[0], Is.GreaterThan(0), "repro: the lowered budget let the held tile chunk through beside B0");
+            Assert.That(over[1], Is.EqualTo(0), "with the B0 bytes reserved every frame stays within the cap");
         }
 
         /// <summary>The reserved bytes on their own: a chunk that does not fit next to them waits for a later frame (no

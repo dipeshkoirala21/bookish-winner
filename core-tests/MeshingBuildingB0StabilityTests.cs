@@ -174,12 +174,12 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
-        /// Frames of a ride along <paramref name="st"/> at <paramref name="speed"/> m/s and 30 fps, stopping 5 s at 35%
-        /// and 70% of the way and at the end. The chase camera rides 4.5 m behind the rider, swaying sideways (0.8 m at
-        /// 0.4 Hz and 0.25 m at 2.7 Hz) and along the boom (0.3 m at 1.1 Hz); while stopped it swings ±40° around the
-        /// rider.
+        /// Frames of a ride along <paramref name="st"/> at <paramref name="speed"/> m/s and 30 fps, stopping
+        /// <paramref name="stopS"/> (5 s) at 35% and 70% of the way and at the end. The chase camera rides 4.5 m behind
+        /// the rider, swaying sideways (0.8 m at 0.4 Hz and 0.25 m at 2.7 Hz) and along the boom (0.3 m at 1.1 Hz); while
+        /// stopped it swings ±40° around the rider.
         /// </summary>
-        internal static List<RideFrame> Ride(Street st, double speed)
+        internal static List<RideFrame> Ride(Street st, double speed, double stopS = 5.0)
         {
             var frames = new List<RideFrame>();
             double dt = FrameMs / 1000.0, s = 0, t = 0;
@@ -212,7 +212,7 @@ namespace Ghumante.Core.Tests
                 if (stopped)
                 {
                     stoppedFor += dt;
-                    if (stoppedFor >= 5.0)
+                    if (stoppedFor >= stopS)
                     {
                         stoppedFor = -1;
                         if (++next >= stops.Length) break;
@@ -281,6 +281,12 @@ namespace Ghumante.Core.Tests
         internal sealed class Tally
         {
             public int Frames, GapFrames, DoubleFrames, BlockFlips, Reshows, QuickReshows, LevelReversals, StopBuilds, ColliderMismatches, Handovers;
+
+            /// <summary>Stops ridden, and those whose rebuilds were never counted (<see cref="StopBuilds"/> counts from the
+            /// frame the set settled, a second or more into the stop: a stop it never settled in says nothing).</summary>
+            public int Stops, UnmeasuredStops;
+
+            public string FirstUnmeasuredStop;
             public long GapParts, DoubleParts;
             public int PeakShownTris, PeakMovingTris, PeakInViewTris, BlocksStandingIn;
             public long MostUploadBytes;
@@ -300,9 +306,9 @@ namespace Ghumante.Core.Tests
             public override string ToString()
             {
                 return string.Format("{0} frames: gaps in {1} frames ({2} houses), doubles in {3} frames ({4} houses), {5} block flips, {6} cell re-shows " +
-                                     "({7} within 2 s), {8} level reversals, {9} rebuilds while stopped, {10} collider mismatches; {11} hand-over parts; " +
+                                     "({7} within 2 s), {8} level reversals, {9} rebuilds while stopped ({15} of {16} stops measured), {10} collider mismatches; {11} hand-over parts; " +
                                      "peak {12} B0 tris ({13} riding, {14} in the camera's 70 degree view)", Frames, GapFrames, GapHouses.Count, DoubleFrames, DoubleHouses.Count, BlockFlips, Reshows, QuickReshows,
-                                     LevelReversals, StopBuilds, ColliderMismatches, Handovers, PeakShownTris, PeakMovingTris, PeakInViewTris);
+                                     LevelReversals, StopBuilds, ColliderMismatches, Handovers, PeakShownTris, PeakMovingTris, PeakInViewTris, Stops - UnmeasuredStops, Stops);
             }
         }
 
@@ -656,8 +662,8 @@ namespace Ghumante.Core.Tests
             var drawn = new Dictionary<long, int>();
             var levels = new Dictionary<long, int>();
             var decided = new Dictionary<long, double>();
-            int stop = -1, buildsAtSettle = -1;
-            double stopStart = 0;
+            int stop = -1, buildsAtSettle = -1, buildsAtStop = 0;
+            double stopStart = 0, lastT = 0;
             bool first = true;
             foreach (RideFrame fr in frames)
             {
@@ -681,10 +687,13 @@ namespace Ghumante.Core.Tests
                 // Rebuilds while stopped, once the set has caught up with the stop.
                 if (fr.Stop != stop)
                 {
+                    if (stop >= 0) EndStop(tally, stop, stopStart, lastT, buildsAtSettle, builds - buildsAtStop);
                     stop = fr.Stop;
                     stopStart = fr.T;
                     buildsAtSettle = -1;
+                    buildsAtStop = builds;
                 }
+                lastT = fr.T;
                 if (fr.Stopped)
                 {
                     // Once the rider has stood a second (the speed estimate has decayed) and the set has caught up.
@@ -836,12 +845,23 @@ namespace Ghumante.Core.Tests
                 first = false;
                 onFrame?.Invoke(tally.Frames - 1, b, c);
             }
+            if (stop >= 0) EndStop(tally, stop, stopStart, lastT, buildsAtSettle, b.Set.Builds - buildsAtStop);
             tally.Work = string.Format("{0} builds by reason {1}, {2} houses built, {3} copied, {4} slices, {5:0} ms of work; at most {6:0.00} MB uploaded in a frame",
                                        b.Set.Builds, string.Join("/", b.Set.BuildsByReason), b.Set.HousesBuilt, b.Set.HousesReused, b.Set.Slices, b.Set.WorkMs,
                                        b.MostUploadBytes / 1048576.0);
             tally.MostUploadBytes = b.MostUploadBytes;
             b.Set.Dispose();
             return tally;
+        }
+
+        /// <summary>Ends stop <paramref name="stop"/> of a ride (<paramref name="builds"/> versions built while it lasted).</summary>
+        private static void EndStop(Tally tally, int stop, double start, double end, int buildsAtSettle, int builds)
+        {
+            tally.Stops++;
+            if (buildsAtSettle >= 0) return;
+            tally.UnmeasuredStops++;
+            if (tally.FirstUnmeasuredStop == null)
+                tally.FirstUnmeasuredStop = "stop " + stop + " at t " + start.ToString("0.00") + "-" + end.ToString("0.00") + " s never settled (" + builds + " builds while stopped)";
         }
 
         /// <summary>Why block <paramref name="k"/> of a tile stands in: each house the band draws in it that its cell's shown
@@ -1687,11 +1707,17 @@ namespace Ghumante.Core.Tests
         /// High). Now a build the band needs now (<see cref="B0CellSet.UrgentUploadWaiting"/>) is started past waiting
         /// level builds, uploaded first and before the tiles: the rides are as stable as with the whole cap, and B0 takes
         /// at most half the cap in a frame. The streamer's old policy (starved frames only) is ridden for comparison.
+        /// The stops last <see cref="StreamStopS"/>: with the tiles taking every byte, B0 uploads only on urgent or starved
+        /// frames, so the level raises and prunes the High band owes at the second and third Thamel-Asan stops (houses go
+        /// flat to lite to near, one level per rebuild, and none changes back) take 5.43 and 7.77 s to settle. With the
+        /// other rides' 5 s stops the set never settled there, so the 17 and 19 rebuilds while standing were never counted
+        /// (integration review of 944b18b). Now every stop must be measured (<see cref="AssertStable"/>), and none
+        /// rebuilds once settled.
         /// </summary>
         [Test]
         public void B0CellsStayStableWhileTilesStreamIn()
         {
-            List<RideFrame> frames = Ride(ThamelToAsan(), 10.0), drive = Ride(LainchaurToMaitighar(), 50.0 / 3.6);
+            List<RideFrame> frames = Ride(ThamelToAsan(), 10.0, StreamStopS), drive = Ride(LainchaurToMaitighar(), 50.0 / 3.6, StreamStopS);
             var tallies = new List<(string name, Tally t)>();
             for (int tier = 0; tier <= 2; tier++)
             {
@@ -1716,6 +1742,9 @@ namespace Ghumante.Core.Tests
             }
         }
 
+        /// <summary>Seconds the rider stands at each stop of <see cref="B0CellsStayStableWhileTilesStreamIn"/>.</summary>
+        private const double StreamStopS = 10.0;
+
         private static void AssertStable(Tally t, string tier)
         {
             Assert.AreEqual(0, t.GapFrames, tier + ": no frame shows a hole in a house (" + t.FirstGap + ")");
@@ -1724,6 +1753,8 @@ namespace Ghumante.Core.Tests
             Assert.AreEqual(0, t.Reshows, tier + ": no cell shows again after it hid (" + t.FirstReshow + ")");
             Assert.AreEqual(0, t.LevelReversals, tier + ": no house switches level back and forth (" + t.FirstReversal + ")");
             Assert.AreEqual(0, t.StopBuilds, tier + ": nothing is rebuilt while the rider stands still");
+            Assert.Greater(t.Stops, 0, tier + ": the ride stops");
+            Assert.AreEqual(0, t.UnmeasuredStops, tier + ": every stop is measured, the set settling while the rider stands (" + t.FirstUnmeasuredStop + ")");
             Assert.AreEqual(0, t.ColliderMismatches, tier + ": colliders match what is drawn");
             int k = Array.IndexOf(TierName, tier);
             Assert.LessOrEqual(t.PeakShownTris, BandConfig.B0ShownBudgetTris(k), tier + ": the ride stays within the B0 budget (" + t.PeakNote + ")");

@@ -126,12 +126,15 @@ half3 GhVertexAlbedo(half4 color)
 // handed over by stencil (WorldMaterialDefaults.SetBandOrder: bands draw inner to outer, each draws only where no inner band
 // drew and marks where it drew). The outgoing (inner) band dithers out over the fade; the incoming (outer) band draws
 // its whole fade-in undithered and fills exactly the pixels the outgoing band left. The two bands draw different meshes
-// of a house (the near ring recesses windows and shop fronts, the lite ring and B1 lay them on the wall), so at one pixel
-// their fragments lie at different distances: complementary dithers of both, evaluated at those two distances, left
-// holes into the house and drew both on the same wall (z-fighting), sparkling in a ring that moved with the camera. Now
-// every pixel of the ring shows one band. Along a view ray the distance from the band centre (the camera) only grows, so
-// an inner band's fragment is in front of an outer band's everywhere outside the shared ring: the mask never hides what
-// should show. C# twins: Ghumante.World.Buildings.BandConfig.Opacity (the outgoing side) and ToonLitLayout.BandStencil*.
+// of a house (B0's near level recesses windows and shop fronts, B1 lays them on the wall), so at one pixel their
+// fragments lie at different distances: complementary dithers of both, evaluated at those two distances, left holes into
+// the house and drew both on the same wall (z-fighting), sparkling in a ring that moved with the camera. Now every pixel
+// of the ring shows one band. The band centre is BandAnchor (Ghumante.World.Buildings, set by WorldStreamer.UpdateView):
+// the player while the chase camera is within its ChaseRangeM (30 m), the camera otherwise. Along a view ray the
+// distance from it only grows beyond that 30 m (the ray passes closest to the centre within 30 m of it), and every band
+// edge lies farther out (Low's B0 fade starts at 33 m), so an inner band's fragment is in front of an outer band's
+// everywhere outside the shared ring: the mask never hides what should show. C# twins:
+// Ghumante.World.Buildings.BandConfig.Opacity (the outgoing side) and ToonLitLayout.BandStencil*.
 // 4x4 Bayer matrix.
 static const float GhBayerTable[16] = { 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 };
 

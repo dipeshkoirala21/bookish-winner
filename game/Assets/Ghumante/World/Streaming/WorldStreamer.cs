@@ -141,7 +141,11 @@ namespace Ghumante.World.Streaming
         /// B0 chunks (about half a megabyte) take what the tile uploads left, and go first (up to half the cap) when a
         /// build the band needs now is waiting (a house riding brings in) or when they found no room for
         /// <see cref="B0UploadShare.StarvedTicks"/> frames in a row, so neither starves and a tile streaming in never
-        /// makes a house late.
+        /// makes a house late. The bytes B0 copied first are handed to the tick as reserved
+        /// (<see cref="StreamingScheduler.Tick(double, double, long)"/>): a tile chunk that does not fit beside them waits
+        /// for a frame without them, so the frame stays within the cap (a lowered budget instead let the scheduler force a
+        /// held chunk through after <see cref="StreamingScheduler.MaxHeldTicks"/> B0-first frames in a row; core-tests
+        /// StreamingFrameBudgetTests).
         /// </summary>
         public void Tick(WorldPos focus)
         {
@@ -157,16 +161,14 @@ namespace Ghumante.World.Streaming
             long first = _b0Share.First(cap, b0Waiting, b0Waiting && _cells.UrgentUploadWaiting);
             if (first > 0) b0 = _cells.Upload(first, true);
             double b0Ms = NowMs() - start;
-            _scheduler.UploadBudgetBytes = Math.Max(1, cap - b0);
             _scheduler.UploadBudgetMs = Math.Max(0.1, budget - b0Ms);
             _tickUploadBytes = 0;
-            _scheduler.Tick(focus.X, focus.Z);
+            _scheduler.Tick(focus.X, focus.Z, b0);
             StreamingStats st = _scheduler.Stats;
             // TickMs, not UploadMs: the scheduler's time budget covers its whole tick (selection and rebuilds too).
             long after = _b0Share.After(cap, b0 + _tickUploadBytes, b0Waiting, first > 0, budget - b0Ms - st.TickMs);
             if (after > 0) b0 += _cells.Upload(after, false);
             _b0Share.EndFrame(b0Waiting, b0);
-            _scheduler.UploadBudgetBytes = cap;
         }
 
         /// <summary>How tiles and B0 cells share the frame's upload cap.</summary>
