@@ -141,8 +141,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 double u = -2.0 + 1.0 * i;
                 double h = i == 2 ? TopM - rv + 0.1 : TopM - rv - 0.15;
+                // All five carry their gilt leaf sprays (hires c02); the outer four are otherwise drawn a LOD coarser.
+                bool sprays = x.Lod == 0;
                 int was = i == 2 ? x.Lod : x.Coarser();
-                tip = Math.Max(tip, Finial(x, u, rv + 0.1, h - 0.2));
+                tip = Math.Max(tip, Finial(x, u, rv + 0.1, h - 0.2, sprays));
                 x.Restore(was);
             }
             if (x.Stats != null)
@@ -157,12 +159,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         private static readonly ShapeBrush RedWood = Looks.Of(MeshColor.FromHex(0x8A4530), MaterialChannel.WoodCarved);
 
         /// <summary>A gilt ridge finial at u: a kalasha finial with two leaf/flag ornaments.</summary>
-        private static double Finial(KdsCtx x, double u, double v0, double h)
+        private static double Finial(KdsCtx x, double u, double v0, double h, bool sprays)
         {
             Affine3 k = x.K;
             x.K = SacredDraw.At(k, u, 0, 0);
             double tip = KdsKit.GiltFinial(x, v0, h, 0.15);
-            if (x.Lod == 0)
+            if (sprays)
             {
                 for (int sgn = -1; sgn <= 1; sgn += 2)
                 {

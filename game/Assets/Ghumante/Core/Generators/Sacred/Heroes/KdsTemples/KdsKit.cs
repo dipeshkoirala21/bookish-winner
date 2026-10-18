@@ -96,6 +96,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>The OSM outline in frame coordinates (counter-clockwise), or null.</summary>
         public double[] OutU, OutW;
 
+        /// <summary>The tile's drawn carriageways (null without roads): ground-level colliders are clipped off them, so no
+        /// plinth corner, cage or wall blocks a road as the road mesher draws it (playtest #1, #14).</summary>
+        public SacredDrawnRoads Drawn;
+
         /// <summary>The drawn terrain (when the tile has heights).</summary>
         public RoadSurface Ground;
 
@@ -153,10 +157,64 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return Clear.Distance(x, z);
         }
 
-        /// <summary>A solid oriented box in frame coordinates (absolute heights from the frame ground).</summary>
+        /// <summary>Signed distance (m) from the frame point (u, w) to the nearest drawn carriageway edge (negative on the
+        /// road); +∞ without roads.</summary>
+        public double DrawnDistance(double u, double w)
+        {
+            if (Drawn == null) return double.PositiveInfinity;
+            double x, y, z;
+            World(u, 0, w, out x, out y, out z);
+            return Drawn.SignedDistance(x, z);
+        }
+
+        /// <summary>How far a ground-level collider may reach onto a drawn road (m): the drawn edge's own tolerance.</summary>
+        private const double DrawnReachM = 0.05;
+
+        /// <summary>True when a collider from v0 to v1 (frame heights) would block at the ground near (u, w).</summary>
+        private bool BlocksAtGround(double u, double w, double v0, double v1)
+        {
+            double g = GroundV(u, w);
+            return v0 < g + SacredSelector.BlockingBelowM && v1 > g + 0.1;
+        }
+
+        /// <summary>Pulls the sides of a frame rectangle in until none of them stands on a drawn road (each side moves by
+        /// its worst sample's depth); false when nothing is left.</summary>
+        private bool ClipOffDrawn(ref double u0, ref double u1, ref double w0, ref double w1)
+        {
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool moved = false;
+                for (int s = 0; s < 4; s++)
+                {
+                    bool alongU = s < 2;
+                    double a0 = alongU ? u0 : w0, a1 = alongU ? u1 : w1, edge = s == 0 ? w0 : s == 1 ? w1 : s == 2 ? u0 : u1;
+                    int n = Math.Max(2, (int)Math.Ceiling((a1 - a0) / 0.25) + 1);
+                    double worst = double.PositiveInfinity;
+                    for (int i = 0; i < n; i++)
+                    {
+                        double a = a0 + (a1 - a0) * i / (n - 1);
+                        worst = Math.Min(worst, alongU ? DrawnDistance(a, edge) : DrawnDistance(edge, a));
+                    }
+                    if (worst >= -DrawnReachM) continue;
+                    double d = -DrawnReachM - worst + 0.02;
+                    if (s == 0) w0 += d;
+                    else if (s == 1) w1 -= d;
+                    else if (s == 2) u0 += d;
+                    else u1 -= d;
+                    moved = true;
+                    if (u1 - u0 < 0.1 || w1 - w0 < 0.1) return false;
+                }
+                if (!moved) return true;
+            }
+            return u1 - u0 >= 0.1 && w1 - w0 >= 0.1;
+        }
+
+        /// <summary>A solid oriented box in frame coordinates (absolute heights from the frame ground); a box that would
+        /// block at the ground is clipped off the drawn roads.</summary>
         public void Box(double u0, double u1, double w0, double w1, double v0, double v1, GenColliderFlags flags, byte material)
         {
             if (C == null || u1 <= u0 || w1 <= w0 || v1 <= v0) return;
+            if (Drawn != null && BlocksAtGround(0.5 * (u0 + u1), 0.5 * (w0 + w1), v0, v1) && !ClipOffDrawn(ref u0, ref u1, ref w0, ref w1)) return;
             double x, y, z;
             World(0.5 * (u0 + u1), 0, 0.5 * (w0 + w1), out x, out y, out z);
             C.AddBox(x, z, F.GroundY + v0, F.GroundY + v1, 0.5 * (u1 - u0), 0.5 * (w1 - w0), Kf.UX, Kf.UZ, flags, material);
@@ -174,19 +232,46 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             Box(u0, u1, w0, w1, v0, v1, GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, material);
         }
 
-        /// <summary>A solid vertical cylinder (post, statue, column) at frame (u, w).</summary>
+        /// <summary>A solid vertical cylinder (post, statue, column) at frame (u, w); left out where it would block a drawn
+        /// road.</summary>
         public void Cylinder(double u, double w, double v0, double v1, double r, bool cameraPasses = false)
         {
             if (C == null) return;
+            if (Drawn != null && BlocksAtGround(u, w, v0, v1) && DrawnDistance(u, w) < r - DrawnReachM) return;
             double x, y, z;
             World(u, 0, w, out x, out y, out z);
             C.AddCylinder(x, z, F.GroundY + v0, F.GroundY + v1, r, cameraPasses);
         }
 
-        /// <summary>A solid thin wall (fence, parapet) between two frame points.</summary>
+        /// <summary>A solid thin wall (fence, parapet) between two frame points; the stretches that would block a drawn road
+        /// are left out.</summary>
         public void Wall(double u0, double w0, double u1, double w1, double v0, double v1, double halfThick)
         {
             if (C == null) return;
+            if (Drawn == null || !BlocksAtGround(0.5 * (u0 + u1), 0.5 * (w0 + w1), v0, v1))
+            {
+                AddWall(u0, w0, u1, w1, v0, v1, halfThick);
+                return;
+            }
+            // Keep the runs of the wall whose samples stand off the drawn roads.
+            double len = Math.Sqrt((u1 - u0) * (u1 - u0) + (w1 - w0) * (w1 - w0));
+            int n = Math.Max(1, (int)Math.Ceiling(len / 0.2));
+            int start = -1;
+            for (int i = 0; i <= n; i++)
+            {
+                bool clear = i < n && DrawnDistance(u0 + (u1 - u0) * (i + 0.5) / n, w0 + (w1 - w0) * (i + 0.5) / n) >= halfThick - DrawnReachM;
+                if (clear && start < 0) start = i;
+                if (!clear && start >= 0)
+                {
+                    double t0 = (double)start / n, t1 = (double)i / n;
+                    AddWall(u0 + (u1 - u0) * t0, w0 + (w1 - w0) * t0, u0 + (u1 - u0) * t1, w0 + (w1 - w0) * t1, v0, v1, halfThick);
+                    start = -1;
+                }
+            }
+        }
+
+        private void AddWall(double u0, double w0, double u1, double w1, double v0, double v1, double halfThick)
+        {
             double x0, y0, z0, x1, y1, z1;
             World(u0, 0, w0, out x0, out y0, out z0);
             World(u1, 0, w1, out x1, out y1, out z1);
@@ -603,12 +688,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>
         /// A hipped roof tier on measured numbers (half sizes of the eave edge at <paramref name="eaveV"/>, the ring where
         /// the slope meets the storey above or closes at the apex, the wall the soffit returns to) in jhingati tiles (or gilt
-        /// copper), with corner horns and the KDS crimson pleated valance of height <paramref name="valH"/> (0 = none).
+        /// copper, in the brush given), with gently lifted corners (or the curled corner horns of a gilt shrine roof when
+        /// <paramref name="horns"/>) and the KDS crimson pleated valance of height <paramref name="valH"/> (0 = none).
         /// Returns the spec for struts and bells.
         /// </summary>
         public static RoofSpec Roof(KdsCtx x, double eaveHu, double eaveHw, double eaveV, double topHu, double topHw, double topV, double wallHu, double wallHw,
                                     double wallTopV, in ShapeBrush tile, double valH, bool gilt = false, double cornerLift = -1, ShapeBrush? fascia = null,
-                                    ShapeBrush? ridge = null)
+                                    ShapeBrush? ridge = null, bool horns = false)
         {
             double big = Math.Max(eaveHu, eaveHw), fasciaH = Math.Min(0.24, 0.1 + 0.012 * big);
             // Over a road corridor the eave edge (fascia bottom) keeps the overhead clearance (contract §1): the tier is
@@ -624,12 +710,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 EaveU = eaveHu, EaveW = eaveHw, EaveV = eaveV, TopU = Math.Max(0.08, topHu), TopW = Math.Max(0.08, topHw), TopV = topV, WallU = wallHu, WallW = wallHw,
                 WallTopV = wallTopV, Lift = cornerLift >= 0 ? cornerLift : 0.035 * big, Sag = 0.018 * Math.Min(eaveHu, eaveHw), FasciaH = fasciaH,
-                // No curled horns: the Kathmandu square's eaves end in a gently lifted corner (the photos), not the
-                // tall kunsala curl of the generic pagodas.
-                CoursePitch = big >= 6.0 ? 1.3 : 0, Gilt = gilt, Fringe = false, FringeH = valH, Horns = false, Clear = x.Clear, GroundY = x.F.GroundY,
-                Roof = gilt ? KdsLooks.Gilt : tile,
+                // No curled horns by default: the Kathmandu square's tile eaves end in a gently lifted corner (the photos),
+                // not the tall kunsala curl of the generic pagodas; the gilt shrine roofs (Ashok Binayak) curl.
+                CoursePitch = big >= 6.0 ? 1.3 : 0, Gilt = gilt, Fringe = false, FringeH = valH, Horns = horns, Clear = x.Clear, GroundY = x.F.GroundY,
+                Roof = tile,
                 Ridge = ridge ?? (gilt ? Looks.GiltHi : Looks.Of(MeshColor.Scale(tile.Color, 0.7f), MaterialChannel.RoofTile)),
-                Fascia = fascia ?? (gilt ? Looks.GiltAged : KdsLooks.Timber), Soffit = Looks.Ao(KdsLooks.Timber, 0.55f), Horn = gilt ? KdsLooks.Gilt : KdsLooks.Timber,
+                Fascia = fascia ?? (gilt ? Looks.GiltAged : KdsLooks.Timber), Soffit = Looks.Ao(KdsLooks.Timber, 0.55f), Horn = gilt ? tile : KdsLooks.Timber,
             };
             SacredParts.Roof(x.M, x.K, r, x.Lod);
             if (valH > 0.01) Valance(x, r, valH);
@@ -1171,7 +1257,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     SacredDraw.Box(m, seg, p - 0.05, p + 0.05, 0, h + 0.08, -0.05, 0.05, wood, BoxFaces.All & ~BoxFaces.Bottom);
                 }
                 // Stakes: pointed boards (LOD0), plain wider boards (LOD1).
-                double pitch = lod == 0 ? 0.32 : 0.6;
+                double pitch = lod == 0 ? 0.4 : 0.6;
                 int n = (int)(l / pitch);
                 for (int i = 0; i < n; i++)
                 {
@@ -1471,7 +1557,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             p.Add(0.78 * r, 0.45 * bh);
             if (lod == 0) p.Add(0.76 * r, 0.6 * bh).Add(0.79 * r, 0.62 * bh, true).Add(0.75 * r, 0.64 * bh);
             p.Add(0.7 * r, 0.82 * bh).Add(0.55 * r, 0.95 * bh).Add(0.2 * r, bh).Add(0, bh, true);
-            Shapes.Lathe(x.M, SacredDraw.At(x.K, u, vTop - bh, w), KdsLooks.BellBronze, p, Seg(16, lod));
+            // Hand bells (under 0.6 m) read round with fewer sides than the great bells.
+            Shapes.Lathe(x.M, SacredDraw.At(x.K, u, vTop - bh, w), KdsLooks.BellBronze, p, Seg(d < 0.6 ? 10 : 16, lod));
             if (lod <= 1)
             {
                 // The crown loop and the clapper.

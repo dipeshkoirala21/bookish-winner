@@ -310,6 +310,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 r.PlinthLevels = e.Plinths;
                 if (r.PlanW <= 0) r.PlanW = e.PlanW;
                 if (r.PlanD <= 0) r.PlanD = e.PlanD;
+                // The Basantapur square is open ground (pigeon flocks, stalls and crowds on it), not a monument the animals
+                // keep out of (Generators/Fauna FaunaHeroZones reads the plan).
+                if (e.Part == KdsPart.BasantapurSquare) r.PlanW = r.PlanD = 0f;
                 r.Measured = true;
                 r.BudgetTris = (int[])Budgets[e.Class].Clone();
                 r.Hide = HideRefs(e.Id);
@@ -433,12 +436,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     // The brief's offset from the mapped neighbour, applied to that neighbour's outline in this tile.
                     cx = rx + (e.X - rel.X);
                     cz = rz + (e.Y - rel.Y);
-                    yaw = HeroBuilder.SnapYaw(e.YawDeg, ryaw, 45);
+                    // Square to the neighbour's axes when the brief's bearing is (nearly) theirs; a structure on its own
+                    // grid (Kotilingeshwar at about 20°, beside Mahavishnu's 11°) keeps the brief's bearing.
+                    double snapped = HeroBuilder.SnapYaw(e.YawDeg, ryaw, 45), off = Math.Abs(((snapped - e.YawDeg) % 360 + 540) % 360 - 180);
+                    yaw = off <= 5 ? snapped : e.YawDeg;
                 }
                 if (cx < 0 || cz < 0 || cx >= tile.Tile.Size || cz >= tile.Tile.Size) return false;
             }
             IHeightSampler h = tile.HeightsQ != null ? new TileHeightSampler(tile) : null;
-            if (ring == null && e.KeepClearM > 0 && tile.Roads.Count > 0) Nudge(SacredClearance.For(tile, h), e.KeepClearM, ref cx, ref cz);
+            if (ring == null && e.KeepClearM > 0 && tile.Roads.Count > 0) Nudge(SacredClearance.For(tile, h), SacredDrawnRoads.For(tile), e.KeepClearM, ref cx, ref cz);
             var g = new RoadSurface(tile, h);
             KitFrame kf = KitFrame.FromYaw(cx, 0, cz, yaw);
             double ground = double.MaxValue;
@@ -460,7 +466,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             x = new KdsCtx
             {
                 M = m, C = lod <= 0 ? c : null, Lod = Math.Max(0, Math.Min(3, lod)), F = f, Kf = f.Kit, Tile = tile, Stats = stats, PlanHu = hu, PlanHw = hw,
-                Clear = tile.Roads.Count > 0 ? SacredClearance.For(tile, h) : null,
+                Clear = tile.Roads.Count > 0 ? SacredClearance.For(tile, h) : null, Drawn = tile.Roads.Count > 0 ? SacredDrawnRoads.For(tile) : null,
             };
             x.K = SacredDraw.Xf(x.Kf);
             if (h != null)
@@ -484,25 +490,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         }
 
         /// <summary>Moves a point (tile-local) up to 3 m down the corridor distance until a circle of radius r round it is clear
-        /// of every road corridor (by the margin).</summary>
-        private static void Nudge(SacredClearance clear, double r, ref double cx, ref double cz)
+        /// of every road corridor (by the margin) and of every drawn carriageway (the drawn road can run off the corridor's
+        /// centreline where the pipeline shifted it).</summary>
+        private static void Nudge(SacredClearance clear, SacredDrawnRoads drawn, double r, ref double cx, ref double cz)
         {
             for (int step = 0; step < 12; step++)
             {
                 double min = double.MaxValue;
-                for (int i = 0; i < 8; i++)
+                for (int i = 0; i < 16; i++)
                 {
-                    double a = Math.PI * i / 4;
-                    min = Math.Min(min, clear.Distance(cx + r * Math.Cos(a), cz + r * Math.Sin(a)));
+                    double a = Math.PI * i / 8, px = cx + r * Math.Cos(a), pz = cz + r * Math.Sin(a);
+                    min = Math.Min(min, Math.Min(clear.Distance(px, pz) - SacredClearance.MarginM, drawn.SignedDistance(px, pz) - 0.1));
                 }
-                if (min >= SacredClearance.MarginM) return;
+                if (min >= 0) return;
                 const double e = 0.5;
-                double gx = clear.Distance(cx + e, cz) - clear.Distance(cx - e, cz), gz = clear.Distance(cx, cz + e) - clear.Distance(cx, cz - e);
+                double gx = Clearance(clear, drawn, cx + e, cz) - Clearance(clear, drawn, cx - e, cz);
+                double gz = Clearance(clear, drawn, cx, cz + e) - Clearance(clear, drawn, cx, cz - e);
                 double l = Math.Sqrt(gx * gx + gz * gz);
                 if (l < 1e-6) return;
                 cx += 0.25 * gx / l;
                 cz += 0.25 * gz / l;
             }
+        }
+
+        /// <summary>The nearer of the corridor margin and the drawn carriageway at a tile-local point.</summary>
+        private static double Clearance(SacredClearance clear, SacredDrawnRoads drawn, double x, double z)
+        {
+            return Math.Min(clear.Distance(x, z) - SacredClearance.MarginM, drawn.SignedDistance(x, z) - 0.1);
         }
 
         /// <summary>The oriented-box centre (tile-local) and door bearing of an entry's OSM outline in a tile.</summary>

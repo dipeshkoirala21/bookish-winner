@@ -17,11 +17,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     internal static class Pavilions
     {
         public const float SilyanTopM = 11.2f;
-        public const float AshokTopM = 4.4f;
+        public const float AshokTopM = 4.0f;
         public const float LaxmiSattalTopM = 9.6f;
         public const float BellTopM = 8.5f;
         public const float SaraswatiTopM = 6.6f;
         public const float DrumsTopM = 6.9f;
+
+        /// <summary>Ashok Binayak's gilt copper, darkened by age and soot (KAT1930 05-08).</summary>
+        private static readonly ShapeBrush AgedGilt = Looks.Of(MeshColor.FromHex(0xA8873A), MaterialChannel.Gilt);
 
         private static double Clamp(double v, double lo, double hi)
         {
@@ -204,7 +207,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             const double hu = 1.2, hw = 1.3, cu = 2.25, cw = 2.35, cageH = 2.95, b0 = 0.18, w0 = 0.45, w1 = 2.55;
             if (lod >= 3)
             {
-                KdsKit.Lod3(x, cu, cw, b0, hu, hw, new[] { 1.95 }, new[] { 2.75 }, new double[0], AshokTopM, KdsLooks.StonePlinth, KdsLooks.Brass, KdsLooks.Gilt);
+                KdsKit.Lod3(x, cu, cw, b0, hu, hw, new[] { 2.05 }, new[] { 2.85 }, new double[0], AshokTopM, KdsLooks.StonePlinth, KdsLooks.Brass, AgedGilt);
                 return AshokTopM;
             }
             KdsKit.Stage(x, cu + 0.12, cw + 0.12, 0, b0, 0, 0, 0, KdsLooks.StonePlinth, KdsLooks.Nosing, 0.05, 0.15, GenColliders.Stone);
@@ -226,13 +229,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     double top = KdsKit.Door(m, sk, 0, w0, d, 0.8, 1.55, KdsLooks.Brass, lod, false, w1);
                     if (lod <= 1) SacredParts.Torana(m, sk, 0, top + 0.02, d + 0.02, 1.15, Looks.Silver, lod);
                 }
+                else if (s == 2)
+                {
+                    // The back (north) wall is plain dark brick, against the house behind (KAT1930 03).
+                    SacredDraw.Panel(m, sk, -a + 0.16, w0, a - 0.16, w1, d + 0.01, Looks.Of(MeshColor.FromHex(0x6A3E2E), MaterialChannel.Brick));
+                }
                 else
                 {
                     SacredParts.LatticeWindow(m, sk, 0, 1.5, d, 0.85, 0.9, KdsLooks.Gilt, lod);
                 }
             }
-            // The single gilt roof with flared corners and the red valance, no finial.
-            KdsKit.Roof(x, 1.95, 2.05, 2.75, 0.12, 0.12, AshokTopM, hu, hw, w1, KdsLooks.Gilt, 0.28, true, 0.12);
+            // The single gilt copper roof, darkened with age, at a moderate pitch with its corners curled up into horns and the
+            // red valance, no finial (KAT1930 05, 06).
+            KdsKit.Roof(x, 2.05, 2.15, 2.85, 0.12, 0.12, AshokTopM, hu, hw, w1, AgedGilt, 0.28, true, 0.18, null, null, true);
             // A pair of small stone lions at the door, inside the cage.
             if (lod <= 1)
             {
@@ -242,8 +251,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 KdsKit.Lion(x, 0.85, hw + 0.55, 0.12, 0.6, 1, false, 0.18);
                 x.Restore(wasL);
             }
-            // The brass-bar cage with its rails and rows of small bells.
+            // The brass-bar cage with its rails, and inside it on the east the iron rack of small offering bells in three
+            // rows (KAT1930 03, 07).
             Cage(x, cu, cw, b0, cageH);
+            if (lod <= 1) BellRack(x, hu + 0.55, b0);
             // The big bell on its iron frame to the east (+u).
             KdsKit.BellFrame(x, cu + 0.85, 0, 0, 2.2, 0.55);
             x.Solid(cu + 0.35, cu + 1.35, -0.2, 0.2, 0, 2.3, GenColliders.Metal);
@@ -270,20 +281,30 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
                 foreach (double rv in new[] { v0 + 0.12, v0 + 1.35, v0 + h - 0.05 })
                     SacredDraw.Box(m, sk, -a, a, rv - 0.035, rv + 0.035, d - 0.03, d + 0.03, rail, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top | BoxFaces.Bottom);
-                if (lod == 0)
-                {
-                    // Rows of small bells hung along the top rail and the middle rail.
-                    int bells = (int)(2 * a / 0.55);
-                    for (int i = 0; i < bells; i++)
-                    {
-                        double u = -a + 2 * a * (i + 0.5) / bells;
-                        SmallBell(m, sk, u, v0 + h - 0.1, d + 0.06, 0.07);
-                        if (i % 2 == 0) SmallBell(m, sk, u, v0 + 1.3, d + 0.06, 0.06);
-                    }
-                }
                 double x0, z0, x1, z1;
                 KdsCorner(s, cu, cw, out x0, out z0, out x1, out z1);
                 x.Wall(x0, z0, x1, z1, 0, v0 + h, 0.05);
+            }
+        }
+
+        /// <summary>The iron rack of small bells on the east (+u) side at u, standing on the cage floor at v0: two posts, three
+        /// rails, seven bells a row (two rows; one at LOD1).</summary>
+        private static void BellRack(KdsCtx x, double u, double v0)
+        {
+            MeshData m = x.M;
+            int lod = x.Lod;
+            ShapeBrush iron = Looks.Of(MeshColor.FromHex(0x34302C), MaterialChannel.Metal);
+            Affine3 sk = KdsKit.Side(x.K, 3);
+            // In the east side frame the rack runs along u' (the frame's along-axis) at depth u from the shrine's centre.
+            const double half = 0.75;
+            for (int sg = -1; sg <= 1; sg += 2)
+                SacredDraw.Box(m, sk, sg * half - 0.025, sg * half + 0.025, v0, v0 + 1.95, u - 0.025, u + 0.025, iron, BoxFaces.Wall);
+            int rows = lod == 0 ? 2 : 1;
+            for (int r = 0; r < rows; r++)
+            {
+                double rv = v0 + 1.9 - 0.42 * r;
+                SacredDraw.Box(m, sk, -half, half, rv - 0.02, rv + 0.02, u - 0.02, u + 0.02, iron, BoxFaces.Front | BoxFaces.Back | BoxFaces.Top | BoxFaces.Bottom);
+                for (int i = 0; i < 7; i++) SmallBell(m, sk, -half + 2 * half * (i + 0.5) / 7, rv - 0.03, u, 0.075);
             }
         }
 
@@ -656,10 +677,20 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             if (lod == 0)
             {
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.02, 0), red, 0.5 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.026, 0), Looks.Of(MeshColor.FromHex(0xE0B437), MaterialChannel.Paint), 0.36 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.032, 0), Looks.Of(MeshColor.FromHex(0x2E7D4F), MaterialChannel.Paint), 0.22 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.038, 0), red, 0.1 * r, 0.006, seg);
+                // The worn painted head: a faded red ring round a paler centre (c_bigdrum 03, 06), and the leather lacing
+                // zig-zagging over the shell from rim to rim.
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.02, 0), Looks.Of(MeshColor.FromHex(0xA8473A), MaterialChannel.Paint), 0.62 * r, 0.006, seg);
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.026, 0), Looks.Of(MeshColor.FromHex(0xE3D6B8), MaterialChannel.Paint), 0.5 * r, 0.006, seg);
+                ShapeBrush lace = Looks.Of(MeshColor.FromHex(0x4A2A1C), MaterialChannel.Leather);
+                const int laces = 8;
+                for (int i = 0; i < laces; i++)
+                {
+                    double a0 = 2 * Math.PI * i / laces, a1 = a0 + Math.PI / laces;
+                    Shapes.Bar(m, f, lace, 0.97 * r * Math.Cos(a0), 0.04 * len, 0.97 * r * Math.Sin(a0), 1.01 * r * Math.Cos(a1), 0.5 * len, 1.01 * r * Math.Sin(a1),
+                               0.018, 3);
+                    Shapes.Bar(m, f, lace, 1.01 * r * Math.Cos(a1), 0.5 * len, 1.01 * r * Math.Sin(a1), 0.97 * r * Math.Cos(a0), 0.96 * len, 0.97 * r * Math.Sin(a0),
+                               0.018, 3);
+                }
             }
         }
 

@@ -102,6 +102,22 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                         }
                     }
                 }
+                // Weeds hang down the broken risers in patches (KAT1890 02, 03): green curtains over part of each face.
+                for (int sIdx = 0; sIdx < st.Length; sIdx++)
+                {
+                    double half = 0.5 * st[sIdx] + 0.012, v1 = (sIdx + 1) * top / st.Length, v0 = v1 - top / st.Length;
+                    for (int side = 0; side < 4; side++)
+                    {
+                        Affine3 sk = KdsKit.Side(x.K, side);
+                        for (int q = 0; q < per / 2 + 1; q++)
+                        {
+                            double c = (Rnd(ref seed) - 0.5) * 1.4 * half, wq = (0.25 + 0.35 * Rnd(ref seed)) * half;
+                            double drop = v0 + (0.15 + 0.5 * Rnd(ref seed)) * (v1 - v0);
+                            SacredDraw.Quad(m, sk, c - wq, drop, half, c + wq, drop + 0.08, half, c + wq, v1, half, c - wq, v1, half, 0, 0, 1,
+                                            greens[(sIdx + side + q + 1) % 3]);
+                        }
+                    }
+                }
                 if (lod == 0)
                 {
                     for (int i = 0; i < 14; i++)

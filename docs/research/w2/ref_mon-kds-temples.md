@@ -45,6 +45,9 @@ The six heroes that existed keep their ids (`her.ktm.kasthamandap`, `maju_dega`,
   offset keeps the neighbours right). The Sweta Bhairav screen finds the west wall of w1415152806 and hangs on it.
 * Ashok Binayak stands 1.4 m from the corridor of path w1415316909 at the brief's point; it is nudged (up to 3 m) until
   its cage is clear.
+* Free-standing pieces far from their temple's footprint stand on the ground at their own spot (the frame's ground is
+  the lowest terrain under the temple): Trailokya's Garuda pedestal sits on the square 10 m out, where the flags lie
+  higher, instead of being half buried.
 
 ## 3. Roads (contract §1)
 
@@ -59,7 +62,8 @@ the bell). The temples keep their OSM plans; everything else gives way:
   Maju Dega's stair foot is dropped if a corridor runs over it;
 * fences, railings and compound walls are trimmed at both ends where they enter a corridor (Kasthamandap's picket
   fence, the Narayan ruin's wire fence, Mahendreshwar's compound, Kotilingeshwar's rail);
-* the Garuda moves along Trailokya's stair axis to the nearest clear spot (path w1550144348 runs over its real place);
+* the Garuda moves along Trailokya's stair axis (or up to 0.5 m beside it) to the nearest spot where the whole group,
+  pedestal corners and wing tips, keeps out of the corridor margin (path w1550144348 runs over its real place);
 * the Basantapur paving drops every 2 m cell that touches a corridor (kerbs are drawn where it ends) and no stall
   stands within 1.6 m of one.
 
@@ -74,45 +78,50 @@ Beyond LOD0 the kit drops relief that no longer reads: black windows become a fl
 square shafts, picket rails three-faced and the stakes flat boards, Silyan's scalloped crest one continuous band,
 Chyasin's columns a three-band lathe, Shiva-Parvati's arches four segments, stall mats flat.
 
-Measured (sample tile 10/516/161, `DumpStructures`):
+Measured (sample tile 10/516/161, `DumpStructures`, after round 5):
 
 | Structure | LOD0 | LOD1 | LOD2 | LOD3 |
 |---|---|---|---|---|
-| T1 Kasthamandap | 13 900 | 4 152 | 1 551 | 58 |
+| T1 Kasthamandap | 13 708 | 4 152 | 1 551 | 58 |
 | T18 Jagannath + corner shrines | 10 456 | 3 275 | 1 511 | 42 |
 | T14 Chyasin Dega | 9 940 | 3 315 | 635 | 112 |
 | T4 Maju Dega | 9 830 | 2 552 | 824 | 58 |
+| T17 Kal Bhairav | 9 568 | 4 386 | 738 | 24 |
 | T8 Trailokya Mohan + T9 Garuda | 8 852 | 2 956 | 774 | 58 |
 | T2 Silyan Sattal | 8 710 | 2 477 | 455 | 26 |
-| T7 Shiva-Parvati | 8 326 | 2 873 | 820 | 26 |
-| T25 Mahendreshwar + compound | 7 162 | 3 174 | 541 | 42 |
-| T17 Kal Bhairav | 6 896 | 2 952 | 738 | 24 |
+| T7 Shiva-Parvati | 8 614 | 2 873 | 820 | 26 |
+| T25 Mahendreshwar + compound | 6 994 | 3 110 | 541 | 42 |
 | T26 Bhagwati (range + temple) | 6 882 | 2 263 | 455 | 74 |
 | T23 Kageshwor | 6 428 | 2 179 | 325 | 42 |
 | T24 Mahavishnu | 5 747 | 1 863 | 482 | 58 |
 | T21 Gopinath | 5 688 | 1 723 | 487 | 58 |
 | T11 Laxmi Narayan Sattal | 4 874 | 1 461 | 393 | 42 |
 | T28 Basantapur square | 4 564 | 1 728 | 1 300 | 48 |
-| T3 Ashok Binayak | 4 296 | 1 401 | 354 | 26 |
 | T20 Indrapur | 3 648 | 1 001 | 365 | 42 |
+| T3 Ashok Binayak | 3 230 | 1 537 | 344 | 26 |
 | T22 Kotilingeshwar | 2 826 | 1 790 | 604 | 44 |
-| T15 Big Drums | 2 788 | 1 182 | 408 | 26 |
 | T16 Lakshmi Narayan | 2 766 | 1 086 | 331 | 42 |
+| T15 Big Drums | 2 756 | 1 182 | 408 | 26 |
 | T12 Taleju Bell | 2 148 | 1 358 | 298 | 26 |
 | T13 Saraswati phalcha | 2 140 | 825 | 223 | 26 |
 | T30 Shiva temple (N) | 2 042 | 787 | 291 | 42 |
 | T31 Shiva temple (W) | 1 940 | 725 | 261 | 42 |
-| T6 Narayan ruin | 1 642 | 496 | 166 | 20 |
-| T19 Pratap Malla column | 1 432 | 504 | 254 | 28 |
+| T6 Narayan ruin | 1 738 | 560 | 166 | 20 |
 | T5 white shikhara | 1 208 | 623 | 173 | 16 |
+| T19 Pratap Malla column | 856 | 504 | 254 | 28 |
 | T27 Sweta Bhairav screen | 758 | 362 | 10 | 10 |
 | T10 Dabali | 416 | 148 | 52 | 52 |
-| **site** | **148 305** | **51 231 (35 %)** | **15 081 (10 %)** | **1 210** |
+| **site** | **149 327** | **52 801 (35 %)** | **15 071 (10 %)** | **1 210** |
+
+Round 5 spent about 2 700 more triangles on the Kal Bhairav relief (the figure is the shrine) and won them back where
+they did not read: the cage bells of Ashok Binayak became the one bell rack the photos show, hand bells turn on ten
+sides instead of sixteen, Kasthamandap's pickets stand 0.40 m apart instead of 0.32 m, and the small gilt family on
+Pratap Malla's column (7.5 m up) uses six-sided figures and five serpent heads.
 
 ## 5. Structure briefs and render rounds
 
 Each structure was rendered from four sides at LOD0 (`tools/mesh-preview/render.py`) above its reference photos in
-rounds r1-r4 (sheets in `/home/user/wt/previews/mon-kds-temples/r1` .. `r4`, one JPG per structure). Colours are the
+rounds r1-r5 (sheets in `/home/user/wt/previews/mon-kds-temples/r1` .. `r5`, one JPG per structure). Colours are the
 kit's (`KdsLooks`): old tile #82533F, new tile #8F5641, valance crimson #A9232C, carved timber #3E2B20, black window
 frames #2A1E18, brick #A4553D (plinths #A35A3C, glazed #B5502F, ochre wash #C4532E), white lime plaster #EEEBE3, grey
 stone #8C877D, gilt #D4A93A, tread flags #9A7F6C.
@@ -146,6 +155,18 @@ stone #8C877D, gilt #D4A93A, tread flags #9A7F6C.
 | T28 Basantapur square | Raised buff-pink brick platform, rows of curio stalls on mats and low tables, few umbrellas, lamp posts (c_basantapur_chowk 00, 04; c_dabli 05) | r2: stalls in rows; r4: umbrellas rarer and plain |
 | T30/T31 Shiva temples | Small two-roof brick temples by Kasthamandap (c_kastha 14) | r3: match |
 
+Round 5 (this pass; sheets in `/home/user/wt/previews/mon-kds-temples/r5`, the starting state in `r5a`):
+
+| Structure | What the photos showed against r4 | Change |
+|---|---|---|
+| T17 Kal Bhairav | KAT1770 03 (KVPT north elevation), 05, 14: the figure fills the niche: a broad, squat warrior stance on the reclining red figure, a big square blue-black face with round red-rimmed eyes, a fan crown of gilt leaves over a band of small skulls, six thick arms with gilt armlets holding a raised sword, a disc, a staff, a drum and a cup; the arch's apex and monster face sit under the valance at about 4.8 m, the sun and moon discs beside it. r4 had a small mascot-like figure with stick arms and the arch running up through the eave. | Figure rebuilt at the elevation's proportions (`BhairavFigure`: two-segment limbs with elbows and knees, hands, bands, garland, necklace, face parts, fan crown); niche height 5.2 → 4.35 m so the apex is under the eave; discs moved to 4.4 m. New test `KalBhairavFillsItsNicheUnderTheEave`. |
+| T3 Ashok Binayak | KAT1930 03, 05, 07: the gilt copper roof is darker with age, moderately pitched, its corners curled up into big horns; the back wall is plain dark brick; the small offering bells hang in one iron rack on the east side inside the cage, not round the whole cage. | Roof eave 2.85 m, apex 4.0 m (was 4.4), aged gilt #A8873A, corner horns (`KdsKit.Roof(..., horns: true)`); brick back wall; `BellRack` (two rows of seven) replaces the bells on all four cage sides. |
+| T15 Big Drums | c_bigdrum 03, 06: worn buff skins with a faded red ring and red rims, laced shells; no bright yellow and green rings. | Skins buff with a faded red ring; leather lacing zig-zags over the shells (LOD0). |
+| T9 Garuda | KAT2020 03: the Garuda kneels on a man-high brick pedestal with a stone cap; in situ (K5) the pedestal was buried because the frame's ground is the temple's lowest corner. | The pedestal stands on its own ground; search beside the axis keeps the whole group out of the corridor margin. New test `TrailokyaKeepsItsGarudaOnTheWestAxisStandingOnTheSquare`. |
+| T6 Narayan ruin | KAT1890 02, 03: weeds hang down the broken risers, not just on the treads. | Green curtains of weeds over parts of every riser. |
+| T7 Shiva-Parvati | hires c02: all five ridge finials carry gilt leaf sprays. | Sprays on the outer four too (LOD0). |
+| T19 Pratap Malla column | KAT1791 00: the king sits larger than his queens and sons under the serpent hood. | King 1.0 m (was 0.85), lighter family figures. |
+
 Photo credits: DANAM (Digital Archive of Nepalese Arts and Monuments, Heidelberg Academy) images CC BY-SA 4.0, photos
 Thomas Schrom 2023 and others as captioned in `danam/<KAT>/captions.txt`; KVPT drawings courtesy of the Kathmandu
 Valley Preservation Trust; Wikimedia Commons files listed with author and licence in each `c_*/credits.txt`.
@@ -154,7 +175,10 @@ Valley Preservation Trust; Wikimedia Commons files listed with author and licenc
 
 `GeneratorsSacredKdsTemplesPreview.DumpInSitu` writes the whole tile through the streaming build (terrain, roads, areas,
 buildings with the hidden generic houses removed, heroes at their LODs); the brief's viewpoints K1-K10 are rendered
-beside their photos in `/home/user/wt/previews/mon-kds-temples/situ_r4/`. The site reads as in the photos from each:
+beside their photos in `/home/user/wt/previews/mon-kds-temples/situ_r5/` (round 5: the eye now stands 1.6 m over the
+walkable ground under it, as §6 of the brief asks; r4 used fixed heights and K2's eye sat in the Maru lane's road
+surface). The streamed tile's KDS heroes add up to the same 149 327 triangles as the direct build, so the game draws
+these models at the site. The site reads as in the photos from each:
 Kasthamandap's three roofs over the hall (K1, K2), Maju Dega's stages with the white shikhara at the stair foot (K3),
 Basantapur's stalls with the Gaddi Baithak beyond (K4), Kal Bhairav with its domes and relief facing north (K6),
 Shiva-Parvati's five toranas and lions (K9). The generic houses round the square and the palace (other packages) are
@@ -164,5 +188,12 @@ what differs most from the photos.
 
 * The temple field's grey flag paving (OSM r21291455, `surface=sett`) is drawn by the areas layer, not here.
 * Ashok Binayak's gilt reads brighter in the preview than in the photos (the game's gilt channel shades it).
-* The drum skins' painted designs vary between the photos (plain to rainbow arcs); one simple design is used.
+* The drum skins' painted designs vary between the photos (plain to rainbow arcs); the worn buff skin with a faded red
+  ring of the 2015-2024 photos is used.
+* In situ the square's ground is the areas layer's sandy beige with the mapped footways drawn as red-brown road ribbons
+  across the temple field (K1, K6, K9); in the photos it is grey stone flags throughout (OSM r21291455, `surface=sett`).
+  That surface belongs to the areas/roads packages; the heroes here pave only their own plinths and Basantapur's stall
+  platform.
+* The generic houses round the square (K1's grey block, K6's white blocks behind Kal Bhairav) are the buildings and
+  palace packages' and differ most from the photos.
 * Taleju Bell: the bell lane's corridor runs over the outline's stair side; the stair stays inside the outline.

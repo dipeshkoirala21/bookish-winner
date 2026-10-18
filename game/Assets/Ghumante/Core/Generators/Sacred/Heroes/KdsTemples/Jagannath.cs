@@ -214,7 +214,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // The gilt royal group: the king seated at the centre, two queens and the sons, on a gilt seat slab.
             ShapeBrush g = KdsLooks.Gilt;
             SacredDraw.Box(m, x.K, -0.55, 0.55, v, v + 0.12, -0.42, 0.42, g, BoxFaces.All & ~BoxFaces.Bottom);
-            Seated(m, x.K, 0, v + 0.12, 0.05, 0.85, lod);
+            // The king sits larger than his family (KAT1791 00).
+            Seated(m, x.K, 0, v + 0.12, 0.05, 1.0, lod);
             if (lod <= 1)
             {
                 Seated(m, x.K, -0.36, v + 0.12, 0.0, 0.6, lod);
@@ -226,12 +227,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             var stem = new Path3(4);
             stem.Add(0, v + 0.1, -0.38).Add(0, v + 0.8, -0.42).Add(0, v + 1.25, -0.25);
             Shapes.Tube(m, x.K, g, stem, 0.06, lod == 0 ? 6 : 4, true, false, default, 0.05);
-            int heads = lod == 0 ? 7 : 3;
+            int heads = lod == 0 ? 5 : 3;
             for (int i = 0; i < heads; i++)
             {
                 double a = (i - 0.5 * (heads - 1)) * 0.3;
                 Affine3 hx = SacredDraw.At(x.K, 0.42 * Math.Sin(a), v + 1.25 + 0.12 * Math.Cos(a), -0.2 + 0.1 * Math.Cos(a));
-                Shapes.Ellipsoid(m, hx, g, 0.13, 0.2, 0.06, lod == 0 ? 8 : 5, false);
+                Shapes.Ellipsoid(m, hx, g, 0.13, 0.2, 0.06, lod == 0 ? 6 : 5, false);
             }
             x.Cylinder(0, 0, 0, ColumnTopM, 0.45);
             return ColumnTopM;
@@ -241,7 +242,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         private static void Seated(MeshData m, in Affine3 k, double u, double v, double w, double h, int lod)
         {
             ShapeBrush g = KdsLooks.Gilt;
-            int seg = lod == 0 ? 8 : 5;
+            // Small and 7.5 m up: six sides read round from the square.
+            int seg = lod == 0 ? 6 : 5;
             Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.1 * h, w), g, 0.26 * h, 0.1 * h, 0.2 * h, seg, false);
             Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.38 * h, w - 0.02 * h), g, 0.16 * h, 0.23 * h, 0.12 * h, seg, false);
             Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.42 * h, w + 0.12 * h), Looks.GiltHi, 0.05 * h, 0.08 * h, 0.05 * h, 5, false);

@@ -8,12 +8,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     /// <summary>
     /// Kal Bhairav (kds-temples.md T17; DANAM KAT1770, KVPT north elevation 8.12 m) on its true footprint (OSM w908861416),
     /// facing north: the grey stone shrine wall 4.8 m wide, blackened by oil and soot, with its side wings holding bronze
-    /// bells; the ogee-arched niche (3.9 × 5.2 m) whose carved rim flames round the painted six-armed Bhairav (blue-black
-    /// body, white eyes, red mouth, gilt-yellow crown of small skulls, a flame aureole; a general depiction) standing on a
-    /// reclining figure; sun and moon discs; the small valanced eave at 5.3 m, the cornice platform at 6.1 m and the three
-    /// ribbed bell domes (8.12 m in the middle, 7.6 m at the sides); the low front platform with the white-and-red lions,
-    /// pennant staffs and the iron railing. Also the Sweta (Seto) Bhairav screen (T27): the closed carved lattice screen
-    /// with its brass lamps on the palace front.
+    /// bells; the arched niche (3.5 m wide, its apex and monster face just under the valance at about 4.8 m) whose carved
+    /// rim flames round the painted six-armed Bhairav (blue-black body, white eyes, red mouth, gilt-yellow crown of small
+    /// skulls, a flame aureole; a general depiction) standing on a reclining figure; sun and moon discs; the small valanced
+    /// eave at 5.3 m, the cornice platform at 6.1 m and the three ribbed bell domes (8.12 m in the middle, 7.6 m at the
+    /// sides); the low front platform with the white-and-red lions, pennant staffs and the iron railing. Also the Sweta
+    /// (Seto) Bhairav screen (T27): the closed carved lattice screen with its brass lamps on the palace front.
     /// </summary>
     internal static class KalBhairav
     {
@@ -76,7 +76,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
             }
             // The niche: the flame-carved stone rim, the painted flame field and the figure.
-            const double nw = 1.75, nv0 = b0 + 0.15, nh = 5.2;
+            // The arch's apex with its monster face sits just under the valance (north elevation: apex about 4.8 m, eave
+            // 5.3 m), the niche 3.5 m wide.
+            const double nw = 1.75, nv0 = b0 + 0.15, nh = 4.35;
             // The rim is black carved stone (serpents and the monster face); the field behind the figure is painted sky
             // blue with an orange-red aureole round the body (KAT1770 14).
             ShapeBrush rim = Looks.Of(MeshColor.FromHex(0x3E3B38), MaterialChannel.Stone);
@@ -98,8 +100,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 ShapeBrush disc = Looks.Of(MeshColor.FromHex(0x6E6A63), MaterialChannel.Stone);
                 for (int sg = -1; sg <= 1; sg += 2)
                 {
-                    Shapes.Cylinder(m, SacredDraw.Basis(nf, sg * 2.0, 5.3, hw, 1, 0, 0, 0, 0, 1), disc, 0.3, 0.06, lod == 0 ? 14 : 8);
-                    if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(nf, sg * 2.0, 5.3, hw + 0.07), Looks.Ao(disc, 0.85f), 0.17, 0.2, 0.06, 6, false);
+                    Shapes.Cylinder(m, SacredDraw.Basis(nf, sg * 1.98, 4.4, hw, 1, 0, 0, 0, 0, 1), disc, 0.3, 0.06, lod == 0 ? 14 : 8);
+                    if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(nf, sg * 1.98, 4.4, hw + 0.07), Looks.Ao(disc, 0.85f), 0.17, 0.2, 0.06, 6, false);
                 }
             }
             BhairavFigure(m, nf, 0, nv0 + 0.1, hw + 0.05, 3.7, lod);
@@ -175,10 +177,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return d;
         }
 
-        /// <summary>The six-armed Bhairav, h tall, against the niche field at (u, v, w) of the wall frame k, facing +w: a
-        /// wide stance on a reclining figure, blue-black body, tiger-skin hip cloth, a garland, a fierce red-mouthed face with
-        /// round white eyes, a tall gilt crown with small white skulls and a flame aureole behind the head; the upper arms
-        /// hold a sword and a disc, the middle a trident, a skull cup at the chest (general depiction).</summary>
+        /// <summary>The six-armed Bhairav against the niche field at (u, v, w) of the wall frame k, facing +w, drawn to the
+        /// KVPT north elevation and the 2023 photo (KAT1770 03, 14) at a figure height of 3.7 m (scaled by h / 3.7): a broad
+        /// warrior stance with bent knees on the reclining red figure, blue-black body, the orange tiger-skin hip cloth with a
+        /// gilt hem, a heavy belly and chest, a marigold garland and a gilt necklace; a big square fierce face with round
+        /// red-rimmed white eyes, thick gilt brows, a third eye, a red open mouth with white fangs, gilt ear rings; a fan crown
+        /// of five gilt leaves with red jewels over a band of small white skulls, the flame aureole behind the head; six arms
+        /// with gilt armlets and bracelets: the upper pair raise a sword and a disc, the middle pair hold a staff and a small
+        /// drum, the lower pair hold a cup at the chest (a general depiction, no gore).</summary>
         private static void BhairavFigure(MeshData m, in Affine3 k, double u, double v, double w, double h, int lod)
         {
             ShapeBrush body = KdsLooks.BhairavBlue, gold = KdsLooks.PaintYellow, red = KdsLooks.PaintRed, white = KdsLooks.PaintWhite;
@@ -188,66 +194,132 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 Shapes.Cone(m, SacredDraw.At(k, u, v + 0.86 * h, w + 0.12), gold, 0.12 * h, 0.2 * h, 5, 0, 0, false);
                 return;
             }
-            int seg = lod == 0 ? 10 : 6, limb = lod == 0 ? 6 : 4;
-            // The figure fills its arch as the real relief does: a broad, heavy body (the frame widened 1.3 times).
-            Affine3 b = Affine3.Scaling(1.3, 1, 1).Then(SacredDraw.At(k, u, v, w));
-            ShapeBrush skin = Looks.Of(MeshColor.FromHex(0xE8B07A), MaterialChannel.Paint);
-            // The flame aureole behind the head.
+            double s = h / 3.7;
+            // The figure's own frame in metres of the 3.7 m relief.
+            Affine3 f = Affine3.Scaling(s).Then(SacredDraw.At(k, u, v, w));
+            bool near = lod == 0;
+            int big = near ? 12 : 8, mid = near ? 8 : 6, small = near ? 6 : 4, limb = near ? 7 : 5;
+            ShapeBrush hem = Looks.Of(MeshColor.FromHex(0xE0A530), MaterialChannel.Paint), cloth = Looks.Of(MeshColor.FromHex(0xD9772B), MaterialChannel.Fabric);
+            ShapeBrush marigold = Looks.Of(SacredPalette.Marigold, MaterialChannel.Fabric), metal = Looks.Of(MeshColor.FromHex(0xC9CED3), MaterialChannel.Metal);
+            // The flame aureole behind the head and shoulders.
             KdsKit.FlameArch(m, k, u, v + 0.7 * h, w - 0.03, 0.3 * h, 0.38 * h, 0.07 * h, 0.03, KdsLooks.FlameOrange, lod, true, false);
-            // The reclining figure across the base.
-            Shapes.Capsule(m, Affine3.RotationZ(0.5 * Math.PI).Then(SacredDraw.At(b, 0.42 * h, 0.07 * h, 0.05)), skin, 0.06 * h, 0.84 * h, limb);
-            Shapes.Sphere(m, SacredDraw.At(b, -0.46 * h, 0.08 * h, 0.06), skin, 0.065 * h, limb);
-            for (int s = -1; s <= 1; s += 2)
+            // The reclining figure across the base, smeared red with vermilion as in the photo.
+            ShapeBrush prone = Looks.Of(MeshColor.FromHex(0xA8402E), MaterialChannel.Paint);
+            Shapes.Capsule(m, Affine3.RotationZ(0.5 * Math.PI).Then(Affine3.Translation(1.15, 0.22, 0.2)).Then(f), prone, 0.2, 2.45, mid);
+            Shapes.Sphere(m, Affine3.Translation(-1.42, 0.26, 0.22).Then(f), prone, 0.22, mid);
+            // Legs: bent knees out wide, feet on the reclining figure, gilt anklets.
+            for (int sg = -1; sg <= 1; sg += 2)
             {
-                var p = new Path3(4);
-                p.Add(s * 0.08 * h, 0.42 * h, 0.05).Add(s * 0.22 * h, 0.3 * h, 0.1).Add(s * 0.24 * h, 0.12 * h, 0.08);
-                Shapes.Tube(m, b, body, p, 0.075 * h, limb, true, false, default, 0.055 * h);
-                Shapes.Ellipsoid(m, SacredDraw.At(b, s * 0.25 * h, 0.12 * h, 0.14), body, 0.06 * h, 0.035 * h, 0.08 * h, limb, false);
+                Limb(m, f, body, sg * 0.45, 1.45, 0.25, sg * 1.12, 0.98, 0.38, sg * 0.84, 0.5, 0.32, 0.33, 0.26, 0.2, limb);
+                Shapes.Ellipsoid(m, Affine3.Translation(sg * 0.88, 0.46, 0.46).Then(f), body, 0.2, 0.09, 0.27, small, true);
+                if (near) Band(m, f, gold, sg * 0.85, 0.6, 0.33, sg * 1.0, 0.92, 0.37, 0.22);
             }
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.44 * h, 0.08), Looks.Of(MeshColor.FromHex(0xD98B2B), MaterialChannel.Fabric), 0.2 * h, 0.08 * h, 0.1 * h, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.55 * h, 0.08), body, 0.2 * h, 0.13 * h, 0.11 * h, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.68 * h, 0.06), body, 0.23 * h, 0.1 * h, 0.1 * h, seg, false);
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.81 * h, 0.1), body, 0.12 * h, 0.115 * h, 0.1 * h, seg, false);
-            double face = 0.1 + 0.085 * h;
-            Shapes.Ellipsoid(m, SacredDraw.At(b, 0, 0.775 * h, face), red, 0.05 * h, 0.022 * h, 0.03 * h, 6, false);
-            for (int s = -1; s <= 1; s += 2)
+            // The tiger-skin hip cloth with its gilt hem, the heavy belly and the chest.
+            Shapes.Ellipsoid(m, Affine3.Translation(0, 1.48, 0.28).Then(f), cloth, 0.84, 0.32, 0.42, big, true);
+            Shapes.Torus(m, Affine3.Scaling(1, 1, 0.55).Then(Affine3.Translation(0, 1.25, 0.3)).Then(f), hem, 0.78, 0.065, near ? 16 : 10, 4);
+            Shapes.Ellipsoid(m, Affine3.Translation(0, 1.92, 0.34).Then(f), body, 0.68, 0.54, 0.44, big, true);
+            Shapes.Ellipsoid(m, Affine3.Translation(0, 2.38, 0.26).Then(f), body, 0.8, 0.44, 0.37, big, true);
+            for (int sg = -1; sg <= 1; sg += 2) Shapes.Sphere(m, Affine3.Translation(sg * 0.7, 2.5, 0.26).Then(f), body, 0.28, mid);
+            // Six arms with armlets, bracelets and hands.
+            for (int sg = -1; sg <= 1; sg += 2)
             {
-                Shapes.Sphere(m, SacredDraw.At(b, s * 0.042 * h, 0.83 * h, face - 0.01 * h), white, 0.026 * h, 6);
-                Shapes.Sphere(m, SacredDraw.At(b, s * 0.042 * h, 0.83 * h, face + 0.012 * h), Looks.Ink, 0.012 * h, 4);
-                Shapes.Ellipsoid(m, Affine3.RotationZ(s * 0.35).Then(SacredDraw.At(b, s * 0.045 * h, 0.865 * h, face - 0.01 * h)), gold, 0.035 * h, 0.008 * h, 0.015 * h, 4,
-                                 false);
-                if (lod == 0) Shapes.Cone(m, Affine3.RotationX(Math.PI).Then(SacredDraw.At(b, s * 0.03 * h, 0.775 * h, face + 0.02 * h)), white, 0.008 * h, 0.03 * h, 4, 0, 0, false);
+                // Upper pair: raised to the crown's height.
+                Arm(m, f, body, gold, sg, 0.66, 2.62, 0.26, 1.05, 2.9, 0.3, 1.24, 3.32, 0.36, limb, small, near);
+                // Middle pair: out to the sides.
+                Arm(m, f, body, gold, sg, 0.7, 2.42, 0.28, 1.15, 2.25, 0.32, 1.52, 2.5, 0.4, limb, small, near);
+                // Lower pair: bent in to the chest.
+                Arm(m, f, body, gold, sg, 0.62, 2.3, 0.36, 0.88, 1.92, 0.5, 0.36, 2.2, 0.68, limb, small, near);
             }
-            if (lod == 0) Shapes.Sphere(m, SacredDraw.At(b, 0, 0.875 * h, face - 0.015 * h), white, 0.012 * h, 4);
-            // The tall gilt crown with its row of small skulls.
-            var cp = new Profile2(8);
-            cp.Add(0, 0).Add(0.11 * h, 0, true).Add(0.13 * h, 0.05 * h).Add(0.1 * h, 0.1 * h).Add(0.06 * h, 0.15 * h).Add(0.02 * h, 0.18 * h).Add(0, 0.18 * h);
-            Shapes.Lathe(m, SacredDraw.At(b, 0, 0.89 * h, 0.08), gold, cp, seg);
-            for (int q = -2; q <= 2; q++) Shapes.Sphere(m, SacredDraw.At(b, q * 0.05 * h, 0.93 * h - 0.01 * h * q * q, 0.08 + 0.115 * h), white, 0.022 * h, 5);
-            // A marigold garland across the chest.
+            // Attributes: the sword raised in the upper right hand, the disc in the upper left, a staff and a small drum in
+            // the middle hands, a white cup held at the chest.
+            Affine3 sw = Affine3.RotationZ(0.25).Then(Affine3.Translation(-1.33, 3.72, 0.4)).Then(f);
+            Shapes.RoundedBox(m, sw, metal, 0.16, 0.8, 0.04, 0.03, 1);
+            Shapes.RoundedBox(m, Affine3.RotationZ(0.25).Then(Affine3.Translation(-1.24, 3.36, 0.4)).Then(f), gold, 0.32, 0.06, 0.08, 0.02, 1);
+            Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(1.32, 3.5, 0.3)).Then(f), white, 0.28, 0.06, mid + 4);
+            if (near) Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(1.32, 3.5, 0.37)).Then(f), red, 0.15, 0.02, mid);
+            Shapes.Bar(m, f, Looks.Of(MeshColor.FromHex(0x5A3A26), MaterialChannel.Wood), -1.42, 1.55, 0.42, -1.65, 3.15, 0.42, 0.05, small);
+            if (near) Shapes.Sphere(m, Affine3.Translation(-1.66, 3.2, 0.42).Then(f), white, 0.09, small);
+            if (near)
+            {
+                // The small hourglass drum (damaru): two cones meeting at their tips.
+                Shapes.Cone(m, Affine3.Translation(1.56, 2.37, 0.42).Then(f), cloth, 0.11, 0.13, small, 0, 0, true);
+                Shapes.Cone(m, Affine3.RotationZ(Math.PI).Then(Affine3.Translation(1.56, 2.63, 0.42)).Then(f), cloth, 0.11, 0.13, small, 0, 0, true);
+            }
+            Shapes.Dome(m, Affine3.RotationX(Math.PI).Then(Affine3.Translation(-0.3, 2.32, 0.76)).Then(f), white, 0.17, 0.12, mid, true);
+            // The gilt necklace and the marigold garland hanging to the belly.
+            Shapes.Torus(m, Affine3.RotationX(1.15).Then(Affine3.Translation(0, 2.66, 0.36)).Then(f), gold, 0.3, 0.045, near ? 14 : 8, 4, default, 270, 180);
             var gl = new Path3(8);
-            gl.Add(-0.18 * h, 0.72 * h, 0.12).Add(-0.08 * h, 0.55 * h, 0.2).Add(0.08 * h, 0.55 * h, 0.2).Add(0.18 * h, 0.72 * h, 0.12);
-            Path3 gs = Curves.CatmullRom(gl, new Path3(16), lod == 0 ? 4 : 2, false);
-            if (lod == 0) Shapes.Tube(m, b, Looks.Of(SacredPalette.Marigold, MaterialChannel.Fabric), gs, 0.02 * h, limb, true);
-            // Six arms.
-            double[] ax = { 0.42, 0.44, 0.36 }, ay = { 0.98, 0.78, 0.58 };
-            for (int s = -1; s <= 1; s += 2)
+            gl.Add(-0.6, 2.6, 0.44).Add(-0.44, 2.05, 0.74).Add(0, 1.8, 0.84).Add(0.44, 2.05, 0.74).Add(0.6, 2.6, 0.44);
+            Path3 gs = Curves.CatmullRom(gl, new Path3(24), near ? 4 : 2, false);
+            Shapes.Tube(m, f, marigold, gs, 0.07, small, true);
+            // The face: broad and square, blue-black.
+            Shapes.Superellipsoid(m, Affine3.Translation(0, 2.95, 0.32).Then(f), body, 0.44, 0.37, 0.3, 0.75, 0.85, big + 2);
+            for (int sg = -1; sg <= 1; sg += 2)
             {
-                for (int a = 0; a < 3; a++)
-                {
-                    var p = new Path3(4);
-                    p.Add(s * 0.17 * h, 0.7 * h, 0.08).Add(s * (0.17 + 0.6 * (ax[a] - 0.17)) * h, (0.7 + 0.5 * (ay[a] - 0.7)) * h - 0.03 * h, 0.1).Add(s * ax[a] * h, ay[a] * h, 0.12);
-                    Shapes.Tube(m, b, body, p, 0.055 * h, limb, true, false, default, 0.04 * h);
-                    Shapes.Sphere(m, SacredDraw.At(b, s * ax[a] * h, ay[a] * h, 0.12), gold, 0.025 * h, 4);
-                }
+                Shapes.Ellipsoid(m, Affine3.Translation(sg * 0.16, 3.02, 0.59).Then(f), red, 0.12, 0.11, 0.05, mid, true);
+                Shapes.Ellipsoid(m, Affine3.Translation(sg * 0.16, 3.02, 0.61).Then(f), white, 0.09, 0.085, 0.05, mid, true);
+                Shapes.Sphere(m, Affine3.Translation(sg * 0.16, 3.02, 0.665).Then(f), Looks.Ink, 0.042, small);
+                Shapes.Ellipsoid(m, Affine3.RotationZ(sg * 0.3).Then(Affine3.Translation(sg * 0.17, 3.17, 0.58)).Then(f), gold, 0.15, 0.04, 0.05, small, true);
+                // Gilt ear rings.
+                if (near) Shapes.Torus(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(sg * 0.42, 2.82, 0.3)).Then(f), gold, 0.1, 0.03, 8, 3);
             }
-            // Sword (upper right), disc (upper left), trident (middle right) and the skull cup at the chest.
-            Shapes.RoundedBox(m, Affine3.RotationZ(-0.35).Then(SacredDraw.At(b, 0.48 * h, 1.12 * h, 0.14)), white, 0.08 * h, 0.3 * h, 0.02, 0.01, 1);
-            Shapes.Cylinder(m, SacredDraw.Basis(b, -0.44 * h, 1.02 * h, 0.12, 1, 0, 0, 0, 0, 1), white, 0.1 * h, 0.02, seg);
-            Shapes.Cylinder(m, SacredDraw.At(b, 0.44 * h, 0.58 * h, 0.12), gold, 0.012 * h, 0.4 * h, 4);
-            for (int q = -1; q <= 1; q++)
-                Shapes.Cone(m, SacredDraw.At(b, 0.44 * h + q * 0.04 * h, 0.98 * h - Math.Abs(q) * 0.03 * h, 0.12), gold, 0.012 * h, 0.08 * h, 4, 0, 0, false);
-            Shapes.Dome(m, Affine3.RotationX(Math.PI).Then(SacredDraw.At(b, 0, 0.62 * h, 0.24)), white, 0.06 * h, 0.04 * h, seg, true);
+            Shapes.Ellipsoid(m, Affine3.Translation(0, 2.76, 0.6).Then(f), red, 0.19, 0.08, 0.06, mid, true);
+            if (near)
+            {
+                Shapes.Ellipsoid(m, Affine3.Translation(0, 3.22, 0.6).Then(f), white, 0.035, 0.065, 0.025, small, true);
+                Shapes.Ellipsoid(m, Affine3.Translation(0, 2.92, 0.62).Then(f), body, 0.08, 0.07, 0.07, small, true);
+                Shapes.RoundedBox(m, Affine3.Translation(0, 2.79, 0.655).Then(f), white, 0.24, 0.035, 0.02, 0.008, 1);
+                for (int sg = -1; sg <= 1; sg += 2)
+                    Shapes.Cone(m, Affine3.RotationX(Math.PI).Then(Affine3.Translation(sg * 0.11, 2.78, 0.66)).Then(f), white, 0.03, 0.09, 4, 0, 0, false);
+            }
+            // The crown: a gilt band of small white skulls under a fan of five gilt leaves with red jewels.
+            Shapes.Frustum(m, Affine3.Scaling(1, 1, 0.8).Then(Affine3.Translation(0, 3.18, 0.3)).Then(f), gold, 0.46, 0.44, 0.16, near ? 14 : 8, 0.01, 1, false, true);
+            // The leaves rise straight from the band, the middle one tallest, the fan as wide as the face (KAT1770 14).
+            for (int q = -2; q <= 2; q++)
+            {
+                double a = q * 0.42, cx = 0.36 * Math.Sin(a), cy = 3.34 + 0.3 * Math.Cos(a);
+                double ry = q == 0 ? 0.3 : 0.26;
+                Shapes.Ellipsoid(m, Affine3.RotationZ(-a).Then(Affine3.Translation(cx, cy, 0.44 - 0.05 * Math.Abs(q))).Then(f), gold, 0.19, ry, 0.06, mid, true);
+                if (near) Shapes.Sphere(m, Affine3.Translation(cx, cy + 0.02, 0.5 - 0.05 * Math.Abs(q)).Then(f), red, 0.06, small);
+                double t = 0.75 * a;
+                if (near) Shapes.Sphere(m, Affine3.Translation(0.48 * Math.Sin(t), 3.26, 0.3 + 0.37 * Math.Cos(t)).Then(f), white, 0.065, small);
+            }
+        }
+
+        /// <summary>A two-segment limb (shoulder or hip a, elbow or knee b, wrist or ankle c) as one tapering tube.</summary>
+        private static void Limb(MeshData m, in Affine3 f, in ShapeBrush b, double ax, double ay, double az, double bx, double by, double bz, double cx, double cy,
+                                 double cz, double r0, double r1, double r2, int radial)
+        {
+            var p = new Path3(4);
+            p.Add(ax, ay, az).Add(bx, by, bz);
+            Shapes.Tube(m, f, b, p, r0, radial, true, false, default, r1);
+            p.Clear().Add(bx, by, bz).Add(cx, cy, cz);
+            Shapes.Tube(m, f, b, p, r1, radial, true, false, default, r2);
+            Shapes.Sphere(m, Affine3.Translation(bx, by, bz).Then(f), b, r1, 6);
+        }
+
+        /// <summary>A gilt ring round a limb at a, its axis toward b.</summary>
+        private static void Band(MeshData m, in Affine3 f, in ShapeBrush b, double ax, double ay, double az, double bx, double by, double bz, double r)
+        {
+            double len;
+            Affine3 a = Affine3.Along(ax, ay, az, bx, by, bz, out len);
+            Shapes.Torus(m, a.Then(f), b, r, 0.035, 8, 3);
+        }
+
+        /// <summary>One of the six arms on side sg (shoulder, elbow, hand in the figure frame with x mirrored): upper arm and
+        /// forearm, a gilt armlet and bracelet, the hand.</summary>
+        private static void Arm(MeshData m, in Affine3 f, in ShapeBrush b, in ShapeBrush gold, int sg, double sx, double sy, double sz, double ex, double ey,
+                                double ez, double hx, double hy, double hz, int radial, int small, bool bands)
+        {
+            Limb(m, f, b, sg * sx, sy, sz, sg * ex, ey, ez, sg * hx, hy, hz, 0.19, 0.16, 0.13, radial);
+            if (bands)
+            {
+                double t = 0.8;
+                Band(m, f, gold, sg * (ex + t * (hx - ex)), ey + t * (hy - ey), ez + t * (hz - ez), sg * hx, hy, hz, 0.15);
+                t = 0.45;
+                Band(m, f, gold, sg * (sx + t * (ex - sx)), sy + t * (ey - sy), sz + t * (ez - sz), sg * ex, ey, ez, 0.18);
+            }
+            Shapes.Ellipsoid(m, Affine3.Translation(sg * hx, hy, hz).Then(f), b, 0.14, 0.16, 0.11, small, true);
         }
 
         // -------------------------------------------------------------------------------------------------------------

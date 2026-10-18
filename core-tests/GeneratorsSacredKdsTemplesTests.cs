@@ -144,6 +144,79 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
+        public void KalBhairavFillsItsNicheUnderTheEave()
+        {
+            // The painted six-armed figure (blue-black) stands inside the arched niche: above the low platform and under the
+            // valanced eave at 5.25 m, as wide as the KVPT north elevation shows (arms reaching across most of the 3.5 m
+            // niche), and the arch's apex with its monster face sits under the eave too.
+            Built b = Find("her.ktm.kal_bhairav");
+            KdsCtx x = b.X;
+            double lo = double.MaxValue, hi = double.MinValue, uMin = double.MaxValue, uMax = double.MinValue;
+            int n = 0;
+            MeshData m = b.Mesh0;
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                if (m.Colors[4 * v] != 0x22 || m.Colors[4 * v + 1] != 0x30 || m.Colors[4 * v + 2] != 0x4F) continue;
+                double y = m.Positions[3 * v + 1] - x.F.GroundY, u, w;
+                x.Local(m.Positions[3 * v], m.Positions[3 * v + 2], out u, out w);
+                lo = Math.Min(lo, y);
+                hi = Math.Max(hi, y);
+                uMin = Math.Min(uMin, u);
+                uMax = Math.Max(uMax, u);
+                n++;
+            }
+            Assert.That(n, Is.GreaterThan(500), "the figure is modelled, not a flat panel");
+            Assert.That(lo, Is.GreaterThan(0.3), "on the platform");
+            Assert.That(hi, Is.LessThan(5.0), "under the eave");
+            Assert.That(uMax - uMin, Is.GreaterThan(2.8), "six arms spread across the niche");
+            Assert.That(uMax - uMin, Is.LessThan(3.6), "inside the niche");
+        }
+
+        [Test]
+        public void TrailokyaKeepsItsGarudaOnTheWestAxisStandingOnTheSquare()
+        {
+            // The black stone Garuda on its brick pedestal (kds-temples.md T9) is a must-have: it stays on (or within half a
+            // metre of) the stair axis 8.6-16 m west of the temple even where a path's corridor runs over its real spot, and
+            // its pedestal stands on the square's ground, not buried in it.
+            Built b = Find("her.ktm.trailokya_mohan");
+            KdsCtx x = b.X;
+            MeshData m = b.Mesh0;
+            int n = 0;
+            double uMax = 0, wMin = double.MaxValue, wMax = double.MinValue, low = double.MaxValue, gu = 0, gw = 0;
+            for (int v = 0; v < m.VertexCount; v++)
+            {
+                if (m.Colors[4 * v] != 0x4E || m.Colors[4 * v + 1] != 0x4B || m.Colors[4 * v + 2] != 0x47) continue;
+                double u, w;
+                x.Local(m.Positions[3 * v], m.Positions[3 * v + 2], out u, out w);
+                if (w < 7.5) continue;
+                n++;
+                uMax = Math.Max(uMax, Math.Abs(u));
+                wMin = Math.Min(wMin, w);
+                wMax = Math.Max(wMax, w);
+                if (m.Positions[3 * v + 1] < low)
+                {
+                    low = m.Positions[3 * v + 1];
+                    gu = u;
+                    gw = w;
+                }
+            }
+            Assert.That(n, Is.GreaterThan(200), "the Garuda is there");
+            Assert.That(0.5 * (wMin + wMax), Is.InRange(8.6, 16.0), "west of the stair, on its axis");
+            Assert.That(uMax, Is.LessThan(1.6), "on (or half a metre beside) the stair axis");
+            // The cap slab's underside sits 1.08 m over the pedestal's foot.
+            Assert.That(low - x.F.GroundY - x.GroundV(gu, gw), Is.GreaterThan(0.9), "the pedestal is not buried");
+        }
+
+        private static Built Find(string id)
+        {
+            foreach (Built b in All())
+                if (b.Id == id)
+                    return b;
+            Assert.Fail(id + " not built");
+            return null;
+        }
+
+        [Test]
         public void StructuresFillTheirFootprints()
         {
             foreach (Built b in All())

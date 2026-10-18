@@ -145,7 +145,9 @@ namespace Ghumante.Core.Tests
                 }
                 outlined++;
             }
-            Assert.That(outlined, Is.GreaterThanOrEqualTo(5));
+            // The bespoke heritage sites (HeroForm.Bespoke, Heroes/<Site>/: Kathmandu Durbar Square's temples, ...) are
+            // checked against their outlines by their own tests; the parametric heroes that remain still follow theirs.
+            Assert.That(outlined, Is.GreaterThanOrEqualTo(1));
         }
 
         /// <summary>Length-weighted dominant edge bearing of a ring, modulo 90° (degrees, 0..90).</summary>
@@ -234,7 +236,8 @@ namespace Ghumante.Core.Tests
                 }
                 checkedHeroes++;
             }
-            Assert.That(checkedHeroes, Is.GreaterThanOrEqualTo(5));
+            // Bespoke heritage sites (HeroForm.Bespoke) are left to their own tests (see HeroPlansFollowTheirOsmOutlines).
+            Assert.That(checkedHeroes, Is.GreaterThanOrEqualTo(1));
             // Pashupatinath's sanctum is 8.7 × 8.3 m on its 19.5 × 19.2 m plinth (W2_DESIGN 3.4).
             MeshData pm;
             SacredStats ps = BuildHero("her.ktm.pashupatinath", out pm);

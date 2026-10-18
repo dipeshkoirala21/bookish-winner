@@ -122,7 +122,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             else p.Add(0, v0 - sink, face).Add(0, v1 - nh).Add(0.03, v1 - nh, nose).Add(0.03, v1);
             SacredDraw.Ring(x.M, x.K, pu, pw, n, p);
             SacredDraw.Cap(x.M, x.K, pu, pw, n, 0.03, v1, true, nose.Color == KdsLooks.Nosing.Color ? KdsLooks.Tread : nose);
-            x.Floor(-a, a, -a, a, v0 - sink, v1, GenColliders.Brick);
+            // The octagon as walkable boxes: the two cross bands through the flat faces and the square whose corners touch
+            // the diagonal faces (a square box would reach 0.41 a past them).
+            double s = a * Math.Tan(Math.PI / 8), c = 0.5 * (a + s);
+            x.Floor(-a, a, -s, s, v0 - sink, v1, GenColliders.Brick);
+            x.Floor(-s, s, -a, a, v0 - sink, v1, GenColliders.Brick);
+            x.Floor(-c, c, -c, c, v0 - sink, v1, GenColliders.Brick);
         }
 
         /// <summary>An octagonal block (apothem a) from v0 to v1, capped.</summary>

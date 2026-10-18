@@ -96,17 +96,40 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         {
             // Keep the pedestal out of the corridors: if a mapped path runs over the spot, the Garuda moves along the stair
             // axis to the nearest clear place (toward the temple down to the stair foot, or a little further out).
-            double ww = double.NaN;
-            const double need = 0.75 + SacredClearance.MarginM;
+            double ww = double.NaN, uu = 0;
+            // The whole group (pedestal corners and wing tips, about 0.95 m from its centre) stays out of the corridor
+            // margin: along the axis first, then up to half a metre to the side of it; failing that, the centre alone keeps
+            // 0.75 m.
+            const double need = 0.95 + SacredClearance.MarginM, needCentre = 0.75 + SacredClearance.MarginM;
             for (double dw = 0; dw <= 5.0 && double.IsNaN(ww); dw += 0.25)
             {
-                if (w - dw >= 8.6 && x.CorridorDistance(0, w - dw) >= need) ww = w - dw;
-                else if (x.CorridorDistance(0, w + dw) >= need) ww = w + dw;
+                for (int q = 0; q <= 4 && double.IsNaN(ww); q++)
+                {
+                    double du = (q + 1) / 2 * 0.25 * (q % 2 == 0 ? 1 : -1);
+                    if (w - dw >= 8.6 && x.CorridorDistance(du, w - dw) >= need)
+                    {
+                        ww = w - dw;
+                        uu = du;
+                    }
+                    else if (x.CorridorDistance(du, w + dw) >= need)
+                    {
+                        ww = w + dw;
+                        uu = du;
+                    }
+                }
+            }
+            for (double dw = 0; dw <= 5.0 && double.IsNaN(ww); dw += 0.25)
+            {
+                if (w - dw >= 8.6 && x.CorridorDistance(0, w - dw) >= needCentre) ww = w - dw;
+                else if (x.CorridorDistance(0, w + dw) >= needCentre) ww = w + dw;
             }
             if (double.IsNaN(ww)) return;
             MeshData m = x.M;
             int lod = x.Lod;
-            Affine3 face = SacredDraw.Turn(x.K, 0, 0, ww, Math.PI);
+            // The pedestal stands on the square's ground at its own spot (10 m from the temple's lowest corner the flags
+            // lie higher), never buried.
+            double vg = x.HasGround ? Math.Max(0, x.GroundV(uu, ww)) : 0;
+            Affine3 face = SacredDraw.Turn(x.K, uu, vg, ww, Math.PI);
             ShapeBrush brick = KdsLooks.BrickPlinth;
             if (lod <= 1)
             {
@@ -118,7 +141,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 SacredDraw.Box(m, face, -0.62, 0.62, 0, 1.22, -0.48, 0.48, brick, BoxFaces.All & ~BoxFaces.Bottom);
             }
             SacredFigures.Garuda(m, face, 0, 1.22, 0, 1.6, KdsLooks.StoneBlack, lod);
-            x.Solid(-0.7, 0.7, ww - 0.55, ww + 0.55, 0, 2.8, GenColliders.Stone);
+            x.Solid(uu - 0.7, uu + 0.7, ww - 0.55, ww + 0.55, 0, vg + 2.8, GenColliders.Stone);
         }
     }
 }
