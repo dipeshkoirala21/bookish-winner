@@ -35,7 +35,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                             KdsLooks.BrickPlinth, KdsLooks.Plaster, KdsLooks.TileOld);
                 return 22.5;
             }
-            const double stairHalf = 0.8, parapet = 0.32;
+            // The stair is about 2.1 m wide between thick white parapets with half-round copings (KAT1910 10, 12).
+            const double stairHalf = 1.05, parapet = 0.44;
             double notch = stairHalf + parapet;
             KdsPagoda.StageStack(x, wu, wu, PlinthTop, notch, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.11);
             if (x.Stats != null)
@@ -48,8 +49,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double topHalf = 0.5 * wu[n - 1], run = 0.5 * wu[0] - topHalf + 0.75;
             bool platform = Platform(x, 0.5 * wu[0] + 0.4);
             double foot = platform ? 0.5 : 0;
-            int steps = KdsKit.Stair(x, stairHalf, topHalf, run, foot, PlinthTop, parapet, 0.55, KdsLooks.Nosing, KdsLooks.Plaster, platform ? 31 : 33);
+            int steps = KdsKit.Stair(x, stairHalf, topHalf, run, foot, PlinthTop, parapet, 0.45, KdsLooks.Nosing, KdsLooks.Plaster, platform ? 31 : 33);
             if (x.Stats != null) x.Stats.Steps = steps;
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                KdsKit.StairCoping(x, sgn * (stairHalf + 0.5 * parapet), topHalf, topHalf + run, foot, PlinthTop, parapet + 0.04, 0.72, KdsLooks.Plaster);
 
             // The temple base and ground storey.
             double v0 = PlinthTop;

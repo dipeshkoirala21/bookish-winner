@@ -26,6 +26,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>Ashok Binayak's gilt copper, darkened by age and soot (KAT1930 05-08).</summary>
         private static readonly ShapeBrush AgedGilt = Looks.Of(MeshColor.FromHex(0xA8873A), MaterialChannel.Gilt);
 
+        /// <summary>Ashok Binayak's brass cladding, dark and oily with age; only the carved edges catch the light (KAT1930 02, 04).</summary>
+        private static readonly ShapeBrush AgedBrass = Looks.Of(MeshColor.FromHex(0x8E763C), MaterialChannel.Metal);
+
         private static double Clamp(double v, double lo, double hi)
         {
             return v < lo ? lo : v > hi ? hi : v;
@@ -41,7 +44,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             MeshData m = x.M;
             int lod = x.Lod;
             double hu = x.PlanHu > 1 ? Clamp(x.PlanHu - 0.75, 5.0, 6.9) : 6.55, hw = x.PlanHw > 1 ? Clamp(x.PlanHw - 1.0, 3.0, 4.2) : 3.69;
-            const double p0 = 0.3, g1 = 3.25, par0 = 3.72, par1 = 4.62, postTop = 7.25, eave = 7.5, ridge = 10.0;
+            const double p0 = 0.3, g1 = 3.25, par0 = 3.72, par1 = 4.62, gal = 5.2, postTop = 7.25, eave = 7.5, ridge = 10.0;
             if (lod >= 3)
             {
                 KdsKit.Lod3(x, hu + 0.3, hw + 0.3, p0, hu, hw, new[] { hu + 1.5 }, new[] { eave }, new double[0], ridge, KdsLooks.StonePlinth, KdsLooks.Timber,
@@ -63,57 +66,65 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 pp.Add(0.16, par0 - 0.05, KdsLooks.PlasterShade).Add(0.16, par0 + 0.08).Add(0.12, par0 + 0.1, KdsLooks.Plaster).Add(0.12, par1 - 0.12)
                   .Add(0.17, par1 - 0.1).Add(0.17, par1);
             SacredDraw.RectRing(m, x.K, 0, 0, hu, hw, pp, true, KdsLooks.Plaster);
-            x.Floor(-hu - 0.15, hu + 0.15, -hw - 0.15, hw + 0.15, par0, par1, GenColliders.Wood);
+            x.Floor(-hu - 0.15, hu + 0.15, -hw - 0.15, hw + 0.15, par0, gal, GenColliders.Wood);
+            // The gallery floor stands level with the crest (KAT1990 10): behind the merlons the white parapet rises to it,
+            // so the gaps between them show white wall, and the open veranda starts over it.
+            SacredDraw.RectRing(m, x.K, 0, 0, hu - 0.06, hw - 0.06, SacredDraw.M.Add(0, par1 - 0.05, Looks.Ao(KdsLooks.PlasterShade, 0.7f)).Add(0, gal), true, KdsLooks.Beam);
             if (lod <= 1)
             {
                 for (int s = 0; s < 4; s++)
                 {
                     Affine3 sk = KdsKit.Side(x.K, s);
+                    // The crest (KAT1990 06, 10): square white merlons about 1.2 m apart with moulded caps, half-round
+                    // arches cut deep between them.
                     double a = KdsKit.Along(s, hu, hw) - 0.4, d = KdsKit.Depth(s, hu, hw) + 0.17;
-                    int n = Math.Max(2, (int)Math.Round(2 * a / 0.78));
-                    if (lod == 1) ScallopRow(m, sk, a, par1 - 0.02, d - 0.22, 0.42, n, 0.34);
+                    int n = Math.Max(2, (int)Math.Round(2 * a / 1.2));
+                    if (lod == 1) ScallopRow(m, sk, a, par1 - 0.02, d - 0.22, 0.62, n, 0.42);
                     else
                     {
                         for (int i = 0; i < n; i++)
                         {
                             double c = -a + 2 * a * (i + 0.5) / n;
-                            Scallop(m, sk, c, par1 - 0.02, d - 0.22, 0.42, 2 * a / n, 0.34, lod);
+                            Scallop(m, sk, c, par1 - 0.02, d - 0.22, 0.62, 2 * a / n, 0.42, lod);
+                            // The merlon's cap: a projecting slab and a small rounded knob.
+                            SacredDraw.Box(m, sk, c - 0.27, c + 0.27, par1 + 0.6, par1 + 0.7, d - 0.27, d + 0.07, KdsLooks.Plaster, BoxFaces.All & ~BoxFaces.Bottom);
+                            Shapes.Cone(m, SacredDraw.At(sk, c, par1 + 0.7, d - 0.1) * Affine3.RotationY(0.25 * Math.PI), KdsLooks.Plaster, 0.17, 0.2, 4, 0, 0, false);
                         }
                     }
                 }
             }
-            x.Wall(-hu - 0.15, hw + 0.15, hu + 0.15, hw + 0.15, par1, par1 + 0.35, 0.1);
+            x.Wall(-hu - 0.15, hw + 0.15, hu + 0.15, hw + 0.15, gal, gal + 0.35, 0.1);
             for (int cu = -1; cu <= 1; cu += 2)
             {
                 for (int cw = -1; cw <= 1; cw += 2)
                 {
                     double u = cu * (hu + 0.1), w = cw * (hw + 0.1);
                     Mould pier = SacredDraw.M;
-                    pier.Add(0.4, par0 - 0.05, KdsLooks.Plaster).Add(0.4, 5.55);
-                    if (lod <= 1) pier.Add(0.48, 5.62, KdsLooks.PlasterShade).Add(0.48, 5.75);
+                    pier.Add(0.4, par0 - 0.05, KdsLooks.Plaster).Add(0.4, gal + 0.25);
+                    if (lod <= 1) pier.Add(0.48, gal + 0.32, KdsLooks.PlasterShade).Add(0.48, gal + 0.45);
                     SacredDraw.RectRing(m, x.K, u, w, 0, 0, pier, true, KdsLooks.Plaster);
-                    x.Solid(u - 0.44, u + 0.44, w - 0.44, w + 0.44, par0, 5.75, GenColliders.Brick);
+                    x.Solid(u - 0.44, u + 0.44, w - 0.44, w + 0.44, par0, gal + 0.45, GenColliders.Brick);
                     int first = m.VertexCount;
-                    // The gilt winged lions are big (KAT1990 06, 10): about 1.3 m, rearing over the corners.
-                    Affine3 lk = SacredDraw.Turn(x.K, u, 5.75, w, Math.Atan2(-cu, cw));
-                    SacredFigures.Guardian(m, lk, 0, 0, 0, 1.3, GuardianKind.Griffin, true, SacredFigures.Generic, Math.Min(2, lod + 1), 0);
+                    // The gilt winged lions are big (KAT1990 06, 10): about 1.15 m, rearing on the corner piers under the eaves.
+                    Affine3 lk = SacredDraw.Turn(x.K, u, lod <= 1 ? gal + 0.45 : gal + 0.25, w, Math.Atan2(-cu, cw));
+                    SacredFigures.Guardian(m, lk, 0, 0, 0, 1.15, GuardianKind.Griffin, true, SacredFigures.Generic, Math.Min(2, lod + 1), 0);
                     KdsKit.Recolour(m, first, KdsLooks.Gilt);
                 }
             }
             // The open veranda storey: carved posts, the balcony rail and the closed inner wall with lattice windows.
             double vu = hu - 0.15, vw = hw - 0.15, iu = hu - 1.05, iw = hw - 1.05;
             int wasPosts = x.Coarser();
-            KdsKit.PostRing(x, vu, vw, par1, postTop, 9, 5, 0.2, KdsLooks.Timber);
+            KdsKit.PostRing(x, vu, vw, gal, postTop, 9, 5, 0.2, KdsLooks.Timber);
             x.Restore(wasPosts);
             if (lod <= 1)
             {
-                KdsKit.Balustrade(x, -vu, vw, vu, vw, par1, 0.82, KdsLooks.Timber);
-                KdsKit.Balustrade(x, vu, -vw, -vu, -vw, par1, 0.82, KdsLooks.Timber);
-                KdsKit.Balustrade(x, -vu, -vw, -vu, vw, par1, 0.82, KdsLooks.Timber);
-                KdsKit.Balustrade(x, vu, vw, vu, -vw, par1, 0.82, KdsLooks.Timber);
+                KdsKit.Balustrade(x, -vu, vw, vu, vw, gal, 0.82, KdsLooks.Timber);
+                KdsKit.Balustrade(x, vu, -vw, -vu, -vw, gal, 0.82, KdsLooks.Timber);
+                KdsKit.Balustrade(x, -vu, -vw, -vu, vw, gal, 0.82, KdsLooks.Timber);
+                KdsKit.Balustrade(x, vu, vw, vu, -vw, gal, 0.82, KdsLooks.Timber);
             }
             // The gallery's back walls are white lime plaster with dark doors and lattice windows (KAT1990 02, 10).
-            KdsKit.Walls(x, iu, iw, par1, eave + 0.3, KdsLooks.Plaster, true, false, GenColliders.Wood);
+            KdsKit.Walls(x, iu, iw, gal, eave + 0.3, KdsLooks.Plaster, true, false, GenColliders.Wood);
             for (int s = 0; s < 4; s++)
             {
                 Affine3 sk = KdsKit.Side(x.K, s);
@@ -121,14 +132,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 int n = s % 2 == 0 ? 4 : 2;
                 if (lod >= 2) n = 1;
                 for (int i = 0; i < n; i++)
-                    SacredParts.LatticeWindow(m, sk, -a + 2 * a * (i + 0.5) / n, par1 + 1.3, d, 0.75, 1.1, KdsLooks.WindowBlack, lod);
+                    SacredParts.LatticeWindow(m, sk, -a + 2 * a * (i + 0.5) / n, gal + 1.05, d, 0.75, 1.1, KdsLooks.WindowBlack, lod);
             }
             // Veranda ceiling and the beam over the posts.
             SacredDraw.Quad(m, x.K, -vu, postTop, -vw, vu, postTop, -vw, vu, postTop, vw, -vu, postTop, vw, 0, -1, 0, Looks.Ao(KdsLooks.Beam, 0.5f));
             KdsKit.Cornice(x, vu + 0.05, vw + 0.05, postTop, postTop + 0.25, 0.1, KdsLooks.Timber);
             // The broad hipped roof, struts, bells and the gilt flame-arch pinnacle on the ridge.
             RoofSpec r = KdsKit.Roof(x, hu + 1.5, hw + 1.5, eave, Math.Max(0.3, hu - hw + 0.12), 0.12, ridge, vu, vw, postTop + 0.25, KdsLooks.TileOld, 0.42);
-            int st = KdsKit.Struts(x, r, par1 + 1.2, 9, 5, false, 0x53494C59u);
+            int st = KdsKit.Struts(x, r, gal + 1.0, 9, 5, false, 0x53494C59u);
             if (x.Stats != null) x.Stats.Struts += st;
             if (lod == 0)
             {
@@ -170,7 +181,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         private static void Scallop(MeshData m, in Affine3 sk, double u, double v0, double d, double h, double p, double mw, int lod)
         {
             double[] px = ShapeScratch.U, pz = ShapeScratch.W;
-            int seg = lod == 0 ? 3 : 2, n = 0;
+            int seg = lod == 0 ? 4 : 2, n = 0;
             double rn = 0.5 * (p - mw), top = v0 + h;
             px[n] = u - 0.5 * p;
             pz[n++] = -v0;
@@ -207,12 +218,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             const double hu = 1.2, hw = 1.3, cu = 2.25, cw = 2.35, cageH = 2.95, b0 = 0.18, w0 = 0.45, w1 = 2.55;
             if (lod >= 3)
             {
-                KdsKit.Lod3(x, cu, cw, b0, hu, hw, new[] { 2.05 }, new[] { 2.85 }, new double[0], AshokTopM, KdsLooks.StonePlinth, KdsLooks.Brass, AgedGilt);
+                KdsKit.Lod3(x, cu, cw, b0, hu, hw, new[] { 2.05 }, new[] { 2.85 }, new double[0], AshokTopM, KdsLooks.StonePlinth, AgedBrass, AgedGilt);
                 return AshokTopM;
             }
             KdsKit.Stage(x, cu + 0.12, cw + 0.12, 0, b0, 0, 0, 0, KdsLooks.StonePlinth, KdsLooks.Nosing, 0.05, 0.15, GenColliders.Stone);
-            KdsPagoda.Base(x, hu + 0.15, hw + 0.15, b0, w0, KdsLooks.Brass, KdsLooks.Gilt);
-            SacredParts.BandedWall(m, x.K, hu, hw, w0, w1, KdsLooks.Brass, KdsLooks.Gilt, lod, true, true);
+            KdsPagoda.Base(x, hu + 0.15, hw + 0.15, b0, w0, AgedBrass, AgedGilt);
+            SacredParts.BandedWall(m, x.K, hu, hw, w0, w1, AgedBrass, AgedGilt, lod, true, true);
             x.Solid(-hu, hu, -hw, hw, w0, w1, GenColliders.Metal);
             for (int s = 0; s < 4; s++)
             {
@@ -221,12 +232,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 // Carved brass pilasters at the corners.
                 if (lod <= 1)
                 {
-                    SacredDraw.Box(m, sk, -a, -a + 0.16, w0, w1, d, d + 0.06, KdsLooks.Gilt, BoxFaces.Wall);
-                    SacredDraw.Box(m, sk, a - 0.16, a, w0, w1, d, d + 0.06, KdsLooks.Gilt, BoxFaces.Wall);
+                    SacredDraw.Box(m, sk, -a, -a + 0.16, w0, w1, d, d + 0.06, AgedGilt, BoxFaces.Wall);
+                    SacredDraw.Box(m, sk, a - 0.16, a, w0, w1, d, d + 0.06, AgedGilt, BoxFaces.Wall);
                 }
                 if (s == 0)
                 {
-                    double top = KdsKit.Door(m, sk, 0, w0, d, 0.8, 1.55, KdsLooks.Brass, lod, false, w1);
+                    double top = KdsKit.Door(m, sk, 0, w0, d, 0.8, 1.55, AgedBrass, lod, false, w1);
                     if (lod <= 1) SacredParts.Torana(m, sk, 0, top + 0.02, d + 0.02, 1.15, Looks.Silver, lod);
                 }
                 else if (s == 2)
@@ -236,7 +247,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
                 else
                 {
-                    SacredParts.LatticeWindow(m, sk, 0, 1.5, d, 0.85, 0.9, KdsLooks.Gilt, lod);
+                    SacredParts.LatticeWindow(m, sk, 0, 1.5, d, 0.85, 0.9, AgedGilt, lod);
                 }
             }
             // The single gilt copper roof, darkened with age, at a moderate pitch with its corners curled up into horns and the

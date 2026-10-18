@@ -13,12 +13,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     /// the projecting carved mezzanine balconies; the small Gorakhnath shrine at the centre; the very broad, low first roof
     /// (eave 22.7 m at 4.5 m, deep crimson valance, carried on the beam ring without struts); the brick band storey (11.8 m) with its row
     /// of small carved windows and the continuous carved balcony gallery (14.7 m) on slender posts; the second roof (17.4 m
-    /// at 10.6 m); the small top pavilion with its rail; the third roof (10.1 m at 15.5 m) and the dark bronze finial to
-    /// 18.8 m; the low pointed-picket fence round the plinth, open at the stairs.
+    /// at 10.6 m); the small top pavilion with its rail; the third roof (10.1 m at 15.5 m, apex 17.7 m) and the big dark
+    /// bronze bell finial, 2.8 m over the apex to 20.3 m (KAT1970 13, 2023; the 2023 elevation draws it smaller); the low
+    /// pointed-picket fence of pale new timber round the plinth, open at the stairs.
     /// </summary>
     internal static class Kasthamandap
     {
-        public const float TopM = 18.8f;
+        public const float TopM = 20.3f;
 
         private static readonly double[] OuterPosts = { -9.16, -8.07, -5.79, -3.49, -1.19, 1.19, 3.49, 5.79, 8.07, 9.16 };
         private static readonly double[] BayGrid = { -8.07, -5.79, -3.49 };
@@ -92,10 +93,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             if (lod <= 1) Gorakhnath(x, pv);
 
             // First roof: very broad and low; its soffit returns to the beam over the outer posts. No struts: the 2021
-            // rebuild carries the first eave on the beam ring straight over the posts (DANAM KAT1970 photos 04, 11).
+            // rebuild carries the first eave on the beam ring straight over the posts (DANAM KAT1970 photos 04, 11). No eave
+            // bells either: only the crimson valances hang from the 2021 eaves (KAT1970 04, 13).
             const double brick = 5.9;
-            RoofSpec r1 = KdsKit.Roof(x, 11.35, 11.35, 4.85, brick + 0.05, brick + 0.05, 7.6, 9.3, 9.3, postTop + 0.3, KdsLooks.TileNew, 0.48);
-            if (lod == 0 && x.Stats != null) x.Stats.Bells += KdsKit.Bells(x, r1, 1.6, 1.1);
+            KdsKit.Roof(x, 11.35, 11.35, 4.85, brick + 0.05, brick + 0.05, 7.6, 9.3, 9.3, postTop + 0.3, KdsLooks.TileNew, 0.48);
 
             // The brick band storey with its small carved windows, the continuous balcony gallery.
             double bandTop = 8.9;
@@ -106,13 +107,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
 
             // Second roof, third storey, third roof and the dark bronze finial.
             const double top3 = 3.25;
-            RoofSpec r2 = KdsKit.Roof(x, 8.7, 8.7, 10.6, top3 + 0.05, top3 + 0.05, 13.7, 7.3, 7.3, 10.55, KdsLooks.TileNew, 0.4);
-            if (lod == 0 && x.Stats != null) x.Stats.Bells += KdsKit.Bells(x, r2, 1.4, 1.0);
+            KdsKit.Roof(x, 8.7, 8.7, 10.6, top3 + 0.05, top3 + 0.05, 13.7, 7.3, 7.3, 10.55, KdsLooks.TileNew, 0.4);
             SacredParts.BandedWall(m, x.K, 2.8, 2.8, 13.6, 16.6, KdsLooks.Brick, KdsLooks.Timber, lod, false, false);
             Gallery(x, top3, 2.8, 13.7, 15.4, 0.6, 3);
-            RoofSpec r3 = KdsKit.Roof(x, 5.05, 5.05, 15.5, 0.32, 0.32, 17.7, 3.3, 3.3, 15.45, KdsLooks.TileNew, 0.32);
-            if (lod == 0 && x.Stats != null) x.Stats.Bells += KdsKit.Bells(x, r3, 1.2, 0.9);
-            double tip = KdsKit.BronzeFinial(x, 17.55, TopM - 17.55, 0.42);
+            KdsKit.Roof(x, 5.05, 5.05, 15.5, 0.32, 0.32, 17.7, 3.3, 3.3, 15.45, KdsLooks.TileNew, 0.32);
+            double tip = KdsKit.BronzeFinial(x, 17.5, TopM - 17.5, 0.95);
             if (x.Stats != null) x.Stats.Tiers = 3;
 
             // The low picket fence on the plinth edge, open at the four stairs.
@@ -241,11 +240,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 SacredDraw.Box(m, sk, -g, g, v0, v0 + 0.12, g - 0.05, g + 0.05, dark, BoxFaces.Front | BoxFaces.Top);
                 if (lod == 0)
                 {
-                    int n = (int)(2 * g / 0.3);
+                    // Balusters every 0.32 m against the gallery's shade: their front faces are what reads.
+                    int n = (int)(2 * g / 0.32);
+                    SacredDraw.Panel(m, sk, -g, v0 + 0.12, g, rv - 0.09, g - 0.03, Looks.Ao(KdsLooks.Beam, 0.45f));
                     for (int i = 0; i < n; i++)
                     {
                         double u = -g + 2 * g * (i + 0.5) / n;
-                        SacredDraw.Box(m, sk, u - 0.025, u + 0.025, v0 + 0.12, rv - 0.09, g - 0.025, g + 0.025, red, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                        SacredDraw.Box(m, sk, u - 0.03, u + 0.03, v0 + 0.12, rv - 0.09, g - 0.025, g + 0.025, red, BoxFaces.Front);
                     }
                 }
                 else

@@ -78,25 +78,25 @@ Beyond LOD0 the kit drops relief that no longer reads: black windows become a fl
 square shafts, picket rails three-faced and the stakes flat boards, Silyan's scalloped crest one continuous band,
 Chyasin's columns a three-band lathe, Shiva-Parvati's arches four segments, stall mats flat.
 
-Measured (sample tile 10/516/161, `DumpStructures`, after round 5):
+Measured (sample tile 10/516/161, `DumpStructures`, after round 7):
 
 | Structure | LOD0 | LOD1 | LOD2 | LOD3 |
 |---|---|---|---|---|
-| T1 Kasthamandap | 13 708 | 4 152 | 1 551 | 58 |
-| T18 Jagannath + corner shrines | 10 456 | 3 275 | 1 511 | 42 |
-| T14 Chyasin Dega | 9 940 | 3 315 | 635 | 112 |
-| T4 Maju Dega | 9 830 | 2 552 | 824 | 58 |
+| T1 Kasthamandap | 12 206 | 4 328 | 1 592 | 58 |
+| T14 Chyasin Dega | 11 068 | 4 139 | 627 | 112 |
+| T4 Maju Dega | 9 990 | 2 656 | 868 | 58 |
+| T18 Jagannath + corner shrines | 9 648 | 3 183 | 1 607 | 42 |
 | T17 Kal Bhairav | 9 568 | 4 386 | 738 | 24 |
-| T8 Trailokya Mohan + T9 Garuda | 8 852 | 2 956 | 774 | 58 |
-| T2 Silyan Sattal | 8 710 | 2 477 | 455 | 26 |
-| T7 Shiva-Parvati | 8 614 | 2 873 | 820 | 26 |
-| T25 Mahendreshwar + compound | 6 994 | 3 110 | 541 | 42 |
+| T8 Trailokya Mohan + T9 Garuda | 9 432 | 2 944 | 772 | 58 |
+| T7 Shiva-Parvati | 9 063 | 3 046 | 829 | 26 |
+| T2 Silyan Sattal | 8 224 | 2 325 | 465 | 26 |
 | T26 Bhagwati (range + temple) | 6 882 | 2 263 | 455 | 74 |
+| T25 Mahendreshwar + compound | 6 694 | 2 942 | 541 | 42 |
 | T23 Kageshwor | 6 428 | 2 179 | 325 | 42 |
 | T24 Mahavishnu | 5 747 | 1 863 | 482 | 58 |
 | T21 Gopinath | 5 688 | 1 723 | 487 | 58 |
+| T28 Basantapur square | 5 532 | 1 824 | 1 300 | 48 |
 | T11 Laxmi Narayan Sattal | 4 874 | 1 461 | 393 | 42 |
-| T28 Basantapur square | 4 564 | 1 728 | 1 300 | 48 |
 | T20 Indrapur | 3 648 | 1 001 | 365 | 42 |
 | T3 Ashok Binayak | 3 230 | 1 537 | 344 | 26 |
 | T22 Kotilingeshwar | 2 826 | 1 790 | 604 | 44 |
@@ -107,11 +107,18 @@ Measured (sample tile 10/516/161, `DumpStructures`, after round 5):
 | T30 Shiva temple (N) | 2 042 | 787 | 291 | 42 |
 | T31 Shiva temple (W) | 1 940 | 725 | 261 | 42 |
 | T6 Narayan ruin | 1 738 | 560 | 166 | 20 |
-| T5 white shikhara | 1 208 | 623 | 173 | 16 |
+| T5 white shikhara | 1 072 | 714 | 222 | 16 |
 | T19 Pratap Malla column | 856 | 504 | 254 | 28 |
 | T27 Sweta Bhairav screen | 758 | 362 | 10 | 10 |
 | T10 Dabali | 416 | 148 | 52 | 52 |
-| **site** | **149 327** | **52 801 (35 %)** | **15 071 (10 %)** | **1 210** |
+| **site** | **149 380** | **53 841 (36 %)** | **15 310 (10 %)** | **1 210** |
+
+Rounds 6 and 7 added the Garuda figure, Chyasin's struts, cornice and niches, Jagannath's portal surrounds and beast
+heads, Silyan's crest caps and knobs, Shiva-Parvati's couple, Kasthamandap's bronze finial and Basantapur's goods (about
+4 000 triangles) and won them back where nothing reads: balusters and railing bars draw only their front and back
+faces (the gallery has a dark backing panel behind them), Silyan's knobs are four-sided cones, Chyasin's niches are
+arch panels and its 24 columns turn on five sides, Kasthamandap's eave bells are gone (the 2021 photos show valances
+only, KAT1970 04, 13), each stall carries three goods.
 
 Round 5 spent about 2 700 more triangles on the Kal Bhairav relief (the figure is the shrine) and won them back where
 they did not read: the cage bells of Ashok Binayak became the one bell rack the photos show, hand bells turn on ten
@@ -167,6 +174,30 @@ Round 5 (this pass; sheets in `/home/user/wt/previews/mon-kds-temples/r5`, the s
 | T7 Shiva-Parvati | hires c02: all five ridge finials carry gilt leaf sprays. | Sprays on the outer four too (LOD0). |
 | T19 Pratap Malla column | KAT1791 00: the king sits larger than his queens and sons under the serpent hood. | King 1.0 m (was 0.85), lighter family figures. |
 
+Round 6 (sheets in `/home/user/wt/previews/mon-kds-temples/r6`, the starting state in `r6a`, steps `r6b`-`r6d`;
+Garuda close-ups `r6e_garuda.jpg`, `r6f_garuda.jpg`):
+
+| Structure | What the photos showed against r5 | Change |
+|---|---|---|
+| T14 Chyasin Dega | KAT1810 04, 05, 13: the octagonal roofs run straight to the eave with no upturn; carved struts under every roof; a moulded cornice over the colonnade; blind niches with carved frames on the upper walls | Roofs straight (`PolyRoof` lift 0.012 of the eave), struts on all three tiers (`PolyStruts` 3/2/1 a side), cornice mould ring, niches with two arch panels and a sill on each face of tiers 2 and 3; first valance 0.34 m |
+| T4 Maju Dega | KAT1910 10, 12: the stair runs between thick white parapets with half-round copings and a newel at the foot | Stair 2.1 m wide between 0.44 m parapets; `KdsKit.StairCoping` sweeps the half-round white coping down each parapet to a domed newel |
+| T2 Silyan Sattal | KAT1990 02, 06, 10: the white crest is a row of merlons with caps and small knobs over half-round scoops, a dark beam band behind it, piers at the corners carrying gilt lions | Storey heights re-measured (gallery 5.2 m, eave 7.5 m, ridge 10 m); merlons every 1.2 m with cap slabs and knobs; beam band at the back; piers to the gallery; 1.15 m gilt lions |
+| T7 Shiva-Parvati | hires c02, c_shivaparvati 06: the couple at the centre window are white figures with tall white crowns banded in gilt, in a carved arched window; the lions on the stage are dark grey stone | Couple and window rebuilt; lions recoloured #6A665F stone |
+| T3 Ashok Binayak | KAT1930 03, 05: the base, walls and door are dull aged brass; only pilasters and lattice keep a little gilt | Aged brass #8E763C (Metal) on base, walls and door; aged gilt on pilasters and lattice |
+| T18 Jagannath | KAT1740 elevation east, 05: brick walls 2.3-4.75 m, a carved cornice with a row of small beast heads to 5.45 m, the strut zone with three carved windows a side; each portal a dark carved surround holding door and two blind arches, lanterns on brackets; corner shrines with a corner block, a pedestal with a cornice, a small cella and a first roof broader than the pedestal | Wall, cornice and strut zone at the elevation's heights; beast heads (LOD0); portal surrounds with stepped frames, door 1.1 × 1.85 m, blind arches 1.9 m, lanterns; struts 4 a side; corner shrines rebuilt to the elevation (top 6.3 m) |
+| T1 Kasthamandap | KAT1970 04, 06: the gallery railing is a close row of thin balusters against the dark gallery | Balusters every 0.32 m against a dark backing panel (front and back faces only) |
+| T9 Garuda | KAT2020 03, 18, 19: a man-bird kneeling on the left knee, right knee raised, hands joined before the chest, a crown with a front medallion, earrings, a serpent necklace; two wings of long feathers fanning out behind the arms and down to the statue's block; a man-high brick pedestal under a thick dark stone cap | `KneelingGaruda` replaces the generic figure: block, two-segment legs, torso, arms with joined hands, head, crown, medallion, earrings, necklace, three tiers of scalloped feather outlines per wing (two at LOD1, one at LOD2) |
+
+Round 7 (sheets in `r7c` and `r7f`, Garuda `r7f/garuda.jpg` and `r7g/garuda.jpg`; in situ `situ_r7`):
+
+| Structure | What the photos showed against r6 | Change |
+|---|---|---|
+| T1 Kasthamandap | KAT1970 13 (close of the top): a big dark bronze finial on the apex, bell, collar, onion and rings with a gilt drop, about 2.8 m tall; the 2021 eaves carry only the valances; the new fence is pale, unweathered timber | `BronzeFinial` rebuilt to that profile (apex 17.7 m, top 20.3 m); eave bells removed; picket fence #C7B59A |
+| T5 White shikhara | c_shivaparvati 14, KAT1910 10: a small porch slab on two timber posts before the niche door; a white kalasha with a gilt tip on the spire | Porch slab and posts; white kalasha lathe and gilt cone; top 7.0 m |
+| T28 Basantapur square | c_basantapur_chowk 00, c_dabli 05: every mat and table carries goods (statues, singing bowls, boxes), the platform's brick is uneven in tone, a grey stone kerb edges it | Three goods on every stall (cones, low bronze boxes, upright coloured boxes); every brick cell jittered in tone; a grey flag kerb band on the platform's open edges |
+| T9 Garuda | r6f in situ: the pedestal and the swept wing tips touched the margin of path w1550144348 at the true spot; KAT2020 03: the crown is a broad tiara about as tall as the face, the chest broad | The pedestal back to 1.24 × 0.96 m under a 1.4 × 1.12 m cap; placement checks the whole group (pedestal corners, wing tips, wing middles) against the corridor margin; wings less swept (0.34 rad); head and chest broader, crown 0.29 m |
+| T25 Mahendreshwar, T28 mats | budget | Railing bars and mat goods trimmed to stay inside 150 k (see §4) |
+
 Photo credits: DANAM (Digital Archive of Nepalese Arts and Monuments, Heidelberg Academy) images CC BY-SA 4.0, photos
 Thomas Schrom 2023 and others as captioned in `danam/<KAT>/captions.txt`; KVPT drawings courtesy of the Kathmandu
 Valley Preservation Trust; Wikimedia Commons files listed with author and licence in each `c_*/credits.txt`.
@@ -175,13 +206,15 @@ Valley Preservation Trust; Wikimedia Commons files listed with author and licenc
 
 `GeneratorsSacredKdsTemplesPreview.DumpInSitu` writes the whole tile through the streaming build (terrain, roads, areas,
 buildings with the hidden generic houses removed, heroes at their LODs); the brief's viewpoints K1-K10 are rendered
-beside their photos in `/home/user/wt/previews/mon-kds-temples/situ_r5/` (round 5: the eye now stands 1.6 m over the
+beside their photos in `/home/user/wt/previews/mon-kds-temples/situ_r7/` (rounds 5-7: the eye stands 1.6 m over the
 walkable ground under it, as §6 of the brief asks; r4 used fixed heights and K2's eye sat in the Maru lane's road
-surface). The streamed tile's KDS heroes add up to the same 149 327 triangles as the direct build, so the game draws
-these models at the site. The site reads as in the photos from each:
+surface; earlier rounds in `situ_r5`, `situ_r6a`, `situ_r6d`). The streamed tile's KDS heroes add up to the same
+149 380 triangles as the direct build (`DumpInSitu`: tile 10/516/161, 36 heroes, 243 709 triangles at LOD0, the KDS
+temples site 149 380), so the game draws these models at the site. The site reads as in the photos from each:
 Kasthamandap's three roofs over the hall (K1, K2), Maju Dega's stages with the white shikhara at the stair foot (K3),
 Basantapur's stalls with the Gaddi Baithak beyond (K4), Kal Bhairav with its domes and relief facing north (K6),
-Shiva-Parvati's five toranas and lions (K9). The generic houses round the square and the palace (other packages) are
+Shiva-Parvati's five toranas and lions (K9), the kneeling Garuda's fanned wings before Trailokya Mohan from behind
+(K5), Jagannath between its corner shrines (K7). The generic houses round the square and the palace (other packages) are
 what differs most from the photos.
 
 ## 7. Open issues
@@ -197,3 +230,10 @@ what differs most from the photos.
 * The generic houses round the square (K1's grey block, K6's white blocks behind Kal Bhairav) are the buildings and
   palace packages' and differ most from the photos.
 * Taleju Bell: the bell lane's corridor runs over the outline's stair side; the stair stays inside the outline.
+* Kasthamandap's top is 20.3 m (the bronze finial of KAT1970 13 over the 17.7 m apex), 1.5 m above the brief's 18.8 m;
+  the brief's figure is the roof apex plus a small finial, the 2021 photos show the large one.
+* The palace package's ground levelling (`KpGround`) flattens terrain zones next to the square; when both packages are
+  merged, the ground under Basantapur's stalls and the Garuda's pedestal follows whichever surface is drawn there
+  (both stand on their own ground sample, so they follow it).
+* In K4 the eye stands 1.6 m over the terrain, not over Basantapur's raised platform (a hero), so it sits a little low
+  against the photo.

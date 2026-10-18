@@ -116,7 +116,8 @@ namespace Ghumante.Core.Tests
             }
             // The structures the brief measured (kds-temples.md §8).
             Assert.That(Top("her.ktm.maju_dega"), Is.EqualTo(23.5).Within(0.1));
-            Assert.That(Top("her.ktm.kasthamandap"), Is.EqualTo(18.8).Within(0.1));
+            // Kasthamandap: apex 17.7 m (KAT1970 elevation) and the bronze finial 2.8 m over it as the 2023 photos show it.
+            Assert.That(Top("her.ktm.kasthamandap"), Is.EqualTo(20.3).Within(0.1));
             Assert.That(Top("her.ktm.kal_bhairav"), Is.EqualTo(8.12).Within(0.05));
             Assert.That(Top("her.ktm.trailokya_mohan"), Is.EqualTo(18.5).Within(0.1));
             Assert.That(Top("her.ktm.kds_taleju_bell"), Is.EqualTo(8.5).Within(0.1));
@@ -202,8 +203,9 @@ namespace Ghumante.Core.Tests
             }
             Assert.That(n, Is.GreaterThan(200), "the Garuda is there");
             Assert.That(0.5 * (wMin + wMax), Is.InRange(8.6, 16.0), "west of the stair, on its axis");
-            Assert.That(uMax, Is.LessThan(1.6), "on (or half a metre beside) the stair axis");
-            // The cap slab's underside sits 1.08 m over the pedestal's foot.
+            // The wings spread about 1.05 m to each side of the axis (KAT2020 18).
+            Assert.That(uMax, Is.LessThan(1.7), "on (or half a metre beside) the stair axis");
+            // The cap slab's underside sits 1.0 m over the pedestal's foot.
             Assert.That(low - x.F.GroundY - x.GroundV(gu, gw), Is.GreaterThan(0.9), "the pedestal is not buried");
         }
 

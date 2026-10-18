@@ -132,7 +132,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 for (int i = 0; i <= n; i++)
                 {
                     double c = l * i / n;
-                    SacredDraw.Box(x.M, seg, c - 0.012, c + 0.012, 0.85, 1.5, -0.012, 0.012, iron, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                    SacredDraw.Box(x.M, seg, c - 0.016, c + 0.016, 0.85, 1.5, -0.012, 0.012, iron, BoxFaces.Front | BoxFaces.Back);
                 }
             }
             x.Wall(su, sw, su + tu * l, sw + tw * l, 0, 1.55, 0.13);

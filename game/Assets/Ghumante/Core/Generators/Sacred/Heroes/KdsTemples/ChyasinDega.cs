@@ -27,7 +27,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 PolyBlock(x, 7.2, 0, plinth, KdsLooks.BrickPlinth);
                 PolyBlock(x, 2.8, plinth, 7.2, KdsLooks.Brick);
-                KdsKit.PolyRoof(x, N, 6.35, 7.2, 0.2, 15.8, 2.8, 7.3, KdsLooks.TileNew, 0);
+                KdsKit.PolyRoof(x, N, 6.35, 7.2, 0.2, 15.8, 2.8, 7.3, KdsLooks.TileNew, 0, 0, 0.012);
                 return 15.8;
             }
             // Six plinth steps from 7.2 m apothem to the 5.0 m top.
@@ -71,28 +71,41 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     KdsKit.BlackWindow(m, sk, 0, cv0 + 1.4, sanA, 0.55, 0.75, lod, 0.06, 2);
                 }
             }
-            // Lintel ring over the columns and the ceiling.
-            PolyBlock(x, colA + 0.18, cv1, cv1 + 0.45, KdsLooks.Timber);
+            // The carved timber cornice over the columns (KAT1810 05: a deep moulded ring projecting over the arcade) and the
+            // ambulatory ceiling.
+            Mould cm = SacredDraw.M;
+            if (lod >= 2) cm.Add(0, cv1, KdsLooks.Timber).Add(0.2, cv1 + 0.5);
+            else
+                cm.Add(0, cv1, Looks.Ao(KdsLooks.Timber, 0.75f)).Add(0.05, cv1 + 0.06).Add(0.05, cv1 + 0.2, KdsLooks.Timber).Add(0.13, cv1 + 0.25)
+                  .Add(0.13, cv1 + 0.38, KdsLooks.TimberNew).Add(0.24, cv1 + 0.44).Add(0.24, cv1 + 0.52, KdsLooks.Timber).Add(0, cv1 + 0.56);
+            {
+                double[] cpu = ShapeScratch.U2, cpw = ShapeScratch.W2;
+                int cn = Octagon(colA + 0.18, cpu, cpw);
+                SacredDraw.Ring(m, x.K, cpu, cpw, cn, cm);
+                SacredDraw.Cap(m, x.K, cpu, cpw, cn, 0, cv1, false, Looks.Ao(KdsLooks.Beam, 0.5f));
+            }
             if (x.Stats != null)
             {
                 x.Stats.SanctumHalfU = (float)sanA;
                 x.Stats.SanctumHalfW = (float)sanA;
             }
 
-            // Storeys and the three octagonal roofs.
+            // Storeys and the three octagonal roofs: straight-edged with a small flick at each corner, struts springing from
+            // the cornice (three a face on the first tier, two above), round-arched dark niches on the brick storeys.
+            const double flick = 0.012;
             double r1w = 4.15, r2w = 2.65, r3w = 1.7;
             PolyWall(x, r1w, cv1 + 0.45, 9.2, KdsLooks.Brick);
-            if (lod <= 1) PolyWindows(x, r1w, cv1 + 0.5, 7.1, 0.45, 0.32);
-            PolyStruts(x, r1w, cv1 + 0.5, 6.35, 7.2, 8.2, lod == 0 ? 2 : 1);
-            KdsKit.PolyRoof(x, N, 6.35, 7.2, r2w + 0.05, 9.7, r1w, 8.4, KdsLooks.TileNew, 0.4);
+            if (lod <= 1) PolyNiches(x, r1w, cv1 + 0.62, 0.42, 0.95);
+            PolyStruts(x, r1w, colA + 0.3, cv1 + 0.56, 6.35, 7.2, 8.55, lod == 0 ? 3 : 1);
+            KdsKit.PolyRoof(x, N, 6.35, 7.2, r2w + 0.05, 9.7, r1w, 8.55, KdsLooks.TileNew, 0.34, 0, flick);
             PolyWall(x, r2w, 9.6, 12.8, KdsLooks.Brick);
-            if (lod <= 1) PolyWindows(x, r2w, 9.7, 11.3, 0.4, 0.4);
-            if (lod == 0) PolyStruts(x, r2w, 9.75, 4.6, 11.4, 12.2, 1);
-            KdsKit.PolyRoof(x, N, 4.6, 11.4, r3w + 0.05, 13.2, r2w, 12.3, KdsLooks.TileNew, 0.34);
+            if (lod <= 1) PolyNiches(x, r2w, 9.95, 0.32, 0.75);
+            if (lod == 0) PolyStruts(x, r2w, r2w + 0.1, 9.75, 4.6, 11.4, 12.3, 2);
+            KdsKit.PolyRoof(x, N, 4.6, 11.4, r3w + 0.05, 13.2, r2w, 12.3, KdsLooks.TileNew, 0.34, 0, flick);
             PolyWall(x, r3w, 13.1, 15.2, KdsLooks.Brick);
             if (lod <= 1) PolyWindows(x, r3w, 13.15, 14.5, 0.32, 0.3);
-            if (lod == 0) PolyStruts(x, r3w, 13.2, 2.85, 14.6, 15.0, 1);
-            KdsKit.PolyRoof(x, N, 2.85, 14.6, 0.22, 15.8, r3w, 15.1, KdsLooks.TileNew, 0.3);
+            if (lod == 0) PolyStruts(x, r3w, r3w + 0.1, 13.2, 2.85, 14.6, 15.1, 1);
+            KdsKit.PolyRoof(x, N, 2.85, 14.6, 0.22, 15.8, r3w, 15.1, KdsLooks.TileNew, 0.3, 0, flick);
             double tip = KdsKit.GiltFinial(x, 15.7, TopM - 15.7, 0.3);
             if (x.Stats != null) x.Stats.Tiers = 3;
             return tip;
@@ -163,6 +176,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
         }
 
+        /// <summary>A dark round-arched niche with a carved timber arch frame on each face of an octagonal storey (apothem a),
+        /// its foot at v0 (KAT1810 05, 13: one blind arched window a face above the cornice and on the second storey).</summary>
+        private static void PolyNiches(KdsCtx x, double a, double v0, double halfW, double h)
+        {
+            int lod = Math.Max(1, x.Lod);
+            for (int s = 0; s < N; s++)
+            {
+                Affine3 sk = SacredDraw.Turn(x.K, 0, 0, 0, 2 * Math.PI * s / N);
+                // The carved frame behind (a slightly larger timber arch panel), the dark niche in it and the sill.
+                KdsKit.ArchPanel(x.M, sk, 0, v0, a + 0.005, halfW + 0.1, h + 0.1, 0.02, KdsLooks.Timber, 2, false);
+                KdsKit.ArchPanel(x.M, sk, 0, v0, a + 0.03, halfW, h, 0.01, Looks.Recess, lod, false);
+                SacredDraw.Box(x.M, sk, -halfW - 0.14, halfW + 0.14, v0 - 0.08, v0, a, a + 0.09, KdsLooks.Timber, BoxFaces.Front | BoxFaces.Top);
+            }
+        }
+
         /// <summary>The 24 slender columns: three a side on the octagon of apothem a (the corners and two between).</summary>
         private static void Columns(KdsCtx x, double a, double v0, double v1)
         {
@@ -211,17 +239,20 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 p.Add(0.1, 0, true).Add(0.13, 0.15 * h).Add(0.09, 0.2 * h).Add(0.085, 0.7 * h).Add(0.12, 0.74 * h).Add(0.1, 0.86 * h).Add(0.2, 0.96 * h, true)
                  .Add(0.2, h - 0.25, true);
             else p.Add(0.1, 0, true).Add(0.09, 0.86 * h).Add(0.2, 0.96 * h, true).Add(0.2, h - 0.25, true);
-            Shapes.Lathe(m, SacredDraw.At(x.K, u, v0 + 0.25, w), KdsLooks.Timber, p, lod == 0 ? 6 : 4);
+            Shapes.Lathe(m, SacredDraw.At(x.K, u, v0 + 0.25, w), KdsLooks.Timber, p, lod == 0 ? 5 : 4);
             x.Cylinder(u, w, v0, v1, 0.14, true);
         }
 
-        /// <summary>Struts round an octagonal tier: <paramref name="perSide"/> per face leaning from the wall (apothem a) at
-        /// footV up to under the eave (apothem eaveA at eaveV) near <paramref name="headV"/>.</summary>
-        private static void PolyStruts(KdsCtx x, double a, double footV, double eaveA, double eaveV, double headV, int perSide)
+        /// <summary>Struts round an octagonal tier: <paramref name="perSide"/> per face leaning from their foot (apothem
+        /// <paramref name="footA"/> at footV: the wall, or the cornice ring under the first roof) up to the soffit of the roof
+        /// whose eave is at apothem eaveA, height eaveV, and whose soffit meets the wall (apothem a) at wallTopV.</summary>
+        private static void PolyStruts(KdsCtx x, double a, double footA, double footV, double eaveA, double eaveV, double wallTopV, int perSide)
         {
             if (x.Lod >= 2) return;
-            double depth = eaveA - a, headA = a + 0.72 * depth, hv = Math.Min(headV, eaveV + 0.25 * (headV - eaveV));
-            double dv = hv - footV, dw = headA - (a + 0.1), len = Math.Sqrt(dv * dv + dw * dw);
+            // The head sits on the soffit (the line from the eave's underside back to the wall top) at 80 % of the overhang.
+            double fascia = Math.Min(0.2, 0.08 + 0.012 * eaveA), depth = eaveA - a, headA = a + 0.8 * depth;
+            double hv = (eaveV - fascia) + (wallTopV - (eaveV - fascia)) * (eaveA - headA) / Math.Max(0.1, depth) - 0.06;
+            double dv = hv - footV, dw = headA - footA, len = Math.Sqrt(dv * dv + dw * dw);
             if (len < 0.4) return;
             double cy = dv / len, sy = dw / len, size = Math.Max(0.7, Math.Min(1.3, depth / 2.0));
             MeshData proto = SacredParts.StrutProto(len, size, true, false, KdsLooks.Strut, Looks.Of(MeshColor.FromHex(0x7A4A2E), MaterialChannel.WoodCarved), x.Lod);
@@ -234,7 +265,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     double along = -0.5 * sideLen + sideLen * (q + 0.5) / perSide;
                     // Side frame: +w out of face s; place the strut foot on the wall.
                     Affine3 sk = SacredDraw.Turn(x.K, 0, 0, 0, phi);
-                    Affine3 side = SacredDraw.Turn(sk, along, footV, a + 0.1, 0);
+                    Affine3 side = SacredDraw.Turn(sk, along * footA / a, footV, footA, 0);
                     Affine3 xf = Affine3.FromBasis(1, 0, 0, 0, cy, sy, 0, -sy, cy, 0, 0, 0).Then(side);
                     Shapes.CopyTransformed(x.M, proto, xf);
                     if (x.Stats != null) x.Stats.Struts++;

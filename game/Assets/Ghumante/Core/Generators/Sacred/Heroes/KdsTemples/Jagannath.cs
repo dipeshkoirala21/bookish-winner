@@ -48,8 +48,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 x.Stats.PlinthTopM = 2.3f;
             }
 
-            // Walls with the four tripartite portals.
-            const double wh = 4.3, v0 = 2.3, v1 = 5.85;
+            // Walls with the four tripartite portals (KAT1740 elevation east: brick walls 2.3-4.75 m, the carved cornice with
+            // its row of small carved beast heads to 5.45 m, the strut zone with three carved windows a side under the first
+            // eave at 7.4 m).
+            const double wh = 4.3, v0 = 2.3, v1 = 4.75, cTop = 5.45;
             SacredParts.BandedWall(m, x.K, wh, wh, v0, v1, KdsLooks.Brick, KdsLooks.Timber, lod, true, false);
             x.Solid(-wh, wh, -wh, wh, v0, v1, GenColliders.Brick);
             for (int s = 0; s < 4; s++) Portal(x, KdsKit.Side(x.K, s), wh, v0, v1);
@@ -60,19 +62,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 x.Stats.SanctumV0 = (float)v0;
                 x.Stats.SanctumV1 = (float)v1;
             }
-            KdsKit.Cornice(x, wh, wh, v1, v1 + 0.5, 0.16, KdsLooks.Timber);
+            KdsKit.Cornice(x, wh, wh, v1, cTop, 0.3, KdsLooks.Timber);
+            if (lod == 0) BeastHeads(x, wh + 0.12, v1 + 0.08, 0.17);
 
             var tiers = new[]
             {
                 new KdsTier
                 {
-                    WallHu = 4.15, WallHw = 4.15, WallV0 = v1 + 0.5, EaveHu = 7.0, EaveHw = 7.0, EaveV = 7.4, TopHu = 2.9, TopHw = 2.9, TopV = 10.1, StrutsU = 6,
-                    StrutsW = 6, ValanceH = 0.45, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 4, WinW = 0.42, WinH = 0.36, Bells = true, RichStruts = true,
+                    WallHu = 4.15, WallHw = 4.15, WallV0 = cTop, EaveHu = 7.0, EaveHw = 7.0, EaveV = 7.4, TopHu = 2.9, TopHw = 2.9, TopV = 10.1, StrutsU = 4,
+                    StrutsW = 4, StrutFootV = cTop + 0.1, ValanceH = 0.45, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 3, WinW = 0.72, WinH = 0.8,
+                    Bells = true, RichStruts = true,
                 },
                 new KdsTier
                 {
-                    WallHu = 2.9, WallHw = 2.9, WallV0 = 10.1, EaveHu = 4.25, EaveHw = 4.25, EaveV = 12.3, TopHu = 0.3, TopHw = 0.3, TopV = 14.1, StrutsU = 3, StrutsW = 3,
-                    ValanceH = 0.38, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 3, WinW = 0.5, WinH = 0.5, Bells = true,
+                    WallHu = 2.9, WallHw = 2.9, WallV0 = 10.1, EaveHu = 4.25, EaveHw = 4.25, EaveV = 12.3, TopHu = 0.3, TopHw = 0.3, TopV = 14.1, StrutsU = 4, StrutsW = 4,
+                    ValanceH = 0.38, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 1, WinW = 0.6, WinH = 0.7, Bells = true,
                 },
             };
             double apex = KdsPagoda.Tiers(x, tiers, 0x4A41474Eu);
@@ -93,17 +97,44 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         {
             MeshData m = x.M;
             int lod = x.Lod;
-            KdsKit.Door(m, sk, 0, v0 + 0.2, d, 1.1, 2.1, KdsLooks.Timber, lod, true, v1 - 0.02);
+            // The dark carved surround that holds the three openings as one group, with its stepped outer frame (KAT1740 05,
+            // elevation east).
+            SacredDraw.Panel(m, sk, -2.75, v0 + 0.05, 2.75, v1 - 0.12, d + 0.005, Looks.Ao(KdsLooks.Timber, 0.85f));
+            if (lod <= 1)
+            {
+                ShapeBrush fr = KdsLooks.Timber;
+                SacredDraw.Box(m, sk, -2.95, -2.75, v0 + 0.05, v1 - 0.12, d, d + 0.08, fr, BoxFaces.Wall);
+                SacredDraw.Box(m, sk, 2.75, 2.95, v0 + 0.05, v1 - 0.12, d, d + 0.08, fr, BoxFaces.Wall);
+                SacredDraw.Box(m, sk, -2.95, 2.95, v1 - 0.32, v1 - 0.12, d, d + 0.08, fr, BoxFaces.Wall | BoxFaces.Bottom);
+            }
+            KdsKit.Door(m, sk, 0, v0 + 0.15, d, 1.1, 1.85, KdsLooks.Timber, lod, true, v1 - 0.34);
             for (int sgn = -1; sgn <= 1; sgn += 2)
             {
-                BlindArch(m, sk, sgn * 1.75, v0 + 0.25, d, 0.95, 2.15, lod);
-                KdsKit.BlackWindow(m, sk, sgn * 3.35, v0 + 2.1, d, 0.48, 0.55, lod, 0.08, 2);
+                BlindArch(m, sk, sgn * 1.75, v0 + 0.2, d, 0.95, 1.9, lod);
+                KdsKit.BlackWindow(m, sk, sgn * 3.55, v0 + 1.55, d, 0.42, 0.5, lod, 0.08, 2);
                 if (lod == 0)
                 {
-                    // A small brass lamp hanging beside the door.
-                    double lu = sgn * 0.95;
-                    Shapes.Bar(m, sk, KdsLooks.Brass, lu, v0 + 2.75, d + 0.12, lu, v0 + 2.35, d + 0.12, 0.012, 4);
-                    Shapes.Ellipsoid(m, SacredDraw.At(sk, lu, v0 + 2.28, d + 0.12), KdsLooks.Brass, 0.08, 0.07, 0.08, 6, false);
+                    // A carved wooden lantern hanging on its bracket beside the portal.
+                    double lu = sgn * 3.55;
+                    Shapes.Bar(m, sk, KdsLooks.Timber, lu, v0 + 2.25, d, lu, v0 + 2.25, d + 0.32, 0.025, 4);
+                    SacredDraw.Box(m, sk, lu - 0.16, lu + 0.16, v0 + 1.8, v0 + 2.2, d + 0.2, d + 0.48, KdsLooks.Timber, BoxFaces.All);
+                    SacredDraw.Panel(m, sk, lu - 0.1, v0 + 1.86, lu + 0.1, v0 + 2.14, d + 0.485, Looks.Glow);
+                }
+            }
+        }
+
+        /// <summary>The row of small carved beast heads that hang under the cornice on every side (KAT1740 05, elevation east).</summary>
+        private static void BeastHeads(KdsCtx x, double a, double v, double h)
+        {
+            ShapeBrush b = Looks.Of(MeshColor.FromHex(0x4A3326), MaterialChannel.WoodCarved);
+            for (int s = 0; s < 4; s++)
+            {
+                Affine3 sk = KdsKit.Side(x.K, s);
+                int n = (int)(2 * a / 0.36);
+                for (int i = 0; i < n; i++)
+                {
+                    double u = -a + 2 * a * (i + 0.5) / n;
+                    SacredDraw.Box(x.M, sk, u - 0.07, u + 0.07, v, v + h, a - 0.1, a + 0.06, b, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
                 }
             }
         }
@@ -151,9 +182,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return Math.Max(cv, v0 + h);
         }
 
-        /// <summary>A miniature two-roof temple at frame (u, w) (door facing yaw rad in the temple frame): a 1.4 m brick
-        /// base with a stone cap, a small brick cella with a door, two small tile roofs with deep red valances and a gilt
-        /// finial (top 6.3 m).</summary>
+        /// <summary>A miniature two-roof temple on a platform corner at frame (u, w) (its shrine window facing yaw rad in the
+        /// temple frame), after the KAT1740 east elevation: the 1.4 m corner block of the platform, a 1.4 m brick pedestal
+        /// with a carved cornice, a small cella with a carved window on each face, a first roof broader than the pedestal
+        /// (3.2 m), a small upper storey and roof (2.0 m), both with deep red valances, and a gilt finial (top 6.3 m).</summary>
         private static void CornerShrine(KdsCtx x, double u, double w, double rad)
         {
             Affine3 k = x.K;
@@ -166,16 +198,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             MeshData m = x.M;
             int was = x.Coarser(), lod = x.Lod;
             KdsKit.Stage(x, 1.5, 1.5, 0, 1.45, 0, 0, 0, KdsLooks.BrickPlinth, KdsLooks.StonePlinth, 0.12, 0.2, GenColliders.Brick);
-            SacredParts.BandedWall(m, x.K, 0.85, 0.85, 1.45, 3.15, KdsLooks.Brick, KdsLooks.Timber, lod, true, true);
-            x.Solid(-0.85, 0.85, -0.85, 0.85, 1.45, 3.15, GenColliders.Brick);
-            KdsKit.Door(m, KdsKit.Side(x.K, 0), 0, 1.5, 0.85, 0.5, 0.95, KdsLooks.Timber, lod, false);
-            if (lod <= 1)
-                for (int s = 1; s < 4; s++)
-                    KdsKit.BlackWindow(m, KdsKit.Side(x.K, s), 0, 2.15, 0.85, 0.32, 0.4, lod, 0.06, 1);
-            RoofSpec r1 = KdsKit.Roof(x, 1.45, 1.45, 3.05, 0.62, 0.62, 3.9, 0.85, 0.85, 3.15, KdsLooks.TileOld, 0.42);
-            SacredParts.BandedWall(m, x.K, 0.6, 0.6, 3.8, 4.55, KdsLooks.Brick, KdsLooks.Timber, lod, false, false);
-            KdsKit.Roof(x, 1.0, 1.0, 4.45, 0.12, 0.12, 5.45, 0.6, 0.6, 4.5, KdsLooks.TileOld, 0.34);
-            KdsKit.GiltFinial(x, 5.4, 0.9, 0.16);
+            SacredParts.BandedWall(m, x.K, 0.75, 0.75, 1.45, 2.85, KdsLooks.Brick, KdsLooks.Timber, lod, true, false);
+            x.Solid(-0.75, 0.75, -0.75, 0.75, 1.45, 3.8, GenColliders.Brick);
+            KdsKit.Cornice(x, 0.75, 0.75, 2.85, 3.08, 0.12, KdsLooks.Timber);
+            SacredParts.BandedWall(m, x.K, 0.56, 0.56, 3.08, 3.85, KdsLooks.Brick, KdsLooks.Timber, lod, false, false);
+            for (int s = 0; s < 4; s++)
+                KdsKit.BlackWindow(m, KdsKit.Side(x.K, s), 0, 3.45, 0.56, 0.34, 0.42, lod, 0.06, 1);
+            KdsKit.Roof(x, 1.6, 1.6, 3.85, 0.5, 0.5, 4.6, 0.56, 0.56, 3.9, KdsLooks.TileOld, 0.36);
+            SacredParts.BandedWall(m, x.K, 0.46, 0.46, 4.5, 5.05, KdsLooks.Brick, KdsLooks.Timber, lod, false, false);
+            KdsKit.Roof(x, 1.0, 1.0, 5.05, 0.12, 0.12, 5.75, 0.46, 0.46, 5.1, KdsLooks.TileOld, 0.3);
+            KdsKit.GiltFinial(x, 5.7, 0.6, 0.14);
             x.Restore(was);
             x.K = k;
             x.Kf = kf;

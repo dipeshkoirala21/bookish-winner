@@ -375,7 +375,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 w0 = Math.Min(w0, pw[i]);
                 w1 = Math.Max(w1, pw[i]);
             }
-            double pitch = lod == 0 ? 2.0 : lod == 1 ? 4.0 : lod == 2 ? 5.0 : 6.0, lift = 0.22;
+            // The brick pattern is the material's; the cells only drape the paving on the ground (the square is level to a
+            // few centimetres over 3 m).
+            double pitch = lod == 0 ? 2.8 : lod == 1 ? 4.0 : lod == 2 ? 5.0 : 6.0, lift = 0.22;
             int nu = (int)Math.Ceiling((u1 - u0) / pitch), nw = (int)Math.Ceiling((w1 - w0) / pitch);
             var keep = new bool[nu * nw];
             for (int j = 0; j < nw; j++)
@@ -406,8 +408,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     {
                         bool edge = !Kept(keep, nu, nw, i - 1, j) || !Kept(keep, nu, nw, i + 1, j) || !Kept(keep, nu, nw, i, j - 1) || !Kept(keep, nu, nw, i, j + 1);
                         double g00 = x.GroundV(a0, b0), g10 = x.GroundV(a1, b0), g11 = x.GroundV(a1, b1), g01 = x.GroundV(a0, b1);
-                        ShapeBrush top = edge ? border : Looks.Of(MeshColor.Scale(KdsLooks.BrickBuff.Color, 0.95f + 0.1f * (float)Rnd(ref seed)), MaterialChannel.Brick);
+                        ShapeBrush top = Looks.Of(MeshColor.Scale(KdsLooks.BrickBuff.Color, 0.95f + 0.1f * (float)Rnd(ref seed)), MaterialChannel.Brick);
                         SacredDraw.Quad(m, x.K, a0, g00 + lift, b0, a1, g10 + lift, b0, a1, g11 + lift, b1, a0, g01 + lift, b1, 0, 1, 0, top);
+                        // The grey stone kerb along the platform's edge: a narrow band on the cells that end it (c_dabli 00).
+                        if (edge && lod <= 1)
+                        {
+                            const double kb = 0.35, kl = 0.012;
+                            if (!Kept(keep, nu, nw, i - 1, j))
+                                SacredDraw.Quad(m, x.K, a0, g00 + lift + kl, b0, a0 + kb, g00 + lift + kl, b0, a0 + kb, g01 + lift + kl, b1, a0, g01 + lift + kl, b1, 0, 1, 0, border);
+                            if (!Kept(keep, nu, nw, i + 1, j))
+                                SacredDraw.Quad(m, x.K, a1 - kb, g10 + lift + kl, b0, a1, g10 + lift + kl, b0, a1, g11 + lift + kl, b1, a1 - kb, g11 + lift + kl, b1, 0, 1, 0, border);
+                            if (!Kept(keep, nu, nw, i, j - 1))
+                                SacredDraw.Quad(m, x.K, a0, g00 + lift + kl, b0, a1, g10 + lift + kl, b0, a1, g10 + lift + kl, b0 + kb, a0, g00 + lift + kl, b0 + kb, 0, 1, 0, border);
+                            if (!Kept(keep, nu, nw, i, j + 1))
+                                SacredDraw.Quad(m, x.K, a0, g01 + lift + kl, b1 - kb, a1, g11 + lift + kl, b1 - kb, a1, g11 + lift + kl, b1, a0, g01 + lift + kl, b1, 0, 1, 0, border);
+                        }
                         // Kerb faces where the paving ends.
                         if (lod >= 3) continue;
                         if (!Kept(keep, nu, nw, i - 1, j)) Kerb(m, x.K, a0, b1, g01, a0, b0, g00, lift, -1, 0, kerb);
@@ -522,16 +537,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                         SacredDraw.Box(m, x.K, u - 0.85, u + 0.85, g, g + 0.03, w - 0.55, w + 0.55, mats[(int)(r * 7) % 4], lod == 0 ? BoxFaces.Top | BoxFaces.Wall : BoxFaces.Top);
                     }
                     double gv = table ? g + 0.47 : g + 0.03;
-                    if (lod == 0 && col % 4 == 0)
+                    if (lod == 0)
                     {
-                        // Bronze figures, singing bowls and masks.
-                        for (int q = 0; q < 3; q++)
+                        // Every stall is laden (c_views 08-10, 15): bronze figures, singing bowls and painted masks or thangkas
+                        // set out along the table or the mat.
+                        int items = 3;
+                        for (int q = 0; q < items; q++)
                         {
-                            double gu = u - 0.5 + 0.5 * q, gw = w + ((q % 2) == 0 ? -0.12 : 0.15);
-                            int kind = (int)(Rnd(ref seed) * 3);
-                            if (kind == 0) Shapes.Cone(m, SacredDraw.At(x.K, gu, gv, gw), bronze, 0.07, 0.26, 4, 0, 0, false);
-                            else if (kind == 1) Shapes.Dome(m, Affine3.RotationX(Math.PI).Then(SacredDraw.At(x.K, gu, gv + 0.08, gw)), bronze, 0.1, 0.08, 5, true);
-                            else SacredDraw.Box(m, x.K, gu - 0.08, gu + 0.08, gv, gv + 0.22, gw - 0.02, gw + 0.02, mats[(q + 1) % 4], BoxFaces.Front | BoxFaces.Top | BoxFaces.Back);
+                            double gu = u - 0.6 + 1.2 * q / (items - 1), gw = w + ((q % 2) == 0 ? -0.14 : 0.16), rr = Rnd(ref seed);
+                            if (rr < 0.45) Shapes.Cone(m, SacredDraw.At(x.K, gu, gv, gw), bronze, 0.07, 0.2 + 0.12 * rr, 4, 0, 0, false);
+                            else if (rr < 0.75) SacredDraw.Box(m, x.K, gu - 0.1, gu + 0.1, gv, gv + 0.07, gw - 0.1, gw + 0.1, bronze, BoxFaces.Top | BoxFaces.Front | BoxFaces.Back);
+                            else SacredDraw.Box(m, x.K, gu - 0.09, gu + 0.09, gv, gv + 0.24, gw - 0.02, gw + 0.02, mats[q % 4], BoxFaces.Front | BoxFaces.Top | BoxFaces.Back);
                         }
                     }
                     if (lod <= 1 && (row * 7 + col) % 9 == 4)

@@ -40,7 +40,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             SacredDraw.Panel(m, front, -0.32, 0.65, 0.32, 1.6, c + 0.01, Looks.Dark);
             if (lod <= 1)
             {
-                SacredDraw.Box(m, front, -0.42, 0.42, 1.6, 1.72, c, c + 0.08, KdsLooks.PlasterShade, BoxFaces.Wall | BoxFaces.Bottom);
+                // The little porch before the door: two dark columns under a white lintel slab (KAT1910 10).
+                SacredDraw.Box(m, front, -0.52, 0.52, 1.66, 1.8, c, c + 0.3, KdsLooks.PlasterShade, BoxFaces.All & ~BoxFaces.Back);
+                for (int sg = -1; sg <= 1; sg += 2)
+                    Shapes.Cylinder(m, SacredDraw.At(front, sg * 0.4, 0.6, c + 0.2), KdsLooks.Timber, 0.05, 1.06, lod == 0 ? 6 : 4, 0, 0, false, false);
                 // Tiered mouldings between the cella and the tower (the OSM parts step in at 2.0-3.0 m).
                 for (int i = 0; i < 3; i++)
                 {
@@ -49,10 +52,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
             }
             double top = ShikharaGenerator.Spire(m, x.K, c - 0.05, 2.5, 3.4, white, KdsLooks.PlasterShade, 3, lod);
-            KdsKit.SpireBands(x, c - 0.05, 2.5, 3.4, 5, KdsLooks.PlasterShade);
+            KdsKit.SpireBands(x, c - 0.05, 2.5, 3.4, 3, KdsLooks.PlasterShade);
             double cap = KdsKit.Amalaka(x, top, 5.9, white);
-            double tip = KdsKit.GiltFinial(x, cap - 0.05, WhiteShikharaTopM - cap + 0.05, 0.12);
-            return tip;
+            // The white plastered pot (kalasha) on the amalaka and a small gilt tip (KAT1910 10, c_shivaparvati 14).
+            double kh = WhiteShikharaTopM - cap - 0.22;
+            var kp = new Profile2(10);
+            kp.Add(0, 0, true).Add(0.17, 0, true).Add(0.23, 0.28 * kh).Add(0.19, 0.6 * kh).Add(0.08, 0.76 * kh).Add(0.13, 0.84 * kh).Add(0.06, kh).Add(0, kh, true);
+            Shapes.Lathe(m, SacredDraw.At(x.K, 0, cap - 0.03, 0), white, kp, KdsKit.Seg(10, lod));
+            Shapes.Cone(m, SacredDraw.At(x.K, 0, cap - 0.03 + kh, 0), KdsLooks.Gilt, 0.05, 0.25, 6, 0, 0, false);
+            return cap - 0.03 + kh + 0.25;
         }
 
         public static double Kotilingeshwar(KdsCtx x)

@@ -45,8 +45,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             // The two stone lions on the lower stage either side of the stair.
             // They are big (about 2 m with their pedestals) and frame the stair (photos c_02, c_06).
+            // Dark grey stone "snow lions" (shiva_parvati_window ref_02), on dark pedestals.
+            int lions = m.VertexCount;
             KdsKit.LionOn(x, -(stairHalf + 0.62), 4.15, 1.2, 0.45, 1.65, -1, false, 0.36);
             KdsKit.LionOn(x, stairHalf + 0.62, 4.15, 1.2, 0.45, 1.65, 1, false, 0.36);
+            KdsKit.Recolour(m, lions, Looks.Of(MeshColor.FromHex(0x6A665F), MaterialChannel.Stone), 0.55f);
             // A small white domed shrine at the west corner of the plinth.
             if (lod <= 1) SmallDomeShrine(x, -hu0 + 1.1, hw0 - 1.1, 0.5);
 
@@ -262,44 +265,61 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
         }
 
-        /// <summary>The temple's signature: the wide central upper window where the painted figures of Shiva and Parvati
-        /// look out side by side (white faces, black hair, gilt crowns and jewellery, coloured garments), arms on the sill.</summary>
+        /// <summary>The temple's signature: the central upper window, a carved opening under a cusped arch, where the painted
+        /// figures of Shiva and Parvati lean out side by side, seen from the chest up: white-painted bodies and faces with
+        /// black hair, eyes and brows, tall white crowns banded in gilt, gilt necklaces, their arms on the sill
+        /// (shiva_parvati_window ref_03, hires c02).</summary>
         private static void CoupleWindow(KdsCtx x, in Affine3 sk, double u, double v, double d)
         {
             MeshData m = x.M;
             int lod = x.Lod;
-            const double w = 1.5, h = 1.35;
+            const double w = 1.5, h = 1.05;
+            // The opening: straight jambs to the spring, then a round head; the carved arch frame and the lintel band over it.
             SacredDraw.Panel(m, sk, u - 0.5 * w, v, u + 0.5 * w, v + h, d + 0.01, Looks.Recess);
+            KdsKit.ArchPanel(m, sk, u, v + h - 0.05, d + 0.01, 0.5 * w, 0.42, 0.004, Looks.Recess, lod == 0 ? 1 : 2, true);
             ShapeBrush fr = KdsLooks.Timber;
             SacredDraw.Box(m, sk, u - 0.5 * w - 0.14, u - 0.5 * w, v, v + h, d, d + 0.12, fr, BoxFaces.Wall);
             SacredDraw.Box(m, sk, u + 0.5 * w, u + 0.5 * w + 0.14, v, v + h, d, d + 0.12, fr, BoxFaces.Wall);
-            SacredDraw.Box(m, sk, u - 0.5 * w - 0.3, u + 0.5 * w + 0.3, v + h, v + h + 0.16, d, d + 0.14, fr, BoxFaces.Wall | BoxFaces.Bottom);
             SacredDraw.Box(m, sk, u - 0.5 * w - 0.25, u + 0.5 * w + 0.25, v - 0.08, v + 0.06, d, d + 0.22, fr, BoxFaces.Wall | BoxFaces.Bottom);
+            if (lod <= 1) KdsKit.FlameArch(m, sk, u, v + h - 0.05, d + 0.02, 0.5 * w, 0.42, 0.13, 0.1, RedWood, lod == 0 ? 1 : 2, false, true);
             if (lod >= 2) return;
-            // Shiva (left seen from the front) and Parvati.
+            ShapeBrush body = Looks.Of(MeshColor.FromHex(0xEFE6D6), MaterialChannel.Paint), crown = Looks.Of(MeshColor.FromHex(0xF4EFE4), MaterialChannel.Paint);
+            int seg = lod == 0 ? 10 : 6;
+            // Shiva (left seen from the front, a little taller) and Parvati.
             for (int i = 0; i < 2; i++)
             {
-                double cu = u + (i == 0 ? -0.36 : 0.36);
-                ShapeBrush cloth = i == 0 ? KdsLooks.ClothBlue : KdsLooks.ClothRed;
-                int seg = lod == 0 ? 10 : 6;
-                // Shoulders and chest leaning on the sill, arms forward.
-                Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, v + 0.3, d + 0.02), cloth, 0.24, 0.25, 0.14, seg, false);
+                double cu = u + (i == 0 ? -0.33 : 0.33), sc = i == 0 ? 1.0 : 0.93, hv = v + 0.62 * sc;
+                // Shoulders and chest over the sill, the forearms crossed on it.
+                Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, v + 0.28 * sc, d + 0.02), body, 0.25 * sc, 0.27 * sc, 0.14, seg, false);
                 if (lod == 0)
                 {
-                    Shapes.Capsule(m, SacredDraw.Basis(sk, cu - 0.14, v + 0.12, d + 0.04, 1, 0, 0, 0, 0, 1), KdsLooks.Skin, 0.045, 0.24, 6);
-                    Shapes.Capsule(m, SacredDraw.Basis(sk, cu + 0.14, v + 0.12, d + 0.04, 1, 0, 0, 0, 0, 1), KdsLooks.Skin, 0.045, 0.24, 6);
+                    Shapes.Capsule(m, SacredDraw.Basis(sk, cu - 0.12, v + 0.1, d + 0.05, 0.97, 0, -0.243, 0.243, 0, 0.97), body, 0.05, 0.22, 6);
+                    Shapes.Capsule(m, SacredDraw.Basis(sk, cu + 0.12, v + 0.1, d + 0.05, 0.97, 0, 0.243, -0.243, 0, 0.97), body, 0.05, 0.22, 6);
+                    // A gilt necklace on the chest.
+                    Shapes.Torus(m, SacredDraw.Basis(sk, cu, v + 0.42 * sc, d + 0.1, 1, 0, 0, 0, 0.342, 0.94), KdsLooks.Gilt, 0.12 * sc, 0.018, 10, 3);
                 }
-                // Head, hair and crown.
-                Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, v + 0.68, d + 0.06), KdsLooks.Skin, 0.12, 0.15, 0.12, seg, false);
-                Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, v + 0.72, d + 0.0), KdsLooks.HairBlack, 0.13, 0.15, 0.1, seg, false);
-                Shapes.Cone(m, SacredDraw.At(sk, cu, v + 0.8, d + 0.04), KdsLooks.Gilt, 0.11, 0.24, lod == 0 ? 8 : 5, 0, 0, true);
+                // Neck, head, black hair framing the face.
+                Shapes.Cylinder(m, SacredDraw.At(sk, cu, v + 0.48 * sc, d + 0.05), body, 0.06, 0.08, 6, 0, 0, false, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, hv, d + 0.07), body, 0.13 * sc, 0.16 * sc, 0.12, seg, false);
+                Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, hv + 0.03, d + 0.0), KdsLooks.HairBlack, 0.145 * sc, 0.16 * sc, 0.1, seg, false);
+                // The tall white crown with gilt bands, a little gilt knob on top.
+                var cp = new Profile2(10);
+                cp.Add(0, 0, true).Add(0.125 * sc, 0, true).Add(0.14 * sc, 0.05).Add(0.11 * sc, 0.16 * sc).Add(0.085 * sc, 0.3 * sc).Add(0.05 * sc, 0.38 * sc).Add(0, 0.41 * sc, true);
+                int c0 = m.VertexCount;
+                Shapes.Lathe(m, SacredDraw.At(sk, cu, hv + 0.1 * sc, d + 0.05), crown, cp, lod == 0 ? 8 : 6);
                 if (lod == 0)
                 {
-                    // Eyes and the red mouth.
-                    Shapes.Sphere(m, SacredDraw.At(sk, cu - 0.045, v + 0.7, d + 0.17), KdsLooks.HairBlack, 0.018, 4);
-                    Shapes.Sphere(m, SacredDraw.At(sk, cu + 0.045, v + 0.7, d + 0.17), KdsLooks.HairBlack, 0.018, 4);
-                    Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, v + 0.62, d + 0.17), KdsLooks.PaintRed, 0.03, 0.012, 0.01, 4, false);
-                    Shapes.Torus(m, SacredDraw.At(sk, cu, v + 0.48, d + 0.06), KdsLooks.Gilt, 0.13, 0.02, 10, 4);
+                    Shapes.Torus(m, SacredDraw.At(sk, cu, hv + 0.13 * sc, d + 0.05), KdsLooks.Gilt, 0.135 * sc, 0.02, 8, 3);
+                    Shapes.Torus(m, SacredDraw.At(sk, cu, hv + 0.3 * sc, d + 0.05), KdsLooks.Gilt, 0.09 * sc, 0.015, 8, 3);
+                    Shapes.Sphere(m, SacredDraw.At(sk, cu, hv + 0.52 * sc, d + 0.05), KdsLooks.Gilt, 0.035, 5);
+                    // Black eyes and brows, the red mouth (Shiva's third eye a red mark).
+                    for (int e = -1; e <= 1; e += 2)
+                    {
+                        Shapes.Ellipsoid(m, SacredDraw.At(sk, cu + e * 0.048 * sc, hv + 0.015, d + 0.185), KdsLooks.HairBlack, 0.026, 0.014, 0.01, 4, false);
+                        Shapes.Ellipsoid(m, SacredDraw.At(sk, cu + e * 0.05 * sc, hv + 0.055, d + 0.18), KdsLooks.HairBlack, 0.035, 0.008, 0.01, 4, false);
+                    }
+                    Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, hv - 0.075 * sc, d + 0.18), KdsLooks.PaintRed, 0.028, 0.011, 0.01, 4, false);
+                    if (i == 0) Shapes.Ellipsoid(m, SacredDraw.At(sk, cu, hv + 0.09, d + 0.185), KdsLooks.PaintRed, 0.009, 0.022, 0.008, 4, false);
                 }
             }
         }
