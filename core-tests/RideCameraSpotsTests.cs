@@ -139,7 +139,13 @@ namespace Ghumante.Core.Tests
         /// kerb return (the corner room clamp of the junction caps); the bus's front overhang swung 1.1 m into it and
         /// stopped. Bus corners (<see cref="RoadLayout.BusCornerRadiusM"/>: car roads both at least 6.5 m wide, at least
         /// 60° apart, outside the old cores) keep a 4.5 m kerb return, the corner house is trimmed back to it, and the
-        /// camera's bus on the centre line drives on.
+        /// camera's bus on the centre line drives on. Where the arm of Ghumti Sadak, bending 4.5 m from the node, leaves no
+        /// room for the return's arc, the cap carries its apex (<see cref="JunctionCap.BusCorner"/>): the bus passes 0.34 m
+        /// clear of the house's drawn outline instead of 0.02 m. Open (docs/research/w2/ref_ride.md §4): the camera
+        /// package's bus 1.5 m left of the centre line still stops there. It keeps to the outside of the 46° bend
+        /// Bhaktithapa Road takes at the node, its front swings out over that short 14 m arm, and it reaches 0.54 m (0.65 m
+        /// before) into the corner house (with the house hidden) at the arm's right edge by its cut, which the bend keeps
+        /// the cap from widening; a bus steered from its front axle (<see cref="ProbeFrontAxleBus"/>) stops there too.
         /// </summary>
         [Test]
         public void TheBusTurnsFromGhumtiSadakIntoBhaktithapaRoad()
@@ -414,6 +420,28 @@ namespace Ghumante.Core.Tests
                 for (int k = 0; k + 1 < path.Length; k += 2)
                     line.Append(" " + ((path[k] - (cx - half)) / step).ToString("0.0", inv) + "," + (((cz + half) - path[k + 1]) / step).ToString("0.0", inv));
                 sb.Append(line).Append('\n');
+                // The bus body (its collision circles' outline) every 0.5 s while it is on the map.
+                RideStats stats;
+                List<RideFrame> frames = CameraRides.Drive(path, HandlingPreset.Bus, 8f, 150f, out stats);
+                CollisionBody body = CollisionBody.For(VehicleSpec.For(HandlingPreset.Bus));
+                float since = 0.5f;
+                for (int f = 0; f < frames.Count; f++)
+                {
+                    RideFrame fr = frames[f];
+                    since += fr.Dt;
+                    bool last = f == frames.Count - 1;
+                    if (Math.Abs(fr.X - cx) > half || Math.Abs(fr.Z - cz) > half || (since < 0.5f && !last)) continue;
+                    since = 0f;
+                    double hx = Math.Sin(fr.HeadingRad), hz = Math.Cos(fr.HeadingRad), rx = hz, rz = -hx;
+                    double a0 = body.FirstM - body.Radius, a1 = body.LastM + body.Radius, br = body.Radius;
+                    var bl = new System.Text.StringBuilder(last && stats.Stuck ? "X" : "B");
+                    foreach (double[] c in new[] { new[] { a0, -br }, new[] { a1, -br }, new[] { a1, br }, new[] { a0, br } })
+                    {
+                        double bx = fr.X + hx * c[0] + rx * c[1], bz = fr.Z + hz * c[0] + rz * c[1];
+                        bl.Append(" " + ((bx - (cx - half)) / step).ToString("0.0", inv) + "," + (((cz + half) - bz) / step).ToString("0.0", inv));
+                    }
+                    sb.Append(bl).Append('\n');
+                }
             }
             string dir = Environment.GetEnvironmentVariable("GHUMANTE_PREVIEW_DIR");
             if (dir != null)
@@ -608,6 +636,99 @@ namespace Ghumante.Core.Tests
                     if (s >= cum[n - 1] - 8.0 || s > 520) break;
                 }
                 TestContext.WriteLine("left " + left + ": deepest reach into the house " + deepest.ToString("0.00") + " m, " + at);
+            }
+        }
+
+        /// <summary>
+        /// A bus driven as a driver steers it: the pursuit point is chased from the front axle (the camera rides' autopilot
+        /// chases it from the vehicle origin under the rear axle, which swings the front of a 10.5 m bus 1.2 m wide of its
+        /// path in a turn). Returns the metres driven and whether it got stuck; <paramref name="worstClear"/> is the least
+        /// clearance of the body circles to the solids it passed (body sweep probe).
+        /// </summary>
+        internal static double DriveFrontAxle(double[] path, HandlingPreset preset, float cruise, float maxSeconds, out bool stuck, out double stuckX, out double stuckZ)
+        {
+            TileGroundQuery g = CameraRides.Ground;
+            VehicleSpec spec = VehicleSpec.For(preset);
+            int n = path.Length / 2;
+            var cum = new double[n];
+            for (int i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.Sqrt(Sq(path[2 * i] - path[2 * i - 2]) + Sq(path[2 * i + 1] - path[2 * i - 1]));
+            var v = new ArcadeVehicle(spec);
+            double sx, sz, hx, hz;
+            PathAt(path, cum, 0, out sx, out sz);
+            PathAt(path, cum, 3.0, out hx, out hz);
+            v.Teleport(sx, sz, (float)Math.Atan2(hx - sx, hz - sz), g);
+            double s = 0;
+            float slow = 0f;
+            stuck = false;
+            stuckX = stuckZ = 0;
+            const float dt = 1f / 60f;
+            for (float time = 0f; time < maxSeconds; time += dt)
+            {
+                double fx = v.X + Math.Sin(v.HeadingRad) * spec.WheelbaseM, fz = v.Z + Math.Cos(v.HeadingRad) * spec.WheelbaseM;
+                s = PathProgress(path, cum, fx, fz, s);
+                float look = Math.Max(3f, Math.Min(10f, 1.5f + 0.6f * Math.Abs(v.SpeedMps)));
+                double tx, tz;
+                PathAt(path, cum, s + look, out tx, out tz);
+                float err = CharMath.WrapRad((float)Math.Atan2(tx - fx, tz - fz) - v.HeadingRad);
+                float bend = PathBend(path, cum, s, 25.0);
+                float target = Math.Min(cruise, Math.Max(3f, (float)Math.Sqrt(3.0 / Math.Max(1e-3, bend))));
+                v.Step(new DriveInput(CharMath.Clamp((target - v.SpeedMps) * 0.6f + 0.15f, -1f, 1f), v.SpeedMps > target + 1.5f ? 0.5f : 0f,
+                                      CharMath.Clamp(err * 2.2f, -1f, 1f)), dt, g, 0f);
+                slow = Math.Abs(v.SpeedMps) < 0.5f && time > 2f ? slow + dt : 0f;
+                if (slow > 3f)
+                {
+                    stuck = true;
+                    stuckX = v.X;
+                    stuckZ = v.Z;
+                    break;
+                }
+                if (s >= cum[n - 1] - 8.0) break;
+            }
+            return s;
+        }
+
+        /// <summary>The junction caps within 30 m of RIDE_PROBE: per arm its road, direction, setback, cut section and the
+        /// corner after it (radius, bus corner).</summary>
+        [Test, Explicit("probe")]
+        public void ProbeCaps()
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string[] p = (Environment.GetEnvironmentVariable("RIDE_PROBE") ?? "85.32752,27.69323").Split(',');
+            double x, z;
+            Game(double.Parse(p[0], inv), double.Parse(p[1], inv), out x, out z);
+            TileData t = DrivingData.SampleTiles()[TileId.At(10, x, z)];
+            RoadLayout layout = RoadLayout.For(t);
+            foreach (JunctionCap cap in layout.Caps)
+            {
+                if (Math.Sqrt(Sq(cap.X + t.Tile.X0 - x) + Sq(cap.Z + t.Tile.Z0 - z)) > 30) continue;
+                var poly = new System.Text.StringBuilder();
+                for (int q = 0; q < cap.Count; q++) poly.Append(" " + cap.PolyX[q].ToString("0.0") + "," + cap.PolyZ[q].ToString("0.0"));
+                TestContext.WriteLine("cap node " + cap.X.ToString("0.00") + "," + cap.Z.ToString("0.00") + " top " + t.Roads[cap.TopRoad].OsmWayId + " poly" + poly);
+                for (int k = 0; k < cap.ArmRoads.Length; k++)
+                {
+                    RoadCut c = layout.StoredCut(t, cap.ArmRoads[k], cap.ArmCutS[k]);
+                    double dx = c.CX - cap.X, dz = c.CZ - cap.Z;
+                    TestContext.WriteLine("  arm " + k + " road " + t.Roads[cap.ArmRoads[k]].OsmWayId + " " + t.Roads[cap.ArmRoads[k]].RoadClass + " fwd " + cap.ArmForward[k] +
+                                          " dir " + (Math.Atan2(dx, dz) * 180 / Math.PI).ToString("0") + "° setback " + cap.ArmSetback[k].ToString("0.0") + " cut s " + c.S.ToString("0.0") +
+                                          " centre " + c.CX.ToString("0.0") + "," + c.CZ.ToString("0.0") + " u " + c.UX.ToString("0.00") + "," + c.UZ.ToString("0.00") + " half " +
+                                          c.Half.ToString("0.00") + " shift " + c.Shift.ToString("0.00") + "; corner after: r " + cap.CornerRadiusM[k].ToString("0.0") + " bus " + cap.BusCorner[k]);
+                }
+            }
+        }
+
+        [Test, Explicit("probe")]
+        public void ProbeFrontAxleBus()
+        {
+            foreach (double left in new[] { 0.0, 1.5, 1.75 })
+            {
+                double[] path = CameraRides.Route(Travel.Bus, 85.3240, 27.6950, 85.3340, 27.6930, left);
+                bool stuck;
+                double x, z;
+                double m = DriveFrontAxle(path, HandlingPreset.Bus, 8f, 150f, out stuck, out x, out z);
+                TestContext.WriteLine("front-axle bus Maitighar-Baneshwor " + left + " m left: drove " + m.ToString("0") + " m" + (stuck ? " STUCK at " + Where(x, z) : ""));
+                path = CameraRides.Route(Travel.Bus, 85.3153, 27.7066, 85.3207, 27.6946, left);
+                m = DriveFrontAxle(path, HandlingPreset.Bus, 8f, 150f, out stuck, out x, out z);
+                TestContext.WriteLine("front-axle bus Ratna Park-Maitighar " + left + " m left: drove " + m.ToString("0") + " m" + (stuck ? " STUCK at " + Where(x, z) : ""));
             }
         }
 

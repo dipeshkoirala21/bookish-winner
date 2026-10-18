@@ -802,7 +802,7 @@ namespace Ghumante.Core.Meshing
         /// <summary>
         /// Build the layout of <paramref name="t"/> with the given corridor shifts (per road: samples every
         /// <see cref="CorridorShiftSpacingM"/>, metres, positive = left; null entries = none) and make it the tile's cached
-        /// layout. For tests and for integration until the RSTR record carries the shift (see <see cref="CorridorShiftOf"/>).
+        /// layout, in place of the shifts the RSTR records carry (<see cref="CorridorShiftOf"/>). For tests.
         /// </summary>
         internal static RoadLayout WithCorridorShifts(TileData t, float[][] shiftM)
         {
