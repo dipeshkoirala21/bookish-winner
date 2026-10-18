@@ -21,12 +21,30 @@ namespace Ghumante.Core.Generators.Sacred
             return Build(r, anchorTile, lod, m, c, null);
         }
 
+        /// <summary>
+        /// The ground the bespoke heritage sites (Heroes/&lt;Site&gt;/) need before a decoded tile is meshed: the
+        /// Pashupatinath courtyard's one paved level and the forecourt three steps above it
+        /// (<see cref="Heroes.Pashupati.PashupatiGround.Apply"/>; the terrain model is a surface model that climbs 3-5 m
+        /// over the buildings round the courtyard). The streamer calls it on every decoded tile next to the structure
+        /// fallback, so the terrain mesh, the sampler, the ground query and every placer read one surface. Idempotent;
+        /// returns the height samples changed.
+        /// </summary>
+        public static int PrepareGround(TileData tile)
+        {
+            if (tile == null) return 0;
+            int n = 0;
+            n += Heroes.Pashupati.PashupatiGround.Apply(tile);
+            return n;
+        }
+
         /// <summary>Build a hero; returns its triangles, 0 when the anchor is not in this tile.</summary>
         public static int Build(HeritageRecord r, TileData anchorTile, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (anchorTile == null) throw new ArgumentNullException(nameof(anchorTile));
             if (m == null) throw new ArgumentNullException(nameof(m));
+            // Bespoke heritage sites (Heroes/<Site>/): structure-by-structure models instead of the parametric forms.
+            if (Heroes.Pashupati.PashupatiSite.Handles(r.Id)) return Heroes.Pashupati.PashupatiSite.Build(r, anchorTile, lod, m, c, stats);
             HeroRecipe recipe = Merge(r);
             double x, z;
             int building;
