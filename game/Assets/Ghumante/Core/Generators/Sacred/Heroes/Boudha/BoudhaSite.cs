@@ -28,6 +28,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>Site-local (u, y, v) at the stupa axis on the kora → tile-local (x, absolute y, z).</summary>
         public Affine3 Site;
 
+        /// <summary>The compound wall's centre line in the site frame (counter-clockwise), fitted to the tile's drawn
+        /// roads (<see cref="BoudhaWall.Fit"/>); null before fitting (then the OSM line is used).</summary>
+        public double[] WallU, WallV;
+
+        /// <summary>Points of <see cref="WallU"/>.</summary>
+        public int WallN;
+
+        /// <summary>The tile the frame was located in (its drawn roads keep the site's solids off the kora walks).</summary>
+        public TileData Tile;
+
         /// <summary>Site-local (u, v) of a point given in true (east, north) metres from the T1 centroid.</summary>
         public static void FromTrue(double e, double n, out double u, out double v)
         {
@@ -107,9 +117,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>Total height of the stupa above the kora (finial tip; boudha.md 3.1.1, photo-measured).</summary>
         public const float HeightM = 44.8f;
 
-        /// <summary>LOD triangle ceilings of the Great Stupa (the curated hero). LOD0 stays well under the High tier's
-        /// 60,000-triangle hero slice so the kora quarter in front of the viewer keeps a detailed LOD beside it.</summary>
-        public const int BudgetLod0 = 48000, BudgetLod1 = 14500, BudgetLod2 = 3840, BudgetLod3 = 240;
+        /// <summary>LOD triangle ceilings of the Great Stupa (the curated hero). LOD0 stays under the High tier's
+        /// 60,000-triangle hero slice with every quarter and the gate at LOD2 beside it (51,000 + 7,380), so aerial and
+        /// rooftop views keep the whole site; LOD0 carries the 64 prayer-flag lines.</summary>
+        public const int BudgetLod0 = 51000, BudgetLod1 = 14500, BudgetLod2 = 3840, BudgetLod3 = 240;
 
         /// <summary>The whole site's LOD0 ceiling on the High tier: the parts' LOD0 budgets stay within it.</summary>
         public const int SiteBudgetLod0 = 150000;
@@ -119,11 +130,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private static readonly int[][] PartBudget =
         {
             null,
-            new[] { 23000, 6900, 1850, 360 },
-            new[] { 18000, 5400, 1500, 360 },
-            new[] { 18000, 5400, 1500, 360 },
-            new[] { 22500, 6750, 1800, 360 },
-            new[] { 8500, 2550, 680, 120 },
+            new[] { 24000, 7200, 1960, 360 },
+            new[] { 17500, 5250, 1460, 360 },
+            new[] { 17000, 5100, 1400, 360 },
+            new[] { 23500, 7050, 1880, 360 },
+            new[] { 9500, 2850, 760, 120 },
         };
 
         private static readonly string[] Suffix = { "", ".north", ".east", ".south", ".west", ".gate" };
@@ -257,6 +268,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             f.AZ = oz - AxisOffsetU * Math.Sin(a) + AxisOffsetV * Math.Cos(a);
             f.Level = BoudhaGround.KoraLevel(tile, ox, oz);
             f.Site = Affine3.Translation(f.AX, f.Level, f.AZ) * Affine3.Yaw(AxisBearingDeg);
+            f.Tile = tile;
+            BoudhaWall.Fit(tile, ref f);
             return true;
         }
 
@@ -301,6 +314,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             m.HasUv0 = true;
             lod = Math.Max(0, Math.Min(3, lod));
             GenColliders cc = lod == 0 ? c : null;
+            int niches = 0;
             switch (part)
             {
                 case BoudhaPart.Stupa:
@@ -320,12 +334,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     BoudhaGate.Build(m, cc, tile, f, lod);
                     break;
                 default:
-                    BoudhaQuarter.Build(m, cc, tile, f, part, lod);
+                    niches = BoudhaQuarter.Build(m, cc, tile, f, part, lod);
                     break;
             }
             if (stats != null)
             {
                 stats.TopM = TopOf(part);
+                // The prayer-wheel niches as drawn: each quarter part its stretch of the compound wall's 147.
+                stats.Niches = niches;
                 if (part == BoudhaPart.Stupa)
                 {
                     stats.PlinthTopM = (float)BoudhaStupa.T3Top;

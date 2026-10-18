@@ -55,7 +55,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double u = mini[i], v = mini[i + 1];
                 MiniBoudha(m, BoudhaKit.Facing(k, u, t1, v, Math.Sign(u), Math.Sign(v)), lod);
-                Solid(c, f, u, v, t1, t1 + MiniH, 1.7);
+                Solid(c, f, u, v, t1, t1 + MiniH, MiniDomeR + 0.1);
             }
             if (lod <= 1)
             {
@@ -95,7 +95,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 int arm = q == 0 ? 0 : 2;
                 BoudhaStupa.ArmEnd(0, arm, out end, out centre);
                 double u = q == 0 ? NorthStairU : SouthStairU, dir = q == 0 ? 1 : -1;
-                double wallR = BoudhaWall.RadiusAt(q == 0 ? 0 : Math.PI);
+                double wallR = BoudhaWall.RadiusAt(f, q == 0 ? 0 : Math.PI);
                 double foot = wallR - (q == 0 ? 1.35 : 1.6), run = foot - end;
                 if (run < 3.0) continue;
                 // Frame at the foot, +z climbing toward the terrace.
@@ -111,8 +111,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ chortens
 
-        /// <summary>Height of a mini-Boudha chorten (spire/06).</summary>
-        public const double MiniH = 6.8;
+        /// <summary>Height of a mini-Boudha chorten, half its square base and its dome's radius (spire/06: the dome
+        /// nearly fills the base, the harmika about 0.4 of the dome's width).</summary>
+        public const double MiniH = 7.3, MiniBase = 2.2, MiniDomeR = 1.95;
 
         /// <summary>
         /// A mini-Boudha chorten (spire/06, Bibek KC): a white two-step square base, a white dome with a small gilt niche
@@ -122,34 +123,34 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private static void MiniBoudha(MeshData m, in Affine3 fr, int lod)
         {
             ShapeBrush w = BoudhaKit.White, sh = BoudhaKit.WhiteShade, gilt = BoudhaKit.Gilt, giltS = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt);
-            // Base: two white steps with copings.
+            // Base: two white steps with copings (spire/06: the dome nearly fills the upper step).
             Mould mo = SacredDraw.M;
-            if (lod >= 2) mo.Add(0, -0.2, sh).Add(0, 0.6, w).Add(-0.25, 0.6).Add(-0.25, 1.1);
-            else mo.Add(0, -0.2, sh).Add(0, 0.5, w).Add(0.06, 0.52).Add(0.06, 0.6).Add(-0.25, 0.6).Add(-0.25, 1.0).Add(-0.2, 1.02).Add(-0.2, 1.1);
-            SacredDraw.RectRing(m, fr, 0, 0, 1.75, 1.75, mo, true, w);
-            // Dome: a slightly flattened hemisphere with a round foot band.
-            int seg = lod == 0 ? 16 : lod == 1 ? 12 : 8, arc = lod == 0 ? 7 : lod == 1 ? 5 : 3;
+            if (lod >= 2) mo.Add(0, -0.2, sh).Add(0, 0.55, w).Add(-0.25, 0.55).Add(-0.25, 1.05);
+            else mo.Add(0, -0.2, sh).Add(0, 0.47, w).Add(0.06, 0.49).Add(0.06, 0.55).Add(-0.25, 0.55).Add(-0.25, 0.97).Add(-0.2, 0.99).Add(-0.2, 1.05);
+            SacredDraw.RectRing(m, fr, 0, 0, MiniBase, MiniBase, mo, true, w);
+            // Dome: a full, slightly raised hemisphere on a round foot band.
+            int seg = lod == 0 ? 18 : lod == 1 ? 12 : 8, arc = lod == 0 ? 8 : lod == 1 ? 5 : 3;
             Profile2 p = BoudhaKit.Prof;
-            double r = 1.55, y = 1.1;
+            double r = MiniDomeR, y = 1.05, rise = 1.85;
             p.Add(0, y).Add(r + 0.08, y, true).Add(r + 0.08, y + 0.18, true).Add(r, y + 0.2, true);
             for (int i = 1; i <= arc; i++)
             {
                 double a = 0.5 * Math.PI * i / arc;
-                p.Add(r * Math.Cos(a), y + 0.2 + 1.25 * Math.Sin(a));
+                p.Add(r * Math.Cos(a), y + 0.2 + rise * Math.Sin(a));
             }
             Shapes.Lathe(m, fr, w, p, seg);
-            double top = y + 0.2 + 1.25;
-            // The gilt niche shrine with its torana on the dome's front.
+            double top = y + 0.2 + rise;
+            // The gilt niche shrine with its torana low on the dome's front.
             if (lod <= 1)
             {
-                double ny = y + 0.45, nz = r - 0.15;
-                SacredDraw.Box(m, fr, -0.35, 0.35, ny, ny + 0.7, nz - 0.1, nz + 0.25, gilt, BoxFaces.All & ~BoxFaces.Bottom & ~BoxFaces.Back);
-                SacredDraw.Panel(m, fr, -0.22, ny + 0.08, 0.22, ny + 0.52, nz + 0.255, BoudhaKit.B(MeshColor.FromHex(0x5A3A1C), MaterialChannel.Plain, 0.6f));
-                Shapes.Frustum(m, SacredDraw.At(fr, 0, ny + 0.7, nz + 0.07) * Affine3.Yaw(45), gilt, 0.42, 0.06, 0.32, 4, 0, 0, true, false);
-                if (lod == 0) SacredParts.Torana(m, fr, 0, ny + 0.53, nz + 0.26, 0.42, gilt, lod);
+                double ny = y + 0.3, nz = r - 0.2;
+                SacredDraw.Box(m, fr, -0.45, 0.45, ny, ny + 0.85, nz - 0.1, nz + 0.3, gilt, BoxFaces.All & ~BoxFaces.Bottom & ~BoxFaces.Back);
+                SacredDraw.Panel(m, fr, -0.29, ny + 0.1, 0.29, ny + 0.64, nz + 0.305, BoudhaKit.B(MeshColor.FromHex(0x5A3A1C), MaterialChannel.Plain, 0.6f));
+                Shapes.Frustum(m, SacredDraw.At(fr, 0, ny + 0.85, nz + 0.1) * Affine3.Yaw(45), gilt, 0.55, 0.07, 0.38, 4, 0, 0, true, false);
+                if (lod == 0) SacredParts.Torana(m, fr, 0, ny + 0.65, nz + 0.31, 0.54, gilt, lod);
             }
-            // Harmika with the eyes.
-            double hh = 0.75, hw = 0.5;
+            // Harmika with the eyes: tall and broad (about 0.4 of the dome's width, spire/06).
+            double hh = 0.95, hw = 0.75;
             Mould hm = SacredDraw.M;
             if (lod >= 2) hm.Add(0, top - 0.15, w).Add(0, top + hh + 0.12);
             else hm.Add(0, top - 0.15, w).Add(0, top + hh).Add(0.08, top + hh + 0.02).Add(0.08, top + hh + 0.12);
@@ -159,11 +160,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 for (int s = 0; s < 4; s++)
                 {
                     Affine3 face = fr * Affine3.Yaw(90 * s);
-                    MiniEyes(m, face, top + 0.42, hw + 0.006, lod);
+                    MiniEyes(m, face, top + 0.55, hw + 0.006, 1.5, lod);
                 }
             }
-            // The gilt square spire: thirteen steps tapering to a third, then the parasol and the finial.
-            double sy = top + hh + 0.12, sh0 = 2.25, b0 = 0.42, b1 = 0.14;
+            // The gilt square spire: thirteen steps from almost the harmika's width to about half of it, then the
+            // parasol and the finial.
+            double sy = top + hh + 0.12, sh0 = 2.3, b0 = 0.66, b1 = 0.36;
             if (lod == 0)
             {
                 int steps = 13;
@@ -171,7 +173,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 {
                     double t0 = (double)q / steps, half = b0 + (b1 - b0) * t0, ya = sy + sh0 * t0, yb = sy + sh0 * (q + 1.0) / steps;
                     Mould sm = SacredDraw.M;
-                    sm.Add(0, ya, gilt).Add(0, yb - 0.03).Add(-0.02, yb - 0.015, giltS).Add(-(b0 - b1) / steps, yb);
+                    sm.Add(0, ya, gilt).Add(0, yb - 0.04).Add(-0.02, yb - 0.02, giltS).Add(-(b0 - b1) / steps, yb);
                     SacredDraw.RectRing(m, fr, 0, 0, half, half, sm, q == steps - 1, gilt);
                 }
             }
@@ -180,24 +182,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 Shapes.Frustum(m, SacredDraw.At(fr * Affine3.Yaw(45), 0, sy, 0), gilt, b0 * 1.41, b1 * 1.41, sh0, 4, 0, 0, false, true);
             }
             double py = sy + sh0;
-            if (lod <= 1) Shapes.Cylinder(m, SacredDraw.At(fr, 0, py, 0), gilt, 0.3, 0.12, lod == 0 ? 10 : 6, 0, 0, true, true);
-            Shapes.Cone(m, SacredDraw.At(fr, 0, py + 0.12, 0), gilt, 0.08, MiniH - py - 0.12, lod == 0 ? 8 : 4, 0, 0, false);
-            if (lod == 0) Shapes.Sphere(m, SacredDraw.At(fr, 0, py + 0.3, 0), gilt, 0.08, 6);
+            // The parasol: a gilt square cap wider than the spire's top, a drum and the bulb under the spike.
+            if (lod <= 1)
+            {
+                Shapes.Frustum(m, SacredDraw.At(fr * Affine3.Yaw(45), 0, py, 0), gilt, (b1 + 0.16) * 1.41, (b1 + 0.04) * 1.41, 0.16, 4, 0, 0, true, true);
+                Shapes.Cylinder(m, SacredDraw.At(fr, 0, py + 0.16, 0), giltS, 0.2, 0.2, lod == 0 ? 10 : 6, 0, 0, false, false);
+            }
+            Shapes.Cone(m, SacredDraw.At(fr, 0, py + 0.36, 0), gilt, 0.08, MiniH - py - 0.36, lod == 0 ? 8 : 4, 0, 0, false);
+            if (lod == 0) Shapes.Sphere(m, SacredDraw.At(fr, 0, py + 0.5, 0), gilt, 0.13, 8);
         }
 
-        /// <summary>The painted eyes on a mini chorten's harmika face (blue irises, black brows, the red "१" nose).</summary>
-        private static void MiniEyes(MeshData m, in Affine3 f, double y, double z, int lod)
+        /// <summary>The painted eyes on a mini chorten's harmika face (blue irises, black brows, the red "१" nose),
+        /// <paramref name="sc"/> times the 0.5 m harmika's size.</summary>
+        private static void MiniEyes(MeshData m, in Affine3 f, double y, double z, double sc, int lod)
         {
             ShapeBrush white = BoudhaKit.B(0xFFFFFFFFu, MaterialChannel.Paint), blue = BoudhaKit.B(BoudhaKit.EyeBlueDark, MaterialChannel.Paint);
             ShapeBrush ink = BoudhaKit.B(BoudhaKit.Brow, MaterialChannel.Paint), red = BoudhaKit.B(BoudhaKit.EyeRed, MaterialChannel.Paint);
             for (int s = -1; s <= 1; s += 2)
             {
-                double xc = s * 0.19;
-                SacredDraw.Quad(m, f, xc - 0.13, y, z, xc, y - 0.05, z, xc + 0.13, y, z, xc, y + 0.06, z, 0, 0, 1, white);
-                SacredDraw.Quad(m, f, xc - 0.04, y - 0.04, z + 0.003, xc + 0.04, y - 0.04, z + 0.003, xc + 0.04, y + 0.04, z + 0.003, xc - 0.04, y + 0.04, z + 0.003, 0, 0, 1, blue);
-                SacredDraw.Quad(m, f, xc - 0.15, y + 0.09, z + 0.002, xc + 0.15, y + 0.09, z + 0.002, xc + 0.13, y + 0.13, z + 0.002, xc - 0.13, y + 0.13, z + 0.002, 0, 0, 1, ink);
+                double xc = s * 0.19 * sc;
+                SacredDraw.Quad(m, f, xc - 0.13 * sc, y, z, xc, y - 0.05 * sc, z, xc + 0.13 * sc, y, z, xc, y + 0.06 * sc, z, 0, 0, 1, white);
+                SacredDraw.Quad(m, f, xc - 0.045 * sc, y - 0.04 * sc, z + 0.003, xc + 0.045 * sc, y - 0.04 * sc, z + 0.003, xc + 0.045 * sc, y + 0.045 * sc, z + 0.003,
+                                xc - 0.045 * sc, y + 0.045 * sc, z + 0.003, 0, 0, 1, blue);
+                SacredDraw.Quad(m, f, xc - 0.15 * sc, y + 0.09 * sc, z + 0.002, xc + 0.15 * sc, y + 0.09 * sc, z + 0.002, xc + 0.13 * sc, y + 0.13 * sc, z + 0.002,
+                                xc - 0.13 * sc, y + 0.13 * sc, z + 0.002, 0, 0, 1, ink);
             }
-            SacredDraw.Quad(m, f, -0.03, y - 0.26, z + 0.002, 0.03, y - 0.26, z + 0.002, 0.03, y - 0.08, z + 0.002, -0.03, y - 0.08, z + 0.002, 0, 0, 1, red);
+            SacredDraw.Quad(m, f, -0.03 * sc, y - 0.26 * sc, z + 0.002, 0.03 * sc, y - 0.26 * sc, z + 0.002, 0.03 * sc, y - 0.08 * sc, z + 0.002, -0.03 * sc, y - 0.08 * sc,
+                            z + 0.002, 0, 0, 1, red);
         }
 
         // ------------------------------------------------------------------------------------------------ statues
@@ -218,7 +229,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     for (int q = 0; q < 5; q++)
                     {
                         double t = q / 4.0, z = -0.42 * h + 0.84 * h * t, y = 0.35 + 0.48 * h + 0.06 * Math.Sin(Math.PI * t);
-                        Shapes.Sphere(m, SacredDraw.At(ef, s * 0.27 * h, y, z), BoudhaKit.B(dots[q % 4], MaterialChannel.Paint), 0.04, 4);
+                        Shapes.Sphere(m, SacredDraw.At(ef, s * 0.27 * h, y, z), BoudhaKit.B(MeshColor.FromHex(dots[q % 4]), MaterialChannel.Paint), 0.04, 4);
                     }
             }
             // The rider astride the back.

@@ -250,9 +250,112 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 while (k >= 3 && Math.Abs(pu[0] - pu[k - 1]) < 0.05 && Math.Abs(pv[0] - pv[k - 1]) < 0.05) k--;
                 if (k < 3) return 0;
                 BoudhaKit.Ccw(pu, pv, k);
+                double a0 = Math.Abs(BoudhaKit.Area(pu, pv, k));
+                OffRoads(tile, f, pu, pv, k);
+                // A house the drawn road leaves no room for is not built (w912264741, a 17 m² sliver at the east lane
+                // mouth: its 5 m deep plan lies 3.4 m into the drawn kora).
+                double a1 = Math.Abs(BoudhaKit.Area(pu, pv, k));
+                if (a1 < Math.Max(MinFootprintM2, MinKeptShare * a0)) return 0;
                 return k;
             }
             return 0;
+        }
+
+        /// <summary>Clear distance (m) a house outline (its collider walls are 0.2 m half thick) keeps from the edge of a
+        /// carriageway as the road mesher draws it.</summary>
+        public const double RoadClearM = 0.3;
+
+        /// <summary>A footprint cut back off the roads to less than this area (m²) or share of its OSM plan is dropped.</summary>
+        public const double MinFootprintM2 = 8.0, MinKeptShare = 0.35;
+
+        [ThreadStatic] private static double[] _need;
+
+        /// <summary>
+        /// Cuts the faces of a footprint (site-local, counter-clockwise) back off the drawn roads: the kora street and the
+        /// lanes are drawn wider than the gaps between the OSM outlines in places (up to 3.8 m into the east row), and
+        /// nothing solid may stand on them (rideability decision 1). Every corner closer than <see cref="RoadClearM"/> to
+        /// a drawn edge slides back along its side wall (the neighbouring corner farther from the road; toward the
+        /// footprint's middle when both neighbours stand in the road) until it clears, so the front moves back along the
+        /// party walls; a face whose middle still reaches the road (a straight front along the curved kora) takes its
+        /// corners back by the overlap. Faces away from the roads keep the OSM line.
+        /// </summary>
+        private static void OffRoads(TileData tile, in BoudhaFrame f, double[] pu, double[] pv, int n)
+        {
+            if (tile == null) return;
+            SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
+            if (_need == null || _need.Length < pu.Length) _need = new double[pu.Length];
+            double[] need = _need;
+            for (int it = 0; it < 6; it++)
+            {
+                double cu = 0, cv = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    need[i] = RoadClearM;
+                    cu += pu[i] / n;
+                    cv += pv[i] / n;
+                }
+                // Faces reaching the road between their corners raise the clearance their corners need.
+                for (int i = 0; i < n; i++)
+                {
+                    int j = (i + 1) % n;
+                    double eu = pu[j] - pu[i], ev = pv[j] - pv[i], l = Math.Sqrt(eu * eu + ev * ev);
+                    double di = Drawn(roads, f, pu[i], pv[i]), dj = Drawn(roads, f, pu[j], pv[j]);
+                    // Only once both corners clear (a face running into the road from a corner in it moves with the corner).
+                    if (di < RoadClearM - 1e-3 || dj < RoadClearM - 1e-3) continue;
+                    int q = Math.Max(2, (int)Math.Ceiling(l / 0.25));
+                    double worst = 0;
+                    for (int s = 1; s < q; s++)
+                    {
+                        double t = (double)s / q;
+                        worst = Math.Max(worst, RoadClearM - Drawn(roads, f, pu[i] + eu * t, pv[i] + ev * t));
+                    }
+                    if (worst <= 1e-3) continue;
+                    need[i] = Math.Max(need[i], di + worst + 0.02);
+                    need[j] = Math.Max(need[j], dj + worst + 0.02);
+                }
+                bool any = false;
+                for (int i = 0; i < n; i++)
+                {
+                    double d0 = Drawn(roads, f, pu[i], pv[i]);
+                    if (d0 >= need[i] - 1e-3) continue;
+                    any = true;
+                    int p = (i + n - 1) % n, q = (i + 1) % n;
+                    double dp = Drawn(roads, f, pu[p], pv[p]), dq = Drawn(roads, f, pu[q], pv[q]);
+                    double tu, tv;
+                    if (Math.Max(dp, dq) >= need[i])
+                    {
+                        int o = dp >= dq ? p : q;
+                        tu = pu[o];
+                        tv = pv[o];
+                    }
+                    else
+                    {
+                        tu = cu;
+                        tv = cv;
+                    }
+                    // The first point toward the target that clears (bisection; at most 85 % of the way).
+                    double lo = 0, hi = 0.85;
+                    if (Drawn(roads, f, pu[i] + (tu - pu[i]) * hi, pv[i] + (tv - pv[i]) * hi) >= need[i])
+                    {
+                        for (int k = 0; k < 14; k++)
+                        {
+                            double mid = 0.5 * (lo + hi);
+                            if (Drawn(roads, f, pu[i] + (tu - pu[i]) * mid, pv[i] + (tv - pv[i]) * mid) >= need[i]) hi = mid;
+                            else lo = mid;
+                        }
+                    }
+                    pu[i] += (tu - pu[i]) * hi;
+                    pv[i] += (tv - pv[i]) * hi;
+                }
+                if (!any) return;
+            }
+        }
+
+        private static double Drawn(SacredDrawnRoads roads, in BoudhaFrame f, double u, double v)
+        {
+            double x, z;
+            f.ToTile(u, v, out x, out z);
+            return roads.SignedDistance(x, z);
         }
 
         /// <summary>True when the site-local point lies inside another building of the tile (the party-wall test).</summary>

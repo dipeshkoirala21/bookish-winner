@@ -6,7 +6,7 @@ Kathmandu local recognises it by (silhouette, proportions, colours, details) and
 against. Photos are reference only, never copied into the repository; local copies are under
 `/home/user/wt/refs/mon-boudha/` with their credits in each folder's `credits.txt` (and the table in the heritage brief
 §9). Renders, render|photo comparisons and the scripts that made them are under `/home/user/wt/previews/mon-boudha/`
-(rounds `r1`..`r4`).
+(rounds `r1`..`r10`; `r9/streamed` is the in-situ scene as the streamer builds it; see the round log at the end).
 
 Code: `game/Assets/Ghumante/Core/Generators/Sacred/Heroes/Boudha/` (one file per structure group). Site frame: `u`
 toward 99° (east, turned 9° clockwise with the stupa's axes), `v` toward 9° (north), origin the stupa axis (the T1
@@ -21,24 +21,28 @@ The site is six heroes so each part picks its own LOD by its own screen height (
 
 | Part | Holds | Ceiling | Built (sample tile) |
 |---|---|---|---|
-| Stupa | terraces, ring, dome, harmika, spire, crown, flags, terrace chortens and statues, stairs | 48,000 / 14,500 / 3,840 / 240 | 47,790 / 14,361 / 3,518 / 98 |
-| North | wall N, Ajima + gate pavilions + NE house, Guru Lhakhang + bell, 11 houses, lamp houses, garden | 23,000 / 6,900 / 1,850 / 360 | 22,552 / 6,794 / 1,823 / 253 |
-| East | wall E, 14 houses (Cafe Terrace roof), trees, kiln | 18,000 / 5,400 / 1,500 / 360 | 16,017 / 4,141 / 1,444 / 352 |
-| South | wall S + south gate pavilion and kiln, 10 houses, lamp houses | 18,000 / 5,400 / 1,500 / 360 | 15,706 / 3,953 / 1,307 / 315 |
-| West | wall W, Jamchen, Dhabzang, 11 houses, benches, kiln | 22,500 / 6,750 / 1,800 / 360 | 21,858 / 5,386 / 1,690 / 332 |
-| Gate | main gate on Boudha Main Road | 8,500 / 2,550 / 680 / 120 | 7,850 / 1,586 / 600 / 36 |
+| Stupa | terraces, ring, dome, harmika, spire, crown, flags, terrace chortens and statues, stairs | 51,000 / 14,500 / 3,840 / 240 | 50,494 / 14,473 / 3,422 / 116 |
+| North | wall N, Ajima + gate pavilions + NE house, Guru Lhakhang + bell, 11 houses, lamp houses, garden | 24,000 / 7,200 / 1,960 / 360 | 23,986 / 7,086 / 1,923 / 253 |
+| East | wall E, 13 houses (Cafe Terrace roof), trees, kiln | 17,500 / 5,250 / 1,460 / 360 | 15,211 / 4,085 / 1,427 / 319 |
+| South | wall S + south gate pavilion and kiln, 10 houses, lamp houses | 17,000 / 5,100 / 1,400 / 360 | 15,599 / 4,018 / 1,359 / 297 |
+| West | wall W, Jamchen, Dhabzang, 11 houses, benches, kiln | 23,500 / 7,050 / 1,880 / 360 | 23,076 / 5,703 / 1,788 / 332 |
+| Gate | main gate on Boudha Main Road | 9,500 / 2,850 / 760 / 120 | 9,260 / 1,596 / 610 / 36 |
 
-The stupa's LOD0 is kept under 48,000 (not the 60,000 a major temple may take) because the streamer's High hero slice
+The LOD0 ceilings add up to 142,500 (built 137,626).
+
+The stupa's LOD0 is kept at 51,000 (not the 60,000 a major temple may take) because the streamer's High hero slice
 is 60,000 triangles for everything in view: the allocator steps the smallest-on-screen heroes down first, so with a
-60,000-triangle stupa every quarter fell to LOD3 whenever the stupa was in view. With 48,000 the aerial and rooftop views
-keep the stupa at LOD0 and the quarters at LOD1-2; from the kora the near quarter keeps LOD0 beside a LOD1 stupa (the
-far quarters still drop to LOD3; see the open issue on the hero slice).
+60,000-triangle stupa every quarter fell to LOD3 whenever the stupa was in view. With 51,000 the stupa and all five parts
+at LOD2 still fit (58,380); the aerial view keeps the stupa at LOD0 with the two nearest quarters at LOD1, and from the
+kora the near quarter keeps LOD0 beside a LOD1 stupa (the far quarters still drop to LOD3; see the open issue on the hero
+slice). The 3,000 over the earlier 48,000 carry the 64 prayer-flag lines (four a bundle).
 
 Silhouettes kept per LOD: LOD1 keeps every outline (flat niche panels, ramps for the stair flights, windows without
 hoods, merged cornices); LOD2 keeps the stupa's profile, the gilt spire and canopy, the chortens as lathes of 5-6 sides,
 the wall as faces with dark niche panels, houses as moulded prisms with storey bands on the kora fronts; LOD3 is a
-far stand-in (stupa lathe, house boxes). Colliders (LOD0 only): walkable terrace boxes and stair ramps, the kora slab
-in boxes, walls, house and gompa walls, statue and kiln cylinders. Vertex UV0 carries the material channel (u) and the
+far stand-in (stupa lathe, house boxes). Colliders (LOD0 only): walkable terrace boxes (per terrace the body as a true square and the
+two arms end to end) and stair ramps, the kora slab in boxes, walls, house and gompa walls, statue and kiln cylinders;
+the ring as two cylinders (Ø 38.0 to 11.25, Ø 35.5 to 12.0), the dome as a third. Vertex UV0 carries the material channel (u) and the
 baked AO (v) like the rest of the detail pass.
 
 ## B-01 Great Stupa (`BoudhaStupa.cs`)
@@ -58,9 +62,13 @@ baked AO (v) like the rest of the detail pass.
   third eye `#D8402A`; cloth band white `#F4F2EC`, blue `#2E5DA8`, red `#C8202A`, yellow `#F2C230`; skirt saffron
   `#F0A01E`; flags in the five colours (blue, white, red, green, yellow).
 * **Details:** each terrace parapet carries small white chorten finials about every 3.2 m, with gaps at the stairs;
-  the ring niches hold flat gilt figures; the harmika's four faces carry the eyes; the canopy's four-leg lantern frame
-  meets over the finial; the flag lines hang in a catenary (three lines a bundle with five-colour flags nearly edge to
-  edge at LOD0, two lines with every other flag at LOD1, one ribbon a bundle at LOD2).
+  the ring niches hold small gilt figures in white frames with five-colour pennants between; the dome carries the
+  saffron arcade (twelve arches springing at 0.23 and cresting at 0.44 of the dome's rise, on thin legs to its foot)
+  under the yellow cap wash and its scalloped drips; the harmika's four faces carry the eyes; the crown is a barrel drum
+  (37.1 → 40.0) banded white, blue, white, red over a folded saffron skirt, with 28 pendant diamonds, under the parasol
+  cap; the four-leg gilt lantern frame (from Ø 3.4 at the drum top to 44.2) meets over the bulb finial; the flag lines
+  hang in a catenary (four lines a bundle, 64 in all, with five-colour flags 0.6 wide every 1.05 m at LOD0, two lines
+  with flags every 2.2 m at LOD1, one ribbon a bundle at LOD2).
 * **Photos:** general3/ref_00 (spire, Prof. Mortel), tamang/ref_06 and eyes/ref_00 (eyes), spire/ref_05-06 (canopy
   frame, mini chorten and arcs), panorama/ref_02 (telephoto silhouette, Cheryl Marland), around/ref_03 (north view,
   Jorge Lascar).
@@ -73,7 +81,9 @@ baked AO (v) like the rest of the detail pass.
   shrine on T3 south, and the two compound stairs to T1 (north through the west gate pavilion, south by the lamp
   houses).
 * **Proportions:** bell chortens 5.6 tall (8: at (±18.1, 34.6), (±18.2, -34.2), (±36, 10.5 / 10), (±36, -16.5 / -16));
-  mini-Boudha 6.8 tall, 3.5 square base (at (±29.4, 26.4) and (±29.4, -32.6)); elephants 1.55 on a 0.35 plinth at
+  mini-Boudha 7.3 tall on a 4.4 square base, its dome Ø 3.9 rising 1.85, harmika 1.5 wide and 0.95 tall with the eyes
+  at 1.5 times the old size, the gilt spire 1.32 → 0.72 wide over 2.3 m (at (±29.4, 26.4) and (±29.4, -32.6), round
+  solids Ø 4.1); elephants 1.55 on a 0.35 plinth at
   (±3.6, ±37.5); Buddhas 2.4 on their pedestals; stone shrine 2.4.
 * **Colours:** white `#EEEAE0` with shade `#D9D4C8`; elephant saddle cloth red, harness dots red / blue / yellow / green;
   rider robe `#E07A2A`; Buddha robe `#F6F2EA`, ushnisha `#3A5BA0`; stone `#8E8A82`; compound stair treads `#B0A79C`.
@@ -87,14 +97,22 @@ baked AO (v) like the rest of the detail pass.
   darchor poles with vertical five-colour banners, and the kora outside: a grey flagstone path along the wall, a kerb,
   and red brick paving out to the house fronts.
 * **Proportions:** wall line r 45-55 from the axis (OSM), 312 m long, 2.6 high, 0.7 thick; 147 niches 1.3 wide, 0.55
-  tall on a 0.9 sill; 8 darchor poles 9.0 + 0.45 tip at the intermediate bearings; north opening 15.2 wide (Ajima and
-  pavilions), south opening 4.2 (south pavilion); flag path 3.6 wide; brick out to the first house front (max r 79, 4 m
-  into lane mouths); slab top 0.34 over the lifted road ribbons.
+  tall on a 0.9 sill (each quarter part draws and counts its stretch); 8 darchor poles 9.0 + 0.45 tip at the intermediate
+  bearings; north opening 15.2 wide (Ajima and pavilions), south pavilion 4.0 wide and 2.4 deep set into the compound
+  with a closed carved door, a white fan over it and two lamp niches (corner/02); flag path 3.6 wide; brick out to the
+  first house front (max r 79, 4 m into lane mouths); slab top 0.30 over the lifted road ribbons.
+* **On the drawn kora:** the road package draws the kora street up to 8 m wide (r 54-62 in the east), over the OSM wall
+  line in the east, north-east and south. Nothing solid may stand on a drawn road, so the wall line is fitted back:
+  each 7 m piece moves toward the axis until its centre line keeps 0.55 m (half the wall plus 0.2) off every drawn edge
+  (up to 2.8 m in the east bulge; `BoudhaWall.Fit`). The slab colliders cover only what lies off the drawn road; the
+  juniper kilns, the west benches and the kora objects standing on the drawn street are drawn but walk-through; the NE
+  lamp houses step in toward the stupa until their plans clear it.
 * **Colours:** wall lime white `#EEEAE0`, base course `#D9D4C8`, coping `#F7F4EE`; niche recess `#2B2620`, wheels
   copper `#B0743A` / brass `#C9A24A` in shade; valance `#E8B530` with `#C8202A` and `#F4F2EC` stripes; flags
   `#8C8A86`, kerb `#6E6A64`, brick `#9C5A40`; compound ground `#9A968E`.
-* **Details:** lamp houses with ochre pent roofs and stepped brass-lamp tables (NE and S), juniper kilns (white
-  chorten-shaped) east, west and at the south pavilion, the potted garden of the north-west compound, rounded trees,
+* **Details:** lamp houses with ochre pent roofs and stepped brass-lamp tables (NE and S), juniper kilns (corner/02:
+  a two-step white base, a firebox with a small sooty arched mouth under an overhanging hipped eave, a lotus collar, the
+  white bulb, a harmika and a spike) east, west and at the south pavilion, the potted garden of the north-west compound, rounded trees,
   three kora benches facing the stupa on the west.
 * **Photos:** commons_late/c03 (kora today), corner/ref_02 (south pavilion and kiln), spire/ref_00-01 (niches),
   kora/ref_08 (paving, benches), circle/ref_02-09 (wall and pilgrims).
@@ -121,9 +139,13 @@ baked AO (v) like the rest of the detail pass.
   spandrels with gold and teal clouds, a dark sign board on a red-and-blue frieze, a yellow roof with kicked corners, a
   white chorten between two gilt dragons on the ridge and kalash finials; white snow lions with turquoise manes on blue
   lotus caps atop white columns outside the piers; steel bollards in the opening.
-* **Proportions:** opening 3.3 wide, springing 2.9, apex 4.35; piers 1.4 wide; frieze 5.6, eave 6.4, roof 6.95, crest
-  to 8.6; lion columns 2.7 with 1.15 lions. Placed on the lane (OSM w4847306) 8.6 m back from the road edge, facing the
-  road.
+* **Proportions:** opening 4.7 wide (the photo's piers are a third of the opening; the lane is drawn 4.8 wide and the
+  piers stand off it), a round head springing at 2.7 to the apex at 4.95; piers 1.4 wide; frieze 5.9, eave 6.7, roof 7.25,
+  crest to 8.9; lion columns 2.7 with 1.15 lions. Placed on the lane (OSM w4847306) 8.6 m back from the road edge, facing
+  the road, and centred across the lane as the road mesher draws it.
+* **Spandrels:** a teal dragon either side with gilt scales writhing along the archivolt's carved band from a red
+  flaming jewel over the apex, cloud scrolls in the corners; the frieze a yellow strip, a teal band with gilt and white
+  discs, a blue band and the dark (blank) sign board on yellow corbels.
 * **Colours:** piers teal `#2E4A4E` with gold `#E2B54A` trim; spandrel blue `#2B5FA0`; relief gold, teal `#3E9C94`, red
   `#C8382E`, green `#2F8F4E`, sky `#5FA8D8`; frieze red `#B3261E` and blue `#2E5DA8`; roof yellow `#EAD35A` / `#D9B53A`;
   lotus caps `#3A7FC0`; bollards `#B8BCC2`.
@@ -142,9 +164,13 @@ baked AO (v) like the rest of the detail pass.
   horseshoe arch on two gilt posts on a stone base (3.5 m). Colours ochre `#E3B84E`, maroon `#7A1F1F`, columns
   `#B3261E`, gilt `#E2B54A`, bell `#A9A39A`. Photos: bell/ref_09 (Cheryl Marland), gompa2/ref_00-01 (petmyrhino),
   commons_more/c01 (gilt dragon roof), commons_more/c04 (roof ornaments from the north).
-* **Jamchen Lhakhang (west):** a marble plinth and green steps, a portico of maroon columns with white lattice screens
-  and yellow curtains in the door, a band of window panels, a gilt roof with dragons and three gilt banners. Top 11.0.
-  Colours maroon `#9E2430`, curtains `#F2C230`, screens `#F0F0EC`. Photo: commons_late/c01.
+* **Jamchen Lhakhang (west):** a marble plinth (0.6) and green steps; a tall portico (beam top 5.2) of maroon columns
+  and corner pilasters with white lattice screens and yellow curtains in the door, a red valance hanging across each
+  bay with gilt cusps and medallions, a row of painted block ends, and a deep dark eave sloping 1.3 m out over it with a
+  navy soffit and a gilt edge; the upper storey set back 0.45 behind a gallery of white lattice panels with blue tracery
+  in red frames over a maroon rail under a gilt band; a gilt roof with dragons and three gilt banners. Top 12.2.
+  Colours maroon `#9E2430`, valance `#A3221C`, eave `#343A44` / soffit `#1F2C46`, curtains `#F2C230`, screens `#F0F0EC`,
+  lattice `#EDEFF2` / `#3F6FA8`. Photo: commons_late/c01.
 * **Dhabzang (north-west):** white with a maroon frieze and mirrors, Tibetan windows, a small gilt-roofed pavilion on the
   roof. Top 13.1.
 
@@ -164,6 +190,10 @@ baked AO (v) like the rest of the detail pass.
 * **Details:** every front is classified from the footprint (a face toward the stupa is a shop front, a face on a lane
   a side front, a party wall against a neighbour stays plain); signboards are coloured panels with a plain text bar
   (no lettering or brands).
+* **Off the drawn kora:** where the drawn kora street or a lane overlaps an OSM outline (up to 3.8 m in the east row),
+  the house's corners slide back along its party walls until its front keeps 0.3 m off the drawn edge
+  (`BoudhaRing.OffRoads`; most houses keep 75-99 % of their plan). A house left with less than 8 m² or 35 % of its plan
+  is not built (w912264741, a 17 m² sliver at the east lane mouth).
 * **Photos:** commons_late/c03, gate2/ref_00 (ring houses from the stupa), bell/ref_09 (the ochre house east of the
   Guru Lhakhang with green windows and white pediments).
 
@@ -186,3 +216,15 @@ every view with each part at LOD0, or at the LOD the streamer picks on High):
 
 No names, logos or brand marks anywhere: shop signs, the gate's board and the notice board are blank coloured panels.
 The eyes, the Buddhas and the gompa ornaments follow the photos without invented iconography.
+
+## Round log (render | photo, `/home/user/wt/previews/mon-boudha/`)
+
+| Round | Views | Fixed after looking |
+|---|---|---|
+| r1-r5 | all photo views | first build of every part; plaza level, terraces, ring houses, gate, gompas |
+| r6 | dome, kiln, south pavilion, bell, kora, gate | dome arcs read as petals: rebuilt as an arcade; kiln and closed south pavilion to corner/02; bell arch closed into a horseshoe |
+| r7 | dome, crown, gate, kora | arcade lowered; barrel crown with banded drum, skirt and lantern frame; gate frieze and round arch |
+| r8 | mini chorten, Jamchen, kora, north stair, NE roof, tele | wider flags, lighter stair treads, Guru Lhakhang balcony; mini chorten and Jamchen proportions noted |
+| r9 (+ `r9/streamed`) | mini chorten, Jamchen, gate, dome, tele, kora, north stair, NE roof, east kora; streamed north, SW and NE roofs, aerial, gate road, Guru Lhakhang | mini chorten re-proportioned; Jamchen portico, eave and gallery; gate opening and dragons; 64 flag lines; road clearance (wall fit, house cuts, gate centring) seen in the streamed scene |
+| r10 | Jamchen, gate | Jamchen valance across the bays; gate dragons as teal relief |
+

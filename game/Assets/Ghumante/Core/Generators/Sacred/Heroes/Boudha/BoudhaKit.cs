@@ -363,11 +363,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             ShapeBrush w = White;
             Profile2 p = Prof;
             double r = 0.3 * h;
+            // A step, the round bulb and a thin spike (corner/02: small white chortens, not cones).
             if (lod >= 1)
-                p.Add(0, 0).Add(r, 0, true).Add(r, 0.22 * h, true).Add(0.85 * r, 0.42 * h).Add(0.35 * r, 0.66 * h, true).Add(0.06 * r, h, true).Add(0, h);
+                p.Add(0, 0).Add(r, 0, true).Add(r, 0.2 * h, true).Add(0.92 * r, 0.42 * h).Add(0.3 * r, 0.64 * h, true).Add(0.05 * r, h, true).Add(0, h);
             else
-                p.Add(0, 0).Add(r, 0, true).Add(r, 0.18 * h, true).Add(0.72 * r, 0.24 * h, true).Add(0.9 * r, 0.42 * h).Add(0.55 * r, 0.62 * h, true)
-                 .Add(0.06 * r, h, true).Add(0, h);
+                p.Add(0, 0).Add(r, 0, true).Add(r, 0.17 * h, true).Add(0.95 * r, 0.4 * h).Add(0.62 * r, 0.58 * h).Add(0.12 * r, 0.66 * h, true)
+                 .Add(0.05 * r, h, true).Add(0, h);
             Shapes.Lathe(m, f, w, p, 4, default, 45);
         }
 
@@ -421,7 +422,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                                    double start)
         {
             double du = u1 - u0, dv = v1 - v0, span = Math.Sqrt(du * du + dv * dv);
-            double fw = 0.4, fh = 0.42, pitch = lod == 0 ? 0.95 : 2.2;
+            double fw = lod == 0 ? 0.6 : 1.0, fh = 0.45, pitch = lod == 0 ? 1.05 : 2.2;
             return StupaGenerator.FlagLine(m, k, u0, y0, v0, u1, y1, v1, sagFrac * span, fw, fh, pitch, true, start, lod == 0 ? 0 : 1);
         }
 
@@ -447,7 +448,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
             else
             {
-                ShapeBrush riser = Looks.Ao(tread, 0.8f);
+                ShapeBrush riser = Looks.Ao(tread, 0.9f);
                 for (int i = 0; i < steps; i++)
                 {
                     double top = y0 + (i + 1) * sr, za = i * tr, zb = (i + 1) * tr;

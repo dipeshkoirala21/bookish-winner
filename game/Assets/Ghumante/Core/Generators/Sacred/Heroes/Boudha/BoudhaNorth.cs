@@ -32,7 +32,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public static void Build(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
         {
             Affine3 k = f.Site;
-            double vw = BoudhaWall.RadiusAt(0);
+            double vw = BoudhaWall.RadiusAt(f, 0);
             // A frame on the wall line at the axis, +z out to the kora (north), +x along the wall toward the east.
             Affine3 a = BoudhaKit.Facing(k, 0, BoudhaQuarter.CompoundTop, vw, 0, 1);
             Ajima(m, c, f, a, lod);

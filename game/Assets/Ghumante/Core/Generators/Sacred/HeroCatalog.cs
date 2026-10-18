@@ -198,7 +198,7 @@ namespace Ghumante.Core.Generators.Sacred
                 Id = "her.ktm.boudhanath", Name = "Boudhanath", Osm = "w56688295", Form = HeroForm.Stupa, Kind = HeritageKind.Stupa, Centrepiece = true,
                 Lat = 27.721445, Lon = 85.362004, PlanW = 81.5f, PlanD = 79.4f, HeightM = Heroes.Boudha.BoudhaSite.HeightM, YawDeg = 189f, DomeDiameterM = 33.5f,
                 DrumDiameterM = 38f, Terraces = 3, TerraceWidths = new[] { 81.5f, 62.5f, 49.8f }, TerraceTops = new[] { 4f, 8f, 10.5f }, DomeRiseM = 11.7f,
-                HarmikaHM = 4.6f, HarmikaWM = 7f, SpireHM = 9.1f, ParasolHM = 3.5f, FinialHM = 4.2f, FlagLines = 80, WheelNiches = true,
+                HarmikaHM = 4.6f, HarmikaWM = 7f, SpireHM = 9.1f, ParasolHM = 3.5f, FinialHM = 4.2f, FlagLines = 64, WheelNiches = true,
                 StupaStyle = StupaStyle.Boudha, GateDistM = 0f, Measured = true, BudgetTris = Heroes.Boudha.BoudhaSite.BudgetOf(Heroes.Boudha.BoudhaPart.Stupa),
             });
             l.AddRange(Heroes.Boudha.BoudhaSite.Parts());

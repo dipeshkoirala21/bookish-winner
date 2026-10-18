@@ -24,7 +24,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     internal static class BoudhaGate
     {
         /// <summary>Crest finial tip above the ground (m).</summary>
-        public const double Top = 8.6;
+        public const double Top = 8.9;
 
         /// <summary>Height of the white columns the snow lions sit on (m; the lion's base, at about the arch's springing).</summary>
         public const double LionColumnH = 2.7;
@@ -35,7 +35,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public const double BackFromRoadM = 8.6;
 
         /// <summary>Half the clear opening, the pier width, the springing and apex of the arch, the frieze and the eave.</summary>
-        public const double HalfOpen = 1.65, PierW = 1.4, Spring = 2.9, Apex = 4.35, FriezeY = 5.6, EaveY = 6.4, RoofY = 6.95;
+        public const double HalfOpen = 2.35, PierW = 1.4, Spring = 2.7, Apex = 4.95, FriezeY = 5.9, EaveY = 6.7, RoofY = 7.25;
 
         /// <summary>Gate frame in the site: centre on the ground and the direction it faces (site u, v).</summary>
         internal static void Place(TileData tile, in BoudhaFrame f, out double u, out double v, out double du, out double dv)
@@ -73,12 +73,44 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                         // Facing out to the road: back along the walk toward the road end.
                         du = -eu / l;
                         dv = -ev / l;
+                        Centre(tile, f, ref u, ref v, du, dv);
                         return;
                     }
                     left -= l;
                 }
                 break;
             }
+        }
+
+        /// <summary>Moves the gate across the lane so its opening is centred on the walk as the road mesher draws it (the
+        /// drawn walk sits off the OSM centreline), which keeps both piers off it.</summary>
+        private static void Centre(TileData tile, in BoudhaFrame f, ref double u, ref double v, double du, double dv)
+        {
+            SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
+            double xu = dv, xv = -du, lo = 0, hi = 0;
+            bool any = false;
+            for (int q = -1; q <= 1; q++)
+            {
+                double zu = u + du * 0.6 * q, zv = v + dv * 0.6 * q;
+                if (DrawnAt(roads, f, zu, zv) >= 0) continue;
+                double a = 0, b = 0;
+                while (a > -6 && DrawnAt(roads, f, zu + xu * (a - 0.05), zv + xv * (a - 0.05)) < 0) a -= 0.05;
+                while (b < 6 && DrawnAt(roads, f, zu + xu * (b + 0.05), zv + xv * (b + 0.05)) < 0) b += 0.05;
+                lo = any ? Math.Min(lo, a) : a;
+                hi = any ? Math.Max(hi, b) : b;
+                any = true;
+            }
+            if (!any) return;
+            double mid = 0.5 * (lo + hi);
+            u += xu * mid;
+            v += xv * mid;
+        }
+
+        private static double DrawnAt(SacredDrawnRoads roads, in BoudhaFrame f, double u, double v)
+        {
+            double x, z;
+            f.ToTile(u, v, out x, out z);
+            return roads.SignedDistance(x, z);
         }
 
         public static void Build(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, int lod)
@@ -89,7 +121,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             Affine3 g = BoudhaKit.Facing(f.Site, u, 0, v, du, dv);
             double px0 = HalfOpen, px1 = HalfOpen + PierW, hd = 0.55;
             ShapeBrush white = BoudhaKit.White, teal = BoudhaKit.B(BoudhaKit.Teal, MaterialChannel.Paint), yellow = BoudhaKit.B(MeshColor.FromHex(0xD9B53A), MaterialChannel.Gilt);
-            ShapeBrush roof = BoudhaKit.B(BoudhaKit.TibetanYellow, MaterialChannel.Paint), blue = BoudhaKit.B(MeshColor.FromHex(0x2B5FA0), MaterialChannel.Paint);
+            ShapeBrush roof = BoudhaKit.B(BoudhaKit.TibetanYellow, MaterialChannel.Paint), blue = BoudhaKit.B(MeshColor.FromHex(0x2C5A7A), MaterialChannel.Paint);
             ShapeBrush gilt = BoudhaKit.Gilt;
             if (lod >= 3)
             {
@@ -127,20 +159,24 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
             // The arch wall: spandrels over a cusped ogee opening, between the piers.
             ArchWall(m, g, blue, gilt, lod);
-            // Frieze over the whole gate: red, gilt, the dark sign panel in its middle.
+            // Frieze over the whole gate (commons gate photos): a yellow-gilt strip, a teal band of cloud medallions, the
+            // blue cornice band with the dark sign panel in its middle, and a row of small yellow corbels under the eave.
             double fx = px1 + 0.15;
-            SacredDraw.Box(m, g, -fx, fx, FriezeY, FriezeY + 0.32, -hd - 0.08, hd + 0.08, BoudhaKit.B(MeshColor.FromHex(0xB3261E), MaterialChannel.Paint), BoxFaces.All & ~BoxFaces.Bottom);
-            SacredDraw.Box(m, g, -fx - 0.08, fx + 0.08, FriezeY + 0.32, EaveY, -hd - 0.14, hd + 0.14, BoudhaKit.B(MeshColor.FromHex(0x2E5DA8), MaterialChannel.Paint), BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, g, -fx, fx, FriezeY, FriezeY + 0.1, -hd - 0.06, hd + 0.06, yellow, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, g, -fx, fx, FriezeY + 0.1, FriezeY + 0.36, -hd - 0.08, hd + 0.08, BoudhaKit.B(MeshColor.FromHex(0x2E6F78), MaterialChannel.Paint), BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, g, -fx - 0.08, fx + 0.08, FriezeY + 0.36, EaveY, -hd - 0.14, hd + 0.14, BoudhaKit.B(MeshColor.FromHex(0x2E5DA8), MaterialChannel.Paint), BoxFaces.All & ~BoxFaces.Bottom);
             if (lod <= 1)
             {
-                SacredDraw.Panel(m, g, -1.3, FriezeY + 0.36, 1.3, EaveY - 0.06, hd + 0.145, BoudhaKit.B(MeshColor.FromHex(0x2A2622), MaterialChannel.Paint));
+                SacredDraw.Panel(m, g, -1.3, FriezeY + 0.4, 1.3, EaveY - 0.08, hd + 0.145, BoudhaKit.B(MeshColor.FromHex(0x2A2622), MaterialChannel.Paint));
                 if (lod == 0)
                 {
-                    for (int q = 0; q < 12; q++)
+                    for (int q = 0; q < 14; q++)
                     {
-                        double x = -fx + 0.2 + (2 * fx - 0.4) * q / 11.0;
-                        if (Math.Abs(x) < 1.4) continue;
-                        Shapes.Sphere(m, SacredDraw.At(g, x, FriezeY + 0.16, hd + 0.08), gilt, 0.07, 5);
+                        double x = -fx + 0.2 + (2 * fx - 0.4) * q / 13.0;
+                        Shapes.Cylinder(m, SacredDraw.Basis(g, x, FriezeY + 0.23, hd + 0.08, 1, 0, 0, 0, 0, 1), q % 2 == 0 ? gilt : BoudhaKit.B(MeshColor.FromHex(0xEDEFE8), MaterialChannel.Paint),
+                                        0.09, 0.02, 8, 0, 0, false, true);
+                        if (Math.Abs(x) > 1.35)
+                            SacredDraw.Box(m, g, x - 0.08, x + 0.08, EaveY - 0.18, EaveY, hd + 0.14, hd + 0.24, yellow, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
                     }
                 }
             }
@@ -176,16 +212,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (lod <= 1)
             {
                 ShapeBrush steel = BoudhaKit.B(MeshColor.FromHex(0xB8BCC2), MaterialChannel.Metal);
-                for (int q = -1; q <= 1; q++)
-                {
-                    Shapes.Cylinder(m, SacredDraw.At(g, q * 1.1, 0, -2.2), steel, 0.07, 0.9, 8, 0.03, 1, false, true);
-                    if (c != null)
-                    {
-                        double tx, ty, tz;
-                        g.Point(q * 1.1, 0, -2.2, out tx, out ty, out tz);
-                        c.AddCylinder(tx, tz, f.Level, f.Level + 0.9, 0.08, true);
-                    }
-                }
+                // Drawn only: the lane is a drawn road, and its bollards let walkers and riders through (decision 1).
+                for (int q = -1; q <= 1; q++) Shapes.Cylinder(m, SacredDraw.At(g, q * 1.3, 0, -2.2), steel, 0.07, 0.9, 8, 0.03, 1, false, true);
             }
             if (c != null)
             {
@@ -247,7 +275,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
             // The carved archivolt: a band of colourful relief blocks (gold, teal, red, green, sky blue) round the arch and
             // down the jambs (commons/Boudhanath_entrance_gate).
-            uint[] relief = { 0xE2B54A, 0x3E9C94, 0xC8382E, 0x2F8F4E, 0x5FA8D8 };
+            uint[] relief = { 0x2E5D6E, 0xD9B53A, 0x2C4F7A, 0x3E9C94, 0xD9B53A, 0x2E5D6E, 0x5FA8D8, 0xC8382E };
             for (int face = -1; face <= 1; face += 2)
             {
                 Affine3 ff = face > 0 ? g : SacredDraw.Turn(g, 0, 0, 0, Math.PI);
@@ -280,35 +308,69 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
             if (lod == 0)
             {
-                // Painted spandrels: gold and teal cloud scrolls and the curling dragon bodies (discs and bars).
-                ShapeBrush gold = BoudhaKit.B(MeshColor.FromHex(0xE2B54A), MaterialChannel.Paint), tealL = BoudhaKit.B(MeshColor.FromHex(0x3E9C94), MaterialChannel.Paint);
+                // The carved and painted spandrels (commons/Boudhanath_stupa_entrance_gate): a teal dragon either side
+                // writhing down along the archivolt from a flaming jewel over the apex, with teal fins, and white, teal and
+                // gold cloud scrolls filling the corners; the lane face (z < 0) has the dragons only.
+                ShapeBrush gold = BoudhaKit.B(MeshColor.FromHex(0xE2B54A), MaterialChannel.Gilt), tealL = BoudhaKit.B(MeshColor.FromHex(0x3E9C94), MaterialChannel.Paint);
+                ShapeBrush cloud = BoudhaKit.B(MeshColor.FromHex(0xEDEFE8), MaterialChannel.Paint), red = BoudhaKit.B(BoudhaKit.ClothRed, MaterialChannel.Paint);
+                ShapeBrush dragon = BoudhaKit.B(MeshColor.FromHex(0x2F8580), MaterialChannel.Paint);
                 for (int face = -1; face <= 1; face += 2)
                 {
                     Affine3 ff = face > 0 ? g : SacredDraw.Turn(g, 0, 0, 0, Math.PI);
-                    for (int s = -1; s <= 1; s += 2)
+                    // The flaming jewel over the apex.
+                    Shapes.Cylinder(m, SacredDraw.Basis(ff, 0, Apex + 0.45, 0.26, 1, 0, 0, 0, 0, 1), red, 0.17, 0.03, 10, 0, 0, false, true);
+                    Shapes.Cone(m, SacredDraw.At(ff, 0, Apex + 0.58, 0.28), gold, 0.1, 0.3, 5, 0, 0, false);
+                    for (int sd = -1; sd <= 1; sd += 2)
                     {
-                        double cx = s * 1.05;
-                        Shapes.Cylinder(m, SacredDraw.Basis(ff, cx, 4.75, 0.26, 1, 0, 0, 0, 0, 1), gold, 0.32, 0.02, 10, 0, 0, false, true);
-                        Shapes.Cylinder(m, SacredDraw.Basis(ff, cx * 0.55, 5.25, 0.26, 1, 0, 0, 0, 0, 1), tealL, 0.18, 0.02, 8, 0, 0, false, true);
-                        Shapes.Bar(m, ff, gold, s * 0.2, 5.35, 0.27, s * 1.45, 4.3, 0.27, 0.06, 4);
-                        Shapes.Bar(m, ff, tealL, s * 1.5, 3.6, 0.27, s * 1.2, 5.1, 0.27, 0.05, 4);
+                        // The dragon's body follows the carved band round the arch (0.32 m outside the opening) from the
+                        // jewel down to the springing, writhing in and out of it.
+                        var ctrl = new Path3(8);
+                        for (int q = 0; q <= 5; q++)
+                        {
+                            double t = 0.5 + sd * (0.06 + 0.42 * q / 5.0), ax, ay, bx, by;
+                            ArchPoint(t, out ax, out ay);
+                            ArchPoint(Math.Max(0, Math.Min(1, t + 0.01)), out bx, out by);
+                            double tx = bx - ax, ty = by - ay, tl = Math.Max(1e-6, Math.Sqrt(tx * tx + ty * ty)), nx = ty / tl, ny = -tx / tl;
+                            if (nx * ax + ny * (ay - Spring) < 0)
+                            {
+                                nx = -nx;
+                                ny = -ny;
+                            }
+                            double off = 0.32 + (q % 2 == 0 ? 0.08 : -0.08);
+                            ctrl.Add(ax + nx * off, ay + ny * off, 0.3);
+                        }
+                        Path3 path = Curves.CatmullRom(ctrl, new Path3(32), 3);
+                        // A teal body in the blue field (the carving reads blue-green with gold highlights), gilt scales
+                        // along its back.
+                        Shapes.Tube(m, ff, dragon, path, 0.065, 5, true, false, default, 0.03);
+                        for (int q = 2; q < path.Count - 1; q += 3) Shapes.Sphere(m, SacredDraw.At(ff, path.X[q], path.Y[q] + 0.05, path.Z[q] + 0.04), gold, 0.035, 4);
+                        // The head at the jewel: a snout, the teal mane.
+                        Affine3 hd = SacredDraw.At(ff, sd * 0.36, Apex + 0.4, 0.32);
+                        Shapes.Ellipsoid(m, hd, gold, 0.14, 0.11, 0.06, 6, false);
+                        Shapes.Ellipsoid(m, SacredDraw.At(hd, sd * 0.12, 0.08, -0.02), tealL, 0.13, 0.12, 0.04, 5, false);
+                        if (face < 0) continue;
+                        // Cloud scrolls in the corner above the arch (three-quarter curls).
+                        double[] cs = { HalfOpen - 0.25, FriezeY - 0.3, HalfOpen - 0.75, FriezeY - 0.25, HalfOpen - 0.2, FriezeY - 0.85, 0.75, FriezeY - 0.22 };
+                        for (int q = 0; q < cs.Length; q += 2)
+                        {
+                            ShapeBrush cb = q % 4 == 0 ? cloud : q == 2 ? tealL : gold;
+                            Shapes.Torus(m, SacredDraw.Basis(ff, sd * cs[q], cs[q + 1], 0.29, 1, 0, 0, 0, 0, 1), cb, 0.12, 0.028, 8, 3, default, sd > 0 ? 30 : 60, 270, false);
+                        }
                     }
                 }
             }
         }
 
-        /// <summary>A point of the cusped ogee arch at t ∈ [0, 1] from the left springing over the apex to the right one:
-        /// a lobed rise (three cusps a side) that turns into the reversed curve of the ogee to a pointed apex.</summary>
+        /// <summary>A point of the arch at t ∈ [0, 1] from the left springing over the apex to the right one: round-headed,
+        /// a touch taller than a semicircle.</summary>
         private static void ArchPoint(double t, out double x, out double y)
         {
             double s = 2 * t - 1, a = Math.Abs(s);
-            // Base ogee: a half ellipse sharpened to a point at the top.
+            // A round-headed arch, a touch taller than a semicircle with the slightest point at the apex (the gate photos).
             double ang = (1 - a) * 0.5 * Math.PI;
-            double bx = HalfOpen * Math.Cos(ang), by = (Apex - Spring) * Math.Pow(Math.Sin(ang), 0.75);
-            // Cusps: small scallops into the opening along the lower two thirds.
-            double cusp = a > 0.3 ? 0.09 * Math.Abs(Math.Sin(3 * Math.PI * (1 - a) / 0.7)) : 0;
-            x = Math.Sign(s) * (bx - cusp);
-            y = Spring + by - 0.5 * cusp;
+            double bx = HalfOpen * Math.Cos(ang), by = (Apex - Spring) * Math.Pow(Math.Sin(ang), 0.92);
+            x = Math.Sign(s) * bx;
+            y = Spring + by;
         }
 
         /// <summary>One of the eight auspicious symbols on a pier panel (index picks it): conch, endless knot, wheel,
@@ -414,11 +476,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             ShapeBrush gilt = BoudhaKit.Gilt, teal = BoudhaKit.B(MeshColor.FromHex(0x3E9C94), MaterialChannel.Paint);
             var ctrl = new Path3(8);
             double y = RoofY + 0.25;
-            ctrl.Add(s * 2.6, y + 0.05, 0.1).Add(s * 2.1, y + 0.45, -0.1).Add(s * 1.55, y + 0.15, 0.1).Add(s * 1.05, y + 0.5, 0.0).Add(s * 0.75, y + 0.85, 0.0);
+            ctrl.Add(s * 2.6, y + 0.05, 0.1).Add(s * 2.1, y + 0.4, -0.1).Add(s * 1.6, y + 0.12, 0.1).Add(s * 1.15, y + 0.42, 0.0).Add(s * 0.8, y + 0.52, 0.0);
             Path3 path = lod == 0 ? Curves.CatmullRom(ctrl, new Path3(32), 4) : ctrl;
-            Shapes.Tube(m, g, gilt, path, 0.12, lod == 0 ? 8 : 5, true, false, default, 0.05);
+            Shapes.Tube(m, g, gilt, path, 0.16, lod == 0 ? 8 : 5, true, false, default, 0.06);
+            if (lod == 0)
+            {
+                // Teal dorsal fins along the humps and two clawed legs gripping the roof.
+                double[] fin = { 2.1, 0.57, 1.6, 0.29, 1.15, 0.59 };
+                for (int q = 0; q < fin.Length; q += 2)
+                    Shapes.Cone(m, SacredDraw.At(g, s * fin[q], y + fin[q + 1], 0), teal, 0.09, 0.22, 5, 0, 0, false);
+                for (int q = 0; q < 2; q++)
+                {
+                    double lx = s * (q == 0 ? 2.25 : 1.3);
+                    Shapes.Bar(m, g, gilt, lx, y + (q == 0 ? 0.3 : 0.2), 0.05, lx + s * 0.12, y - 0.2, 0.18, 0.05, 4);
+                }
+            }
             // Head: a snout and jaw, horns, a teal crest.
-            Affine3 h = SacredDraw.At(g, s * 0.68, y + 0.95, 0);
+            Affine3 h = SacredDraw.At(g, s * 0.66, y + 0.6, 0);
             Shapes.Ellipsoid(m, h, gilt, 0.2, 0.16, 0.16, lod == 0 ? 8 : 5, false);
             Shapes.Bar(m, h, gilt, -s * 0.05, 0.02, 0, -s * 0.38, 0.1, 0, 0.08, 5);
             if (lod == 0)

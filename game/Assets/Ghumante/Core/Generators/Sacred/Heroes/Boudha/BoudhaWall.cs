@@ -1,4 +1,5 @@
 using System;
+using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Shapes;
 
@@ -34,8 +35,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         [ThreadStatic] private static double[] _pu, _pv;
         [ThreadStatic] private static int _n;
 
-        /// <summary>The wall centre line in the site frame, counter-clockwise (shared scratch, do not modify).</summary>
-        public static int Line(out double[] pu, out double[] pv)
+        /// <summary>The OSM wall centre line in the site frame, counter-clockwise (shared scratch, do not modify).</summary>
+        private static int OsmLine(out double[] pu, out double[] pv)
         {
             if (_pu == null)
             {
@@ -50,12 +51,102 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return _n;
         }
 
+        /// <summary>The wall centre line of the frame (fitted to the drawn roads), counter-clockwise; do not modify.</summary>
+        public static int Line(in BoudhaFrame f, out double[] pu, out double[] pv)
+        {
+            if (f.WallU != null)
+            {
+                pu = f.WallU;
+                pv = f.WallV;
+                return f.WallN;
+            }
+            return OsmLine(out pu, out pv);
+        }
+
+        /// <summary>Clearance of the wall's centre line from a drawn road's edge (m): half the wall and a hand's width, so
+        /// the kora walk the road mesher draws runs beside the wall, not through it.</summary>
+        public const double RoadClearM = HalfThick + 0.2;
+
+        /// <summary>Longest wall segment of the fitted line (m).</summary>
+        private const double FitSegM = 7.0;
+
+        /// <summary>
+        /// Fit the compound wall to the tile's drawn roads (decision 1, rideability beats exact footprints): the OSM line
+        /// densified to <see cref="FitSegM"/> segments and every point pushed toward the stupa until the line keeps
+        /// <see cref="RoadClearM"/> from the drawn kora ways (the OSM kora centre lines with their 4-8 m widths run over
+        /// the wall line in the east and south; the wall moves back by up to about 3 m there). The result is stored in
+        /// the frame.
+        /// </summary>
+        internal static void Fit(TileData tile, ref BoudhaFrame f)
+        {
+            double[] ou, ov;
+            int on = OsmLine(out ou, out ov);
+            double per = BoudhaKit.Perimeter(ou, ov, on);
+            int cap = on + (int)Math.Ceiling(per / FitSegM) + 4;
+            var u = new double[cap];
+            var v = new double[cap];
+            int n = 0;
+            for (int i = 0; i < on; i++)
+            {
+                int j = (i + 1) % on;
+                double du = ou[j] - ou[i], dv = ov[j] - ov[i], l = Math.Sqrt(du * du + dv * dv);
+                int k = Math.Max(1, (int)Math.Ceiling(l / FitSegM));
+                for (int q = 0; q < k && n < cap; q++)
+                {
+                    u[n] = ou[i] + du * q / k;
+                    v[n] = ov[i] + dv * q / k;
+                    n++;
+                }
+            }
+            if (tile != null && tile.Roads.Count > 0)
+            {
+                SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
+                var push = new double[n];
+                for (int it = 0; it < 24; it++)
+                {
+                    Array.Clear(push, 0, n);
+                    bool any = false;
+                    for (int i = 0; i < n; i++)
+                    {
+                        // Samples along the edge i → i + 1; each deficit pushes both ends by their share.
+                        int j = (i + 1) % n;
+                        double du = u[j] - u[i], dv = v[j] - v[i], l = Math.Sqrt(du * du + dv * dv);
+                        int k = Math.Max(1, (int)Math.Ceiling(l / 0.5));
+                        for (int q = 0; q <= k; q++)
+                        {
+                            double t = (double)q / k, x, z;
+                            f.ToTile(u[i] + du * t, v[i] + dv * t, out x, out z);
+                            double d = RoadClearM - roads.SignedDistance(x, z);
+                            if (d <= 0) continue;
+                            any = true;
+                            push[i] = Math.Max(push[i], d * (1 - t));
+                            push[j] = Math.Max(push[j], d * t);
+                        }
+                    }
+                    if (!any) break;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (push[i] <= 0) continue;
+                        double r = Math.Sqrt(u[i] * u[i] + v[i] * v[i]), step = Math.Min(0.5, 0.6 * push[i] + 0.05);
+                        // Never more than 4 m back from the OSM line, never into the lowest terrace's reach.
+                        double nr = Math.Max(r - step, 42.0);
+                        u[i] *= nr / r;
+                        v[i] *= nr / r;
+                    }
+                }
+            }
+            BoudhaKit.Ccw(u, v, n);
+            f.WallU = u;
+            f.WallV = v;
+            f.WallN = n;
+        }
+
         /// <summary>Distance from the axis to the wall line along the site direction <paramref name="ang"/> (radians from
         /// +v toward +u).</summary>
-        public static double RadiusAt(double ang)
+        public static double RadiusAt(in BoudhaFrame f, double ang)
         {
             double[] pu, pv;
-            int n = Line(out pu, out pv);
+            int n = Line(f, out pu, out pv);
             double du = Math.Sin(ang), dv = Math.Cos(ang), best = 50;
             for (int i = 0, j = n - 1; i < n; j = i++)
             {
@@ -119,13 +210,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>The wall pieces of one quarter of the kora (<paramref name="part"/> North, East, South or West): the wall
         /// body, its niches, the finials over the piers, the two darchor poles of the quarter and, in the south, the gate
-        /// pavilion with its juniper kiln.</summary>
-        public static void Build(MeshData m, GenColliders c, in BoudhaFrame f, BoudhaPart part, int lod)
+        /// pavilion with its juniper kiln. Returns the niches drawn (the quarter's share of the 147).</summary>
+        public static int Build(MeshData m, GenColliders c, in BoudhaFrame f, BoudhaPart part, int lod)
         {
             int v0 = m.VertexCount, i0 = m.IndexCount;
             Affine3 k = f.Site;
             double[] pu, pv;
-            int n = Line(out pu, out pv);
+            int n = Line(f, out pu, out pv);
             double per = BoudhaKit.Perimeter(pu, pv, n);
             double[] s0 = new double[2], s1 = new double[2], cuts = new double[4];
             int runs = Runs(pu, pv, n, s0, s1);
@@ -133,7 +224,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double total = 0;
             for (int r = 0; r < runs; r++) total += s1[r] - s0[r];
             ShapeBrush w = BoudhaKit.B(BoudhaKit.LimeWhite, MaterialChannel.Plaster), foot = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster);
-            int niche = 0;
+            int niche = 0, drawn = 0;
             for (int r = 0; r < runs; r++)
             {
                 // Walk the run edge by edge: straight wall pieces along the polygon, cut at the run ends and the quarter cuts.
@@ -150,6 +241,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double ou = tv, ov = -tu;
                     Affine3 nf = BoudhaKit.Facing(k, u + HalfThick * ou, 0, v + HalfThick * ov, ou, ov);
                     Niche(m, nf, lod, q);
+                    drawn++;
                     if (lod <= 1 && (lod == 0 || q % 4 == 0) && q < count - 1)
                     {
                         // A finial over the pier after this niche.
@@ -163,11 +255,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             // The darchor poles at the eight intermediate bearings, just inside the wall.
             for (int b = 0; b < 8; b++)
             {
-                double ang = (22.5 + 45 * b) * Math.PI / 180, rad = RadiusAt(ang), u = (rad - 0.75) * Math.Sin(ang), v = (rad - 0.75) * Math.Cos(ang);
+                double ang = (22.5 + 45 * b) * Math.PI / 180, rad = RadiusAt(f, ang), u = (rad - 0.75) * Math.Sin(ang), v = (rad - 0.75) * Math.Cos(ang);
                 if (BoudhaSite.QuarterOf(u, v) == part) Pole(m, c, f, k, u, v, lod);
             }
             if (part == BoudhaPart.South) SouthPavilion(m, c, f, k, lod);
             SacredDraw.Bake(m, v0, i0, f.Level);
+            return drawn;
         }
 
         /// <summary>The wall body between arc lengths a and b along the line: a piece per polygon edge with a base
@@ -375,23 +468,45 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 SacredDraw.Panel(m, nf, 0.5 * nw + 0.12, 0.12, 0.5 * nw + 0.36, 0.42, 0.006, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
         }
 
-        /// <summary>A white chorten-shaped kiln or buttress (sang-khang) in frame bf (+z outward): a square stepped base,
-        /// a bulb with a dark arched mouth, a spire knob.</summary>
+        /// <summary>
+        /// A white juniper kiln (sang-khang) in frame bf (+z outward; corner/02): a broad two-tier base (a plinth slab and a
+        /// sloping chamfered tier), a square firebox with its sooty arched mouth on the front and a black smoke stain, a
+        /// broad overhanging hipped white eave over it, a lotus collar, a bell-shaped bulb, a small square harmika and a
+        /// short spike. <paramref name="baseW"/> is the plinth width and <paramref name="h"/> the total height (about 1.5
+        /// and 2.3 m).
+        /// </summary>
         internal static void Kiln(MeshData m, in Affine3 bf, double baseW, double h, int lod)
         {
-            ShapeBrush w = BoudhaKit.White, soot = BoudhaKit.B(MeshColor.FromHex(0x2B2620), MaterialChannel.Plain, 0.5f);
-            double hw = 0.5 * baseW;
+            ShapeBrush w = BoudhaKit.White, sh = BoudhaKit.WhiteShade, soot = BoudhaKit.B(MeshColor.FromHex(0x24201C), MaterialChannel.Plain, 0.5f);
+            double s = h / 2.3, hw = 0.5 * baseW;
+            // The base: a plinth slab, then a sloping tier up to the firebox.
             Mould mo = SacredDraw.M;
-            mo.Add(0, -0.2, w).Add(0, 0.42 * h).Add(-0.08, 0.45 * h).Add(-0.08, 0.5 * h);
+            if (lod >= 2) mo.Add(0, -0.2, sh).Add(0, 0.25 * s, w).Add(-0.3 * hw, 0.5 * s);
+            else mo.Add(0, -0.2, sh).Add(0, 0.2 * s, w).Add(-0.04 * hw, 0.25 * s).Add(-0.1 * hw, 0.27 * s).Add(-0.3 * hw, 0.5 * s).Add(-0.33 * hw, 0.52 * s);
             SacredDraw.RectRing(m, bf, 0, 0, hw, hw, mo, true, w);
+            // The firebox and its mouth.
+            double bw = 0.6 * hw, y0 = 0.52 * s, y1 = 1.18 * s;
+            SacredDraw.Box(m, bf, -bw, bw, y0 - 0.05, y1, -bw, bw, w, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+            double mw = 0.12 * s, mh = 0.22 * s, my = y0 + 0.1 * s;
+            SacredDraw.Panel(m, bf, -mw, my, mw, my + mh, bw + 0.005, soot);
+            if (lod <= 1) Shapes.Dome(m, SacredDraw.Basis(bf, 0, my + mh, bw + 0.006, 1, 0, 0, 0, 0, 1), soot, mw, 0.11 * s, lod == 0 ? 8 : 5);
+            // The smoke stain: a soot streak from the mouth down over the base.
+            if (lod == 0) SacredDraw.Quad(m, bf, -0.07 * s, 0.05 * s, hw * 0.98 + 0.01, 0.06 * s, 0.05 * s, hw * 0.98 + 0.01, 0.1 * s, my, bw + 0.01, -0.1 * s, my, bw + 0.01, 0, 0.5, 1,
+                                          BoudhaKit.B(MeshColor.FromHex(0x3A3430), MaterialChannel.Plain, 0.7f));
+            // The overhanging hipped eave (a shallow white pyramid frustum with a thick lip).
+            double ew = 1.0 * hw + 0.05, ey = y1 + 0.05 * s;
+            SacredDraw.Box(m, bf, -ew, ew, y1 - 0.02, ey, -ew, ew, sh, BoxFaces.All & ~BoxFaces.Bottom & ~BoxFaces.Top);
+            Shapes.Frustum(m, SacredDraw.At(bf * Affine3.Yaw(45), 0, ey, 0), w, ew * 1.414, 0.42 * hw * 1.414, 0.26 * s, 4, 0, 0, true, true);
+            // Lotus collar, the bell-shaped bulb, the harmika and the spike.
+            double yb = ey + 0.26 * s, r = 0.4 * hw;
             Profile2 p = BoudhaKit.Prof;
-            double r = 0.8 * hw;
-            p.Add(0, 0.5 * h).Add(0.82 * r, 0.5 * h, true).Add(r, 0.62 * h).Add(0.92 * r, 0.76 * h).Add(0.45 * r, 0.86 * h).Add(0.16 * r, 0.9 * h, true)
-             .Add(0.1 * r, h).Add(0, h);
-            Shapes.Lathe(m, bf, w, p, lod == 0 ? 10 : 6);
-            // The sooty mouth on the front.
-            SacredDraw.Panel(m, bf, -0.3 * hw, 0.12 * h, 0.3 * hw, 0.36 * h, hw + 0.01, soot);
-            if (lod == 0) Shapes.Dome(m, SacredDraw.Basis(bf, 0, 0.36 * h, hw + 0.012, 1, 0, 0, 0, 0, 1), soot, 0.3 * hw, 0.12 * h, 6);
+            if (lod >= 2) p.Add(0, yb).Add(r, yb, true).Add(0.9 * r, yb + 0.35 * s).Add(0.45 * r, yb + 0.55 * s).Add(0, yb + 0.6 * s);
+            else p.Add(0, yb).Add(1.08 * r, yb, true).Add(1.08 * r, yb + 0.05 * s, true).Add(0.95 * r, yb + 0.08 * s, true).Add(0.98 * r, yb + 0.22 * s)
+                  .Add(0.88 * r, yb + 0.4 * s).Add(0.62 * r, yb + 0.53 * s).Add(0.25 * r, yb + 0.6 * s).Add(0, yb + 0.61 * s);
+            Shapes.Lathe(m, bf, w, p, lod == 0 ? 12 : lod == 1 ? 8 : 6);
+            double yh = yb + 0.58 * s;
+            SacredDraw.Box(m, bf, -0.11 * s, 0.11 * s, yh, yh + 0.12 * s, -0.11 * s, 0.11 * s, w, BoxFaces.All & ~BoxFaces.Bottom);
+            Shapes.Cone(m, SacredDraw.At(bf, 0, yh + 0.12 * s, 0), w, 0.07 * s, h - yh - 0.12 * s, lod == 0 ? 6 : 4, 0, 0, false);
         }
 
         /// <summary>A darchor: a tall wooden pole with a vertical five-colour banner and a gilt tip.</summary>
@@ -426,18 +541,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// niches either side, a moulded cornice with chorten finials; the juniper kiln stands in front on the kora.</summary>
         private static void SouthPavilion(MeshData m, GenColliders c, in BoudhaFrame f, in Affine3 k, int lod)
         {
-            double rad = RadiusAt(Math.PI);
+            double rad = RadiusAt(f, Math.PI);
             // Frame facing out (south) at the wall line.
-            Affine3 p = BoudhaKit.Facing(k, 0, 0, -rad, 0, -1);
-            Pavilion(m, c, f, p, 4.4, 2.4, 3.6, true, lod);
-            // The juniper kiln in front (on the kora), slightly to the east.
-            Affine3 kf = BoudhaKit.Facing(k, 1.8, 0, -rad - 3.4, 0, -1);
-            Kiln(m, kf, 1.5, 2.3, lod);
-            if (c != null)
+            // The pavilion stands back into the compound so its front is flush with the wall's kora face (the kora walk the
+            // road mesher draws runs along the wall).
+            const double d = 2.4;
+            Affine3 p = BoudhaKit.Facing(k, 0, 0, -(rad - 0.5 * d + HalfThick + 0.05), 0, -1);
+            Pavilion(m, c, f, p, 4.0, d, 3.3, false, lod);
+            // The juniper kiln on the kora just in front of the door, a little to the west (corner/02); solid only where
+            // it keeps off the drawn kora walk.
+            double ku = -0.8, kv = -rad - HalfThick - 0.1 - 0.85;
+            Affine3 kf = BoudhaKit.Facing(k, ku, BoudhaQuarter.PaveTop, kv, 0, -1);
+            Kiln(m, kf, 1.6, 2.3, lod);
+            if (c != null && BoudhaQuarter.Clear(f.Tile, f, ku, kv, 0.85))
             {
                 double x, z;
-                f.ToTile(1.8, -rad - 3.4, out x, out z);
-                c.AddCylinder(x, z, f.Level - 0.2, f.Level + 2.3, 0.8);
+                f.ToTile(ku, kv, out x, out z);
+                c.AddCylinder(x, z, f.Level - 0.2, f.Level + BoudhaQuarter.PaveTop + 2.3, 0.85);
             }
         }
 
@@ -451,7 +571,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         internal static void Pavilion(MeshData m, GenColliders c, in BoudhaFrame f, in Affine3 p, double w, double d, double h, bool passage, int lod)
         {
             ShapeBrush wh = BoudhaKit.White, sh = BoudhaKit.WhiteShade, cope = BoudhaKit.B(MeshColor.FromHex(0xF7F4EE), MaterialChannel.Plaster);
-            double hw = 0.5 * w, hd = 0.5 * d, aw = 0.85, ah = 2.5;
+            // The north passages (y2019/06-08) are door-high to the springing with a gilt torana filling the round head; the
+            // south pavilion's closed door (corner/02) sits under a lower round-headed recess.
+            double hw = 0.5 * w, hd = 0.5 * d, aw = 0.85, ah = passage ? 3.0 : 2.5;
             // Two piers either side of the arch, the wall over it with the round head cut out.
             for (int s = -1; s <= 1; s += 2)
             {
@@ -484,36 +606,67 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             Shapes.BevelExtrude(m, SacredDraw.Basis(p, 0, 0, -hd, 1, 0, 0, 0, 0, 1), wh, x, z, n, d, 0.03, 1, BevelStyle.Chamfer, true, true);
             if (!passage)
             {
-                // A closed timber door in the arch.
-                SacredDraw.Panel(m, p, -aw, 0, aw, spring, 0.1, BoudhaKit.B(MeshColor.FromHex(0x5A3A22), MaterialChannel.Wood));
+                // A closed, carved timber door under the round-headed recess (corner/02): the door leaf in panels, its
+                // frame, the white tympanum filling the arch head, and the door is solid.
+                ShapeBrush door = BoudhaKit.B(MeshColor.FromHex(0x5A3A22), MaterialChannel.WoodCarved), doorFrame = BoudhaKit.B(MeshColor.FromHex(0x3E2616), MaterialChannel.Wood);
+                SacredDraw.Panel(m, p, -aw, 0, aw, spring, 0.12, door);
+                if (lod == 0) BoudhaKit.GridLines(m, p, -aw, aw, 0.1, spring - 0.05, 0.125, 0.42, 0.38, 0.05, doorFrame);
+                if (lod <= 1)
+                {
+                    SacredDraw.Box(m, p, -aw, aw, spring, spring + 0.1, 0.1, 0.2, doorFrame, BoxFaces.Front | BoxFaces.Bottom);
+                    int tf = m.VertexCount;
+                    int tc = SacredDraw.V(m, p, 0, spring + 0.1, 0.1, 0, 0, 1, sh);
+                    for (int i = 0; i <= seg; i++)
+                    {
+                        double t = Math.PI * i / seg;
+                        SacredDraw.V(m, p, -aw * Math.Cos(t), spring + 0.1 + (aw - 0.1) * Math.Sin(t), 0.1, 0, 0, 1, sh);
+                    }
+                    for (int i = 0; i < seg; i++) SacredDraw.Tri(m, tc, tf + 1 + i, tf + 2 + i);
+                }
+                if (c != null)
+                {
+                    double x0, y0, z0, x1, y1, z1;
+                    p.Point(-aw, 0, 0.1, out x0, out y0, out z0);
+                    p.Point(aw, 0, 0.1, out x1, out y1, out z1);
+                    c.AddWall(x0, z0, x1, z1, f.Level - 0.3, f.Level + h, 0.15);
+                }
             }
             else
             {
                 // The passage floor and a dark inner shade.
                 SacredDraw.Quad(m, p, -aw, 0.02, -hd, aw, 0.02, -hd, aw, 0.02, hd, -aw, 0.02, hd, 0, 1, 0, BoudhaKit.B(BoudhaKit.StoneFlag, MaterialChannel.Flagstone));
             }
-            // Gilt torana panel over the arch and the yellow striped valance under it.
             ShapeBrush gilt = BoudhaKit.Gilt;
-            double[] tx = BoudhaKit.U, tz = BoudhaKit.V;
-            int tn = 0;
-            tx[tn] = -aw - 0.25;
-            tz[tn++] = 0;
-            tx[tn] = aw + 0.25;
-            tz[tn++] = 0;
-            tx[tn] = aw + 0.1;
-            tz[tn++] = -0.55;
-            tx[tn] = 0;
-            tz[tn++] = -0.9;
-            tx[tn] = -aw - 0.1;
-            tz[tn++] = -0.55;
-            if (lod <= 1)
-                Shapes.BevelExtrude(m, SacredDraw.Basis(p, 0, ah + 0.02, hd + 0.02, 1, 0, 0, 0, 0, 1), gilt, tx, tz, tn, 0.08, 0.02, 1, BevelStyle.Chamfer, true, false);
-            else
-                SacredDraw.Panel(m, p, -aw - 0.2, ah + 0.02, aw + 0.2, ah + 0.7, hd + 0.03, gilt);
-            if (lod <= 1)
+            if (passage)
             {
-                uint[] stripes = { BoudhaKit.ClothRed, BoudhaKit.ClothWhite, BoudhaKit.ClothBlue };
-                BoudhaKit.Valance(m, p, -aw - 0.1, aw + 0.1, hd + 0.05, ah + 0.02, stripes, 0.05, BoudhaKit.NicheValance, 0.32, 0.25, lod);
+                // The gilt torana filling the round arch head (a fan of carved gilt over the passage: a solid half disc
+                // with a raised rim and a central boss) and the yellow striped valance hanging at the springing.
+                ShapeBrush giltS = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt, 0.85f);
+                int ts = lod == 0 ? 10 : lod == 1 ? 6 : 3;
+                for (int face = -1; face <= 1; face += 2)
+                {
+                    Affine3 tf = face > 0 ? p : SacredDraw.Turn(p, 0, 0, 0, Math.PI);
+                    double tz = hd - 0.12;
+                    int fc = m.VertexCount;
+                    SacredDraw.V(m, tf, 0, spring, tz, 0, 0, 1, gilt);
+                    for (int i = 0; i <= ts; i++)
+                    {
+                        double t = Math.PI * i / ts;
+                        SacredDraw.V(m, tf, -aw * Math.Cos(t), spring + aw * Math.Sin(t), tz, 0, 0, 1, gilt);
+                    }
+                    for (int i = 0; i < ts; i++) SacredDraw.Tri(m, fc, fc + 1 + i, fc + 2 + i);
+                    if (lod <= 1 && face > 0)
+                    {
+                        Shapes.Torus(m, SacredDraw.Basis(tf, 0, spring, tz + 0.03, 1, 0, 0, 0, 0, 1) * Affine3.Scaling(1, 0.6, 1), giltS, aw - 0.08, 0.05, lod == 0 ? 14 : 8, 3,
+                                     default, 90, 180, false);
+                        Shapes.Sphere(m, SacredDraw.At(tf, 0, spring + 0.38, tz + 0.04), giltS, 0.14, lod == 0 ? 8 : 5);
+                    }
+                }
+                if (lod <= 1)
+                {
+                    uint[] stripes = { BoudhaKit.ClothRed, BoudhaKit.ClothWhite, BoudhaKit.ClothBlue };
+                    BoudhaKit.Valance(m, p, -aw - 0.05, aw + 0.05, hd + 0.03, spring + 0.02, stripes, 0.04, BoudhaKit.NicheValance, 0.22, 0.2, lod);
+                }
             }
             // Cornice and the flat roof.
             Mould mo = SacredDraw.M;
@@ -528,12 +681,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     BoudhaKit.FinialChorten(m, SacredDraw.At(p, cx, h + 0.36, cz), 0.8, lod);
                 }
                 BoudhaKit.FinialChorten(m, SacredDraw.At(p, 0, h + 0.36, hd - 0.3), 1.2, lod);
-                // Brass wheels in lantern housings and lamp niches either side of the arch.
                 for (int s = -1; s <= 1; s += 2)
                 {
-                    SacredDraw.Panel(m, p, s * (aw + 0.45) - 0.25, 0.9, s * (aw + 0.45) + 0.25, 1.5, hd + 0.005, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
-                    Shapes.Cylinder(m, SacredDraw.At(p, s * (aw + 0.45), 0.95, hd + 0.18), BoudhaKit.B(BoudhaKit.Brass, MaterialChannel.Metal), 0.16, 0.5, lod == 0 ? 8 : 5,
-                                    0, 0, true, true);
+                    double nx = s * (aw + 0.5 * (hw - aw));
+                    if (passage)
+                    {
+                        // Brass wheels in lantern housings and lamp niches either side of the arch.
+                        SacredDraw.Panel(m, p, nx - 0.25, 0.9, nx + 0.25, 1.5, hd + 0.005, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
+                        Shapes.Cylinder(m, SacredDraw.At(p, nx, 0.95, hd + 0.18), BoudhaKit.B(BoudhaKit.Brass, MaterialChannel.Metal), 0.16, 0.5, lod == 0 ? 8 : 5, 0, 0, true,
+                                        true);
+                    }
+                    else
+                    {
+                        // Small round-headed lamp niches either side of the door, blackened by the lamps (corner/02).
+                        ShapeBrush sootN = BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.55f);
+                        SacredDraw.Panel(m, p, nx - 0.17, 1.45, nx + 0.17, 1.82, hd + 0.005, sootN);
+                        Shapes.Dome(m, SacredDraw.Basis(p, nx, 1.82, hd + 0.006, 1, 0, 0, 0, 0, 1), sootN, 0.17, 0.15, lod == 0 ? 6 : 4);
+                        if (lod == 0) SacredDraw.Quad(m, p, nx - 0.14, 1.96, hd + 0.007, nx + 0.14, 1.96, hd + 0.007, nx + 0.08, 2.2, hd + 0.007, nx - 0.08, 2.2, hd + 0.007, 0, 0, 1,
+                                                      BoudhaKit.B(MeshColor.FromHex(0x6E6862), MaterialChannel.Plaster, 0.8f));
+                    }
                 }
             }
         }

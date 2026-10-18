@@ -25,7 +25,37 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     internal static class BoudhaGompas
     {
         /// <summary>Tallest point of each gompa above the kora (m).</summary>
-        public const double GuruTop = 15.05, JamchenTop = 11.0, DhabzangTop = 13.1;
+        public const double GuruTop = 15.05, JamchenTop = 12.2, DhabzangTop = 13.1;
+
+        /// <summary>Draws the sides of a solid box (in gompa frame <paramref name="g"/>, which is in tile metres) in, 10 cm
+        /// at a time, while a point of that side stands within 5 cm of a drawn road.</summary>
+        private static void ClearOfRoads(TileData tile, in Affine3 g, ref double x0, ref double x1, ref double z0, ref double z1)
+        {
+            if (tile == null) return;
+            SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
+            for (int it = 0; it < 60; it++)
+            {
+                bool l = Hits(roads, g, x0, z0, x0, z1), r = Hits(roads, g, x1, z0, x1, z1), b = Hits(roads, g, x0, z0, x1, z0), t = Hits(roads, g, x0, z1, x1, z1);
+                if (!(l || r || b || t)) return;
+                if (l && x1 - x0 > 1.2) x0 += 0.1;
+                if (r && x1 - x0 > 1.2) x1 -= 0.1;
+                if (b && z1 - z0 > 1.2) z0 += 0.1;
+                if (t && z1 - z0 > 1.2) z1 -= 0.1;
+            }
+        }
+
+        private static bool Hits(SacredDrawnRoads roads, in Affine3 g, double xa, double za, double xb, double zb)
+        {
+            double len = Math.Sqrt((xb - xa) * (xb - xa) + (zb - za) * (zb - za));
+            int n = Math.Max(1, (int)Math.Ceiling(len / 0.25));
+            for (int i = 0; i <= n; i++)
+            {
+                double t = (double)i / n, x, y, z;
+                g.Point(xa + (xb - xa) * t, 0, za + (zb - za) * t, out x, out y, out z);
+                if (roads.SignedDistance(x, z) < 0.05) return true;
+            }
+            return false;
+        }
 
         public static void Build(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
         {
@@ -50,10 +80,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 }
                 if (c != null)
                 {
+                    // The solid sits 0.35 m inside the outline (the front steps and porch stay walkable), each side
+                    // drawn further in where the oriented rectangle overhangs the drawn kora at the outline's corners.
+                    double x0 = -Math.Max(1.0, hx - 0.35), x1 = -x0, z0 = -Math.Max(1.0, hz - 0.35), z1 = -z0;
+                    ClearOfRoads(tile, g, ref x0, ref x1, ref z0, ref z1);
                     double x, y, z, ux, uy, uz;
-                    g.Point(0, 0, 0, out x, out y, out z);
+                    g.Point(0.5 * (x0 + x1), 0, 0.5 * (z0 + z1), out x, out y, out z);
                     g.Vector(1, 0, 0, out ux, out uy, out uz);
-                    c.AddBox(x, z, f.Level - 0.3, f.Level + 9.0, hx, hz, ux, uz, GenColliderFlags.NoClimb, GenColliders.Stone);
+                    c.AddBox(x, z, f.Level - 0.3, f.Level + 9.0, 0.5 * (x1 - x0), 0.5 * (z1 - z0), ux, uz, GenColliderFlags.NoClimb, GenColliders.Stone);
                 }
             }
         }
@@ -110,6 +144,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (lod <= 1) Mirrors(m, g, hx, hz + 0.05, top - 0.42, lod);
             // The portico on the ground storey: a painted mural wall with the door, red columns, brackets, the banded beam.
             Portico(m, g, px, hz, plinth, ground, 4, BoudhaKit.B(MeshColor.FromHex(0xB3261E), MaterialChannel.Paint), lod, false);
+            // The painted balcony over the portico (bell/09): a slab on the beam, a fascia of small coloured panels and a
+            // dark rail with balusters.
+            if (lod <= 1) Balcony(m, g, px + 0.25, hz, ground, lod);
             // Steps along the portico, where people sit.
             SacredDraw.Box(m, g, -px, px, -0.3, 0.15, hz, hz + 0.6, stone, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
             SacredDraw.Box(m, g, -px, px, -0.3, 0.3, hz, hz + 0.3, stone, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
@@ -147,6 +184,34 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             Banner(m, g, 0, top + 3.9, rz, 0.7, lod);
             DharmaWheel(m, g, 0, top + 0.6, hz - 0.5, 1.4, lod);
             BigBell(m, g, -2.0, hz + 2.6, lod);
+        }
+
+        /// <summary>A Tibetan balcony across a gompa front (frame g, front z = <paramref name="hz"/>) at height y, half
+        /// width hx: a 0.9 m slab, its fascia of painted panels (red, green, blue between gilt strips), a dark wooden rail on
+        /// turned balusters.</summary>
+        private static void Balcony(MeshData m, in Affine3 g, double hx, double hz, double y, int lod)
+        {
+            double d = 0.9, z1 = hz + d;
+            ShapeBrush slab = BoudhaKit.B(MeshColor.FromHex(0x8C3A2A), MaterialChannel.Wood), rail = BoudhaKit.B(MeshColor.FromHex(0x3A2418), MaterialChannel.Wood);
+            SacredDraw.Box(m, g, -hx, hx, y - 0.05, y + 0.12, hz, z1, slab, BoxFaces.All & ~BoxFaces.Back);
+            uint[] panel = { 0xB3261E, 0x2F8F4E, 0x2E5DA8 };
+            int n = Math.Max(3, (int)(2 * hx / 0.9));
+            for (int q = 0; q < n; q++)
+            {
+                double xa = -hx + 2 * hx * q / n + 0.06, xb = -hx + 2 * hx * (q + 1) / n - 0.06;
+                SacredDraw.Panel(m, g, xa, y + 0.14, xb, y + 0.62, z1 - 0.04, BoudhaKit.B(MeshColor.FromHex(panel[q % 3]), MaterialChannel.Paint));
+                if (lod == 0) Shapes.Cylinder(m, SacredDraw.Basis(g, 0.5 * (xa + xb), y + 0.38, z1 - 0.03, 1, 0, 0, 0, 0, 1), BoudhaKit.Gilt, 0.12, 0.02, 8, 0, 0, false, true);
+            }
+            SacredDraw.Box(m, g, -hx, hx, y + 0.12, y + 0.14, z1 - 0.06, z1 - 0.02, BoudhaKit.Gilt, BoxFaces.Front | BoxFaces.Top);
+            SacredDraw.Box(m, g, -hx, hx, y + 0.62, y + 0.66, z1 - 0.06, z1 - 0.02, BoudhaKit.Gilt, BoxFaces.Front | BoxFaces.Top);
+            // The rail above the fascia.
+            SacredDraw.Box(m, g, -hx, hx, y + 0.98, y + 1.06, z1 - 0.1, z1, rail, BoxFaces.All & ~BoxFaces.Back);
+            if (lod == 0)
+                for (int q = 0; q <= 2 * n; q++)
+                {
+                    double x = -hx + 2 * hx * q / (2 * n);
+                    Shapes.Bar(m, g, rail, x, y + 0.66, z1 - 0.05, x, y + 0.98, z1 - 0.05, 0.03, 4);
+                }
         }
 
         /// <summary>Depth of a gompa's ground-storey portico behind its front plane (m).</summary>
@@ -465,9 +530,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 else mo.Add(0.08, 0.25, gilt).Add(0.08, 0.6).Add(0.0, 0.65).Add(0.0, ph - 0.25).Add(0.08, ph - 0.2).Add(0.08, ph);
                 SacredDraw.RectRing(m, b, s * span, 0, 0.16, 0.16, mo, true, gilt);
             }
-            // The horseshoe arch over the pillars (a partial torus, 250° of sweep), its gilt frame thick in front.
-            Shapes.Torus(m, SacredDraw.Basis(b, 0, ph + 0.35, 0, 1, 0, 0, 0, 0, 1), gilt, span + 0.05, 0.17, lod == 0 ? 20 : lod == 1 ? 10 : 7, lod == 0 ? 5 : 3,
-                         default, -35, 250, lod <= 1);
+            // The horseshoe arch over the pillars (bell/09): a flat gilt frame (a partial torus squashed in depth, 250° of
+            // sweep with the gap at the bottom, angle 0 pointing down in this frame), an inner bead, and a flame jewel crest.
+            Affine3 arch = SacredDraw.Basis(b, 0, ph + 0.35, 0, 1, 0, 0, 0, 0, 1);
+            Shapes.Torus(m, arch * Affine3.Scaling(1, 0.55, 1), gilt, span + 0.05, 0.24, lod == 0 ? 22 : lod == 1 ? 10 : 7, lod == 0 ? 6 : 4, default, 55, 250, lod <= 1);
+            if (lod == 0)
+            {
+                Shapes.Torus(m, arch, BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt), span - 0.22, 0.05, 20, 4, default, 60, 240, true);
+                Shapes.Ellipsoid(m, SacredDraw.At(b, 0, ph + 0.35 + span + 0.38, 0), gilt, 0.2, 0.32, 0.1, 8, false);
+                Shapes.Cone(m, SacredDraw.At(b, 0, ph + 0.35 + span + 0.6, 0), gilt, 0.08, 0.3, 6, 0, 0, false);
+            }
             // Crossbar and the bell.
             Shapes.Bar(m, b, gilt, -span, ph + 0.15, 0, span, ph + 0.15, 0, 0.07, lod == 0 ? 6 : 4);
             Profile2 p = BoudhaKit.Prof;
@@ -486,9 +558,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static void Jamchen(MeshData m, in Affine3 g, double hx, double hz, int lod)
         {
-            double plinth = 0.6, ground = plinth + 3.6, top = ground + 3.4;
+            // Section (jamchen/00, commons Jamchen Lhakhang): a marble plinth, a tall portico (4.6 m to the beam top) under a
+            // deep dark eave, the upper storey set back behind a gallery of painted lattice panels, a second eave and the
+            // gilt roof.
+            double plinth = 0.6, ground = plinth + 4.6, eaveTop = ground + 0.3, top = eaveTop + 3.0, back = 0.45;
             ShapeBrush ochre = BoudhaKit.B(BoudhaKit.OchreDeep, MaterialChannel.Plaster), marble = BoudhaKit.B(MeshColor.FromHex(0xE6E2DA), MaterialChannel.Stone);
-            ShapeBrush redCornice = BoudhaKit.B(MeshColor.FromHex(0x7A1F1F), MaterialChannel.Paint);
+            ShapeBrush redCornice = BoudhaKit.B(MeshColor.FromHex(0x7A1F1F), MaterialChannel.Paint), maroon = BoudhaKit.B(BoudhaKit.MonkMaroon, MaterialChannel.Paint);
+            ShapeBrush navy = BoudhaKit.B(MeshColor.FromHex(0x1F2C46), MaterialChannel.Paint, 0.7f), slate = BoudhaKit.B(MeshColor.FromHex(0x343A44), MaterialChannel.Metal);
+            ShapeBrush red = BoudhaKit.B(MeshColor.FromHex(0xA3221C), MaterialChannel.Paint);
             if (lod >= 3)
             {
                 SacredDraw.Box(m, g, -hx, hx, -0.3, top, -hz, hz, ochre, BoxFaces.All & ~BoxFaces.Bottom);
@@ -497,35 +574,100 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
             double px = hx - 0.9;
             OpenGround(m, g, hx, hz, px, plinth, ground, marble, ochre, 0.06);
-            Mould mo = SacredDraw.M;
-            mo.Add(0, ground, ochre).Add(0, top - 0.25).Add(0.6, top - 0.2, redCornice).Add(0.6, top + 0.15);
-            SacredDraw.RectRing(m, g, 0, 0, hx, hz, mo, false, ochre);
-            Portico(m, g, px, hz, plinth, ground, 4, BoudhaKit.B(BoudhaKit.MonkMaroon, MaterialChannel.Paint), lod, true);
+            Portico(m, g, px, hz, plinth, ground, 4, maroon, lod, true);
             // Three green marble steps in front of the door.
             ShapeBrush green = BoudhaKit.B(MeshColor.FromHex(0x4E6B5A), MaterialChannel.Stone);
             for (int s = 0; s < 3; s++)
                 SacredDraw.Box(m, g, -1.6, 1.6, -0.3, plinth * (3 - s) / 3.0, hz, hz + 0.35 * (s + 1), green, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
-            // Upper storey: a band of painted window panels across the front, maroon windows on the sides.
+            double beam0 = ground - 0.85;
             if (lod <= 1)
             {
-                int panels = 7;
+                // Maroon pilasters on the portico's corners, and the red valance with gilt cusps hanging in the bays
+                // between the column brackets.
+                for (int s = -1; s <= 1; s += 2)
+                    SacredDraw.Box(m, g, s > 0 ? px : -px - 0.35, s > 0 ? px + 0.35 : -px, plinth, beam0, hz - 0.05, hz + 0.08, maroon, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                for (int q = 0; q < 3; q++)
+                {
+                    // The valance hangs across the whole bay in front of the capitals (jamchen/00).
+                    double xa = -px + 0.35 + (2 * px - 0.7) * q / 3.0 + 0.3, xb = -px + 0.35 + (2 * px - 0.7) * (q + 1) / 3.0 - 0.3;
+                    if (xb - xa < 0.6) continue;
+                    double vy = beam0 - 0.75, z = hz - 0.05;
+                    SacredDraw.Panel(m, g, xa, vy, xb, beam0, z, red);
+                    int cusps = Math.Max(2, (int)((xb - xa) / 0.55));
+                    double cw = (xb - xa) / cusps;
+                    for (int c = 0; c < cusps; c++)
+                    {
+                        double cx = xa + (c + 0.5) * cw;
+                        if (lod == 0)
+                        {
+                            // A hanging gilt cusp (a half ring under the panel's edge) and a gilt medallion on the panel.
+                            Shapes.Torus(m, SacredDraw.Basis(g, cx, vy, z + 0.01, 1, 0, 0, 0, 0, 1), BoudhaKit.Gilt, 0.5 * cw - 0.03, 0.035, 8, 4, default, 270, 180, false);
+                            if (c % 2 == 0) Shapes.Cylinder(m, SacredDraw.Basis(g, cx, beam0 - 0.38, z, 1, 0, 0, 0, 0, 1), BoudhaKit.Gilt, 0.2, 0.04, 10, 0, 0, false, true);
+                        }
+                        else
+                        {
+                            SacredDraw.Tri(m, g, cx - 0.5 * cw + 0.03, vy, z + 0.01, cx + 0.5 * cw - 0.03, vy, z + 0.01, cx, vy - 0.2, z + 0.01, 0, 0, 1, BoudhaKit.Gilt);
+                        }
+                    }
+                }
+                // A row of painted block ends (blue, red, green) under the eave.
+                if (lod == 0)
+                {
+                    uint[] ends = { 0x2E5DA8, 0xB3261E, 0x2F8F4E };
+                    int nEnds = (int)((2 * px + 0.4) / 0.3);
+                    for (int q = 0; q < nEnds; q++)
+                    {
+                        double x = -px - 0.2 + (q + 0.5) * (2 * px + 0.4) / nEnds;
+                        SacredDraw.Box(m, g, x - 0.07, x + 0.07, ground - 0.16, ground - 0.02, hz + 0.1, hz + 0.24, BoudhaKit.B(MeshColor.FromHex(ends[q % 3]), MaterialChannel.Paint),
+                                       BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Bottom);
+                    }
+                }
+            }
+            // The deep portico eave: a dark slab sloping out 1.3 m past the front, its navy soffit and a gilt edge.
+            double ez0 = hz - 0.3, ez1 = hz + 1.3, ey0 = ground, ey1 = eaveTop;
+            SacredDraw.Quad(m, g, -hx - 0.35, ey1, ez0, hx + 0.35, ey1, ez0, hx + 0.35, ey0 + 0.12, ez1, -hx - 0.35, ey0 + 0.12, ez1, 0, 0.9937, 0.1118, slate);
+            SacredDraw.Quad(m, g, -hx - 0.35, ey0 - 0.02, ez1, hx + 0.35, ey0 - 0.02, ez1, hx + 0.35, ey0 - 0.02, ez0, -hx - 0.35, ey0 - 0.02, ez0, 0, -1, 0, navy);
+            SacredDraw.Quad(m, g, -hx - 0.35, ey0 - 0.02, ez1, -hx - 0.35, ey0 + 0.12, ez1, hx + 0.35, ey0 + 0.12, ez1, hx + 0.35, ey0 - 0.02, ez1, 0, 0, 1,
+                            lod == 0 ? BoudhaKit.Gilt : slate);
+            for (int s = -1; s <= 1; s += 2)
+            {
+                double x = s * (hx + 0.35);
+                SacredDraw.Quad(m, g, x, ey0 - 0.02, ez0, x, ey1, ez0, x, ey0 + 0.12, ez1, x, ey0 - 0.02, ez1, s, 0, 0, slate);
+            }
+            // Upper storey, set back behind the gallery: ochre walls under a red cornice.
+            Mould mo = SacredDraw.M;
+            mo.Add(0, ey0, ochre).Add(0, top - 0.25).Add(0.6, top - 0.2, redCornice).Add(0.6, top + 0.15);
+            SacredDraw.RectRing(m, g, 0, -0.5 * back, hx, hz - 0.5 * back, mo, false, ochre);
+            double fz = hz - back;
+            if (lod <= 1)
+            {
+                // The gallery: a red frame with painted lattice panels (white with blue tracery) over a maroon rail.
+                double g0 = eaveTop + 0.15, g1 = top - 0.45;
+                SacredDraw.Box(m, g, -hx + 0.25, hx - 0.25, g0, g0 + 0.35, fz, fz + 0.18, maroon, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+                SacredDraw.Box(m, g, -hx + 0.25, hx - 0.25, g1, g1 + 0.2, fz, fz + 0.18, BoudhaKit.Gilt, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+                int panels = Math.Max(5, (int)((2 * hx - 0.5) / 0.95));
+                ShapeBrush lattice = BoudhaKit.B(MeshColor.FromHex(0xEDEFF2), MaterialChannel.Paint), tracery = BoudhaKit.B(MeshColor.FromHex(0x3F6FA8), MaterialChannel.Paint);
                 for (int q = 0; q < panels; q++)
                 {
-                    double x0 = -hx + 0.6 + (2 * hx - 1.2) * q / panels, x1 = x0 + (2 * hx - 1.2) / panels - 0.12;
-                    SacredDraw.Box(m, g, x0, x1, ground + 0.5, top - 0.6, hz, hz + 0.12, BoudhaKit.B(MeshColor.FromHex(0xB3261E), MaterialChannel.Wood),
-                                   BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top | BoxFaces.Bottom);
-                    SacredDraw.Panel(m, g, x0 + 0.12, ground + 0.75, x1 - 0.12, top - 0.85, hz + 0.125, BoudhaKit.B(MeshColor.FromHex(0x2C333B), MaterialChannel.Glass, 0.85f));
-                    if (lod == 0) SacredDraw.Panel(m, g, x0 + 0.05, top - 0.8, x1 - 0.05, top - 0.65, hz + 0.13, BoudhaKit.Gilt);
+                    double x0 = -hx + 0.25 + (2 * hx - 0.5) * q / panels, x1 = x0 + (2 * hx - 0.5) / panels;
+                    SacredDraw.Box(m, g, x0, x0 + 0.1, g0 + 0.35, g1, fz, fz + 0.16, red, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                    SacredDraw.Panel(m, g, x0 + 0.1, g0 + 0.35, x1, g1, fz + 0.08, lattice);
+                    if (lod == 0) BoudhaKit.GridLines(m, g, x0 + 0.18, x1 - 0.08, g0 + 0.45, g1 - 0.1, fz + 0.09, 0.22, 0.3, 0.025, tracery);
                 }
+                SacredDraw.Box(m, g, hx - 0.35, hx - 0.25, g0 + 0.35, g1, fz, fz + 0.16, red, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
                 for (int s = -1; s <= 1; s += 2)
                 {
                     Affine3 side = SacredDraw.Turn(g, s * hx, 0, 0, s * 0.5 * Math.PI);
                     for (int q = -1; q <= 1; q++)
                     {
-                        BoudhaKit.TibetanWindow(m, side, q * 0.6 * hz, ground + 1.5, 0, 0.9, 1.2, BoudhaKit.Maroon, lod);
-                        BoudhaKit.TibetanWindow(m, side, q * 0.6 * hz, plinth + 1.6, 0, 0.9, 1.3, BoudhaKit.Maroon, lod);
+                        BoudhaKit.TibetanWindow(m, side, q * 0.6 * hz, eaveTop + 1.2, 0, 0.9, 1.2, BoudhaKit.Maroon, lod);
+                        BoudhaKit.TibetanWindow(m, side, q * 0.6 * hz, plinth + 1.8, 0, 0.9, 1.4, BoudhaKit.Maroon, lod);
                     }
                 }
+            }
+            else
+            {
+                SacredDraw.Panel(m, g, -hx + 0.25, eaveTop + 0.5, hx - 0.25, top - 0.45, fz + 0.02, BoudhaKit.B(MeshColor.FromHex(0xC9CED6), MaterialChannel.Paint));
             }
             GiltRoof(m, g, -hx - 0.6, hx + 0.6, -hz - 0.6, hz + 0.6, top + 0.15, 2.2, lod, true);
             Banner(m, g, 0, top + 2.4, 0, 1.0, lod);

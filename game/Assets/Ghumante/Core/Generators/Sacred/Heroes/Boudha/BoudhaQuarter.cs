@@ -21,9 +21,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     /// </summary>
     internal static class BoudhaQuarter
     {
-        /// <summary>Top of the kora paving above the kora level (over the pedestrian ways the road mesher draws there,
-        /// about 0.26-0.31 m).</summary>
-        public const double PaveTop = 0.34;
+        /// <summary>Top of the kora paving above the kora level: 2 cm over the ribbon of the pedestrian ways the road
+        /// mesher draws there (0.28 m).</summary>
+        public const double PaveTop = 0.30;
 
         /// <summary>Top of the compound's flagged ground above the kora level.</summary>
         public const double CompoundTop = 0.06;
@@ -40,7 +40,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         // Paving scratch (one quarter's rays at 1.5° at most, and the median window), one set per building thread.
         [ThreadStatic] private static double[] _front, _clamped, _window;
 
-        public static void Build(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
+        /// <summary>One quarter of the kora at one LOD; returns the prayer-wheel niches its stretch of the wall draws.</summary>
+        public static int Build(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
         {
             if (lod >= 3)
             {
@@ -48,9 +49,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 BoudhaRing.Build(m, null, tile, f, part, 3);
                 BoudhaGompas.Build(m, null, tile, f, part, 3);
                 SacredDraw.Bake(m, v3, i3, f.Level);
-                return;
+                return 0;
             }
-            BoudhaWall.Build(m, c, f, part, lod);
+            int niches = BoudhaWall.Build(m, c, f, part, lod);
             int v0 = m.VertexCount, i0 = m.IndexCount;
             Paving(m, c, tile, f, part, lod);
             SacredDraw.Bake(m, v0, i0, f.Level + PaveTop);
@@ -61,6 +62,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (part == BoudhaPart.North) BoudhaNorth.Build(m, c, f, lod);
             Compound(m, c, f, part, lod);
             SacredDraw.Bake(m, v0, i0, f.Level);
+            return niches;
         }
 
         // ------------------------------------------------------------------------------------------------ paving
@@ -125,6 +127,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private static void Paving(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
         {
             Affine3 k = f.Site;
+            SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
             double a0, a1;
             Range(part, out a0, out a1);
             double stepDeg = lod == 0 ? 1.5 : lod == 1 ? 3.0 : 7.5;
@@ -144,7 +147,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             for (int s = 0; s <= steps; s++)
             {
                 double ang = (a0 + (a1 - a0) * s / steps) * Math.PI / 180.0;
-                front[s] = FrontAt(tile, f, ang, BoudhaWall.RadiusAt(ang) + 2.0, MaxPlazaR);
+                front[s] = FrontAt(tile, f, ang, BoudhaWall.RadiusAt(f, ang) + 2.0, MaxPlazaR);
             }
             double[] win = _window;
             for (int s = 0; s <= steps; s++)
@@ -158,7 +161,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             for (int s = 0; s <= steps; s++)
             {
                 double deg = a0 + (a1 - a0) * s / steps, ang = deg * Math.PI / 180.0, du = Math.Sin(ang), dv = Math.Cos(ang);
-                double wall = BoudhaWall.RadiusAt(ang), inner = wall + BoudhaWall.HalfThick + 0.04, kerbR = inner + InnerPathM;
+                double wall = BoudhaWall.RadiusAt(f, ang), inner = wall + BoudhaWall.HalfThick + 0.04, kerbR = inner + InnerPathM;
                 double outer = Math.Max(kerbR + 0.6, _clamped[s] + 0.3);
                 double terrace = TerraceAt(ang), cin = wall - BoudhaWall.HalfThick - 0.04;
                 if (s > 0)
@@ -173,15 +176,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     if (cin > terrace + 0.3 && pcin > pc + 0.3) Strip(m, k, pu0, pv0, du, dv, pc, pcin, terrace, cin, CompoundTop, ground, s, 3);
                     if (c != null && s % 2 == 0)
                     {
-                        // Walkable slab colliders: one box per two rays.
+                        // Walkable slab colliders, one band per two rays, broken where the road mesher draws the kora
+                        // ways (their ribbon, 2 cm under the paving, is the ground there; no platform stands on a drawn
+                        // road, decision 1).
                         double midDeg = a0 + (a1 - a0) * (s - 1) / steps, ma = midDeg * Math.PI / 180.0;
-                        double r0 = inner, r1 = Math.Min(outer, pt), rm = 0.5 * (r0 + r1), half = 0.5 * (r1 - r0);
-                        double tang = rm * Math.Tan(stepDeg * Math.PI / 180.0) + 0.3;
-                        double cu = rm * Math.Sin(ma), cv = rm * Math.Cos(ma), x, z;
-                        f.ToTile(cu, cv, out x, out z);
+                        double r0 = inner, r1 = Math.Min(outer, pt);
+                        double tang = 0.5 * (r0 + r1) * Math.Tan(stepDeg * Math.PI / 180.0) + 0.3;
                         double bearing = (BoudhaSite.AxisBearingDeg + midDeg) * Math.PI / 180.0;
-                        // Box U axis across the ray (tile x, z): the ray's bearing turned 90°.
-                        c.AddBox(x, z, f.Level - 0.2, f.Level + y, tang, half, Math.Cos(bearing), -Math.Sin(bearing), GenColliderFlags.Walkable, GenColliders.Stone);
+                        double start = double.NaN;
+                        for (double r = r0; ; r += 0.25)
+                        {
+                            bool end = r >= r1;
+                            bool free = !end && OffRoad(roads, f, ma, r, tang);
+                            if (free && double.IsNaN(start)) start = r;
+                            if ((!free || end) && !double.IsNaN(start))
+                            {
+                                double e = Math.Min(r, r1), rm = 0.5 * (start + e), half = 0.5 * (e - start);
+                                if (half > 0.1)
+                                {
+                                    double x, z;
+                                    f.ToTile(rm * Math.Sin(ma), rm * Math.Cos(ma), out x, out z);
+                                    // Box U axis across the ray (tile x, z): the ray's bearing turned 90°.
+                                    c.AddBox(x, z, f.Level - 0.2, f.Level + y, tang, half, Math.Cos(bearing), -Math.Sin(bearing), GenColliderFlags.Walkable, GenColliders.Stone);
+                                }
+                                start = double.NaN;
+                            }
+                            if (end) break;
+                        }
                     }
                 }
                 pu0 = du;
@@ -192,6 +213,45 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 pc = terrace;
                 pcin = cin;
             }
+        }
+
+        /// <summary>True when a slab sample at radius r on the ray at site angle <paramref name="ang"/> (and
+        /// <paramref name="tang"/> either side across it) keeps clear of the drawn roads.</summary>
+        private static bool OffRoad(SacredDrawnRoads roads, in BoudhaFrame f, double ang, double r, double tang)
+        {
+            double su = Math.Sin(ang), sv = Math.Cos(ang), tu = sv, tv = -su;
+            for (int q = -1; q <= 1; q++)
+            {
+                double u = r * su + q * tang * tu, v = r * sv + q * tang * tv, x, z;
+                f.ToTile(u, v, out x, out z);
+                if (roads.SignedDistance(x, z) < 0.3) return false;
+            }
+            return true;
+        }
+
+        /// <summary>True when a solid of radius <paramref name="radius"/> at site (u, v) keeps clear of the drawn roads, so
+        /// it may carry a collider (objects standing on the kora walk the road mesher draws are left walk-through).</summary>
+        internal static bool Clear(TileData tile, in BoudhaFrame f, double u, double v, double radius)
+        {
+            if (tile == null) return true;
+            double x, z;
+            f.ToTile(u, v, out x, out z);
+            return SacredDrawnRoads.For(tile).SignedDistance(x, z) >= radius + 0.1;
+        }
+
+        /// <summary>True when the rectangle of half sizes (hw across, hd deep) at site (u, v) facing <paramref name="a"/>
+        /// keeps clear of the drawn roads (its corners and edge midpoints).</summary>
+        private static bool PlanClear(in BoudhaFrame f, double u, double v, double a, double hw, double hd)
+        {
+            if (f.Tile == null) return true;
+            double fu = Math.Sin(a), fv = Math.Cos(a), xu = fv, xv = -fu;
+            for (int i = -1; i <= 1; i++)
+            for (int j = -1; j <= 1; j++)
+            {
+                if (i == 0 && j == 0) continue;
+                if (!Clear(f.Tile, f, u + xu * hw * i + fu * hd * j, v + xv * hw * i + fv * hd * j, 0.0)) return false;
+            }
+            return true;
         }
 
         /// <summary>A flat quad between two rays (directions 0 and 1) from radius a to b on each.</summary>
@@ -248,7 +308,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     // Benches on the brick zone facing the stupa (OSM n5162080318-20, r 55).
                     for (int i = 0; i < 3; i++)
                     {
-                        double ang = (262 + 8 * i) * Math.PI / 180.0, r = BoudhaWall.RadiusAt(ang) + BoudhaWall.HalfThick + InnerPathM + 2.0;
+                        double ang = (262 + 8 * i) * Math.PI / 180.0, r = BoudhaWall.RadiusAt(f, ang) + BoudhaWall.HalfThick + InnerPathM + 2.0;
                         Bench(m, c, f, r * Math.Sin(ang), r * Math.Cos(ang), ang, lod);
                     }
                     break;
@@ -271,6 +331,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         {
             Affine3 k = f.Site;
             double a = faceDeg * Math.PI / 180.0;
+            // Moved toward the stupa, 10 cm at a time, until its plan clears the drawn kora (the wall it stands against
+            // is fitted back off the kora in the north-east; BoudhaWall.Fit).
+            for (int it = 0; it < 40 && !PlanClear(f, u, v, a, 0.5 * w + 0.4, 0.5 * d + 0.4); it++)
+            {
+                double r = Math.Sqrt(u * u + v * v);
+                u *= (r - 0.1) / r;
+                v *= (r - 0.1) / r;
+            }
             Affine3 lf = BoudhaKit.Facing(k, u, CompoundTop, v, Math.Sin(a), Math.Cos(a));
             ShapeBrush roof = BoudhaKit.B(MeshColor.FromHex(0xD9B13B), MaterialChannel.Metal), post = BoudhaKit.B(MeshColor.FromHex(0x6B4A2E), MaterialChannel.Wood);
             ShapeBrush back = BoudhaKit.B(BoudhaKit.LimeWhite, MaterialChannel.Plaster), floor = BoudhaKit.B(MeshColor.FromHex(0x8E8A82), MaterialChannel.Stone);
@@ -388,7 +456,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 SacredDraw.Box(m, bf, -0.9, 0.9, 0.42, 0.47, z0, z0 + 0.5 / slats - 0.03, wood, BoxFaces.All & ~BoxFaces.Bottom);
             }
             SacredDraw.Box(m, bf, -0.9, 0.9, 0.6, 0.85, -0.25, -0.2, wood, BoxFaces.All);
-            if (c != null)
+            // Solid only off the walk the road mesher draws (the benches stand on the kora street).
+            if (c != null && Clear(f.Tile, f, u, v, 0.95))
             {
                 double x0, y0, z0, x1, y1, z1;
                 bf.Point(-0.9, 0, 0, out x0, out y0, out z0);
