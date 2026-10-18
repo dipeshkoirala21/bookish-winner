@@ -82,18 +82,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         {
             Affine3 face = KpStack.Face(k, 90, HW);
             Bands(m, face, HU, lod);
-            // Ground floor: the door at the centre, two arched openings either side.
+            // Ground floor: the door at the centre, two round-headed dark openings either side (c_kumari c_00: cusped
+            // heads about half as tall as they are wide).
             double top = Kp.Doorway(m, face, 0, Plinth, 1.25, 2.35, Kp.Wood, false, lod);
             // The door's crest: carved red-and-gilt wood (c_kumari 14), with a gilt boss.
             Kp.Crest(m, face, 0, top + 0.03, 0.04, 2.3, 1.45, Kp.Tint(Kp.Dado, 0.6f), lod);
             if (lod <= 1) Shapes.Sphere(m, SacredDraw.At(face, 0, top + 0.75, 0.16), Kp.Gilt, 0.16, lod == 0 ? 8 : 5);
             double[] arches = { -8.4, -5.0, 5.0, 8.4 };
-            foreach (double u in arches) Kp.ArchWindow(m, face, u, Plinth + 0.95, 1.25, 2.3, lod);
+            foreach (double u in arches) Kp.ArchWindow(m, face, u, Plinth + 0.95, 1.25, 2.3, lod, 0.55);
             // The lions on the upper step either side of the door.
             for (int s = -1; s <= 1; s += 2) Kp.Lion(m, face, s * 2.25, Plinth, 0.95, 0.55, 1.55, true, s, lod, SacredFigures.Generic, true);
             // First floor: carved windows, big crests and small ones alternating.
             double[] big = { -8.4, -4.6, 0, 4.6, 8.4 }, small = { -6.5, -2.3, 2.3, 6.5 };
-            foreach (double u in big) CrownWindow(m, face, u, Floor1 + 0.75, 1.15, 1.6, true, lod);
+            foreach (double u in big) MainWindow(m, face, u, Floor1 + 0.55, lod);
             foreach (double u in small) CrownWindow(m, face, u, Floor1 + 1.0, 0.75, 1.15, false, lod);
             // Second floor: the row of carved windows close under the eave, the gilt one over the door.
             TopRow(m, face, HU, lod, true);
@@ -110,9 +111,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Box(m, face, pier - 0.55, pier + 0.55, Plinth, Plinth + 2.3, 0.12, 0.14, Kp.Cream, BoxFaces.Front);
             if (lod == 0) Kp.Box(m, face, pier - 0.6, pier + 0.6, Plinth + 2.3, Plinth + 2.42, 0.12, 0.2, Kp.WhiteTrim, BoxFaces.Wall | BoxFaces.Bottom);
             double[] g = { -8.6, -4.4, -0.6, 4.0, 7.4 };
-            foreach (double u in g) Kp.ArchWindow(m, face, u, Plinth + 1.0, 1.1, 2.1, lod);
+            foreach (double u in g) Kp.ArchWindow(m, face, u, Plinth + 1.0, 1.1, 2.1, lod, 0.55);
             double[] big = { -7.0, -2.2, 2.8, 7.6 }, small = { -9.6, -4.6, 0.3, 5.2 };
-            foreach (double u in big) CrownWindow(m, face, u, Floor1 + 0.75, 1.1, 1.55, true, lod);
+            foreach (double u in big) MainWindow(m, face, u, Floor1 + 0.55, lod);
             foreach (double u in small) CrownWindow(m, face, u, Floor1 + 1.0, 0.72, 1.1, false, lod);
             TopRow(m, face, HW, lod, false);
         }
@@ -140,12 +141,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         private static void Bands(MeshData m, in Affine3 face, double half, int lod)
         {
             Kp.Band(m, face, -half, half, Plinth - 0.05, Plinth + 0.2, 0.06, Kp.Step);
-            Kp.Band(m, face, -half, half, Floor1 - 0.12, Floor1 + 0.12, 0.1, Kp.Wood);
-            Kp.Band(m, face, -half, half, Floor2 - 0.12, Floor2 + 0.12, 0.1, Kp.Wood);
-            if (lod == 0)
+            // The broad carved string courses (c_kumari c_00: about 0.3-0.35 m, a beam with a row of carved blocks).
+            for (int i = 0; i < 2; i++)
             {
-                Kp.Band(m, face, -half, half, Floor1 + 0.12, Floor1 + 0.2, 0.05, Kp.WoodMid);
-                Kp.Band(m, face, -half, half, Floor2 + 0.12, Floor2 + 0.2, 0.05, Kp.WoodMid);
+                double fl = i == 0 ? Floor1 : Floor2;
+                Kp.Band(m, face, -half, half, fl - 0.17, fl + 0.17, 0.14, Kp.Wood);
+                if (lod > 0) continue;
+                Kp.Band(m, face, -half, half, fl + 0.17, fl + 0.25, 0.07, Kp.WoodMid);
+                int n = Math.Max(4, (int)(2 * half / 0.42));
+                for (int q = 0; q < n; q++)
+                {
+                    double u = -half + 2 * half * (q + 0.5) / n;
+                    Kp.Box(m, face, u - 0.09, u + 0.09, fl - 0.11, fl + 0.11, 0.14, 0.19, Kp.WoodMid, BoxFaces.Front | BoxFaces.Top);
+                }
             }
             Kp.Cornice(m, face, -half, half, Eave - 0.55, 0.45, Kp.Wood, lod);
         }
@@ -161,20 +169,38 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 if (giltCentre) Kp.Panel(m, face, -1.1, v0, 1.1, v0 + h, 0.05, Kp.Gilt);
                 return;
             }
-            int n = Math.Max(3, (int)Math.Round((2 * half - 1.2) / 2.1));
-            double bay = (2 * half - 1.2) / n;
+            // A continuous run of cusped carved windows about every 1.5 m, sunk 0.3 m in the shadow of the deep eave (c_kumari
+            // c_00): posts and a sill band standing 0.3 m proud frame them; the gilt window over the door on the north front.
+            int n = Math.Max(5, (int)Math.Round((2 * half - 0.6) / 1.5));
+            if (giltCentre && n % 2 == 0) n++;
+            double bay = (2 * half - 0.6) / n;
+            const double Sunk = 0.3;
+            Kp.Box(m, face, -half + 0.2, half - 0.2, v0 - 0.22, v0, 0, Sunk + 0.04, Kp.WoodMid, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+            Kp.Box(m, face, -half + 0.2, half - 0.2, v0 + h, v0 + h + 0.2, 0, Sunk, Kp.Wood, BoxFaces.Front | BoxFaces.Bottom);
             for (int i = 0; i < n; i++)
             {
-                double u = -half + 0.6 + bay * (i + 0.5);
-                if (giltCentre && Math.Abs(u) < 0.5 * bay)
+                double u = -half + 0.3 + bay * (i + 0.5);
+                if (i > 0) Kp.Box(m, face, u - 0.5 * bay - 0.09, u - 0.5 * bay + 0.09, v0, v0 + h, 0, Sunk, Kp.Wood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                if (giltCentre && i == n / 2)
                 {
-                    Kp.Bay(m, face, u, v0 - 0.05, 2.2, h + 0.1, true, lod);
+                    Kp.Bay(m, face, u, v0 - 0.05, Math.Min(2.2, 2 * bay - 0.2), h + 0.1, true, lod);
                     continue;
                 }
-                Kp.ArchWindow(m, face, u, v0 + 0.05, Math.Min(1.25, bay - 0.55), h - 0.1, lod);
+                Kp.ArchWindow(m, face, u, v0 + 0.05, Math.Min(1.2, bay - 0.3), h - 0.1, lod);
             }
-            // A carved sill band along the whole row.
-            Kp.Band(m, face, -half + 0.3, half - 0.3, v0 - 0.18, v0, 0.14, Kp.WoodMid);
+            if (lod == 0) Kp.Panel(m, face, -half + 0.2, v0, half - 0.2, v0 + h, 0.005, Kp.Ao(Kp.Wood, 0.55f));
+        }
+
+        /// <summary>
+        /// One of the main first-floor windows of the north and east fronts (c_kumari c_00, kumari ref_00-ref_05): a broad
+        /// three-bay carved window with heavy long-eared frames and, over it, a semicircular carved torana (a fan tympanum
+        /// about 1.6 m across) in dark wood.
+        /// </summary>
+        private static void MainWindow(MeshData m, in Affine3 face, double u, double v0, int lod)
+        {
+            const double Ww = 1.4, Wh = 1.45;
+            Kp.FramedWindow(m, face, u, v0, Ww, Wh, false, lod, 3);
+            Kp.FanTorana(m, face, u, v0 + Wh + 0.3, 0.8, lod);
         }
 
         /// <summary>
@@ -246,7 +272,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// </summary>
         private static void Roofs(MeshData m, in Affine3 k, int lod)
         {
-            const double Over = 1.35;
+            const double Over = 1.6;
             ShapeBrush tile = Kp.TileMoss;
             // North and south ranges run the full width; east and west ranges fit between them.
             double nw = HW - 0.5 * DepthNS, ew = HU - 0.5 * DepthEW;

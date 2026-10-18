@@ -19,7 +19,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         {
             -11.6, 59.5, -76.5, 41.5, // the palace east of the gate: Mohan, Nasal, Mul, Lohan, the towers, the south facade
             -16.5, -11.6, -12.0, 13.0, // the gate apron (lions, Hanuman, steps)
-            -40.5, -11.6, -76.5, -7.5, // the Dakha and Tribhuvan block with the stepped platform on the forecourt
+            -73.0, -11.6, -76.5, -5.5, // the Dakha and Tribhuvan block with the stepped platform, and the white ranges
+                                       // continuing it west along the forecourt (w907080042, w1029965548, w1117943799)
+            ForecourtA0, ForecourtA1, ForecourtB0, ForecourtB1, // the forecourt paved in grey flags in front of the gate
             -84.0, -40.5, -82.5, -41.0, // Gaddi Baithak with its portico podium, stairs and the Hnulunche range
             -95.5, -69.5, -118.0, -88.5, // Kumari Ghar and its plinth
             8.5, 61.5, 27.5, 83.5, // the Taleju plinth, precinct wall and the north shop row
@@ -27,6 +29,28 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             20.0, 90.0, -84.0, -68.5, // the street along the palace's south-east front (level with the square, not tilted
                                       // across by the surface model's rooftops on its far side)
         };
+
+        /// <summary>The forecourt in front of the gate and the white Dakha fronts, paved wall to wall in grey stone flags
+        /// (hanuman_gate c_07, c_14), in palace-grid metres.</summary>
+        public const double ForecourtA0 = -50.0, ForecourtA1 = -11.6, ForecourtB0 = -7.5, ForecourtB1 = 30.0;
+
+        /// <summary>True when palace-grid (a, b) lies on the forecourt's flags (the no-road mask offered to the road
+        /// mesher: its pedestrian ribbons should not be drawn over the paving).</summary>
+        public static bool InForecourt(double a, double b)
+        {
+            return a >= ForecourtA0 && a <= ForecourtA1 && b >= ForecourtB0 && b <= ForecourtB1;
+        }
+
+        /// <summary>True when tile-local (x, z) of tile <paramref name="t"/> lies on the forecourt's flags.</summary>
+        public static bool Paved(TileData t, double tileX, double tileZ)
+        {
+            if (t == null) return false;
+            KpFrame f = KpFrame.For(t, 0, null);
+            double x, y, a, b;
+            f.FromTile(tileX, tileZ, out x, out y);
+            KpFrame.ToGrid(x, y, out a, out b);
+            return InForecourt(a, b);
+        }
 
         /// <summary>Slope (rise over run) of the terrain eased back round the zones, and how far the easing reaches.</summary>
         public const double BlendSlope = 0.4, BlendReachM = 18.0;

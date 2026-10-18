@@ -57,7 +57,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFacade.Court(m, ref f, -67.0, -58.5, HB1, -50.0, Kp.Flags);
             if (f.C != null)
             {
-                f.GridBox(HA0, HA1, HB0, HB1, 0, RidgeV, GenColliderFlags.NoClimb, GenColliders.Stone);
+                // The hall behind its loggia, the two end bays and the giant columns.
+                f.GridBox(HA0, HA1, HB0 + LoggiaBack, HB1, 0, RidgeV, GenColliderFlags.NoClimb, GenColliders.Stone);
+                f.GridBox(HA0, HA0 + 5.5, HB0 - 0.6, HB0 + LoggiaBack, 0, RidgeV, GenColliderFlags.NoClimb, GenColliders.Stone);
+                f.GridBox(HA1 - 5.5, HA1, HB0 - 0.6, HB0 + LoggiaBack, 0, RidgeV, GenColliderFlags.NoClimb, GenColliders.Stone);
+                double bay = (HA1 - HA0 - 11.0) / 7;
+                for (int i = 0; i <= 7; i++)
+                {
+                    double cx, cy;
+                    KpFrame.FromGrid(HA0 + 5.5 + bay * i, HB0 - ColumnLine, out cx, out cy);
+                    f.Cylinder(cx, cy, SouthPodium, CapTop, 0.65);
+                }
                 f.GridBox(NA0, NA1, NB0, NB1, 0, 13.0, GenColliderFlags.NoClimb, GenColliders.Stone);
                 f.GridBox(NA1, -55.7, HB1, NB1, 0, 12.5, GenColliderFlags.NoClimb, GenColliders.Stone);
             }
@@ -67,50 +77,70 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         // The hall and its south front
         // ---------------------------------------------------------------------------------------------------------------
 
+        /// <summary>The south front's loggia: how far the hall's south wall stands behind the column line's face (the OSM
+        /// edge), the podium's front edge out from it, the podium's top, and the column line.</summary>
+        /// <summary>The south loggia: how far the wall stands back behind the podium edge (the column line).</summary>
+        public const double LoggiaBack = 2.5;
+
+        private const double PodiumOut = 0.3, SouthPodium = 2.0, ColumnLine = -0.45;
+
         private static void Hall(ref KpFrame f, MeshData m)
         {
             int lod = f.Lod;
             Affine3 g = f.Grid;
-            Kp.Box(m, g, HA0, HA1, -0.2, Cornice, HB0, HB1, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+            // The hall's walls: the south wall set back behind the giant colonnade (gaddi ref_00, ref_03, ref_05).
+            Kp.Box(m, g, HA0, HA1, -0.2, Cornice, HB0 + LoggiaBack, HB1, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             // The red-brown pitched roof behind the parapet.
             Affine3 rk = KpFacade.RoofFrame(ref f, HA0, HA1, HB0, HB1);
             Kp.Ridge(m, rk, 0.5 * (HA1 - HA0) - 0.4, 0.5 * (HB1 - HB0) - 0.4, Cornice + 0.2, RidgeV, 0.0, Kp.GaddiRoof, false, Math.Max(1, lod));
             double half;
             Affine3 s = f.GridSide(HA0, HA1, HB0, HB1, 0, 2, out half);
-            // The low podium along the front with its pierced balustrade.
-            Kp.Box(m, s, -half - 0.6, half + 0.6, -0.2, 1.0, 0, 1.5, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
-            Balustrade(m, s, -half - 0.6, half + 0.6, 1.42, 1.0, 0.85, lod);
-            // The projecting end bays.
+            // The podium along the front (2 m, a moulded base and cornice), the loggia floor on it.
+            Kp.Box(m, s, -half - 0.6, half + 0.6, -0.2, SouthPodium, -LoggiaBack, PodiumOut, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            Kp.Band(m, SacredDraw.At(s, 0, 0, PodiumOut), -half - 0.6, half + 0.6, 0, 0.4, 0.08, Kp.GaddiShade);
+            Kp.Band(m, SacredDraw.At(s, 0, 0, PodiumOut), -half - 0.7, half + 0.7, SouthPodium - 0.25, SouthPodium, 0.12, Kp.GaddiShade);
+            // The projecting end bays, closed from the hall wall out past the column line.
             const double endW = 5.5, proj = 0.6;
             for (int e = -1; e <= 1; e += 2)
             {
                 double u0 = e < 0 ? -half : half - endW, u1 = e < 0 ? -half + endW : half;
-                Kp.Box(m, s, u0, u1, 1.0, Cornice - 0.4, 0, proj, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                Kp.Box(m, s, u0, u1, SouthPodium - 0.2, Cornice - 0.4, -LoggiaBack, proj, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
                 Affine3 eb = SacredDraw.At(s, 0, 0, proj);
                 double uc = 0.5 * (u0 + u1);
-                TealArch(m, eb, uc, 1.6, 1.7, 4.3, lod);
+                TealArch(m, eb, uc, SouthPodium + 0.8, 1.7, 4.0, lod);
                 TealArch(m, eb, uc, 8.8, 1.7, 4.4, lod);
                 if (lod <= 1)
                     for (int q = -1; q <= 1; q += 2)
-                        EngagedColumn(m, eb, uc + q * 2.15, 1.0, 15.3, 0.36, lod);
+                        EngagedColumn(m, eb, uc + q * 2.15, SouthPodium, 15.3, 0.36, lod);
             }
-            // The centre: seven bays between paired engaged columns.
+            // The centre: seven bays; on the recessed wall shaded round-headed openings with white doors on both storeys,
+            // the giant columns standing proud at the podium's edge, pairs at the ends (the west portico's rhythm).
             int bays = 7;
             double c0 = -half + endW, c1 = half - endW, bay = (c1 - c0) / bays;
+            Affine3 back = SacredDraw.At(s, 0, 0, -LoggiaBack);
+            // The loggia's back wall lies in the colonnade's shade (gaddi ref_00, ref_05: grey behind the white columns).
+            Kp.Panel(m, back, c0, SouthPodium, c1, CapTop, 0.004, Kp.Ao(Kp.GaddiShade, lod >= 2 ? 0.8f : 0.7f));
             for (int i = 0; i < bays; i++)
             {
                 double uc = c0 + bay * (i + 0.5);
-                TealArch(m, s, uc, 1.6, 2.0, 4.6, lod);
-                TealArch(m, s, uc, 8.8, 2.0, 4.8, lod);
-                if (lod <= 1) Balustrade(m, s, uc - 1.25, uc + 1.25, 0.35, 7.9, 0.75, lod);
+                LoggiaOpening(m, back, uc, SouthPodium, 2.1, 4.7, lod);
+                LoggiaOpening(m, back, uc, 8.6, 1.9, 4.3, lod);
+                if (lod <= 1) Balustrade(m, back, uc - 1.3, uc + 1.3, 0.45, 7.7, 0.8, lod);
             }
-            if (lod <= 1)
-                for (int i = 0; i <= bays; i++)
-                    for (int q = -1; q <= 1; q += 2)
-                        EngagedColumn(m, s, c0 + bay * i + q * 0.48, 1.0, 15.3, 0.36, lod);
-            // Entablature, cornice, the balustraded parapet and the central gable.
-            Kp.Box(m, s, -half - 0.05, half + 0.05, 15.3, 16.9, 0, proj + 0.12, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
-            Kp.Box(m, s, -half - 0.25, half + 0.25, 16.9, Cornice, 0, proj + 0.45, Kp.GaddiShade, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
+            // The first-floor band across the back wall.
+            Kp.Box(m, back, c0, c1, 7.35, 7.7, 0, 0.55, Kp.GaddiShade, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+            for (int i = 0; i <= bays; i++)
+            {
+                double u = c0 + bay * i;
+                StandingColumn(m, s, u, lod);
+                if (i == 0) StandingColumn(m, s, u + 1.05, lod);
+                if (i == bays) StandingColumn(m, s, u - 1.05, lod);
+            }
+            // Entablature over the colonnade (its underside the loggia's ceiling), cornice, the balustraded parapet and
+            // the central gable.
+            Kp.Box(m, s, -half - 0.05, half + 0.05, CapTop, 16.9, -LoggiaBack, proj + 0.12, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
+            Kp.Box(m, s, -half - 0.05, half + 0.05, CapTop - 0.02, CapTop + 0.3, ColumnLine - 0.75, proj + 0.14, Kp.GaddiShade, BoxFaces.Front | BoxFaces.Bottom);
+            Kp.Box(m, s, -half - 0.25, half + 0.25, 16.9, Cornice, -LoggiaBack, proj + 0.45, Kp.GaddiShade, BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
             Balustrade(m, s, -half, half, proj + 0.2, Cornice, Parapet - Cornice, lod);
             Kp.Box(m, s, -3.4, 3.4, Cornice, Parapet + 0.05, proj, proj + 0.3, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
             SacredDraw.Tri(m, s, -3.6, Parapet + 0.05, proj + 0.3, 3.6, Parapet + 0.05, proj + 0.3, 0, Parapet + 1.5, proj + 0.3, 0, 0, 1, Kp.GaddiWhite);
@@ -131,6 +161,60 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                     TealArch(m, n, u, 9.0, 1.6, 3.8, Math.Max(1, lod));
                 }
             }
+            if (f.C != null)
+            {
+                // The podium is walkable up to the loggia; the columns are solid.
+                double x, y;
+                KpFrame.FromGrid(0.5 * (HA0 + HA1), HB0 - 0.5 * (PodiumOut - LoggiaBack), out x, out y);
+                f.Box(x, y, 0.5 * (HA1 - HA0) + 0.6, 0.5 * (PodiumOut + LoggiaBack), 102, 0, SouthPodium, GenColliderFlags.Walkable, GenColliders.Stone);
+            }
+        }
+
+        /// <summary>A free-standing giant column of the south front at face u: a tall moulded pedestal from the podium to
+        /// 6.2 m, the shaft (0.9 m across) to 14.6 m, an Ionic capital (scrolls and echinus at LOD0).</summary>
+        private static void StandingColumn(MeshData m, in Affine3 s, double u, int lod)
+        {
+            double w = ColumnLine;
+            Kp.Box(m, s, u - 0.62, u + 0.62, SouthPodium, PedTop, w - 0.62, w + 0.62, Kp.GaddiWhite, BoxFaces.All & ~BoxFaces.Bottom);
+            if (lod <= 1)
+            {
+                Kp.Box(m, s, u - 0.72, u + 0.72, PedTop - 0.25, PedTop, w - 0.72, w + 0.72, Kp.GaddiShade, BoxFaces.All & ~BoxFaces.Bottom);
+                Kp.Box(m, s, u - 0.7, u + 0.7, SouthPodium, SouthPodium + 0.3, w - 0.7, w + 0.7, Kp.GaddiShade, BoxFaces.All & ~BoxFaces.Bottom);
+            }
+            Column(m, SacredDraw.At(s, u, 0, w), PedTop, ShaftTop, 0.45, lod);
+            Kp.Box(m, s, u - 0.7, u + 0.7, ShaftTop, CapTop, w - 0.7, w + 0.7, Kp.GaddiWhite, BoxFaces.All & ~BoxFaces.Top);
+            if (lod > 0) return;
+            for (int e = -1; e <= 1; e += 2)
+                Shapes.Cylinder(m, SacredDraw.Basis(s, u + e * 0.5, ShaftTop - 0.12, w - 0.62, 1, 0, 0, 0, 0, 1), Kp.GaddiWhite, 0.2, 1.24, 8, 0.04, 1, true, true);
+            Shapes.Torus(m, SacredDraw.At(s, u, ShaftTop - 0.2, w), Kp.GaddiShade, 0.46, 0.08, 12, 4);
+        }
+
+        /// <summary>A round-headed opening in the loggia's back wall (the wall in shade): the shaded reveal, a pair of white
+        /// panelled doors (glazed only in the fan light) and the moulded archivolt. Sill at v0, width ww, crown at v0 + h.</summary>
+        private static void LoggiaOpening(MeshData m, in Affine3 k, double u, double v0, double ww, double h, int lod)
+        {
+            double r = 0.5 * ww, rect = h - r;
+            ShapeBrush shade = Kp.Ao(Kp.GaddiShade, 0.62f);
+            if (lod >= 2)
+            {
+                Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.01, Kp.Ao(Kp.WhiteTrim, 0.7f));
+                return;
+            }
+            // The white doors (two leaves with panels) and the shaded fan light over them.
+            Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.012, Kp.Ao(Kp.WhiteTrim, 0.78f));
+            Kp.HalfDisc(m, k, u, v0 + rect, r, r, 0.012, shade, lod == 0 ? 10 : 6);
+            Kp.Box(m, k, u - r - 0.16, u - r, v0, v0 + rect, 0, 0.12, Kp.WhiteTrim, BoxFaces.Wall);
+            Kp.Box(m, k, u + r, u + r + 0.16, v0, v0 + rect, 0, 0.12, Kp.WhiteTrim, BoxFaces.Wall);
+            ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.012, ww, r, 0.16, 0.12, false, Kp.WhiteTrim, lod + 1);
+            if (lod > 0) return;
+            Kp.Box(m, k, u - 0.025, u + 0.025, v0, v0 + rect, 0.012, 0.05, Kp.Ao(Kp.GaddiShade, 0.8f), BoxFaces.Front);
+            for (int sd = -1; sd <= 1; sd += 2)
+                for (int q = 0; q < 2; q++)
+                {
+                    double pu = u + sd * 0.5 * r, pv = v0 + 0.35 + q * 0.5 * rect;
+                    Kp.Box(m, k, pu - 0.3 * r, pu + 0.3 * r, pv, pv + 0.4 * rect - 0.2, 0.012, 0.035, Kp.Ao(Kp.WhiteTrim, 0.7f), BoxFaces.Front);
+                }
+            Kp.Box(m, k, u - r, u + r, v0 + rect - 0.08, v0 + rect, 0.012, 0.05, Kp.Ao(Kp.WhiteTrim, 0.85f), BoxFaces.Front | BoxFaces.Top);
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -272,12 +356,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Affine3 back = SacredDraw.At(k, 0, 0, 0.01);
             if (lod >= 2)
             {
-                Kp.Panel(m, back, u - r, v0, u + r, spring, 0.0, Kp.GaddiShade);
+                Kp.Panel(m, back, u - r, v0, u + r, spring, 0.0, Kp.Ao(Kp.GaddiShade, 0.7f));
                 TealArch(m, back, u, v0 + 0.3, 1.5, 3.4, lod);
                 return;
             }
-            Kp.Panel(m, back, u - r, v0, u + r, spring, 0.0, Kp.Ao(Kp.GaddiShade, 0.8f));
-            Kp.HalfDisc(m, back, u, spring, r, r, 0.0, Kp.Ao(Kp.GaddiShade, 0.75f), lod == 0 ? 10 : 6);
+            // The recess lies in deep shade behind the columns (gaddi c_08, p6: grey against the sunlit white).
+            Kp.Panel(m, back, u - r, v0, u + r, spring, 0.0, Kp.Ao(Kp.GaddiShade, 0.62f));
+            Kp.HalfDisc(m, back, u, spring, r, r, 0.0, Kp.Ao(Kp.GaddiShade, 0.56f), lod == 0 ? 10 : 6);
             ShikharaGenerator.Arch(m, k, u, spring, ArchDepth, width, r, 0.32, ArchDepth, false, Kp.GaddiWhite, lod);
             // Inside: the door with its pediment, the arched window above.
             Kp.Panel(m, back, u - 0.75, v0, u + 0.75, v0 + 3.3, 0.02, Kp.Tint(Kp.Teal, 0.85f));
@@ -310,33 +395,41 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Box(m, k, -8.2, 8.2, crown, CapTop, 0, d, Kp.GaddiWhite, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
         }
 
-        /// <summary>A tall round-arched window with teal glazing and frame (sill at v0, total height h with the arch).</summary>
+        /// <summary>A tall round-arched opening (sill at v0, total height h with the arch): white moulded surround and arch,
+        /// the opening a deep shaded recess behind slim dark-green painted frame bars (gaddi ref_00, ref_03, ref_05: the
+        /// openings read dark from the square, no glazing shows).</summary>
+        /// <summary>The shaded depth of the tall arched openings.</summary>
+        private static readonly ShapeBrush ArchShade = new ShapeBrush(MeshColor.FromHex(0x2A302E), MaterialChannel.Plain, 0.85f);
+
+        /// <summary>The dark-green painted frame bars in them.</summary>
+        private static readonly ShapeBrush ArchBar = new ShapeBrush(MeshColor.FromHex(0x24443C), MaterialChannel.Paint, 1f);
+
         private static void TealArch(MeshData m, in Affine3 k, double u, double v0, double ww, double h, int lod)
         {
             double r = 0.5 * ww, rect = h - r;
             if (lod >= 2)
             {
-                Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.015, Kp.Teal);
+                Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.015, ArchShade);
                 return;
             }
-            Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.012, Kp.Tint(Kp.Teal, 0.82f));
+            Kp.Panel(m, k, u - r, v0, u + r, v0 + rect, 0.012, ArchShade);
             // The moulded arch at LOD0 (LOD1 keeps the glazed fan and the frame).
             if (lod == 0) ShikharaGenerator.Arch(m, k, u, v0 + rect, 0.008, ww, r, 0.14, 0.1, false, Kp.WhiteTrim, lod);
-            // The arch's glazing (a fan of triangles) and the frame.
+            // The arch's shaded head (a fan of triangles) and the frame.
             int seg = lod == 0 ? 8 : 4;
             for (int i = 0; i < seg; i++)
             {
                 double a0 = Math.PI * i / seg, a1 = Math.PI * (i + 1) / seg;
                 SacredDraw.Tri(m, k, u, v0 + rect, 0.012, u + r * Math.Cos(a0), v0 + rect + r * Math.Sin(a0), 0.012, u + r * Math.Cos(a1), v0 + rect + r * Math.Sin(a1), 0.012,
-                               0, 0, 1, Kp.Tint(Kp.Teal, 0.9f));
+                               0, 0, 1, Kp.Tint(ArchShade, 1.12f));
             }
             Kp.Box(m, k, u - r - 0.14, u - r, v0, v0 + rect, 0, 0.1, Kp.WhiteTrim, BoxFaces.Wall);
             Kp.Box(m, k, u + r, u + r + 0.14, v0, v0 + rect, 0, 0.1, Kp.WhiteTrim, BoxFaces.Wall);
             Kp.Box(m, k, u - r - 0.25, u + r + 0.25, v0 - 0.15, v0, 0, 0.16, Kp.WhiteTrim, BoxFaces.Wall | BoxFaces.Bottom);
             if (lod > 0) return;
-            // Teal glazing bars.
-            Kp.Box(m, k, u - 0.04, u + 0.04, v0, v0 + rect + r, 0.012, 0.05, Kp.Teal, BoxFaces.Front);
-            for (int i = 1; i < 3; i++) Kp.Box(m, k, u - r, u + r, v0 + rect * i / 3 - 0.04, v0 + rect * i / 3 + 0.04, 0.012, 0.05, Kp.Teal, BoxFaces.Front);
+            // The dark-green painted frame bars.
+            Kp.Box(m, k, u - 0.04, u + 0.04, v0, v0 + rect + r, 0.012, 0.05, ArchBar, BoxFaces.Front);
+            for (int i = 1; i < 3; i++) Kp.Box(m, k, u - r, u + r, v0 + rect * i / 3 - 0.04, v0 + rect * i / 3 + 0.04, 0.012, 0.05, ArchBar, BoxFaces.Front);
         }
 
         /// <summary>A giant column shaft with a moulded base (frame at its axis on the square's level).</summary>

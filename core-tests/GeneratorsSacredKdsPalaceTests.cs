@@ -98,7 +98,7 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>Each part's main finial or tower top where the brief measures it (kds-palace.md §0.2) and as tall.</summary>
-        [TestCase(KdsPalacePart.Taleju, 45.5, 44.8, 2.0, 35.0)]
+        [TestCase(KdsPalacePart.Taleju, 45.5, 44.8, 2.0, 36.0)]
         [TestCase(KdsPalacePart.BasantapurTower, 1.6, -66.7, 2.5, 30.0)]
         [TestCase(KdsPalacePart.DeguTaleju, -0.1, 18.5, 3.0, 26.0)]
         [TestCase(KdsPalacePart.PanchMukhi, 19.5, -8.0, 2.5, 25.0)]
@@ -146,19 +146,22 @@ namespace Ghumante.Core.Tests
         }
 
         /// <summary>
-        /// The long tile pent roofs at mid height along the Basantapur fronts (photos basantapur_tower c_02, c_10): on the
-        /// Lohan south range over its carved lattice band (eave about 7.3 m) and on the white south-west wing between its
-        /// second and top rows of windows (eave about 8.3 m), standing out over the square in front of each face.
+        /// The tile roofs along the Basantapur fronts (photos basantapur_tower c_02, c_10, gaddi ref_01, ref_06): the Lohan
+        /// south range carries its long pent roof at mid height over its carved lattice band (eave about 7.3 m); the white
+        /// south-west wing has none (judge F16): three storeys under one deep tile roof whose eave (about 9.6 m) stands out
+        /// over the square right above the second row of windows.
         /// </summary>
         [Test]
         public void PentRoofsRunAlongTheBasantapurFronts()
         {
             MeshData lohan = Part(KdsPalacePart.LohanChowk, 0), wing = Part(KdsPalacePart.SouthWing, 0);
             int l = CountInGridBox(lohan, MaterialChannel.RoofTile, 22.0, 46.2, KpCourts.SouthB - 1.7, KpCourts.SouthB - 0.2, 7.2, 9.0);
-            int w = CountInGridBox(wing, MaterialChannel.RoofTile, KpRanges.WA0 - 0.2, KpRanges.WA1 + 0.2, KpRanges.WB0 - 1.6, KpRanges.WB0 - 0.2, 8.2, 9.9);
-            TestContext.WriteLine("pent roof tile vertices: Lohan " + l + ", white wing " + w);
+            int pent = CountInGridBox(wing, MaterialChannel.RoofTile, KpRanges.FrontA0, KpRanges.FrontA1, -77.5, -72.0, 7.0, 9.3);
+            int eave = CountInGridBox(wing, MaterialChannel.RoofTile, KpRanges.FrontA0, KpRanges.FrontA1, -77.5, -72.0, 9.3, 10.8);
+            TestContext.WriteLine("tile vertices: Lohan pent " + l + ", white wing below 9.3 m " + pent + ", white wing main eave " + eave);
             Assert.That(l, Is.GreaterThanOrEqualTo(8), "the Lohan south range carries its pent roof over the square");
-            Assert.That(w, Is.GreaterThanOrEqualTo(8), "the white wing carries its pent roof over the square");
+            Assert.That(pent, Is.EqualTo(0), "no pent roof on the white wing");
+            Assert.That(eave, Is.GreaterThanOrEqualTo(8), "the white wing's main eave stands out over the square at about 9.6 m");
         }
 
         /// <summary>The Gaddi Baithak portico's three tall arched recesses (gaddi c_08, c_09): the arcade face stands about
@@ -269,6 +272,89 @@ namespace Ghumante.Core.Tests
             ISet<ulong> hidden = StreamingScene.Heroes.HiddenRefs;
             foreach (string r in new[] { "w420797415", "w1374620542", "w906985354", "w906935471", "w910121098", "w910121099", "w906985353", "w429890388", "w430743883" })
                 Assert.That(hidden.Contains(HeritageRecord.WayRelationRef(r)), Is.True, r + " is hidden from the house bands");
+        }
+
+        /// <summary>
+        /// No generic house of the B0 band stands inside the palace outline west of the gate (round r8: the house grammar
+        /// built the white ranges continuing the Dakha front as modern apartment boxes): the centroid of every building the
+        /// streamer still draws lies outside the union of the Dakha range (w420797415), Gaddi Baithak (w247501389), the
+        /// Hnulunche range (w420797472) and the four ranges west of the Dakha front (w907080042, w1415152801, w1029965548,
+        /// w1117943799).
+        /// </summary>
+        [Test]
+        public void NoGenericHouseStandsInsideThePalaceOutline()
+        {
+            TileData t = Tile();
+            ISet<ulong> hidden = StreamingScene.Heroes.HiddenRefs;
+            string[] outline = { "w420797415", "w247501389", "w420797472", "w907080042", "w1415152801", "w1029965548", "w1117943799" };
+            var rings = new List<int[]>();
+            foreach (string id in outline)
+            {
+                ulong r = HeritageRecord.WayRelationRef(id);
+                Assert.That(hidden.Contains(r), Is.True, id + " is hidden from the house bands");
+                foreach (BuildingRecord b in t.Buildings)
+                    if (b.OsmRef == r && b.Rings != null && b.Rings.Length > 0) rings.Add(b.Rings[0]);
+            }
+            Assert.That(rings.Count, Is.GreaterThanOrEqualTo(5), "the outline's ways are in the sample pack");
+            int drawn = 0;
+            foreach (BuildingRecord b in t.Buildings)
+            {
+                if (hidden.Contains(b.OsmRef) || b.Rings == null || b.Rings.Length == 0) continue;
+                int[] ring = b.Rings[0];
+                int n = ring.Length / 2;
+                if (n < 3) continue;
+                double cx = 0, cz = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    cx += ring[2 * i];
+                    cz += ring[2 * i + 1];
+                }
+                cx /= n;
+                cz /= n;
+                drawn++;
+                foreach (int[] o in rings)
+                    Assert.That(Inside(o, cx, cz), Is.False,
+                                "house " + b.OsmRef + " (centroid " + (cx / 100).ToString("0.0") + ", " + (cz / 100).ToString("0.0") + ") stands inside the palace outline");
+            }
+            Assert.That(drawn, Is.GreaterThan(0));
+        }
+
+        private static bool Inside(int[] r, double x, double z)
+        {
+            int n = r.Length / 2;
+            bool inside = false;
+            for (int i = 0, k = n - 1; i < n; k = i++)
+            {
+                double xi = r[2 * i], zi = r[2 * i + 1], xk = r[2 * k], zk = r[2 * k + 1];
+                if ((zi > z) != (zk > z) && x < (xk - xi) * (z - zi) / (zk - zi) + xi) inside = !inside;
+            }
+            return inside;
+        }
+
+        /// <summary>
+        /// Round r8 judge findings, checked on the geometry: Taleju's lowest roof about 1.4 × its body and its gilt-window
+        /// storey about 7.5 m tall; the forecourt paved in grey flags wall to wall in front of the gate; Gaddi Baithak's
+        /// south front a colonnade standing proud of a recessed loggia wall; the railing along the white wing on Basantapur.
+        /// </summary>
+        [Test]
+        public void JudgedProportionsAndFrontagesHold()
+        {
+            MeshData gate = Part(KdsPalacePart.Gate, 0);
+            int flags = CountInGridBox(gate, MaterialChannel.Flagstone, KpGround.ForecourtA0, KpGround.ForecourtA1, KpGround.ForecourtB0, KpGround.ForecourtB1, 0.0, 0.05);
+            TestContext.WriteLine("forecourt flag vertices " + flags);
+            Assert.That(flags, Is.GreaterThan(1500), "the forecourt is paved in flags");
+            MeshData gaddi = Part(KdsPalacePart.GaddiBaithak, 0);
+            // Gaddi's south front: open between the giant columns (b HB0 + 0.45) and the loggia wall 2.5 m behind the podium edge.
+            int wallInFront = CountInGridBox(gaddi, MaterialChannel.Plaster, KpGaddi.HA0 + 6.0, KpGaddi.HA1 - 6.0, KpGaddi.HB0 + 1.1, KpGaddi.HB0 + 2.2, 9.0, 13.0);
+            int loggiaWall = CountInGridBox(gaddi, MaterialChannel.Plaster, KpGaddi.HA0 + 6.0, KpGaddi.HA1 - 6.0, KpGaddi.HB0 + KpGaddi.LoggiaBack - 0.15,
+                                            KpGaddi.HB0 + KpGaddi.LoggiaBack + 0.05, 2.0, 14.0);
+            TestContext.WriteLine("Gaddi plaster vertices between the columns and the loggia wall " + wallInFront + ", on the loggia wall " + loggiaWall);
+            Assert.That(wallInFront, Is.LessThan(10), "the south loggia is open behind the columns");
+            Assert.That(loggiaWall, Is.GreaterThan(100), "the loggia wall with its arched openings stands 2.5 m back");
+            MeshData wing = Part(KdsPalacePart.SouthWing, 0);
+            int rail = CountInGridBox(wing, MaterialChannel.Metal, KpRanges.FrontA0, KpRanges.FrontA1, -79.0, -73.0, 0.2, 1.6);
+            TestContext.WriteLine("white wing railing vertices " + rail);
+            Assert.That(rail, Is.GreaterThan(200), "the black railing runs along the white wing on Basantapur");
         }
 
         // =============================================================================================================

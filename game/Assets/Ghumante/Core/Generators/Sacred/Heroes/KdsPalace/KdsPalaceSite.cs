@@ -96,12 +96,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// <summary>Number of parts.</summary>
         public const int PartCount = 16;
 
-        /// <summary>The whole palace at LOD0 (all sixteen parts over some 250 × 200 m; the hero allocator shows a part at LOD0
-        /// only while it fills a third of the screen, so a handful at most at once: standing in Basantapur, the tower, the
-        /// Lohan front, the white wing and Kumari Ghar, about 70k). Above the monuments round's ~150k guide for a
-        /// single-temple site: this site is sixteen structures, one of them Taleju, a major temple of its own (about 32k of
-        /// its 60k allowance).</summary>
-        public const int SiteBudgetLod0 = 220000;
+        /// <summary>The whole palace at LOD0 (all sixteen parts over some 250 × 200 m, about 274k as built). The hero
+        /// allocator shows a part at LOD0 only while it fills a third of the screen, so a handful at most at once (standing in
+        /// Basantapur: the tower, Lohan, Kumari Ghar and the white wing, about 79k; on the forecourt the gate, the Dakha
+        /// fronts and Degu Taleju, about 64k, Taleju at LOD1). Above the monuments round's ~150k guide for a single-temple
+        /// site: this site is sixteen structures, one of them Taleju, a major temple of its own (about 40k of its 60k
+        /// allowance), and the judged fixes added the close-set struts (0.8 m on the temples, 1.0 m on the ranges, about
+        /// 44k in all), the 45° lattice in every Newar window (about 23k), the four white ranges west of the forecourt
+        /// (which replace four generic houses) and the forecourt flags.</summary>
+        public const int SiteBudgetLod0 = 285000;
 
         private static readonly string[] Ids =
         {
@@ -118,7 +121,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         };
 
         /// <summary>Highest point of each part above the square (m), as built.</summary>
-        private static readonly float[] Tops = { 23.2f, 35.5f, 30.0f, 21.4f, 15.9f, 18.3f, 17.9f, 16.9f, 26.2f, 17.0f, 25.2f, 15.0f, 14.8f, 23.1f, 19.6f, 21.0f };
+        private static readonly float[] Tops = { 23.2f, 36.0f, 30.0f, 21.4f, 15.9f, 18.3f, 17.9f, 16.9f, 26.2f, 17.0f, 25.2f, 15.0f, 14.8f, 23.7f, 19.6f, 21.0f };
 
         /// <summary>Bearing of each part's main facade or door.</summary>
         private static readonly float[] Doors = { 282f, 283f, 192f, 281f, 10f, 12f, 192f, 282f, 282f, 12f, 192f, 12f, 192f, 282f, 102f, 192f };
@@ -141,22 +144,22 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// LOD0 (the enclosed courts drop a level), LOD2 under an eighth.</summary>
         private static readonly int[][] Budgets =
         {
-            new[] { 18000, 5200, 900, 200 }, // gate
-            new[] { 35000, 14800, 1800, 200 }, // Taleju
-            new[] { 24000, 6600, 800, 200 }, // Basantapur tower
-            new[] { 15000, 5400, 1500, 200 }, // Gaddi Baithak
-            new[] { 20000, 9000, 900, 200 }, // Kumari Ghar
-            new[] { 13500, 6200, 1100, 200 }, // Dakha
-            new[] { 8800, 4000, 450, 200 }, // south wing
+            new[] { 24500, 6200, 900, 200 }, // gate
+            new[] { 43000, 14800, 2050, 200 }, // Taleju
+            new[] { 27000, 6600, 800, 200 }, // Basantapur tower
+            new[] { 18500, 6200, 2000, 200 }, // Gaddi Baithak
+            new[] { 25000, 8700, 1150, 200 }, // Kumari Ghar
+            new[] { 27000, 10300, 1700, 200 }, // Dakha
+            new[] { 12000, 3900, 450, 200 }, // south wing
             new[] { 13000, 5800, 1500, 200 }, // Mohan
-            new[] { 16500, 4900, 900, 200 }, // Degu Taleju
-            new[] { 19000, 7400, 1200, 200 }, // Nasal
+            new[] { 18200, 5200, 900, 200 }, // Degu Taleju
+            new[] { 22000, 7400, 1200, 200 }, // Nasal
             new[] { 8000, 2400, 750, 200 }, // Panch Mukhi
             new[] { 7000, 2300, 750, 200 }, // Mul
-            new[] { 19500, 4300, 900, 200 }, // Lohan
-            new[] { 8700, 2300, 450, 200 }, // Kirtipur
-            new[] { 4300, 900, 300, 200 }, // Bhaktapur
-            new[] { 11400, 3300, 600, 200 }, // Lalitpur
+            new[] { 21500, 4400, 900, 200 }, // Lohan
+            new[] { 13600, 4000, 650, 200 }, // Kirtipur (the big Bangla hood and the cusped-arch drum, judged round)
+            new[] { 5400, 950, 300, 200 }, // Bhaktapur
+            new[] { 14600, 3500, 600, 200 }, // Lalitpur
         };
 
         /// <summary>The hero id of a part.</summary>
@@ -232,7 +235,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                         "r2688997", "w111984923", "w429890326", "w429890329", "w429890381", "w429890382", "w429890383", "w429890384", "w429890386", "w429890387",
                         "w429890388",
                     };
-                case KdsPalacePart.Dakha: return new[] { "w420797415", "w910121099" };
+                // The Dakha range, the block west of Lam Chowk and the white ranges continuing the front west along the
+                // forecourt (round r8: before, the house grammar built these four as modern apartment boxes).
+                case KdsPalacePart.Dakha: return new[] { "w420797415", "w910121099", "w907080042", "w1415152801", "w1029965548", "w1117943799" };
                 case KdsPalacePart.SouthWing: return new[] { "w910121098", "w906935471" };
                 case KdsPalacePart.MohanChowk: return new[] { "r12339739" };
                 case KdsPalacePart.DeguTaleju: return new[] { "w1415152806" };

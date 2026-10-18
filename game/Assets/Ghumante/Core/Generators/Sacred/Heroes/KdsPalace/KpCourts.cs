@@ -247,7 +247,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Box(m, k, -half, half, g1 - 0.2, g1 + 0.05, 0, 0.16, Kp.White, BoxFaces.Wall | BoxFaces.Bottom);
             Kp.Box(m, k, -half + 0.1, half - 0.1, g0, g0 + 0.95, 0.04, 0.1, Kp.GalleryWood, BoxFaces.Front | BoxFaces.Top);
             Kp.Band(m, k, -half - 0.05, half + 0.05, NorthEave - 0.45, NorthEave - 0.25, 0.14, Kp.WhiteTrim);
-            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, NorthF2 + 0.4, 1.4, false, 211u, lod);
+            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, NorthF2 + 0.4, 1.0, false, 211u, lod);
             // The small red-valanced turret at the west end of the roof.
             Turret(ref f, m, -1.4, -6.0, 1.3, NorthEave + 0.4, true, lod);
         }
@@ -288,7 +288,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 int n = Math.Max(2, (int)Math.Round(2 * half / 1.6));
                 for (int i = 0; i < n; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / n, f1 + 1.5, 0.7, 1.0, lod, 2);
                 Kp.Cornice(m, k, -half, half, EastEave - 0.5, 0.36, Kp.Wood, lod);
-                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 0.6, 1.6, false, 223u + (uint)((int)Math.Round(-b0) & 0xFFFF), lod);
+                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 0.6, 1.0, false, 223u + (uint)((int)Math.Round(-b0) & 0xFFFF), lod);
             }
             if (f.C != null)
             {
@@ -332,7 +332,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Pent(m, k, -half, half, 8.7, 7.3, 1.75, 6.05, 1.55, Kp.Tile, true, lod);
             for (int i = 0; i < 4; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / 4, 9.3, 0.8, 0.62, lod, 2);
             Kp.Cornice(m, k, -half, half, eave - 0.1, 0.32, Kp.Wood, lod);
-            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, 9.0, 1.5, false, 227u, lod);
+            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, 9.0, 1.0, false, 227u, lod);
             if (f.C != null)
             {
                 f.GridBox(a0, a1, b0, b1, 0, ridge, GenColliderFlags.NoClimb, GenColliders.Brick);
@@ -514,7 +514,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 SouthFace(m, k, half, eave, lod);
                 Kp.Box(m, k, -half, half, 0, 0.35, 0, 1.6, Kp.Step, BoxFaces.Front | BoxFaces.Top | BoxFaces.Left | BoxFaces.Right);
                 Kp.Railing(m, k, -half + 0.3, half - 0.3, 1.45, 0.35, 0.95, lod);
-                if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, 22.2, 46.0, SouthB, HB0), south, 9.1, 1.5, false, 401u, lod);
+                if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, 22.2, 46.0, SouthB, HB0), south, 9.1, 1.0, false, 401u, lod);
             }
             // The two grey stone lions on tall pedestals: at the nine-storey tower's south-west corner and further east.
             LionAt(ref f, m, KpTowers.BA0 + 0.9, KpTowers.BB0 - 1.4, lod);
@@ -611,8 +611,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         private static void ShopRange(ref KpFrame f, MeshData m)
         {
             int lod = f.Lod;
-            const double a0 = 57.0, a1 = 80.7, b0 = -66.6, b1 = -56.0, eave = 5.3, ridge = 9.6, f1 = 3.1;
-            RoofSpec roof = KpFacade.Range(m, ref f, a0, a1, b0, b1, eave, ridge, 1.9, Kp.Brick, Kp.Tile, false, lod);
+            // The roof at about 35° (lalitpur_tower c_04: its tile surface reads from the street).
+            const double a0 = 57.0, a1 = 80.7, b0 = -66.6, b1 = -56.0, eave = 5.3, ridge = 10.1, f1 = 3.1;
+            RoofSpec roof = KpFacade.Range(m, ref f, a0, a1, b0, b1, eave, ridge, 1.5, Kp.Brick, Kp.Tile, false, lod);
             double half;
             Affine3 k = f.GridSide(a0, a1, b0, b1, 0, 2, out half);
             int shops = 8;
@@ -637,10 +638,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Kp.Band(m, k, -half, half, f1 - 0.25, f1 + 0.1, 0.18, Kp.WoodBeam);
             if (lod <= 1)
             {
+                // The row of small carved windows close under the eave.
                 int n = 10;
-                for (int i = 0; i < n; i++) Kp.Lattice(m, k, -half + 2 * half * (i + 0.5) / n, f1 + 1.0, 0.8, 0.6, lod, 2);
+                for (int i = 0; i < n; i++) Kp.FramedWindow(m, k, -half + 2 * half * (i + 0.5) / n, f1 + 0.6, 0.7, 0.85, false, lod);
                 Kp.Cornice(m, k, -half, half, eave - 0.05, 0.3, Kp.Wood, lod);
-                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 0.35, 1.5, false, 431u, lod);
+                Kp.Struts(m, KpFacade.RoofFrame(ref f, a0, a1, b0, b1), roof, f1 + 0.35, 1.0, false, 431u, lod);
             }
             if (f.C != null) f.GridBox(a0, a1, b0, b1, 0, ridge, GenColliderFlags.NoClimb, GenColliders.Brick);
         }

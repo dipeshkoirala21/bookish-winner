@@ -97,6 +97,61 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public static readonly ShapeBrush Leaves = B(0x3F7A3A, MaterialChannel.Foliage);
         public static readonly ShapeBrush Flowers = B(0xD8452E, MaterialChannel.Foliage);
 
+        // --- Round r8 (judge findings): the colours measured on the photos ----------------------------------------------
+
+        /// <summary>Taleju's body brick (taleju ref_00, ref_02): a darker brown-red than the palace's rebuilt ranges.</summary>
+        public static readonly ShapeBrush BrickTaleju = B(0x7A3E30, MaterialChannel.Brick);
+
+        /// <summary>The pale grey-blue painted pilasters of the Hanuman Dhoka gate (hanuman_gate c_06, c_14).</summary>
+        public static readonly ShapeBrush GatePale = B(0x7FA6C4, MaterialChannel.Paint);
+
+        /// <summary>The dark backing of a Newar lattice window (the holes of the screen) and the brown lattice bars over it
+        /// (#5A3E2C): from the square the fine diagonal lattice reads as one brown screen, never as glass.</summary>
+        public static readonly ShapeBrush LatticeBack = B(0x241912, MaterialChannel.WoodCarved, 0.75f);
+
+        public static readonly ShapeBrush LatticeBar = B(0x5A3E2C, MaterialChannel.WoodCarved);
+
+        /// <summary>The lattice screen seen from afar (LOD1-2): the bars and holes averaged.</summary>
+        public static readonly ShapeBrush LatticeFar = B(0x3E2C21, MaterialChannel.WoodCarved);
+
+        /// <summary>White jali (a pierced white screen) of the Rana windows on the palace fronts, and its shaded holes.</summary>
+        public static readonly ShapeBrush Jali = B(0xF0EDE5, MaterialChannel.Plaster);
+
+        public static readonly ShapeBrush JaliHole = B(0x6F6B66, MaterialChannel.Plain, 0.8f);
+
+        /// <summary>The white louvred shutters of the white palace fronts (hanuman_gate c_14, dakha_north c_07).</summary>
+        public static readonly ShapeBrush ShutterWhite = B(0xF1EFE8, MaterialChannel.Paint);
+
+        /// <summary>The warm terracotta tile of Panch Mukhi's five round roofs (panchamukhi c_10).</summary>
+        public static readonly ShapeBrush TileTerracotta = B(0xA0664A, MaterialChannel.RoofTile);
+
+        /// <summary>The grey-green sheet metal of the hipped roof over the forecourt's west block (2026 imagery).</summary>
+        public static readonly ShapeBrush MetalRoof = B(0x6E7F72, MaterialChannel.Metal);
+
+        /// <summary>Marigold garlands (orange-yellow).</summary>
+        public static readonly ShapeBrush Marigold = B(0xF0A21E, MaterialChannel.Foliage);
+
+        /// <summary>The grey stone flags of the forecourt (hanuman_gate c_07, c_14) and their darker joints.</summary>
+        public static readonly ShapeBrush FlagJoint = B(0x6F6B65, MaterialChannel.Flagstone);
+
+        /// <summary>Recolour the vertices from <paramref name="first"/> on that carry colour <paramref name="from"/> (RGB) to
+        /// <paramref name="to"/> (RGB), keeping alpha: used to repaint parts of the shared figures to the photographs.</summary>
+        public static void Recolor(MeshData m, int first, uint from, uint to)
+        {
+            byte fr = (byte)(from >> 16), fg = (byte)(from >> 8), fb = (byte)from;
+            byte tr = (byte)(to >> 16), tg = (byte)(to >> 8), tb = (byte)to;
+            byte[] c = m.Colors;
+            if (c == null) return;
+            for (int i = first; i < m.VertexCount; i++)
+            {
+                int o = 4 * i;
+                if (c[o] != fr || c[o + 1] != fg || c[o + 2] != fb) continue;
+                c[o] = tr;
+                c[o + 1] = tg;
+                c[o + 2] = tb;
+            }
+        }
+
         public static ShapeBrush Ao(in ShapeBrush b, float ao)
         {
             return new ShapeBrush(b.Color, b.Channel, ao);
@@ -169,50 +224,87 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         {
             if (lod >= 2)
             {
-                Panel(m, k, u - 0.5 * ww, vc - 0.5 * wh, u + 0.5 * ww, vc + 0.5 * wh, 0.02, Recess);
+                Panel(m, k, u - 0.5 * ww, vc - 0.5 * wh, u + 0.5 * ww, vc + 0.5 * wh, 0.02, LatticeFar);
                 return;
             }
             LatticeFrame(m, k, u, vc, ww, wh, Wood, lod, bars);
         }
 
-        /// <summary>The palace's lattice window body, built lean for the many hundred windows of the courts: the dark
-        /// opening, slim jambs (no hidden tops), the head with its ears and the sill; LOD0 adds the lattice as thin proud bars
-        /// (front faces only) in both directions.</summary>
+        /// <summary>
+        /// The palace's Newar lattice window (photos c_kumari, sweta_bhairav c_02/c_06, hanuman_gate c_14), built lean for
+        /// the many hundred windows of the courts: a deep, thickly moulded dark frame (jambs up to 0.18 m) whose lintel and
+        /// sill run out in long ears (the T-shape seen from the square), a stepped inner moulding (LOD0) and the screen: a
+        /// fine 45° lattice of brown bars over a dark backing (LOD0; <paramref name="bars"/> × 2 bars each way, 4-6), one
+        /// brown screen panel from LOD1. Never glass.
+        /// </summary>
         private static void LatticeFrame(MeshData m, in Affine3 k, double u, double vc, double ww, double wh, in ShapeBrush frame, int lod, int bars)
         {
-            const double Fw = 0.08, Ear = 0.12;
+            double fw = Math.Min(0.18, 0.1 + 0.08 * Math.Min(ww, wh)), ear = Math.Min(0.35, 0.12 + 0.25 * ww), bh = Math.Min(0.16, 0.08 + 0.08 * ww);
             double hu = 0.5 * ww, hv = 0.5 * wh;
-            Panel(m, k, u - hu, vc - hv, u + hu, vc + hv, 0.01, Recess);
+            Panel(m, k, u - hu, vc - hv, u + hu, vc + hv, 0.01, lod == 0 && bars > 0 ? LatticeBack : LatticeFar);
             BoxFaces jamb = lod == 0 ? BoxFaces.Front | BoxFaces.Left | BoxFaces.Right : BoxFaces.Front;
-            SacredDraw.Box(m, k, u - hu - Fw, u - hu, vc - hv, vc + hv, 0, 0.09, frame, jamb);
-            SacredDraw.Box(m, k, u + hu, u + hu + Fw, vc - hv, vc + hv, 0, 0.09, frame, jamb);
-            SacredDraw.Box(m, k, u - hu - Fw - Ear, u + hu + Fw + Ear, vc + hv, vc + hv + Fw, 0, 0.1, frame,
+            SacredDraw.Box(m, k, u - hu - fw, u - hu, vc - hv, vc + hv, 0, 0.12, frame, jamb);
+            SacredDraw.Box(m, k, u + hu, u + hu + fw, vc - hv, vc + hv, 0, 0.12, frame, jamb);
+            SacredDraw.Box(m, k, u - hu - fw - ear, u + hu + fw + ear, vc + hv, vc + hv + bh, 0, 0.14, frame,
                            lod == 0 ? BoxFaces.Wall | BoxFaces.Bottom : BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-            SacredDraw.Box(m, k, u - hu - Fw - Ear, u + hu + Fw + Ear, vc - hv - Fw, vc - hv, 0, 0.1, frame,
-                           lod == 0 ? BoxFaces.Wall : BoxFaces.Front | BoxFaces.Top);
-            if (lod >= 1 || bars <= 0) return;
-            const double Bw = 0.025, Proud = 0.045;
-            for (int i = 1; i <= bars; i++)
+            SacredDraw.Box(m, k, u - hu - fw - ear, u + hu + fw + ear, vc - hv - bh, vc - hv, 0, 0.14, frame,
+                           lod == 0 ? BoxFaces.Wall | BoxFaces.Bottom : BoxFaces.Front | BoxFaces.Top);
+            if (lod >= 1) return;
+            // The stepped inner moulding: a slimmer, lighter ring standing a little less proud inside the frame.
+            ShapeBrush mould = Tint(frame, 1.35f);
+            const double Mw = 0.045, Mp = 0.07;
+            Panel(m, k, u - hu, vc - hv, u - hu + Mw, vc + hv, Mp, mould);
+            Panel(m, k, u + hu - Mw, vc - hv, u + hu, vc + hv, Mp, mould);
+            Panel(m, k, u - hu + Mw, vc + hv - Mw, u + hu - Mw, vc + hv, Mp, mould);
+            Panel(m, k, u - hu + Mw, vc - hv, u + hu - Mw, vc - hv + Mw, Mp, mould);
+            if (bars <= 0) return;
+            DiagonalLattice(m, k, u, vc, hu - Mw, hv - Mw, Math.Max(4, Math.Min(6, 2 * bars)), 0.04, 0.022, LatticeBar);
+        }
+
+        /// <summary>A 45° lattice of <paramref name="n"/> thin bars each way over the rectangle (u ± hu, vc ± hv), standing
+        /// <paramref name="w"/> proud, bars <paramref name="half"/> × 2 wide, clipped to the rectangle (front faces only).</summary>
+        public static void DiagonalLattice(MeshData m, in Affine3 k, double u, double vc, double hu, double hv, int n, double w, double half, in ShapeBrush b)
+        {
+            double span = hu + hv, step = 2 * span / (n + 1), d = half * 0.70710678;
+            for (int fam = 0; fam < 2; fam++)
             {
-                double uu = u - hu + ww * i / (bars + 1), vv = vc - hv + wh * i / (bars + 1);
-                Panel(m, k, uu - Bw, vc - hv, uu + Bw, vc + hv, Proud, frame);
-                Panel(m, k, u - hu, vv - Bw, u + hu, vv + Bw, Proud + 0.004, frame);
+                double sg = fam == 0 ? 1 : -1;
+                for (int i = 1; i <= n; i++)
+                {
+                    // The line v = sg·u + c (local to the centre).
+                    double c = -span + step * i;
+                    double ua = Math.Max(-hu, sg > 0 ? -hv - c : c - hv), ub = Math.Min(hu, sg > 0 ? hv - c : c + hv);
+                    if (ub - ua < 0.02) continue;
+                    double va = sg * ua + c, vb = sg * ub + c;
+                    // Offset across the bar: (−sg, 1)/√2 · half.
+                    double ou = -sg * d, ov = d, ww = w + 0.004 * fam;
+                    SacredDraw.Quad(m, k, u + ua - ou, vc + va - ov, ww, u + ub - ou, vc + vb - ov, ww, u + ub + ou, vc + vb + ov, ww, u + ua + ou, vc + va + ov,
+                                    ww, 0, 0, 1, b);
+                }
             }
         }
 
         /// <summary>A Newar window with a cusped arch head (the upper windows of Kumari Ghar and the palace courts): a carved
-        /// frame with ears, the lattice and the lobed arch over it.</summary>
-        public static void ArchWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, int lod)
+        /// frame with ears, the lattice and the lobed arch over it. <paramref name="rise"/> is the arch head's height as a
+        /// fraction of the width (0.36 a low segmental head; 0.55 the round heads of Kumari Ghar's ground floor; about 0.7
+        /// the tall pointed cusped heads of the Kirtipur drum). Heads above half the width get their ring carved in the
+        /// lighter wood, so it reads against the dark lattice, and the lattice carried up into them.</summary>
+        public static void ArchWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, int lod, double rise = 0.36)
         {
             if (lod >= 2)
             {
                 Panel(m, k, u - 0.5 * ww, v0, u + 0.5 * ww, v0 + wh, 0.02, Recess);
                 return;
             }
-            double archRise = 0.36 * ww;
+            double archRise = Math.Min(rise * ww, 0.5 * wh);
+            bool tall = rise > 0.5;
             LatticeFrame(m, k, u, v0 + 0.5 * (wh - archRise), ww, wh - archRise, Wood, lod, lod == 0 ? 3 : 0);
-            ShikharaGenerator.Arch(m, k, u, v0 + wh - archRise, 0.02, ww, archRise, 0.09, 0.08, true, Wood, lod);
-            Panel(m, k, u - 0.5 * ww, v0 + wh - archRise, u + 0.5 * ww, v0 + wh - 0.05, 0.015, Recess);
+            ShikharaGenerator.Arch(m, k, u, v0 + wh - archRise, 0.02, ww, archRise, tall ? 0.11 : 0.09, 0.08, true, tall ? WoodMid : Wood,
+                                   lod == 0 && (ww >= 1.1 || tall) ? 0 : 1);
+            HalfDisc(m, k, u, v0 + wh - archRise, 0.5 * ww, archRise, 0.015, lod == 0 ? LatticeBack : LatticeFar, lod == 0 ? 8 : 5);
+            if (!tall || lod > 0) return;
+            // The tall heads: the lattice carried up into the arch.
+            DiagonalLattice(m, k, u, v0 + wh - 0.55 * archRise, 0.3 * ww, 0.4 * archRise, 3, 0.04, 0.018, LatticeBar);
         }
 
         /// <summary>A projecting three-bay carved window (sāḥ jhyā) on the wall from sill v0 (gilt when asked).</summary>
@@ -227,15 +319,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         }
 
         /// <summary>
-        /// A Rana window of the white ranges: a moulded plaster surround with a hood, the glazing and a pair of louvred
-        /// shutter leaves standing open against the wall (or closed when <paramref name="closed"/>), sill at v0.
+        /// A Rana window of the white ranges (photos hanuman_gate c_14, dakha_north c_07): a moulded plaster surround with a
+        /// hood moulding, sill at v0. Closed (<paramref name="closed"/>): louvred shutter leaves across it (white on the palace
+        /// fronts). Open: the opening filled with a screen, never glass (a dark Newar lattice, or white jali when
+        /// <paramref name="jali"/>), the louvred leaves folded back against the wall. <paramref name="hood"/> adds the cusped
+        /// stucco hood of the gate front over the surround.
         /// </summary>
-        public static void RanaWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, in ShapeBrush shutter, bool closed, int lod)
+        public static void RanaWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, in ShapeBrush shutter, bool closed, int lod,
+                                      bool jali = false, bool hood = false)
         {
             double hu = 0.5 * ww;
             if (lod >= 2)
             {
-                Panel(m, k, u - hu, v0, u + hu, v0 + wh, 0.02, closed ? shutter : Recess);
+                Panel(m, k, u - hu, v0, u + hu, v0 + wh, 0.02, closed ? Tint(shutter, 0.8f) : jali ? JaliHole : LatticeFar);
                 return;
             }
             // Surround: jambs, sill and a hood moulding.
@@ -243,23 +339,37 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Box(m, k, u + hu, u + hu + 0.14, v0, v0 + wh, 0, 0.06, WhiteTrim, BoxFaces.Wall);
             Box(m, k, u - hu - 0.2, u + hu + 0.2, v0 - 0.12, v0, 0, 0.1, WhiteTrim, BoxFaces.Wall | BoxFaces.Bottom);
             Box(m, k, u - hu - 0.22, u + hu + 0.22, v0 + wh, v0 + wh + 0.16, 0, 0.12, WhiteTrim, BoxFaces.Wall | BoxFaces.Bottom);
+            if (hood)
+            {
+                // The cusped stucco hood over the window (a lobed arch in relief with its shaded field).
+                double hw = ww + 0.5, rise = 0.42 * hw, hv = v0 + wh + 0.16;
+                HalfDisc(m, k, u, hv, 0.5 * hw - 0.08, rise - 0.08, 0.008, WhiteRelief, lod == 0 ? 10 : 6);
+                ShikharaGenerator.Arch(m, k, u, hv, 0.01, hw - 0.16, rise - 0.08, 0.09, 0.05, true, WhiteTrim, lod + 1);
+            }
             if (closed)
             {
                 Panel(m, k, u - hu, v0, u + hu, v0 + wh, 0.025, shutter);
                 if (lod == 0)
                 {
-                    // Louvres: a few dark slats and the meeting stile.
-                    for (int i = 1; i < 6; i++)
+                    // Louvres: slats across both leaves and the meeting stile.
+                    int n = Math.Max(5, (int)Math.Round(wh / 0.16));
+                    for (int i = 1; i < n; i++)
                     {
-                        double v = v0 + wh * i / 6.0;
-                        Box(m, k, u - hu + 0.04, u + hu - 0.04, v - 0.025, v + 0.01, 0.025, 0.045, Tint(shutter, 0.72f), BoxFaces.Front | BoxFaces.Top);
+                        double v = v0 + wh * i / n;
+                        Box(m, k, u - hu + 0.04, u + hu - 0.04, v - 0.025, v + 0.01, 0.025, 0.045, Tint(shutter, 0.78f), BoxFaces.Front | BoxFaces.Top);
                     }
-                    Box(m, k, u - 0.025, u + 0.025, v0, v0 + wh, 0.025, 0.05, Tint(shutter, 0.8f), BoxFaces.Front);
+                    Box(m, k, u - 0.025, u + 0.025, v0, v0 + wh, 0.025, 0.05, Tint(shutter, 0.85f), BoxFaces.Front);
                 }
                 return;
             }
-            Panel(m, k, u - hu, v0, u + hu, v0 + wh, 0.012, Glass);
-            if (lod == 0) Box(m, k, u - 0.025, u + 0.025, v0, v0 + wh, 0.012, 0.04, WhiteTrim, BoxFaces.Front);
+            // The screen in the opening: white jali (white bars over shaded holes) or the dark Newar lattice.
+            Panel(m, k, u - hu, v0, u + hu, v0 + wh, 0.012, jali ? JaliHole : lod == 0 ? LatticeBack : LatticeFar);
+            if (lod == 0)
+            {
+                DiagonalLattice(m, k, u, v0 + 0.5 * wh, hu, 0.5 * wh, Math.Max(5, Math.Min(10, (int)Math.Round(wh / 0.17))), 0.03, jali ? 0.035 : 0.022,
+                                jali ? Jali : LatticeBar);
+                Box(m, k, u - 0.03, u + 0.03, v0, v0 + wh, 0.012, 0.05, jali ? WhiteTrim : Wood, BoxFaces.Front);
+            }
             // Open leaves folded back against the wall beside the surround.
             double lw = 0.5 * ww;
             Box(m, k, u - hu - 0.16 - lw, u - hu - 0.16, v0 + 0.02, v0 + wh - 0.02, 0.0, 0.05, shutter, BoxFaces.Wall | BoxFaces.Bottom);
@@ -268,10 +378,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             for (int s = -1; s <= 1; s += 2)
             {
                 double c = u + s * (hu + 0.16 + 0.5 * lw);
-                for (int i = 1; i < 5; i++)
+                for (int i = 1; i < 6; i++)
                 {
-                    double v = v0 + wh * i / 5.0;
-                    Box(m, k, c - 0.42 * lw, c + 0.42 * lw, v - 0.02, v + 0.01, 0.05, 0.065, Tint(shutter, 0.7f), BoxFaces.Front | BoxFaces.Top);
+                    double v = v0 + wh * i / 6.0;
+                    Box(m, k, c - 0.42 * lw, c + 0.42 * lw, v - 0.02, v + 0.01, 0.05, 0.065, Tint(shutter, 0.72f), BoxFaces.Front | BoxFaces.Top);
                 }
             }
         }
@@ -351,43 +461,93 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         /// lintel and under the sill, and, with <paramref name="crest"/>, a carved crest over it. Centre u, sill v0.
         /// LOD0 about 90 triangles (plus the crest), LOD1 the frame, LOD2 the dark opening and the lintel line.
         /// </summary>
-        public static void FramedWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, bool crest, int lod)
+        public static void FramedWindow(MeshData m, in Affine3 k, double u, double v0, double ww, double wh, bool crest, int lod, int bays = 1, bool gilt = false)
         {
-            const double F = 0.13;
+            const double F = 0.16;
             double hu = 0.5 * ww, ear = Math.Min(0.5, 0.3 + 0.12 * ww), top = v0 + wh;
+            ShapeBrush frame = gilt ? GiltDeep : Wood, inner = gilt ? Gilt : WoodMid;
             if (lod >= 2)
             {
-                Panel(m, k, u - hu - F, v0, u + hu + F, top, 0.02, Recess);
+                Panel(m, k, u - hu - F, v0, u + hu + F, top, 0.02, gilt ? GiltDeep : LatticeFar);
                 Box(m, k, u - hu - F - ear, u + hu + F + ear, top, top + 0.16, 0, 0.12, Wood, BoxFaces.Front | BoxFaces.Top);
                 return;
             }
-            Panel(m, k, u - hu, v0, u + hu, top, 0.01, Recess);
+            Panel(m, k, u - hu, v0, u + hu, top, 0.01, lod == 0 ? LatticeBack : LatticeFar);
             BoxFaces jamb = lod == 0 ? BoxFaces.Front | BoxFaces.Left | BoxFaces.Right : BoxFaces.Front;
-            Box(m, k, u - hu - F, u - hu, v0, top, 0, 0.12, Wood, jamb);
-            Box(m, k, u + hu, u + hu + F, v0, top, 0, 0.12, Wood, jamb);
-            // Lintel and sill with their ears, and the stepped mouldings beyond them.
-            Box(m, k, u - hu - F - ear, u + hu + F + ear, top, top + 0.17, 0, 0.15, Wood, BoxFaces.Wall | BoxFaces.Bottom);
-            Box(m, k, u - hu - F - ear, u + hu + F + ear, v0 - 0.17, v0, 0, 0.15, Wood, BoxFaces.Wall | BoxFaces.Bottom);
+            Box(m, k, u - hu - F, u - hu, v0, top, 0, 0.14, frame, jamb);
+            Box(m, k, u + hu, u + hu + F, v0, top, 0, 0.14, frame, jamb);
+            // Lintel and sill with their long ears, and the stepped mouldings beyond them.
+            Box(m, k, u - hu - F - ear, u + hu + F + ear, top, top + 0.17, 0, 0.17, Wood, BoxFaces.Wall | BoxFaces.Bottom);
+            Box(m, k, u - hu - F - ear, u + hu + F + ear, v0 - 0.17, v0, 0, 0.17, Wood, BoxFaces.Wall | BoxFaces.Bottom);
+            // The mullions of a three-bay window (posts between the lattices).
+            for (int i = 1; i < bays; i++)
+            {
+                double uu = u - hu + ww * i / bays;
+                Box(m, k, uu - 0.07, uu + 0.07, v0, top, 0, 0.12, frame, lod == 0 ? BoxFaces.Front | BoxFaces.Left | BoxFaces.Right : BoxFaces.Front);
+            }
             if (lod == 0)
             {
-                Box(m, k, u - hu - F - 0.55 * ear, u + hu + F + 0.55 * ear, top + 0.17, top + 0.3, 0, 0.1, WoodMid, BoxFaces.Wall);
-                Box(m, k, u - hu - F - 0.55 * ear, u + hu + F + 0.55 * ear, v0 - 0.3, v0 - 0.17, 0, 0.1, WoodMid, BoxFaces.Front | BoxFaces.Bottom);
-                // The inner frame and the lattice (a close grid of slim bars, light between them).
-                Box(m, k, u - hu, u + hu, top - 0.07, top, 0.01, 0.08, WoodMid, BoxFaces.Front | BoxFaces.Bottom);
-                Box(m, k, u - hu, u + hu, v0, v0 + 0.07, 0.01, 0.08, WoodMid, BoxFaces.Front | BoxFaces.Top);
-                int nu = Math.Max(3, (int)Math.Round(ww / 0.2)), nv = Math.Max(3, (int)Math.Round(wh / 0.2));
-                for (int i = 1; i < nu; i++)
+                Box(m, k, u - hu - F - 0.55 * ear, u + hu + F + 0.55 * ear, top + 0.17, top + 0.3, 0, 0.11, WoodMid, BoxFaces.Wall);
+                Box(m, k, u - hu - F - 0.55 * ear, u + hu + F + 0.55 * ear, v0 - 0.3, v0 - 0.17, 0, 0.11, WoodMid, BoxFaces.Front | BoxFaces.Bottom);
+                // The stepped inner frame and the fine diagonal lattice of each bay.
+                Box(m, k, u - hu, u + hu, top - 0.07, top, 0.01, 0.09, inner, BoxFaces.Front | BoxFaces.Bottom);
+                Box(m, k, u - hu, u + hu, v0, v0 + 0.07, 0.01, 0.09, inner, BoxFaces.Front | BoxFaces.Top);
+                Box(m, k, u - hu, u - hu + 0.06, v0 + 0.07, top - 0.07, 0.01, 0.09, inner, BoxFaces.Front | BoxFaces.Right);
+                Box(m, k, u + hu - 0.06, u + hu, v0 + 0.07, top - 0.07, 0.01, 0.09, inner, BoxFaces.Front | BoxFaces.Left);
+                double bw = ww / bays;
+                for (int i = 0; i < bays; i++)
                 {
-                    double uu = u - hu + ww * i / nu;
-                    Panel(m, k, uu - 0.022, v0 + 0.07, uu + 0.022, top - 0.07, 0.05, Wood);
-                }
-                for (int i = 1; i < nv; i++)
-                {
-                    double vv = v0 + wh * i / nv;
-                    Panel(m, k, u - hu, vv - 0.022, u + hu, vv + 0.022, 0.054, Wood);
+                    double bu = u - hu + bw * (i + 0.5), bhu = 0.5 * bw - (bays > 1 ? 0.07 : 0.06), bhv = 0.5 * wh - 0.07;
+                    DiagonalLattice(m, k, bu, v0 + 0.5 * wh, bhu, bhv, Math.Max(4, Math.Min(10, (int)Math.Round(2 * Math.Max(bhu, bhv) / 0.16))), 0.045, 0.022,
+                                    LatticeBar);
                 }
             }
             if (crest) Crest(m, k, u, top + (lod == 0 ? 0.3 : 0.17), 0.02, ww + 0.25, 0.42 * ww + 0.15, Wood, lod);
+        }
+
+        /// <summary>
+        /// A semicircular carved torana over a Newar window (Kumari Ghar's main windows, c_kumari c_00): a dark wood fan
+        /// tympanum of radius <paramref name="r"/> standing on its base line at (u, v), a moulded rim, radial carving ribs
+        /// and a small boss (LOD0), the field and rim from LOD1. Returns its top.
+        /// </summary>
+        public static double FanTorana(MeshData m, in Affine3 k, double u, double v, double r, int lod)
+        {
+            int seg = lod == 0 ? 12 : lod == 1 ? 8 : 5;
+            HalfDisc(m, k, u, v, r, r, 0.03, Tint(Wood, 0.85f), seg);
+            if (lod >= 2) return v + r;
+            ShikharaGenerator.Arch(m, k, u, v, 0.03, 2 * r - 0.16, r - 0.08, 0.12, 0.1, false, Wood, lod + 1);
+            if (lod > 0) return v + r;
+            // Radial ribs (the carved rays of the fan) and the inner band.
+            const int Ribs = 9;
+            for (int i = 0; i < Ribs; i++)
+            {
+                double a = Math.PI * (i + 0.5) / Ribs, c = Math.Cos(a), s = Math.Sin(a), r0 = 0.3 * r, r1 = 0.86 * r, t = 0.022;
+                SacredDraw.Quad(m, k, u + r0 * c - t * s, v + r0 * s + t * c, 0.06, u + r1 * c - t * s, v + r1 * s + t * c, 0.06, u + r1 * c + t * s, v + r1 * s - t * c, 0.06,
+                                u + r0 * c + t * s, v + r0 * s - t * c, 0.06, 0, 0, 1, WoodMid);
+            }
+            HalfDisc(m, k, u, v, 0.3 * r, 0.3 * r, 0.065, WoodMid, 6);
+            Shapes.Sphere(m, SacredDraw.At(k, u, v + 0.16 * r, 0.09), GiltDeep, 0.07, 5);
+            return v + r;
+        }
+
+        /// <summary>A seated deity figure (the gate panel's figures, hanuman_gate c_14) facing +w at (u, v, w): crossed
+        /// legs, a rounded torso, arms, a head with a crown; <paramref name="arms"/> above 2 fans more arms out.</summary>
+        public static void SeatedFigure(MeshData m, in Affine3 k, double u, double v, double w, double h, in ShapeBrush body, in ShapeBrush cloth, int arms, int lod)
+        {
+            if (lod >= 2) return;
+            int sg = lod == 0 ? 8 : 5;
+            Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.12 * h, w + 0.06 * h), cloth, 0.32 * h, 0.12 * h, 0.2 * h, sg, false);
+            Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.4 * h, w), cloth, 0.17 * h, 0.22 * h, 0.12 * h, sg, false);
+            Shapes.Sphere(m, SacredDraw.At(k, u, v + 0.72 * h, w + 0.01 * h), body, 0.1 * h, sg);
+            Shapes.Cone(m, SacredDraw.At(k, u, v + 0.8 * h, w), Gilt, 0.08 * h, 0.2 * h, 6, 0, 0, false);
+            if (lod > 0) return;
+            int pairs = Math.Max(1, arms / 2);
+            for (int i = 0; i < pairs; i++)
+            {
+                double spread = 0.18 * h + 0.07 * h * i, lift = 0.45 * h + 0.1 * h * i;
+                for (int s = -1; s <= 1; s += 2)
+                    Shapes.Bar(m, k, body, u + s * 0.14 * h, v + 0.55 * h, w, u + s * (0.14 * h + spread), v + lift, w + 0.06 * h, 0.025 * h, 4);
+            }
         }
 
         /// <summary>A flat half disc (an arch head's field) on the wall plane w facing +w: centre (u, v), half width r,
@@ -473,12 +633,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             {
                 double u = u0 + (u1 - u0) * i / n;
                 Box(m, k, u - 0.045, u + 0.045, v0 + 0.82, v0 + h - 0.18, depth - 0.12, depth - 0.03, GalleryWood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
-                if (lod == 0 && i < n)
+                if (i < n)
                 {
-                    // Lattice cross-bars in the balustrade bay (light shows through between them).
-                    double c = u + 0.5 * (u1 - u0) / n;
-                    Box(m, k, c - 0.02, c + 0.02, v0 + 0.06, v0 + 0.8, depth - 0.03, depth, GalleryBeam, BoxFaces.Front);
-                    Box(m, k, u + 0.05, u + (u1 - u0) / n - 0.05, v0 + 0.4, v0 + 0.44, depth - 0.03, depth, GalleryBeam, BoxFaces.Front);
+                    // The dark lattice screen between the posts (hanuman_gate c_06, c_14: the gallery reads as a dark band
+                    // with only a narrow open strip under the top beam), slightly behind the posts.
+                    double bu0 = u + 0.045, bu1 = u + (u1 - u0) / n - 0.045, sv0 = v0 + 0.9, sv1 = v0 + h - 0.18 - 0.25;
+                    if (sv1 > sv0 + 0.2) Panel(m, k, bu0, sv0, bu1, sv1, depth - 0.08, Ao(GalleryWood, 0.85f));
+                    if (lod == 0)
+                    {
+                        // A carved mid rail and a lighter diagonal lattice over the lower half; the balustrade's cross-bars.
+                        if (sv1 > sv0 + 0.2)
+                        {
+                            Panel(m, k, bu0, 0.5 * (sv0 + sv1) - 0.03, bu1, 0.5 * (sv0 + sv1) + 0.03, depth - 0.06, GalleryBeam);
+                            DiagonalLattice(m, k, 0.5 * (bu0 + bu1), 0.25 * (3 * sv0 + sv1), 0.5 * (bu1 - bu0), 0.25 * (sv1 - sv0), 3, depth - 0.07, 0.016,
+                                            Tint(GalleryWood, 1.6f));
+                        }
+                        double c = u + 0.5 * (u1 - u0) / n;
+                        Box(m, k, c - 0.02, c + 0.02, v0 + 0.06, v0 + 0.8, depth - 0.03, depth, GalleryBeam, BoxFaces.Front);
+                        Box(m, k, u + 0.05, u + (u1 - u0) / n - 0.05, v0 + 0.4, v0 + 0.44, depth - 0.03, depth, GalleryBeam, BoxFaces.Front);
+                    }
                 }
                 // A slim black diagonal strut from the wall up to the floor's edge.
                 if (lod <= 1) Strut(m, k, u, v0 - 1.35, 0.02, v0 - 0.2, depth - 0.12, 0.045, GalleryWood);
@@ -723,16 +896,86 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
         }
 
-        /// <summary>Carved struts under a roof every <paramref name="pitch"/> metres along each wall (LOD0 and LOD1).</summary>
+        /// <summary>tan 60°: the struts stand at about 60° (taleju ref_00, ref_02; lalitpur_tower c_04).</summary>
+        private const double Tan60 = 1.7320508;
+
+        private static readonly ShapeBrush[] StrutPaint =
+        {
+            B(0x8E5B37, MaterialChannel.WoodCarved), B(0x7A4A2E, MaterialChannel.WoodCarved), B(0x6B4129, MaterialChannel.WoodCarved),
+            B(0x845236, MaterialChannel.WoodCarved),
+        };
+
+        /// <summary>
+        /// The carved struts (tunala) under a roof, as photographed on Taleju, the towers and the ranges (taleju ref_00,
+        /// ref_02, lalitpur_tower c_04, kirtipur_tower): slender (about 0.15-0.25 m wide), steep (about 60°) and close-set
+        /// every <paramref name="pitch"/> metres (0.8 m on the temples, 1.0 m on the ranges), each standing on the wall
+        /// with its head tight under the soffit's inner purlin, reaching out only about 0.45 of the eave's depth (at most
+        /// 1.25 m, so a strut is at most about 2.5 m long: the outer eave rests on the rafters), so under a deep roof they read as one dense dark carved band.
+        /// <paramref name="footV"/> is the lowest their feet may stand (the storey's floor). The corners get the winged
+        /// griffin struts along the diagonal (LOD0). LOD0 and LOD1 (every other strut, plain sections).
+        /// </summary>
         public static int Struts(MeshData m, in Affine3 k, in RoofSpec r, double footV, double pitch, bool rich, uint seed, int lod)
         {
             if (lod >= 2) return 0;
-            // The struts' feet sit on the cornice a little under the soffit (the photographed struts are about as long as
-            // the eave is deep), never down the wall.
-            double over = Math.Max(r.EaveU - r.WallU, r.EaveW - r.WallW);
-            footV = Math.Max(footV, r.WallTopV - (1.15 * over + 0.45));
-            int pu = Math.Max(2, (int)Math.Round(2 * r.WallU / pitch)), pw = Math.Max(2, (int)Math.Round(2 * r.WallW / pitch));
-            return SacredParts.Struts(m, k, r, footV, pu, pw, rich, Wood, seed, lod);
+            pitch = Math.Max(0.5, pitch);
+            int drawn = 0;
+            double eaveLow = r.EaveV - r.FasciaH;
+            for (int corner = 0; corner <= 1; corner++)
+            {
+                if (corner == 1 && lod > 0) break;
+                for (int s = 0; s < 4; s++)
+                {
+                    double along = s % 2 == 0 ? r.WallU : r.WallW, wall = s % 2 == 0 ? r.WallW : r.WallU;
+                    double depth = s % 2 == 0 ? r.EaveW - r.WallW : r.EaveU - r.WallU, eaveAlong = s % 2 == 0 ? r.EaveU : r.EaveW;
+                    if (depth < 0.25) continue;
+                    double hr = Math.Max(0.35, Math.Min(0.45 * depth, 1.25)), f = hr / depth;
+                    double size = Math.Max(0.45, Math.Min(0.85, 0.25 + 0.45 * hr)), margin = depth > 2.2 && lod == 0 ? 0.16 : 0.07;
+                    double ou, ow, su, sw;
+                    SacredParts.Out(s, out ou, out ow);
+                    su = s == 0 ? 1 : s == 2 ? -1 : 0;
+                    sw = s == 1 ? 1 : s == 3 ? -1 : 0;
+                    if (corner == 1)
+                    {
+                        // The winged corner strut along the diagonal where this side meets the next one.
+                        double cu, cv, cw;
+                        SacredParts.RoofPoint(r, s, 1, 0, out cu, out cv, out cw);
+                        double headV = r.WallTopV + (cv - r.FasciaH - r.WallTopV) * f - margin, dh = hr * 1.41421356;
+                        double foot = Math.Max(footV, headV - hr * Tan60 * 1.1), dv = headV - foot, len = Math.Sqrt(dv * dv + dh * dh);
+                        if (len < 0.4) continue;
+                        MeshData cp = SacredParts.StrutProto(len, size * 1.25, rich, true, Wood, StrutPaint[(seed + 7u) & 3], lod);
+                        double fu = su * along + ou * (wall + 0.06), fw = sw * along + ow * (wall + 0.06);
+                        Affine3 side = SacredDraw.Turn(k, fu, foot, fw, s * 0.5 * Math.PI - 0.25 * Math.PI);
+                        double c2 = dv / len, s2 = dh / len;
+                        Shapes.CopyTransformed(m, cp, Affine3.FromBasis(1, 0, 0, 0, c2, s2, 0, -s2, c2, 0, 0, 0).Then(side), 0xFFFFFFFFu);
+                        drawn++;
+                        continue;
+                    }
+                    // Mid-side head height (for the prototype's length); each strut is stretched to its own soffit, which
+                    // the corner lift raises towards the ends.
+                    double headMid = r.WallTopV + (eaveLow - r.WallTopV) * f - margin;
+                    double foot0 = Math.Max(footV, headMid - hr * Tan60), dv0 = headMid - foot0, dw = hr - 0.06, len0 = Math.Sqrt(dv0 * dv0 + dw * dw);
+                    if (len0 < 0.35) continue;
+                    MeshData proto = SacredParts.StrutProto(len0, size, rich, false, Wood, StrutPaint[(seed + (uint)s) & 3], lod);
+                    int per = Math.Max(2, (int)Math.Round(2 * along / pitch)), draw = lod == 0 ? per : Math.Max(2, per / 2);
+                    for (int q = 0; q < draw; q++)
+                    {
+                        double x = -along + 2 * along * (q + 0.5) / draw;
+                        double eu, ev, ew;
+                        SacredParts.RoofPoint(r, s, Math.Max(-1, Math.Min(1, x / eaveAlong)), 0, out eu, out ev, out ew);
+                        double headV = r.WallTopV + (ev - r.FasciaH - r.WallTopV) * f - margin;
+                        double foot = Math.Max(footV, headV - hr * Tan60), dv = headV - foot, len = Math.Sqrt(dv * dv + dw * dw);
+                        if (len < 0.3) continue;
+                        double sc = len / len0, cy = dv / len, sy = dw / len;
+                        double fu = su * x + ou * (wall + 0.06), fw = sw * x + ow * (wall + 0.06);
+                        Affine3 side = SacredDraw.Turn(k, fu, foot, fw, s * 0.5 * Math.PI);
+                        Affine3 xf = Affine3.FromBasis(1, 0, 0, 0, cy * sc, sy * sc, 0, -sy, cy, 0, 0, 0).Then(side);
+                        uint h = ShapeNoise.Hash(s, q, 17, seed), d = 228u + (h % 28u);
+                        Shapes.CopyTransformed(m, proto, xf, (d << 24) | (d << 16) | (d << 8) | 0xFFu);
+                        drawn++;
+                    }
+                }
+            }
+            return drawn;
         }
 
         /// <summary>Hanging bells along the eaves (LOD0).</summary>
@@ -780,13 +1023,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 }
             }
             if (lod >= 2 || strutPitch <= 0) return;
-            int n2 = Math.Max(1, (int)Math.Round((u1 - u0) / strutPitch));
+            // Steep struts (about 60°) close-set at most every metre, their heads under the soffit about 0.55 of the way out
+            // (the outer eave rests on the rafters), their feet never below footV.
+            int n2 = Math.Max(1, (int)Math.Round((u1 - u0) / Math.Min(1.0, strutPitch)));
             if (lod == 1) n2 = Math.Max(1, n2 / 2);
+            double hr = Math.Min(0.55 * over, 1.0), headV = sv + (eaveV - Fh - sv) * (hr / Math.Max(0.1, over - 0.04)) - 0.05;
+            double foot = Math.Max(footV, headV - 1.7320508 * hr);
             for (int i = 0; i < n2; i++)
             {
                 double u = u0 + (u1 - u0) * (i + 0.5) / n2;
-                if (carved) FigureStrut(m, k, u, footV, 0.03, eaveV - Fh - 0.06, over - 0.3, lod);
-                else Strut(m, k, u, footV, 0.03, eaveV - Fh - 0.06, over - 0.3, 0.05, i % 2 == 0 ? Wood : WoodMid);
+                if (carved) FigureStrut(m, k, u, foot, 0.03, headV, hr, lod);
+                else Strut(m, k, u, foot, 0.03, headV, hr, 0.05, i % 2 == 0 ? Wood : WoodMid);
             }
         }
 
@@ -838,18 +1085,26 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.36 * s, w), flowers ? Flowers : Leaves, 0.2 * s, 0.16 * s, 0.2 * s, 5, false);
         }
 
-        /// <summary>A bell-and-lamp gilt pinnacle cluster (Kumari Ghar's ridge): three tall and two short gilt finials on a
-        /// gilt base at (u, v, w).</summary>
+        /// <summary>
+        /// Kumari Ghar's ridge cluster (c_kumari c_00, kumari ref_00-ref_05): five separate slim gilt pinnacles in a row on a
+        /// common gilt base at (u, v, w), gaps between them, the middle one tallest (<paramref name="h"/>) and the outer ones
+        /// shorter; each a small square foot, a gilt bell (ghanta), a ring and a long thin spire.
+        /// </summary>
         public static void PinnacleCluster(MeshData m, in Affine3 k, double u, double v, double w, double h, int lod)
         {
-            Box(m, k, u - 0.9, u + 0.9, v, v + 0.25, w - 0.35, w + 0.35, Gilt, BoxFaces.All & ~BoxFaces.Bottom);
+            Box(m, k, u - 1.45, u + 1.45, v, v + 0.18, w - 0.3, w + 0.3, GiltDeep, BoxFaces.All & ~BoxFaces.Bottom);
+            if (lod <= 1) Box(m, k, u - 1.35, u + 1.35, v + 0.18, v + 0.26, w - 0.24, w + 0.24, Gilt, BoxFaces.All & ~BoxFaces.Bottom);
+            int seg = lod == 0 ? 10 : lod == 1 ? 6 : 4;
             for (int i = -2; i <= 2; i++)
             {
-                bool tall = i % 2 == 0;
-                double hh = tall ? h : 0.7 * h, rr = tall ? 0.22 : 0.17;
-                if (lod >= 2 && !tall) continue;
-                // The middle one carries the detail; the others one LOD coarser.
-                Finial(m, k, u + 0.4 * i, v + 0.25, w, hh, rr, i == 0 ? lod : Math.Min(2, lod + 1));
+                if (lod >= 2 && Math.Abs(i) == 1) continue;
+                double hh = h * (i == 0 ? 1.0 : Math.Abs(i) == 1 ? 0.84 : 0.7), rr = i == 0 ? 0.17 : 0.14, pu = u + 0.62 * i, b0 = v + 0.26;
+                Box(m, k, pu - 1.1 * rr, pu + 1.1 * rr, b0, b0 + 0.1, w - 1.1 * rr, w + 1.1 * rr, GiltDeep, BoxFaces.All & ~BoxFaces.Bottom);
+                var p = new Profile2(14);
+                p.Add(0, 0, true).Add(0.6 * rr, 0, true).Add(rr, 0.08 * hh).Add(rr * 0.95, 0.18 * hh).Add(0.62 * rr, 0.3 * hh).Add(0.42 * rr, 0.34 * hh)
+                 .Add(0.6 * rr, 0.38 * hh).Add(0.3 * rr, 0.42 * hh).Add(0.22 * rr, 0.6 * hh).Add(0.32 * rr, 0.64 * hh).Add(0.12 * rr, 0.68 * hh)
+                 .Add(0.06 * rr, 0.92 * hh).Add(0, hh, true);
+                Shapes.Lathe(m, SacredDraw.At(k, pu, b0 + 0.1, w), Gilt, p, seg);
             }
         }
 

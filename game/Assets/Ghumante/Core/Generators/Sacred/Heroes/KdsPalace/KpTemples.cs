@@ -18,7 +18,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public const double GA0 = -9.45, GA1 = 1.55, GB0 = 12.6, GB1 = 23.6, TowerTop = 12.4;
 
         /// <summary>The Seto Bhairav range (palace grid) south-west of the tower, its eave and ridge.</summary>
-        public const double SA0 = -11.4, SA1 = -3.5, SB0 = 6.0, SB1 = 12.6, SetoEave = 7.0, SetoRidge = 9.2;
+        public const double SA0 = -11.4, SA1 = -3.5, SB0 = 6.0, SB1 = 12.6, SetoEave = 9.8, SetoRidge = 12.0;
 
         /// <summary>The bay of the Seto Bhairav screen on the range's west face (palace grid b) and its height.</summary>
         public const double ScreenB0 = 7.4, ScreenB1 = 11.4, ScreenTop = 5.0;
@@ -27,7 +27,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         public const double PA = 20.6, PB = -3.8, DrumR = 3.5;
 
         private static readonly double[] TowerFloors = { 3.4, 6.6, 9.6 };
-        private static readonly double[] SetoFloors = { 3.4 };
+        private static readonly double[] SetoFloors = { 3.4, 7.9 };
+
+        /// <summary>The deep red-valanced pent roof over the Seto Bhairav screen (sweta_bhairav c_05-c_08): its eave and the
+        /// line where it meets the wall.</summary>
+        public const double PentEave = 6.3, PentTop = 7.8;
 
         // =============================================================================================================
         // Degu Taleju
@@ -41,7 +45,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpFrame.FromGrid(am, bm, out x, out y);
             Affine3 k = f.Plan(x, y, 0, 102);
             var t = new KpTier[3];
-            t[0] = new KpTier { Base = 13.9, WallU = 3.4, WallW = 3.4, Eave = 17.4, EaveU = 5.5, EaveW = 5.5, Top = 18.6, Walls = KpWalls.GiltPanels, Windows = 3 };
+            t[0] = new KpTier { Base = 13.9, WallU = 3.4, WallW = 3.4, Eave = 17.4, EaveU = 5.5, EaveW = 5.5, Top = 18.6, Walls = KpWalls.GiltPanels, Windows = 3, WinSpread = 0.6 };
             t[1] = new KpTier { Base = 18.6, WallU = 2.6, WallW = 2.6, Eave = 21.0, EaveU = 4.3, EaveW = 4.3, Top = 22.0, Walls = KpWalls.GiltPanels, Windows = 1 };
             t[2] = new KpTier { Base = 22.0, WallU = 1.9, WallW = 1.9, Eave = 23.9, EaveU = 3.15, EaveW = 3.15, Top = 25.2, ApexU = 0.3, ApexW = 0.3, Walls = KpWalls.Brick, Windows = 1 };
             if (lod >= 3)
@@ -58,13 +62,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 // Only the west face (on the forecourt) and the north face (to the Kot) show; the others meet the palace.
                 if (s != 1 && s != 2) continue;
                 Affine3 fc = KpStack.Face(k, 90 * s, h);
-                KpFacade.Newar(m, fc, h, 0, TowerFloors, 3, TowerTop + 0.1, 2.7, -1, -1, false, false, Math.Max(lod, s == 2 ? 0 : 1));
+                TowerFace(m, fc, h, Math.Max(lod, s == 2 ? 0 : 1));
                 if (lod <= 1)
                     for (int q = -1; q <= 1; q += 2) Kp.Box(m, fc, q * (h - 0.3) - 0.3, q * (h - 0.3) + 0.3, 0, TowerTop, 0, 0.18, Kp.BrickNew, BoxFaces.Wall);
             }
             // The tile skirt with its carved sawtooth fascia, and the brick parapet the temple stands in.
             RoofSpec skirt = Kp.Tier(m, k, h + 1.3, h + 1.3, TowerTop - 0.4, h - 0.6, h - 0.6, TowerTop + 0.9, h, h, Kp.TileMoss, Kp.Wood, false, false, lod, 0.02);
-            if (lod <= 1) Kp.Struts(m, k, skirt, TowerTop - 2.2, 1.3, false, 801u, lod);
+            if (lod <= 1) Kp.Struts(m, k, skirt, TowerTop - 2.2, 1.0, false, 801u, lod);
             if (lod == 0)
             {
                 // The sawtooth fascia: small triangles hanging along each eave.
@@ -100,6 +104,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 f.GridBox(GA0, GA1, GB0, GB1, 0, TowerTop + 1.5, GenColliderFlags.NoClimb, GenColliders.Brick);
                 f.Box(x, y, 3.6, 3.6, 102, TowerTop + 1.5, 25.0, GenColliderFlags.NoClimb, GenColliders.Brick);
             }
+        }
+
+        /// <summary>
+        /// One face of Degu Taleju's brick tower base (sweta_bhairav c_05-c_08, Dec 2024): plain brick below with one carved
+        /// cornice band, few heavy carved Newar windows of varied sizes above: two long-eared lattice windows on the third
+        /// storey and the projecting carved bay window on the top storey under the tile skirt.
+        /// </summary>
+        private static void TowerFace(MeshData m, in Affine3 fc, double h, int lod)
+        {
+            Kp.Band(m, fc, -h, h, 0, 0.35, 0.07, Kp.Step);
+            Kp.Cornice(m, fc, -h, h, TowerFloors[1] - 0.45, 0.42, Kp.Wood, lod);
+            Kp.Band(m, fc, -h, h, TowerFloors[2] - 0.12, TowerFloors[2] + 0.12, 0.1, Kp.Wood);
+            for (int e = -1; e <= 1; e += 2) Kp.FramedWindow(m, fc, e * 0.42 * h, TowerFloors[1] + 0.75, 0.95, 1.4, false, lod);
+            Kp.Bay(m, fc, 0, TowerFloors[2] + 0.45, Math.Min(3.4, 0.62 * h), 1.75, false, lod);
+            Kp.Lattice(m, fc, -0.55 * h, 2.6, 0.6, 0.8, lod, 2);
         }
 
         /// <summary>
@@ -188,8 +207,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         }
 
         /// <summary>
-        /// The two-storey brick range of the Seto Bhairav screen (§3.4): carved lattice windows and round oculus windows,
-        /// a carved bay window, a red fringed valance along its eave and the plain bay where the screen stands.
+        /// The brick range of the Seto Bhairav screen (§3.4; sweta_bhairav c_02, c_05-c_08): on its west face the screen in
+        /// its bay with a carved oculus window beside it and a carved bay window to the south, the deep red-valanced pent
+        /// roof on struts at about 6.3 m running over the screen, a storey of long-eared carved windows above it under the
+        /// red-valanced main eave.
         /// </summary>
         private static void SetoRange(ref KpFrame f, MeshData m)
         {
@@ -198,27 +219,36 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double half;
             Affine3 w = f.GridSide(SA0, SA1, SB0, SB1, 0, 3, out half);
             double bm = 0.5 * (SB0 + SB1), u0 = -(ScreenB1 - bm), u1 = -(ScreenB0 - bm);
-            // Plinth course, wooden string course, cornice.
+            // Plinth course, the wooden string course either side of the screen, cornice.
             Kp.Band(m, w, -half, half, 0, 0.35, 0.07, Kp.Step);
             Kp.Band(m, w, -half, u0 - 0.1, SetoFloors[0] - 0.1, SetoFloors[0] + 0.12, 0.1, Kp.Wood);
             Kp.Band(m, w, u1 + 0.1, half, SetoFloors[0] - 0.1, SetoFloors[0] + 0.12, 0.1, Kp.Wood);
             Kp.Cornice(m, w, -half, half, SetoEave - 0.5, 0.4, Kp.Wood, lod);
             // The Seto Bhairav screen in its bay.
             Screen(m, w, 0.5 * (u0 + u1), lod);
-            // Windows either side: a carved bay window to the south, oculus and lattice windows to the north.
+            double us = 0.5 * (u1 + half), un = 0.5 * (-half + u0);
             if (lod <= 1)
             {
-                double us = 0.5 * (u1 + half), un = 0.5 * (-half + u0);
+                // South: a lattice window and the carved bay window over it. North, beside the screen: the carved oculus
+                // window (a tall carved frame whose head holds a round opening, c_02).
                 Kp.Lattice(m, w, us, 1.9, 0.75, 1.0, lod, 2);
                 Kp.Bay(m, w, us, SetoFloors[0] + 0.45, 1.7, 1.6, false, lod);
                 Kp.Lattice(m, w, un, 1.9, 0.75, 1.0, lod, 2);
-                Shapes.Torus(m, SacredDraw.Basis(w, un, SetoFloors[0] + 1.3, 0.04, 1, 0, 0, 0, 0, 1), Kp.Wood, 0.42, 0.08, lod == 0 ? 14 : 8, 4);
-                Kp.Panel(m, w, un - 0.3, SetoFloors[0] + 1.0, un + 0.3, SetoFloors[0] + 1.6, 0.01, Kp.Recess);
+                Kp.FramedWindow(m, w, un, SetoFloors[0] + 0.45, 0.85, 1.0, false, lod);
+                double oc = SetoFloors[0] + 2.0;
+                Kp.Box(m, w, un - 0.6, un + 0.6, oc - 0.5, oc + 0.55, 0, 0.12, Kp.Wood, BoxFaces.Wall);
+                Shapes.Cylinder(m, SacredDraw.Basis(w, un, oc, 0.12, 1, 0, 0, 0, 0, 1), Kp.Recess, 0.3, 0.01, lod == 0 ? 14 : 8);
+                Shapes.Torus(m, SacredDraw.Basis(w, un, oc, 0.14, 1, 0, 0, 0, 0, 1), Kp.WoodMid, 0.36, 0.07, lod == 0 ? 16 : 8, 4);
             }
+            // The deep red-valanced pent roof over the screen and the ground floor, on struts.
+            Kp.Pent(m, w, -half, half, PentTop, PentEave, 1.7, 4.9, 1.0, Kp.Tile, false, lod);
+            Kp.ValanceLine(m, w, -half - 0.03, half + 0.03, PentEave - 0.18, 1.72, 0.45, lod);
+            // The storey above the pent roof: long-eared carved windows.
+            for (int q = -1; q <= 1; q++) Kp.FramedWindow(m, w, q * 0.62 * half, SetoFloors[1] + 0.35, q == 0 ? 1.1 : 0.85, 1.15, q == 0 && lod <= 1, lod);
             // The north face on the Kot side.
             Affine3 n = f.GridSide(SA0, SA1, SB0, SB1, 0, 0, out half);
-            KpFacade.Newar(m, n, half, 0, SetoFloors, 1, SetoEave + 0.3, 2.2, -1, -1, false, false, Math.Max(1, lod));
-            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, SA0, SA1, SB0, SB1), roof, SetoFloors[0] + 0.9, 1.3, true, 821u, lod);
+            KpFacade.Newar(m, n, half, 0, SetoFloors, 2, SetoEave + 0.3, 2.2, -1, -1, false, false, Math.Max(1, lod));
+            if (lod <= 1) Kp.Struts(m, KpFacade.RoofFrame(ref f, SA0, SA1, SB0, SB1), roof, SetoFloors[1] + 0.4, 1.0, true, 821u, lod);
             if (f.C != null) f.GridBox(SA0, SA1, SB0, SB1, 0, SetoRidge, GenColliderFlags.NoClimb, GenColliders.Brick);
         }
 
@@ -249,7 +279,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Affine3 k = f.Plan(x, y, 0, 102);
             int seg = lod == 0 ? 28 : lod == 1 ? 18 : lod == 2 ? 12 : 8;
             ShapeLod sl = f.SL;
-            ShapeBrush roofB = Kp.RoundRoof;
+            // Warm terracotta tile (panchamukhi c_10), each roof hung with a deep red valance.
+            ShapeBrush roofB = Kp.TileTerracotta;
             if (lod >= 3)
             {
                 Shapes.Cylinder(m, k, Kp.White, DrumR, Roofs[1], seg, 0, 0, false, false);
@@ -332,21 +363,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                     Shapes.Tube(m, k, Kp.Tint(b, 0.72f), path, 0.035, 3, false);
                 }
             }
-            // The valance: a white band and red drops round the eave.
+            // The valance (panchamukhi c_10, gate2 ref_09): a 0.08 m white top band and the deep red cloth hanging about
+            // 0.5 m, its hem scalloped: from Nasal Chowk these red bands are the temple's mark.
             int n = lod == 0 ? 2 * seg : seg, first = m.VertexCount;
-            double drop = 0.22 + 0.025 * er;
+            const double Top = 0.18, White = 0.08, Drop = 0.5;
             for (int i = 0; i <= n; i++)
             {
-                double a = 2 * Math.PI * i / n, c = Math.Cos(a), s = Math.Sin(a), d = i % 2 == 0 ? drop : 0.75 * drop, r = er + 0.06;
-                SacredDraw.V(m, k, r * c, ev - 0.2, r * s, c, 0, s, Kp.ValanceWhite);
-                SacredDraw.V(m, k, r * c, ev - 0.32, r * s, c, 0, s, Kp.Valance);
-                SacredDraw.V(m, k, (r + 0.03) * c, ev - 0.2 - d, (r + 0.03) * s, c, -0.1, s, Kp.Valance);
+                double a = 2 * Math.PI * i / n, c = Math.Cos(a), s = Math.Sin(a), d = i % 2 == 0 ? Drop : 0.82 * Drop, r = er + 0.06;
+                SacredDraw.V(m, k, r * c, ev - Top, r * s, c, 0, s, Kp.ValanceWhite);
+                SacredDraw.V(m, k, r * c, ev - Top - White, r * s, c, 0, s, Kp.ValanceWhite);
+                SacredDraw.V(m, k, r * c, ev - Top - White, r * s, c, 0, s, Kp.Valance);
+                SacredDraw.V(m, k, (r + 0.04) * c, ev - Top - White - d, (r + 0.04) * s, c, -0.1, s, Kp.Valance);
             }
             for (int i = 0; i < n; i++)
             {
-                int a = first + 3 * i, bb = a + 3;
+                int a = first + 4 * i, bb = a + 4;
                 SacredDraw.Quad(m, a, bb, bb + 1, a + 1);
-                SacredDraw.Quad(m, a + 1, bb + 1, bb + 2, a + 2);
+                SacredDraw.Quad(m, a + 2, bb + 2, bb + 3, a + 3);
             }
         }
     }

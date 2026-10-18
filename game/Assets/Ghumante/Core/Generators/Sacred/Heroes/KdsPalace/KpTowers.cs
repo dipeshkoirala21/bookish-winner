@@ -85,6 +85,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             if (lod <= 1)
                 for (int q = 0; q < 4; q++)
                     Kp.Bay(m, KpStack.Face(k, 90 * q, 6.25), 0, 18.9, 2.6, 1.5, false, lod);
+            // On Basantapur: the stone flags, the curb and the black iron railing in front of the base (basantapur ref_08,
+            // v5 c_02), and the short railings that join it to the white wing's railing west and to the Lohan front's east.
+            {
+                double bx, by;
+                KpFrame.FromGrid(am, BB0, out bx, out by);
+                Affine3 sk = f.Plan(bx, by, 0, 102);
+                KpRanges.Frontage(ref f, m, sk, -hu, hu, lod);
+                Joint(ref f, m, BA0, -74.45, BB0 - KpRanges.RailOut, lod);
+                Joint(ref f, m, BA1, BB0 - KpRanges.RailOut, KpCourts.SouthB - 1.45, lod);
+            }
             Colliders(ref f, BA0, BA1, BB0, BB1, 28.6);
         }
 
@@ -153,6 +163,18 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
         }
 
+        /// <summary>A short railing on its curb along palace-grid a = <paramref name="a"/> from b0 to b1 (joining two
+        /// frontage railings that stand at different distances from their walls), with its collider.</summary>
+        private static void Joint(ref KpFrame f, MeshData m, double a, double b0, double b1, int lod)
+        {
+            if (Math.Abs(b1 - b0) < 0.2) return;
+            double bm = 0.5 * (b0 + b1), hl = 0.5 * Math.Abs(b1 - b0);
+            Affine3 face = f.GridFace(a, bm, 0, 102);
+            Kp.Box(m, face, -hl - 0.16, hl + 0.16, -0.1, 0.2, -0.16, 0.16, Kp.Step, BoxFaces.All & ~BoxFaces.Bottom);
+            Kp.Railing(m, face, -hl, hl, 0, 0.2, KpRanges.RailH, lod);
+            f.GridWall(a, b0, a, b1, 0, KpRanges.RailH + 0.2, 0.06);
+        }
+
         /// <summary>A red-framed round-headed opening (the small arcade under the Kirtipur tower on Nasal Chowk): the dark passage,
         /// red-painted jambs and archivolt.</summary>
         internal static void RedArch(MeshData m, in Affine3 k, double u, double v0, double ww, double h, int lod)
@@ -185,95 +207,153 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             if (lod >= 3)
             {
                 Lod3(m, k, t, 2, Kp.Brick, Kp.TowerTile);
-                SacredDraw.Box(m, k, -3.3, 3.3, 16.7, 19.2, -3.3, 3.3, Kp.Brick, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
-                KpLod3.Pyramid(m, k, 0, 0, 4.6, 4.2, 19.2, 22.3, Kp.KirtipurCopper);
+                SacredDraw.Box(m, k, -3.3, 3.3, 16.7, 19.0, -3.3, 3.3, Kp.Brick, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                KpLod3.Pyramid(m, k, 0, 0, 4.6, 4.2, 19.0, 23.0, Kp.KirtipurCopper);
                 return;
             }
             KpRoofLook look = KpRoofLook.TilePlain(Kp.TowerTile);
             KpStack.Build(m, k, t, 2, Kp.Brick, look, 93u, lod);
-            var top = new KpTier { Base = 16.7, WallU = 3.3, WallW = 3.3, Walls = KpWalls.Lattice };
-            KpStack.Storey(m, k, top, 19.35, Kp.Brick, lod, 95u);
-            Hood(m, k, 3.3, 4.7, 4.25, 1.0, 19.15, 22.35, lod);
-            Kp.Finial(m, k, 0, 22.3, 0, 0.75, 0.16, lod);
+            // The hood is big against its drum (nasal_chowk c_08, kirtipur_tower c_00-c_10): the lip about 1.4 × the drum
+            // across, the rise about 0.6 × the drum's width, the lip coming down low so only a short band of the drum's
+            // arched windows shows under it.
+            Drum(m, k, 3.3, 16.7, 19.1, lod);
+            Hood(m, k, 3.3, 1.5, 18.9, 23.0, lod);
+            Kp.Finial(m, k, 0, 22.95, 0, 0.75, 0.16, lod);
             double half;
             Affine3 w = f.GridSide(KA - KHalf, KA + KHalf, KB - KHalf, KB + KHalf, 0, 3, out half);
             KpFacade.Newar(m, w, half, 0, LowFloors, 2, RangeEave + 0.35, 2.2, -1, -1, false, false, lod);
-            Colliders(ref f, KA - KHalf, KA + KHalf, KB - KHalf, KB + KHalf, 22.3);
+            Colliders(ref f, KA - KHalf, KA + KHalf, KB - KHalf, KB + KHalf, 23.0);
+        }
+
+        /// <summary>The drum under the Kirtipur hood (kirtipur_tower c_00-c_10): dark timber faces of cusped-arch lattice
+        /// windows at about 1.2 m pitch between slim posts, a carved sill band and a beam under the hood.</summary>
+        private static void Drum(MeshData m, in Affine3 k, double half, double v0, double v1, int lod)
+        {
+            SacredDraw.Box(m, k, -half, half, v0, v1, -half, half, Kp.Wood, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+            for (int s = 0; s < 4; s++)
+            {
+                Affine3 face = SacredDraw.At(SacredDraw.Turn(k, 0, 0, 0, s * 0.5 * Math.PI), 0, 0, half);
+                Kp.Band(m, face, -half, half, v0, v0 + 0.3, 0.1, Kp.WoodBeam);
+                Kp.Band(m, face, -half, half, v1 - 0.32, v1, 0.12, Kp.WoodBeam);
+                if (lod >= 2)
+                {
+                    Kp.Panel(m, face, -half + 0.15, v0 + 0.4, half - 0.15, v1 - 0.4, 0.02, Kp.LatticeFar);
+                    continue;
+                }
+                int n = Math.Max(3, (int)Math.Round(2 * half / 1.2));
+                double bay = 2 * half / n;
+                for (int q = 0; q < n; q++)
+                {
+                    double u = -half + bay * (q + 0.5);
+                    Kp.ArchWindow(m, face, u, v0 + 0.38, bay - 0.26, v1 - v0 - 0.85, lod, 0.72);
+                    if (lod == 0 && q > 0) Kp.Box(m, face, u - 0.5 * bay - 0.06, u - 0.5 * bay + 0.06, v0 + 0.3, v1 - 0.32, 0, 0.1, Kp.WoodMid, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                }
+            }
         }
 
         /// <summary>
-        /// The Kirtipur hood: a ribbed copper dome over a rounded-square plan of half sizes (hu, hw) at the eave, closing
-        /// on a short ridge of half length <paramref name="ridge"/> along u at <paramref name="top"/>; the eave curves down
-        /// and flares out at the four corners. A dark soffit closes it back to the wall (half size <paramref name="wall"/>).
+        /// The Kirtipur hood (photos kirtipur_tower c_00-c_10, nasal_chowk c_08): a square-plan Bangla bell roof of copper
+        /// sheet over the drum of half size <paramref name="wall"/>. Its profile is an S: from the short ridge (half length
+        /// <paramref name="ridge"/>, at <paramref name="top"/>) it falls convex over rounded shoulders, then its lower third
+        /// flares outward (concave) into a projecting lip about 1.3 m beyond the drum that curls up, a little at mid-side and
+        /// into horns at the four sharp corners. Ribs run down the four hips only, standing seams between them; a dark soffit
+        /// closes it back to the drum.
         /// </summary>
-        private static void Hood(MeshData m, in Affine3 k, double wall, double hu, double hw, double ridge, double eave, double top, int lod)
+        private static void Hood(MeshData m, in Affine3 k, double wall, double ridge, double eave, double top, int lod)
         {
-            int nt = lod == 0 ? 40 : lod == 1 ? 24 : 12, np = lod == 0 ? 7 : lod == 1 ? 5 : 3;
-            double rise = top - eave;
+            int nt = lod == 0 ? 48 : lod == 1 ? 32 : 16;
+            int np = HoodRows.Length / 2;
+            double rise = top - eave, lip = wall + 1.3;
             ShapeBrush cu = Kp.KirtipurCopper;
             int first = m.VertexCount;
-            for (int r = 0; r <= np; r++)
+            for (int r = 0; r < np; r++)
             {
-                double phi = 0.5 * Math.PI * r / np, cp = Math.Cos(phi), sp = Math.Sin(phi);
+                if (lod >= 2 && r % 2 == 1 && r != np - 1) continue;
                 for (int c = 0; c < nt; c++)
                 {
                     double u, v, w, nu, nv, nw;
-                    HoodPoint(hu, hw, ridge, eave, rise, cp, sp, 2 * Math.PI * c / nt, out u, out v, out w, out nu, out nv, out nw);
-                    SacredDraw.V(m, k, u, v, w, nu, nv, nw, Kp.Tint(cu, (float)(0.84 + 0.16 * sp)));
+                    HoodPoint(lip, ridge, eave, rise, r, 2 * Math.PI * c / nt, out u, out v, out w, out nu, out nv, out nw);
+                    SacredDraw.V(m, k, u, v, w, nu, nv, nw, Kp.Tint(cu, (float)(0.86 + 0.14 * HoodRows[2 * r + 1])));
                 }
             }
-            SacredDraw.Grid(m, first, np + 1, nt, true, null);
-            // The soffit back to the wall.
+            int rows = lod >= 2 ? (np + 1) / 2 + (np % 2 == 0 ? 1 : 0) : np;
+            SacredDraw.Grid(m, first, rows, nt, true, null);
+            // The soffit from the lip's underside back to the drum.
             first = m.VertexCount;
             for (int c = 0; c < nt; c++)
             {
                 double th = 2 * Math.PI * c / nt, u, v, w, nu, nv, nw;
-                HoodPoint(hu, hw, ridge, eave, rise, 1, 0, th, out u, out v, out w, out nu, out nv, out nw);
-                SacredDraw.V(m, k, u, v, w, 0, -1, 0, Kp.Ao(Kp.Wood, 0.5f));
+                HoodPoint(lip, ridge, eave, rise, 0, th, out u, out v, out w, out nu, out nv, out nw);
+                SacredDraw.V(m, k, u, v - 0.1, w, 0, -1, 0, Kp.Ao(Kp.Wood, 0.5f));
                 double su = Math.Cos(th), sw = Math.Sin(th), mx = Math.Max(Math.Abs(su), Math.Abs(sw));
-                SacredDraw.V(m, k, wall * su / mx, eave + 0.2, wall * sw / mx, 0, -1, 0, Kp.Ao(Kp.Wood, 0.45f));
+                SacredDraw.V(m, k, wall * su / mx, eave - 0.2, wall * sw / mx, 0, -1, 0, Kp.Ao(Kp.Wood, 0.45f));
             }
-            int q0 = first;
             for (int c = 0; c < nt; c++)
             {
-                int a = q0 + 2 * c, b = q0 + 2 * ((c + 1) % nt);
+                int a = first + 2 * c, b = first + 2 * ((c + 1) % nt);
                 SacredDraw.Quad(m, a, b, b + 1, a + 1);
             }
             if (lod >= 2) return;
-            // Darker ribs down the corners and the middles of the sides, and the ridge roll.
-            var p = new Path3(np + 1);
-            int ribs = lod == 0 ? 16 : 8;
-            for (int i = 0; i < ribs; i++)
+            // Ribs on the four hips (heavy) and standing seams between them (LOD0), and the ridge roll.
+            var p = new Path3(np);
+            int seams = lod == 0 ? 3 : 0;
+            for (int h = 0; h < 4; h++)
             {
-                double th = 2 * Math.PI * i / ribs;
-                p.Clear();
-                for (int r = 0; r <= np; r++)
+                for (int j = 0; j <= seams; j++)
                 {
-                    double phi = 0.5 * Math.PI * r / np, u, v, w, nu, nv, nw;
-                    HoodPoint(hu, hw, ridge, eave, rise, Math.Cos(phi), Math.Sin(phi), th, out u, out v, out w, out nu, out nv, out nw);
-                    p.Add(u + 0.03 * nu, v + 0.03 * nv, w + 0.03 * nw);
+                    double th = 2 * Math.PI * (h + 0.5) / 4 + (j == 0 ? 0 : 0.5 * Math.PI * j / (seams + 1));
+                    p.Clear();
+                    for (int r = 0; r < np; r++)
+                    {
+                        double u, v, w, nu, nv, nw;
+                        HoodPoint(lip, ridge, eave, rise, r, th, out u, out v, out w, out nu, out nv, out nw);
+                        double off = j == 0 ? 0.04 : 0.015;
+                        p.Add(u + off * nu, v + off * nv, w + off * nw);
+                    }
+                    Shapes.Tube(m, k, j == 0 ? Kp.KirtipurRib : Kp.Tint(Kp.KirtipurCopper, 0.82f), p, j == 0 ? 0.06 : 0.022, j == 0 ? 5 : 3, false);
                 }
-                Shapes.Tube(m, k, Kp.KirtipurRib, p, 0.045, 4, false);
             }
             p.Clear();
             p.Add(-ridge - 0.1, top + 0.04, 0).Add(ridge + 0.1, top + 0.04, 0);
             Shapes.Tube(m, k, Kp.KirtipurRib, p, 0.1, 6, true);
         }
 
-        private static void HoodPoint(double hu, double hw, double ridge, double eave, double rise, double cp, double sp, double th, out double u, out double v,
-                                      out double w, out double nu, out double nv, out double nw)
+        /// <summary>The hood's profile from the lip (row 0) to the ridge: the plan scale (1 = the lip) and the height as a
+        /// fraction of the rise; rows 0-3 the up-curled lip and the concave flare, then the convex shoulders.</summary>
+        private static readonly double[] HoodRows =
+        {
+            1.0, 0.12, 0.965, 0.05, 0.915, 0.035, 0.86, 0.08, 0.815, 0.2, 0.79, 0.36, 0.74, 0.54, 0.64, 0.71, 0.5, 0.84, 0.32, 0.94, 0.14, 0.99, 0.0, 1.0,
+        };
+
+        /// <summary>A point on the hood: profile row <paramref name="r"/> at plan angle <paramref name="th"/> on a
+        /// square-cornered plan (superellipse of exponent 8), the ridge along u, the lip raised at the corners.</summary>
+        private static void HoodPoint(double lip, double ridge, double eave, double rise, int r, double th, out double u, out double v, out double w,
+                                      out double nu, out double nv, out double nw)
         {
             double ct = Math.Cos(th), st = Math.Sin(th);
-            // A rounded square: the superellipse of exponent 4.
-            double su = Math.Sign(ct) * Math.Sqrt(Math.Abs(ct)), sw = Math.Sign(st) * Math.Sqrt(Math.Abs(st));
-            double corner = Math.Pow(Math.Abs(Math.Sin(2 * th)), 3), flare = Math.Pow(1 - sp, 3);
-            double ru = ridge + (hu - ridge) * cp + 0.5 * corner * flare, rw = hw * cp + 0.5 * corner * flare;
+            // Exponent 8: |x|^8 + |y|^8 = 1 -> x = sign(c)|c|^(1/4).
+            double su = Math.Sign(ct) * Math.Pow(Math.Abs(ct), 0.25), sw = Math.Sign(st) * Math.Pow(Math.Abs(st), 0.25);
+            double rho = HoodRows[2 * r], fh = HoodRows[2 * r + 1];
+            double corner = Math.Pow(Math.Abs(Math.Sin(2 * th)), 6);
+            // The flare: the lip (rows 0-2) curls up a little at mid-side and into horns at the corners.
+            double curl = r == 0 ? 0.3 + 0.4 * corner : r == 1 ? 0.1 + 0.15 * corner : 0;
+            double ru = ridge + (lip - ridge) * rho, rw = lip * rho;
             u = ru * su;
             w = rw * sw;
-            v = eave + rise * sp - 0.6 * corner * flare;
-            nu = su * cp * rise / Math.Max(0.5, hu);
-            nw = sw * cp * rise / Math.Max(0.5, hw);
-            nv = sp + 0.15;
+            v = eave + rise * fh + curl;
+            int r0 = Math.Max(0, r - 1), r1 = Math.Min(HoodRows.Length / 2 - 1, r + 1);
+            double dRho = HoodRows[2 * r1] - HoodRows[2 * r0], dH = HoodRows[2 * r1 + 1] - HoodRows[2 * r0 + 1];
+            // Normal in the profile plane: perpendicular to (dRho * lip, dH * rise), outward and up.
+            double tr = dRho * lip, tv = dH * rise, l = Math.Sqrt(tr * tr + tv * tv);
+            double nr = l > 1e-9 ? -tv / l : 1, nvv = l > 1e-9 ? tr / l : 0;
+            if (nvv < 0)
+            {
+                nr = -nr;
+                nvv = -nvv;
+            }
+            nu = su * Math.Abs(nr) * (nr >= 0 ? 1 : -1);
+            nw = sw * Math.Abs(nr) * (nr >= 0 ? 1 : -1);
+            nv = nvv;
         }
 
         // =============================================================================================================

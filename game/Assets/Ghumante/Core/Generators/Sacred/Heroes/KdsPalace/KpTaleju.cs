@@ -68,33 +68,46 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             RingU - 14.2, RingW - 12.4, RingU + 14.2, RingW - 12.4, RingU + 14.2, RingW + 12.9, RingU - 14.2, RingW + 12.9,
         };
 
-        /// <summary>The temple's three storeys and roofs at the OSM spans: roof 1 33.2 × 32.4 m with its eave at 12 m rising to
-        /// 19 m, roof 2 24.9 × 24.3 m from 19.5 to 25 m, roof 3 18.4 × 17.9 m from 26.5 to 31 m; the bodies 16.8, 14.6 and 9.7 m
-        /// across (OSM w1414024864, w1413440908, w1413440906).</summary>
+        /// <summary>
+        /// The temple's three storeys and roofs (round r8, measured on taleju ref_00, ref_02, ref_05, ref_06 and c_25): the
+        /// lowest roof about 1.4 × the body (27 × 26.4 m on the 19.2 × 18.7 m body of OSM w1414024864), its eave at 14.3 m
+        /// so the gilt-window storey stands about 7.5 m tall (0.39 × its width) and clears the Singha Dhoka from the west
+        /// forecourt; the slopes about 30° (roof 1 to 18.6 m, roof 2 from 22.4 to 25.8 m, roof 3 from 28.3 to 31.8 m) with a
+        /// tall band of the second storey's carved timber between roofs 1 and 2 (ref_05); the gajur from 31.75 to 36 m.
+        /// </summary>
         private static readonly KpTier[] Temple =
         {
-            // The ground body (OSM w1414024864, 19.8 × 19.2 m) under the very wide lowest roof: three gilt windows close
-            // together in the middle of each face (photo taleju c_25), the long struts and the deep soffit above them.
-            new KpTier
-            {
-                Base = PlinthTopM, WallU = 9.6, WallW = 9.35, Eave = 12.0, EaveU = 16.6, EaveW = 16.2, Top = 19.0, Walls = KpWalls.GiltPanels, Windows = 3, WinSill = 0.9,
-                WinH = 2.8, WinSpread = 0.33,
-            },
-            new KpTier
-            {
-                Base = 19.0, WallU = 6.6, WallW = 6.4, Eave = 19.6, EaveU = 12.45, EaveW = 12.15, Top = 25.0, Walls = KpWalls.GiltPanels, Windows = 3, WinSill = 0.6,
-                WinH = 1.9, WinSpread = 0.45,
-            },
-            new KpTier
-            {
-                Base = 25.0, WallU = 4.2, WallW = 4.1, Eave = 26.5, EaveU = 9.2, EaveW = 8.95, Top = 31.0, ApexU = 0.35, ApexW = 0.35, Walls = KpWalls.GiltPanels,
-                Windows = 1, WinSill = 0.6, WinH = 1.6,
-            },
+            // The ground body: brick, the three gilt-framed windows close together in the middle of each face under gilt
+            // toranas, dark carved windows either side, the carved frieze and the strut band under the soffit (BodyDress).
+            new KpTier { Base = PlinthTopM, WallU = 9.6, WallW = 9.35, Eave = 14.3, EaveU = 13.5, EaveW = 13.2, Top = 18.6, Walls = KpWalls.Bands, WinSill = 0.9, WinH = 2.8 },
+            // The upper storeys: dark carved timber on a thin brick foot band (ref_00, ref_01, ref_02).
+            // Roof 2 spans about 0.68x and roof 3 about 0.43x roof 1, the second storey about 0.65x and the top one about
+            // 0.37x the ground body (measured on c_25 from Makhan Tole, the SW telephoto p11 and the forecourt view p1b,
+            // corrected for perspective): the temple steps in steeply, the top storey is small under a tall gajur.
+            new KpTier { Base = 18.6, WallU = 6.2, WallW = 6.0, Eave = 22.4, EaveU = 9.4, EaveW = 9.15, Top = 25.8, Walls = KpWalls.Timber },
+            new KpTier { Base = 25.8, WallU = 3.6, WallW = 3.5, Eave = 28.3, EaveU = 6.0, EaveW = 5.85, Top = 31.8, ApexU = 0.35, ApexW = 0.35, Walls = KpWalls.Timber },
         };
+
+        /// <summary>The roofs' look: grey-green copper with standing seams, slender struts every 0.8 m, bells, the corners
+        /// flicking up into horns about 0.6-0.8 m high, the slopes sagging only a little (4 % of the run).</summary>
+        private static KpRoofLook Look()
+        {
+            KpRoofLook look = KpRoofLook.CopperBells(Kp.Copper);
+            look.Fascia = Kp.Wood;
+            look.BellSpacing = 1.1;
+            look.StrutPitch = 0.8;
+            look.Horns = true;
+            look.Lift = 0.03;
+            look.Sag = 0.04;
+            return look;
+        }
+
+        /// <summary>The gajur's base and tip above the square.</summary>
+        public const double GajurBase = 31.75, GajurTop = 36.0;
 
         /// <summary>The red-ochre precinct wall on the west (frame u of its outer face, its w extent, height) and the Singha
         /// Dhoka's place on it (local ≈ (17.5, 45), §3.10).</summary>
-        public const double GateU = -26.6, WallW0 = -24.0, WallW1 = 21.0, GateW = -5.4, RedWallH = 3.9;
+        public const double GateU = -26.6, WallW0 = -24.0, WallW1 = 21.0, GateW = -5.4, RedWallH = 4.2;
 
         /// <summary>The shop row on the north foot (OSM w1374620543, 55.8 × 7.2 m, 3 m).</summary>
         public const double ShopU0 = -32.0, ShopU1 = 22.8, ShopW0 = 21.3, ShopW1 = 28.5, ShopEave = 2.45, ShopRidge = 3.3;
@@ -288,37 +301,77 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         {
             int lod = f.Lod;
             Affine3 t = SacredDraw.At(k, TU, 0, TW);
-            KpRoofLook look = KpRoofLook.CopperBells(Kp.Copper);
-            look.Fascia = Kp.Wood;
-            look.BellSpacing = 1.1;
-            look.StrutPitch = 1.3;
-            look.Horns = false;
-            // The copper slopes are concave: shallow at the eave (from the street the lowest roof shows only its edge over
-            // the deep soffit, photo taleju c_02), steep near the storey above.
-            look.Sag = 0.075;
-            KpStack.Build(m, t, Temple, 3, Kp.Brick, look, 1301u, lod);
-            // The deep soffits of the two lower roofs: dense dark rafters (the lattice ceiling seen from the street).
+            KpRoofLook look = Look();
+            KpStack.Build(m, t, Temple, 3, Kp.BrickTaleju, look, 1301u, lod);
+            // The deep soffits of the two lower roofs: dense dark rafters (the lattice ceiling seen from the street) carrying
+            // the outer eave beyond the struts.
             for (int i = 0; i < 2; i++)
             {
                 KpTier ti = Temple[i];
                 double tu = Temple[i + 1].WallU, tw = Temple[i + 1].WallW;
-                Kp.SoffitRafters(m, t, ti.EaveU, ti.EaveW, ti.Eave, tu, tw, ti.Top, ti.WallU, ti.WallW, i == 0 ? 0.32 : 0.45, lod);
+                Kp.SoffitRafters(m, t, ti.EaveU, ti.EaveW, ti.Eave, tu, tw, ti.Top, ti.WallU, ti.WallW, i == 0 ? 0.32 : 0.4, lod);
             }
             BodyDress(m, t, lod);
-            Kp.Finial(m, t, 0, 30.95, 0, 4.05, 0.62, lod, true);
-            // The pataka banners hanging from the top down the west and east faces.
-            if (lod == 0)
-                for (int s = 0; s < 4; s += 2)
+            Gajur(m, t, GajurBase, GajurTop - GajurBase, 0.85, lod);
+            // The long gilt pataka banner from the gajur down the west face over roof 3 (ref_02, ref_06): about 0.4 × 8 m,
+            // following the roof's concave slope a hand above it.
+            if (lod <= 1)
+            {
+                RoofSpec r3 = KpStack.SpecOf(Temple, 3, 2, look);
+                const int N = 6;
+                double[] pu = new double[N], pv = new double[N], pw = new double[N];
+                for (int i = 0; i < N; i++)
                 {
-                    Affine3 fc = KpStack.Face(t, 90 * s + 180, 0);
-                    double[] pu = { 0, 0, 0, 0 }, pv = { 30.8, 29.0, 25.9, 24.2 }, pw = { 0.6, 4.6, 7.9, 9.8 };
-                    SacredParts.Pataka(m, fc, pu, pv, pw, 4, 0.42, lod);
+                    double tt = 1.0 - 0.97 * i / (N - 1), ru, rv, rw;
+                    SacredParts.RoofPoint(r3, 1, 0, tt, out ru, out rv, out rw);
+                    pu[i] = 0;
+                    pv[i] = rv + 0.1 + (i == 0 ? 0.15 : 0);
+                    pw[i] = -ru + 0.05;
                 }
+                SacredParts.Pataka(m, KpStack.Face(t, 180, 0), pu, pv, pw, N, 0.4, lod);
+            }
             if (f.C != null)
             {
                 double x, y;
                 Local(TU, TW, out x, out y);
-                f.Box(x, y, Temple[0].WallU, Temple[0].WallW, Bearing, PlinthTopM, 31.0, GenColliderFlags.NoClimb, GenColliders.Brick);
+                f.Box(x, y, Temple[0].WallU, Temple[0].WallW, Bearing, PlinthTopM, GajurBase, GenColliderFlags.NoClimb, GenColliders.Brick);
+            }
+        }
+
+        /// <summary>
+        /// Taleju's gajur (taleju ref_03): a stepped gilt base on the roof's apex, the big gilt bell (ghanta) with its lip, a
+        /// tall slim spire with rings and a small parasol, four small gilt pinnacles (bell and spire) on the base's corners
+        /// and four sloping metal stays from the corners up to the spire. Base at v0, total height h, bell radius r.
+        /// </summary>
+        private static void Gajur(MeshData m, in Affine3 k, double v0, double h, double r, int lod)
+        {
+            if (lod >= 2)
+            {
+                Shapes.Cone(m, SacredDraw.At(k, 0, v0, 0), Kp.Gilt, 1.1 * r, h, 6, 0, 0, false);
+                return;
+            }
+            int seg = lod == 0 ? 14 : 8;
+            double b0 = v0 + 0.12 * h, c = 1.35 * r;
+            // The base runs down into the roof's apex so no gap shows under it from the street.
+            Kp.Box(m, k, -1.5 * r, 1.5 * r, v0 - 0.7, v0 + 0.07 * h, -1.5 * r, 1.5 * r, Kp.GiltDeep, BoxFaces.All & ~BoxFaces.Bottom);
+            Kp.Box(m, k, -1.3 * r, 1.3 * r, v0 + 0.07 * h, b0, -1.3 * r, 1.3 * r, Kp.Gilt, BoxFaces.All & ~BoxFaces.Bottom);
+            double hh = h - 0.12 * h;
+            var p = new Profile2(20);
+            // Bell (to 0.42), neck rings, lotus, the spire with two rings and the small parasol, the point.
+            p.Add(0, 0, true).Add(1.0 * r, 0, true).Add(1.08 * r, 0.03 * hh).Add(0.98 * r, 0.08 * hh).Add(0.8 * r, 0.2 * hh).Add(0.6 * r, 0.32 * hh)
+             .Add(0.42 * r, 0.4 * hh).Add(0.3 * r, 0.43 * hh, true).Add(0.38 * r, 0.47 * hh).Add(0.22 * r, 0.5 * hh).Add(0.28 * r, 0.54 * hh)
+             .Add(0.14 * r, 0.58 * hh).Add(0.11 * r, 0.7 * hh).Add(0.2 * r, 0.72 * hh).Add(0.09 * r, 0.75 * hh).Add(0.36 * r, 0.8 * hh, true)
+             .Add(0.07 * r, 0.83 * hh).Add(0.05 * r, 0.94 * hh).Add(0, hh, true);
+            Shapes.Lathe(m, SacredDraw.At(k, 0, b0, 0), Kp.Gilt, p, seg);
+            for (int i = 0; i < 4; i++)
+            {
+                double cu = (i % 2 == 0 ? 1 : -1) * c, cw = (i < 2 ? 1 : -1) * c, ph = 0.36 * hh, pr = 0.2 * r;
+                var q = new Profile2(10);
+                q.Add(0, 0, true).Add(0.7 * pr, 0, true).Add(pr, 0.12 * ph).Add(0.8 * pr, 0.3 * ph).Add(0.35 * pr, 0.42 * ph).Add(0.45 * pr, 0.48 * ph)
+                 .Add(0.12 * pr, 0.56 * ph).Add(0.05 * pr, 0.9 * ph).Add(0, ph, true);
+                Shapes.Lathe(m, SacredDraw.At(k, cu, b0, cw), Kp.Gilt, q, lod == 0 ? 8 : 5);
+                // The metal stay from the corner up to the spire's upper ring.
+                Shapes.Bar(m, k, Kp.Iron, 0.92 * cu, b0 + 0.05 * hh, 0.92 * cw, 0.06 * cu / c, b0 + 0.78 * hh, 0.06 * cw / c, 0.028, 4);
             }
         }
 
@@ -332,17 +385,26 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             KpTier ti = Temple[0];
             double frac = (ti.EaveU - ti.WallU) / Math.Max(1e-6, ti.EaveU - Temple[1].WallU);
             double wallTop = ti.Eave + frac * (ti.Top - ti.Eave) - 0.15;
-            // The frieze clears the gilt torana over the middle window (its top about 1.15 m over the window).
-            double f0 = ti.Base + ti.WinSill + ti.WinH + 1.3, dark = f0 + 0.62;
+            // The frieze clears the gilt toranas over the three middle windows (their tops about 1.15 m over the windows).
+            double sill = ti.Base + ti.WinSill, f0 = sill + ti.WinH + 1.3, dark = f0 + 0.62;
             for (int s = 0; s < 4; s++)
             {
                 double half = s % 2 == 0 ? ti.WallU : ti.WallW, depth = s % 2 == 0 ? ti.WallW : ti.WallU;
                 Affine3 face = SacredDraw.At(SacredDraw.Turn(t, 0, 0, 0, s * 0.5 * Math.PI), 0, 0, depth);
-                // Either side of the gilt windows a dark carved window, and a small one near each corner (c_25).
+                // The three middle windows close together (c_25, about 3.1 m apart): heavy carved frames with gilt repoussé
+                // facing and a gilt torana over each, the dark lattice behind (ref_00, ref_05).
+                for (int q = -1; q <= 1; q++)
+                {
+                    double u = q * 0.33 * half, ww = 1.05;
+                    Kp.FramedWindow(m, face, u, sill, ww, ti.WinH, false, lod, 1, true);
+                    if (lod <= 1) SacredParts.Torana(m, face, u, sill + ti.WinH + 0.3, 0.04, ww + 0.75, Kp.Gilt, lod);
+                    else Kp.Panel(m, face, u - 0.5 * ww - 0.3, sill + ti.WinH + 0.3, u + 0.5 * ww + 0.3, sill + ti.WinH + 0.9, 0.05, Kp.Gilt);
+                }
+                // Either side of them a dark carved window, and a small one near each corner (c_25).
                 for (int e = -1; e <= 1; e += 2)
                 {
-                    Kp.FramedWindow(m, face, e * 0.56 * half, ti.Base + ti.WinSill + 0.55, 0.9, 1.35, lod <= 1, lod);
-                    Kp.Lattice(m, face, e * 0.84 * half, ti.Base + ti.WinSill + 1.2, 0.6, 0.75, lod, 2);
+                    Kp.FramedWindow(m, face, e * 0.6 * half, sill + 0.55, 0.9, 1.35, lod <= 1, lod);
+                    Kp.Lattice(m, face, e * 0.86 * half, sill + 1.2, 0.6, 0.75, lod, 2);
                 }
                 // The carved frieze over the windows.
                 Kp.Band(m, face, -half, half, f0, f0 + 0.32, 0.15, Kp.Wood);
@@ -367,9 +429,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
         // ---------------------------------------------------------------------------------------------------------------
 
         /// <summary>
-        /// The precinct's red-ochre west wall with its white stepped crest, and the Singha Dhoka set in a taller gate block:
-        /// a black studded door in a dark carved torana arch, painted eyes and roundels either side, a small two-tier roof
-        /// above, and two white lions with red stripes on pedestals facing the Kot side (283°).
+        /// The precinct's red-ochre west wall with its white stepped crest, and the Singha Dhoka set in a taller gate block
+        /// (photos taleju ref_06/ref_09, singha_dhoka c_00-c_11): the black studded door inside a large gilt repoussé torana
+        /// (concentric gilt bands round the door and over it, a kirtimukha boss at the crown, wider than the door), red
+        /// piers projecting either side with large painted eyes and gilt roundels, the multi-tiered white stepped stucco crest
+        /// with a small white open pavilion on top, and two white lions with red stripes on grey stone pedestals facing the
+        /// Kot side (283°).
         /// </summary>
         private static void SinghaDhoka(ref KpFrame f, MeshData m, in Affine3 k)
         {
@@ -379,49 +444,87 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double half = 0.5 * (WallW1 - WallW0), gu = GateW - 0.5 * (WallW0 + WallW1);
             Kp.Box(m, wall, -half, half, -0.2, RedWallH, -0.6, 0, Kp.RedOchre, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             Crest(m, wall, -half, half, RedWallH, 0.0, lod);
-            // The gate block, a little proud and taller, with its roof.
-            const double gw = 3.6, gh = 8.2, proud = 0.6;
+            // The gate block, a little proud and taller.
+            // Measured on the photo of the gate (taleju ref_09, door 1.7 m wide): the red block stands about as high as the
+            // wall either side (4.9 m), the white crest over it rises to about 6.9 m and the pavilion to about 8 m.
+            const double gw = 3.6, gh = 4.9, proud = 0.6;
             Kp.Box(m, wall, gu - gw, gu + gw, -0.2, gh, -1.2, proud, Kp.RedOchre, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             Crest(m, wall, gu - gw, gu + gw, gh, proud, lod);
-            // A teal band under the cornice, then the white stepped crest rising in three steps to a small gilt kalash.
             Kp.Box(m, wall, gu - gw, gu + gw, gh - 0.75, gh - 0.55, proud, proud + 0.05, Kp.Green, BoxFaces.Front | BoxFaces.Bottom);
+            // The crest in three receding white tiers, and the small white open pavilion (four posts and a low roof) on top.
+            double ct = gh + 0.6;
             for (int i = 0; i < 3; i++)
             {
-                double hw2 = gw - 0.15 - 0.75 * (i + 1), v0 = gh + 0.6 + 0.42 * i;
-                Kp.Box(m, wall, gu - hw2, gu + hw2, v0, v0 + 0.42, -1.0 + 0.1 * i, proud - 0.1 - 0.12 * i, Kp.WhiteTrim, BoxFaces.All & ~BoxFaces.Bottom);
+                double hw2 = gw - 0.3 - 0.75 * i, v0 = ct + 0.45 * i;
+                Kp.Box(m, wall, gu - hw2, gu + hw2, v0, v0 + 0.45, -1.0 + 0.12 * i, proud - 0.12 - 0.15 * i, Kp.WhiteTrim, BoxFaces.All & ~BoxFaces.Bottom);
+                if (lod == 0) Kp.Box(m, wall, gu - hw2 - 0.06, gu + hw2 + 0.06, v0 + 0.33, v0 + 0.45, -1.06 + 0.12 * i, proud - 0.06 - 0.15 * i, Kp.White,
+                                     BoxFaces.Front | BoxFaces.Bottom | BoxFaces.Left | BoxFaces.Right);
             }
-            Affine3 top = SacredDraw.At(wall, gu, 0, -0.2);
-            Kp.Finial(m, top, 0, gh + 0.6 + 1.26, 0, 0.7, 0.16, lod);
-            // The door: black studded leaves in a dark carved torana arch.
+            double pv = ct + 1.35, pc = -0.45 + 0.5 * (proud - 0.45);
+            Affine3 top = SacredDraw.At(wall, gu, 0, pc);
+            for (int i = 0; i < 4; i++)
+            {
+                double cu = (i % 2 == 0 ? 1 : -1) * 0.75, cw = (i < 2 ? 1 : -1) * 0.45;
+                if (lod >= 2) break;
+                Shapes.Cylinder(m, SacredDraw.At(top, cu, pv, cw), Kp.WhiteTrim, 0.07, 0.85, lod == 0 ? 6 : 4, 0, 0, false, false);
+            }
+            Kp.Box(m, top, -0.95, 0.95, pv + 0.85, pv + 1.0, -0.65, 0.65, Kp.WhiteTrim, BoxFaces.All);
+            KpLod3.Pyramid(m, top, 0, 0, 1.05, 0.75, pv + 1.0, pv + 1.45, Kp.WhiteTrim);
+            Kp.Finial(m, top, 0, pv + 1.4, 0, 0.5, 0.12, lod);
+            // The red piers either side of the door, projecting 0.4 m, with large painted eyes over gilt roundels.
             Affine3 face = SacredDraw.At(wall, 0, 0, proud);
-            double dw = 1.7, dh = 3.0;
-            Kp.Box(m, face, gu - 0.5 * dw, gu + 0.5 * dw, 0.2, 0.2 + dh, -0.02, 0.02, Kp.Iron, BoxFaces.Front);
+            double dw = 1.7, dh = 3.0, d0 = 0.2, pier0 = 0.5 * dw + 0.42, pier1 = pier0 + 0.95, pierTop = gh - 0.45;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                double ua = gu + s * pier0, ub = gu + s * pier1, uc = 0.5 * (ua + ub);
+                Kp.Box(m, face, Math.Min(ua, ub), Math.Max(ua, ub), -0.2, pierTop, 0, 0.4, Kp.RedOchre, BoxFaces.Wall);
+                Kp.Box(m, face, Math.Min(ua, ub) - 0.06, Math.Max(ua, ub) + 0.06, pierTop, pierTop + 0.2, 0, 0.48, Kp.WhiteTrim, BoxFaces.All & ~BoxFaces.Bottom);
+                if (lod >= 2) continue;
+                Affine3 pf = SacredDraw.At(face, 0, 0, 0.4);
+                for (int e = -1; e <= 1; e += 2)
+                {
+                    Shapes.Ellipsoid(m, SacredDraw.At(pf, uc + e * 0.2, 3.6, 0.0), Kp.WhiteTrim, 0.19, 0.1, 0.03, lod == 0 ? 8 : 5, false);
+                    Shapes.Sphere(m, SacredDraw.At(pf, uc + e * 0.2, 3.6, 0.025), Kp.BlackStone, 0.07, lod == 0 ? 6 : 4);
+                    if (lod == 0) Kp.Box(m, pf, uc + e * 0.2 - 0.19, uc + e * 0.2 + 0.19, 3.75, 3.8, 0.0, 0.03, Kp.BlackStone, BoxFaces.Front);
+                }
+                Shapes.Cylinder(m, SacredDraw.Basis(pf, uc, 2.8, 0.0, 1, 0, 0, 0, 0, 1), Kp.Gilt, 0.28, 0.04, lod == 0 ? 12 : 8);
+                Shapes.Cylinder(m, SacredDraw.Basis(pf, uc, 2.8, 0.04, 1, 0, 0, 0, 0, 1), Kp.GiltDeep, 0.17, 0.03, lod == 0 ? 10 : 6);
+                Shapes.Cylinder(m, SacredDraw.Basis(pf, uc, 1.85, 0.0, 1, 0, 0, 0, 0, 1), Kp.Gilt, 0.2, 0.04, lod == 0 ? 10 : 6);
+            }
+            // The black studded door.
+            Kp.Box(m, face, gu - 0.5 * dw, gu + 0.5 * dw, d0, d0 + dh, -0.06, 0.0, Kp.Iron, BoxFaces.Front);
             if (lod == 0)
                 for (int r = 0; r < 6; r++)
                     for (int c = 0; c < 4; c++)
-                        Shapes.Sphere(m, SacredDraw.At(face, gu - 0.6 + 0.4 * c, 0.6 + 0.45 * r, 0.03), Kp.GiltDeep, 0.035, 4);
-            Kp.Box(m, face, gu - 0.5 * dw - 0.35, gu - 0.5 * dw, 0.2, 0.2 + dh, 0, 0.2, Kp.Wood, BoxFaces.Wall);
-            Kp.Box(m, face, gu + 0.5 * dw, gu + 0.5 * dw + 0.35, 0.2, 0.2 + dh, 0, 0.2, Kp.Wood, BoxFaces.Wall);
-            ShikharaGenerator.Arch(m, face, gu, 0.2 + dh, 0.012, dw + 0.7, 0.9, 0.35, 0.22, true, Kp.Wood, lod);
+                        Shapes.Sphere(m, SacredDraw.At(face, gu - 0.6 + 0.4 * c, 0.6 + 0.45 * r, -0.03), Kp.GiltDeep, 0.035, 4);
+            // The gilt torana: jamb bands down both sides, then three concentric half rings over the door (gilt, a dark
+            // carved band, gilt), about 2.6 m across and 0.12 m proud, with the kirtimukha boss at the crown.
+            const double R = 1.2, Tp = 0.12;
+            double spring = d0 + dh;
+            Kp.Box(m, face, gu - R, gu - 0.5 * dw, d0, spring, 0, Tp, Kp.Gilt, BoxFaces.Wall);
+            Kp.Box(m, face, gu + 0.5 * dw, gu + R, d0, spring, 0, Tp, Kp.Gilt, BoxFaces.Wall);
+            if (lod == 0)
+                for (int s = -1; s <= 1; s += 2)
+                    for (int i = 0; i < 5; i++)
+                        Shapes.Ellipsoid(m, SacredDraw.At(face, gu + s * 0.5 * (R + 0.5 * dw), d0 + 0.35 + 0.55 * i, Tp), Kp.GiltDeep, 0.09, 0.14, 0.04, 6, false);
+            int seg = lod == 0 ? 14 : lod == 1 ? 9 : 5;
+            Kp.HalfDisc(m, face, gu, spring, R, R, Tp, Kp.Gilt, seg);
             if (lod <= 1)
             {
-                // The painted eyes and roundels on the red either side.
-                for (int s = -1; s <= 1; s += 2)
+                Kp.HalfDisc(m, face, gu, spring, R - 0.22, R - 0.22, Tp + 0.01, Kp.Ao(Kp.Wood, 0.85f), seg);
+                Kp.HalfDisc(m, face, gu, spring, R - 0.36, R - 0.36, Tp + 0.02, Kp.GiltDeep, seg);
+                Kp.HalfDisc(m, face, gu, spring, 0.5 * dw - 0.02, 0.62, Tp + 0.03, Kp.Ao(Kp.Wood, 0.7f), seg);
+                Shapes.Ellipsoid(m, SacredDraw.At(face, gu, spring + R - 0.08, Tp + 0.06), Kp.Gilt, 0.26, 0.3, 0.12, lod == 0 ? 8 : 5, false);
+                if (lod == 0)
                 {
-                    double uc = gu + s * (0.5 * dw + 0.75);
-                    Shapes.Cylinder(m, SacredDraw.Basis(face, uc, 2.3, 0.0, 1, 0, 0, 0, 0, 1), Kp.WhiteTrim, 0.32, 0.03, 10);
-                    Shapes.Cylinder(m, SacredDraw.Basis(face, uc, 2.3, 0.03, 1, 0, 0, 0, 0, 1), Kp.GateBlue, 0.2, 0.02, 10);
-                    for (int e = -1; e <= 1; e += 2)
-                    {
-                        Shapes.Ellipsoid(m, SacredDraw.At(face, uc + e * 0.16, 3.3, 0.01), Kp.WhiteTrim, 0.12, 0.06, 0.02, 6, false);
-                        Shapes.Sphere(m, SacredDraw.At(face, uc + e * 0.16, 3.3, 0.025), Kp.BlackStone, 0.04, 4);
-                    }
-                    Shapes.Cylinder(m, SacredDraw.Basis(face, uc, 4.4, 0.0, 1, 0, 0, 0, 0, 1), Kp.Gilt, 0.26, 0.03, 10);
+                    Shapes.Sphere(m, SacredDraw.At(face, gu, spring + 0.42, Tp + 0.08), Kp.Gilt, 0.14, 6);
+                    for (int s = -1; s <= 1; s += 2)
+                        Shapes.Sphere(m, SacredDraw.At(face, gu + s * 0.12, spring + R - 0.02, Tp + 0.16), Kp.BlackStone, 0.04, 4);
                 }
             }
-            // The white lions with red stripes.
+            // The white lions with red stripes on grey stone pedestals.
             for (int s = -1; s <= 1; s += 2)
-                Kp.Lion(m, face, gu + s * (0.5 * dw + 1.15), 0, 0.9, 0.75, 1.35, true, s, lod);
+                Kp.Lion(m, face, gu + s * (pier1 + 0.75), 0, 0.9, 0.75, 1.35, true, s, lod, SacredFigures.Generic, true);
             if (f.C == null) return;
             double x0, y0, x1, y1;
             Local(GateU + 0.3, WallW0, out x0, out y0);
@@ -433,7 +536,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             for (int s = -1; s <= 1; s += 2)
             {
                 double lx, ly;
-                Local(GateU - proud - 0.9, GateW + s * (0.5 * dw + 1.15), out lx, out ly);
+                Local(GateU - proud - 0.9, GateW + s * (pier1 + 0.75), out lx, out ly);
                 f.Cylinder(lx, ly, 0, 2.2, 0.55);
             }
         }

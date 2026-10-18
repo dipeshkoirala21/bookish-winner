@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
 using Ghumante.Core.Meshing.Shapes;
 
@@ -61,7 +63,135 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Gate(ref f, m, west, uDoor);
             Hanuman(ref f, m, west, uHan);
             Agamchhen(ref f, m);
+            Forecourt(ref f, m);
             Colliders(ref f, uDoor, uHan);
+        }
+
+        /// <summary>
+        /// The forecourt's floor (hanuman_gate c_07, c_14): grey stone flags from wall to wall over the forecourt in front of
+        /// the gate and the white Dakha fronts (<see cref="KpGround.ForecourtA0"/>.. in palace-grid metres), a hair over the
+        /// level, in cells of 3 × 3 flags with a slight variation of tone (the material draws the 0.6 × 0.4 m flags and their
+        /// joints), clipped round every building of the tile (the sibling temples' plinths) and the Dakha platform's steps;
+        /// walkable stone. LOD1 coarser cells, LOD2 a few big ones.
+        /// </summary>
+        private static void Forecourt(ref KpFrame f, MeshData m)
+        {
+            int lod = f.Lod;
+            double ca = lod == 0 ? 1.8 : lod == 1 ? 3.6 : 7.2, cb = lod == 0 ? 1.2 : lod == 1 ? 2.4 : 4.8;
+            int na = (int)Math.Ceiling((KpGround.ForecourtA1 - KpGround.ForecourtA0) / ca), nb = (int)Math.Ceiling((KpGround.ForecourtB1 - KpGround.ForecourtB0) / cb);
+            ca = (KpGround.ForecourtA1 - KpGround.ForecourtA0) / na;
+            cb = (KpGround.ForecourtB1 - KpGround.ForecourtB0) / nb;
+            // The tile's building rings near the forecourt (centimetres, tile-local), for the clip.
+            TileData t = f.Tile;
+            double minX = double.MaxValue, maxX = double.MinValue, minZ = double.MaxValue, maxZ = double.MinValue;
+            for (int q = 0; q < 4; q++)
+            {
+                double x, y, tx, tz;
+                KpFrame.FromGrid(q % 2 == 0 ? KpGround.ForecourtA0 : KpGround.ForecourtA1, q < 2 ? KpGround.ForecourtB0 : KpGround.ForecourtB1, out x, out y);
+                f.ToTile(x, y, out tx, out tz);
+                minX = Math.Min(minX, tx);
+                maxX = Math.Max(maxX, tx);
+                minZ = Math.Min(minZ, tz);
+                maxZ = Math.Max(maxZ, tz);
+            }
+            List<int> near = null;
+            if (t != null)
+            {
+                near = new List<int>();
+                for (int bi = 0; bi < t.Buildings.Count; bi++)
+                {
+                    int[] r = t.Buildings[bi].Rings != null && t.Buildings[bi].Rings.Length > 0 ? t.Buildings[bi].Rings[0] : null;
+                    if (r == null || r.Length < 6) continue;
+                    bool any = false;
+                    for (int i = 0; i < r.Length / 2 && !any; i++)
+                        any = r[2 * i] >= 100 * minX - 2000 && r[2 * i] <= 100 * maxX + 2000 && r[2 * i + 1] >= 100 * minZ - 2000 && r[2 * i + 1] <= 100 * maxZ + 2000;
+                    if (any) near.Add(bi);
+                }
+            }
+            Affine3 g = f.Grid;
+            for (int j = 0; j < nb; j++)
+            {
+                for (int i = 0; i < na; i++)
+                {
+                    double a0 = KpGround.ForecourtA0 + ca * i, b0 = KpGround.ForecourtB0 + cb * j, am = a0 + 0.5 * ca, bm = b0 + 0.5 * cb;
+                    // The Dakha front's stone platform and its steps stand here.
+                    if (am >= KpRanges.DA0 && am <= KpRanges.DA1 && bm < KpRanges.DB1 + KpRanges.PlatformDepth + 4 * KpRanges.StepRun) continue;
+                    double x, y, tx, tz;
+                    KpFrame.FromGrid(am, bm, out x, out y);
+                    f.ToTile(x, y, out tx, out tz);
+                    if (near != null && InBuilding(t, near, tx, tz)) continue;
+                    uint h = ShapeNoise.Hash(i, j, 5, 0x4F1Au);
+                    float tone = 0.93f + 0.12f * (h % 100) / 100f;
+                    Kp.Floor(m, g, a0, a0 + ca, b0, b0 + cb, 0.02, Kp.Tint(Kp.ForecourtFlags, tone));
+                }
+            }
+            if (f.C != null) ForecourtColliders(ref f);
+        }
+
+        /// <summary>
+        /// The forecourt's walkable stone floor as colliders: rows of 2.4 m cells across the paved area, each run of cells
+        /// clear of the drawn roads (more than 0.2 m from every drawn road edge, <see cref="SacredDrawnRoads"/>) merged into
+        /// one box. Where the road mesher still draws its footway and pedestrian ribbons across the paving (open issue for the
+        /// roads package, which can clip them with <see cref="KpGround.Paved"/>) the road's own surface is the floor.
+        /// </summary>
+        private static void ForecourtColliders(ref KpFrame f)
+        {
+            const double Cell = 2.4, Clear = 0.2;
+            double a0 = KpGround.ForecourtA0, a1 = KpGround.ForecourtA1, b0 = KpGround.ForecourtB0, b1 = KpGround.ForecourtB1;
+            if (f.Tile == null)
+            {
+                f.GridBox(a0, a1, b0, b1, -0.3, 0.02, GenColliderFlags.Walkable, GenColliders.Stone);
+                return;
+            }
+            SacredDrawnRoads drawn = SacredDrawnRoads.For(f.Tile);
+            int na = Math.Max(1, (int)Math.Round((a1 - a0) / Cell)), nb = Math.Max(1, (int)Math.Round((b1 - b0) / Cell));
+            double ca = (a1 - a0) / na, cb = (b1 - b0) / nb;
+            for (int j = 0; j < nb; j++)
+            {
+                double rb0 = b0 + cb * j, rb1 = rb0 + cb;
+                int run = -1;
+                for (int i = 0; i <= na; i++)
+                {
+                    bool clear = i < na && CellClear(ref f, drawn, a0 + ca * i, a0 + ca * (i + 1), rb0, rb1, Clear);
+                    if (clear && run < 0) run = i;
+                    if (clear || run < 0) continue;
+                    f.GridBox(a0 + ca * run, a0 + ca * i, rb0, rb1, -0.3, 0.02, GenColliderFlags.Walkable, GenColliders.Stone);
+                    run = -1;
+                }
+            }
+        }
+
+        /// <summary>True when the grid cell (a0..a1, b0..b1) keeps more than <paramref name="clear"/> metres from every drawn
+        /// road (its corners, edge midpoints and centre sampled).</summary>
+        private static bool CellClear(ref KpFrame f, SacredDrawnRoads drawn, double a0, double a1, double b0, double b1, double clear)
+        {
+            for (int q = 0; q < 9; q++)
+            {
+                double a = a0 + 0.5 * (q % 3) * (a1 - a0), b = b0 + 0.5 * (q / 3) * (b1 - b0), x, y, tx, tz;
+                KpFrame.FromGrid(a, b, out x, out y);
+                f.ToTile(x, y, out tx, out tz);
+                if (drawn.SignedDistance(tx, tz) < clear) return false;
+            }
+            return true;
+        }
+
+        /// <summary>True when tile-local (x, z) lies inside one of the listed buildings' outlines (rings in centimetres).</summary>
+        private static bool InBuilding(TileData t, List<int> near, double x, double z)
+        {
+            double cx = 100 * x, cz = 100 * z;
+            foreach (int bi in near)
+            {
+                int[] r = t.Buildings[bi].Rings[0];
+                int n = r.Length / 2;
+                bool inside = false;
+                for (int i = 0, k = n - 1; i < n; k = i++)
+                {
+                    double xi = r[2 * i], zi = r[2 * i + 1], xk = r[2 * k], zk = r[2 * k + 1];
+                    if ((zi > cz) != (zk > cz) && cx < (xk - xi) * (cz - zi) / (zk - zi) + xi) inside = !inside;
+                }
+                if (inside) return true;
+            }
+            return false;
         }
 
         /// <summary>The white west front: dado, blind arches, windows, the black gallery and its struts.</summary>
@@ -81,8 +211,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             }
             if (g1 + 1.1 < half) Kp.BlindArch(m, k, 0.5 * (g1 + half), 0.7, Math.Min(1.7, half - g1 - 0.4), 2.7, lod);
             Kp.Band(m, k, -half, half, Floor1 - 0.12, Floor1 + 0.06, 0.08, Kp.WhiteTrim);
+            // The first-floor windows (hanuman_gate c_14): dark lattice with white louvred leaves folded open north of the
+            // gate, the white jali south of it, each under its cusped stucco hood.
             double[] wins = { -half + 1.4, -half + 3.9, uHan + 0.1, half - 1.3 };
-            for (int i = 0; i < wins.Length; i++) Kp.RanaWindow(m, k, wins[i], Floor1 + 0.75, 0.95, 1.65, Kp.Shutter, false, lod);
+            for (int i = 0; i < wins.Length; i++)
+                Kp.RanaWindow(m, k, wins[i], Floor1 + 0.75, 0.95, 1.65, Kp.ShutterWhite, false, lod, wins[i] > uDoor, true);
             // The continuous black gallery on its diagonal struts under the eave.
             Kp.Gallery(m, k, -half - 0.05, half + 0.05, GalleryFloor, EaveV - GalleryFloor - 0.35, 0.9, 0.95, lod);
             // Pratap Malla's inscription (1664): a dark slab low in the wall north of Hanuman, with lines of script and a spout.
@@ -113,11 +246,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             double sill = DoorSill, dw = DoorW, dh = DoorH, top0 = sill + dh, jamb = 0.3;
             // The passage behind the door (the Narasimha niche is on its north wall, the court's light far at its end).
             Passage(ref f, m, k, u, sill, dw, dh);
-            // Gilt repoussé jambs and lintel.
+            // The door frame: three stepped gilt repoussé mouldings (c_06, c_14), the inner one most proud.
             ShapeBrush gilt = Kp.Gilt, giltDeep = Kp.GiltDeep;
-            Kp.Box(m, k, u - 0.5 * dw - jamb, u - 0.5 * dw, sill, top0 + jamb, 0, 0.14, gilt, BoxFaces.Wall);
-            Kp.Box(m, k, u + 0.5 * dw, u + 0.5 * dw + jamb, sill, top0 + jamb, 0, 0.14, gilt, BoxFaces.Wall);
-            Kp.Box(m, k, u - 0.5 * dw - jamb, u + 0.5 * dw + jamb, top0, top0 + jamb, 0, 0.14, gilt, BoxFaces.Wall | BoxFaces.Bottom);
+            for (int st = 0; st < 3; st++)
+            {
+                double i0 = 0.5 * dw + 0.1 * st, i1 = i0 + 0.1, pr = 0.2 - 0.05 * st, tt = top0 + 0.1 * st;
+                ShapeBrush b = st == 1 ? gilt : giltDeep;
+                if (lod >= 2 && st > 0) b = giltDeep;
+                Kp.Box(m, k, u - i1, u - i0, sill, tt + 0.1, 0, pr, b, BoxFaces.Wall);
+                Kp.Box(m, k, u + i0, u + i1, sill, tt + 0.1, 0, pr, b, BoxFaces.Wall);
+                Kp.Box(m, k, u - i1, u + i1, tt, tt + 0.1, 0, pr, b, BoxFaces.Wall | BoxFaces.Bottom);
+            }
             if (lod == 0)
             {
                 // Small repoussé figures stacked up the jambs and along the lintel.
@@ -134,65 +273,75 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 for (int i = 0; i < 4; i++)
                     Shapes.Ellipsoid(m, SacredDraw.At(k, u - 0.66 + 0.44 * i, top0 + 0.15, 0.15), giltDeep, 0.12, 0.09, 0.04, 6, false);
             }
-            // Narrow blue painted pilasters with painted eyes and roundels, framed by slim dark wooden pilasters.
+            // Narrow pale grey-blue painted pilasters (c_06, c_14) with a column of round deity medallions and the painted
+            // eyes, framed by slim dark wooden pilasters.
             double p0 = 0.5 * dw + jamb, p1 = p0 + 0.62, ptop = top0 + jamb + 0.45;
             for (int s = -1; s <= 1; s += 2)
             {
                 double ua = u + s * p0, ub = u + s * p1;
-                Kp.Box(m, k, Math.Min(ua, ub), Math.Max(ua, ub), sill, ptop, 0, 0.08, Kp.GateBlue, BoxFaces.Wall);
+                Kp.Box(m, k, Math.Min(ua, ub), Math.Max(ua, ub), sill, ptop, 0, 0.08, Kp.GatePale, BoxFaces.Wall);
                 double ue = u + s * (p1 + 0.1);
                 Kp.Box(m, k, ue - 0.1, ue + 0.1, 0.0, ptop + 1.6, 0, 0.14, Kp.Wood, BoxFaces.Wall);
-                if (lod > 0) continue;
+                if (lod > 1) continue;
                 double uc = u + s * 0.5 * (p0 + p1);
+                // The eyes.
                 for (int e = -1; e <= 1; e += 2)
                 {
-                    Shapes.Ellipsoid(m, SacredDraw.At(k, uc + e * 0.13, 2.3, 0.09), Kp.WhiteTrim, 0.1, 0.055, 0.02, 8, false);
-                    Shapes.Sphere(m, SacredDraw.At(k, uc + e * 0.13, 2.3, 0.105), Kp.BlackStone, 0.035, 5);
-                    Kp.Box(m, k, uc + e * 0.13 - 0.11, uc + e * 0.13 + 0.11, 2.4, 2.43, 0.08, 0.1, Kp.BlackStone, BoxFaces.Front);
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, uc + e * 0.13, 2.3, 0.09), Kp.WhiteTrim, 0.1, 0.055, 0.02, lod == 0 ? 8 : 5, false);
+                    Shapes.Sphere(m, SacredDraw.At(k, uc + e * 0.13, 2.3, 0.105), Kp.BlackStone, 0.035, lod == 0 ? 5 : 4);
+                    if (lod == 0) Kp.Box(m, k, uc + e * 0.13 - 0.11, uc + e * 0.13 + 0.11, 2.4, 2.43, 0.08, 0.1, Kp.BlackStone, BoxFaces.Front);
                 }
-                Shapes.Cylinder(m, SacredDraw.Basis(k, uc, 1.1, 0.08, 1, 0, 0, 0, 0, 1), Kp.Gilt, 0.2, 0.03, 10);
-                Shapes.Cylinder(m, SacredDraw.Basis(k, uc, 3.3, 0.08, 1, 0, 0, 0, 0, 1), Kp.Gilt, 0.18, 0.03, 10);
-                Shapes.Ellipsoid(m, SacredDraw.At(k, uc, 1.65, 0.11), Kp.Cloak, 0.1, 0.2, 0.05, 6, false);
-                Shapes.Ellipsoid(m, SacredDraw.At(k, uc, 2.8, 0.11), Kp.Cream, 0.1, 0.18, 0.05, 6, false);
+                // Four round medallions with a deity in each (a white rim, a coloured field, a small gilt figure).
+                double[] mv = { 0.95, 1.55, 2.9, 3.45 };
+                for (int q = 0; q < 4; q++)
+                {
+                    ShapeBrush field = q % 2 == 0 ? Kp.Dado : Kp.Green;
+                    Shapes.Cylinder(m, SacredDraw.Basis(k, uc, mv[q], 0.08, 1, 0, 0, 0, 0, 1), Kp.GiltDeep, 0.21, 0.03, lod == 0 ? 12 : 6);
+                    Shapes.Cylinder(m, SacredDraw.Basis(k, uc, mv[q], 0.11, 1, 0, 0, 0, 0, 1), field, 0.16, 0.02, lod == 0 ? 12 : 6);
+                    if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(k, uc, mv[q], 0.14), Kp.Gilt, 0.06, 0.11, 0.035, 5, false);
+                }
             }
-            // The torana frieze over the lintel: a red and green carved band with small gilt figures.
+            // The frieze over the lintel: a red and green carved band with its row of round medallions.
             double t0 = top0 + jamb, t1 = t0 + 0.45;
             Kp.Box(m, k, u - p1, u + p1, t0, t1, 0, 0.15, Kp.Dado, BoxFaces.Wall | BoxFaces.Bottom);
             Kp.Box(m, k, u - p1 - 0.05, u + p1 + 0.05, t1 - 0.1, t1, 0, 0.18, Kp.Green, BoxFaces.Wall | BoxFaces.Bottom);
-            if (lod == 0)
+            if (lod <= 1)
                 for (int i = 0; i < 7; i++)
                 {
                     double ua = u - p1 + 2 * p1 * (i + 0.5) / 7;
-                    Shapes.Ellipsoid(m, SacredDraw.At(k, ua, t0 + 0.2, 0.17), Kp.Gilt, 0.07, 0.13, 0.04, 5, false);
+                    Shapes.Cylinder(m, SacredDraw.Basis(k, ua, t0 + 0.17, 0.15, 1, 0, 0, 0, 0, 1), i % 2 == 0 ? Kp.Gilt : Kp.Green, 0.13, 0.03, lod == 0 ? 10 : 6);
+                    if (lod == 0) Shapes.Sphere(m, SacredDraw.At(k, ua, t0 + 0.17, 0.18), Kp.Tint(Kp.Cream, 0.95f), 0.05, 4);
                 }
-            // The three-niche panel (Krishna with attendants in the middle) and the king-and-queen panel above it.
-            double n0 = t1 + 0.05, n1 = n0 + 1.05;
+            // The blue panel above (c_14) with its figures in the round under three carved wooden toranas: Krishna with
+            // the gopinis on the left, the large multi-armed deity in a gilt aureole in the middle, two seated figures on
+            // the right.
+            double n0 = t1 + 0.05, n1 = n0 + 1.25;
             Kp.Box(m, k, u - p1 - 0.1, u + p1 + 0.1, n0, n1, 0, 0.1, Kp.GateBlue, BoxFaces.Wall);
             for (int q = -1; q <= 1; q++)
             {
                 double uq = u + q * 0.82;
                 if (lod >= 2) continue;
-                Kp.Box(m, k, uq - 0.36, uq - 0.3, n0 + 0.05, n1 - 0.05, 0.1, 0.2, Kp.Wood, BoxFaces.Wall);
-                Kp.Box(m, k, uq + 0.3, uq + 0.36, n0 + 0.05, n1 - 0.05, 0.1, 0.2, Kp.Wood, BoxFaces.Wall);
-                Kp.Panel(m, k, uq - 0.3, n0 + 0.08, uq + 0.3, n1 - 0.28, 0.105, Kp.Ao(Kp.GateBlueDeep, 0.8f));
-                ShikharaGenerator.Arch(m, k, uq, n1 - 0.32, 0.11, 0.6, 0.2, 0.06, 0.06, true, Kp.Wood, lod);
+                Kp.Box(m, k, uq - 0.4, uq - 0.34, n0 + 0.05, n1 - 0.05, 0.1, 0.24, Kp.Wood, BoxFaces.Wall);
+                Kp.Box(m, k, uq + 0.34, uq + 0.4, n0 + 0.05, n1 - 0.05, 0.1, 0.24, Kp.Wood, BoxFaces.Wall);
+                // The carved wooden torana over the niche.
+                ShikharaGenerator.Arch(m, k, uq, n1 - 0.42, 0.11, 0.7, 0.3, 0.09, 0.1, true, Kp.WoodMid, lod);
                 if (lod > 0) continue;
-                // A small seated figure: body, head and crown.
-                ShapeBrush body = q == 0 ? Kp.GateBlueDeep : Kp.Cream;
-                Shapes.Ellipsoid(m, SacredDraw.At(k, uq, n0 + 0.24, 0.2), body, 0.16, 0.12, 0.08, 6, false);
-                Shapes.Ellipsoid(m, SacredDraw.At(k, uq, n0 + 0.42, 0.2), body, 0.09, 0.15, 0.07, 6, false);
-                Shapes.Sphere(m, SacredDraw.At(k, uq, n0 + 0.62, 0.2), Kp.Tint(Kp.Cream, 0.92f), 0.065, 6);
-                Shapes.Cone(m, SacredDraw.At(k, uq, n0 + 0.66, 0.2), Kp.Gilt, 0.06, 0.13, 6, 0, 0, false);
-            }
-            Kp.Box(m, k, u - 0.6, u + 0.6, n1, n1 + 0.4, 0, 0.1, Kp.GateBlue, BoxFaces.Wall);
-            if (lod == 0)
-                for (int s = -1; s <= 1; s += 2)
+                Shapes.Sphere(m, SacredDraw.At(k, uq, n1 - 0.05, 0.16), Kp.Wood, 0.06, 4);
+                if (q == 0)
                 {
-                    Shapes.Ellipsoid(m, SacredDraw.At(k, u + s * 0.2, n1 + 0.15, 0.15), s < 0 ? Kp.Cream : Kp.Cloak, 0.1, 0.1, 0.06, 6, false);
-                    Shapes.Sphere(m, SacredDraw.At(k, u + s * 0.2, n1 + 0.3, 0.15), Kp.Tint(Kp.Cream, 0.9f), 0.05, 5);
+                    Shapes.Cylinder(m, SacredDraw.Basis(k, uq, n0 + 0.55, 0.11, 1, 0, 0, 0, 0, 1), Kp.Gilt, 0.3, 0.03, 12);
+                    Kp.SeatedFigure(m, k, uq, n0 + 0.05, 0.24, 0.8, Kp.GateBlueDeep, Kp.Dado, 8, lod);
                 }
+                else if (q < 0)
+                {
+                    Kp.SeatedFigure(m, k, uq, n0 + 0.05, 0.22, 0.75, Kp.GateBlueDeep, Kp.Cloak, 2, lod);
+                    for (int e = -1; e <= 1; e += 2) Kp.SeatedFigure(m, k, uq + e * 0.22, n0 + 0.05, 0.17, 0.45, Kp.Cream, e < 0 ? Kp.Green : Kp.Dado, 2, lod);
+                }
+                else
+                    for (int e = -1; e <= 1; e += 2) Kp.SeatedFigure(m, k, uq + e * 0.15, n0 + 0.05, 0.2, 0.6, Kp.Cream, e < 0 ? Kp.Cloak : Kp.Green, 2, lod);
+            }
             // The carved wooden canopy: a projecting hood with a frieze of small cusped arches and a sloping top.
-            double c0 = n1 + 0.4, c1 = c0 + 0.85, cw = p1 + 0.55;
+            double c0 = n1 + 0.1, c1 = c0 + 0.85, cw = p1 + 0.55;
             Kp.Box(m, k, u - cw, u + cw, c0, c1, 0, 0.42, Kp.Wood, BoxFaces.Wall | BoxFaces.Bottom);
             SacredDraw.Quad(m, k, u - cw - 0.1, c1, 0.5, u + cw + 0.1, c1, 0.5, u + cw + 0.1, c1 + 0.35, 0, u - cw - 0.1, c1 + 0.35, 0, 0, 0.8, 0.6, Kp.WoodBeam);
             if (lod <= 1)
@@ -210,18 +359,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 Kp.Box(m, k, u - cw - 0.6, u - cw - 0.12, c0 + 0.05, c0 + 0.4, 0, 0.03, Kp.Gilt, BoxFaces.Wall);
                 Kp.Box(m, k, u + cw + 0.12, u + cw + 0.6, c0 + 0.05, c0 + 0.4, 0, 0.03, Kp.Gilt, BoxFaces.Wall);
             }
-            // The two painted lions with their riders (Shiva and Parvati) on pedestals, one each side, facing the square.
+            // The two painted lions (white with red stripes, no green) with their riders (Shiva and Parvati) and marigold
+            // garlands, on pedestals, one each side, facing the square.
             for (int s = -1; s <= 1; s += 2)
             {
                 double ul = u + s * (p1 + 0.75);
+                int lf = m.VertexCount;
                 Kp.Lion(m, k, ul, 0, 0.72, 0.85, 1.45, true, s, lod, SacredFigures.Hero);
+                Kp.Recolor(m, lf, 0x2F6E4F, 0xEDE7DA);
                 if (lod <= 1)
                 {
-                    // The rider seated on the lion's back.
+                    // The rider seated on the lion's back, and the marigold garland round the lion's neck.
                     double vr = 0.85 + 0.6 * 1.45;
-                    Shapes.Ellipsoid(m, SacredDraw.At(k, ul, vr + 0.24, 0.6), s < 0 ? Kp.GateBlue : Kp.Cloak, 0.17, 0.28, 0.14, 6, false);
-                    Shapes.Sphere(m, SacredDraw.At(k, ul, vr + 0.6, 0.62), Kp.Ao(Kp.Cream, 0.95f), 0.11, 6);
-                    Shapes.Cone(m, SacredDraw.At(k, ul, vr + 0.66, 0.62), Kp.Gilt, 0.1, 0.24, 6, 0, 0, false);
+                    Kp.SeatedFigure(m, k, ul, vr - 0.05, 0.6, 0.85, Kp.Ao(Kp.Cream, 0.95f), s < 0 ? Kp.GateBlue : Kp.Cloak, 4, lod);
+                    Shapes.Torus(m, SacredDraw.Basis(k, ul, 0.85 + 0.72 * 1.45, 0.72 + 0.22, 1, 0, 0, 0, 0.5, 0.866), Kp.Marigold, 0.24, 0.05, lod == 0 ? 14 : 8,
+                                 lod == 0 ? 5 : 3);
                 }
             }
         }
@@ -262,47 +414,65 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
             Shapes.Cone(m, SacredDraw.At(nw, 0, sill + 1.7, 0.3), Kp.Silver, 0.14, 0.25, 6, 0, 0, false);
         }
 
-        /// <summary>Hanuman (§3.2): a red-smeared square pillar on a step, the figure wrapped in a red cloak with only the
-        /// sindoor-smeared head showing, and the dark parasol with its deep red fringe on a pole, top at about 4.5 m.</summary>
+        /// <summary>
+        /// Hanuman (1672; photos hanuman_gate c_14, hanuman ref_02, ref_08): a tall (1.8 m) red-smeared stepped pedestal with
+        /// a lotus cornice; on it the draped figure: a rounded head (about 0.5 m) under the hood of the red-orange cloak with
+        /// the darker red sindoor-smeared face, the cloak bulging over the shoulders (about 0.9 m) and falling to a base of
+        /// about 1 m, marigold garlands; the grey metal parasol with its deep red valance on a pole, and two dark metal
+        /// pataka banners on thin poles either side of it.
+        /// </summary>
         private static void Hanuman(ref KpFrame f, MeshData m, in Affine3 k, double u)
         {
             int lod = f.Lod;
             double w = HanumanOut;
             ShapeLod sl = f.SL;
+            const double Ped = 1.8, pv = 4.25, pr = 0.98;
             if (lod >= 2)
             {
-                Kp.Box(m, k, u - 0.43, u + 0.43, 0, 1.92, w - 0.43, w + 0.43, Kp.Sindoor);
-                Shapes.Cone(m, SacredDraw.At(k, u, 1.92, w), Kp.Cloak, 0.47, 1.7, 6, 0, 0, false);
-                Shapes.Cylinder(m, SacredDraw.At(k, u, 3.65, w), Kp.Valance, 1.0, 0.45, 8, 0, 0, false, false);
-                Shapes.Cone(m, SacredDraw.At(k, u, 4.1, w), Kp.ParasolTop, 1.0, 0.55, 8, 0, 0, false);
+                Kp.Box(m, k, u - 0.48, u + 0.48, 0, Ped, w - 0.48, w + 0.48, Kp.Sindoor);
+                Shapes.Cone(m, SacredDraw.At(k, u, Ped, w), Kp.Cloak, 0.5, 1.75, 6, 0, 0, false);
+                Shapes.Cylinder(m, SacredDraw.At(k, u, pv - 0.45, w), Kp.Valance, 1.0, 0.45, 8, 0, 0, false, false);
+                Shapes.Cone(m, SacredDraw.At(k, u, pv, w), Kp.ParasolTop, 1.0, 0.55, 8, 0, 0, false);
                 return;
             }
-            Shapes.RoundedSlab(m, SacredDraw.At(k, u, 0, w), Kp.Step, 1.35, 1.35, 0.2, 0.06, 0.03, 2, sl);
-            // The pillar, darker at the base, with a small moulded top.
-            Shapes.RoundedBox(m, SacredDraw.At(k, u, 0.6, w), Kp.Tint(Kp.Sindoor, 0.8f), 0.86, 0.8, 0.86, 0.05, 2, sl);
-            Shapes.RoundedBox(m, SacredDraw.At(k, u, 1.4, w), Kp.Sindoor, 0.84, 0.8, 0.84, 0.05, 2, sl);
-            Shapes.RoundedBox(m, SacredDraw.At(k, u, 1.86, w), Kp.Tint(Kp.Sindoor, 1.2f), 1.0, 0.12, 1.0, 0.03, 1, sl);
-            // The cloaked figure: a bell of red-orange cloth narrowing to broad shoulders, the head a knob under the cloth.
-            const double fv = 1.92;
+            // The stepped pedestal: a stone step, two red-smeared stages, the lotus cornice.
+            Shapes.RoundedSlab(m, SacredDraw.At(k, u, 0, w), Kp.Step, 1.45, 1.45, 0.2, 0.06, 0.03, 2, sl);
+            Shapes.RoundedBox(m, SacredDraw.At(k, u, 0.55, w), Kp.Tint(Kp.Sindoor, 0.8f), 1.1, 0.7, 1.1, 0.05, 2, sl);
+            Shapes.RoundedBox(m, SacredDraw.At(k, u, 1.25, w), Kp.Sindoor, 0.92, 0.7, 0.92, 0.05, 2, sl);
+            var lotus = new Profile2(10);
+            lotus.Add(0, 0, true).Add(0.46, 0, true).Add(0.56, 0.08).Add(0.62, 0.18).Add(0.6, 0.24, true).Add(0.52, 0.24, true).Add(0, 0.24, true);
+            Shapes.Lathe(m, SacredDraw.At(k, u, Ped - 0.2, w), Kp.Tint(Kp.Sindoor, 1.25f), lotus, lod == 0 ? 16 : 8, sl);
+            if (lod == 0)
+                for (int i = 0; i < 12; i++)
+                {
+                    double a = 2 * Math.PI * (i + 0.5) / 12;
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, u + 0.57 * Math.Sin(a), Ped - 0.08, w + 0.57 * Math.Cos(a)), Kp.Tint(Kp.Sindoor, 1.4f), 0.09, 0.1, 0.09, 5, false);
+                }
+            // The draped figure: the cloak lathed from the hem over the bulging shoulders to the neck, the hooded head.
+            const double fv = Ped + 0.04;
             var p = new Profile2(16);
-            p.Add(0, 0, true).Add(0.45, 0, true).Add(0.47, 0.12).Add(0.43, 0.5).Add(0.41, 0.9).Add(0.4, 1.18).Add(0.31, 1.3).Add(0.16, 1.36).Add(0, 1.37, true);
-            Shapes.Lathe(m, SacredDraw.At(k, u, fv, w), Kp.Cloak, p.Smooth(lod == 0 ? 2 : 1), 16, sl);
-            Shapes.Ellipsoid(m, SacredDraw.At(k, u, fv + 1.5, w + 0.04), Kp.Tint(Kp.Cloak, 0.85f), 0.19, 0.21, 0.18, 10, false, sl);
+            p.Add(0, 0, true).Add(0.5, 0, true).Add(0.52, 0.08).Add(0.49, 0.35).Add(0.45, 0.7).Add(0.45, 0.95).Add(0.46, 1.08).Add(0.4, 1.2).Add(0.24, 1.27)
+             .Add(0.15, 1.3, true).Add(0, 1.3, true);
+            Shapes.Lathe(m, SacredDraw.At(k, u, fv, w), Kp.Cloak, p.Smooth(lod == 0 ? 2 : 1), lod == 0 ? 20 : 12, sl);
+            Shapes.Ellipsoid(m, SacredDraw.At(k, u, fv + 1.5, w), Kp.Cloak, 0.25, 0.28, 0.25, lod == 0 ? 12 : 8, false, sl);
+            // The face: the sindoor-smeared mask in the hood's opening.
+            Shapes.Ellipsoid(m, SacredDraw.At(k, u, fv + 1.48, w + 0.12), Kp.Sindoor, 0.17, 0.19, 0.12, lod == 0 ? 10 : 6, false, sl);
+            // Marigold garlands round the neck and down the front.
+            Shapes.Torus(m, SacredDraw.Basis(k, u, fv + 1.2, w + 0.04, 1, 0, 0, 0, 0.94, 0.34), Kp.Marigold, 0.36, 0.045, lod == 0 ? 16 : 8, lod == 0 ? 5 : 3, sl);
             if (lod == 0)
             {
-                // Cloth folds: a few vertical pleats down the front and a gathered hem at the shoulders.
-                for (int i = -3; i <= 3; i++)
+                Shapes.Torus(m, SacredDraw.Basis(k, u, fv + 0.95, w + 0.1, 1, 0, 0, 0, 0.87, 0.5), Kp.Tint(Kp.Marigold, 0.9f), 0.4, 0.04, 16, 4, sl);
+                // A few deep folds down the cloak.
+                for (int i = -2; i <= 2; i++)
                 {
-                    double a = i * 0.3;
-                    Shapes.Bar(m, SacredDraw.At(k, u, fv, w), Kp.Tint(Kp.Cloak, 0.8f), 0.45 * Math.Sin(a), 0.08, 0.45 * Math.Cos(a), 0.4 * Math.Sin(a), 1.15,
-                               0.4 * Math.Cos(a), 0.028, 5);
+                    double a = i * 0.35;
+                    Shapes.Bar(m, SacredDraw.At(k, u, fv, w), Kp.Tint(Kp.Cloak, 0.8f), 0.5 * Math.Sin(a), 0.08, 0.5 * Math.Cos(a), 0.44 * Math.Sin(a), 0.95,
+                               0.44 * Math.Cos(a), 0.028, 5);
                 }
-                Shapes.Torus(m, SacredDraw.At(k, u, fv + 1.25, w), Kp.Tint(Kp.Cloak, 0.75f), 0.33, 0.05, 14, 5);
             }
-            // The parasol: a pole behind the figure, a dark shallow canopy and the deep red fringed valance.
-            const double pv = 4.1, pr = 0.98;
-            Shapes.Bar(m, SacredDraw.At(k, u, 0, w), Kp.Iron, 0, 1.9, -0.5, 0, pv, -0.5, 0.03, 6);
-            Shapes.Bar(m, SacredDraw.At(k, u, 0, w), Kp.Iron, 0, pv - 0.1, -0.5, 0, pv + 0.02, 0, 0.025, 5);
+            // The parasol: a pole behind the figure, the grey metal canopy and the deep red valance with its white band.
+            Shapes.Bar(m, SacredDraw.At(k, u, 0, w), Kp.Iron, 0, Ped, -0.55, 0, pv, -0.55, 0.03, 6);
+            Shapes.Bar(m, SacredDraw.At(k, u, 0, w), Kp.Iron, 0, pv - 0.1, -0.55, 0, pv + 0.02, 0, 0.025, 5);
             Shapes.Dome(m, SacredDraw.At(k, u, pv - 0.02, w), Kp.ParasolTop, pr, 0.55, 16, true, sl);
             Shapes.Sphere(m, SacredDraw.At(k, u, pv + 0.57, w), Kp.Gilt, 0.08, 8, sl);
             int seg = lod == 0 ? 28 : 14;
@@ -319,6 +489,26 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsPalace
                 int a = first + 3 * i, b = a + 3;
                 SacredDraw.Quad(m, a, b, b + 1, a + 1);
                 SacredDraw.Quad(m, a + 1, b + 1, b + 2, a + 2);
+            }
+            // The two dark metal pataka banners on thin poles either side of the parasol (c_14): flag-shaped plates with a
+            // wavy fly edge, facing the square.
+            for (int s = -1; s <= 1; s += 2)
+            {
+                double pu = u + s * 1.25;
+                Shapes.Bar(m, k, Kp.Iron, pu, 0, w - 0.2, pu, 4.15, w - 0.2, 0.025, 5);
+                Shapes.Sphere(m, SacredDraw.At(k, pu, 4.2, w - 0.2), Kp.Gilt, 0.05, 5);
+                double[] px = ShapeScratch.U, pz = ShapeScratch.W;
+                int n = 0;
+                // The plate in its own plane (x across from the pole, z = −height): a pennant with a wavy fly.
+                px[n] = 0; pz[n++] = -3.95;
+                px[n] = s * 0.55; pz[n++] = -3.85;
+                px[n] = s * 0.45; pz[n++] = -3.6;
+                px[n] = s * 0.6; pz[n++] = -3.35;
+                px[n] = s * 0.42; pz[n++] = -3.1;
+                px[n] = s * 0.5; pz[n++] = -2.85;
+                px[n] = 0; pz[n++] = -2.75;
+                Affine3 fp = SacredDraw.Basis(k, pu, 0, w - 0.18, 1, 0, 0, 0, 0, 1);
+                Shapes.BevelExtrude(m, fp, Kp.Ao(Kp.ParasolTop, 0.85f), px, pz, n, 0.03, 0, 0, BevelStyle.Chamfer, true, true);
             }
         }
 
