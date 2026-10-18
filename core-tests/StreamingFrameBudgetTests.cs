@@ -278,14 +278,28 @@ namespace Ghumante.Core.Tests
             ulong key = id.Key | TileGroundQuery.StaticSetKeyBit;
             Assert.That(e.PreparedColliders.TileKey, Is.EqualTo(key));
 
-            var raw = new TileGroundQuery(settings.Roads);
-            var prepared = new TileGroundQuery(settings.Roads);
-            double t0 = StreamingRideTests.ThreadClock.Ms();
-            raw.Register(key, e.Colliders);
-            double rawMs = StreamingRideTests.ThreadClock.Ms() - t0;
-            t0 = StreamingRideTests.ThreadClock.Ms();
-            prepared.Register(e.PreparedColliders);
-            double preparedMs = StreamingRideTests.ThreadClock.Ms() - t0;
+            // Linking a prepared set is a few list inserts (microseconds), so a single cold timing of it is the first call's
+            // JIT and whatever collection lands in it: 0.12 ms alone and 0.45 ms in the full suite for the same 200-collider
+            // set, against 0.33-0.76 ms for indexing it raw (warm, the link takes 0.001 ms and the raw index 0.24-0.46 ms).
+            // Both overloads are warmed on throwaway queries first and each is timed as the best of three.
+            var warm = new TileGroundQuery(settings.Roads);
+            warm.Register(key, e.Colliders);
+            warm.Unregister(key);
+            warm.Register(e.PreparedColliders);
+            warm.Unregister(key);
+            TileGroundQuery raw = null, prepared = null;
+            double rawMs = double.MaxValue, preparedMs = double.MaxValue;
+            for (int rep = 0; rep < 3; rep++)
+            {
+                raw = new TileGroundQuery(settings.Roads);
+                prepared = new TileGroundQuery(settings.Roads);
+                double t0 = StreamingRideTests.ThreadClock.Ms();
+                raw.Register(key, e.Colliders);
+                rawMs = Math.Min(rawMs, StreamingRideTests.ThreadClock.Ms() - t0);
+                t0 = StreamingRideTests.ThreadClock.Ms();
+                prepared.Register(e.PreparedColliders);
+                preparedMs = Math.Min(preparedMs, StreamingRideTests.ThreadClock.Ms() - t0);
+            }
             Assert.That(prepared.StructureTileCount, Is.EqualTo(raw.StructureTileCount));
             int blocked = 0, hits = 0;
             for (int i = 0; i < e.Colliders.Boxes.Count; i += 3)
