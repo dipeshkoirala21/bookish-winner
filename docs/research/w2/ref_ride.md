@@ -4,7 +4,9 @@ What a rider meets on the real streets of the Kathmandu valley, the rules the ga
 whole-sample evidence that it now does. It covers owner playtest items #8 (feet sinking into roads), #9 (the widened road
 is not wider to drive on), #14 (cannot ride between houses where there is space) and #1 for non-sacred structures
 (a road blocked by some structure), plus two places the owner named in earlier feedback: the Kalanki underpass and the
-dhoka passages of Asan (docs/W2_PLAYTEST_1.md, docs/W2_DETAIL_CONTRACT.md §0). The sacred plinths of #1 are the heritage
+dhoka passages of Asan (docs/W2_PLAYTEST_1.md, docs/W2_DETAIL_CONTRACT.md §0), and the three spots the camera package's
+rides ran into (docs/research/w2/ref_camera.md §6, §7.1): a bus blocked on Kantipath at Ratna Park, a bus blocked turning
+into Bhaktithapa Road, and an "unidentified overhead solid" north of Thamel. The sacred plinths of #1 are the heritage
 package's; bridge decks, their railings and foot overbridges (#2, #15) are the bridges2 package's; the cross-slope of
 hill roads and the terrain carve (#16) are the cutfill package's.
 
@@ -21,6 +23,9 @@ Photos are references only (Openverse, open licences, listed in §5). None is co
 | **Arterials** (Ring Road south, Kanti Path) | Raised paver footpaths sit behind 150 mm barrier kerbs (NRS 2070 §13.6). A motorbike can hop a kerb (it is lower than a stair step). The Ring Road keeps dusty dirt shoulders outside the asphalt. | ring_road/ref_00, ref_04-06; ref_roads.md |
 | **Riverside cuttings** (Teku, Kalimati, Balkhu, Shankhamul) | Streets drop into cuttings under the river bridges, with masonry retaining walls. Side streets join them at their own level. | data_detail_pass.md §2, bridges_flyovers.md §3.1 |
 | **Between houses** | There are open plots, chowks, courtyards and gaps of a few metres between houses. A rider uses all of them. Nothing invisible stands where nothing is built. | alley/ref_00, asan_tole/ref_04 |
+| **Ratna Park junction** (Kantipath at Rastriya Sabha Griha, 85.3162, 27.7062) | An at-grade crossing of four main roads. Pedestrians cross overhead on steel foot bridges (Ratnapark-Bhotahiti, Ratnapark-Bagbazar, Jamal). The RSTR data instead holds the four foot decks 2.0-2.7 m over the terrain and lowers the junction node and its four arms 4.0 m (kind Underpass, Lowered), so the decks clear 5.5 m (§4). The game draws what the data says, consistently. | [Himalayan Times: overhead bridges](https://thehimalayantimes.com/kathmandu/21-locations-valley-need-overhead-bridges), [ShareSansar: KMC overhead bridges](https://www.sharesansar.com/newsdetail/kathmandu-metropolitan-city-building-two-overhead-bridges-in-first-phase); RSTR ways 171603746, 171215507, 171203194, 220025931 |
+| **Junction corners on bus roads** | A bus (Sajha, Mahanagar: 10-11 m long, 2.5 m wide) swings its front overhang across the outside of a turn. Kerb returns are about 4.6 m (15 ft) on residential streets and 7.6 m (25 ft) on arterials with turning buses; urban guides keep 3-4.6 m. Corner houses in Kathmandu stand at the kerb line, often chamfered at the corner. | [PEDSAFE: curb radius](https://www.walkinginfo.org/engineering/crossings-curb/), [NACTO: corner radii](https://nacto.org/publication/urban-street-design-guide/intersection-design-elements/corner-radii/), [NAP: bus turning radii](https://nap.nationalacademies.org/read/23171/chapter/5) |
+| **Lainchaur foot overbridge** (85.3130, 27.7178) | A pedestrian overbridge with railings across the Primary road north of Thamel (OSM Footway 1268595053, RSTR Flyover, FootOverbridge, layer 1). Its deck stands 5.4 m over the drawn road. | RSTR; camera package §7.1 |
 
 ## 2. Rules the game follows (the rideable street)
 
@@ -46,7 +51,18 @@ Photos are references only (Openverse, open licences, listed in §5). None is co
    that stops at an open station ends halfway to it, so it never reaches into that road.
 6. **Footpaths and caps stay inside the final corridor** the houses were trimmed to: tile-border footpath pins are
    clamped one profile step in, and kerb-return fillets use only the corridor room at their corner, so they never pave
-   over trimmed houses.
+   over trimmed houses (except bus corners, rule 8).
+7. **Junction caps meet their arms level** (`Meshing/Roads/CapLevels`). A cap is drawn a lift above the terrain, where
+   the pinned ribbon ends of draped arms meet it. An arm whose ribbon follows structure heights at its cut (a lowered
+   underpass, a ramp onto a deck) carries the cap with it: exactly the ribbon's end row on that arm's cut section, and
+   inside the cap the arms' offsets blended by inverse squared distance to their cuts. Islands and police podiums on the
+   cap sink or rise with it, and the analytic surface query (`RoadSurfaceQuery`) answers the same height. At the Ratna Park
+   junction the cap now sinks with its four arms instead of standing 4.3 m above them.
+8. **Bus corners keep a 4.5 m kerb return** (`RoadLayout.BusCornerRadiusM`). At a corner between two car roads both drawn
+   at least 6.5 m wide, at least 60° apart and outside the old cores, the corner-room clamp of rule 6 never shrinks the
+   kerb return below 4.5 m (the residential norm; the design radius there is 6 m). The corner house is trimmed back to the
+   cap, drawn and solid alike (decision 1: rideability beats exact footprints). 518 caps of the sample have such a corner;
+   together they cut 43 m² of pipeline-trimmed houses.
 
 ## 3. Evidence: the whole kathmandu_core sample, before and after
 

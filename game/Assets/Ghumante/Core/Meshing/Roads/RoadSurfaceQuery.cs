@@ -223,7 +223,12 @@ namespace Ghumante.Core.Meshing.Roads
             foreach (JunctionCap cap in Layout.Caps)
             {
                 if (!InsideOrOn(cap.PolyX, cap.PolyZ, cap.Count, lx, lz)) continue;
-                float y = Grade.Terrain(lx, lz) + Grade.LiftOf(cap.TopRoad) + JunctionMesher.CapExtraLiftM;
+                // As drawn (JunctionMesher): a lift above the terrain, or with arms drawn at structure heights (a lowered
+                // junction) following them.
+                float capLift = Grade.LiftOf(cap.TopRoad) + JunctionMesher.CapExtraLiftM;
+                CapLevels levels = CapLevels.ForThread();
+                levels.Of(Tile, Layout, Grade, cap, capLift);
+                float y = levels.Height(Grade, lx, lz, capLift);
                 RoadSurfaceHit h = Junction(lx, lz, y, 0.5f * cap.WidestArmM);
                 Pick(ref hit, ref found, h, limit);
             }

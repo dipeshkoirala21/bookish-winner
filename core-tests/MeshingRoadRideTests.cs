@@ -128,14 +128,17 @@ namespace Ghumante.Core.Tests
         /// Junction caps never pave over the houses the pipeline trimmed to the corridors (finding: 269 caps over at least
         /// 2 m² of houses, 2 153 m² in all, up to 30 m from the node at acute Y-junctions of 4.8 m lanes): a kerb-return
         /// fillet only uses the corridor room beside the carriageways at its corner, and edges whose cuts lie beyond the
-        /// corner meet at it instead of a chord across the wedge between the arms.
+        /// corner meet at it instead of a chord across the wedge between the arms. A bus corner (both arms 6.5 m or wider, a
+        /// corner of 60° or more, <see cref="RoadLayout.BusCornerRadiusM"/>) keeps its kerb return even where the drawn
+        /// corridor gives less room, so a bus turns there (camera package spot 85.32753, 27.69324): those corners are counted
+        /// apart and may pave at most the fillet's extra area over a house.
         /// </summary>
         [Test]
         public void JunctionCapsKeepOffTheTrimmedHouses()
         {
-            int caps = 0, acute = 0, over1 = 0;
-            double total = 0, worst = 0, worstAcute = 0;
-            string where = "";
+            int caps = 0, acute = 0, over1 = 0, busCaps = 0, busOver1 = 0;
+            double total = 0, worst = 0, worstAcute = 0, busTotal = 0, worstBusExcess = double.NegativeInfinity;
+            string where = "", whereBus = "";
             foreach (TileData t in LeafTiles())
             {
                 RoadLayout layout = RoadLayout.For(t);
@@ -143,6 +146,22 @@ namespace Ghumante.Core.Tests
                 {
                     caps++;
                     double a = CapAreaOverHouses(t, cap);
+                    int bus = cap.BusCorner != null ? cap.BusCorner.Count(b => b) : 0;
+                    if (bus > 0)
+                    {
+                        // A bus corner keeps a 4.5 m kerb return (decision 1): the corner house is trimmed back to the fillet,
+                        // at most r² (cot(θ/2) - (π - θ)/2) = 13.9 m² at the sharpest bus corner (60°).
+                        busCaps++;
+                        busTotal += a;
+                        if (a >= 1.0) busOver1++;
+                        double excess = a - BusCornerAllowanceM2 * bus;
+                        if (excess > worstBusExcess)
+                        {
+                            worstBusExcess = excess;
+                            whereBus = t.Tile + " node " + cap.X.ToString("0.0") + "," + cap.Z.ToString("0.0") + " (" + a.ToString("0.0") + " m², " + bus + " bus corners)";
+                        }
+                        continue;
+                    }
                     total += a;
                     if (a >= 1.0) over1++;
                     if (a > worst)
@@ -159,13 +178,22 @@ namespace Ghumante.Core.Tests
             }
             TestContext.WriteLine("caps " + caps + " (" + acute + " with an arm pair under 45°); over houses " + total.ToString("0") + " m² in all, " +
                                   over1 + " caps over at least 1 m², worst " + worst.ToString("0.0") + " m² at " + where + ", worst acute " +
-                                  worstAcute.ToString("0.0") + " m²");
+                                  worstAcute.ToString("0.0") + " m²; caps with bus corners " + busCaps + ", over houses " + busTotal.ToString("0") + " m², " + busOver1 +
+                                  " over at least 1 m², worst excess over the fillet allowance " + worstBusExcess.ToString("0.0") + " m² at " + whereBus);
             Assert.That(caps, Is.GreaterThan(5000));
             Assert.That(total, Is.LessThan(250.0), "all caps together over the trimmed houses (2 153 m² before)");
             Assert.That(over1, Is.LessThan(40), "caps over at least 1 m² of houses (703 before)");
             Assert.That(worst, Is.LessThan(6.0), "no cap paves a house (65.8 m² before)");
             Assert.That(worstAcute, Is.LessThan(5.0), "acute Y-junctions close at their corner, not across the wedge");
+            Assert.That(busCaps, Is.LessThan(caps / 10), "bus corners are the corners of the bigger car roads only");
+            Assert.That(worstBusExcess, Is.LessThan(6.0), "a bus corner trims its corner house no further than its kerb return: " + whereBus);
         }
+
+        /// <summary>The house area the kerb return of the sharpest bus corner may cut beyond the corridor corner:
+        /// r² (cot(θ/2) - (π - θ)/2) for r = <see cref="RoadLayout.BusCornerRadiusM"/> and θ = <see cref="RoadLayout.BusCornerMinAngleDeg"/>.</summary>
+        private static readonly double BusCornerAllowanceM2 = RoadLayout.BusCornerRadiusM * RoadLayout.BusCornerRadiusM *
+                                                              (1.0 / Math.Tan(0.5 * RoadLayout.BusCornerMinAngleDeg * Math.PI / 180.0) -
+                                                               (Math.PI - RoadLayout.BusCornerMinAngleDeg * Math.PI / 180.0) / 2.0);
 
         /// <summary>
         /// Footpaths never reach beyond the final corridor the houses were trimmed to, also next to a tile-border cut that
@@ -264,6 +292,82 @@ namespace Ghumante.Core.Tests
             }
             Assert.That(onCarriageway, Is.GreaterThan(200), "the drawn carriageway round the bend");
             Assert.That(outside, Is.GreaterThan(10), "including the outside of the bend");
+        }
+            /// <summary>
+        /// Every junction cap of the sample meets the ribbons of its arms level, also where the arms are drawn at structure
+        /// heights (camera package: a bus on Kantipath stopped at the Ratna Park junction under the foot overbridges, whose
+        /// four arms the data lowers 4 m into a cutting; the cap stood at the terrain, a 4.3 m wall across every arm). Just
+        /// inside the cap and just outside it on the arm's ribbon, at the arm's cut centre, the drawn surfaces differ by at
+        /// most 0.1 m.
+        /// </summary>
+        [Test]
+        public void JunctionCapsMeetTheirArmsLevel()
+        {
+            int arms = 0, raised = 0, steps = 0, steps3 = 0, steps10 = 0, stepsRaised = 0;
+            var examples = new List<string>();
+            double worst = 0;
+            string where = "";
+            var lv = new float[8];
+            var lr = new float[8];
+            foreach (TileData t in LeafTiles())
+            {
+                var h = new TileHeightSampler(t, 1);
+                var m = new MeshData();
+                RoadMesher.Build(t, h, new RoadOptions(), m);
+                DrawnRoadSurface d = DrawnRoadSurface.FromMesh(m, t.Tile.X0, t.Tile.Z0);
+                RoadLayout layout = RoadLayout.For(t);
+                RoadGrade grade = RoadGrade.For(t, h, new RoadOptions());
+                foreach (JunctionCap cap in layout.Caps)
+                {
+                    for (int k = 0; k < cap.ArmRoads.Length; k++)
+                    {
+                        int ri = cap.ArmRoads[k];
+                        if (!grade.Has(ri)) continue;
+                        RoadCut c = layout.StoredCut(t, ri, cap.ArmCutS[k]);
+                        double ox = c.CX - cap.X, oz = c.CZ - cap.Z, ol = Math.Sqrt(ox * ox + oz * oz);
+                        if (ol < 1.0) continue;
+                        ox /= ol;
+                        oz /= ol;
+                        // The cut centre (on the drawn carriageway's middle), 5 cm inside the cap and 5 cm out on the ribbon.
+                        double mx = c.CX + c.UX * c.Shift, mz = c.CZ + c.UZ * c.Shift;
+                        double ix = t.Tile.X0 + mx - ox * 0.05, iz = t.Tile.Z0 + mz - oz * 0.05;
+                        double rx = t.Tile.X0 + mx + ox * 0.05, rz = t.Tile.Z0 + mz + oz * 0.05;
+                        int ni = d.Levels(ix, iz, lv), nr = d.Levels(rx, rz, lr);
+                        if (ni == 0 || nr == 0) continue;
+                        arms++;
+                        float th;
+                        h.TryHeightClamped(rx, rz, out th);
+                        if (Math.Abs(lr[nr - 1] - th) > 1.0f) raised++;
+                        double best = double.MaxValue;
+                        for (int a = 0; a < ni; a++)
+                        for (int b = 0; b < nr; b++)
+                            best = Math.Min(best, Math.Abs(lv[a] - lr[b]));
+                        if (best <= 0.1) continue;
+                        if (examples.Count < 12)
+                            examples.Add(t.Roads[ri].RoadClass + " osm " + t.Roads[ri].OsmWayId + " " + t.RoadStructureOf(ri).Kind + " step " + best.ToString("0.00") + " cap " +
+                                         (lv[ni - 1] - th).ToString("+0.00;-0.00") + " ribbon " + (lr[nr - 1] - th).ToString("+0.00;-0.00") + " at " + t.Tile + " " +
+                                         (rx - t.Tile.X0).ToString("0.0") + "," + (rz - t.Tile.Z0).ToString("0.0"));
+                        steps++;
+                        if (best > 0.3) steps3++;
+                        if (best > 1.0) steps10++;
+                        if (Math.Abs(lr[nr - 1] - th) > 1.0f) stepsRaised++;
+                        if (best > worst)
+                        {
+                            worst = best;
+                            double lon, lat;
+                            Geo.WorldFrame.GameToLonLat(rx, rz, out lon, out lat);
+                            where = t.Roads[ri].RoadClass + " osm " + t.Roads[ri].OsmWayId + " " + t.RoadStructureOf(ri).Kind + " at " + lat.ToString("0.00000") + "," +
+                                    lon.ToString("0.00000");
+                        }
+                    }
+                }
+            }
+            TestContext.WriteLine("cap arms " + arms + " (" + raised + " drawn more than 1 m off the terrain), steps over 0.1 m " + steps + " (over 0.3 m " + steps3 + ", over 1 m " + steps10 + ", on raised arms " + stepsRaised + "), worst " + worst.ToString("0.00") +
+                                  " m " + where);
+            foreach (string e in examples) TestContext.WriteLine("  " + e);
+            Assert.That(arms, Is.GreaterThan(5000));
+            Assert.That(raised, Is.GreaterThan(0), "the sample has caps whose arms are drawn at structure heights");
+            Assert.That(steps, Is.EqualTo(0), "the worst step " + worst.ToString("0.00") + " m: " + where);
         }
     }
 }

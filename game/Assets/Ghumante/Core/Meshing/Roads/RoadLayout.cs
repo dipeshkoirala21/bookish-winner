@@ -44,6 +44,11 @@ namespace Ghumante.Core.Meshing
         /// <summary>Per corner k (between arm k and arm k + 1): the kerb-return radius drawn (0 = no arc).</summary>
         public float[] CornerRadiusM;
 
+        /// <summary>Per corner (between arm k and arm k + 1): a bus corner (<see cref="RoadLayout.BusCornerMinAngleDeg"/>),
+        /// whose kerb return keeps its design radius where the corridor room beside the arms is smaller (the corner house
+        /// is trimmed back to it).</summary>
+        public bool[] BusCorner;
+
         /// <summary>The piece drawn on top (highest class): the cap takes its surface colour and lift.</summary>
         public int TopRoad;
 
@@ -1773,6 +1778,29 @@ namespace Ghumante.Core.Meshing
             return widthA >= 6.5f && widthB >= 6.5f ? 6.0 : 3.0;
         }
 
+        /// <summary>Smallest corner angle (between two arms seen from the node) whose kerb return keeps its design radius
+        /// between two bus roads (<see cref="BusCorner"/>); sharper corners are Y-junction wedges.</summary>
+        public const double BusCornerMinAngleDeg = 60.0;
+
+        /// <summary>The kerb-return radius a bus corner keeps at least (where the design radius is larger; see
+        /// <see cref="BusCorner"/>).</summary>
+        public const double BusCornerRadiusM = 4.5;
+
+        /// <summary>
+        /// A corner between two car roads both drawn at least 6.5 m wide, at least <see cref="BusCornerMinAngleDeg"/> wide,
+        /// outside the old cores: its kerb return keeps the design radius (<see cref="KerbReturnRadiusM"/>, 6 m) even where
+        /// the pipeline trimmed the corner house to the straight corridors, and the house is cut back to the cap like any
+        /// house in a corridor (decision 1, rideability beats exact footprints). A bus swinging round the corner, its front
+        /// overhang 2.6 m ahead of the axle, clears the corner house (camera package rides: the bus from Tanka Prasad Ghumti
+        /// Sadak into Bhaktithapa Road stopped against the sharp corner of the house there, 85.32753, 27.69324).
+        /// </summary>
+        private bool BusCorner(in Arm a, in Arm b, double th, bool oldCore)
+        {
+            if (oldCore || th < BusCornerMinAngleDeg * Math.PI / 180.0) return false;
+            if (Profiles[a.Road].NoCars || Profiles[b.Road].NoCars) return false;
+            return a.OffL + a.OffR >= 6.5 && b.OffL + b.OffR >= 6.5;
+        }
+
         /// <summary>Largest angle step of a kerb-return arc.</summary>
         public const double KerbArcStepDeg = 15.0;
 
@@ -1837,6 +1865,7 @@ namespace Ghumante.Core.Meshing
             var tan = new double[n];
             var theta = new double[n];
             var hasP = new bool[n];
+            var bus = new bool[n];
             for (int k = 0; k < n; k++)
             {
                 Arm a = arms[k], b = arms[(k + 1) % n];
@@ -1857,8 +1886,12 @@ namespace Ghumante.Core.Meshing
                 // beside them there (footpath, shoulder, spare corridor) plus CornerToleranceM. At an acute Y-junction of
                 // two 4.8 m lanes between trimmed houses that is a tight corner, not a fillet paving the wedge.
                 double room = Math.Min(CornerRoom(a, true, tA), CornerRoom(b, false, tB));
+                bus[k] = BusCorner(a, b, th, oldCore);
                 if (!double.IsPositiveInfinity(room))
-                    rho = Math.Min(rho, Math.Max(0.0, room + CornerToleranceM) / Math.Max(1e-3, 1.0 - Math.Sin(0.5 * th)));
+                {
+                    double fit = Math.Max(0.0, room + CornerToleranceM) / Math.Max(1e-3, 1.0 - Math.Sin(0.5 * th));
+                    rho = Math.Min(rho, bus[k] ? Math.Max(fit, BusCornerRadiusM) : fit);
+                }
                 double T = rho / Math.Tan(0.5 * th);
                 a.Setback = Math.Max(a.Setback, tA + T + 0.2);
                 b.Setback = Math.Max(b.Setback, tB + T + 0.2);
@@ -1955,7 +1988,7 @@ namespace Ghumante.Core.Meshing
             {
                 X = nx, Z = nz, PolyX = xs.ToArray(), PolyZ = zs.ToArray(), Count = xs.Count, ArmRoads = new int[n],
                 ArmForward = new bool[n], ArmSetback = new double[n], ArmCutS = new double[n], TopRoad = top, WidestArmM = widest,
-                ArmRightIndex = rightIdx, ArmLeftIndex = leftIdx, CornerRadiusM = radii,
+                ArmRightIndex = rightIdx, ArmLeftIndex = leftIdx, CornerRadiusM = radii, BusCorner = bus,
             };
             for (int k = 0; k < n; k++)
             {
