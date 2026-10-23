@@ -3,6 +3,11 @@ fastlane/report.xml
 fastlane/README.md
 fastlane/test_output/
 *.ipa
+*.apk
+*.aab
+*.app/
+*.xcarchive/
+*.dSYM/
 *.dSYM.zip
 *.mobileprovision
 # Bundler

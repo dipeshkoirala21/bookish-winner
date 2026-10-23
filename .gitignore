@@ -2,7 +2,13 @@
 pipeline/data/
 pipeline/build/
 pipeline/.cache/
+*.osm
+*.osm.gz
+*.osm.bz2
 *.osm.pbf
+!pipeline/tests/fixtures/*.osm
+!pipeline/tests/fixtures/*.osm.gz
+!pipeline/tests/fixtures/*.osm.bz2
 !pipeline/tests/fixtures/*.osm.pbf
 
 # Python
@@ -26,6 +32,8 @@ game/[Tt]emp/
 game/[Oo]bj/
 game/[Bb]uild/
 game/[Bb]uilds/
+# Unity's generated Xcode export (recreate via Ghumante > Build > iOS Xcode Project)
+game/[Ii][Oo][Ss]/
 game/[Ll]ogs/
 game/[Uu]ser[Ss]ettings/
 game/[Mm]emoryCaptures/

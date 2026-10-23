@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: GhumanteWorldMaterials
+  m_EditorClassIdentifier: Ghumante.World:Ghumante.World.Rendering:WorldMaterialSet
+  terrain: {fileID: 2100000, guid: b209b56611c37483496321a57782d9ac, type: 2}
+  roads: {fileID: 2100000, guid: 34fb50636fa0b43ff969185e8dc0df0b, type: 2}
+  buildings: {fileID: 2100000, guid: 596e112516ef744efaf98cd09a376a0c, type: 2}
+  areas: {fileID: 2100000, guid: 2b542841dbf274d8ea12108ad0c7a26a, type: 2}
+  route: {fileID: 2100000, guid: 7cf0bcda4e083488b8be18bc8bbc2feb, type: 2}
+  sky: {fileID: 2100000, guid: 0c8fd55e8fa0c40f8b102c769986eaaa, type: 2}
+  decals: {fileID: 2100000, guid: 724cbac558b314cc3ab85ddaee4af7d4, type: 2}
+  bandB0: {fileID: 2100000, guid: 8672ea7878a1d43aa86a534d959ed27a, type: 2}
+  bandB1: {fileID: 2100000, guid: ee2d2e34e355044f98cacc4e3b08a1f6, type: 2}
+  bandB1Full: {fileID: 2100000, guid: 85e829c66000d420c9f9133da817245b, type: 2}
+  bandB2: {fileID: 2100000, guid: 9b863e7d30f274e2ba7be27253074bf4, type: 2}
+  bandB3: {fileID: 2100000, guid: 4f504122c0f9c4aceb56bb5f43b5a80a, type: 2}
+  heroes: {fileID: 2100000, guid: 718a12da52fce48f190133011e9dedc6, type: 2}
+  instanced: {fileID: 2100000, guid: febae6384717d400fa557694a290950b, type: 2}
+  instancedTint: {fileID: 2100000, guid: 8af6df44bcd694e6891e4ff0ce1a1881, type: 2}
+  props: {fileID: 2100000, guid: 7365afe57977c4f32bffa22a96831c96, type: 2}
+  trees: {fileID: 2100000, guid: 65e2e7911a9e346a6a1db05bf7d2b16b, type: 2}
+  lights: {fileID: 2100000, guid: 644105f2551694ed09140b6afac97415, type: 2}
+  bridges: {fileID: 2100000, guid: f22f8303f0c8e49edbb36ba1db509f1f, type: 2}
