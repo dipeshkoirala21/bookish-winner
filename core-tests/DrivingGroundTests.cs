@@ -4,6 +4,7 @@ using Ghumante.Core.Data;
 using Ghumante.Core.Driving;
 using Ghumante.Core.Geo;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Roads;
 using NUnit.Framework;
 
 namespace Ghumante.Core.Tests
@@ -225,10 +226,10 @@ namespace Ghumante.Core.Tests
             Assert.That(s.RoadOffsetM, Is.EqualTo(-1f).Within(1e-3));
             Assert.That(s.RoadDirX, Is.EqualTo(1f).Within(1e-5));
 
-            // In the margin the lift ramps down to the terrain (a kerb ramp, not a cliff).
+            // Feet stand on what is drawn (owner playtest #8): just beyond the drawn edge lies the terrain, no invisible ramp.
             Assert.That(g.TrySample(x0 + 300, z0 + 502.75, out s), Is.True);
-            Assert.That(s.OnRoad, Is.True);
-            Assert.That(s.Height - s.TerrainHeight, Is.EqualTo(0.5f * g.RoadLiftM(t.Roads[0])).Within(1e-3));
+            Assert.That(s.OnRoad, Is.False);
+            Assert.That(s.Height, Is.EqualTo(s.TerrainHeight).Within(1e-4));
 
             Assert.That(g.TrySample(x0 + 500, z0 + 800, out s), Is.True);
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Gravel));
@@ -394,8 +395,9 @@ namespace Ghumante.Core.Tests
             Assert.That(s.OnRoad, Is.True);
             Assert.That(s.TileLevel, Is.EqualTo(10));
             Assert.That(s.Surface, Is.EqualTo(SurfaceGroup.Paved));
-            // Class lift plus the piece's rank lift (0 to 6 mm).
-            Assert.That(s.Height - s.TerrainHeight, Is.InRange(g.RoadLiftM(s.RoadClass) - 1e-3f, g.RoadLiftM(s.RoadClass) + 0.007f));
+            // The drawn carriageway: class lift plus the piece's rank lift (0 to 6 mm), on the smoothed profile with its crown
+            // (within RoadGrade's band of the draped terrain).
+            Assert.That(s.Height - s.TerrainHeight, Is.InRange(g.RoadLiftM(s.RoadClass) - RoadGrade.BandM, g.RoadLiftM(s.RoadClass) + RoadGrade.BandM + 0.007f));
             Assert.That(s.Height, Is.InRange(1290f, 1360f));
 
             // With only the level-8 tile loaded the coarse terrain answers, within metres of the leaf terrain.

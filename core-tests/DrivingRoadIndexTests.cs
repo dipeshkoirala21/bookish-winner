@@ -256,7 +256,7 @@ namespace Ghumante.Core.Tests
                 RoadRecord r = t.Roads[ri];
                 int first, last;
                 RoadSpatialIndex.RenderedRange(r, out first, out last);
-                if (!RoadMesher.IsDrawn(r, new RoadOptions())) continue;
+                if (!RoadMesher.IsDrawn(t, ri, new RoadOptions())) continue; // tunnel-tagged underpasses and passages are drawn
                 bool dual = lay.Attrs[ri].Has(RoadAttrFlags.Dual);
                 double s0 = 0;
                 for (int k = first; k < last; k++)

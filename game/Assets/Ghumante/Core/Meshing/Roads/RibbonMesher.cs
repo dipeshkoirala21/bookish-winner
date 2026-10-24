@@ -595,8 +595,23 @@ namespace Ghumante.Core.Meshing
                 kd.L = kd.R = deck && !st.Synthetic ? RoadSweep.Side.None : RoadSweep.Side.Skirt;
                 return kd;
             }
-            bool footL = prof.Sample(prof.FootLeft, sm) > 0f && (f.FootL[k] > 0f || f.FootL[k + 1] > 0f);
-            bool footR = !st.Dual && prof.Sample(prof.FootRight, sm) > 0f && (f.FootR[k] > 0f || f.FootR[k + 1] > 0f);
+            bool footL, footR;
+            RoadCentreline c = layout.Centres[ri];
+            bool cutA = k == 0 && c.StartCut, cutB = k + 2 == f.Count && c.EndCut;
+            if (cutA || cutB)
+            {
+                // A segment at a tile-border cut takes its sides from the cut row alone, the border pin both tiles share
+                // (RoadLayout.ClampFootpaths), so the two tiles draw the same section on the border line however soon this
+                // tile's corridor ends the footpath inside (a footpath clamped away in the first profile step dropped out of
+                // the whole first segment in one tile and not in the other: a step in the kerb across the seam).
+                footL = cutA && f.FootL[k] > 0f || cutB && f.FootL[k + 1] > 0f;
+                footR = !st.Dual && (cutA && f.FootR[k] > 0f || cutB && f.FootR[k + 1] > 0f);
+            }
+            else
+            {
+                footL = prof.Sample(prof.FootLeft, sm) > 0f && (f.FootL[k] > 0f || f.FootL[k + 1] > 0f);
+                footR = !st.Dual && prof.Sample(prof.FootRight, sm) > 0f && (f.FootR[k] > 0f || f.FootR[k + 1] > 0f);
+            }
             if (deck && !st.Synthetic)
             {
                 kd.L = footL ? RoadSweep.Side.Footpath : RoadSweep.Side.None;

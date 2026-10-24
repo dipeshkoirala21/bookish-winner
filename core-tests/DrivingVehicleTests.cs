@@ -716,8 +716,8 @@ namespace Ghumante.Core.Tests
                 {
                     groundedSteps++;
                     GroundSample s;
-                    Assert.That(g.TrySample(v.X, v.Z, out s), Is.True);
-                    Assert.That(v.Y, Is.EqualTo(s.Height).Within(1e-3), "on the rendered ground");
+                    Assert.That(g.TrySample(v.X, v.Z, v.Y, out s), Is.True);
+                    Assert.That(v.Y, Is.EqualTo(s.Height).Within(1e-3), "on the rendered ground (the level it rides on)");
                     Assert.That(v.Y, Is.InRange(1250f, 1450f));
                     if (s.OnRoad) onRoadSteps++;
                 }

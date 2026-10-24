@@ -44,6 +44,11 @@ namespace Ghumante.Core.Meshing
         /// <summary>Per corner k (between arm k and arm k + 1): the kerb-return radius drawn (0 = no arc).</summary>
         public float[] CornerRadiusM;
 
+        /// <summary>Per corner (between arm k and arm k + 1): a bus corner (<see cref="RoadLayout.BusCornerMinAngleDeg"/>),
+        /// whose kerb return keeps its design radius where the corridor room beside the arms is smaller (the corner house
+        /// is trimmed back to it).</summary>
+        public bool[] BusCorner;
+
         /// <summary>The piece drawn on top (highest class): the cap takes its surface colour and lift.</summary>
         public int TopRoad;
 
@@ -264,6 +269,7 @@ namespace Ghumante.Core.Meshing
             BorderCrossSections(t);
             Junctions(t);
             KneeTangents(t);
+            ClampFootpaths(t); // after every width change (border pins, knee and junction widenings)
             for (int i = 0; i < n; i++) Centres[i] = BuildCentre(t, i);
             _nodeSets.Clear();
         }
@@ -300,8 +306,9 @@ namespace Ghumante.Core.Meshing
         /// <summary>
         /// Tile-border cut ends get the tile-independent cross-section both tiles agree on
         /// (<see cref="RoadWidthModel.BorderArea"/> at the cut): the footpaths are pinned to
-        /// <see cref="RoadWidthModel.BorderFootpaths"/> there and ramp to this tile's own at 1 : 20; the shoulders within
-        /// <see cref="BorderBlendM"/> of the cut take the border column (<see cref="ShoulderAt"/>).
+        /// <see cref="RoadWidthModel.BorderFootpaths"/> there and ramp to this tile's own at 1 : 20 (then
+        /// <see cref="ClampFootpaths"/> keeps them inside the final corridor); the shoulders within <see cref="BorderBlendM"/>
+        /// of the cut take the border column (<see cref="ShoulderAt"/>).
         /// </summary>
         private void BorderCrossSections(TileData t)
         {
@@ -336,6 +343,108 @@ namespace Ghumante.Core.Meshing
                     if (p.FootRight[j] < RoadWidthModel.MinFootpathM) p.FootRight[j] = 0f;
                 }
             }
+        }
+
+        /// <summary>
+        /// Every piece's footpaths end inside its final corridor once the widths are settled (the border pins above, the
+        /// absorbed sidewalks, the knee widenings): <see cref="ClampFootpathsToCorridor"/>, then the two pieces of every knee
+        /// meet at the narrower footpath again (only ever lowered, so both stay inside), and footpaths under
+        /// <see cref="RoadWidthModel.MinFootpathM"/> are dropped.
+        /// </summary>
+        private void ClampFootpaths(TileData t)
+        {
+            // The footpaths at a tile-border cut keep the tile-independent border pins (the two tiles meet vertex for vertex
+            // across the seam); from the next sample in they are clamped to this tile's corridor, so a pinned footpath wider
+            // than the room ends within one profile step of the border instead of running 70 m into the trimmed houses.
+            int n = t.Roads.Count;
+            var cut = new float[4 * n];
+            for (int i = 0; i < n; i++) ClampFootpathsToCorridor(i, Profiles[i], t.Roads[i], cut);
+            for (int i = 0; i < n; i++)
+            {
+                for (int e = 0; e < 2; e++)
+                {
+                    RoadKnee kn = Knees[2 * i + e];
+                    if (kn.Has && kn.Other > i) MatchKneeFootpaths(Profiles[i], e == 0, Profiles[kn.Other], kn.OtherStarts);
+                }
+            }
+            for (int i = 0; i < n; i++)
+            {
+                RoadRecord r = t.Roads[i];
+                RoadWidthProfile p = Profiles[i];
+                if (p.Count == 0) continue;
+                if (r.HasPrevContext)
+                {
+                    p.FootLeft[0] = cut[4 * i];
+                    p.FootRight[0] = cut[4 * i + 1];
+                }
+                if (r.HasNextContext)
+                {
+                    p.FootLeft[p.Count - 1] = cut[4 * i + 2];
+                    p.FootRight[p.Count - 1] = cut[4 * i + 3];
+                }
+            }
+            for (int i = 0; i < n; i++)
+            {
+                RoadWidthProfile p = Profiles[i];
+                for (int j = 0; j < p.Count; j++)
+                {
+                    if (p.FootLeft[j] < RoadWidthModel.MinFootpathM) p.FootLeft[j] = 0f;
+                    if (p.FootRight[j] < RoadWidthModel.MinFootpathM) p.FootRight[j] = 0f;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The pinned border footpaths never leave the final corridor the houses beside the road were trimmed to: the room
+        /// <see cref="RoadWidthModel.BuildProfile(RoadRecord, in RoadAttrRecord, RoadWidthProfile, bool)"/> leaves them beside
+        /// the drawn carriageway and the shoulders (this cut's border column, <see cref="ShoulderAt"/>), then the same kerb
+        /// flare (1 : <see cref="RoadWidthModel.FootTaperRatio"/>) as a lower envelope. Both tiles of a cut apply the same rule
+        /// to the corridor samples each holds near the cut (a 3.7 m footpath was drawn into the trimmed houses along about
+        /// 70 m of every tile crossing).
+        /// </summary>
+        private void ClampFootpathsToCorridor(int road, RoadWidthProfile p, RoadRecord r, float[] cut)
+        {
+            bool dual = Attrs[road].Has(RoadAttrFlags.Dual), clamped = false;
+            if (p.Count > 0)
+            {
+                // The border cross-section at a cut (both tiles see the same pins; their RATR limit samples there differ by
+                // a few decimetres, so a clamp at the cut itself would open a step in the kerb across the seam).
+                cut[4 * road] = p.FootLeft[0];
+                cut[4 * road + 1] = p.FootRight[0];
+                cut[4 * road + 2] = p.FootLeft[p.Count - 1];
+                cut[4 * road + 3] = p.FootRight[p.Count - 1];
+            }
+            for (int j = 0; j < p.Count; j++)
+            {
+                float lim = p.Limit[j];
+                if (float.IsPositiveInfinity(lim) || float.IsNaN(lim)) continue;
+                float shoulders = 2f * ShoulderAt(road, j * (double)p.StepM);
+                float spaceL, spaceR;
+                if (dual)
+                {
+                    // Outer (left) edge at drawn − real/2, median (right) edge at real/2 from the centreline.
+                    spaceL = 0.5f * (lim - shoulders) - (p.Drawn[j] - 0.5f * p.RealM);
+                    spaceR = 0.5f * (lim - shoulders - p.RealM);
+                }
+                else
+                {
+                    spaceL = spaceR = 0.5f * (lim - p.Drawn[j] - shoulders);
+                }
+                if (p.FootLeft[j] > spaceL)
+                {
+                    p.FootLeft[j] = Math.Max(0f, spaceL);
+                    clamped = true;
+                }
+                if (p.FootRight[j] > spaceR)
+                {
+                    p.FootRight[j] = Math.Max(0f, spaceR);
+                    clamped = true;
+                }
+            }
+            if (!clamped) return;
+            float kf = p.StepM / RoadWidthModel.FootTaperRatio;
+            Envelope(p.FootLeft, p.Count, kf);
+            Envelope(p.FootRight, p.Count, kf);
         }
 
         /// <summary>The shoulder width of road <paramref name="road"/> at raw along <paramref name="alongM"/>: the border
@@ -532,7 +641,7 @@ namespace Ghumante.Core.Meshing
             for (int i = 0; i < t.Roads.Count; i++)
             {
                 RoadRecord r = t.Roads[i];
-                if (!RoadMesher.IsDrawn(r, null)) continue;
+                if (!RoadMesher.IsDrawn(t, i, null)) continue;
                 int first, last;
                 Rendered(r, out first, out last);
                 int[] p = r.Points;
@@ -709,7 +818,7 @@ namespace Ghumante.Core.Meshing
             {
                 if (v[i] <= 0f) continue;
                 int d = atStart ? i : p.Count - 1 - i;
-                v[i] = Math.Max(RoadWidthModel.MinFootpathM, Math.Min(v[i], target + k * d));
+                v[i] = Math.Min(v[i], Math.Max(RoadWidthModel.MinFootpathM, target + k * d)); // only ever lowered
             }
         }
 
@@ -1669,8 +1778,71 @@ namespace Ghumante.Core.Meshing
             return widthA >= 6.5f && widthB >= 6.5f ? 6.0 : 3.0;
         }
 
+        /// <summary>Smallest corner angle (between two arms seen from the node) whose kerb return keeps its design radius
+        /// between two bus roads (<see cref="BusCorner"/>); sharper corners are Y-junction wedges.</summary>
+        public const double BusCornerMinAngleDeg = 60.0;
+
+        /// <summary>The kerb-return radius a bus corner keeps at least (where the design radius is larger; see
+        /// <see cref="BusCorner"/>).</summary>
+        public const double BusCornerRadiusM = 4.5;
+
+        /// <summary>
+        /// A corner between two car roads both drawn at least 6.5 m wide, at least <see cref="BusCornerMinAngleDeg"/> wide,
+        /// outside the old cores: its kerb return keeps at least <see cref="BusCornerRadiusM"/> (of the design radius,
+        /// <see cref="KerbReturnRadiusM"/>, 6 m) even where the pipeline trimmed the corner house to the straight corridors,
+        /// as far as the arms' setbacks allow, and the house is cut back to the cap like any house in a corridor (decision 1,
+        /// rideability beats exact footprints). A bus swinging round the corner, its front overhang 2.5 m ahead of the front
+        /// axle, clears the corner house (camera package rides: the bus from Tanka Prasad Ghumti
+        /// Sadak into Bhaktithapa Road stopped against the sharp corner of the house there, 85.32753, 27.69324).
+        /// </summary>
+        private bool BusCorner(in Arm a, in Arm b, double th, bool oldCore)
+        {
+            if (oldCore || th < BusCornerMinAngleDeg * Math.PI / 180.0) return false;
+            if (Profiles[a.Road].NoCars || Profiles[b.Road].NoCars) return false;
+            return a.OffL + a.OffR >= 6.5 && b.OffL + b.OffR >= 6.5;
+        }
+
         /// <summary>Largest angle step of a kerb-return arc.</summary>
         public const double KerbArcStepDeg = 15.0;
+
+        /// <summary>How far a kerb-return fillet may reach beyond the corridor room at a junction corner (the footprint
+        /// guard's own tolerance, <c>FootprintGuard.MaxInsideM</c>).</summary>
+        public const double CornerToleranceM = 0.3;
+
+        /// <summary>
+        /// The corridor room beside arm <paramref name="a"/>'s carriageway on its left (<paramref name="armLeft"/>, seen from
+        /// the node) or right side, near the corner <paramref name="tCorner"/> metres out from the node: the corridor half
+        /// width on that side (the RATR limit about the corridor-shifted centreline, where the houses were trimmed) less the
+        /// carriageway's reach there, the smaller of the samples at the node and at the corner; +∞ where the corridor is open.
+        /// </summary>
+        private double CornerRoom(Arm a, bool armLeft, double tCorner)
+        {
+            RoadWidthProfile p = Profiles[a.Road];
+            double best = double.PositiveInfinity;
+            for (int q = 0; q < 2; q++)
+            {
+                double s = a.SNode + (a.Forward ? 1 : -1) * (q == 0 ? 0.0 : tCorner);
+                s = s < 0 ? 0 : s > p.LengthM ? p.LengthM : s;
+                float lim = LimitNear(p, s);
+                if (float.IsPositiveInfinity(lim) || float.IsNaN(lim)) continue;
+                bool pieceLeft = armLeft == a.Forward;
+                double half = 0.5 * p.DrawnAt(s), shift = p.ShiftAt(s), corridorShift = p.CorridorShiftAt(s);
+                double room = pieceLeft ? corridorShift + 0.5 * lim - (shift + half) : -corridorShift + 0.5 * lim - (half - shift);
+                best = Math.Min(best, room);
+            }
+            return best;
+        }
+
+        /// <summary>The corridor limit at <paramref name="s"/>: the smaller of the two samples around it (+∞ only when
+        /// both are open).</summary>
+        private static float LimitNear(RoadWidthProfile p, double s)
+        {
+            if (p.Count <= 0) return float.PositiveInfinity;
+            int i = (int)Math.Floor(s / Math.Max(1e-6, p.StepM));
+            i = i < 0 ? 0 : i > p.Count - 1 ? p.Count - 1 : i;
+            int j = Math.Min(p.Count - 1, i + 1);
+            return Math.Min(p.Limit[i], p.Limit[j]);
+        }
 
         private JunctionCap BuildCap(TileData t, double nx, double nz, List<Arm> arms)
         {
@@ -1694,6 +1866,7 @@ namespace Ghumante.Core.Meshing
             var tan = new double[n];
             var theta = new double[n];
             var hasP = new bool[n];
+            var bus = new bool[n];
             for (int k = 0; k < n; k++)
             {
                 Arm a = arms[k], b = arms[(k + 1) % n];
@@ -1709,6 +1882,17 @@ namespace Ghumante.Core.Meshing
                 if (tA < 0) tA = 0;
                 if (tB < 0) tB = 0;
                 double rho = KerbReturnRadiusM((float)(a.OffL + a.OffR), (float)(b.OffL + b.OffR), oldCore);
+                // The kerb return stays inside the corridors the houses were trimmed to (decision 1): the fillet reaches
+                // rho (1 - sin(θ/2)) beyond the carriageway edges at the corner, so it may only use the corridor room left
+                // beside them there (footpath, shoulder, spare corridor) plus CornerToleranceM. At an acute Y-junction of
+                // two 4.8 m lanes between trimmed houses that is a tight corner, not a fillet paving the wedge.
+                double room = Math.Min(CornerRoom(a, true, tA), CornerRoom(b, false, tB));
+                bus[k] = BusCorner(a, b, th, oldCore);
+                if (!double.IsPositiveInfinity(room))
+                {
+                    double fit = Math.Max(0.0, room + CornerToleranceM) / Math.Max(1e-3, 1.0 - Math.Sin(0.5 * th));
+                    rho = Math.Min(rho, bus[k] ? Math.Max(fit, BusCornerRadiusM) : fit);
+                }
                 double T = rho / Math.Tan(0.5 * th);
                 a.Setback = Math.Max(a.Setback, tA + T + 0.2);
                 b.Setback = Math.Max(b.Setback, tB + T + 0.2);
@@ -1753,7 +1937,18 @@ namespace Ghumante.Core.Meshing
                 if (!hasP[k] || n < 2) continue;
                 // Kerb return: the circle tangent to a's left edge and b's right edge, as large as both setbacks allow.
                 double T = Math.Min(tan[k], Math.Min(a.Setback - ta[k], b.Setback - tb[k]) - 0.05);
-                if (T < 0.05) continue;
+                if (T < 0.05)
+                {
+                    // No room for an arc: where both cuts lie beyond the corner the edges meet at it (a sharp corner, never a
+                    // chord across the wedge between the arms); otherwise the cut edges lie inside each other's carriageway
+                    // and the straight edge between them stays on the road.
+                    if (a.Setback >= ta[k] - 0.01 && b.Setback >= tb[k] - 0.01 && Sq(px[k] - lx) + Sq(pz[k] - lz) > 1e-4)
+                    {
+                        xs.Add(px[k]);
+                        zs.Add(pz[k]);
+                    }
+                    continue;
+                }
                 double th = theta[k];
                 double rho = T * Math.Tan(0.5 * th);
                 radii[k] = (float)rho;
@@ -1794,7 +1989,7 @@ namespace Ghumante.Core.Meshing
             {
                 X = nx, Z = nz, PolyX = xs.ToArray(), PolyZ = zs.ToArray(), Count = xs.Count, ArmRoads = new int[n],
                 ArmForward = new bool[n], ArmSetback = new double[n], ArmCutS = new double[n], TopRoad = top, WidestArmM = widest,
-                ArmRightIndex = rightIdx, ArmLeftIndex = leftIdx, CornerRadiusM = radii,
+                ArmRightIndex = rightIdx, ArmLeftIndex = leftIdx, CornerRadiusM = radii, BusCorner = bus,
             };
             for (int k = 0; k < n; k++)
             {

@@ -15,8 +15,10 @@ namespace Ghumante.Core.Traffic
 
         /// <summary>
         /// True when cars may use road <paramref name="roadIndex"/> of the tile: its structure record's
-        /// <see cref="RoadStructureFlags.CarAccessible"/> when the tile has structure records; otherwise the same rule
-        /// from the data at hand: not a footway, path, steps, pedestrian street, cycleway or bridleway, no
+        /// <see cref="RoadStructureFlags.CarAccessible"/> when the tile has structure records (a real tunnel never; a
+        /// tunnel-tagged underpass such as the Kalanki Ring Road underpass is an ordinary car road when the record says so,
+        /// as the GHRG car route has it, <see cref="Meshing.RoadMesher.IsTunnel"/>); otherwise the same rule from the data
+        /// at hand: not tunnel-tagged, not a footway, path, steps, pedestrian street, cycleway or bridleway, no
         /// <c>motorcar=no</c>-style access without cars, jeeps and buses, and a real width of at least
         /// <see cref="MinCarRealWidthM"/> (<paramref name="realWidthM"/> ≤ 0: unknown, allowed).
         /// </summary>
@@ -24,12 +26,12 @@ namespace Ghumante.Core.Traffic
         {
             if (t == null) throw new ArgumentNullException(nameof(t));
             RoadRecord r = t.Roads[roadIndex];
-            if ((r.Flags & RoadFlags.Tunnel) != 0) return false;
-            if (t.RoadStructures.Count == t.Roads.Count && t.RoadStructures.Count > 0)
+            if (t.HasRoadStructures)
             {
                 RoadStructureRecord st = t.RoadStructures[roadIndex];
                 return st.Has(RoadStructureFlags.CarAccessible) && st.Kind != RoadStructureKind.Tunnel;
             }
+            if ((r.Flags & RoadFlags.Tunnel) != 0) return false;
             switch (r.RoadClass)
             {
                 case RoadClass.Footway:

@@ -297,19 +297,44 @@ namespace Ghumante.Core.Meshing
             return drawn;
         }
 
-        /// <summary>As <see cref="IsDrawn(RoadRecord, RoadOptions)"/>, and not a tunnel by its structure record.</summary>
-        public static bool IsDrawn(TileData t, int road, RoadOptions o)
+        /// <summary>
+        /// True when the tile's drawing (ribbons, ground index, solids, lanes, corridors) leaves road
+        /// <paramref name="road"/> out as a real tunnel. Its structure record decides (docs/DATA_FORMATS.md 1.15): only kind
+        /// <see cref="RoadStructureKind.Tunnel"/>, a tunnel that passes under no road. The OSM <c>tunnel=*</c> ways the
+        /// pipeline classed as an <see cref="RoadStructureKind.Underpass"/> (the Kalanki Ring Road underpass) or a
+        /// <see cref="RoadStructureKind.Passage"/> (the dhoka passages of Asan and Indra Chowk) are ordinary drawn roads.
+        /// A tile without structure records falls back to the <see cref="RoadFlags.Tunnel"/> flag.
+        /// </summary>
+        public static bool IsTunnel(TileData t, int road)
         {
-            RoadRecord r = t.Roads[road];
-            if (!IsDrawn(r, o)) return false;
-            return t.RoadStructureOf(road).Kind != RoadStructureKind.Tunnel;
+            if (t.HasRoadStructures) return t.RoadStructures[road].Kind == RoadStructureKind.Tunnel;
+            return (t.Roads[road].Flags & RoadFlags.Tunnel) != 0;
         }
 
-        /// <summary>True when <see cref="Build"/> would draw the piece (not a tunnel, a trail only when trails are
-        /// included, and at least two drawable points).</summary>
+        /// <summary>
+        /// True when <see cref="Build"/> draws road <paramref name="road"/> of the tile: not a real tunnel
+        /// (<see cref="IsTunnel"/>: a tunnel-tagged underpass or building passage is drawn), a trail only when trails are
+        /// included, and at least two drawable points. Every consumer that has the tile (ground index, solids, lanes,
+        /// corridors, meshers) uses this overload, so they all agree on what is drawn.
+        /// </summary>
+        public static bool IsDrawn(TileData t, int road, RoadOptions o)
+        {
+            if (IsTunnel(t, road)) return false;
+            return HasDrawnShape(t.Roads[road], o);
+        }
+
+        /// <summary>True when <see cref="Build"/> would draw the piece judged by its record alone, without the tile's
+        /// structure records: not tunnel-tagged, a trail only when trails are included, and at least two drawable points.
+        /// Callers that have the tile use <see cref="IsDrawn(TileData, int, RoadOptions)"/>, which also draws the
+        /// tunnel-tagged underpasses and passages.</summary>
         public static bool IsDrawn(RoadRecord r, RoadOptions o)
         {
             if ((r.Flags & RoadFlags.Tunnel) != 0) return false;
+            return HasDrawnShape(r, o);
+        }
+
+        private static bool HasDrawnShape(RoadRecord r, RoadOptions o)
+        {
             if (o != null && !o.IncludeTrails && RoadStyle.IsTrail(r.RoadClass)) return false;
             int count = r.PointCount;
             int first = r.HasPrevContext ? 1 : 0, last = r.HasNextContext ? count - 2 : count - 1;

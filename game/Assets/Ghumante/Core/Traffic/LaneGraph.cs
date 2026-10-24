@@ -1337,7 +1337,7 @@ namespace Ghumante.Core.Traffic
                 for (int ri = 0; ri < t.Roads.Count; ri++)
                 {
                     RoadRecord r = t.Roads[ri];
-                    if ((r.Flags & RoadFlags.Tunnel) != 0 || !RoadMesher.IsDrawn(r, opts)) continue;
+                    if (!RoadMesher.IsDrawn(t, ri, opts)) continue; // real tunnels only: underpasses and passages get lanes
                     RoadWidthProfile prof = lay.Profiles[ri];
                     RoadAttrRecord a = lay.Attrs[ri];
                     float minW = prof.Count > 0 ? prof.MinWidth : 0f;

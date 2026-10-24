@@ -89,12 +89,15 @@ namespace Ghumante.Core.Meshing
             var g = new RoadSurface(t, h);
             Scratch sc = _scratch ?? (_scratch = new Scratch());
             int drawn = 0;
+            CapLevels levels = CapLevels.ForThread();
             foreach (JunctionCap cap in layout.Caps)
             {
                 if (surface != null)
                 {
-                    CapSurface(t, layout, cap, o, ref g, sc, surface);
-                    CapCorners(t, layout, grade, cap, o, ref g, sc, surface);
+                    // Arms drawn at structure heights (a lowered junction under foot overbridges) carry the cap with them.
+                    levels.Of(t, layout, grade, cap, RoadMesher.LiftOf(t.Roads[cap.TopRoad], o) + CapExtraLiftM);
+                    CapSurface(t, layout, grade, cap, o, levels, ref g, sc, surface);
+                    CapCorners(t, layout, grade, cap, o, levels, ref g, sc, surface);
                 }
                 if (decals != null && Controlled(cap)) ChowkMarkings(t, layout, grade, cap, o, decals);
                 drawn++;
@@ -113,6 +116,7 @@ namespace Ghumante.Core.Meshing
             foreach (RoadIsland isl in layout.Islands)
             {
                 float lift = isl.TopRoad >= 0 ? RoadMesher.LiftOf(t.Roads[isl.TopRoad], o) + CapExtraLiftM : o.LiftM;
+                lift += CapOffsetAt(t, layout, grade, o, isl.X, isl.Z, levels); // an island on a lowered junction sinks with it
                 if (isl.Kind == IslandKind.Mini)
                 {
                     if (decals != null) MiniRoundabout(t, layout, grade, isl, lift, ref g, decals);
@@ -127,8 +131,12 @@ namespace Ghumante.Core.Meshing
             {
                 // Police chowks without an island: the podium stands at the junction centre.
                 foreach (JunctionCap cap in layout.Caps)
-                    if ((cap.Kind == JunctionKind.Police || (cap.Flags & (byte)JunctionFlags.HasPolice) != 0) && !HasIsland(layout, cap))
-                        Podium(ref g, sc, cap.X, cap.Z, RoadMesher.LiftOf(t.Roads[cap.TopRoad], o) + CapExtraLiftM, surface);
+                {
+                    if ((cap.Kind != JunctionKind.Police && (cap.Flags & (byte)JunctionFlags.HasPolice) == 0) || HasIsland(layout, cap)) continue;
+                    float lift = RoadMesher.LiftOf(t.Roads[cap.TopRoad], o) + CapExtraLiftM;
+                    levels.Of(t, layout, grade, cap, lift);
+                    Podium(ref g, sc, cap.X, cap.Z, lift + levels.At(cap.X, cap.Z), surface);
+                }
             }
             return drawn;
         }
@@ -138,6 +146,27 @@ namespace Ghumante.Core.Meshing
             foreach (RoadIsland i in layout.Islands)
                 if ((i.X - cap.X) * (i.X - cap.X) + (i.Z - cap.Z) * (i.Z - cap.Z) < (i.RadiusM + 10) * (i.RadiusM + 10)) return true;
             return false;
+        }
+
+        /// <summary>The offset (<see cref="CapLevels"/>) of the cap holding tile-local (x, z) there, 0 outside every cap (an
+        /// island on a ring or on a draped junction keeps its height). Refills <paramref name="levels"/>.</summary>
+        private static float CapOffsetAt(TileData t, RoadLayout layout, RoadGrade grade, RoadOptions o, double x, double z, CapLevels levels)
+        {
+            foreach (JunctionCap cap in layout.Caps)
+            {
+                if (!Inside(cap.PolyX, cap.PolyZ, cap.Count, x, z)) continue;
+                levels.Of(t, layout, grade, cap, RoadMesher.LiftOf(t.Roads[cap.TopRoad], o) + CapExtraLiftM);
+                return levels.At(x, z);
+            }
+            return 0f;
+        }
+
+        private static bool Inside(double[] px, double[] pz, int n, double x, double z)
+        {
+            bool inside = false;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+                if ((pz[i] > z) != (pz[j] > z) && x < (px[j] - px[i]) * (z - pz[i]) / (pz[j] - pz[i]) + px[i]) inside = !inside;
+            return inside;
         }
 
         private static bool Controlled(JunctionCap cap)
@@ -230,9 +259,12 @@ namespace Ghumante.Core.Meshing
         /// One cap surface: a fan from the node through a middle ring (on caps more than 8 m across) to the outline, every
         /// vertex at the terrain plus the cap lift. The outline holds the arms' cut rows vertex for vertex (positions,
         /// colours and AO), so cap and ribbons share their edges exactly; the colour blends from the arms' edges and
-        /// crowns at the outline to the top road's crown at the node, so no darker rectangle or colour seam shows.
+        /// crowns at the outline to the top road's crown at the node, so no darker rectangle or colour seam shows. Where
+        /// arms are drawn at structure heights (<paramref name="levels"/>), their cut rows take the ribbon's own heights and
+        /// the rest of the cap follows them (a lowered junction sinks with its lowered arms).
         /// </summary>
-        private static void CapSurface(TileData t, RoadLayout layout, JunctionCap cap, RoadOptions o, ref RoadSurface g, Scratch sc, MeshData m)
+        private static void CapSurface(TileData t, RoadLayout layout, RoadGrade grade, JunctionCap cap, RoadOptions o, CapLevels levels, ref RoadSurface g,
+                                       Scratch sc, MeshData m)
         {
             CapOutline(t, layout, cap, o, sc);
             RoadPaving pv = layout.Paving[cap.TopRoad];
@@ -244,13 +276,28 @@ namespace Ghumante.Core.Meshing
             for (int k = 0; k < n; k++) reach = Math.Max(reach, Math.Sqrt(Sq(sc.X[k] - cap.X) + Sq(sc.Z[k] - cap.Z)));
             bool mid = reach > 9.0;
             m.Reserve(2 * n + 1, 9 * n);
-            int centre = Vertex(ref g, m, cap.X, cap.Z, lift, crown, u, 1f);
+            bool off = levels != null && levels.Any;
+            int centre = off ? Vertex(ref g, m, cap.X, cap.Z, lift + levels.At(cap.X, cap.Z), crown, u, 1f) : Vertex(ref g, m, cap.X, cap.Z, lift, crown, u, 1f);
             int ring = m.VertexCount;
             if (mid)
                 for (int k = 0; k < n; k++)
-                    Vertex(ref g, m, 0.5 * (cap.X + sc.X[k]), 0.5 * (cap.Z + sc.Z[k]), lift, MeshColor.Lerp(crown, sc.C[k], 0.5f), u, 0.5f * (1f + sc.Ao[k]));
+                {
+                    double x = 0.5 * (cap.X + sc.X[k]), z = 0.5 * (cap.Z + sc.Z[k]);
+                    Vertex(ref g, m, x, z, off ? lift + levels.At(x, z) : lift, MeshColor.Lerp(crown, sc.C[k], 0.5f), u, 0.5f * (1f + sc.Ao[k]));
+                }
             int outer = m.VertexCount;
-            for (int k = 0; k < n; k++) Vertex(ref g, m, sc.X[k], sc.Z[k], lift, sc.C[k], u, sc.Ao[k]);
+            for (int k = 0; k < n; k++)
+            {
+                if (!off)
+                {
+                    Vertex(ref g, m, sc.X[k], sc.Z[k], lift, sc.C[k], u, sc.Ao[k]);
+                    continue;
+                }
+                float y = levels.Height(grade, sc.X[k], sc.Z[k], lift);
+                float nx, ny, nz;
+                g.Normal(sc.X[k], sc.Z[k], out nx, out ny, out nz);
+                m.AddVertex((float)sc.X[k], y, (float)sc.Z[k], nx, ny, nz, sc.C[k], u, sc.Ao[k]);
+            }
             for (int k = 0; k < n; k++)
             {
                 int q = k + 1 == n ? 0 : k + 1;
@@ -284,8 +331,8 @@ namespace Ghumante.Core.Meshing
             return w > 0f ? Math.Max(w, RoadWidthModel.MinFootpathM) : 0f;
         }
 
-        private static void CapCorners(TileData t, RoadLayout layout, RoadGrade grade, JunctionCap cap, RoadOptions o, ref RoadSurface g, Scratch sc,
-                                       MeshData m)
+        private static void CapCorners(TileData t, RoadLayout layout, RoadGrade grade, JunctionCap cap, RoadOptions o, CapLevels levels, ref RoadSurface g,
+                                       Scratch sc, MeshData m)
         {
             int n = cap.ArmRoads.Length;
             float lift = RoadMesher.LiftOf(t.Roads[cap.TopRoad], o) + CapExtraLiftM;
@@ -310,7 +357,7 @@ namespace Ghumante.Core.Meshing
                 }
                 RoadSweep.Side kind = wa > 0f && wb > 0f ? RoadSweep.Side.Footpath : RoadSweep.Side.Skirt;
                 KerbLine(sc, ca.UX * sgA, ca.UZ * sgA, cb.UX * sgB, cb.UZ * sgB, kind, wa, wb, RoadMesher.FootpathRgba(t.Roads[ra]),
-                         RoadMesher.FootpathRgba(t.Roads[rb]), pv, lift, grade, o, ref g, m);
+                         RoadMesher.FootpathRgba(t.Roads[rb]), pv, lift, grade, o, ref g, m, false, false, levels);
             }
         }
 
@@ -326,10 +373,11 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>As the other overload, closing the raised side with an end face at the start and/or the end (a footpath
-        /// that begins or stops where an approach has none).</summary>
+        /// that begins or stops where an approach has none); round a cap whose arms are drawn at structure heights the edge
+        /// follows the cap (<paramref name="levels"/>, null on rings).</summary>
         private static void KerbLine(Scratch sc, double o0x, double o0z, double o1x, double o1z, RoadSweep.Side kind, float w0, float w1, uint paver0,
                                      uint paver1, in RoadPaving pv, float lift, RoadGrade grade, RoadOptions o, ref RoadSurface g, MeshData m,
-                                     bool closeStart, bool closeEnd)
+                                     bool closeStart, bool closeEnd, CapLevels levels = null)
         {
             int n = sc.Count;
             if (n < 2) return;
@@ -364,7 +412,7 @@ namespace Ghumante.Core.Meshing
                 oz /= ol;
                 double f = total > 1e-9 ? acc / total : 0;
                 double w = w0 + (w1 - w0) * f;
-                float ey = g.Height(sc.X[i], sc.Z[i]) + lift;
+                float ey = levels != null && levels.Any ? levels.Height(grade, sc.X[i], sc.Z[i], lift) : g.Height(sc.X[i], sc.Z[i]) + lift;
                 float nx, ny, nz;
                 g.Normal(sc.X[i], sc.Z[i], out nx, out ny, out nz);
                 bool kerb = kind == RoadSweep.Side.Footpath;
