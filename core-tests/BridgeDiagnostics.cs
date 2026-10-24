@@ -9,8 +9,14 @@ using NUnit.Framework;
 
 namespace Ghumante.Core.Tests
 {
-    /// <summary>Scratch diagnostics for the bridges2 package (deleted before commit).</summary>
-    public class BridgeScratchTests
+    /// <summary>
+    /// Explicit diagnostics of the bridges package (run one by name; most read a point or a way from an environment
+    /// variable named in its summary): the spans, flights and colliders of a structure, the roads near a point and the
+    /// surface the roads package draws there, overlapping decks, names. They print and assert nothing; the probes that
+    /// assert are <see cref="BridgeSampleRideTests"/>, <see cref="BridgeCrossingTests"/> and
+    /// <see cref="BridgeOverbridgeClimbTests"/>.
+    /// </summary>
+    public class BridgeDiagnostics
     {
         [Test, Explicit]
         public void TraceMappedOverbridge()

@@ -492,8 +492,9 @@ namespace Ghumante.Core.Tests
                         List<double> line = BridgeProbe.RoadAround(t, c.Road, c.X, c.Z, 30, Math.Min(1.5, 0.3 * c.LowHalfM));
                         int before = r.Bad;
                         r.Report.Append("   under ").Append(t.Roads[c.Road].OsmWayId).Append('\n');
-                        Run(w, r, "under walk", VehicleSpec.Walker(), line, 1f, c.LowY + 0.3f, true);
-                        Run(w, r, "under ride", VehicleSpec.Motorbike(), line, 0.5f, c.LowY + 0.3f, true);
+                        float overY = DeckYAt(sp, c.S);
+                        Run(w, r, "under walk", VehicleSpec.Walker(), line, 1f, c.LowY + 0.3f, true, overY);
+                        Run(w, r, "under ride", VehicleSpec.Motorbike(), line, 0.5f, c.LowY + 0.3f, true, overY);
                         if (r.Bad > before) r.UnderBad++;
                     }
                 }
@@ -501,12 +502,18 @@ namespace Ghumante.Core.Tests
             return r;
         }
 
-        private static void Run(BridgeWorld w, BridgeSweep r, string what, VehicleSpec spec, List<double> line, float throttle, float startY, bool under)
+        /// <summary>
+        /// One run of the sweep. A run under a deck counts as carried onto it when the feet stood on a deck and rose to
+        /// within <see cref="CarriedBelowM"/> of the deck over the road (<paramref name="overY"/>): the road under can be a
+        /// low culvert deck of its own (1192743666 over the culvert 1525642173), which the feet rightly stand on.
+        /// </summary>
+        private static void Run(BridgeWorld w, BridgeSweep r, string what, VehicleSpec spec, List<double> line, float throttle, float startY, bool under,
+            float overY = float.NaN)
         {
             r.Runs++;
             ProbeRun run = BridgeProbe.Follow(w, spec, line, throttle, startY);
             bool sunk = run.BridgeSink >= DeepSinkM;
-            bool carried = under && run.EverOnDeck;
+            bool carried = under && run.EverOnDeck && (float.IsNaN(overY) || run.MaxY > overY - CarriedBelowM);
             bool dressing = !run.Reached && run.Cause == "dressing";
             bool ok = (run.Reached || dressing) && !sunk && !carried;
             if (!run.Reached)
@@ -520,6 +527,25 @@ namespace Ghumante.Core.Tests
             if (!ok) r.Bad++;
             r.Report.Append("   ").Append(what.PadRight(10)).Append(ok ? "ok  " : "BAD ").Append(run).Append(carried ? " CARRIED ONTO THE DECK" : "").Append('\n');
             if (!run.Reached && !dressing) r.Report.Append(BridgeProbe.Why(w, run));
+        }
+
+        /// <summary>How far below the deck over a road the feet of a run under it may climb before it counts as carried.</summary>
+        private const float CarriedBelowM = 1.0f;
+
+        /// <summary>The deck centreline height of a span at distance <paramref name="s"/> along it (its path, clamped).</summary>
+        private static float DeckYAt(BridgeSpan sp, double s)
+        {
+            BridgePath p = sp.Path;
+            if (p.Count == 0) return float.NaN;
+            if (s <= p.S[0]) return p.Y[0];
+            for (int i = 1; i < p.Count; i++)
+                if (s <= p.S[i])
+                {
+                    double l = p.S[i] - p.S[i - 1];
+                    double f = l > 1e-9 ? (s - p.S[i - 1]) / l : 0;
+                    return (float)(p.Y[i - 1] + (p.Y[i] - p.Y[i - 1]) * f);
+                }
+            return p.Y[p.Count - 1];
         }
 
         /// <summary>Cuts <paramref name="m"/> metres off both ends of a waypoint line.</summary>

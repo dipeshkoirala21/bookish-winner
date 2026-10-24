@@ -740,12 +740,21 @@ namespace Ghumante.Core.Driving
             if (drawn.Y > ground.Height + DeckCoverM && drawn.Y <= reach)
             {
                 ground.Height = drawn.Y;
-                ground.Nx = drawn.Nx;
-                ground.Ny = drawn.Ny;
-                ground.Nz = drawn.Nz;
+                // The drawn ribbon's normal tilts hard at its kerb and verge edges; there the deck's own normal stays, so
+                // a walker is not turned back by a sliver of kerb face (Nawasangam Marg 187350036 and 200101358).
+                if (drawn.Ny >= DrawnFlatNy)
+                {
+                    ground.Nx = drawn.Nx;
+                    ground.Ny = drawn.Ny;
+                    ground.Nz = drawn.Nz;
+                }
             }
             return true;
         }
+
+        /// <summary>The least upward normal component (about 32 degrees of tilt) of a drawn road surface over a deck whose
+        /// normal <see cref="OverDeckDrawn"/> hands on.</summary>
+        private const float DrawnFlatNy = 0.85f;
 
         /// <summary>The road index of the tile a hit came from (null when that tile is gone).</summary>
         private RoadSpatialIndex IndexOf(ref RoadHit hit)
