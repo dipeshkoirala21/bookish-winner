@@ -427,7 +427,15 @@ namespace Ghumante.Core.Tests
             var stats = new SacredStats();
             Assert.That(HeroBuilder.Build(boudha, t, 0, m, c, stats), Is.GreaterThan(0));
             Assert.That(stats.Terraces, Is.EqualTo(3));
-            Assert.That(stats.Niches, Is.EqualTo(147), "the prayer-wheel niches follow the mandala's walls");
+            // The bespoke site (mon-boudha) draws the 147 niches in the compound wall, one stretch per kora quarter part.
+            int niches = stats.Niches;
+            foreach (HeroRecipe part in Ghumante.Core.Generators.Sacred.Heroes.Boudha.BoudhaSite.Parts())
+            {
+                var ps = new SacredStats();
+                HeroBuilder.Build(HeroCatalog.ToRecord(part), t, 0, new MeshData(), null, ps);
+                niches += ps.Niches;
+            }
+            Assert.That(niches, Is.EqualTo(147), "the prayer-wheel niches follow the compound wall");
             // Each terrace: two arms and the inner square (nine walkable boxes, none a full square), the drum as round solids.
             int walkable = 0;
             foreach (GenBox b in c.Boxes)

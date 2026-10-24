@@ -316,7 +316,8 @@ namespace Ghumante.Core.Tests
             Assert.That(boudha.Terraces, Is.EqualTo(3));
             Assert.That(boudha.Rings, Is.EqualTo(13));
             Assert.That(boudha.FlagLines, Is.InRange(60, 120));
-            Assert.That(boudha.TopM, Is.EqualTo(36.0).Within(0.03 * 36));
+            // The bespoke site (mon-boudha) stands 44.8 m to the finial tip (photo ratios on the OSM dome; boudha.md 3.1.1).
+            Assert.That(boudha.TopM, Is.EqualTo(Ghumante.Core.Generators.Sacred.Heroes.Boudha.BoudhaSite.HeightM).Within(0.03 * 44.8));
         }
 
         [Test]

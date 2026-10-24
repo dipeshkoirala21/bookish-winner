@@ -22,18 +22,22 @@ namespace Ghumante.Core.Generators.Sacred
         }
 
         /// <summary>
-        /// The ground the bespoke heritage sites (Heroes/&lt;Site&gt;/) need before a decoded tile is meshed: the
+        /// The ground the bespoke heritage sites (Heroes/&lt;Site&gt;/) need before a decoded tile is meshed, applied site by
+        /// site in a fixed order (each site touches only its own zones and the slopes easing back from them): the
         /// Pashupatinath courtyard's one paved level and the forecourt three steps above it
-        /// (<see cref="Heroes.Pashupati.PashupatiGround.Apply"/>; the terrain model is a surface model that climbs 3-5 m
-        /// over the buildings round the courtyard). The streamer calls it on every decoded tile next to the structure
-        /// fallback, so the terrain mesh, the sampler, the ground query and every placer read one surface. Idempotent;
-        /// returns the height samples changed.
+        /// (<see cref="Heroes.Pashupati.PashupatiGround.Apply"/>), then Boudhanath's one flat paved plaza
+        /// (<see cref="Heroes.Boudha.BoudhaGround.Apply"/>, which keeps the ground under the drawn carriageways). The terrain
+        /// model is a surface model that climbs 3-8 m over the buildings and the stupa at these sites. The streamer calls it
+        /// on every decoded tile after the structure fallback (Boudhanath reads the tile's final drawn roads), so the terrain
+        /// mesh, the sampler, the ground query and every placer read one surface. Idempotent; returns the height samples
+        /// changed.
         /// </summary>
         public static int PrepareGround(TileData tile)
         {
             if (tile == null) return 0;
             int n = 0;
             n += Heroes.Pashupati.PashupatiGround.Apply(tile);
+            n += Heroes.Boudha.BoudhaGround.Apply(tile);
             return n;
         }
 
@@ -45,6 +49,7 @@ namespace Ghumante.Core.Generators.Sacred
             if (m == null) throw new ArgumentNullException(nameof(m));
             // Bespoke heritage sites (Heroes/<Site>/): structure-by-structure models instead of the parametric forms.
             if (Heroes.Pashupati.PashupatiSite.Handles(r.Id)) return Heroes.Pashupati.PashupatiSite.Build(r, anchorTile, lod, m, c, stats);
+            if (Heroes.Boudha.BoudhaSite.Handles(r.Id)) return Heroes.Boudha.BoudhaSite.Build(r, anchorTile, lod, m, c, stats);
             HeroRecipe recipe = Merge(r);
             double x, z;
             int building;
@@ -246,6 +251,14 @@ namespace Ghumante.Core.Generators.Sacred
                 case HeritageFinish.GiltAll: x.Finish = RoofFinish.GiltAll; break;
                 case HeritageFinish.GiltTop: x.Finish = RoofFinish.GiltTop; break;
                 case HeritageFinish.Tile: x.Finish = RoofFinish.Tile; break;
+            }
+            // A bespoke site's measured geometry (HeroRecipe.Measured) wins over the curated DB's estimates.
+            if (baseRecipe != null && baseRecipe.Measured)
+            {
+                x.HeightM = baseRecipe.HeightM;
+                x.YawDeg = baseRecipe.YawDeg;
+                x.PlanW = baseRecipe.PlanW;
+                x.PlanD = baseRecipe.PlanD;
             }
             return x;
         }
