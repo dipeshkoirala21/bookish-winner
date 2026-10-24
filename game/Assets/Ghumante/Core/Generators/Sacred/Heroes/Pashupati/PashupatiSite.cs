@@ -178,6 +178,108 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             C.AddBox(cx, cz, Level + y0, Level + y1, 0.5 * Math.Abs(a1 - a0), 0.5 * Math.Abs(b1 - b0), AX, AZ, flags, material);
         }
 
+        /// <summary>
+        /// A site-aligned solid box collider kept off the tile's drawn roads (<see cref="SacredDrawnRoads"/>): where a drawn
+        /// footway runs into the footprint (the two OSM footways that end inside the West Gate's side bays, mapped 3.5 m
+        /// either side of the gate the photos put on the temple axis; open issue for roads and data), the box is cut into
+        /// strips across b (0.5 m) and each strip starts behind the road's end, so no solid stands on a walkway the road
+        /// mesher draws. Strips with the same start merge.
+        /// </summary>
+        public void BoxClear(double a0, double a1, double b0, double b1, double y0, double y1, GenColliderFlags flags, byte material)
+        {
+            if (C == null) return;
+            if (Tile == null || Tile.Roads.Count == 0)
+            {
+                Box(a0, a1, b0, b1, y0, y1, flags, material);
+                return;
+            }
+            SacredDrawnRoads drawn = SacredDrawnRoads.For(Tile);
+            const double Strip = 0.5, Step = 0.25;
+            int strips = Math.Max(1, (int)Math.Ceiling((b1 - b0) / Strip));
+            double runStart = double.NaN, runB0 = b0;
+            for (int s = 0; s <= strips; s++)
+            {
+                double start = double.NaN;
+                if (s < strips)
+                {
+                    double sb0 = b0 + (b1 - b0) * s / strips, sb1 = b0 + (b1 - b0) * (s + 1) / strips;
+                    // The first a from which the rest of the strip is off every drawn road (scanning back from a1).
+                    start = a0;
+                    for (double a = a1; a >= a0 - 1e-9; a -= Step)
+                    {
+                        if (!OnDrawn(drawn, a, sb0, sb1)) continue;
+                        start = a + Step;
+                        break;
+                    }
+                    if (start > a1 - 0.2) start = double.NaN;
+                }
+                if (!double.IsNaN(runStart) && !double.IsNaN(start) && Math.Abs(start - runStart) < 1e-9) continue;
+                double edge = b0 + (b1 - b0) * s / strips;
+                if (!double.IsNaN(runStart)) Box(runStart, a1, runB0, edge, y0, y1, flags, material);
+                runStart = start;
+                runB0 = edge;
+            }
+        }
+
+        /// <summary>A solid vertical cylinder at site (a, b), left out when any of it stands on a drawn road.</summary>
+        public void CylinderClear(double a, double b, double y0, double y1, double radius)
+        {
+            if (C == null) return;
+            if (Tile != null && Tile.Roads.Count > 0)
+            {
+                SacredDrawnRoads drawn = SacredDrawnRoads.For(Tile);
+                for (int i = -2; i <= 2; i++)
+                {
+                    for (int j = -2; j <= 2; j++)
+                    {
+                        double x, z;
+                        ToTile(a + 0.5 * radius * i, b + 0.5 * radius * j, out x, out z);
+                        if (drawn.SignedDistance(x, z) < -0.05) return;
+                    }
+                }
+            }
+            Cylinder(a, b, y0, y1, radius);
+        }
+
+        /// <summary>A thin wall from site (a0, b0) to (a1, b1), shortened at either end where it runs onto a drawn road
+        /// (left out when less than half a metre is clear).</summary>
+        public void WallClear(double a0, double b0, double a1, double b1, double y0, double y1, double halfThickness)
+        {
+            if (C == null) return;
+            if (Tile == null || Tile.Roads.Count == 0)
+            {
+                Wall(a0, b0, a1, b1, y0, y1, halfThickness);
+                return;
+            }
+            SacredDrawnRoads drawn = SacredDrawnRoads.For(Tile);
+            double len = Math.Sqrt((a1 - a0) * (a1 - a0) + (b1 - b0) * (b1 - b0));
+            int n = Math.Max(2, (int)Math.Ceiling(len / 0.25));
+            int first = -1, last = -1;
+            for (int i = 0; i <= n; i++)
+            {
+                double t = (double)i / n, x, z;
+                ToTile(a0 + (a1 - a0) * t, b0 + (b1 - b0) * t, out x, out z);
+                if (drawn.SignedDistance(x, z) < halfThickness + 0.05) continue;
+                if (first < 0) first = i;
+                last = i;
+            }
+            if (first < 0 || last - first < 2) return;
+            double t0 = (double)first / n, t1 = (double)last / n;
+            Wall(a0 + (a1 - a0) * t0, b0 + (b1 - b0) * t0, a0 + (a1 - a0) * t1, b0 + (b1 - b0) * t1, y0, y1, halfThickness);
+        }
+
+        /// <summary>Whether the cross line of a box strip at a (b0..b1) touches a drawn road.</summary>
+        private bool OnDrawn(SacredDrawnRoads drawn, double a, double b0, double b1)
+        {
+            for (int k = 0; k <= 2; k++)
+            {
+                double x, z;
+                ToTile(a, b0 + (b1 - b0) * k / 2, out x, out z);
+                if (drawn.SignedDistance(x, z) < -0.05) return true;
+            }
+            return false;
+        }
+
         /// <summary>A box collider centred at site (ca, cb), its length along the site direction (da, db).</summary>
         public void BoxAlong(double ca, double cb, double halfAlong, double halfAcross, double da, double db, double y0, double y1, GenColliderFlags flags,
                              byte material)
@@ -294,12 +396,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// 150,000 triangles at LOD0, the monuments round's allowance for a site (a major temple up to about 60,000).</summary>
         private static readonly int[][] Budgets =
         {
-            new[] { 40750, 12300, 3200, 200 }, // temple, gajur, Nandi, floor, furniture
-            new[] { 31900, 10200, 2600, 200 }, // West Gate, flanks, forecourt, trident
-            new[] { 7350, 2600, 800, 200 }, // East Gate, stair, east wing
-            new[] { 8100, 3200, 800, 200 }, // Mukti Mandap, south-east block
-            new[] { 36100, 9600, 2600, 200 }, // south court
-            new[] { 25800, 7000, 2000, 200 }, // north court
+            new[] { 55500, 15500, 2400, 200 }, // temple, gajur, Nandi, floor, furniture
+            new[] { 24800, 11000, 2200, 200 }, // West Gate, flanks, forecourt, trident
+            new[] { 7500, 2900, 1000, 200 }, // East Gate, stair, east wing
+            new[] { 8300, 3200, 800, 200 }, // Mukti Mandap, south-east block
+            new[] { 30200, 10500, 1800, 200 }, // south court
+            new[] { 23500, 8000, 2000, 200 }, // north court
         };
 
         /// <summary>The LOD0..3 triangle ceilings of a part (a fresh copy).</summary>
@@ -328,7 +430,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                         "w913170302", "w913170306",
                     };
                 default:
-                    return new[] { "w913170309", "w1094633491", "w1094633492", "w1094633493", "w1094633496", "w1368994740", "w1368994741" };
+                    return new[] { "w913170309", "w1094633491", "w1094633492", "w1094633493", "w1094633496", "w1368994740", "w1368994741", "w913217414", "w913217415" };
             }
         }
 

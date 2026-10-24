@@ -14,6 +14,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
     {
         public double EaveU, EaveW, EaveV, TopU, TopW, TopV;
         public double Lift, FasciaH, SeamPitch, CurlSize;
+
+        /// <summary>The concave flare of the slopes (0: straight): the height rises as t^(1 + Flare) from the eave, so the
+        /// slope is shallow at the eave and steep near the top (the West Gate's broad cream roof, c_westgate/c_27).</summary>
+        public double Flare;
+
         public ShapeBrush Roof, Seam, Fascia, Curl;
     }
 
@@ -30,13 +35,20 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         // Palette (pashupati-temple.md §4, colours as hex)
         // ---------------------------------------------------------------------------------------------------------
 
-        public static readonly ShapeBrush GiltRoof = Br(0xA88C52, MaterialChannel.Gilt);
-        public static readonly ShapeBrush GiltRib = Br(0xC4A462, MaterialChannel.Gilt);
-        public static readonly ShapeBrush GiltEave = Br(0x8E7238, MaterialChannel.Gilt);
+        /// <summary>The roofs' pale champagne brass (photo medians #C5AA81 in c_gje/c_03, #C0B09D in pagoda/ref_01), the ribs
+        /// lighter, the eave board darker; the bright gilt is for finials, curls and toranas only.</summary>
+        public static readonly ShapeBrush GiltRoof = Br(0xBFA572, MaterialChannel.Gilt);
+        public static readonly ShapeBrush GiltRib = Br(0xD2BA86, MaterialChannel.Gilt);
+        public static readonly ShapeBrush GiltEave = Br(0x9C8456, MaterialChannel.Gilt);
         public static readonly ShapeBrush GiltBright = Br(0xE9CB62, MaterialChannel.Gilt);
         public static readonly ShapeBrush GiltShade = Br(0xA3832B, MaterialChannel.Gilt);
         public static readonly ShapeBrush Lattice = Br(0x1E1A18, MaterialChannel.WoodCarved, 0.75f);
         public static readonly ShapeBrush LatticeBar = Br(0x433D38, MaterialChannel.WoodCarved);
+
+        /// <summary>The screen's fine perforation lines and its two rails (j_nandi/ref_04: silvery dots on dark).</summary>
+        public static readonly ShapeBrush Perforation = Br(0x4E4944, MaterialChannel.Metal);
+        public static readonly ShapeBrush Rail = Br(0x5E5750, MaterialChannel.WoodCarved);
+
         public static readonly ShapeBrush StrutWood = Br(0x3A2518, MaterialChannel.WoodCarved);
         public static readonly ShapeBrush PaintRed = Br(0x5E3428, MaterialChannel.Paint);
         public static readonly ShapeBrush PaintGreen = Br(0x3A4A3C, MaterialChannel.Paint);
@@ -45,7 +57,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         public static readonly ShapeBrush SilverDark = Br(0x5E5B57, MaterialChannel.Metal);
         public static readonly ShapeBrush StonePlinth = Br(0x8E8A80, MaterialChannel.Stone);
         public static readonly ShapeBrush StoneEdge = Br(0xA39E92, MaterialChannel.Stone);
-        public static readonly ShapeBrush StoneWall = Br(0x4E4842, MaterialChannel.Stone);
+        /// <summary>The temple's dark stone base course and quoins (c_gje/c_03: the ground storey reads #434245).</summary>
+        public static readonly ShapeBrush StoneWall = Br(0x3E3A36, MaterialChannel.Stone);
         public static readonly ShapeBrush StoneDark = Br(0x5C5A55, MaterialChannel.Stone);
         public static readonly ShapeBrush WoodDark = Br(0x2A2220, MaterialChannel.WoodCarved);
         public static readonly ShapeBrush WoodDoor = Br(0x4A2A1C, MaterialChannel.Wood);
@@ -76,8 +89,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 
         [ThreadStatic] private static Profile2 _prof, _prof2;
         [ThreadStatic] private static Path3 _path;
-        [ThreadStatic] private static MeshData _strut, _strutCorner;
-        [ThreadStatic] private static double _strutLen, _strutCornerLen;
 
         public static Profile2 Prof
         {
@@ -87,6 +98,19 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         public static Profile2 Prof2
         {
             get { return (_prof2 ?? (_prof2 = new Profile2(64))).Clear(false); }
+        }
+
+        [ThreadStatic] private static double[] _su, _sw;
+
+        /// <summary>Per-thread polygon scratch (64 points) for outlines built on the fly.</summary>
+        public static double[] ScratchU
+        {
+            get { return _su ?? (_su = new double[64]); }
+        }
+
+        public static double[] ScratchW
+        {
+            get { return _sw ?? (_sw = new double[64]); }
         }
 
         public static Path3 PathS
@@ -150,7 +174,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             double hu = r.EaveU + (r.TopU - r.EaveU) * t, hw = r.EaveW + (r.TopW - r.EaveW) * t;
             OnRect(side, a, hu, hw, out u, out w);
             double aa = Math.Abs(a), lf = aa > 0.55 ? (aa - 0.55) / 0.45 : 0;
-            v = r.EaveV + (r.TopV - r.EaveV) * t + r.Lift * lf * lf * (1 - t) * (1 - t);
+            double tv = r.Flare > 0 ? Math.Pow(t, 1 + r.Flare) : t;
+            v = r.EaveV + (r.TopV - r.EaveV) * tv + r.Lift * lf * lf * (1 - t) * (1 - t);
         }
 
         private static void RoofNormal(in PRoof r, int side, double a, double t, out double nu, out double nv, out double nw)
@@ -195,8 +220,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         public static int Roof(MeshData m, in Affine3 k, in PRoof r, int lod)
         {
             int t0 = m.TriangleCount;
-            double[] cols = lod <= 0 ? Cols0 : lod == 1 ? Cols1 : Cols2;
-            double[] rows = lod <= 0 ? Rows0 : lod == 1 ? Rows1 : Rows2;
+            // A plain roof (no lifted corners, no flare) has planar slopes: the coarsest grid draws them exactly.
+            bool plain = r.Lift <= 0.01 && r.Flare <= 0;
+            double[] cols = lod <= 0 && !plain ? Cols0 : lod == 1 && !plain ? Cols1 : Cols2;
+            double[] rows = lod <= 0 && !plain ? Rows0 : lod == 1 && !plain ? Rows1 : Rows2;
             int nc = cols.Length, nr = rows.Length;
             for (int s = 0; s < 4; s++)
             {
@@ -261,7 +288,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 double tEnd = ax <= tHalf ? 1.0 : Math.Max(0, (eHalf - ax) / Math.Max(1e-6, eHalf - tHalf));
                 if (tEnd < 0.04) continue;
                 int first = m.VertexCount;
-                const int St = 3;
+                // A straight roof (no lift, no flare) needs only the rib's two ends; a curved one three stations.
+                int St = r.Lift > 0.01 || r.Flare > 0 ? 3 : 2;
                 for (int q = 0; q < St; q++)
                 {
                     double t = 0.01 + (tEnd - 0.02) * q / (St - 1);
@@ -333,12 +361,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         // ---------------------------------------------------------------------------------------------------------
 
         /// <summary>
-        /// The slanting black lattice skirt under an eave (pashupati-temple.md PT-01 3, 5): a band on all four sides from
-        /// the wall line (half sizes wu, ww at height wv) out to the underside of the eave board (half sizes eu, ew at
-        /// height ev), facing outward and down; at LOD0 a grid of lighter bars every <paramref name="cell"/> metres over
-        /// it. Returns the triangles.
+        /// The slanting black screen under an eave (pashupati-temple.md PT-01 3, 5; j_nandi/ref_04, c_area/c_28): a solid
+        /// dark panel on all four sides from the wall line (half sizes wu, ww at height wv) out to the underside of the
+        /// eave board (half sizes eu, ew at height ev), facing outward and down, divided by two lighter horizontal rails at
+        /// a third and two thirds of its depth (LOD0-1); at LOD0 the fine perforation pattern of the real screen (dark at a
+        /// distance, a fine light grid close up) as thin lines every <paramref name="pitch"/> metres across and down the
+        /// panel (down radially, so they meet the hips cleanly). Returns the triangles.
         /// </summary>
-        public static int Skirt(MeshData m, in Affine3 k, double wu, double ww, double wv, double eu, double ew, double ev, double cell, int lod)
+        public static int Skirt(MeshData m, in Affine3 k, double wu, double ww, double wv, double eu, double ew, double ev, double pitch, int lod)
         {
             int t0 = m.TriangleCount;
             for (int s = 0; s < 4; s++)
@@ -362,115 +392,183 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     }
                 }
                 SacredDraw.Grid(m, first, rowsN + 1, cols + 1, false, null);
+                if (lod > 1 || pitch <= 0) continue;
+                // The two rails, 5 cm deep, standing 2 cm proud.
+                for (int r = 1; r <= 2; r++)
+                {
+                    double t = r / 3.0, half = wHalf + (eHalf - wHalf) * t, off = wOff + (eOff - wOff) * t, v = wv + (ev - wv) * t, dt = 0.025 / l;
+                    double h0 = half - (eHalf - wHalf) * dt, o0 = off - dOut * dt, v0 = v - dUp * dt;
+                    double h1 = half + (eHalf - wHalf) * dt, o1 = off + dOut * dt, v1 = v + dUp * dt;
+                    BarQuad(m, k, -h0, h0, o0, v0, -h1, h1, o1, v1, su, sw, ou, ow, nOut, nUp, 0.02, Rail);
+                }
                 if (lod > 0) continue;
-                // Bars across the slope (parallel to the eave) and down it (radial, so they meet the hips cleanly).
-                const double Bw = 0.022, Lift = 0.015;
-                int across = Math.Max(2, (int)Math.Round(l / cell));
+                // The perforation grid: thin light lines across the slope (parallel to the eave) and down it.
+                const double Bw = 0.007, Lift = 0.006;
+                int across = Math.Max(2, (int)Math.Round(l / pitch));
                 for (int i = 1; i < across; i++)
                 {
+                    if (i * 3 % across == 0) continue; // a rail stands there
                     double t = (double)i / across, half = wHalf + (eHalf - wHalf) * t, off = wOff + (eOff - wOff) * t, v = wv + (ev - wv) * t;
                     double dt = Bw / l;
                     double h0 = half - (eHalf - wHalf) * dt, o0 = off - dOut * dt, v0 = v - dUp * dt;
                     double h1 = half + (eHalf - wHalf) * dt, o1 = off + dOut * dt, v1 = v + dUp * dt;
-                    BarQuad(m, k, -h0, h0, o0, v0, -h1, h1, o1, v1, su, sw, ou, ow, nOut, nUp, Lift);
+                    BarQuad(m, k, -h0, h0, o0, v0, -h1, h1, o1, v1, su, sw, ou, ow, nOut, nUp, Lift, Perforation);
                 }
-                int down = Math.Max(2, (int)Math.Round(2 * eHalf / cell));
+                int down = Math.Max(2, (int)Math.Round(2 * eHalf / pitch));
                 for (int j = 1; j < down; j++)
                 {
-                    double a = -1 + 2.0 * j / down, bwA = Bw / Math.Max(0.5, eHalf);
+                    double a = -1 + 2.0 * j / down, bwW = Bw / Math.Max(0.5, wHalf), bwE = Bw / Math.Max(0.5, eHalf);
                     SacredDraw.Quad(m, k,
-                                    su * (a - bwA) * wHalf + ou * wOff + ou * nOut * Lift, wv + nUp * Lift, sw * (a - bwA) * wHalf + ow * wOff + ow * nOut * Lift,
-                                    su * (a + bwA) * wHalf + ou * wOff + ou * nOut * Lift, wv + nUp * Lift, sw * (a + bwA) * wHalf + ow * wOff + ow * nOut * Lift,
-                                    su * (a + bwA) * eHalf + ou * eOff + ou * nOut * Lift, ev + nUp * Lift, sw * (a + bwA) * eHalf + ow * eOff + ow * nOut * Lift,
-                                    su * (a - bwA) * eHalf + ou * eOff + ou * nOut * Lift, ev + nUp * Lift, sw * (a - bwA) * eHalf + ow * eOff + ow * nOut * Lift,
-                                    ou * nOut, nUp, ow * nOut, LatticeBar);
+                                    su * (a - bwW) * wHalf + ou * wOff + ou * nOut * Lift, wv + nUp * Lift, sw * (a - bwW) * wHalf + ow * wOff + ow * nOut * Lift,
+                                    su * (a + bwW) * wHalf + ou * wOff + ou * nOut * Lift, wv + nUp * Lift, sw * (a + bwW) * wHalf + ow * wOff + ow * nOut * Lift,
+                                    su * (a + bwE) * eHalf + ou * eOff + ou * nOut * Lift, ev + nUp * Lift, sw * (a + bwE) * eHalf + ow * eOff + ow * nOut * Lift,
+                                    su * (a - bwE) * eHalf + ou * eOff + ou * nOut * Lift, ev + nUp * Lift, sw * (a - bwE) * eHalf + ow * eOff + ow * nOut * Lift,
+                                    ou * nOut, nUp, ow * nOut, Perforation);
                 }
             }
             return m.TriangleCount - t0;
         }
 
+        /// <summary>
+        /// The far (LOD2) struts of one tier: on the dark screen band a lighter vertical mark per strut (and one at each
+        /// corner), so the rhythm of the carved figures still reads at middle distance. Returns the marks.
+        /// </summary>
+        public static int FarStruts(MeshData m, in Affine3 k, double wu, double ww, double wv, double eu, double ew, double ev, int per)
+        {
+            int drawn = 0;
+            for (int s = 0; s < 4; s++)
+            {
+                double ou, ow, su, sw;
+                Out(s, out ou, out ow);
+                Along(s, out su, out sw);
+                double wHalf = s % 2 == 0 ? wu : ww, eHalf = s % 2 == 0 ? eu : ew, wOff = s % 2 == 0 ? ww : wu, eOff = s % 2 == 0 ? ew : eu;
+                double dOut = eOff - wOff, dUp = ev - wv, l = Math.Sqrt(dOut * dOut + dUp * dUp);
+                double nOut = dUp / l, nUp = -dOut / l, lift = 0.03;
+                for (int q = 0; q <= per; q++)
+                {
+                    // q == per: the corner strut at the a = +1 end.
+                    double a = q < per ? -1 + 2.0 * (q + 0.5) / per : 0.985, ha = 0.16;
+                    double t0 = 0.1, t1 = 0.86;
+                    double h0 = wHalf + (eHalf - wHalf) * t0, h1 = wHalf + (eHalf - wHalf) * t1;
+                    double o0 = wOff + dOut * t0 + nOut * lift, o1 = wOff + dOut * t1 + nOut * lift, v0 = wv + dUp * t0 + nUp * lift, v1 = wv + dUp * t1 + nUp * lift;
+                    SacredDraw.Quad(m, k, su * (a * h0 - ha) + ou * o0, v0, sw * (a * h0 - ha) + ow * o0, su * (a * h0 + ha) + ou * o0, v0,
+                                    sw * (a * h0 + ha) + ow * o0, su * (a * h1 + ha) + ou * o1, v1, sw * (a * h1 + ha) + ow * o1, su * (a * h1 - ha) + ou * o1, v1,
+                                    sw * (a * h1 - ha) + ow * o1, ou * nOut, nUp, ow * nOut, StrutMark);
+                    drawn++;
+                }
+            }
+            return drawn;
+        }
+
+        /// <summary>The far strut marks' colour (lighter than the screen).</summary>
+        public static readonly ShapeBrush StrutMark = Br(0x6A635A, MaterialChannel.WoodCarved);
+
         private static void BarQuad(MeshData m, in Affine3 k, double a0, double b0, double off0, double v0, double a1, double b1, double off1, double v1, double su,
-                                    double sw, double ou, double ow, double nOut, double nUp, double lift)
+                                    double sw, double ou, double ow, double nOut, double nUp, double lift, in ShapeBrush br)
         {
             double lo = nOut * lift, lv = nUp * lift;
             SacredDraw.Quad(m, k, su * a0 + ou * (off0 + lo), v0 + lv, sw * a0 + ow * (off0 + lo), su * b0 + ou * (off0 + lo), v0 + lv, sw * b0 + ow * (off0 + lo),
                             su * b1 + ou * (off1 + lo), v1 + lv, sw * b1 + ow * (off1 + lo), su * a1 + ou * (off1 + lo), v1 + lv, sw * a1 + ow * (off1 + lo), ou * nOut,
-                            nUp, ow * nOut, LatticeBar);
+                            nUp, ow * nOut, br);
+        }
+
+        /// <summary>The struts' painted deities (c_area/c_28, c_gje/c_03): deep blue or green bodies (alternating), deep red
+        /// robes, gilt crowns and ornaments, on dark carved wood close in tone to the screens.</summary>
+        public static readonly ShapeBrush StrutBlue = Br(0x2C4A6E, MaterialChannel.Paint);
+        public static readonly ShapeBrush StrutGreen = Br(0x3C5240, MaterialChannel.Paint);
+        public static readonly ShapeBrush StrutRobe = Br(0x6E3026, MaterialChannel.Paint);
+        public static readonly ShapeBrush StrutGilt = Br(0xB08A3A, MaterialChannel.Gilt);
+
+        [ThreadStatic] private static MeshData[] _struts;
+        [ThreadStatic] private static double[] _strutKeys;
+
+        /// <summary>FNV-1a over the four bytes of <paramref name="v"/> (allocation-free, <see cref="Ghumante.Core.Data.Hashes"/>
+        /// constants).</summary>
+        public static uint Fnv(uint v)
+        {
+            uint h = Ghumante.Core.Data.Hashes.Fnv32Offset;
+            for (int i = 0; i < 4; i++) h = unchecked((h ^ ((v >> (8 * i)) & 0xFFu)) * Ghumante.Core.Data.Hashes.Fnv32Prime);
+            return h;
         }
 
         /// <summary>
         /// A carved strut (tunāla) prototype of length <paramref name="len"/> in its own frame (y along the strut from the
-        /// foot, x across, z out of the carved face): the dark board with its bracket head, and on its face a standing
-        /// deity (painted skirt, torso and four arms, head and gilt crown) over a crouching attendant at the foot; corner
-        /// struts carry the winged griffin. LOD1: the board and the head. Cached per thread and LOD.
+        /// foot, x across, z out of the carved face; c_area/c_28, c_gje/c_03, night/ref_05): the dark carved board 0.38 m
+        /// wide (widening a little upward) with its foot block and bracket head, and on its face a painted standing deity in
+        /// relief (deep red robe, a blue or green body with its four arms, the head and a gilt crown and necklace) over a
+        /// crouching attendant at the foot; corner struts carry the winged griffin, its wings fanned past the board.
+        /// <paramref name="coarse"/> (the upper tier, seen from 15 m and more) and LOD1 keep the board, the robe, the body,
+        /// the head and crown and the attendant or griffin as a few masses. Cached per thread by (corner, colour, coarse,
+        /// LOD, length).
         /// </summary>
-        public static MeshData StrutProto(double len, bool corner, int lod)
+        public static MeshData StrutProto(double len, bool corner, int lod, bool coarse = false, bool green = false)
         {
-            // Cached per thread by (corner, LOD, length); the key holds LOD + 1 so a fresh thread's zero never matches.
-            double key = (lod + 1) * 1000.0 + len;
-            MeshData p;
-            if (corner)
+            if (_struts == null)
             {
-                if (_strutCorner != null && _strutCornerLen == key) return _strutCorner;
-                p = _strutCorner ?? (_strutCorner = new MeshData(512, 1536));
-                _strutCornerLen = key;
+                _struts = new MeshData[4];
+                _strutKeys = new double[4];
             }
-            else
-            {
-                if (_strut != null && _strutLen == key) return _strut;
-                p = _strut ?? (_strut = new MeshData(512, 1536));
-                _strutLen = key;
-            }
+            int slot = (corner ? 2 : 0) + (green ? 1 : 0);
+            // The key holds LOD + 1 so a fresh thread's zero never matches.
+            double key = (lod + 1) * 1000.0 + (coarse ? 500.0 : 0) + len;
+            if (_struts[slot] != null && _strutKeys[slot] == key) return _struts[slot];
+            MeshData p = _struts[slot] ?? (_struts[slot] = new MeshData(512, 1536));
+            _strutKeys[slot] = key;
             p.Clear();
             ShapeAo.EnsureUv(p);
             p.HasUv0 = true;
             Affine3 id = Affine3.Identity;
-            double w0 = corner ? 0.2 : 0.17, w1 = corner ? 0.25 : 0.21, th = corner ? 0.11 : 0.09;
+            double w0 = corner ? 0.2 : 0.17, w1 = corner ? 0.23 : 0.19, th = corner ? 0.08 : 0.07;
             // The board, slightly widening upward.
             SacredDraw.Quad(p, id, -w0, 0, th, w0, 0, th, w1, len, th, -w1, len, th, 0, 0, 1, StrutWood);
             SacredDraw.Quad(p, id, -w0, 0, -th, w0, 0, -th, w1, len, -th, -w1, len, -th, 0, 0, -1, StrutWood);
             SacredDraw.Quad(p, id, w0, 0, -th, w0, 0, th, w1, len, th, w1, len, -th, 1, 0, 0, StrutWood);
             SacredDraw.Quad(p, id, -w0, 0, -th, -w0, 0, th, -w1, len, th, -w1, len, -th, -1, 0, 0, StrutWood);
-            // The bracket head.
+            // The bracket head and the carved foot block.
             SacredDraw.Box(p, id, -w1 - 0.05, w1 + 0.05, len - 0.16, len, -th - 0.02, th + 0.04, StrutWood, BoxFaces.All & ~BoxFaces.Top);
+            if (lod == 0 && !coarse) SacredDraw.Box(p, id, -w0 - 0.03, w0 + 0.03, 0, 0.08 * len, -th - 0.01, th + 0.03, StrutWood, BoxFaces.All & ~BoxFaces.Bottom);
+            ShapeBrush body = green ? StrutGreen : StrutBlue;
+            bool fine = lod == 0 && !coarse;
             double z = th;
-            if (lod >= 1)
+            if (corner)
             {
-                Shapes.Sphere(p, Affine3.Translation(0, 0.74 * len, z + 0.03), StrutWood, 0.08, 4);
+                // The rearing griffin: its body up the strut, the crested head, the wings fanned out past the board (red
+                // and gilt feathers), the claws at the foot.
+                Shapes.Ellipsoid(p, SacredDraw.At(id, 0, 0.42 * len, z + 0.02), body, 0.16, 0.26 * len, 0.06, fine ? 6 : 5, false);
+                Shapes.Ellipsoid(p, SacredDraw.At(id, 0, 0.78 * len, z + 0.04), body, 0.09, 0.11, 0.06, 5, false);
+                Shapes.Cone(p, SacredDraw.At(id, 0, 0.84 * len, z + 0.05), StrutGilt, 0.06, 0.14, 4, 0, 0, false);
+                for (int sg = -1; sg <= 1; sg += 2)
+                {
+                    SacredDraw.Quad(p, id, sg * 0.14, 0.5 * len, z + 0.03, sg * 0.44, 0.78 * len, z + 0.03, sg * 0.4, 0.92 * len, z + 0.03, sg * 0.16, 0.7 * len, z + 0.03,
+                                    0, 0, 1, StrutRobe);
+                    if (fine)
+                        SacredDraw.Quad(p, id, sg * 0.18, 0.58 * len, z + 0.035, sg * 0.4, 0.8 * len, z + 0.035, sg * 0.38, 0.86 * len, z + 0.035, sg * 0.19, 0.68 * len,
+                                        z + 0.035, 0, 0, 1, StrutGilt);
+                }
+                Shapes.Ellipsoid(p, SacredDraw.At(id, 0, 0.1 * len, z + 0.03), StrutRobe, 0.15, 0.07 * len, 0.05, 5, false);
+                return p;
             }
-            else
+            // The deity's robe (a flattened flared skirt), body, arms, head, crown and necklace.
+            double r0 = coarse || lod > 0 ? 0.19 : 0.16;
+            Shapes.Frustum(p, Affine3.Scaling(1, 1, 0.45).Then(SacredDraw.At(id, 0, 0.2 * len, z)), StrutRobe, 0.15, 0.11, 0.36 * len, 5, 0, 0, false, true);
+            Shapes.Ellipsoid(p, SacredDraw.At(id, 0, 0.64 * len, z + 0.02), body, 0.13, 0.12 * len, 0.06, fine ? 6 : 5, false);
+            Shapes.Ellipsoid(p, SacredDraw.At(id, 0, 0.82 * len, z + 0.03), body, 0.075, 0.07, 0.06, 5, false);
+            Shapes.Cone(p, SacredDraw.At(id, 0, 0.86 * len, z + 0.03), StrutGilt, 0.065, 0.1 * len, 4, 0, 0, false);
+            if (lod <= 1)
             {
-                double s = corner ? 1.2 : 1.0;
-                // The crouching attendant at the foot.
-                Shapes.Ellipsoid(p, Affine3.Translation(0, 0.12 * len, z + 0.04), StrutWood, 0.12 * s, 0.1 * s, 0.07, 5, false);
-                // Skirt (painted red), torso (green and gilt), four arms, head and crown.
-                Shapes.Frustum(p, Affine3.Translation(0, 0.24 * len, z + 0.02), PaintRed, 0.1 * s, 0.13 * s, 0.26 * len, 5, 0, 0, false, true);
-                Shapes.Ellipsoid(p, Affine3.Translation(0, 0.6 * len, z + 0.05), PaintGreen, 0.11 * s, 0.12 * s, 0.06, 5, false);
-                for (int sgn = -1; sgn <= 1; sgn += 2)
+                for (int sg = -1; sg <= 1; sg += 2)
                 {
-                    Shapes.Bar(p, Affine3.Identity, StrutWood, sgn * 0.08 * s, 0.66 * len, z + 0.06, sgn * 0.17 * s, 0.55 * len, z + 0.1, 0.025, 4);
-                    Shapes.Bar(p, Affine3.Identity, PaintGilt, sgn * 0.07 * s, 0.62 * len, z + 0.07, sgn * 0.2 * s, 0.69 * len, z + 0.08, 0.022, 4);
+                    // The lower arm out to the hip, the upper raised beside the head with its gilt attribute.
+                    Shapes.Bar(p, id, body, sg * 0.1, 0.72 * len, z + 0.04, sg * r0, 0.5 * len, z + 0.06, 0.035, 3);
+                    if (!fine) continue;
+                    Shapes.Bar(p, id, body, sg * 0.1, 0.74 * len, z + 0.03, sg * 0.18, 0.88 * len, z + 0.05, 0.03, 3);
+                    Shapes.Sphere(p, SacredDraw.At(id, sg * 0.18, 0.9 * len, z + 0.06), StrutGilt, 0.04, 4);
                 }
-                Shapes.Sphere(p, Affine3.Translation(0, 0.73 * len, z + 0.05), StrutWood, 0.075 * s, 6);
-                Shapes.Cone(p, Affine3.Translation(0, 0.77 * len, z + 0.05), PaintGilt, 0.06 * s, 0.11 * len, 5, 0, 0, false);
-                // The aureole behind the head.
-                Shapes.Cylinder(p, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(0, 0.75 * len, z + 0.012)), PaintGilt, 0.13 * s, 0.02, 8, 0, 0, false, true);
-                if (corner)
-                {
-                    // Griffin wings fanning from the shoulders.
-                    for (int sgn = -1; sgn <= 1; sgn += 2)
-                    {
-                        for (int face = -1; face <= 1; face += 2)
-                        {
-                            int a = SacredDraw.V(p, id, sgn * 0.12, 0.5 * len, face * 0.03, 0, 0, face, PaintRed);
-                            int b2 = SacredDraw.V(p, id, sgn * 0.5, 0.9 * len, face * 0.03, 0, 0, face, PaintRed);
-                            int c2 = SacredDraw.V(p, id, sgn * 0.14, 0.86 * len, face * 0.03, 0, 0, face, PaintGilt);
-                            int d2 = SacredDraw.V(p, id, sgn * 0.38, 0.64 * len, face * 0.03, 0, 0, face, PaintGilt);
-                            SacredDraw.Tri(p, a, d2, b2);
-                            SacredDraw.Tri(p, a, b2, c2);
-                        }
-                    }
-                }
+                if (fine) SacredDraw.Quad(p, id, -0.08, 0.7 * len, z + 0.085, 0.08, 0.7 * len, z + 0.085, 0.06, 0.73 * len, z + 0.085, -0.06, 0.73 * len, z + 0.085, 0, 0, 1,
+                                          StrutGilt);
+                // The crouching attendant at the foot (a body and a head, red-robed).
+                Shapes.Ellipsoid(p, SacredDraw.At(id, 0, 0.1 * len, z + 0.03), StrutRobe, 0.13, 0.06 * len, 0.05, 5, false);
+                if (fine) Shapes.Sphere(p, SacredDraw.At(id, 0, 0.17 * len, z + 0.05), body, 0.05, 5);
             }
             return p;
         }
@@ -482,7 +580,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// at each corner. The strut lies just under the skirt with its carved face down and out. Returns the struts.
         /// </summary>
         public static int Struts(MeshData m, in Affine3 k, double wu, double ww, double footV, double eu, double ew, double ev, int perU, int perW,
-                                 double headFrac, uint seed, int lod)
+                                 double headFrac, uint seed, int lod, bool coarse = false)
         {
             if (lod >= 2) return 0;
             int drawn = 0;
@@ -499,7 +597,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 {
                     double a = -1 + 2.0 * (q + 0.5) / draw;
                     double fx = a * wHalf * 0.94, hx = a * (wHalf + (eHalf - wHalf) * headFrac) * 0.94;
-                    drawn += Strut(m, k, su * fx + ou * fo, footV, sw * fx + ow * fo, su * hx + ou * ho, hv, sw * hx + ow * ho, su, sw, false, seed + (uint)(s * 31 + q), lod);
+                    drawn += Strut(m, k, su * fx + ou * fo, footV, sw * fx + ow * fo, su * hx + ou * ho, hv, sw * hx + ow * ho, su, sw, false, seed + (uint)(s * 31 + q), lod,
+                                    coarse);
                 }
                 if (lod == 0)
                 {
@@ -508,7 +607,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     double hu = su * (wHalf + (eHalf - wHalf) * headFrac) + ou * ho, hw = sw * (wHalf + (eHalf - wHalf) * headFrac) + ow * ho;
                     double dl = Math.Sqrt(cu * cu + cw * cw);
                     double xu = -cw / dl, xw = cu / dl;
-                    drawn += Strut(m, k, cu * (1 + 0.12 / dl), footV, cw * (1 + 0.12 / dl), hu, hv, hw, xu, xw, true, seed + (uint)s * 7, lod);
+                    drawn += Strut(m, k, cu * (1 + 0.12 / dl), footV, cw * (1 + 0.12 / dl), hu, hv, hw, xu, xw, true, seed + (uint)s * 7, lod, coarse);
                 }
             }
             return drawn;
@@ -516,7 +615,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 
         /// <summary>One strut from foot (fu, fv, fw) to head (hu, hv, hw), its board across the local direction (xu, xw).</summary>
         private static int Strut(MeshData m, in Affine3 k, double fu, double fv, double fw, double hu, double hv, double hw, double xu, double xw, bool corner, uint seed,
-                                 int lod)
+                                 int lod, bool coarse)
         {
             double yu = hu - fu, yv = hv - fv, yw = hw - fw, len = Math.Sqrt(yu * yu + yv * yv + yw * yw);
             if (len < 0.3) return 0;
@@ -540,7 +639,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                 zy = -zy;
                 zz = -zz;
             }
-            MeshData proto = StrutProto(Math.Round(len * 20) / 20, corner, lod);
+            MeshData proto = StrutProto(Math.Round(len * 20) / 20, corner, lod, coarse, (Fnv(seed) & 1u) != 0);
             Affine3 xf = Affine3.FromBasis(ax, ay, az, yu, yv, yw, zx, zy, zz, fu, fv, fw).Then(k);
             uint h = ShapeNoise.Hash((int)seed, 3, 9, 77u);
             uint g = 224u + h % 32u;
@@ -566,7 +665,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             p.Add(0, 0).Add(1.0 * r, 0, true).Add(1.05 * r, 0.06 * h).Add(0.8 * r, 0.12 * h, true).Add(0.95 * r, 0.16 * h).Add(0.92 * r, 0.24 * h)
              .Add(0.7 * r, 0.4 * h).Add(0.45 * r, 0.52 * h).Add(0.28 * r, 0.56 * h, true).Add(0.36 * r, 0.62 * h).Add(0.2 * r, 0.7 * h, true)
              .Add(0.28 * r, 0.75 * h).Add(0.14 * r, 0.82 * h, true).Add(0.06 * r, 0.9 * h).Add(0, h);
-            Shapes.Lathe(m, at, b, p, Seg(12, lod));
+            Shapes.Lathe(m, at, b, p, Seg(10, lod));
         }
 
         /// <summary>A lathe from a profile given as (radius, height) pairs, smooth except where <paramref name="crease"/>
