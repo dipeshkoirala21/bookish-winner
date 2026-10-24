@@ -71,7 +71,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 {
                     WallHu = 4.15, WallHw = 4.15, WallV0 = cTop, EaveHu = 7.0, EaveHw = 7.0, EaveV = 7.4, TopHu = 2.9, TopHw = 2.9, TopV = 10.1, StrutsU = 4,
                     StrutsW = 4, StrutFootV = cTop + 0.1, ValanceH = 0.45, Wall = KdsLooks.Brick, Tile = KdsLooks.TileOld, Windows = 3, WinW = 0.72, WinH = 0.8,
-                    Bells = true, RichStruts = true,
+                    Bells = true, RichStruts = true, DeityStruts = true,
                 },
                 new KdsTier
                 {

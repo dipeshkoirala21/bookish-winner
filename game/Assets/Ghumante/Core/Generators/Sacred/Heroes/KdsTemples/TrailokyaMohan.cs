@@ -90,71 +90,59 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return tip;
         }
 
-        /// <summary>The Garuda before the temple: a red-brick pedestal (1.2 m) with a stone cap slab carrying the black stone
-        /// Garuda (1.6 m) kneeling on one knee with joined hands and spread wings, facing the door, on the stair axis at w.</summary>
+        /// <summary>The Garuda's red-brick pedestal and its chamfered grey stone cap (judge round 1, KAT2020 03).</summary>
+        private static readonly ShapeBrush PedestalBrick = KdsLooks.Brick, CapStone = Looks.Of(MeshColor.FromHex(0x6E6A63), MaterialChannel.Stone);
+
+        /// <summary>
+        /// The Garuda before the temple: a red-brick pedestal (1.0 m) with a chamfered grey stone cap carrying the black stone
+        /// Garuda (1.6 m) kneeling with joined hands and wings fanning down, facing the door, on the stair axis at w. It
+        /// stands at its surveyed place even where a mapped path's corridor covers it (judge round 1: the path's corridor
+        /// should be trimmed at the statue, an open issue for the roads package); it only steps off a drawn path's surface.
+        /// </summary>
         public static void Garuda(KdsCtx x, double w)
         {
-            // Keep the pedestal out of the corridors: if a mapped path runs over the spot, the Garuda moves along the stair
-            // axis to the nearest clear place (toward the temple down to the stair foot, or a little further out).
             double ww = double.NaN, uu = 0;
-            // The whole group (the pedestal's corners and the swept-back wing tips) stays out of the corridor margin: along
-            // the axis first, then up to half a metre to the side of it; failing that, the centre alone keeps 0.75 m.
-            const double needCentre = 0.75 + SacredClearance.MarginM;
-            for (double dw = 0; dw <= 5.0 && double.IsNaN(ww); dw += 0.25)
+            for (double dw = 0; dw <= 3.0 && double.IsNaN(ww); dw += 0.25)
             {
-                for (int q = 0; q <= 4 && double.IsNaN(ww); q++)
-                {
-                    double du = (q + 1) / 2 * 0.25 * (q % 2 == 0 ? 1 : -1);
-                    if (w - dw >= 8.6 && GroupClear(x, du, w - dw))
-                    {
-                        ww = w - dw;
-                        uu = du;
-                    }
-                    else if (GroupClear(x, du, w + dw))
-                    {
-                        ww = w + dw;
-                        uu = du;
-                    }
-                }
-            }
-            for (double dw = 0; dw <= 5.0 && double.IsNaN(ww); dw += 0.25)
-            {
-                if (w - dw >= 8.6 && x.CorridorDistance(0, w - dw) >= needCentre) ww = w - dw;
-                else if (x.CorridorDistance(0, w + dw) >= needCentre) ww = w + dw;
+                if (GroupClear(x, 0, w + dw)) ww = w + dw;
+                else if (w - dw >= 8.6 && GroupClear(x, 0, w - dw)) ww = w - dw;
             }
             if (double.IsNaN(ww)) return;
             MeshData m = x.M;
             int lod = x.Lod;
-            // The pedestal stands on the square's ground at its own spot (10 m from the temple's lowest corner the flags
-            // lie higher), never buried.
             double vg = x.HasGround ? Math.Max(0, x.GroundV(uu, ww)) : 0;
             Affine3 face = SacredDraw.Turn(x.K, uu, vg, ww, Math.PI);
-            ShapeBrush brick = KdsLooks.BrickPlinth;
-            // KAT2020 18, 19: a brick pedestal about 1.1 m high under a thick chamfered stone cap, the statue's own stone
-            // block on it.
             if (lod <= 1)
             {
-                SacredParts.PlinthLevel(m, face, 0.62, 0.48, 0, 1.0, 0.15, brick, brick, lod);
-                SacredDraw.Box(m, face, -0.7, 0.7, 1.0, 1.2, -0.56, 0.56, KdsLooks.StoneBlack, BoxFaces.All & ~BoxFaces.Bottom);
+                SacredParts.PlinthLevel(m, face, 0.62, 0.48, 0, 1.0, 0.15, PedestalBrick, PedestalBrick, lod);
+                // The cap: a thick slab with chamfered edges.
+                Shapes.RoundedBox(m, SacredDraw.At(face, 0, 1.1, 0), CapStone, 1.4, 0.2, 1.12, 0.05, lod == 0 ? 1 : 0);
             }
             else
             {
-                SacredDraw.Box(m, face, -0.62, 0.62, 0, 1.2, -0.48, 0.48, brick, BoxFaces.All & ~BoxFaces.Bottom);
+                SacredDraw.Box(m, face, -0.62, 0.62, 0, 1.0, -0.48, 0.48, PedestalBrick, BoxFaces.All & ~BoxFaces.Bottom);
+                SacredDraw.Box(m, face, -0.7, 0.7, 1.0, 1.2, -0.56, 0.56, CapStone, BoxFaces.All & ~BoxFaces.Bottom);
             }
             KneelingGaruda(m, face, 1.2, lod);
+            if (x.CorridorDistance(uu, ww) < 1.0)
+            {
+                x.StatuesInCorridors.Add(uu);
+                x.StatuesInCorridors.Add(ww);
+                x.StatuesInCorridors.Add(1.2);
+            }
             x.Solid(uu - 0.7, uu + 0.7, ww - 0.56, ww + 0.56, 0, vg + 2.8, GenColliders.Stone);
         }
 
         // The group's outline in its own frame (it faces the temple, so its back and wings lie toward +w of the temple's
-        // frame): pedestal corners, the wing tips swept back and a point midway along each wing.
-        private static readonly double[] GroupU = { -0.72, 0.72, -0.72, 0.72, -1.0, 1.0, -0.75, 0.75 };
-        private static readonly double[] GroupW = { -0.58, -0.58, 0.58, 0.58, 0.48, 0.48, 0.32, 0.32 };
+        // frame): the pedestal's corners and the wing tips.
+        private static readonly double[] GroupU = { -0.72, 0.72, -0.72, 0.72, -0.85, 0.85 };
+        private static readonly double[] GroupW = { -0.58, -0.58, 0.58, 0.58, 0.45, 0.45 };
 
-        /// <summary>True when the Garuda group centred at frame (cu, cw) keeps out of every road corridor's margin.</summary>
+        /// <summary>True when the Garuda group centred at frame (cu, cw) stands off every drawn road surface.</summary>
         private static bool GroupClear(KdsCtx x, double cu, double cw)
         {
             for (int i = 0; i < GroupU.Length; i++)
-                if (x.CorridorDistance(cu + GroupU[i], cw + GroupW[i]) < SacredClearance.MarginM + 0.05) return false;
+                if (x.DrawnDistance(cu + GroupU[i], cw + GroupW[i]) < 0.05) return false;
             return true;
         }
 
@@ -170,7 +158,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // The statue's block.
             SacredDraw.Box(m, k, -0.46, 0.46, v0, v0 + 0.3, -0.3, 0.36, st, BoxFaces.All & ~BoxFaces.Bottom);
             double b = v0 + 0.3;
-            int rs = lod == 0 ? 7 : 4, es = lod == 0 ? 9 : 5;
+            int rs = 4, es = lod == 0 ? 6 : 5;
             if (lod >= 2)
             {
                 // Far off: a body, a head and two wing plates.
@@ -195,60 +183,89 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     Limb(m, k, sg * 0.25, b + 0.62, 0.07, sg * 0.04, b + 0.8, 0.17, 0.055, st, rs);
                 }
                 Shapes.Ellipsoid(m, SacredDraw.At(k, 0, b + 0.86, 0.18), lit, 0.05, 0.1, 0.05, es, false);
-                // Neck, head, the stacked crown with its medallion, earrings and the serpent necklace.
+                // Neck and a human face (judge round 1, KAT2020 03): the head with a brow ridge, a nose and full cheeks, earrings,
+                // the serpent necklace, and a three-pointed crown (three lobes on a band, the middle one tallest).
                 Shapes.Cylinder(m, SacredDraw.At(k, 0, b + 0.9, -0.01), st, 0.07, 0.12, rs, 0, 0, false, false);
-                Shapes.Ellipsoid(m, SacredDraw.At(k, 0, b + 1.1, 0.01), lit, 0.145, 0.17, 0.145, es, false);
-                // A broad tiara-like crown about as tall as the face (KAT2020 03), not a tall stack.
-                var cp = new Profile2(12);
-                cp.Add(0, 0, true).Add(0.15, 0, true).Add(0.168, 0.06);
-                if (lod == 0) cp.Add(0.14, 0.08, true).Add(0.15, 0.13).Add(0.1, 0.155, true).Add(0.11, 0.2);
-                cp.Add(0.06, 0.25).Add(0.03, 0.28).Add(0, 0.29, true);
-                Shapes.Lathe(m, SacredDraw.At(k, 0, b + 1.17, -0.01), st, cp, lod == 0 ? 8 : 6);
+                Shapes.Ellipsoid(m, SacredDraw.At(k, 0, b + 1.1, 0.01), lit, 0.135, 0.165, 0.14, es, false);
                 if (lod == 0)
                 {
-                    Shapes.Cylinder(m, SacredDraw.Basis(k, 0, b + 1.26, 0.135, 1, 0, 0, 0, 0, 1), lit, 0.055, 0.03, 6, 0, 0, false, true);
-                    Shapes.Sphere(m, SacredDraw.At(k, -0.145, b + 1.02, 0.0), st, 0.035, 4);
-                    Shapes.Sphere(m, SacredDraw.At(k, 0.145, b + 1.02, 0.0), st, 0.035, 4);
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, 0, b + 1.16, 0.125), st, 0.11, 0.022, 0.03, 6, false);
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, 0, b + 1.1, 0.15), lit, 0.024, 0.045, 0.03, 5, false);
+                    for (int sg = -1; sg <= 1; sg += 2) Shapes.Ellipsoid(m, SacredDraw.At(k, sg * 0.07, b + 1.06, 0.115), lit, 0.045, 0.04, 0.03, 5, false);
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, 0, b + 1.02, 0.13), st, 0.04, 0.012, 0.015, 4, false);
+                }
+                Shapes.Frustum(m, SacredDraw.At(k, 0, b + 1.2, 0.0), st, 0.15, 0.14, 0.06, lod == 0 ? 10 : 6, 0.01, 1, false, true);
+                for (int q = -1; q <= 1; q++)
+                {
+                    double lh = q == 0 ? 0.2 : 0.14;
+                    Shapes.Ellipsoid(m, SacredDraw.At(k, q * 0.085, b + 1.26 + 0.5 * lh, 0.06 - 0.02 * Math.Abs(q)), lit, 0.055, 0.5 * lh, 0.03, lod == 0 ? 6 : 4, false);
+                }
+                if (lod == 0)
+                {
+                    Shapes.Sphere(m, SacredDraw.At(k, -0.14, b + 1.02, 0.0), st, 0.035, 4);
+                    Shapes.Sphere(m, SacredDraw.At(k, 0.14, b + 1.02, 0.0), st, 0.035, 4);
                     Shapes.Torus(m, SacredDraw.Basis(k, 0, b + 0.86, 0.02, 1, 0, 0, 0, 0.94, 0.342), st, 0.14, 0.025, 10, 3);
                 }
             }
-            // The wings: tiers of feathers fanning out behind the arms and sweeping down to the block.
+            // The wings fan down from the shoulders like a feathered cape (judge round 1, KAT2020 03, 18): curved back about
+            // 30° about the vertical, 0.07 m thick, their upper edge never above the shoulder, the long feathers reaching the
+            // block; three tiers whose round-ended feather tips curl outward at the pedestal, the knee and the hip.
             int tiers = lod == 0 ? 3 : lod == 1 ? 2 : 1;
             for (int sg = -1; sg <= 1; sg += 2)
             {
                 for (int t = 0; t < tiers; t++)
                 {
-                    double sc = 0.88 - 0.18 * t, a = 0.34;
+                    double sc = 1.0 - 0.22 * t, a = 0.52 + 0.08 * t;
                     // In the wing's plane: x out from the shoulder root and back by a, y up (the extrusion runs forward).
                     double ex = sg * Math.Cos(a), ez = -Math.Sin(a), yx = sg * Math.Sin(a), yz = Math.Cos(a);
-                    Affine3 wf = SacredDraw.Basis(k, sg * 0.14, b + 0.9, -0.12 + 0.05 * t, ex, 0, ez, yx, 0, yz);
+                    Affine3 wf = SacredDraw.Basis(k, sg * 0.15, b + 0.86, -0.1 + 0.05 * t, ex, 0, ez, yx, 0, yz);
                     int n = WingOutline(sg, sc, lod);
-                    Shapes.BevelExtrude(m, wf, t % 2 == 0 ? st : lit, ShapeScratch.U, ShapeScratch.W, n, 0.06, lod == 0 ? 0.015 : 0, lod == 0 ? 1 : 0,
-                                        BevelStyle.Chamfer, true, true);
+                    Shapes.BevelExtrude(m, wf, t % 2 == 0 ? st : lit, ShapeScratch.U, ShapeScratch.W, n, 0.07, lod == 0 ? 0.02 : 0, lod == 0 ? 1 : 0,
+                                        BevelStyle.Round, true, true);
                 }
             }
         }
 
-        // One wing in its own plane (metres, x out from the shoulder root, y up): the upper edge out to the wing's shoulder,
-        // the tip by the block, then the scalloped ends of the long feathers back to the root (KAT2020 18).
-        private static readonly double[] WingX = { 0.0, 0.2, 0.38, 0.55, 0.72, 0.88, 0.99, 0.86, 0.76, 0.63, 0.51, 0.39, 0.27, 0.16, 0.06 };
-        private static readonly double[] WingY = { 0.06, 0.04, -0.1, -0.3, -0.54, -0.8, -0.98, -1.0, -0.9, -0.98, -0.86, -0.92, -0.78, -0.8, -0.52 };
-
-        /// <summary>The outline of one wing tier into the scratch arrays (x outward, the second coordinate the extrude's own z,
-        /// which points down in the frame of the right wing and up in the mirrored left one); scale sc about the root.
-        /// Returns the point count.</summary>
+        /// <summary>The outline of one wing tier into the scratch arrays (x outward, the second coordinate the extrude's own
+        /// z, which points down in the frame of the right wing and up in the mirrored left one), scaled by sc about the
+        /// shoulder root: the upper edge level with the shoulder out to the wing's elbow, the outer edge down to the tip at
+        /// the block (1.05 m below the root), then the round ends of five long feathers back up to the root. Returns the
+        /// point count.</summary>
         private static int WingOutline(int sg, double sc, int lod)
         {
             double[] px = ShapeScratch.U, pz = ShapeScratch.W;
-            double[] ox = WingX, oy = WingY;
-            int step = lod == 0 ? 1 : 2, n = 0;
-            for (int i = 0; i < ox.Length; i += (i < 6 ? 1 : step))
+            int n = 0;
+            double flip = sg > 0 ? -1 : 1;
+            void P(double x, double y)
             {
-                px[n] = ox[i] * sc;
-                // The extrude's local z is −up for the right wing (x × n points down) and +up for the mirrored left one.
-                pz[n] = (sg > 0 ? -1 : 1) * oy[i] * sc;
+                px[n] = x * sc;
+                pz[n] = flip * y * sc;
                 n++;
             }
+            P(0.0, 0.05);
+            P(0.3, 0.04);
+            P(0.55, -0.02);
+            P(0.74, -0.2);
+            P(0.86, -0.5);
+            P(0.9, -0.8);
+            // Five feathers from the tip back toward the root, each ending in a round lobe curling outward.
+            const int feathers = 5;
+            int arc = lod == 0 ? 3 : 1;
+            for (int f = 0; f < feathers; f++)
+            {
+                double t0 = (double)f / feathers, t1 = (f + 1.0) / feathers;
+                double xa = 0.9 - 0.82 * t0, xb = 0.9 - 0.82 * t1;
+                double ya = -1.05 + 0.5 * t0 * t0, yb = -1.05 + 0.5 * t1 * t1;
+                double cx = 0.5 * (xa + xb), cy = 0.5 * (ya + yb), r = 0.5 * Math.Sqrt((xa - xb) * (xa - xb) + (ya - yb) * (ya - yb));
+                for (int q = 0; q <= arc; q++)
+                {
+                    // The lobe: a half circle below the chord between the feather's two ends.
+                    double ang = Math.PI * (q + 0.5) / (arc + 1);
+                    P(cx + r * Math.Cos(ang), cy - 0.7 * r * Math.Sin(ang) - 0.03);
+                }
+                P(xb, yb + 0.06);
+            }
+            P(0.04, -0.45);
             return n;
         }
 

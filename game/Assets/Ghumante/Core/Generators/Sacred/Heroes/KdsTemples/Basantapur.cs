@@ -8,10 +8,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     /// The open ground of the square (kds-temples.md T6, T10, T28): the ruined Narayan temple (destroyed in 2015 and not
     /// rebuilt: a broken four-stage brick plinth heaped with rubble and weeds behind a wire-mesh fence, a black water tank at
     /// its north-west corner); the Basantapur Dabali (the low red-sided, stone-capped dance platforms east of Trailokya
-    /// Mohan, on their OSM outline); and the Basantapur square: the raised buff-pink brick paving with a grey stone border
-    /// on the marketplace outline (OSM w218440319), kept out of the road corridors and draped on the terrain, with the grid
-    /// of curio stalls (low tables and mats laden with bronzes, singing bowls and masks, red tarpaulins, patio umbrellas)
-    /// and tall lamp posts.
+    /// Mohan, on their OSM outline); and the Basantapur square: the raised red-brown herringbone brick platform with a grey
+    /// stone kerb on the marketplace outline (OSM w218440319), paved wall to wall on the levelled ground, with the curio
+    /// market (long runs of low tables draped to the ground in royal blue and crimson, laden with bronzes, singing bowls,
+    /// masks and khukuris, a rare umbrella; judge round 1) and tall lamp posts.
     /// </summary>
     internal static class Basantapur
     {
@@ -21,7 +21,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         public const float SquareTopM = 6.6f;
 
         // The marketplace outline (w218440319) in the brief's local frame (kds-temples.md T28).
-        private static readonly double[] MarketX = { -82.9, -4.4, -3.7, -86.2 }, MarketY = { -76.8, -92.9, -115.8, -95.9 };
+        internal static readonly double[] MarketX = { -82.9, -4.4, -3.7, -86.2 }, MarketY = { -76.8, -92.9, -115.8, -95.9 };
 
         // ---------------------------------------------------------------------------------------------------------------
         // T6 Narayan ruin
@@ -353,8 +353,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         // T28 Basantapur square
         // ---------------------------------------------------------------------------------------------------------------
 
-        /// <summary>The raised brick paving and the curio stalls of the marketplace outline, draped on the terrain and kept out
-        /// of the road corridors.</summary>
+        /// <summary>The market's brick (red-brown herringbone, sun-faded; judge round 1 against basantapur2 c_03, c_06,
+        /// 2023-25), its joints and the grey stone kerb and border.</summary>
+        private static readonly ShapeBrush MarketBrick = Looks.Of(MeshColor.FromHex(0x9C4E3A), MaterialChannel.Brick);
+
+        private static readonly ShapeBrush MarketJoint = Looks.Of(MeshColor.FromHex(0x6E5A4E), MaterialChannel.Brick);
+
+        /// <summary>The stall cloths: royal blue and red, draped to the ground (basantapur2 c_00-c_07).</summary>
+        private static readonly ShapeBrush ClothRoyal = Looks.Of(MeshColor.FromHex(0x2D4FB0), MaterialChannel.Fabric);
+
+        private static readonly ShapeBrush ClothCrimson = Looks.Of(MeshColor.FromHex(0xB3262B), MaterialChannel.Fabric);
+
+        /// <summary>The goods: bronze, brass, copper and dark (wood, iron, horn) curios (judge round 1 colours).</summary>
+        private static readonly ShapeBrush[] Goods =
+        {
+            Looks.Of(MeshColor.FromHex(0x8C6A32), MaterialChannel.Metal), Looks.Of(MeshColor.FromHex(0xC9A13B), MaterialChannel.Gilt),
+            Looks.Of(MeshColor.FromHex(0x9A5B3A), MaterialChannel.Metal), Looks.Of(MeshColor.FromHex(0x3A2E28), MaterialChannel.Wood),
+        };
+
+        /// <summary>Height (m) of the raised market platform over the square.</summary>
+        public const double PlatformM = 0.22;
+
+        /// <summary>
+        /// The raised brick platform of the marketplace outline (OSM w218440319), level on the square (KdsGround) and paved
+        /// wall to wall (judge round 1: no holes where the square's footway corridors cross it), edged by a grey stone kerb
+        /// and border; the curio market on it in long runs of skirted tables, and tall lamp posts.
+        /// </summary>
         public static double Square(KdsCtx x)
         {
             MeshData m = x.M;
@@ -375,105 +399,81 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 w0 = Math.Min(w0, pw[i]);
                 w1 = Math.Max(w1, pw[i]);
             }
-            // The brick pattern is the material's; the cells only drape the paving on the ground (the square is level to a
-            // few centimetres over 3 m).
-            double pitch = lod == 0 ? 2.8 : lod == 1 ? 4.0 : lod == 2 ? 5.0 : 6.0, lift = 0.22;
-            int nu = (int)Math.Ceiling((u1 - u0) / pitch), nw = (int)Math.Ceiling((w1 - w0) / pitch);
-            var keep = new bool[nu * nw];
-            for (int j = 0; j < nw; j++)
-            {
-                for (int i = 0; i < nu; i++)
-                {
-                    double a0 = u0 + i * pitch, b0 = w0 + j * pitch;
-                    bool ok = Inside(pu, pw, a0 + 0.5 * pitch, b0 + 0.5 * pitch);
-                    for (int c = 0; c < 4 && ok; c++)
-                    {
-                        double cu = a0 + (c % 2) * pitch, cw = b0 + (c / 2) * pitch;
-                        if (!Inside(pu, pw, cu, cw) || x.CorridorDistance(cu, cw) < SacredClearance.MarginM) ok = false;
-                    }
-                    keep[j * nu + i] = ok;
-                }
-            }
-            ShapeBrush border = KdsLooks.Flag, kerb = Looks.Ao(KdsLooks.Flag, 0.85f);
+            double lift = PlatformM;
+            // The brick field in cells (their tone varies a little, the brick pattern is the material's), clipped to the
+            // outline; the grey stone border band and the kerb faces along the outline.
+            double pitch = lod == 0 ? 2.4 : lod == 1 ? 4.8 : lod == 2 ? 9.6 : 0;
             uint seed = 0x42415341u;
-            for (int j = 0; j < nw; j++)
+            if (pitch > 0)
             {
-                int runStart = -1;
-                double runLo = 0, runHi = 0;
-                for (int i = 0; i <= nu; i++)
+                int nu = (int)Math.Ceiling((u1 - u0) / pitch), nw = (int)Math.Ceiling((w1 - w0) / pitch);
+                for (int j = 0; j < nw; j++)
                 {
-                    bool k = i < nu && keep[j * nu + i];
-                    double a0 = u0 + i * pitch, b0 = w0 + j * pitch, a1 = a0 + pitch, b1 = b0 + pitch;
-                    if (k)
+                    for (int i = 0; i < nu; i++)
                     {
-                        bool edge = !Kept(keep, nu, nw, i - 1, j) || !Kept(keep, nu, nw, i + 1, j) || !Kept(keep, nu, nw, i, j - 1) || !Kept(keep, nu, nw, i, j + 1);
-                        double g00 = x.GroundV(a0, b0), g10 = x.GroundV(a1, b0), g11 = x.GroundV(a1, b1), g01 = x.GroundV(a0, b1);
-                        ShapeBrush top = Looks.Of(MeshColor.Scale(KdsLooks.BrickBuff.Color, 0.95f + 0.1f * (float)Rnd(ref seed)), MaterialChannel.Brick);
-                        SacredDraw.Quad(m, x.K, a0, g00 + lift, b0, a1, g10 + lift, b0, a1, g11 + lift, b1, a0, g01 + lift, b1, 0, 1, 0, top);
-                        // The grey stone kerb along the platform's edge: a narrow band on the cells that end it (c_dabli 00).
-                        if (edge && lod <= 1)
-                        {
-                            const double kb = 0.35, kl = 0.012;
-                            if (!Kept(keep, nu, nw, i - 1, j))
-                                SacredDraw.Quad(m, x.K, a0, g00 + lift + kl, b0, a0 + kb, g00 + lift + kl, b0, a0 + kb, g01 + lift + kl, b1, a0, g01 + lift + kl, b1, 0, 1, 0, border);
-                            if (!Kept(keep, nu, nw, i + 1, j))
-                                SacredDraw.Quad(m, x.K, a1 - kb, g10 + lift + kl, b0, a1, g10 + lift + kl, b0, a1, g11 + lift + kl, b1, a1 - kb, g11 + lift + kl, b1, 0, 1, 0, border);
-                            if (!Kept(keep, nu, nw, i, j - 1))
-                                SacredDraw.Quad(m, x.K, a0, g00 + lift + kl, b0, a1, g10 + lift + kl, b0, a1, g10 + lift + kl, b0 + kb, a0, g00 + lift + kl, b0 + kb, 0, 1, 0, border);
-                            if (!Kept(keep, nu, nw, i, j + 1))
-                                SacredDraw.Quad(m, x.K, a0, g01 + lift + kl, b1 - kb, a1, g11 + lift + kl, b1 - kb, a1, g11 + lift + kl, b1, a0, g01 + lift + kl, b1, 0, 1, 0, border);
-                        }
-                        // Kerb faces where the paving ends.
-                        if (lod >= 3) continue;
-                        if (!Kept(keep, nu, nw, i - 1, j)) Kerb(m, x.K, a0, b1, g01, a0, b0, g00, lift, -1, 0, kerb);
-                        if (!Kept(keep, nu, nw, i + 1, j)) Kerb(m, x.K, a1, b0, g10, a1, b1, g11, lift, 1, 0, kerb);
-                        if (!Kept(keep, nu, nw, i, j - 1)) Kerb(m, x.K, a0, b0, g00, a1, b0, g10, lift, 0, -1, kerb);
-                        if (!Kept(keep, nu, nw, i, j + 1)) Kerb(m, x.K, a1, b1, g11, a0, b1, g01, lift, 0, 1, kerb);
-                        double lo = Math.Min(Math.Min(g00, g10), Math.Min(g11, g01)), hi = Math.Max(Math.Max(g00, g10), Math.Max(g11, g01));
-                        if (runStart < 0)
-                        {
-                            runStart = i;
-                            runLo = lo;
-                            runHi = hi;
-                        }
-                        else if (Math.Max(runHi, hi) - Math.Min(runLo, lo) > 0.3)
-                        {
-                            Floor(x, u0 + runStart * pitch, a0, b0, b1, runLo, runHi, lift);
-                            runStart = i;
-                            runLo = lo;
-                            runHi = hi;
-                        }
-                        else
-                        {
-                            runLo = Math.Min(runLo, lo);
-                            runHi = Math.Max(runHi, hi);
-                        }
+                        double a0 = u0 + i * pitch, b0 = w0 + j * pitch, a1 = a0 + pitch, b1 = b0 + pitch;
+                        if (!ClipCell(pu, pw, ref a0, ref a1, ref b0, ref b1)) continue;
+                        float tone = 0.93f + 0.14f * (float)Rnd(ref seed);
+                        ShapeBrush top = Looks.Of(MeshColor.Scale(MarketBrick.Color, tone), MaterialChannel.Brick);
+                        SacredDraw.Quad(m, x.K, a0, x.GroundV(a0, b0) + lift, b0, a1, x.GroundV(a1, b0) + lift, b0, a1, x.GroundV(a1, b1) + lift, b1, a0,
+                                        x.GroundV(a0, b1) + lift, b1, 0, 1, 0, top);
                     }
-                    else if (runStart >= 0)
+                }
+                // Joint lines between the brick panels at LOD0 (the dark mortar bands of the herringbone fields).
+                if (lod == 0)
+                {
+                    for (double a = u0 + 4.8; a < u1 - 1.0; a += 4.8)
                     {
-                        Floor(x, u0 + runStart * pitch, a0, b0, b1, runLo, runHi, lift);
-                        runStart = -1;
+                        double lo, hi;
+                        if (!SpanAtU(pu, pw, a, out lo, out hi)) continue;
+                        SacredDraw.Quad(m, x.K, a - 0.04, lift + 0.004, lo + 0.4, a + 0.04, lift + 0.004, lo + 0.4, a + 0.04, lift + 0.004, hi - 0.4, a - 0.04,
+                                        lift + 0.004, hi - 0.4, 0, 1, 0, MarketJoint);
                     }
                 }
             }
-            if (lod <= 2) Stalls(x, pu, pw, u0, u1, w0, w1, lift);
+            else
+            {
+                SacredDraw.Quad(m, x.K, pu[0], lift, pw[0], pu[1], lift, pw[1], pu[2], lift, pw[2], pu[3], lift, pw[3], 0, 1, 0, MarketBrick);
+            }
+            // Kerb faces and the grey flag border round the outline (c_dabli 00).
+            ShapeBrush border = KdsLooks.Flag, kerb = Looks.Ao(KdsLooks.StoneGrey, 0.85f);
+            double cu = 0.25 * (pu[0] + pu[1] + pu[2] + pu[3]), cw = 0.25 * (pw[0] + pw[1] + pw[2] + pw[3]);
+            for (int i = 0; i < 4; i++)
+            {
+                int j = (i + 1) % 4;
+                double au = pu[i], aw = pw[i], bu = pu[j], bw = pw[j];
+                double nu = bw - aw, nw = -(bu - au), l = Math.Sqrt(nu * nu + nw * nw);
+                nu /= l;
+                nw /= l;
+                if ((cu - au) * nu + (cw - aw) * nw > 0)
+                {
+                    nu = -nu;
+                    nw = -nw;
+                }
+                SacredDraw.Quad(m, x.K, au, -0.1, aw, bu, -0.1, bw, bu, lift, bw, au, lift, aw, nu, 0, nw, kerb);
+                if (lod <= 1)
+                {
+                    const double kb = 0.45;
+                    SacredDraw.Quad(m, x.K, au, lift + 0.008, aw, bu, lift + 0.008, bw, bu - kb * nu, lift + 0.008, bw - kb * nw, au - kb * nu, lift + 0.008,
+                                    aw - kb * nw, 0, 1, 0, border);
+                }
+            }
+            // Walkable: the platform's top in strips across it.
+            for (int k = 0; k < 4; k++)
+            {
+                double a0 = u0 + (u1 - u0) * k / 4, a1 = u0 + (u1 - u0) * (k + 1) / 4;
+                double lo = double.MaxValue, hi = double.MinValue;
+                for (int q = 0; q <= 4; q++)
+                {
+                    double l2, h2;
+                    if (!SpanAtU(pu, pw, a0 + (a1 - a0) * q / 4, out l2, out h2)) continue;
+                    lo = Math.Min(lo, l2);
+                    hi = Math.Max(hi, h2);
+                }
+                if (lo < hi) x.Floor(a0, a1, lo + 0.3, hi - 0.3, -0.3, lift, GenColliders.Brick);
+            }
+            Stalls(x, pu, pw, u0, u1, w0, w1, lift);
             return SquareTopM;
-        }
-
-        private static bool Kept(bool[] keep, int nu, int nw, int i, int j)
-        {
-            return i >= 0 && j >= 0 && i < nu && j < nw && keep[j * nu + i];
-        }
-
-        private static void Kerb(MeshData m, in Affine3 k, double ua, double wa, double ga, double ub, double wb, double gb, double lift, double nu, double nw,
-                                 in ShapeBrush b)
-        {
-            SacredDraw.Quad(m, k, ua, ga - 0.15, wa, ub, gb - 0.15, wb, ub, gb + lift, wb, ua, ga + lift, wa, nu, 0, nw, b);
-        }
-
-        private static void Floor(KdsCtx x, double a0, double a1, double b0, double b1, double lo, double hi, double lift)
-        {
-            x.Floor(a0, a1, b0, b1, lo - 0.3, 0.5 * (lo + hi) + lift, GenColliders.Brick);
         }
 
         /// <summary>Point in the convex quadrilateral (either winding).</summary>
@@ -490,89 +490,112 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return pos == 0 || neg == 0;
         }
 
-        /// <summary>The curio market: rows of low tables and ground mats with goods, red tarpaulins on poles over some rows,
-        /// patio umbrellas, vendors' stools; and lamp posts along the long edges. Stalls stand clear of the corridors.</summary>
+        /// <summary>Clips a frame cell to the (convex) outline's w span at its u range; false when nothing is left.</summary>
+        private static bool ClipCell(double[] pu, double[] pw, ref double a0, ref double a1, ref double b0, ref double b1)
+        {
+            double l0, h0, l1, h1;
+            if (!SpanAtU(pu, pw, a0, out l0, out h0) | !SpanAtU(pu, pw, a1, out l1, out h1))
+            {
+                // Trim the cell's u range to where the outline is.
+                double umin = Math.Min(Math.Min(pu[0], pu[1]), Math.Min(pu[2], pu[3])), umax = Math.Max(Math.Max(pu[0], pu[1]), Math.Max(pu[2], pu[3]));
+                a0 = Math.Max(a0, umin + 0.01);
+                a1 = Math.Min(a1, umax - 0.01);
+                if (a1 - a0 < 0.1 || !SpanAtU(pu, pw, a0, out l0, out h0) || !SpanAtU(pu, pw, a1, out l1, out h1)) return false;
+            }
+            double lo = Math.Max(l0, l1), hi = Math.Min(h0, h1);
+            b0 = Math.Max(b0, lo);
+            b1 = Math.Min(b1, hi);
+            return b1 - b0 > 0.05;
+        }
+
+        /// <summary>The (convex) outline's w span at u.</summary>
+        private static bool SpanAtU(double[] pu, double[] pw, double u, out double lo, out double hi)
+        {
+            lo = double.MaxValue;
+            hi = double.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                int j = (i + 1) % 4;
+                double ua = pu[i], ub = pu[j];
+                if ((u < Math.Min(ua, ub)) || (u > Math.Max(ua, ub)) || Math.Abs(ub - ua) < 1e-9) continue;
+                double t = (u - ua) / (ub - ua), w = pw[i] + (pw[j] - pw[i]) * t;
+                lo = Math.Min(lo, w);
+                hi = Math.Max(hi, w);
+            }
+            return hi > lo;
+        }
+
+        /// <summary>
+        /// The curio market (judge round 1 against basantapur2 c_00-c_07, 2023-25): long rows of low trestle tables
+        /// (2.4 × 0.9 m, 0.5 m high) end to end in runs of three to five along the platform, with 4 m aisles; each draped to
+        /// the ground in royal-blue or red cloth and heaped with brass, bronze and copper statues, masks, singing bowls,
+        /// khukuris and beads (a dense carpet of small pieces at LOD0, one bumpy slab of goods beyond); at most one patio
+        /// umbrella to a run; tall lamp posts along the long edges. Tables keep out of the drawn roads and the vehicle
+        /// roads' corridors.
+        /// </summary>
         private static void Stalls(KdsCtx x, double[] pu, double[] pw, double u0, double u1, double w0, double w1, double lift)
         {
             MeshData m = x.M;
             int lod = x.Lod;
-            ShapeBrush wood = Looks.Of(MeshColor.FromHex(0x6E4A30), MaterialChannel.Wood);
-            ShapeBrush[] mats = { KdsLooks.ClothRed, KdsLooks.ClothBlue, KdsLooks.ClothGreen, KdsLooks.ClothYellow };
-            ShapeBrush[] umb = { KdsLooks.PaintWhite, KdsLooks.ClothBlue, KdsLooks.PaintWhite };
-            ShapeBrush bronze = Looks.Of(MeshColor.FromHex(0x9C7A3A), MaterialChannel.Metal);
             uint seed = 0x5354414Cu;
-            // The stalls stand in long rows along the square (the aerial and tower photos c_basantapur_chowk 00, c_dabli
-            // 05): low tables and ground mats side by side with gaps, aisles about 4.5 m apart; a patio umbrella or a red
-            // tarpaulin over a few of them.
-            const double du = 2.0, dw = 4.5;
+            const double tl = 2.4, td = 0.9, th = 0.5, aisle = 4.0;
+            KdsVehicleRoads vehicles = x.Tile != null ? KdsVehicleRoads.For(x.Tile) : null;
             int row = 0;
-            for (double w = w0 + 2.4; w < w1 - 1.5; w += dw, row++)
+            for (double w = w0 + 2.6; w < w1 - 2.0; w += td + aisle, row++)
             {
-                int col = 0;
-                for (double u = u0 + 2.0; u < u1 - 1.5; u += du, col++)
+                double u = u0 + 2.0 + 1.5 * Rnd(ref seed);
+                int run = 0;
+                while (u < u1 - 2.0)
                 {
-                    double r = Rnd(ref seed);
-                    if (r < 0.3) continue; // a gap in the row
-                    if (!Inside(pu, pw, u, w) || !Inside(pu, pw, u - 1.0, w - 0.8) || !Inside(pu, pw, u + 1.0, w + 0.8)) continue;
-                    if (x.CorridorDistance(u, w) < 1.6 + SacredClearance.MarginM) continue;
-                    double g = x.GroundV(u, w) + lift;
-                    bool table = r > 0.48;
-                    if (table)
+                    int n = 3 + (int)(Rnd(ref seed) * 3);
+                    double len = n * tl;
+                    // Skip runs that would leave the outline or touch a drawn road or a vehicle road's corridor; about one in
+                    // four gaps is a wider opening.
+                    bool ok = Rnd(ref seed) > 0.22;
+                    for (int q = 0; q <= n && ok; q++)
                     {
-                        // A low table laden with goods, its two leg frames.
-                        SacredDraw.Box(m, x.K, u - 0.8, u + 0.8, g + 0.4, g + 0.47, w - 0.42, w + 0.42, wood, BoxFaces.All & ~BoxFaces.Bottom);
-                        SacredDraw.Panel(m, x.K, u - 0.8, g + 0.47, u + 0.8, g + 0.475, w, mats[(int)(r * 13) % 4]);
-                        if (lod == 0)
+                        double a = u + Math.Min(q * tl, len);
+                        for (int e = -1; e <= 1 && ok; e += 2)
                         {
-                            SacredDraw.Quad(m, x.K, u - 0.72, g, w + 0.36, u + 0.72, g, w + 0.36, u + 0.72, g + 0.4, w + 0.36, u - 0.72, g + 0.4, w + 0.36, 0, 0, 1,
-                                            Looks.Ao(wood, 0.55f));
-                            SacredDraw.Quad(m, x.K, u + 0.72, g, w - 0.36, u - 0.72, g, w - 0.36, u - 0.72, g + 0.4, w - 0.36, u + 0.72, g + 0.4, w - 0.36, 0, 0, -1,
-                                            Looks.Ao(wood, 0.55f));
-                        }
-                        x.Solid(u - 0.8, u + 0.8, w - 0.42, w + 0.42, g, g + 0.47, GenColliders.Wood);
-                    }
-                    else
-                    {
-                        // A mat on the ground.
-                        SacredDraw.Box(m, x.K, u - 0.85, u + 0.85, g, g + 0.03, w - 0.55, w + 0.55, mats[(int)(r * 7) % 4], lod == 0 ? BoxFaces.Top | BoxFaces.Wall : BoxFaces.Top);
-                    }
-                    double gv = table ? g + 0.47 : g + 0.03;
-                    if (lod == 0)
-                    {
-                        // Every stall is laden (c_views 08-10, 15): bronze figures, singing bowls and painted masks or thangkas
-                        // set out along the table or the mat.
-                        int items = 3;
-                        for (int q = 0; q < items; q++)
-                        {
-                            double gu = u - 0.6 + 1.2 * q / (items - 1), gw = w + ((q % 2) == 0 ? -0.14 : 0.16), rr = Rnd(ref seed);
-                            if (rr < 0.45) Shapes.Cone(m, SacredDraw.At(x.K, gu, gv, gw), bronze, 0.07, 0.2 + 0.12 * rr, 4, 0, 0, false);
-                            else if (rr < 0.75) SacredDraw.Box(m, x.K, gu - 0.1, gu + 0.1, gv, gv + 0.07, gw - 0.1, gw + 0.1, bronze, BoxFaces.Top | BoxFaces.Front | BoxFaces.Back);
-                            else SacredDraw.Box(m, x.K, gu - 0.09, gu + 0.09, gv, gv + 0.24, gw - 0.02, gw + 0.02, mats[q % 4], BoxFaces.Front | BoxFaces.Top | BoxFaces.Back);
-                        }
-                    }
-                    if (lod <= 1 && (row * 7 + col) % 9 == 4)
-                    {
-                        // A red tarpaulin on four poles over the stall.
-                        double th = g + 2.25, tl = g + 2.0;
-                        if (lod == 0)
-                        {
-                            for (int q = 0; q < 4; q++)
+                            double b = w + e * 0.5 * td;
+                            if (!Inside(pu, pw, a, b)) ok = false;
+                            else if (x.DrawnDistance(a, b) < 0.4) ok = false;
+                            else if (vehicles != null)
                             {
-                                double lu = u + (q % 2 == 0 ? -1.0 : 1.0), lw = w + (q < 2 ? -0.9 : 0.9);
-                                SacredDraw.Box(m, x.K, lu - 0.025, lu + 0.025, g, q < 2 ? tl : th, lw - 0.025, lw + 0.025, wood, BoxFaces.Front | BoxFaces.Left);
+                                double px, py, pz;
+                                x.World(a, 0, b, out px, out py, out pz);
+                                if (vehicles.Distance(px, pz) < SacredClearance.MarginM) ok = false;
                             }
                         }
-                        SacredDraw.Quad(m, x.K, u - 1.05, tl, w - 0.95, u + 1.05, tl, w - 0.95, u + 1.05, th, w + 0.95, u - 1.05, th, w + 0.95, 0, 1, -0.12, KdsLooks.Tarp);
-                        SacredDraw.Quad(m, x.K, u - 1.05, th, w + 0.95, u + 1.05, th, w + 0.95, u + 1.05, tl, w - 0.95, u - 1.05, tl, w - 0.95, 0, -1, 0.12,
-                                        Looks.Ao(KdsLooks.Tarp, 0.6f));
                     }
-                    else if (lod == 0 && (row * 5 + col) % 11 == 2)
+                    if (ok && lod >= 3)
                     {
-                        // A patio umbrella.
-                        ShapeBrush c = umb[(int)(r * 9) % 3];
-                        Shapes.Cylinder(m, SacredDraw.At(x.K, u + 0.9, g, w), KdsLooks.MetalGrey, 0.025, 2.2, 4);
-                        Shapes.Cone(m, SacredDraw.At(x.K, u + 0.9, g + 1.95, w), c, 1.1, 0.5, lod == 0 ? 8 : 6, 0, 0, true);
+                        // Far off a run is one cloth-coloured top.
+                        double tv = lift + th;
+                        SacredDraw.Quad(m, x.K, u, tv, w - 0.5 * td, u + len, tv, w - 0.5 * td, u + len, tv, w + 0.5 * td, u, tv, w + 0.5 * td, 0, 1, 0,
+                                        run % 5 < 3 ? ClothRoyal : ClothCrimson);
+                        run++;
                     }
+                    else if (ok)
+                    {
+                        double g = lift;
+                        for (int q = 0; q < n; q++)
+                        {
+                            double cu = u + (q + 0.5) * tl;
+                            Table(x, cu, w, tl, td, g, th, Rnd(ref seed) < 0.6 ? ClothRoyal : ClothCrimson, ref seed);
+                        }
+                        x.Solid(u, u + len, w - 0.5 * td, w + 0.5 * td, g - 0.2, g + th, GenColliders.Wood);
+                        // At most one patio umbrella to a run, and only on some runs (the 2023-25 photos show almost none).
+                        if (lod <= 1 && (row * 5 + run) % 4 == 1)
+                        {
+                            double au = u + tl * (0.5 + (int)(Rnd(ref seed) * n)), aw = w - 0.5 * td - 0.4;
+                            ShapeBrush c = run % 2 == 0 ? KdsLooks.PaintWhite : ClothRoyal;
+                            Shapes.Cylinder(m, SacredDraw.At(x.K, au, g, aw), KdsLooks.MetalGrey, 0.025, 2.2, 4);
+                            Shapes.Cone(m, SacredDraw.At(x.K, au, g + 1.95, aw), c, 1.2, 0.5, lod == 0 ? 8 : 6, 0, 0, true);
+                        }
+                        run++;
+                    }
+                    u += len + 3.5 + 1.5 * Rnd(ref seed);
                 }
             }
             // Lamp posts along the two long edges.
@@ -589,15 +612,75 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                         double cu = 0.25 * (pu[0] + pu[1] + pu[2] + pu[3]), cw = 0.25 * (pw[0] + pw[1] + pw[2] + pw[3]), dx = cu - u, dz = cw - w, l = Math.Sqrt(dx * dx + dz * dz);
                         u += dx / l;
                         w += dz / l;
-                        if (x.CorridorDistance(u, w) < 0.4 + SacredClearance.MarginM) continue;
-                        double g = x.GroundV(u, w);
-                        Shapes.Cylinder(m, SacredDraw.At(x.K, u, g, w), pole, 0.07, 5.6, 6);
-                        Shapes.Bar(m, x.K, pole, u, g + 5.4, w, u + 0.6, g + 5.5, w, 0.03, 4);
-                        SacredDraw.Box(m, x.K, u + 0.48, u + 0.72, g + 5.15, g + 5.45, w - 0.12, w + 0.12, Looks.Of(MeshColor.FromHex(0xF2E6B8), MaterialChannel.Glass),
+                        if (x.DrawnDistance(u, w) < 0.4) continue;
+                        double g = lift;
+                        Shapes.Cylinder(m, SacredDraw.At(x.K, u, g, w), pole, 0.07, 5.4, 6);
+                        Shapes.Bar(m, x.K, pole, u, g + 5.2, w, u + 0.6, g + 5.3, w, 0.03, 4);
+                        SacredDraw.Box(m, x.K, u + 0.48, u + 0.72, g + 4.95, g + 5.25, w - 0.12, w + 0.12, Looks.Of(MeshColor.FromHex(0xF2E6B8), MaterialChannel.Glass),
                                        BoxFaces.All);
-                        x.Cylinder(u, w, g, g + 5.6, 0.1);
+                        x.Cylinder(u, w, g, g + 5.4, 0.1);
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// One trestle table (centre u, w; length tl along u, depth td; top at g + th) draped in cloth to 0.05 m over the
+        /// platform, with its goods: at LOD0 a dense carpet of small brass, bronze, copper and dark pieces (upright figures,
+        /// bowls and discs, masks leaning back, khukuris and strings of beads); at LOD1 a bumpy slab of goods; at LOD2 a
+        /// flat bronze top.
+        /// </summary>
+        private static void Table(KdsCtx x, double u, double w, double tl, double td, double g, double th, in ShapeBrush cloth, ref uint seed)
+        {
+            MeshData m = x.M;
+            int lod = x.Lod;
+            double hu = 0.5 * tl - 0.02, hw = 0.5 * td, top = g + th;
+            // The cloth: top and skirts (no legs show under a skirt to the ground).
+            SacredDraw.Box(m, x.K, u - hu, u + hu, g + 0.05, top, w - hw, w + hw, cloth, lod == 0 ? BoxFaces.All & ~BoxFaces.Bottom : BoxFaces.Top | BoxFaces.Wall);
+            if (lod == 0)
+            {
+                // A dense carpet of goods, 25 pieces of 0.08-0.35 m, each a few triangles (the site's LOD0 budget).
+                const int n = 25;
+                for (int i = 0; i < n; i++)
+                {
+                    double gu = u - hu + 0.12 + (2 * hu - 0.24) * Rnd(ref seed), gw = w - hw + 0.1 + (2 * hw - 0.2) * Rnd(ref seed);
+                    double r = Rnd(ref seed), sz = 0.08 + 0.27 * Rnd(ref seed) * Rnd(ref seed);
+                    ShapeBrush b = Goods[(int)(Rnd(ref seed) * 4) & 3];
+                    if (r < 0.34)
+                    {
+                        // An upright figure: a tapering four-sided body with a small head.
+                        Shapes.Cone(m, SacredDraw.At(x.K, gu, top, gw), b, 0.35 * sz + 0.03, sz + 0.06, 3, 0, 0, false);
+                    }
+                    else if (r < 0.6)
+                    {
+                        // A singing bowl or a plate: a low wide cone.
+                        Shapes.Cone(m, SacredDraw.At(x.K, gu, top, gw), b, 0.5 * sz + 0.04, 0.05 + 0.1 * sz, 4, 0, 0, false);
+                    }
+                    else if (r < 0.82)
+                    {
+                        // A mask leaning back against the goods behind it.
+                        double mh = 0.6 * sz + 0.1, mw = 0.4 * sz + 0.08;
+                        SacredDraw.Box(m, x.K, gu - 0.5 * mw, gu + 0.5 * mw, top, top + mh, gw - 0.03, gw + 0.03, b, BoxFaces.Front | BoxFaces.Top);
+                    }
+                    else
+                    {
+                        // A khukuri or a string of beads lying flat.
+                        double ll = 0.5 * sz + 0.15;
+                        SacredDraw.Box(m, x.K, gu - 0.5 * ll, gu + 0.5 * ll, top, top + 0.025, gw - 0.025, gw + 0.025, b, BoxFaces.Top);
+                    }
+                }
+            }
+            else if (lod == 1)
+            {
+                // One bumpy slab of goods.
+                SacredDraw.Box(m, x.K, u - hu + 0.1, u + hu - 0.1, top, top + 0.12, w - hw + 0.08, w + hw - 0.08, Goods[0], BoxFaces.Top | BoxFaces.Front | BoxFaces.Back);
+                SacredDraw.Box(m, x.K, u - 0.4 * hu, u + 0.2 * hu, top + 0.12, top + 0.22, w - 0.3 * hw, w + 0.2 * hw, Goods[1], BoxFaces.Top | BoxFaces.Front);
+            }
+            else
+            {
+                double tv = top + 0.01;
+                SacredDraw.Quad(m, x.K, u - hu + 0.1, tv, w - hw + 0.08, u + hu - 0.1, tv, w - hw + 0.08, u + hu - 0.1, tv, w + hw - 0.08, u - hu + 0.1, tv,
+                                w + hw - 0.08, 0, 1, 0, Goods[0]);
             }
         }
     }

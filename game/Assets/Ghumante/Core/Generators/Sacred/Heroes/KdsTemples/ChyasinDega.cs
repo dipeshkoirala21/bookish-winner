@@ -47,10 +47,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             while (run > 0.95 * plinth && x.CorridorDistance(0, topA + run) < SacredClearance.MarginM) run -= 0.2;
             KdsKit.Stair(x, 0.75, topA, run, 0, plinth, 0.18, 0.12, KdsLooks.StonePlinth, KdsLooks.BrickPlinth, 16);
             if (lod <= 1) IronRails(x, 0.75, topA, run, plinth);
+            // The two stone pillars flanking the stair foot (judge round 1: both stand, mirrored across the stair axis); they
+            // keep their surveyed place over a mapped path's corridor (its trim is an open issue for roads) and only step
+            // back off a drawn road surface.
             for (int sgn = -1; sgn <= 1; sgn += 2)
             {
                 double pu = sgn * 1.45, pw = topA + run - 0.1;
-                if (x.CorridorDistance(pu, pw) > 0.4) Pillar(x, pu, pw, sgn < 0);
+                while (pw > topA + 0.5 * run && x.DrawnDistance(pu, pw) < 0.45) pw -= 0.2;
+                Pillar(x, pu, pw, sgn < 0);
             }
 
             // Colonnade and sanctum.
@@ -227,19 +231,18 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         {
             int lod = x.Lod;
             MeshData m = x.M;
-            if (lod >= 2)
+            if (lod >= 1)
             {
                 SacredDraw.Box(m, x.K, u - 0.1, u + 0.1, v0, v1, w - 0.1, w + 0.1, KdsLooks.Timber, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                if (lod == 1) x.Cylinder(u, w, v0, v1, 0.14, true);
                 return;
             }
             double h = v1 - v0;
-            SacredDraw.Box(m, x.K, u - 0.14, u + 0.14, v0, v0 + 0.25, w - 0.14, w + 0.14, KdsLooks.Timber, BoxFaces.All & ~BoxFaces.Bottom);
+            // A square foot, the turned shaft with its ring and the flared bracket capital.
             var p = new Profile2(16);
-            if (lod == 0)
-                p.Add(0.1, 0, true).Add(0.13, 0.15 * h).Add(0.09, 0.2 * h).Add(0.085, 0.7 * h).Add(0.12, 0.74 * h).Add(0.1, 0.86 * h).Add(0.2, 0.96 * h, true)
-                 .Add(0.2, h - 0.25, true);
-            else p.Add(0.1, 0, true).Add(0.09, 0.86 * h).Add(0.2, 0.96 * h, true).Add(0.2, h - 0.25, true);
-            Shapes.Lathe(m, SacredDraw.At(x.K, u, v0 + 0.25, w), KdsLooks.Timber, p, lod == 0 ? 5 : 4);
+            p.Add(0.14, 0, true).Add(0.14, 0.25, true).Add(0.09, 0.27).Add(0.085, 0.7 * h).Add(0.12, 0.74 * h).Add(0.1, 0.86 * h).Add(0.2, 0.96 * h, true)
+             .Add(0.2, h, true);
+            Shapes.Lathe(m, SacredDraw.At(x.K, u, v0, w), KdsLooks.Timber, p, 4);
             x.Cylinder(u, w, v0, v1, 0.14, true);
         }
 
@@ -255,7 +258,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double dv = hv - footV, dw = headA - footA, len = Math.Sqrt(dv * dv + dw * dw);
             if (len < 0.4) return;
             double cy = dv / len, sy = dw / len, size = Math.Max(0.7, Math.Min(1.3, depth / 2.0));
-            MeshData proto = SacredParts.StrutProto(len, size, true, false, KdsLooks.Strut, Looks.Of(MeshColor.FromHex(0x7A4A2E), MaterialChannel.WoodCarved), x.Lod);
+            // Carved struts on the first tier; the small upper tiers' struts are plain (they read only as a rhythm).
+            MeshData proto = SacredParts.StrutProto(len, size, perSide >= 3, false, KdsLooks.Strut, Looks.Of(MeshColor.FromHex(0x7A4A2E), MaterialChannel.WoodCarved),
+                                                    x.Lod);
             double sideLen = 2 * a * Math.Tan(Math.PI / N);
             for (int s = 0; s < N; s++)
             {
@@ -290,32 +295,46 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
         }
 
-        /// <summary>A stone pillar at the stair foot (about 5 m): stepped base, square-to-octagonal shaft, a lotus capital,
-        /// and either a small seated deity (pillar A) or a lotus cup (pillar B).</summary>
+        /// <summary>The pillars' grey stone and the kneeling figure's (judge round 1: #6E6A63).</summary>
+        private static readonly ShapeBrush PillarStone = Looks.Of(MeshColor.FromHex(0x6E6A63), MaterialChannel.Stone);
+
+        /// <summary>A stone pillar at the stair foot (about 5 m; drawn one LOD coarser than the temple): stepped base,
+        /// square-to-octagonal shaft, a lotus capital (two rings and a bell, 0.32 m), and on pillar A a small kneeling
+        /// figure (0.6 m) facing the temple, on pillar B a lotus cup. Its collider is left out over a road corridor.</summary>
         private static void Pillar(KdsCtx x, double u, double w, bool deity)
         {
             MeshData m = x.M;
-            int lod = x.Lod;
-            ShapeBrush stone = KdsLooks.StoneGrey;
+            int lod = Math.Min(2, x.Lod + 1);
+            ShapeBrush stone = PillarStone;
             SacredDraw.Box(m, x.K, u - 0.35, u + 0.35, 0, 0.45, w - 0.35, w + 0.35, stone, BoxFaces.All & ~BoxFaces.Bottom);
             SacredDraw.Box(m, x.K, u - 0.2, u + 0.2, 0.45, 2.0, w - 0.2, w + 0.2, stone, BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
             var shaft = new Profile2(6);
             shaft.Add(0, 0, true).Add(0.2, 0, true).Add(0.17, 2.4, true).Add(0, 2.4, true);
             Shapes.Lathe(m, SacredDraw.At(x.K, u, 2.0, w) * Affine3.RotationY(Math.PI / 8), stone, shaft, 8);
+            // The lotus capital: two rings and the bell turned up to the abacus.
+            int seg = KdsKit.Seg(12, lod);
+            if (lod <= 1)
+            {
+                Shapes.Torus(m, SacredDraw.At(x.K, u, 4.42, w), stone, 0.2, 0.045, seg, 4);
+                Shapes.Torus(m, SacredDraw.At(x.K, u, 4.52, w), stone, 0.22, 0.045, seg, 4);
+            }
             var cap = new Profile2(8);
-            cap.Add(0, 0, true).Add(0.18, 0, true).Add(0.32, 0.12).Add(0.36, 0.26).Add(0.28, 0.34, true).Add(0, 0.34, true);
-            Shapes.Lathe(m, SacredDraw.At(x.K, u, 4.4, w), stone, cap, KdsKit.Seg(12, lod));
+            cap.Add(0, 0, true).Add(0.17, 0, true).Add(0.22, 0.06).Add(0.3, 0.2).Add(0.32, 0.3, true).Add(0.32, 0.36, true).Add(0, 0.36, true);
+            Shapes.Lathe(m, SacredDraw.At(x.K, u, 4.55, w), stone, cap, seg);
             if (deity && lod <= 1)
             {
-                Shapes.Ellipsoid(m, SacredDraw.At(x.K, u, 4.9, w), stone, 0.22, 0.25, 0.16, 6, false);
-                Shapes.Sphere(m, SacredDraw.At(x.K, u, 5.22, w), stone, 0.1, 6);
-                Shapes.Ellipsoid(m, SacredDraw.At(x.K, u, 5.05, w - 0.12), stone, 0.32, 0.36, 0.05, 8, false);
+                // The kneeling devotee facing the temple (−w): the body as a capsule, the head over it, joined hands.
+                Affine3 f = SacredDraw.Turn(x.K, u, 4.91, w, Math.PI);
+                Shapes.Ellipsoid(m, SacredDraw.At(f, 0, 0.09, 0.04), stone, 0.2, 0.09, 0.16, 2);
+                Shapes.Capsule(m, SacredDraw.At(f, 0, 0.12, 0.02), stone, 0.11, 0.34, 6);
+                Shapes.Ellipsoid(m, SacredDraw.At(f, 0, 0.52, 0.04), stone, 0.075, 0.09, 0.08, 2);
+                Shapes.Ellipsoid(m, SacredDraw.At(f, 0, 0.36, 0.13), stone, 0.04, 0.07, 0.04, 2);
             }
-            else if (lod <= 1)
+            else if (!deity && lod <= 1)
             {
-                Shapes.Frustum(m, SacredDraw.At(x.K, u, 4.74, w), stone, 0.16, 0.32, 0.22, 10, 0.02, 1, true, true);
+                Shapes.Frustum(m, SacredDraw.At(x.K, u, 4.91, w), stone, 0.16, 0.3, 0.2, 10, 0.02, 1, true, true);
             }
-            x.Cylinder(u, w, 0, 5.2, 0.35);
+            if (x.CorridorDistance(u, w) > 0.4) x.Cylinder(u, w, 0, 5.2, 0.35);
         }
     }
 }

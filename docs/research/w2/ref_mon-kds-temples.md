@@ -28,26 +28,31 @@ repository): `/home/user/wt/refs/mon-kds-temples/`. Renders and side-by-side she
 | `Pavilions.cs` | T2 Silyan Sattal, T3 Ashok Binayak, T11 Laxmi Narayan Sattal, T12 Taleju Bell, T13 Saraswati phalcha, T15 Big Drums |
 | `Mahendreshwar.cs` | T25 with its compound, gate and the small shrine w907048005 |
 | `Bhagwati.cs` | T26 |
-| `Basantapur.cs` | T6 Narayan ruin, T10 Dabali, T28 Basantapur square |
+| `Basantapur.cs` | T6 Narayan ruin, T10 Dabali, T28 Basantapur square (brick platform, curio market) |
+| `KdsGround.cs` | the square's ground: one nearly level plaza, a level pad per structure, terrain eased round the zones (fix round) |
+| `SquarePaving.cs` | `kds_square_paving`: the grey flag paving over the pedestrian square and the open zones (fix round) |
+| `Kavindrapur.cs` | `kds_kavindrapur` (KAT2000, w906786393; fix round) |
+| `NorthShrines.cs` | `kds_shiva_mandira_1`, `kds_shiva_mandira_2` (KAT1550/1560), `kds_kashinath` (KAT1521), `kds_nila_varahi` (KAT1522; fix round) |
+| `Gorakhnath.cs` | `kds_gorakhnath_pipal`: the Gorakhnath stone shrine, the great pipal on its chautara, Pira Pati (KAT1551/1552; fix round) |
 
 The six heroes that existed keep their ids (`her.ktm.kasthamandap`, `maju_dega`, `trailokya_mohan`, `jagannath`,
-`shiva_parvati`, `kal_bhairav`); the 23 new structures are `her.ktm.kds_*` parts of `her.ktm.kasthamandap`
+`shiva_parvati`, `kal_bhairav`); the 30 new structures (23 of the modeller stage, 7 of the fix round) are `her.ktm.kds_*` parts of `her.ktm.kasthamandap`
 (`HeroRecipe.SiteOf`), added by the hero set with the curated record, each its own hero with its own LODs.
 
 ## 2. Placement
 
 * A structure with an OSM outline in the anchor tile (10/516/161) is built in the outline's oriented box; the door
   bearing of the brief snaps onto the nearest box axis (45° steps for the octagonal Chyasin Dega). The ground is the
-  lowest terrain under the footprint.
+  structure's level pad (`KdsGround`, fix round): the plaza's level at its position (flat at 1301 m east of x -100,
+  rising 1.5 m to Maru), the same in a raw tile and in the streamed world (`KdsGround.Prepared`).
 * Unmapped structures use the brief's local frame (origin 27.7045 N, 85.3075 E): Ashok Binayak relative to
   Kasthamandap's outline, Pratap Malla's column relative to Jagannath's, Kotilingeshwar relative to Mahavishnu's, the
   Basantapur square relative to the Dabali's (the brief's positions are 0.5-2 m off the game's outlines; a relative
   offset keeps the neighbours right). The Sweta Bhairav screen finds the west wall of w1415152806 and hangs on it.
 * Ashok Binayak stands 1.4 m from the corridor of path w1415316909 at the brief's point; it is nudged (up to 3 m) until
   its cage is clear.
-* Free-standing pieces far from their temple's footprint stand on the ground at their own spot (the frame's ground is
-  the lowest terrain under the temple): Trailokya's Garuda pedestal sits on the square 10 m out, where the flags lie
-  higher, instead of being half buried.
+* Free-standing pieces far from their temple's footprint stand on the ground at their own spot: Trailokya's Garuda
+  pedestal sits on the levelled square 10 m out.
 
 ## 3. Roads (contract §1)
 
@@ -55,17 +60,19 @@ The drawn corridors (at least 4.8 m) of the square's mapped paths cross or touch
 Maju Dega, Trailokya, Laxmi Narayan Sattal, Silyan, Bhagwati, Narayan ruin, Kageshwor, Mahavishnu, both Shiva temples,
 the bell). The temples keep their OSM plans; everything else gives way:
 
-* eaves: an eave that would hang under the overhead clearance (4.5 m + margin) over a corridor is first shortened (the
-  overhang pulled back toward the wall in 15 % steps); only when even a short overhang would hang into the corridor
-  (the wall itself stands at it) is the tier raised as a whole; valances stop at the clearance;
+* eaves (fix round): a heritage tier keeps its measured eave height and is never raised. An eave that would hang under
+  the corridor's clearance is shortened, the overhang pulled back toward the wall in 15 % steps, never below 60 % of
+  the measured overhang; whatever still hangs into the corridor is recorded (`KdsCtx.HangResidualM`) and listed as a
+  corridor-trim open issue (§7). The clearance follows the corridor's class: 4.5 m + margin over vehicle roads, 2.6 m
+  + margin over footways, paths, steps and pedestrian ways (`KdsCtx.MinHangY`). Valances stop at the clearance;
 * stairs shorten their run out of a corridor (Trailokya's west stair, Chyasin's stair, Saraswati); the platform at
   Maju Dega's stair foot is dropped if a corridor runs over it;
 * fences, railings and compound walls are trimmed at both ends where they enter a corridor (Kasthamandap's picket
   fence, the Narayan ruin's wire fence, Mahendreshwar's compound, Kotilingeshwar's rail);
-* the Garuda moves along Trailokya's stair axis (or up to 0.5 m beside it) to the nearest spot where the whole group,
-  pedestal corners and wing tips, keeps out of the corridor margin (path w1550144348 runs over its real place);
-* the Basantapur paving drops every 2 m cell that touches a corridor (kerbs are drawn where it ends) and no stall
-  stands within 1.6 m of one.
+* the Garuda keeps its real place on Trailokya's stair axis (fix round) and only steps along the axis off a drawn
+  path's surface; path w1550144348's corridor runs over it (a corridor-trim open issue for roads, §7);
+* the Basantapur platform is paved wall to wall (fix round: the footway corridors crossing it no longer cut holes);
+  no stall stands within 1.6 m of a drawn road or a vehicle corridor.
 
 ## 4. Budgets
 
@@ -78,40 +85,57 @@ Beyond LOD0 the kit drops relief that no longer reads: black windows become a fl
 square shafts, picket rails three-faced and the stakes flat boards, Silyan's scalloped crest one continuous band,
 Chyasin's columns a three-band lathe, Shiva-Parvati's arches four segments, stall mats flat.
 
-Measured (sample tile 10/516/161, `DumpStructures`, after round 7):
+Measured (sample tile 10/516/161, `KdsScratchProbe`/`SiteFitsItsBudget`, fix round):
 
 | Structure | LOD0 | LOD1 | LOD2 | LOD3 |
 |---|---|---|---|---|
-| T1 Kasthamandap | 12 206 | 4 328 | 1 592 | 58 |
-| T14 Chyasin Dega | 11 068 | 4 139 | 627 | 112 |
-| T4 Maju Dega | 9 990 | 2 656 | 868 | 58 |
-| T18 Jagannath + corner shrines | 9 648 | 3 183 | 1 607 | 42 |
-| T17 Kal Bhairav | 9 568 | 4 386 | 738 | 24 |
-| T8 Trailokya Mohan + T9 Garuda | 9 432 | 2 944 | 772 | 58 |
-| T7 Shiva-Parvati | 9 063 | 3 046 | 829 | 26 |
-| T2 Silyan Sattal | 8 224 | 2 325 | 465 | 26 |
-| T26 Bhagwati (range + temple) | 6 882 | 2 263 | 455 | 74 |
-| T25 Mahendreshwar + compound | 6 694 | 2 942 | 541 | 42 |
-| T23 Kageshwor | 6 428 | 2 179 | 325 | 42 |
-| T24 Mahavishnu | 5 747 | 1 863 | 482 | 58 |
-| T21 Gopinath | 5 688 | 1 723 | 487 | 58 |
-| T28 Basantapur square | 5 532 | 1 824 | 1 300 | 48 |
-| T11 Laxmi Narayan Sattal | 4 874 | 1 461 | 393 | 42 |
-| T20 Indrapur | 3 648 | 1 001 | 365 | 42 |
-| T3 Ashok Binayak | 3 230 | 1 537 | 344 | 26 |
-| T22 Kotilingeshwar | 2 826 | 1 790 | 604 | 44 |
-| T16 Lakshmi Narayan | 2 766 | 1 086 | 331 | 42 |
-| T15 Big Drums | 2 756 | 1 182 | 408 | 26 |
-| T12 Taleju Bell | 2 148 | 1 358 | 298 | 26 |
-| T13 Saraswati phalcha | 2 140 | 825 | 223 | 26 |
-| T30 Shiva temple (N) | 2 042 | 787 | 291 | 42 |
-| T31 Shiva temple (W) | 1 940 | 725 | 261 | 42 |
+| T1 Kasthamandap | 10 892 | 3 750 | 1 624 | 58 |
+| T14 Chyasin Dega | 9 868 | 3 501 | 725 | 112 |
+| T18 Jagannath + corner shrines | 9 840 | 3 127 | 1 607 | 42 |
+| T17 Kal Bhairav | 8 893 | 4 193 | 772 | 24 |
+| T4 Maju Dega | 8 366 | 2 462 | 868 | 58 |
+| T7 Shiva-Parvati | 8 329 | 2 884 | 813 | 26 |
+| T8 Trailokya Mohan + T9 Garuda | 8 180 | 3 008 | 870 | 58 |
+| T2 Silyan Sattal | 6 742 | 2 267 | 463 | 26 |
+| T28 Basantapur square + market | 6 490 | 1 728 | 622 | 38 |
+| T25 Mahendreshwar + compound | 6 374 | 2 942 | 541 | 42 |
+| T26 Bhagwati (range + temple) | 5 790 | 2 263 | 455 | 74 |
+| T23 Kageshwor | 5 576 | 1 949 | 333 | 42 |
+| Kavindrapur (fix round) | 5 210 | 1 454 | 505 | 48 |
+| T24 Mahavishnu | 4 451 | 1 779 | 482 | 58 |
+| T21 Gopinath | 4 182 | 1 461 | 487 | 58 |
+| T11 Laxmi Narayan Sattal | 3 826 | 1 415 | 391 | 42 |
+| T15 Big Drums | 3 580 | 1 202 | 408 | 26 |
+| Gorakhnath shrine, pipal, Pira Pati (fix round) | 3 572 | 1 068 | 488 | 53 |
+| T22 Kotilingeshwar | 2 738 | 1 774 | 604 | 44 |
+| T3 Ashok Binayak | 2 614 | 1 529 | 344 | 26 |
+| T20 Indrapur | 2 500 | 941 | 365 | 42 |
+| T12 Taleju Bell | 2 058 | 1 608 | 376 | 26 |
+| T16 Lakshmi Narayan | 2 052 | 1 062 | 331 | 42 |
+| Kashinath (fix round) | 1 976 | 986 | 315 | 42 |
+| T13 Saraswati phalcha | 1 812 | 809 | 223 | 26 |
 | T6 Narayan ruin | 1 738 | 560 | 166 | 20 |
+| Shiva Mandira 2 (fix round) | 1 686 | 970 | 315 | 42 |
+| Shiva Mandira 1 (fix round) | 1 678 | 970 | 315 | 42 |
+| T30 Shiva temple (N) | 1 434 | 771 | 291 | 42 |
+| Square paving (fix round) | 1 322 | 526 | 138 | 70 |
 | T5 white shikhara | 1 072 | 714 | 222 | 16 |
+| T31 Shiva temple (W) | 948 | 717 | 261 | 42 |
 | T19 Pratap Malla column | 856 | 504 | 254 | 28 |
 | T27 Sweta Bhairav screen | 758 | 362 | 10 | 10 |
+| Nila Varahi (fix round) | 720 | 315 | 121 | 26 |
 | T10 Dabali | 416 | 148 | 52 | 52 |
-| **site** | **149 380** | **53 841 (36 %)** | **15 310 (10 %)** | **1 210** |
+| **site** | **148 539** | **57 719 (39 %)** | **17 157 (11.6 %)** | **1 523** |
+
+The fix round added seven structures, the square's paving, Basantapur's market runs, the deity struts, the drums'
+cradles, the bell pavilion's pillars and the eave bells (about 38 000 triangles at LOD0 over round 7's 149 380) and won
+them back where nothing reads at the distance the LOD is drawn: Basantapur's goods 25 low-sided pieces a table (three-sided
+figures, four-sided bowls) and a single cloth quad per run at LOD3; one quad per valance pleat (pitch 0.8 m, folds
+alternating tone) and a pale band once every three pleats; tile courses only on roofs of 6.5 m and more; roofs, struts
+and finials under 2.6 m half width drawn one LOD coarser; small finials a six-sided custom lathe; eave bells only on
+eaves of 4.5 m and more, twice as far apart; black windows without bars under 0.3 m²; posts and pickets with fewer
+mould rows; the deity struts' heads as boxes; Chyasin's columns one lathe; Kal Bhairav's and the Garuda's segment
+counts; the side faces of the sanctums and Shiva-Parvati's side bays one LOD coarser; the paving on a 5 m grid.
 
 Rounds 6 and 7 added the Garuda figure, Chyasin's struts, cornice and niches, Jagannath's portal surrounds and beast
 heads, Silyan's crest caps and knobs, Shiva-Parvati's couple, Kasthamandap's bronze finial and Basantapur's goods (about
@@ -217,23 +241,66 @@ Shiva-Parvati's five toranas and lions (K9), the kneeling Garuda's fanned wings 
 (K5), Jagannath between its corner shrines (K7). The generic houses round the square and the palace (other packages) are
 what differs most from the photos.
 
+Fix round: the judge's viewpoints K1-K9, KS, KW (`judge-mon-kds-temples-0`) and V1-V7, W1-W5
+(`judge-mon-kds-temples-1`) re-rendered through the same path with the same eyes (`fix/tools/situ.py`, eye 1.6 m over
+the walkable ground) beside their photos: `/home/user/wt/previews/mon-kds-temples/fix/situ4/` (overview
+`sheet_fix.jpg`; tops `top_north.png`; earlier steps `fix/situ`, `fix/situ3`, part renders `fix/r1`). The square now
+reads as one level grey plaza with the plinths standing on it (K1, K3, KS, NE), Basantapur as a brick platform carrying
+runs of draped tables (K4, V2), Kavindrapur stands on Maru (K7b, V7), and the NE corner holds the two Shiva Mandiras,
+the Gorakhnath pipal and Pira Pati (NE, W1, W4).
+
 ## 7. Open issues
 
-* The temple field's grey flag paving (OSM r21291455, `surface=sett`) is drawn by the areas layer, not here.
+* **roads/areas:** inside `HeritageZone|SacredNoVehicle` areas draw footways, paths and pedestrian ways as flush flags
+  (no ribbon), and only the two vehicle lanes (the NNE bell lane, Maru to Jhochhen) as darker sett. Until then
+  `SquarePaving` rises over the raised footway ribbons so the plaza reads as one surface, and the vehicle lanes stay
+  brick-red ribbons across the temple field (K6, K8, W2).
+* **roads (corridor trims):** the heritage tiers keep their measured eaves; where a mapped footway's corridor runs
+  under an eave the overhang is pulled back at most to 60 % and the residue is left: Trailokya Mohan's NW first-tier
+  eave over path w1550144348, the Garuda (which stands at its real place over the same path; its statue is exempt in
+  the corridor test), Chyasin Dega's south pillar (its collider is dropped where it stands in a corridor) and
+  Kavindrapur's lower-roof valance over Maru. The roads package should trim these paths at the monument outlines.
+* **nature:** the OSM tree node c1b2a59fc by the Gorakhnath shrine is placed as a eucalyptus; it is the great pipal
+  (*Ficus religiosa*, KAT1551 04-09), which `Gorakhnath.cs` now draws itself. Map that node to Pipal (or skip it
+  inside `her.ktm.kds_gorakhnath_pipal`).
+* **look:** a herringbone brick channel for Basantapur's platform (#9C4E3A, joints #6E5A4E); the platform uses the
+  brick channel with per-cell tone jitter and draws the dark joint bands between herringbone fields as geometry at LOD0.
+* **integration:** `HeroBuilder.PrepareGround` and its one call in `TileBuild` (before the terrain is meshed) are the
+  same hook the Boudha, Pashupati and palace packages add; merge them into one `PrepareGround` that calls every
+  site's `*Ground.Apply`. `KdsGround` and the palace's `KpGround` meet at 1301 m east of x -100; the north field's
+  zone stops short of the Taleju plinth (the palace's ground).
+* **OSM ref:** the judge named `w907048008` for the generic block on Shiva Mandira 2; that way does not exist in the
+  extract (`nepal.osm.pbf`), the block is `w907048009` (`building=yes`, 4 corners at (7.1, 45.3)), which the hero now
+  hides.
 * Ashok Binayak's gilt reads brighter in the preview than in the photos (the game's gilt channel shades it).
 * The drum skins' painted designs vary between the photos (plain to rainbow arcs); the worn buff skin with a faded red
   ring of the 2015-2024 photos is used.
-* In situ the square's ground is the areas layer's sandy beige with the mapped footways drawn as red-brown road ribbons
-  across the temple field (K1, K6, K9); in the photos it is grey stone flags throughout (OSM r21291455, `surface=sett`).
-  That surface belongs to the areas/roads packages; the heroes here pave only their own plinths and Basantapur's stall
-  platform.
 * The generic houses round the square (K1's grey block, K6's white blocks behind Kal Bhairav) are the buildings and
   palace packages' and differ most from the photos.
-* Taleju Bell: the bell lane's corridor runs over the outline's stair side; the stair stays inside the outline.
 * Kasthamandap's top is 20.3 m (the bronze finial of KAT1970 13 over the 17.7 m apex), 1.5 m above the brief's 18.8 m;
   the brief's figure is the roof apex plus a small finial, the 2021 photos show the large one.
-* The palace package's ground levelling (`KpGround`) flattens terrain zones next to the square; when both packages are
-  merged, the ground under Basantapur's stalls and the Garuda's pedestal follows whichever surface is drawn there
-  (both stand on their own ground sample, so they follow it).
-* In K4 the eye stands 1.6 m over the terrain, not over Basantapur's raised platform (a hero), so it sits a little low
-  against the photo.
+
+## 8. Fix round (judge round 1, scores 6 and 5)
+
+| # | Finding | Change (and test) |
+|---|---|---|
+| 1 | Tiers lifted over corridors | `KdsKit.Roof`/`FitEave` never raise a tier; pull-back in 15 % steps floored at 60 %; clearance by corridor class (2.6 m foot, 4.5 m vehicle); one fit per roof (no double pull-back). Test `HeritageTiersKeepTheirMeasuredEaves`: every roof's built eave equals its measured eave, Kasthamandap's first eave 4.5 ± 0.1 m |
+| 2 | No level pads; monuments on the lowest terrain; slopes beside plinths | `KdsGround`: plaza at 1301 m rising 1.5 m to Maru, a pad per structure, 3 m apron, terrain eased round the zones (slope 0.4 within 18 m); applied to the decoded tile before meshing (`HeroBuilder.PrepareGround`, `TileBuild`). No skirt is needed: the levelled ground meets every plinth. Tests `SquareIsLevelledUnderThePlinths`, `LevellingIsIdempotentAndKeepsTheTileOutsideTheSquare` |
+| 3 | Basantapur market sparse, peach paving, green mats, umbrellas | Tables 2.4 × 0.9 × 0.5 m in runs of 3-5 along the platform with 4 m aisles, cloth skirts blue #2D4FB0 / red #B3262B (60/40), 25 goods a table (bronze, brass, copper, dark), no mats, one umbrella in some runs, no legs beyond LOD0; platform brick #9C4E3A |
+| 4, 13 | Kavindrapur missing | `Kavindrapur.cs` from KAT2000 (plan 15.35 m, section 14.88 m to the tip): arcade with lattice screens under the lean-to roof (eave 2.7 m), window storey, lattice balcony, main roof (eave 8.45 m), top storey and roof (eave 11.6 m, ridge 13.35 m), three small pinnacles; hides w906786393. Test `NewMonumentsStandWhereTheBriefPutsThem` |
+| 5 | Kal Bhairav | Relief colours and figure (round 5) kept; segment counts trimmed for the budget |
+| 6 | Shiva-Parvati crest, plinth, lions | Gilt crest sprays along the ridge, lions on the stage, side bays one LOD coarser |
+| 7 | Garuda | Wings below the shoulder to the block, swept back with scalloped edges; face and three-lobed crown; brick pedestal with a stone cap; stays at its real place (open issue) |
+| 8 | Big Drums | Drums 1.3 m across lying in cradles along the bay, laced shells, fringe valance |
+| 9 | Jagannath struts | Carved deity struts on the first tier (figure, halo, griffin base) at LOD0 |
+| 10 | Taleju Bell | Battered white block with red dado, two white pillars with stepped capitals, ridge cap and gajur |
+| 11 | Kasthamandap corner bays | Corner bays of the hall drawn |
+| 12 | Chyasin pillars | Both stone pillars before the stair (kneeling figure on one, cup on the other) |
+| 14 | NE corner | `NorthShrines.cs` Shiva Mandira 1 and 2 (KAT1550/1560, 7.6/7.75 m), `Gorakhnath.cs` stone shrine with six niche reliefs and the yellow cloth, the 19.5 m pipal on its chautara, Pira Pati; hides w907048009 |
+| 15 | Kashinath, Nila Varahi | `NorthShrines.cs` (KAT1521 9.6 m two-roof temple on its plinth, KAT1522 Varahi shrine 4.8 m) |
+| 16 | Square paving | `SquarePaving.cs` (`kds_square_paving`): grey flags over r21291455 and the open zones (temple field, Maru, the lane round Silyan, the bell lane, Basantapur's south street, the north field), cells inside building outlines left out; roads/areas open issue above |
+| 17 | Holes in the Basantapur platform | Platform paved wall to wall |
+
+Evidence-based deviations: Kavindrapur's north neighbour w1416684423 stays (a modern white house in every photo; the
+temple's plan length matches w906786393 alone); the judge's w907048008 is w907048009 (above).
+

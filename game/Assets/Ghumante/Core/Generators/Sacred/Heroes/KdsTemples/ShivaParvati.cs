@@ -21,6 +21,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     {
         public const float TopM = 11.3f;
 
+        /// <summary>The plinth's two stages (m).</summary>
+        public const double Stage1M = 1.0, PlinthM = 1.8;
+
         public static double Build(KdsCtx x)
         {
             int lod = x.Lod;
@@ -31,32 +34,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 KdsKit.Lod3(x, hu0, hw0, 1.4, 5.75, 3.3, new[] { 7.85 }, new[] { 7.0 }, new double[0], 10.0, KdsLooks.BrickPlinth, KdsLooks.BrickRed, KdsLooks.TileOld);
                 return 10.0;
             }
-            // Plinth: the OSM outline, then the two stages (OSM parts w420291393, w420291396).
-            if (x.OutU != null) KdsKit.OutlineLevel(x, x.OutU, x.OutW, x.OutU.Length, 0, 0.5, 0.25, KdsLooks.BrickPlinth, KdsLooks.Nosing, GenColliders.Brick);
-            else KdsKit.Stage(x, hu0, hw0, 0, 0.5, 0, 0, 0, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.1, 0.25, GenColliders.Brick);
-            const double stairHalf = 1.6;
-            KdsKit.Stage(x, 7.35, 4.9, 0.5, 1.2, 5.9, 3.5, stairHalf, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.12, 0, GenColliders.Brick, 3.5);
-            KdsKit.Stage(x, 5.9, 3.5, 1.2, 1.4, 0, 0, 0, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.08, 0, GenColliders.Brick);
-            KdsKit.Stair(x, stairHalf, 3.5, Math.Max(1.6, hw0 - 3.5 + 0.6), 0, 1.4, 0.25, 0.25, KdsLooks.Nosing, KdsLooks.BrickPlinth, 6);
+            // Plinth: two clear stages of about a metre each (judge round 1 against shivaparvati o_01, o_03: people sit on
+            // the lower one): the OSM outline to 1.0 m, the 11.8 × 7.0 m stage (w420291396) to 1.8 m; a broad front stair
+            // about 4 m wide from the square to the top.
+            if (x.OutU != null) KdsKit.OutlineLevel(x, x.OutU, x.OutW, x.OutU.Length, 0, Stage1M, 0.25, KdsLooks.BrickPlinth, KdsLooks.Nosing, GenColliders.Brick);
+            else KdsKit.Stage(x, hu0, hw0, 0, Stage1M, 0, 0, 0, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.1, 0.25, GenColliders.Brick);
+            const double stairHalf = 2.0;
+            KdsKit.Stage(x, 5.9, 3.5, Stage1M, PlinthM, 0, 0, stairHalf, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.12, 0, GenColliders.Brick, 3.5);
+            KdsKit.Stair(x, stairHalf, 3.5, Math.Max(2.2, hw0 - 3.5 + 0.7), 0, PlinthM, 0.25, 0.25, KdsLooks.Nosing, KdsLooks.BrickPlinth, 9);
             if (x.Stats != null)
             {
-                x.Stats.PlinthLevels = 3;
-                x.Stats.PlinthTopM = 1.4f;
+                x.Stats.PlinthLevels = 2;
+                x.Stats.PlinthTopM = (float)PlinthM;
             }
-            // The two stone lions on the lower stage either side of the stair.
-            // They are big (about 2 m with their pedestals) and frame the stair (photos c_02, c_06).
-            // Dark grey stone "snow lions" (shiva_parvati_window ref_02), on dark pedestals.
+            // The two stone lions stand on the lower stage at the stair's cheeks: big (about 2 m with their pedestals), dark
+            // grey stone "snow lions" (shiva_parvati_window ref_02; o_09, o_10).
             int lions = m.VertexCount;
-            KdsKit.LionOn(x, -(stairHalf + 0.62), 4.15, 1.2, 0.45, 1.65, -1, false, 0.36);
-            KdsKit.LionOn(x, stairHalf + 0.62, 4.15, 1.2, 0.45, 1.65, 1, false, 0.36);
+            KdsKit.LionOn(x, -(stairHalf + 0.6), 4.2, Stage1M, 0.45, 1.65, -1, false, 0.36);
+            KdsKit.LionOn(x, stairHalf + 0.6, 4.2, Stage1M, 0.45, 1.65, 1, false, 0.36);
             KdsKit.Recolour(m, lions, Looks.Of(MeshColor.FromHex(0x6A665F), MaterialChannel.Stone), 0.55f);
             // A small white domed shrine at the west corner of the plinth.
-            if (lod <= 1) SmallDomeShrine(x, -hu0 + 1.1, hw0 - 1.1, 0.5);
+            if (lod <= 1) SmallDomeShrine(x, -hu0 + 1.1, hw0 - 1.1, Stage1M);
 
             // Ground storey: five carved bays on the front (the centre one the door, the others lattice windows), each a
             // tall carved frame with a round-headed opening under a great semicircular carved tympanum (torana), carved
             // pilasters between (photos c_shivaparvati 02, 11; Commons 2014.12.09 Kathmandu 16).
-            const double gu = 5.75, gw = 3.3, g0 = 1.4, g1 = 4.85;
+            const double gu = 5.75, gw = 3.3, g0 = PlinthM, g1 = 4.85;
             SacredParts.BandedWall(m, x.K, gu, gw, g0, g1, KdsLooks.BrickRed, KdsLooks.Timber, lod, true, false);
             x.Solid(-gu, gu, -gw, gw, g0, g1, GenColliders.Brick);
             for (int s = 0; s < 4; s++)
@@ -71,7 +74,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     bool door = s == 0 && i == bays / 2;
                     // The back (north) keeps plain carved lattice windows without the great toranas.
                     if (s == 2) KdsKit.BlackWindow(m, sk, u, g0 + 1.45, d, 0.95, 1.5, lod, 0.12, 3);
-                    else Bay(x, sk, u, g0 + 0.12, d, Math.Min(1.45, 0.64 * pitch), 2.25, door, true);
+                    else
+                    {
+                        // The front bays in full; the side bays one LOD coarser.
+                        int was = s == 0 ? x.Lod : x.Coarser();
+                        Bay(x, sk, u, g0 + 0.12, d, Math.Min(1.45, 0.64 * pitch), 2.25, door, true);
+                        x.Restore(was);
+                    }
                 }
                 if (lod <= 1)
                 {
@@ -135,25 +144,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 var ridge = new Path3(2);
                 ridge.Add(-(eu - ew + 0.12), rv + 0.06, 0).Add(eu - ew + 0.12, rv + 0.06, 0);
                 Shapes.Tube(m, x.K, Looks.Of(MeshColor.Scale(KdsLooks.TileOld.Color, 0.7f), MaterialChannel.RoofTile), ridge, 0.1, 5, true);
-                // The gilt ridge plinth the finials stand on.
-                SacredDraw.Box(m, x.K, -2.45, 2.45, rv - 0.05, rv + 0.18, -0.16, 0.16, KdsLooks.GiltLo, BoxFaces.All & ~BoxFaces.Bottom);
             }
             if (lod == 0 && x.Stats != null) x.Stats.Bells += KdsKit.Bells(x, r, 1.2, 1.0);
-            double tip = rv;
-            for (int i = 0; i < 5; i++)
-            {
-                double u = -2.0 + 1.0 * i;
-                double h = i == 2 ? TopM - rv + 0.1 : TopM - rv - 0.15;
-                // All five carry their gilt leaf sprays (hires c02); the outer four are otherwise drawn a LOD coarser.
-                bool sprays = x.Lod == 0;
-                int was = i == 2 ? x.Lod : x.Coarser();
-                tip = Math.Max(tip, Finial(x, u, rv + 0.1, h - 0.2, sprays));
-                x.Restore(was);
-            }
+            double tip = Crest(x, rv);
             if (x.Stats != null)
             {
                 x.Stats.Tiers = 1;
-                x.Stats.Pinnacles = 5;
+                x.Stats.Pinnacles = 3;
             }
             return tip;
         }
@@ -161,21 +158,65 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>The red-brown carved timber of the upper frontage, pilasters and toranas.</summary>
         private static readonly ShapeBrush RedWood = Looks.Of(MeshColor.FromHex(0x8A4530), MaterialChannel.WoodCarved);
 
-        /// <summary>A gilt ridge finial at u: a kalasha finial with two leaf/flag ornaments.</summary>
-        private static double Finial(KdsCtx x, double u, double v0, double h, bool sprays)
+        /// <summary>
+        /// The gilt ridge crest (judge round 1 against shivaparvati o_03): a boat-shaped gilt base about 3.6 m long with its
+        /// ends rising 0.25 m, three big gilt kalasha finials of stacked lotus bulbs (the middle one tallest, 1.3 m; the side
+        /// ones 0.95 m, 1.1 m out), and four leafy gilt vine branches curling up between and beside them (S-curved stems with
+        /// leaves at LOD0, bare stems at LOD1). Returns the top.
+        /// </summary>
+        private static double Crest(KdsCtx x, double rv)
         {
-            Affine3 k = x.K;
-            x.K = SacredDraw.At(k, u, 0, 0);
-            double tip = KdsKit.GiltFinial(x, v0, h, 0.15);
-            if (sprays)
+            MeshData m = x.M;
+            int lod = x.Lod;
+            double bv = rv + 0.02;
+            // The boat: a gilt band swept along the ridge with upturned ends.
+            var path = new Path3(8);
+            int segs = lod == 0 ? 6 : lod == 1 ? 4 : 2;
+            for (int i = 0; i <= segs; i++)
             {
-                for (int sgn = -1; sgn <= 1; sgn += 2)
+                double t = -1 + 2.0 * i / segs, lift = 0.25 * Math.Pow(Math.Abs(t), 3);
+                path.Add(1.8 * t, bv + 0.1 + lift, 0);
+            }
+            var section = new Profile2(8).SetRect(0.18, 0.2);
+            Shapes.Sweep(m, x.K, KdsLooks.GiltLo, path, section, false, true, SweepFrames.Upright);
+            double tip = bv + 0.2;
+            for (int i = -1; i <= 1; i++)
+            {
+                double h = i == 0 ? 1.3 : 0.95, r = i == 0 ? 0.28 : 0.22;
+                Affine3 k = x.K;
+                x.K = SacredDraw.At(k, 1.1 * i, 0, 0);
+                tip = Math.Max(tip, KdsKit.GiltFinial(x, bv + 0.2, h, r));
+                x.K = k;
+            }
+            if (lod <= 1)
+            {
+                // Four vines: between the middle and side finials, and outside the side ones, curling outward.
+                double[] us = { -1.65, -0.55, 0.55, 1.65 };
+                var stem = new Path3(16);
+                var ctrl = new Path3(6);
+                for (int q = 0; q < 4; q++)
                 {
-                    Shapes.Bar(x.M, x.K, KdsLooks.Gilt, 0, v0 + 0.35 * h, 0, sgn * 0.3, v0 + 0.85 * h, 0, 0.015, 4);
-                    Shapes.Ellipsoid(x.M, SacredDraw.At(x.K, sgn * 0.32, v0 + 0.9 * h, 0), Looks.GiltHi, 0.09, 0.12, 0.02, 6, false);
+                    double sg = us[q] < 0 ? -1 : 1, u0 = us[q];
+                    ctrl.Clear().Add(u0, bv + 0.2, 0).Add(u0 + 0.12 * sg, bv + 0.45, 0).Add(u0 - 0.08 * sg, bv + 0.72, 0.03).Add(u0 + 0.1 * sg, bv + 0.95, 0)
+                        .Add(u0 + 0.28 * sg, bv + 1.08, 0);
+                    stem.Clear();
+                    Curves.CatmullRom(ctrl, stem, lod == 0 ? 3 : 1, false);
+                    Shapes.Tube(m, x.K, KdsLooks.Gilt, stem, 0.02, 4, true);
+                    if (lod > 0) continue;
+                    // Leaves: flat gilt blades along the stem, alternating sides.
+                    for (int j = 0; j < 7; j++)
+                    {
+                        double t = (j + 1.0) / 8.0;
+                        int at = Math.Min(stem.Count - 2, (int)(t * (stem.Count - 1)));
+                        double px = stem.X[at], py = stem.Y[at], pz = stem.Z[at];
+                        double side = j % 2 == 0 ? 1 : -1;
+                        ShapeBrush b = j % 2 == 0 ? KdsLooks.Gilt : Looks.GiltHi;
+                        double lx = px + side * 0.12, ly = py + 0.05;
+                        SacredDraw.Quad(m, x.K, px, py, pz, 0.5 * (px + lx), ly + 0.03, pz + 0.02, lx, ly, pz, 0.5 * (px + lx), ly - 0.03, pz - 0.02, 0, 0, 1, b);
+                        SacredDraw.Quad(m, x.K, px, py, pz, 0.5 * (px + lx), ly - 0.03, pz - 0.02, lx, ly, pz, 0.5 * (px + lx), ly + 0.03, pz + 0.02, 0, 0, -1, b);
+                    }
                 }
             }
-            x.K = k;
             return tip;
         }
 

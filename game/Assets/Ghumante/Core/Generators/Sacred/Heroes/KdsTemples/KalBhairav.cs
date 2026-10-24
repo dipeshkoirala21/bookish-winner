@@ -20,6 +20,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         public const float TopM = 8.12f;
         public const float SwetaTopM = 4.5f;
 
+        /// <summary>The relief's height (m): the crown's top 0.15 m under the niche's apex (4.8 m).</summary>
+        public const double FigureH = 3.9;
+
+        /// <summary>The body: near-black stone smeared with vermilion (KAT1770 o_00, o_01, o_05).</summary>
+        private static readonly ShapeBrush BodyBlack = Looks.Of(MeshColor.FromHex(0x24221F), MaterialChannel.Stone);
+
+        private static readonly ShapeBrush Vermilion = Looks.Of(MeshColor.FromHex(0xB5312A), MaterialChannel.Paint);
+
+        /// <summary>The platform lions: white-painted with red mouths.</summary>
+        private static readonly ShapeBrush LionWhite = Looks.Of(MeshColor.FromHex(0xE8E4DC), MaterialChannel.Paint);
+
         public static double Build(KdsCtx x)
         {
             MeshData m = x.M;
@@ -31,7 +42,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             if (lod >= 3)
             {
                 SacredDraw.Box(m, x.K, -hu, hu, 0, wallTop, -hw, hw, stone, BoxFaces.All & ~BoxFaces.Bottom);
-                SacredDraw.Panel(m, KdsKit.Side(x.K, 0), -1.6, 0.6, 1.6, 4.8, hw + 0.01, KdsLooks.BhairavBlue);
+                SacredDraw.Panel(m, KdsKit.Side(x.K, 0), -1.6, 0.6, 1.6, 4.8, hw + 0.01, BodyBlack);
                 for (int q = -1; q <= 1; q++) Shapes.Cone(m, SacredDraw.At(x.K, q * 1.55, wallTop, 0), dark, q == 0 ? 0.6 : 0.45, q == 0 ? 2.1 : 1.6, 4, 0, 0, false);
                 return TopM;
             }
@@ -84,7 +95,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             ShapeBrush rim = Looks.Of(MeshColor.FromHex(0x3E3B38), MaterialChannel.Stone);
             KdsKit.FlameArch(m, nf, 0, nv0, hw, nw, nh, 0.26, 0.12, rim, lod, true, true);
             KdsKit.ArchPanel(m, nf, 0, nv0, hw, nw, nh, 0.02, Looks.Of(MeshColor.FromHex(0x86B4D6), MaterialChannel.Paint), lod, true);
-            if (lod <= 1) KdsKit.ArchPanel(m, nf, 0, nv0 + 0.2, hw + 0.025, 1.2, 3.4, 0.01, KdsLooks.FlameOrange, lod, false);
+            // The red-orange band runs only along the rim, inside it; the field behind the figure stays sky blue (judge
+            // round 1 against KAT1770 o_00, o_01, o_05: no orange back panel).
+            if (lod <= 1) KdsKit.FlameArch(m, nf, 0, nv0, hw + 0.015, nw - 0.1, nh - 0.08, 0.12, 0.012, KdsLooks.FlameOrange, lod, false, true);
             if (lod <= 1)
             {
                 // A gilt inner border and the monster face at the crown.
@@ -104,7 +117,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     if (lod == 0) Shapes.Ellipsoid(m, SacredDraw.At(nf, sg * 1.98, 4.4, hw + 0.07), Looks.Ao(disc, 0.85f), 0.17, 0.2, 0.06, 6, false);
                 }
             }
-            BhairavFigure(m, nf, 0, nv0 + 0.1, hw + 0.05, 3.7, lod);
+            // The figure fills the niche: its crown of skulls 0.15 m under the arch's apex (judge round 1).
+            BhairavFigure(m, nf, 0, nv0 + 0.05, hw + 0.05, FigureH, lod);
             // The valanced eave, the cornice platform and the three ribbed domes.
             KdsKit.Roof(x, hu + 0.4, hw + 0.42, 5.25, hu + 0.03, hw + 0.03, 5.72, hu, hw, 5.45, KdsLooks.TileOld, 0.32);
             SacredDraw.Box(m, x.K, -hu - 0.12, hu + 0.12, 5.95, 6.2, -hw - 0.12, hw + 0.12, KdsLooks.StonePale, BoxFaces.All);
@@ -122,14 +136,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             int was = x.Coarser();
             for (int sg = -1; sg <= 1; sg += 2) KdsKit.RibbedDome(x, sg * 1.6, 0, 6.2, 1.4, 0.48, dark);
             x.Restore(was);
-            // Lions at the north-west and north-east corners of the platform, bells on the wings, pennants and the railing.
-            // The lions stand on the platform's front corners, stepped back toward the wall (or left out) where the
-            // square's walkway corridor runs close: their heads lean forward over their pedestals.
+            // The two white lions with red mouths (about 1.3 m on 0.5 m pedestals) either side of the platform, stepped back
+            // toward the wall where the square's walkway corridor runs close (judge round 1: both lions, white, no green).
             for (int sg = -1; sg <= 1; sg += 2)
             {
-                double lu = sg * 3.0, lw = hw + Math.Min(1.35, front - 0.45);
-                while (lw > hw + 0.45 && LionRoom(x, lu, lw) < SacredClearance.MarginM + 0.1) lw -= 0.15;
-                if (LionRoom(x, lu, lw) >= SacredClearance.MarginM + 0.05) KdsKit.Lion(x, lu, lw, 0.5, 1.6, sg, true, 0.32);
+                double lu = sg * 3.05, lw = hw + Math.Min(1.0, front - 0.5);
+                while (lw > hw + 0.3 && LionRoom(x, lu, lw) < SacredClearance.MarginM + 0.05) lw -= 0.15;
+                if (LionRoom(x, lu, lw) < SacredClearance.MarginM + 0.05)
+                {
+                    // Against the wing: the pedestal's back to the wall, the lion facing out over the platform's side.
+                    lu = sg * (hu + 0.65);
+                    lw = hw + 0.45;
+                }
+                int lv = m.VertexCount;
+                KdsKit.Lion(x, lu, lw, 0.5, 1.3, sg, true, 0.3);
+                WhiteLion(m, lv);
             }
             if (lod <= 1)
             {
@@ -163,6 +184,24 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return TopM;
         }
 
+        /// <summary>Repaints a painted guardian lion (from vertex <paramref name="first"/>) white: its mane and body white
+        /// #E8E4DC, the red mouth, gilt trims and pedestal kept.</summary>
+        private static void WhiteLion(MeshData m, int first)
+        {
+            for (int v = first; v < m.VertexCount; v++)
+            {
+                int c = 4 * v;
+                byte r = m.Colors[c], g = m.Colors[c + 1], b = m.Colors[c + 2];
+                // The painted mane (green) and the lime body.
+                bool green = g > r + 12 && g > b;
+                bool lime = r > 225 && g > 220 && b > 200;
+                if (!green && !lime) continue;
+                m.Colors[c] = (byte)MeshColor.R(LionWhite.Color);
+                m.Colors[c + 1] = (byte)MeshColor.G(LionWhite.Color);
+                m.Colors[c + 2] = (byte)MeshColor.B(LionWhite.Color);
+            }
+        }
+
         private static double F0(KdsCtx x)
         {
             return x.F.GroundY;
@@ -187,7 +226,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// drum, the lower pair hold a cup at the chest (a general depiction, no gore).</summary>
         private static void BhairavFigure(MeshData m, in Affine3 k, double u, double v, double w, double h, int lod)
         {
-            ShapeBrush body = KdsLooks.BhairavBlue, gold = KdsLooks.PaintYellow, red = KdsLooks.PaintRed, white = KdsLooks.PaintWhite;
+            ShapeBrush body = BodyBlack, gold = KdsLooks.PaintYellow, red = KdsLooks.PaintRed, white = KdsLooks.PaintWhite;
             if (lod >= 2)
             {
                 Shapes.Ellipsoid(m, SacredDraw.At(k, u, v + 0.45 * h, w + 0.1), body, 0.36 * h, 0.45 * h, 0.12, 6, false);
@@ -198,11 +237,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // The figure's own frame in metres of the 3.7 m relief.
             Affine3 f = Affine3.Scaling(s).Then(SacredDraw.At(k, u, v, w));
             bool near = lod == 0;
-            int big = near ? 12 : 8, mid = near ? 8 : 6, small = near ? 6 : 4, limb = near ? 7 : 5;
+            int big = near ? 8 : 6, mid = near ? 6 : 4, small = near ? 4 : 3, limb = near ? 6 : 4;
             ShapeBrush hem = Looks.Of(MeshColor.FromHex(0xE0A530), MaterialChannel.Paint), cloth = Looks.Of(MeshColor.FromHex(0xD9772B), MaterialChannel.Fabric);
             ShapeBrush marigold = Looks.Of(SacredPalette.Marigold, MaterialChannel.Fabric), metal = Looks.Of(MeshColor.FromHex(0xC9CED3), MaterialChannel.Metal);
-            // The flame aureole behind the head and shoulders.
-            KdsKit.FlameArch(m, k, u, v + 0.7 * h, w - 0.03, 0.3 * h, 0.38 * h, 0.07 * h, 0.03, KdsLooks.FlameOrange, lod, true, false);
             // The reclining figure across the base, smeared red with vermilion as in the photo.
             ShapeBrush prone = Looks.Of(MeshColor.FromHex(0xA8402E), MaterialChannel.Paint);
             Shapes.Capsule(m, Affine3.RotationZ(0.5 * Math.PI).Then(Affine3.Translation(1.15, 0.22, 0.2)).Then(f), prone, 0.2, 2.45, mid);
@@ -210,21 +247,22 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // Legs: bent knees out wide, feet on the reclining figure, gilt anklets.
             for (int sg = -1; sg <= 1; sg += 2)
             {
-                Limb(m, f, body, sg * 0.45, 1.45, 0.25, sg * 1.12, 0.98, 0.38, sg * 0.84, 0.5, 0.32, 0.33, 0.26, 0.2, limb);
-                Shapes.Ellipsoid(m, Affine3.Translation(sg * 0.88, 0.46, 0.46).Then(f), body, 0.2, 0.09, 0.27, small, true);
-                if (near) Band(m, f, gold, sg * 0.85, 0.6, 0.33, sg * 1.0, 0.92, 0.37, 0.22);
+                // The wide warrior stance: the feet 2.4 m apart on the reclining figure (judge round 1).
+                Limb(m, f, body, sg * 0.45, 1.45, 0.25, sg * 1.36, 0.98, 0.38, sg * 1.1, 0.5, 0.32, 0.33, 0.26, 0.2, limb);
+                Shapes.Ellipsoid(m, Affine3.Translation(sg * 1.12, 0.46, 0.46).Then(f), body, 0.2, 0.09, 0.27, small, true);
+                if (near) Band(m, f, gold, sg * 1.12, 0.6, 0.33, sg * 1.26, 0.92, 0.37, 0.22);
             }
             // The tiger-skin hip cloth with its gilt hem, the heavy belly and the chest.
             Shapes.Ellipsoid(m, Affine3.Translation(0, 1.48, 0.28).Then(f), cloth, 0.84, 0.32, 0.42, big, true);
-            Shapes.Torus(m, Affine3.Scaling(1, 1, 0.55).Then(Affine3.Translation(0, 1.25, 0.3)).Then(f), hem, 0.78, 0.065, near ? 16 : 10, 4);
+            Shapes.Torus(m, Affine3.Scaling(1, 1, 0.55).Then(Affine3.Translation(0, 1.25, 0.3)).Then(f), hem, 0.78, 0.065, near ? 12 : 8, 3);
             Shapes.Ellipsoid(m, Affine3.Translation(0, 1.92, 0.34).Then(f), body, 0.68, 0.54, 0.44, big, true);
             Shapes.Ellipsoid(m, Affine3.Translation(0, 2.38, 0.26).Then(f), body, 0.8, 0.44, 0.37, big, true);
             for (int sg = -1; sg <= 1; sg += 2) Shapes.Sphere(m, Affine3.Translation(sg * 0.7, 2.5, 0.26).Then(f), body, 0.28, mid);
             // Six arms with armlets, bracelets and hands.
             for (int sg = -1; sg <= 1; sg += 2)
             {
-                // Upper pair: raised to the crown's height.
-                Arm(m, f, body, gold, sg, 0.66, 2.62, 0.26, 1.05, 2.9, 0.3, 1.24, 3.32, 0.36, limb, small, near);
+                // Upper pair: raised to the crown's height, spread to the niche's edges (hands about 1.6 m out).
+                Arm(m, f, body, gold, sg, 0.66, 2.62, 0.26, 1.18, 2.92, 0.3, 1.5, 3.3, 0.36, limb, small, near);
                 // Middle pair: out to the sides.
                 Arm(m, f, body, gold, sg, 0.7, 2.42, 0.28, 1.15, 2.25, 0.32, 1.52, 2.5, 0.4, limb, small, near);
                 // Lower pair: bent in to the chest.
@@ -232,11 +270,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             // Attributes: the sword raised in the upper right hand, the disc in the upper left, a staff and a small drum in
             // the middle hands, a white cup held at the chest.
-            Affine3 sw = Affine3.RotationZ(0.25).Then(Affine3.Translation(-1.33, 3.72, 0.4)).Then(f);
-            Shapes.RoundedBox(m, sw, metal, 0.16, 0.8, 0.04, 0.03, 1);
-            Shapes.RoundedBox(m, Affine3.RotationZ(0.25).Then(Affine3.Translation(-1.24, 3.36, 0.4)).Then(f), gold, 0.32, 0.06, 0.08, 0.02, 1);
-            Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(1.32, 3.5, 0.3)).Then(f), white, 0.28, 0.06, mid + 4);
-            if (near) Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(1.32, 3.5, 0.37)).Then(f), red, 0.15, 0.02, mid);
+            // The sword (a 0.9 m pale blade) raised from the upper right hand, leaning in over the crown.
+            Affine3 sw = Affine3.RotationZ(-0.42).Then(Affine3.Translation(-1.36, 3.72, 0.42)).Then(f);
+            Shapes.RoundedBox(m, sw, metal, 0.13, 0.86, 0.035, 0.03, 1);
+            Shapes.RoundedBox(m, Affine3.RotationZ(-0.42).Then(Affine3.Translation(-1.5, 3.36, 0.42)).Then(f), gold, 0.3, 0.06, 0.08, 0.02, 1);
+            Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(1.52, 3.52, 0.3)).Then(f), white, 0.24, 0.06, mid + 4);
+            if (near) Shapes.Cylinder(m, Affine3.RotationX(0.5 * Math.PI).Then(Affine3.Translation(1.52, 3.52, 0.37)).Then(f), red, 0.13, 0.02, mid);
+            // Vermilion smeared over the chest and the face (the offerings).
+            Shapes.Ellipsoid(m, Affine3.Translation(0, 2.42, 0.6).Then(f), Vermilion, 0.42, 0.2, 0.06, mid, true);
+            Shapes.Ellipsoid(m, Affine3.Translation(0, 3.08, 0.585).Then(f), Vermilion, 0.34, 0.11, 0.05, mid, true);
             Shapes.Bar(m, f, Looks.Of(MeshColor.FromHex(0x5A3A26), MaterialChannel.Wood), -1.42, 1.55, 0.42, -1.65, 3.15, 0.42, 0.05, small);
             if (near) Shapes.Sphere(m, Affine3.Translation(-1.66, 3.2, 0.42).Then(f), white, 0.09, small);
             if (near)
@@ -247,10 +289,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             }
             Shapes.Dome(m, Affine3.RotationX(Math.PI).Then(Affine3.Translation(-0.3, 2.32, 0.76)).Then(f), white, 0.17, 0.12, mid, true);
             // The gilt necklace and the marigold garland hanging to the belly.
-            Shapes.Torus(m, Affine3.RotationX(1.15).Then(Affine3.Translation(0, 2.66, 0.36)).Then(f), gold, 0.3, 0.045, near ? 14 : 8, 4, default, 270, 180);
+            Shapes.Torus(m, Affine3.RotationX(1.15).Then(Affine3.Translation(0, 2.66, 0.36)).Then(f), gold, 0.3, 0.045, near ? 10 : 6, 3, default, 270, 180);
             var gl = new Path3(8);
             gl.Add(-0.6, 2.6, 0.44).Add(-0.44, 2.05, 0.74).Add(0, 1.8, 0.84).Add(0.44, 2.05, 0.74).Add(0.6, 2.6, 0.44);
-            Path3 gs = Curves.CatmullRom(gl, new Path3(24), near ? 4 : 2, false);
+            Path3 gs = Curves.CatmullRom(gl, new Path3(24), near ? 3 : 1, false);
             Shapes.Tube(m, f, marigold, gs, 0.07, small, true);
             // The face: broad and square, blue-black.
             Shapes.Superellipsoid(m, Affine3.Translation(0, 2.95, 0.32).Then(f), body, 0.44, 0.37, 0.3, 0.75, 0.85, big + 2);
@@ -273,7 +315,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     Shapes.Cone(m, Affine3.RotationX(Math.PI).Then(Affine3.Translation(sg * 0.11, 2.78, 0.66)).Then(f), white, 0.03, 0.09, 4, 0, 0, false);
             }
             // The crown: a gilt band of small white skulls under a fan of five gilt leaves with red jewels.
-            Shapes.Frustum(m, Affine3.Scaling(1, 1, 0.8).Then(Affine3.Translation(0, 3.18, 0.3)).Then(f), gold, 0.46, 0.44, 0.16, near ? 14 : 8, 0.01, 1, false, true);
+            Shapes.Frustum(m, Affine3.Scaling(1, 1, 0.8).Then(Affine3.Translation(0, 3.18, 0.3)).Then(f), gold, 0.46, 0.44, 0.16, near ? 10 : 6, 0.01, 1, false, true);
             // The leaves rise straight from the band, the middle one tallest, the fan as wide as the face (KAT1770 14).
             for (int q = -2; q <= 2; q++)
             {
@@ -319,7 +361,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 t = 0.45;
                 Band(m, f, gold, sg * (sx + t * (ex - sx)), sy + t * (ey - sy), sz + t * (ez - sz), sg * ex, ey, ez, 0.18);
             }
-            Shapes.Ellipsoid(m, Affine3.Translation(sg * hx, hy, hz).Then(f), b, 0.14, 0.16, 0.11, small, true);
+            Shapes.Ellipsoid(m, Affine3.Translation(sg * hx, hy, hz).Then(f), Vermilion, 0.14, 0.16, 0.11, small, true);
         }
 
         // -------------------------------------------------------------------------------------------------------------

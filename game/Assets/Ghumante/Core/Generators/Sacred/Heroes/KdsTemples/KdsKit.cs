@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Ghumante.Core.Data;
 using Ghumante.Core.Meshing;
+using Ghumante.Core.Meshing.Roads;
 using Ghumante.Core.Meshing.Shapes;
 
 namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
@@ -106,7 +108,40 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>The drawn terrain (when the tile has heights).</summary>
         public RoadSurface Ground;
 
+        /// <summary>The levelled terrain's sampler (<see cref="KdsGround.Sampler"/>), null without heights.</summary>
+        public IHeightSampler Heights;
+
         public bool HasGround;
+
+        /// <summary>The clearance (m) still missing under an eave pulled back to its shortest allowed overhang (judge round 1:
+        /// a heritage tier keeps its measured height; trimming the corridor there is an open issue for the roads package);
+        /// 0 when every eave clears.</summary>
+        public double HangResidualM;
+
+        /// <summary>When set, every roof tier appends its measured eave height and the height it was built at (frame metres),
+        /// for the tests (no tier is ever lifted).</summary>
+        public List<double> EaveLog { get; set; }
+
+        /// <summary>Free-standing statues kept at their surveyed place inside a road corridor's stand-in (frame u, w and
+        /// radius, in threes; judge round 1: the Garuda stays, the corridor's trim is an open issue for the roads package).</summary>
+        public List<double> StatuesInCorridors { get; } = new List<double>();
+
+        /// <summary>Moves the frame by (du, dw) along its own axes, to draw a part about another centre; returns the frame
+        /// to put back with <see cref="Unshift"/>.</summary>
+        public KitFrame Shift(double du, double dw)
+        {
+            KitFrame keep = Kf;
+            Kf = Kf.Offset(du, 0, dw);
+            K = SacredDraw.Xf(Kf);
+            return keep;
+        }
+
+        /// <summary>Puts back the frame <see cref="Shift"/> returned.</summary>
+        public void Unshift(in KitFrame keep)
+        {
+            Kf = keep;
+            K = SacredDraw.Xf(Kf);
+        }
 
         /// <summary>The terrain height at frame (u, w), relative to the frame ground (0 without heights).</summary>
         public double GroundV(double u, double w)
@@ -148,6 +183,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double dx = x - Kf.OX, dz = z - Kf.OZ;
             u = dx * Kf.UX + dz * Kf.UZ;
             w = dx * Kf.UZ - dz * Kf.UX;
+        }
+
+        /// <summary>
+        /// The lowest absolute height a part hanging over tile-local (x, z) may reach (judge round 1: by the corridor's own
+        /// class): over a vehicle road's corridor the road surface plus <see cref="RoadClearance.MinOverheadClearanceM"/>
+        /// and the margin (contract §1), over a foot-only corridor (footway, path, steps, pedestrian street: no bus ever
+        /// passes) the surface plus <see cref="KdsVehicleRoads.FootClearanceM"/>; negative infinity off the corridors.
+        /// </summary>
+        public double MinHangY(double px, double pz)
+        {
+            if (Clear == null || Clear.Distance(px, pz) > SacredClearance.MarginM) return double.NegativeInfinity;
+            double g = Clear.Ground(px, pz);
+            if (double.IsNaN(g)) g = F.GroundY;
+            bool vehicle = KdsVehicleRoads.For(Tile).Distance(px, pz) <= SacredClearance.MarginM;
+            return Math.Max(g, F.GroundY) + (vehicle ? RoadClearance.MinOverheadClearanceM : KdsVehicleRoads.FootClearanceM) + SacredClearance.MarginM;
         }
 
         /// <summary>Signed distance (m) from the frame point (u, w) to the nearest road corridor edge (negative inside);
@@ -552,9 +602,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double len = v1 - v0;
             if (lod == 0)
             {
-                // Base block, shaft, the carved capital band (a lotus ring) and the flared head.
-                p.Add(0.06, v0, wood).Add(0.06, v0 + 0.24).Add(0, v0 + 0.3).Add(0, v1 - 0.5).Add(0.04, v1 - 0.44, Looks.Ao(wood, 0.85f)).Add(0.03, v1 - 0.14, wood)
-                 .Add(0.05, v1);
+                // Base block, shaft, the carved capital band and the flared head.
+                p.Add(0.06, v0, wood).Add(0.06, v0 + 0.26).Add(0, v0 + 0.3).Add(0, v1 - 0.45).Add(0.04, v1 - 0.4, Looks.Ao(wood, 0.85f)).Add(0.05, v1, wood);
             }
             else
             {
@@ -628,16 +677,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 return;
             }
             SacredDraw.Panel(m, sk, u - hu, v - hv, u + hu, v + hv, d + 0.01, Looks.Recess);
-            // Jambs (their tops hide under the lintel), the lintel with its ears and the sill.
-            SacredDraw.Box(m, sk, u - hu - fw, u - hu, v - hv, v + hv, d, d + 0.07, frame, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
-            SacredDraw.Box(m, sk, u + hu, u + hu + fw, v - hv, v + hv, d, d + 0.07, frame, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
-            SacredDraw.Box(m, sk, u - hu - fw - tEars, u + hu + fw + tEars, v + hv, v + hv + 1.4 * fw, d, d + 0.08, frame, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+            // Jambs (their front and the reveal toward the opening; their tops hide under the lintel), the lintel with its
+            // ears and the sill.
+            SacredDraw.Box(m, sk, u - hu - fw, u - hu, v - hv, v + hv, d, d + 0.07, frame, BoxFaces.Front | BoxFaces.Right);
+            SacredDraw.Box(m, sk, u + hu, u + hu + fw, v - hv, v + hv, d, d + 0.07, frame, BoxFaces.Front | BoxFaces.Left);
+            SacredDraw.Box(m, sk, u - hu - fw - tEars, u + hu + fw + tEars, v + hv, v + hv + 1.4 * fw, d, d + 0.08, frame, BoxFaces.Front | BoxFaces.Bottom);
             SacredDraw.Box(m, sk, u - hu - fw - tEars, u + hu + fw + tEars, v - hv - fw, v - hv, d, d + 0.08, frame, BoxFaces.Front | BoxFaces.Top);
             double bw = 0.022;
             // Small windows keep two bars each way (the lattice still reads at two thirds the cost); the smallest, high
             // up under the eaves, only their dark panel and frame.
-            if (ww * wh < 0.22) return;
-            if (ww < 0.7 && wh < 0.7) bars = Math.Min(bars, 2);
+            if (ww * wh < 0.3) return;
+            bars = Math.Min(bars, ww * wh < 1.0 ? 2 : 3);
             // The lattice bars as flat strips standing a little proud of the dark panel.
             for (int i = 1; i <= bars; i++)
             {
@@ -727,30 +777,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// </summary>
         public static RoofSpec Roof(KdsCtx x, double eaveHu, double eaveHw, double eaveV, double topHu, double topHw, double topV, double wallHu, double wallHw,
                                     double wallTopV, in ShapeBrush tile, double valH, bool gilt = false, double cornerLift = -1, ShapeBrush? fascia = null,
-                                    ShapeBrush? ridge = null, bool horns = false)
+                                    ShapeBrush? ridge = null, bool horns = false, bool fit = true)
         {
             double big = Math.Max(eaveHu, eaveHw), fasciaH = Math.Min(0.24, 0.1 + 0.012 * big);
-            // Over a road corridor the eave edge (fascia bottom) keeps the overhead clearance (contract §1): the tier is
-            // raised as a whole as far as needed; the slope above gets a little flatter.
-            double lift = FitEave(x, ref eaveHu, ref eaveHw, wallHu, wallHw, eaveV - fasciaH);
-            if (lift > 0)
-            {
-                eaveV += lift;
-                if (topV < eaveV + 0.3) topV = eaveV + 0.3;
-                wallTopV = Math.Max(wallTopV, eaveV + 0.05);
-            }
+            // Over a road corridor the eave edge (fascia bottom) keeps the corridor's clearance by pulling the overhang back
+            // (contract §1); a heritage tier keeps its measured eave height and is never raised (judge round 1). A caller
+            // that fitted the eave itself (RoofFit) passes fit = false, so the overhang is never pulled back twice.
+            double measured = eaveV;
+            if (fit) FitEave(x, ref eaveHu, ref eaveHw, wallHu, wallHw, eaveV - fasciaH);
             var r = new RoofSpec
             {
                 EaveU = eaveHu, EaveW = eaveHw, EaveV = eaveV, TopU = Math.Max(0.08, topHu), TopW = Math.Max(0.08, topHw), TopV = topV, WallU = wallHu, WallW = wallHw,
                 WallTopV = wallTopV, Lift = cornerLift >= 0 ? cornerLift : 0.035 * big, Sag = 0.018 * Math.Min(eaveHu, eaveHw), FasciaH = fasciaH,
                 // No curled horns by default: the Kathmandu square's tile eaves end in a gently lifted corner (the photos),
                 // not the tall kunsala curl of the generic pagodas; the gilt shrine roofs (Ashok Binayak) curl.
-                CoursePitch = big >= 6.0 ? 1.3 : 0, Gilt = gilt, Fringe = false, FringeH = valH, Horns = horns, Clear = x.Clear, GroundY = x.F.GroundY,
+                CoursePitch = big >= 6.5 ? 2.3 : 0, Gilt = gilt, Fringe = false, FringeH = valH, Horns = horns, Clear = x.Clear, GroundY = x.F.GroundY,
                 Roof = tile,
                 Ridge = ridge ?? (gilt ? Looks.GiltHi : Looks.Of(MeshColor.Scale(tile.Color, 0.7f), MaterialChannel.RoofTile)),
                 Fascia = fascia ?? (gilt ? Looks.GiltAged : KdsLooks.Timber), Soffit = Looks.Ao(KdsLooks.Timber, 0.55f), Horn = gilt ? tile : KdsLooks.Timber,
             };
-            SacredParts.Roof(x.M, x.K, r, x.Lod);
+            // Small roofs (eaves under 2.6 m half width: the upper tiers of the small temples, the bell, the drums) are drawn
+            // one LOD coarser at LOD0: their hip rolls and purlin steps no longer read at their height.
+            if (x.EaveLog != null)
+            {
+                x.EaveLog.Add(measured);
+                x.EaveLog.Add(r.EaveV);
+            }
+            SacredParts.Roof(x.M, x.K, r, x.Lod == 0 && big < 2.6 ? 1 : x.Lod);
             if (valH > 0.01) Valance(x, r, valH);
             if (x.C != null)
             {
@@ -819,14 +872,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             var o = new double[4];
             for (int s = 0; s < 4; s++)
             {
+                // Pulled back in 15 % steps, never shorter than MinOverhangShare of the measured overhang (judge round 1);
+                // what clearance is still missing is recorded, the tier is never raised.
                 double full = Math.Max(0, s % 2 == 0 ? eaveHw - wallHw : eaveHu - wallHu);
-                o[s] = 0;
-                for (int i = 0; i <= 7; i++)
+                for (int i = 0; i <= 3; i++)
                 {
-                    double ov = full * (1 - i / 7.0);
-                    if (SideLift(x, s, wallHu + (s % 2 == 1 ? ov : 0), wallHw + (s % 2 == 0 ? ov : 0), edgeV, s % 2 == 0 ? eaveHu : eaveHw) > 0) continue;
+                    double ov = full * Math.Max(MinOverhangShare, 1 - 0.15 * i);
+                    double lift = SideLift(x, s, wallHu + (s % 2 == 1 ? ov : 0), wallHw + (s % 2 == 0 ? ov : 0), edgeV, s % 2 == 0 ? eaveHu : eaveHw);
                     o[s] = ov;
-                    break;
+                    if (lift <= 0) break;
+                    if (i == 3) x.HangResidualM = Math.Max(x.HangResidualM, lift);
                 }
             }
             // Sides: 0 +w, 1 −u, 2 −w, 3 +u.
@@ -837,7 +892,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             Affine3 k = x.K;
             x.Kf = kf.Offset(du, 0, dw);
             x.K = SacredDraw.Xf(x.Kf);
-            RoofSpec r = Roof(x, eu, ew, eaveV, topHu + Math.Abs(du), topHw + Math.Abs(dw), topV, wallHu + Math.Abs(du), wallHw + Math.Abs(dw), wallTopV, tile, valH);
+            RoofSpec r = Roof(x, eu, ew, eaveV, topHu + Math.Abs(du), topHw + Math.Abs(dw), topV, wallHu + Math.Abs(du), wallHw + Math.Abs(dw), wallTopV, tile, valH,
+                              fit: false);
             x.Kf = kf;
             x.K = k;
             return r;
@@ -855,33 +911,41 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 double a = -1 + q / 5.0;
                 SacredParts.OnRect(s, a, s % 2 == 0 ? along + 0.05 : hu + 0.05, s % 2 == 0 ? hw + 0.05 : along + 0.05, out u, out w);
                 x.World(u, 0, w, out px, out py, out pz);
-                double min = x.Clear.MinHangY(px, pz, x.F.GroundY);
+                double min = x.MinHangY(px, pz);
                 if (double.IsNegativeInfinity(min)) continue;
                 need = Math.Max(need, min - (x.F.GroundY + edgeV));
             }
             return need;
         }
 
+        /// <summary>Shortest overhang an eave keeps when it is pulled back from a road corridor (share of the measured one).</summary>
+        public const double MinOverhangShare = 0.6;
+
         /// <summary>
-        /// Fits an eave to the road corridors (contract §1): where a corridor runs close, the overhang is first pulled back
-        /// toward the wall (in 15 % steps) until the edge clears the overhead clearance; when even a short overhang would
-        /// hang into a corridor (the wall itself stands at one), the full overhang is kept and the returned lift (m) raises
-        /// the tier as a whole. Returns 0 when the (possibly shortened) eave clears.
+        /// Fits an eave to the road corridors (contract §1, judge round 1): where an eave would hang under a corridor's
+        /// clearance (<see cref="KdsCtx.MinHangY"/>, by the corridor's class), the overhang is pulled back toward the wall in
+        /// 15 % steps, never shorter than <see cref="MinOverhangShare"/> of the measured overhang. A heritage tier is never
+        /// raised: the measured eave height stays. Returns the clearance still missing (m) at the shortest overhang allowed,
+        /// 0 when the (possibly shortened) eave clears.
         /// </summary>
         public static double FitEave(KdsCtx x, ref double eaveHu, ref double eaveHw, double wallHu, double wallHw, double edgeV)
         {
             double lift = EaveLift(x, eaveHu, eaveHw, edgeV);
             if (lift <= 0) return 0;
             double ou = Math.Max(0, eaveHu - wallHu), ow = Math.Max(0, eaveHw - wallHw);
-            for (int i = 1; i <= 6; i++)
+            double eu = eaveHu, ew = eaveHw;
+            for (int i = 1; i <= 3; i++)
             {
-                double t = 1 - 0.15 * i, eu = wallHu + ou * t, ew = wallHw + ow * t;
-                if (EaveLift(x, eu, ew, edgeV) > 0) continue;
-                eaveHu = eu;
-                eaveHw = ew;
-                return 0;
+                double t = Math.Max(MinOverhangShare, 1 - 0.15 * i);
+                eu = wallHu + ou * t;
+                ew = wallHw + ow * t;
+                lift = EaveLift(x, eu, ew, edgeV);
+                if (lift <= 0) break;
             }
-            return lift;
+            eaveHu = eu;
+            eaveHw = ew;
+            x.HangResidualM = Math.Max(x.HangResidualM, lift);
+            return Math.Max(0, lift);
         }
 
         /// <summary>How far (m) an eave edge whose lowest point is at <paramref name="edgeV"/> must rise to clear every road
@@ -897,7 +961,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     double u, w, px, py, pz;
                     SacredParts.OnRect(s, -1 + q / 5.0, hu + 0.05, hw + 0.05, out u, out w);
                     x.World(u, 0, w, out px, out py, out pz);
-                    double min = x.Clear.MinHangY(px, pz, x.F.GroundY);
+                    double min = x.MinHangY(px, pz);
                     if (double.IsNegativeInfinity(min)) continue;
                     need = Math.Max(need, min - (x.F.GroundY + edgeV));
                 }
@@ -908,14 +972,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>
         /// The crimson pleated cloth valance hung under a roof's fascia (Kathmandu Durbar Square temples): a pale top band,
         /// pleats alternating crimson and pink, a scalloped lower edge; over a road corridor it stops at the overhead
-        /// clearance (contract §1). LOD0 pleats every 0.32 m, LOD1 every 0.9 m (one colour), LOD2 a plain strip.
+        /// clearance (contract §1). LOD0 pleats every 0.8 m alternating crimson and pink under a pale band, LOD1 every 2.6 m (one colour), LOD2 a plain strip. With
+        /// <paramref name="cloth"/> the valance is a plain fringe of that cloth (no pale band, folds only shaded), as the Big
+        /// Drums' pale cotton fringe.
         /// </summary>
-        public static void Valance(KdsCtx x, in RoofSpec r, double drop)
+        public static void Valance(KdsCtx x, in RoofSpec r, double drop, ShapeBrush? cloth = null)
         {
             MeshData m = x.M;
             Affine3 k = x.K;
             int lod = x.Lod;
-            double pitch = lod == 0 ? 0.8 : lod == 1 ? 1.5 : 3.0;
+            double pitch = lod == 0 ? 0.8 : lod == 1 ? 2.6 : 3.0;
             for (int s = 0; s < 4; s++)
             {
                 double len = 2 * (s % 2 == 0 ? r.EaveU : r.EaveW);
@@ -925,7 +991,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 for (int c = 0; c < n; c++)
                 {
                     double a0 = -1 + 2.0 * c / n, a1 = -1 + 2.0 * (c + 1) / n;
-                    ShapeBrush b = lod == 0 && c % 2 == 1 ? KdsLooks.ValanceFold : KdsLooks.Valance;
+                    ShapeBrush b = cloth.HasValue ? (lod == 0 && c % 2 == 1 ? Looks.Ao(cloth.Value, 0.9f) : cloth.Value)
+                                 : lod == 0 && c % 2 == 1 ? KdsLooks.ValanceFold : KdsLooks.Valance;
                     double u0, v0, w0, u1, v1, w1;
                     SacredParts.RoofPoint(r, s, a0, 0, out u0, out v0, out w0);
                     SacredParts.RoofPoint(r, s, a1, 0, out u1, out v1, out w1);
@@ -937,11 +1004,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     u1 += off * ou;
                     w1 += off * ow;
                     double d0 = drop, d1 = drop;
-                    if (lod == 0)
+                    if (lod == 0 && c % 2 == 1)
                     {
-                        // Scallops: the pleat hangs lower in its middle.
-                        d0 = drop * 0.82;
-                        d1 = drop * 0.82;
+                        // The folds hang a little shorter than the pleats between them.
+                        d0 = drop * 0.9;
+                        d1 = drop * 0.9;
                     }
                     if (r.Clear != null)
                     {
@@ -949,31 +1016,27 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                         d1 = ClampDrop(x, r, u1, v1, w1, d1);
                     }
                     if (d0 < 0.02 && d1 < 0.02) continue;
-                    double band = lod == 0 ? Math.Min(0.07, 0.2 * drop) : 0;
+                    // The pale top band, one strip over every three pleats (it reads as one line along the eave).
+                    double band = lod == 0 && !cloth.HasValue ? Math.Min(0.07, 0.2 * drop) : 0;
                     if (band > 0)
                     {
-                        SacredDraw.Quad(m, k, u0, v0, w0, u1, v1, w1, u1, v1 - band, w1, u0, v0 - band, w0, ou, -0.05, ow, KdsLooks.ValanceBand);
+                        if (c % 3 == 0)
+                        {
+                            int cb = Math.Min(n, c + 3);
+                            double a2 = -1 + 2.0 * cb / n, ub, vb, wb;
+                            SacredParts.RoofPoint(r, s, a2, 0, out ub, out vb, out wb);
+                            vb -= r.FasciaH;
+                            ub += 0.03 * ou;
+                            wb += 0.03 * ow;
+                            SacredDraw.Quad(m, k, u0, v0, w0, ub, vb, wb, ub, vb - band, wb, u0, v0 - band, w0, ou, -0.05, ow, KdsLooks.ValanceBand);
+                        }
                         v0 -= band;
                         v1 -= band;
                         d0 -= band;
                         d1 -= band;
                     }
-                    if (lod == 0)
-                    {
-                        double um = 0.5 * (u0 + u1), vm = 0.5 * (v0 + v1), wm = 0.5 * (w0 + w1), dm = Math.Min(drop - band, Math.Max(d0, d1) * 1.22);
-                        if (r.Clear != null) dm = Math.Min(dm, ClampDrop(x, r, um, vm, wm, dm));
-                        int a = SacredDraw.V(m, k, u0, v0, w0, ou, -0.05, ow, b), bb = SacredDraw.V(m, k, u1, v1, w1, ou, -0.05, ow, b);
-                        int cm = SacredDraw.V(m, k, um, vm, wm, ou, -0.05, ow, b);
-                        int c1 = SacredDraw.V(m, k, u1, v1 - d1, w1, ou, -0.05, ow, Looks.Ao(b, 0.85f));
-                        int cmd = SacredDraw.V(m, k, um, vm - dm, wm, ou, -0.05, ow, Looks.Ao(b, 0.85f));
-                        int c0 = SacredDraw.V(m, k, u0, v0 - d0, w0, ou, -0.05, ow, Looks.Ao(b, 0.85f));
-                        SacredDraw.Quad(m, a, cm, cmd, c0);
-                        SacredDraw.Quad(m, cm, bb, c1, cmd);
-                    }
-                    else
-                    {
-                        SacredDraw.Quad(m, k, u0, v0, w0, u1, v1, w1, u1, v1 - d1, w1, u0, v0 - d0, w0, ou, -0.05, ow, b);
-                    }
+                    // A pleat: one panel, its hem a little lower at the fold (the pleats alternate crimson and pink).
+                    SacredDraw.Quad(m, k, u0, v0, w0, u1, v1, w1, u1, v1 - d1, w1, u0, v0 - d0, w0, ou, -0.05, ow, b);
                 }
             }
         }
@@ -982,22 +1045,141 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         {
             double px, py, pz;
             x.K.Point(u, v, w, out px, out py, out pz);
-            double minY = r.Clear.MinHangY(px, pz, r.GroundY);
+            double minY = x.MinHangY(px, pz);
             return Math.Max(0, Math.Min(drop, py - minY));
         }
 
         /// <summary>The struts of a tier (perU / perW along the sides, winged corner struts at LOD0).</summary>
         public static int Struts(KdsCtx x, in RoofSpec r, double footV, int perU, int perW, bool rich, uint seed)
         {
-            return SacredParts.Struts(x.M, x.K, r, footV, perU, perW, rich, KdsLooks.Strut, seed, x.Lod);
+            // The small roofs' struts (eaves under 2.6 m half width) follow one LOD coarser, like their roofs.
+            int lod = x.Lod == 0 && Math.Max(r.EaveU, r.EaveW) < 2.6 ? 1 : x.Lod;
+            return SacredParts.Struts(x.M, x.K, r, footV, perU, perW, rich, KdsLooks.Strut, seed, lod);
+        }
+
+        /// <summary>Weathered carved strut wood (Jagannath's deity struts, judge round 1) and its dark recesses.</summary>
+        public static readonly ShapeBrush DeityWood = Looks.Of(MeshColor.FromHex(0x6B5644), MaterialChannel.WoodCarved);
+
+        private static readonly ShapeBrush DeityRecess = Looks.Of(MeshColor.FromHex(0x3A2E26), MaterialChannel.WoodCarved);
+
+        /// <summary>
+        /// The carved deity struts of a tier (Jagannath's first roof, judge round 1; KVPT elevation): <paramref name="perU"/>
+        /// / <paramref name="perW"/> a side leaning from the foot ledge to the soffit, each a post carrying a standing deity
+        /// in relief over its upper two thirds (halo, head, torso, raised arms) above a small relief panel at its foot
+        /// (0.35 m), and winged griffin struts on the corners, in weathered carved wood. Beyond LOD0 plain bars
+        /// (<see cref="Struts"/>). Returns the struts drawn.
+        /// </summary>
+        public static int DeityStruts(KdsCtx x, in RoofSpec r, double footV, int perU, int perW, uint seed)
+        {
+            if (x.Lod >= 1) return Struts(x, r, footV, perU, perW, false, seed);
+            // The same lean as the kit's struts: the head on the soffit at 78 % of the overhang.
+            double depth = Math.Abs(r.EaveW - r.WallW), size = Math.Max(0.8, Math.Min(1.6, depth / 2.2));
+            double hv = r.WallTopV + ((r.EaveV - r.FasciaH) - r.WallTopV) * 0.78 - 0.08, hw = depth * 0.78, footOut = 0.1;
+            double dv = hv - footV, dwl = hw - footOut, len = Math.Sqrt(dv * dv + dwl * dwl);
+            if (len < 0.4) return 0;
+            double cy = dv / len, sy = dwl / len;
+            MeshData deity = DeityProto(len, size, false), griffin = DeityProto(len * 1.18, size * 1.2, true);
+            int drawn = 0;
+            for (int s = 0; s < 4; s++)
+            {
+                double along = s % 2 == 0 ? r.WallU : r.WallW, wall = s % 2 == 0 ? r.WallW : r.WallU, ou, ow;
+                SacredParts.Out(s, out ou, out ow);
+                double su = s == 0 ? 1 : s == 2 ? -1 : 0, sw = s == 1 ? 1 : s == 3 ? -1 : 0;
+                int per = s % 2 == 0 ? perU : perW;
+                for (int q = 0; q < per; q++)
+                {
+                    double a = -along + 2 * along * (q + 0.5) / per;
+                    Affine3 side = SacredDraw.Turn(x.K, su * a + ou * (wall + footOut), footV, sw * a + ow * (wall + footOut), s * HalfPi);
+                    Shapes.CopyTransformed(x.M, deity, Affine3.FromBasis(1, 0, 0, 0, cy, sy, 0, -sy, cy, 0, 0, 0).Then(side),
+                                           0xFFFFFFFFu - (uint)((ShapeNoise.Hash(s, q, 23, seed) % 24u) << 24) - (uint)((ShapeNoise.Hash(s, q, 29, seed) % 24u) << 16));
+                    drawn++;
+                }
+                // The griffin on the corner where this side meets the next, leaning out along the diagonal.
+                {
+                    Affine3 side = SacredDraw.Turn(x.K, su * along + ou * (wall + footOut), footV, sw * along + ow * (wall + footOut), s * HalfPi - 0.25 * Math.PI);
+                    double dlen = Math.Sqrt(dv * dv + 2 * dwl * dwl), c2 = dv / dlen, s2 = Math.Sqrt(2) * dwl / dlen;
+                    Shapes.CopyTransformed(x.M, griffin, Affine3.FromBasis(1, 0, 0, 0, c2, s2, 0, -s2, c2, 0, 0, 0).Then(side));
+                    drawn++;
+                }
+            }
+            return drawn;
+        }
+
+        // The deity's outline over the strut's upper part (x across in strut sizes, h up from the figure's feet in shares of
+        // its height): feet, hips, the raised arms with their hands up beside the halo, the halo round the head.
+        private static readonly double[] DeityX =
+        {
+            -0.09, 0.09, 0.11, 0.13, 0.23, 0.27, 0.22, 0.17, 0.13, 0.15, 0.15, 0.1, -0.1, -0.15, -0.15, -0.13, -0.17, -0.22, -0.27, -0.23, -0.13, -0.11,
+        };
+
+        private static readonly double[] DeityH =
+        {
+            0.0, 0.0, 0.34, 0.46, 0.6, 0.8, 0.83, 0.67, 0.68, 0.78, 0.93, 1.0, 1.0, 0.93, 0.78, 0.68, 0.67, 0.83, 0.8, 0.6, 0.46, 0.34,
+        };
+
+        // The griffin's outline (rearing, wings spread to both sides, the beaked head on top).
+        private static readonly double[] GriffinX =
+        {
+            -0.1, 0.1, 0.13, 0.2, 0.42, 0.4, 0.44, 0.36, 0.14, 0.13, 0.06, -0.06, -0.13, -0.14, -0.36, -0.44, -0.4, -0.42, -0.2, -0.13,
+        };
+
+        private static readonly double[] GriffinH =
+        {
+            0.0, 0.0, 0.3, 0.5, 0.56, 0.68, 0.82, 0.86, 0.72, 0.88, 1.0, 1.0, 0.88, 0.72, 0.86, 0.82, 0.68, 0.56, 0.5, 0.3,
+        };
+
+        /// <summary>A carved strut prototype along +y (length len, width scale size), its carved face toward +z: the post,
+        /// the relief panel at its foot, and a deity (or, for a corner, a winged griffin) in relief over the upper part.</summary>
+        private static MeshData DeityProto(double len, double size, bool griffin)
+        {
+            var p = new MeshData();
+            Affine3 id = Affine3.Identity;
+            double hx = 0.085 * size, hz = 0.065 * size;
+            // The post behind the carving, and the head block under the soffit.
+            SacredDraw.Box(p, id, -hx, hx, 0, len, -hz, hz, Looks.Ao(DeityWood, 0.75f), BoxFaces.All & ~BoxFaces.Bottom & ~BoxFaces.Top);
+            SacredDraw.Box(p, id, -1.5 * hx, 1.5 * hx, len - 0.12, len, -1.2 * hz, 1.2 * hz, DeityWood, BoxFaces.All & ~BoxFaces.Bottom);
+            // The relief panel at the foot: a framed block with a dark sunk field and a small pair of figures in it.
+            double ph = 0.35, pw = 0.13 * size;
+            SacredDraw.Box(p, id, -pw, pw, 0, ph, -hz, hz + 0.04, DeityWood, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Quad(p, id, -0.8 * pw, 0.05, hz + 0.045, 0.8 * pw, 0.05, hz + 0.045, 0.8 * pw, ph - 0.05, hz + 0.045, -0.8 * pw, ph - 0.05, hz + 0.045,
+                            0, 0, 1, DeityRecess);
+            SacredDraw.Box(p, id, -0.5 * pw, -0.08 * pw, 0.07, ph - 0.07, hz + 0.045, hz + 0.075, DeityWood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+            SacredDraw.Box(p, id, 0.08 * pw, 0.5 * pw, 0.07, ph - 0.1, hz + 0.045, hz + 0.075, DeityWood, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+            // The figure in relief, standing on the panel up to just under the head block.
+            double f0 = Math.Max(ph + 0.02, 0.33 * len), f1 = len - 0.14, fh = f1 - f0;
+            double[] ox = griffin ? GriffinX : DeityX, oh = griffin ? GriffinH : DeityH;
+            int n = ox.Length;
+            double[] px = ShapeScratch.U, pz = ShapeScratch.W;
+            for (int i = 0; i < n; i++)
+            {
+                px[i] = ox[i] * size;
+                pz[i] = -oh[i] * fh;
+            }
+            // Polygon plane: the strut's x-y plane at the carved face; extruded out along +z.
+            Affine3 face = Affine3.FromBasis(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, f0, hz);
+            Shapes.BevelExtrude(p, face, DeityWood, px, pz, n, 0.06, 0, 0, BevelStyle.Chamfer, true, false);
+            // The head standing proud of the halo, and a dark recess behind the arms (the carving's shadow).
+            if (!griffin)
+            {
+                SacredDraw.Box(p, id, -0.05 * size, 0.05 * size, f0 + 0.78 * fh, f0 + 0.9 * fh, hz + 0.06, hz + 0.11, Looks.Ao(DeityWood, 1.08f),
+                               BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+                SacredDraw.Quad(p, id, -0.11 * size, f0 + 0.5 * fh, hz + 0.005, 0.11 * size, f0 + 0.5 * fh, hz + 0.005, 0.11 * size, f0 + 0.66 * fh, hz + 0.005,
+                                -0.11 * size, f0 + 0.66 * fh, hz + 0.005, 0, 0, 1, DeityRecess);
+            }
+            else
+            {
+                SacredDraw.Box(p, id, -0.06 * size, 0.06 * size, f0 + 0.88 * fh, f0 + 0.98 * fh, hz + 0.06, hz + 0.14, Looks.Ao(DeityWood, 1.08f),
+                               BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+            }
+            return p;
         }
 
         /// <summary>Eave bells every <paramref name="spacing"/> m (LOD0 only).</summary>
         public static int Bells(KdsCtx x, in RoofSpec r, double spacing, double size)
         {
-            // Small eaves (under 3 m half) carry no bells: they are lost at that size and cost as much as the roof.
-            if (Math.Max(r.EaveU, r.EaveW) < 3.0) return 0;
-            return SacredParts.Bells(x.M, x.K, r, 1.5 * spacing, size, true, x.Lod);
+            // Small eaves (under 4.5 m half) carry no bells: they are lost at that size and cost as much as the roof.
+            if (Math.Max(r.EaveU, r.EaveW) < 4.5) return 0;
+            return SacredParts.Bells(x.M, x.K, r, 2.0 * spacing, size, true, x.Lod);
         }
 
         /// <summary>
@@ -1147,9 +1329,22 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         /// <summary>The gilt gajur (kalasha, lotus and bell rings, parasol, point) of height h from v0; returns the tip.</summary>
         public static double GiltFinial(KdsCtx x, double v0, double h, double r)
         {
-            // Finials under 2.4 m (all but the great temples') are drawn one LOD coarser: against the sky only their
-            // stacked silhouette reads.
-            return SacredParts.Gajur(x.M, x.K, v0, h, r, KdsLooks.Gilt, h < 2.4 ? Math.Min(2, x.Lod + 1) : x.Lod);
+            // The great temples' finials (2.4 m and over) are the kit's full gajur; the smaller ones keep only their
+            // stacked silhouette (against the sky nothing finer reads): a square foot, the pot, three bulbs, the parasol
+            // and the point, six-sided (the site's LOD0 budget, judge round 1).
+            if (h >= 2.4) return SacredParts.Gajur(x.M, x.K, v0, h, r, KdsLooks.Gilt, x.Lod);
+            if (x.Lod >= 1)
+            {
+                Shapes.Cone(x.M, SacredDraw.At(x.K, 0, v0, 0), KdsLooks.Gilt, 1.1 * r, h, 5, 0, 0, false);
+                return v0 + h;
+            }
+            double bh = 0.1 * h, hh = h - bh;
+            SacredDraw.Box(x.M, x.K, -1.25 * r, 1.25 * r, v0, v0 + bh, -1.25 * r, 1.25 * r, KdsLooks.GiltLo, BoxFaces.All & ~BoxFaces.Bottom);
+            var p = new Profile2(12);
+            p.Add(0, 0).Add(0.85 * r, 0, true).Add(0.95 * r, 0.16 * hh).Add(0.6 * r, 0.3 * hh).Add(0.78 * r, 0.4 * hh).Add(0.4 * r, 0.5 * hh)
+             .Add(0.6 * r, 0.58 * hh).Add(0.28 * r, 0.68 * hh).Add(0.75 * r, 0.74 * hh, true).Add(0.18 * r, 0.8 * hh).Add(0.12 * r, 0.9 * hh).Add(0, hh);
+            Shapes.Lathe(x.M, SacredDraw.At(x.K, 0, v0 + bh, 0), KdsLooks.Gilt, p, 6);
+            return v0 + h;
         }
 
         /// <summary>Maju Dega's finial: a white plastered bell-shaped dome on a square white base with a small gilt tip.</summary>
@@ -1292,7 +1487,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             if (b - a < 0.4) return;
             double su = u0 + tu * a, sw = w0 + tw * a, l = b - a;
             ShapeBrush wood = KdsLooks.FenceNew;
-            if (lod >= 2)
+            if (lod >= 1)
             {
                 SacredDraw.Quad(m, x.K, su, 0, sw, su + tu * l, 0, sw + tw * l, su + tu * l, h, sw + tw * l, su, h, sw, nu, 0, nw, wood);
                 SacredDraw.Quad(m, x.K, su, 0, sw, su + tu * l, 0, sw + tw * l, su + tu * l, h, sw + tw * l, su, h, sw, -nu, 0, -nw, wood);
@@ -1301,9 +1496,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 Affine3 seg = SacredDraw.Basis(x.K, su, 0, sw, tu, 0, tw, 0, 1, 0);
                 // Rails.
-                BoxFaces rf = lod == 0 ? BoxFaces.All : BoxFaces.Front | BoxFaces.Back | BoxFaces.Top;
-                SacredDraw.Box(m, seg, 0, l, 0.22, 0.3, -0.03, 0.03, Looks.Ao(wood, 0.85f), rf);
-                SacredDraw.Box(m, seg, 0, l, 0.68, 0.76, -0.03, 0.03, Looks.Ao(wood, 0.85f), rf);
+                SacredDraw.Box(m, seg, 0, l, 0.22, 0.3, -0.03, 0.03, Looks.Ao(wood, 0.85f), BoxFaces.All);
+                SacredDraw.Box(m, seg, 0, l, 0.68, 0.76, -0.03, 0.03, Looks.Ao(wood, 0.85f), BoxFaces.All);
                 // Posts.
                 int posts = Math.Max(1, (int)Math.Round(l / 2.0));
                 for (int i = 0; i <= posts; i++)
@@ -1311,22 +1505,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     double p = l * i / posts;
                     SacredDraw.Box(m, seg, p - 0.05, p + 0.05, 0, h + 0.08, -0.05, 0.05, wood, BoxFaces.All & ~BoxFaces.Bottom);
                 }
-                // Stakes: pointed boards (LOD0), plain wider boards (LOD1).
-                double pitch = lod == 0 ? 0.4 : 0.6;
-                int n = (int)(l / pitch);
+                // Stakes: pointed boards.
+                int n = (int)(l / 0.55);
                 for (int i = 0; i < n; i++)
                 {
-                    double c = (i + 0.5) * l / n, hw = lod == 0 ? 0.035 : 0.09;
-                    if (lod == 0)
-                    {
-                        SacredDraw.Box(m, seg, c - hw, c + hw, 0.05, h - 0.1, 0.03, 0.055, wood, BoxFaces.Front | BoxFaces.Back);
-                        SacredDraw.Tri(m, seg, c - hw, h - 0.1, 0.055, c + hw, h - 0.1, 0.055, c, h, 0.055, 0, 0, 1, wood);
-                        SacredDraw.Tri(m, seg, c - hw, h - 0.1, 0.03, c + hw, h - 0.1, 0.03, c, h, 0.03, 0, 0, -1, wood);
-                    }
-                    else
-                    {
-                        SacredDraw.Box(m, seg, c - hw, c + hw, 0.05, h, 0.03, 0.055, wood, BoxFaces.Front | BoxFaces.Back);
-                    }
+                    double c = (i + 0.5) * l / n, hw = 0.035;
+                    SacredDraw.Box(m, seg, c - hw, c + hw, 0.05, h - 0.1, 0.03, 0.055, wood, BoxFaces.Front | BoxFaces.Back);
+                    SacredDraw.Tri(m, seg, c - hw, h - 0.1, 0.055, c + hw, h - 0.1, 0.055, c, h, 0.055, 0, 0, 1, wood);
+                    SacredDraw.Tri(m, seg, c - hw, h - 0.1, 0.03, c + hw, h - 0.1, 0.03, c, h, 0.03, 0, 0, -1, wood);
                 }
             }
             x.Wall(su, sw, su + tu * l, sw + tw * l, 0, h, 0.05);

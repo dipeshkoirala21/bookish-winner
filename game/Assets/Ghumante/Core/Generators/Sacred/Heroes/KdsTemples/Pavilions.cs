@@ -79,13 +79,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     // arches cut deep between them.
                     double a = KdsKit.Along(s, hu, hw) - 0.4, d = KdsKit.Depth(s, hu, hw) + 0.17;
                     int n = Math.Max(2, (int)Math.Round(2 * a / 1.2));
-                    if (lod == 1) ScallopRow(m, sk, a, par1 - 0.02, d - 0.22, 0.62, n, 0.42);
-                    else
+                    ScallopRow(m, sk, a, par1 - 0.02, d - 0.22, 0.62, n, 0.42);
+                    if (lod == 0)
                     {
                         for (int i = 0; i < n; i++)
                         {
                             double c = -a + 2 * a * (i + 0.5) / n;
-                            Scallop(m, sk, c, par1 - 0.02, d - 0.22, 0.62, 2 * a / n, 0.42, lod);
                             // The merlon's cap: a projecting slab and a small rounded knob.
                             SacredDraw.Box(m, sk, c - 0.27, c + 0.27, par1 + 0.6, par1 + 0.7, d - 0.27, d + 0.07, KdsLooks.Plaster, BoxFaces.All & ~BoxFaces.Bottom);
                             Shapes.Cone(m, SacredDraw.At(sk, c, par1 + 0.7, d - 0.1) * Affine3.RotationY(0.25 * Math.PI), KdsLooks.Plaster, 0.17, 0.2, 4, 0, 0, false);
@@ -149,10 +148,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return KdsKit.FlamePinnacle(x, ridge - 0.12, SilyanTopM - ridge + 0.12);
         }
 
-        /// <summary>One period (width p) of the scalloped parapet crest on the plane d of side frame sk (KAT1990 06, 10): a
-        /// flat-topped white merlon of width mw between two half round scoops cut down into the wall top, from v0 up to h.</summary>
-        /// <summary>The scalloped crest of one parapet side seen from further off (LOD1): one extruded band from −a to a whose
-        /// top runs flat over each of the n merlons (mw wide) and dips in a notch between them.</summary>
+        /// <summary>The scalloped crest of one parapet side (KAT1990 06, 10): one extruded white band from −a to a whose top
+        /// runs flat over each of the n merlons (mw wide) and dips in a notch between them.</summary>
         private static void ScallopRow(MeshData m, in Affine3 sk, double a, double v0, double d, double h, int n, double mw)
         {
             double[] px = ShapeScratch.U, pz = ShapeScratch.W;
@@ -176,32 +173,6 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 pz[c++] = -(top - rn);
             }
             Shapes.BevelExtrude(m, SacredDraw.Basis(sk, 0, 0, d, 1, 0, 0, 0, 0, 1), KdsLooks.Plaster, px, pz, c, 0.24, 0, 0, BevelStyle.Chamfer, true, false);
-        }
-
-        private static void Scallop(MeshData m, in Affine3 sk, double u, double v0, double d, double h, double p, double mw, int lod)
-        {
-            double[] px = ShapeScratch.U, pz = ShapeScratch.W;
-            int seg = lod == 0 ? 4 : 2, n = 0;
-            double rn = 0.5 * (p - mw), top = v0 + h;
-            px[n] = u - 0.5 * p;
-            pz[n++] = -v0;
-            px[n] = u + 0.5 * p;
-            pz[n++] = -v0;
-            // Right scoop: from its bottom up to the merlon's right corner.
-            for (int i = 0; i <= seg; i++)
-            {
-                double a = -0.5 * Math.PI - 0.5 * Math.PI * i / seg;
-                px[n] = u + 0.5 * p + rn * Math.Cos(a);
-                pz[n++] = -(top + rn * Math.Sin(a));
-            }
-            // Left scoop: from the merlon's left corner down to its bottom.
-            for (int i = 0; i <= seg; i++)
-            {
-                double a = -0.5 * Math.PI * i / seg;
-                px[n] = u - 0.5 * p + rn * Math.Cos(a);
-                pz[n++] = -(top + rn * Math.Sin(a));
-            }
-            Shapes.BevelExtrude(m, SacredDraw.Basis(sk, 0, 0, d, 1, 0, 0, 0, 0, 1), KdsLooks.Plaster, px, pz, n, 0.24, 0, 0, BevelStyle.Chamfer, true, false);
         }
 
         // -------------------------------------------------------------------------------------------------------------
@@ -475,6 +446,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return worst;
         }
 
+        /// <summary>The Taleju Bell's limewashed pillars and their red dado (the photos; judge round 1).</summary>
+        private static readonly ShapeBrush BellPillar = Looks.Of(MeshColor.FromHex(0xEEEBE3), MaterialChannel.Plaster);
+
+        private static readonly ShapeBrush BellDado = Looks.Of(MeshColor.FromHex(0xA9232C), MaterialChannel.Paint);
+
+        /// <summary>The Taleju Bell roof's dark old tiles.</summary>
+        private static readonly ShapeBrush BellTile = Looks.Of(MeshColor.FromHex(0x5E4A40), MaterialChannel.RoofTile);
+
         private static double BellAt(KdsCtx x, double hu, double hw)
         {
             MeshData m = x.M;
@@ -482,11 +461,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             const double top = 3.5, pil = 1.55, beamV = 6.55;
             if (lod >= 3)
             {
-                KdsKit.Lod3(x, hu, hw, top, 1.95, 0.45, new[] { 2.45 }, new[] { 6.95 }, new double[0], 8.3, KdsLooks.Plaster, KdsLooks.StoneBuff, KdsLooks.TileOld);
+                KdsKit.Lod3(x, hu, hw, top, 1.95, 0.45, new[] { 2.45 }, new[] { 6.95 }, new double[0], 8.3, KdsLooks.Plaster, BellPillar, BellTile);
                 return 8.3;
             }
-            // The white block (sunk a little into the ground), its paved top.
-            SacredParts.BandedWall(m, x.K, hu, hw, -0.2, top, KdsLooks.Plaster, KdsLooks.PlasterShade, lod, true, false);
+            // The white block (sunk a little into the ground), its walls battered about 4 % (wider at the foot; the photos),
+            // its paved top.
+            Mould bm = SacredDraw.M;
+            bm.Add(0.04 * (top + 0.2), -0.2, KdsLooks.Plaster).Add(0.04 * 0.3, top - 0.3).Add(0.02, top - 0.3, KdsLooks.PlasterShade).Add(0.02, top - 0.12)
+              .Add(0, top - 0.12, KdsLooks.Plaster).Add(0, top);
+            double[] bpu = ShapeScratch.U2, bpw = ShapeScratch.W2;
+            SacredDraw.Ring(m, x.K, bpu, bpw, SacredDraw.Rect(0, 0, hu, hw, bpu, bpw), bm);
             SacredDraw.CapRect(m, x.K, 0, 0, hu, hw, top, true, KdsLooks.BrickBuff);
             x.Floor(-hu, hu, -hw, hw, -0.2, top, GenColliders.Brick);
             // The low parapet, open over the stair landing at the west end of the south-south-west (−u) side.
@@ -511,36 +495,46 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             SacredDraw.Box(m, x.K, sx - 0.62, sx - 0.5, top, top + 0.85, -hw, wTop, wht, pf);
             x.Floor(sx - 0.62, -hu, -hw, wTop, -0.2, top, GenColliders.Brick);
             x.Solid(sx - 0.62, sx - 0.5, -hw, wTop, top, top + 0.85, GenColliders.Brick);
-            // The two buff stone pillars with notched bracket capitals and the stone beam.
+            // The two pillars, limewashed white with a red dado over their lower 0.9 m, stepping out in a three-step capital
+            // under the stone beam (the photos; judge round 1).
+            const double dado = 0.9, capH = 0.45;
             for (int sg = -1; sg <= 1; sg += 2)
             {
                 double u = sg * pil;
                 if (lod <= 1)
                 {
-                    Shapes.RoundedBox(m, SacredDraw.At(x.K, u, top + 0.12, 0), KdsLooks.StoneBuff, 0.95, 0.24, 0.95, 0.03, 1);
-                    Shapes.RoundedBox(m, SacredDraw.At(x.K, u, 0.5 * (top + 0.24 + beamV - 0.45), 0), KdsLooks.StoneBuff, 0.8, beamV - 0.45 - top - 0.24, 0.8, 0.04, 1);
-                    // Bracket capital: a notched block stepping out along the beam.
-                    SacredDraw.Box(m, x.K, u - 0.48, u + 0.48, beamV - 0.45, beamV - 0.25, -0.42, 0.42, KdsLooks.StoneBuff, BoxFaces.All);
-                    SacredDraw.Box(m, x.K, u - 0.62, u + 0.62, beamV - 0.25, beamV, -0.44, 0.44, KdsLooks.StoneBuff, BoxFaces.All);
-                    if (lod == 0)
-                    {
-                        SacredDraw.Box(m, x.K, u - 0.41, u + 0.41, beamV - 1.05, beamV - 0.95, -0.41, 0.41, Looks.Ao(KdsLooks.StoneBuff, 0.8f), BoxFaces.Wall);
-                        SacredDraw.Box(m, x.K, u - 0.41, u + 0.41, beamV - 0.7, beamV - 0.6, -0.41, 0.41, Looks.Ao(KdsLooks.StoneBuff, 0.8f), BoxFaces.Wall);
-                    }
+                    Shapes.RoundedBox(m, SacredDraw.At(x.K, u, top + 0.12, 0), BellPillar, 0.95, 0.24, 0.95, 0.03, 1);
+                    Shapes.RoundedBox(m, SacredDraw.At(x.K, u, top + 0.24 + 0.5 * dado, 0), BellDado, 0.81, dado, 0.81, 0.04, 1);
+                    double sv = top + 0.24 + dado, ev = beamV - capH;
+                    Shapes.RoundedBox(m, SacredDraw.At(x.K, u, 0.5 * (sv + ev), 0), BellPillar, 0.8, ev - sv, 0.8, 0.04, 1);
                 }
                 else
                 {
-                    SacredDraw.Box(m, x.K, u - 0.4, u + 0.4, top, beamV, -0.4, 0.4, KdsLooks.StoneBuff, BoxFaces.Wall);
+                    SacredDraw.Box(m, x.K, u - 0.4, u + 0.4, top, top + 0.24 + dado, -0.4, 0.4, BellDado, BoxFaces.Wall);
+                    SacredDraw.Box(m, x.K, u - 0.4, u + 0.4, top + 0.24 + dado, beamV - capH, -0.4, 0.4, BellPillar, BoxFaces.Wall);
+                }
+                // Three-step capital: each step wider along the beam and a little deeper.
+                int steps = lod <= 1 ? 3 : 1;
+                for (int i = 0; i < steps; i++)
+                {
+                    double v0 = beamV - capH + capH * i / steps, v1 = beamV - capH + capH * (i + 1) / steps;
+                    double cu = steps == 1 ? 0.62 : 0.46 + 0.08 * i, cw = steps == 1 ? 0.44 : 0.41 + 0.015 * i;
+                    SacredDraw.Box(m, x.K, u - cu, u + cu, v0, v1, -cw, cw, i % 2 == 0 ? BellPillar : Looks.Ao(BellPillar, 0.88f), BoxFaces.All & ~BoxFaces.Top);
                 }
                 x.Solid(u - 0.4, u + 0.4, -0.4, 0.4, top, beamV, GenColliders.Stone);
             }
-            SacredDraw.Box(m, x.K, -pil - 0.75, pil + 0.75, beamV, beamV + 0.35, -0.38, 0.38, KdsLooks.StoneBuff, BoxFaces.All);
+            SacredDraw.Box(m, x.K, -pil - 0.75, pil + 0.75, beamV, beamV + 0.35, -0.38, 0.38, BellPillar, BoxFaces.All);
             KdsKit.BigBell(x, 0, beamV - 0.08, 0, 1.9);
             x.Cylinder(0, 0, beamV - 1.9, beamV, 0.95, true);
             // The small hipped roof over the pillars.
-            RoofSpec r = KdsKit.Roof(x, pil + 0.95, 1.45, beamV + 0.4, pil - 0.4, 0.12, 8.2, pil + 0.75, 0.38, beamV + 0.35, KdsLooks.TileOld, 0.3);
+            // The broad dark roof (tiles #5E4A40, black fascia, corners lifted 0.3 m) with its thin crimson valance.
+            RoofSpec r = KdsKit.Roof(x, pil + 0.95, 1.45, beamV + 0.4, pil - 0.4, 0.12, 8.2, pil + 0.75, 0.38, beamV + 0.35, BellTile, 0.22, false, 0.3,
+                                     KdsLooks.WindowBlack);
             if (lod == 0) KdsKit.Bells(x, r, 1.2, 0.8);
-            if (lod <= 1) SacredParts.Gajur(m, x.K, 8.1, BellTopM - 8.1, 0.08, KdsLooks.Gilt, lod);
+            // The ridge cap over the hip's short ridge.
+            SacredDraw.Box(m, x.K, -pil + 0.3, pil - 0.3, 8.1, 8.3, -0.2, 0.2, Looks.Of(MeshColor.Scale(BellTile.Color, 0.7f), MaterialChannel.RoofTile),
+                           BoxFaces.All & ~BoxFaces.Bottom);
+            if (lod <= 1) SacredParts.Gajur(m, x.K, 8.25, BellTopM - 8.25, 0.08, KdsLooks.Gilt, lod);
             return BellTopM;
         }
 
@@ -597,31 +591,44 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         // T15 Big Drums
         // -------------------------------------------------------------------------------------------------------------
 
-        /// <summary>The Big Drums (Nagara, 1800; OSM w907080046): a small two-storey red-ochre brick house, a small door on
-        /// the ground floor, the open upper bay between brick pilasters and carved brick cornices with two huge drums lying on
-        /// their sides (cream skins painted in red and colours, red rims), a hipped tile roof with a red valance.</summary>
+        /// <summary>The Big Drums' ochre-orange limewash over the brick (the photos; judge round 1: #C9603D).</summary>
+        private static readonly ShapeBrush DrumWash = Looks.Of(MeshColor.FromHex(0xC9603D), MaterialChannel.Brick);
+
+        /// <summary>The pale cotton fringe under the Big Drums' eave (judge round 1: no crimson valance here).</summary>
+        private static readonly ShapeBrush DrumFringe = Looks.Of(MeshColor.FromHex(0xD8D2C4), MaterialChannel.Fabric);
+
+        /// <summary>The drums' leather cover and lacing, and their dark iron hoops.</summary>
+        private static readonly ShapeBrush DrumLeather = Looks.Of(MeshColor.FromHex(0x4A4744), MaterialChannel.Leather);
+
+        private static readonly ShapeBrush DrumHoop = Looks.Of(MeshColor.FromHex(0x2E2B28), MaterialChannel.Metal);
+
+        /// <summary>The Big Drums (Nagara, 1800; OSM w907080046): a small two-storey brick house washed ochre-orange, a small
+        /// door on the ground floor, the wide open upper bay (about four fifths of the frontage, on a low sill) between slim
+        /// brick pilasters and carved brick cornices, with the two huge drums lying side by side, their axes along the facade
+        /// so the square sees their dark laced barrels (judge round 1; c_bigdrum 03, 06), and a hipped tile roof with a pale
+        /// cotton fringe under its eave.</summary>
         public static double Drums(KdsCtx x)
         {
             MeshData m = x.M;
             int lod = x.Lod;
             double hu = x.PlanHu > 1 ? Clamp(x.PlanHu - 0.1, 1.9, 3.0) : 2.4, hw = x.PlanHw > 1 ? Clamp(x.PlanHw - 0.15, 2.0, 4.0) : 3.0;
-            const double p0 = 0.25, g1 = 3.2, f1 = 3.45, c1 = 5.55, eave = 5.75;
+            const double p0 = 0.25, g1 = 2.7, f1 = 2.95, c1 = 5.55, eave = 5.75;
+            ShapeBrush brick = DrumWash;
             if (lod >= 3)
             {
-                KdsKit.Lod3(x, hu, hw, p0, hu - 0.05, hw - 0.05, new[] { hu + 0.85 }, new[] { eave }, new double[0], DrumsTopM, KdsLooks.BrickOchre,
-                            KdsLooks.BrickOchre, KdsLooks.TileOld);
+                KdsKit.Lod3(x, hu, hw, p0, hu - 0.05, hw - 0.05, new[] { hu + 0.85 }, new[] { eave }, new double[0], DrumsTopM, brick, brick, KdsLooks.TileOld);
                 return DrumsTopM;
             }
-            ShapeBrush brick = KdsLooks.BrickOchre;
             KdsKit.Stage(x, hu + 0.15, hw + 0.15, 0, p0, 0, 0, 0, KdsLooks.BrickPlinth, KdsLooks.Nosing, 0.06, 0.15, GenColliders.Brick);
             SacredParts.BandedWall(m, x.K, hu, hw, p0, f1, brick, KdsLooks.Timber, lod, true, false);
             x.Solid(-hu, hu, -hw, hw, p0, f1, GenColliders.Brick);
             Affine3 front = KdsKit.Side(x.K, 0);
             KdsKit.Door(m, front, 0, p0 + 0.05, hw, 0.8, 1.7, KdsLooks.Timber, lod, false);
-            // Carved brick cornice under the bay.
+            // Carved brick cornice under the bay (the low sill).
             KdsKit.Cornice(x, hu + 0.02, hw + 0.02, g1, f1 + 0.1, 0.12, Looks.Ao(brick, 0.92f));
-            // The upper storey: three closed sides, the open bay on the front between pilasters.
-            double t = 0.35, pw = Math.Min(0.6, 0.18 * hu * 2);
+            // The upper storey: three closed sides and the wide open bay on the front between slim pilasters (the opening
+            // about 80 % of the frontage).
+            double t = 0.35, pw = Math.Max(t + 0.05, 0.1 * 2 * hu);
             BoxFaces wf = BoxFaces.All & ~BoxFaces.Bottom;
             SacredDraw.Box(m, x.K, -hu, hu, f1, c1, -hw, -hw + t, brick, wf);
             SacredDraw.Box(m, x.K, -hu, -hu + t, f1, c1, -hw + t, hw, brick, wf);
@@ -632,7 +639,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             x.Solid(-hu, hu, -hw, -hw + t, f1, c1, GenColliders.Brick);
             x.Solid(-hu, -hu + t, -hw, hw, f1, c1, GenColliders.Brick);
             x.Solid(hu - t, hu, -hw, hw, f1, c1, GenColliders.Brick);
-            // Pilaster capitals and the carved cornice over the bay; the joisted ceiling.
+            // Pilaster capitals and bases, the carved cornice over the bay; the joisted ceiling.
             if (lod <= 1)
             {
                 for (int sg = -1; sg <= 1; sg += 2)
@@ -653,56 +660,71 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
             }
             SacredDraw.Panel(m, KdsKit.Side(x.K, 0), -hu + t, f1 + 0.1, hu - t, c1, -hw + t + 0.01, Looks.Of(MeshColor.FromHex(0x8A4A36), MaterialChannel.Brick));
-            // The two great drums lying on their sides, skins tilted up toward the square.
-            double r = Math.Min(0.78, 0.42 * (hu - t)), len = Math.Min(1.25, 0.9 * (hw - t));
-            // They lie side by side, skins turned in toward each other, so from the square one sees the laced shells and
-            // the painted heads aslant (c_bigdrum 03, 06).
+            // The two great drums (about 1.6 m long, 1.3 m across) lying side by side on low cradles, their axes along the
+            // facade: from the square one sees the laced barrels, the painted heads face the side walls.
+            double r = 0.65, len = Math.Min(1.6, hu - t - 0.12), dv = f1 + 0.1 + 0.12 + r, dw = Math.Min(hw - t - 0.15 - r, hw - 0.55 - r);
             for (int sg = -1; sg <= 1; sg += 2)
-                Drum(m, x.K, sg * 0.5 * (hu - t), f1 + 0.1 + r * 0.9, hw - 0.45 - 0.5 * len, r, len, -sg * 1.0, lod);
-            // The small hipped roof with its valance, no struts (the photos).
-            KdsKit.Roof(x, hu + 0.6, hw + 0.6, eave, 0.12, Math.Max(0.12, hw - hu + 0.12), DrumsTopM - 0.05, hu, hw, c1 + 0.22, KdsLooks.TileOld, 0.3);
+            {
+                double du = sg * (0.5 * len + 0.06);
+                Drum(m, x.K, du, dv, dw, r, len, lod);
+                if (lod <= 1)
+                {
+                    for (int e = -1; e <= 1; e += 2)
+                        SacredDraw.Box(m, x.K, du + e * 0.32 * len - 0.07, du + e * 0.32 * len + 0.07, f1 + 0.1, f1 + 0.1 + 0.12 + 0.25 * r, dw - 0.7 * r, dw + 0.7 * r,
+                                       KdsLooks.Beam, BoxFaces.All & ~BoxFaces.Bottom);
+                }
+            }
+            // The small hipped roof, no struts (the photos), and the pale fringe under its eave.
+            RoofSpec rs = KdsKit.Roof(x, hu + 0.6, hw + 0.6, eave, 0.12, Math.Max(0.12, hw - hu + 0.12), DrumsTopM - 0.05, hu, hw, c1 + 0.22, KdsLooks.TileOld, 0);
+            KdsKit.Valance(x, rs, 0.26, DrumFringe);
             return DrumsTopM;
         }
 
-        /// <summary>A great drum of radius r and length len lying on its side at (u, v, w), its axis along +w tipped up a
-        /// little and toed by <paramref name="toe"/> rad: a wooden shell, cream painted skins with red and coloured
-        /// circles, red rims.</summary>
-        private static void Drum(MeshData m, in Affine3 k, double u, double v, double w, double r, double len, double toe, int lod)
+        /// <summary>A great drum of radius r and length len lying on its side at (u, v, w) with its axis along u: a barrel
+        /// covered in dark leather, cream painted heads, dark iron hoops at both rims and 14 leather lacing cords
+        /// zig-zagging from hoop to hoop over the barrel (LOD0; tubes of 0.015 m radius).</summary>
+        private static void Drum(MeshData m, in Affine3 k, double u, double v, double w, double r, double len, int lod)
         {
-            double tilt = 0.2, ax = Math.Sin(toe) * Math.Cos(tilt), ay = Math.Sin(tilt), az = Math.Cos(toe) * Math.Cos(tilt);
-            // A frame whose y is the drum axis, x across it on the ground plane.
-            double xl = Math.Sqrt(az * az + ax * ax), xu = az / xl, xw = -ax / xl;
-            Affine3 f = SacredDraw.Basis(k, u - 0.5 * len * ax, v - 0.5 * len * ay, w - 0.5 * len * az, xu, 0, xw, ax, ay, az);
+            // A frame whose y is the drum axis (+u), x along +w, z down.
+            Affine3 f = SacredDraw.Basis(k, u - 0.5 * len, v, w, 0, 0, 1, 1, 0, 0);
             int seg = Kseg(lod);
             var p = new Profile2(10);
             p.Add(0, 0, true).Add(0.94 * r, 0, true).Add(r, 0.12 * len).Add(1.03 * r, 0.5 * len).Add(r, 0.88 * len).Add(0.94 * r, len, true).Add(0, len, true);
-            Shapes.Lathe(m, f, Looks.Of(MeshColor.FromHex(0x6B3A24), MaterialChannel.Wood), p, seg);
-            // The front skin, painted, and the red rims.
-            ShapeBrush skin = Looks.Of(MeshColor.FromHex(0xD9CBAA), MaterialChannel.Paint), red = KdsLooks.PaintRed;
+            Shapes.Lathe(m, f, Looks.Ao(DrumLeather, 0.82f), p, seg);
+            // The painted heads (seen aslant from the square through the bay) and the hoops.
+            ShapeBrush skin = Looks.Of(MeshColor.FromHex(0xD9CBAA), MaterialChannel.Paint);
             Shapes.Cylinder(m, SacredDraw.At(f, 0, len, 0), skin, 0.92 * r, 0.02, seg);
             Shapes.Cylinder(m, SacredDraw.At(f, 0, -0.02, 0), skin, 0.92 * r, 0.02, seg);
             if (lod <= 1)
             {
-                Shapes.Torus(m, SacredDraw.At(f, 0, len, 0), red, 0.95 * r, 0.05, seg, 4);
-                Shapes.Torus(m, SacredDraw.At(f, 0, 0, 0), red, 0.95 * r, 0.05, seg, 4);
+                Shapes.Torus(m, SacredDraw.At(f, 0, len, 0), DrumHoop, 0.96 * r, 0.045, seg, 4);
+                Shapes.Torus(m, SacredDraw.At(f, 0, 0, 0), DrumHoop, 0.96 * r, 0.045, seg, 4);
             }
-            if (lod == 0)
+            if (lod != 0) return;
+            for (int e = 0; e < 2; e++)
             {
-                // The worn painted head: a faded red ring round a paler centre (c_bigdrum 03, 06), and the leather lacing
-                // zig-zagging over the shell from rim to rim.
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.02, 0), Looks.Of(MeshColor.FromHex(0xA8473A), MaterialChannel.Paint), 0.62 * r, 0.006, seg);
-                Shapes.Cylinder(m, SacredDraw.At(f, 0, len + 0.026, 0), Looks.Of(MeshColor.FromHex(0xE3D6B8), MaterialChannel.Paint), 0.5 * r, 0.006, seg);
-                ShapeBrush lace = Looks.Of(MeshColor.FromHex(0x4A2A1C), MaterialChannel.Leather);
-                const int laces = 8;
-                for (int i = 0; i < laces; i++)
-                {
-                    double a0 = 2 * Math.PI * i / laces, a1 = a0 + Math.PI / laces;
-                    Shapes.Bar(m, f, lace, 0.97 * r * Math.Cos(a0), 0.04 * len, 0.97 * r * Math.Sin(a0), 1.01 * r * Math.Cos(a1), 0.5 * len, 1.01 * r * Math.Sin(a1),
-                               0.018, 3);
-                    Shapes.Bar(m, f, lace, 1.01 * r * Math.Cos(a1), 0.5 * len, 1.01 * r * Math.Sin(a1), 0.97 * r * Math.Cos(a0), 0.96 * len, 0.97 * r * Math.Sin(a0),
-                               0.018, 3);
-                }
+                double y = e == 0 ? len + 0.02 : -0.026;
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, y, 0), Looks.Of(MeshColor.FromHex(0xA8473A), MaterialChannel.Paint), 0.62 * r, 0.006, seg);
+                Shapes.Cylinder(m, SacredDraw.At(f, 0, e == 0 ? y + 0.006 : y - 0.006, 0), Looks.Of(MeshColor.FromHex(0xE3D6B8), MaterialChannel.Paint), 0.5 * r, 0.006, seg);
             }
+            // The lacing: each cord runs from one hoop to the other and back (a zig-zag round the barrel), in two straight
+            // pieces per run that pass over the barrel's belly.
+            const int laces = 14;
+            for (int i = 0; i < laces; i++)
+            {
+                double a0 = 2 * Math.PI * i / laces, a1 = a0 + Math.PI / laces, a2 = a0 + 2 * Math.PI / laces;
+                LaceRun(m, f, r, len, a0, a1, true);
+                LaceRun(m, f, r, len, a1, a2, false);
+            }
+        }
+
+        /// <summary>One lacing run of a drum from the hoop at angle a (y = 0, or y = len when not <paramref name="out0"/>) to
+        /// the other hoop at angle b, over the belly (two straight tubes).</summary>
+        private static void LaceRun(MeshData m, in Affine3 f, double r, double len, double a, double b, bool out0)
+        {
+            double y0 = out0 ? 0.05 * len : 0.95 * len, y1 = out0 ? 0.95 * len : 0.05 * len, am = 0.5 * (a + b), rr = 1.0 * r, rm = 1.055 * r;
+            Shapes.Bar(m, f, DrumLeather, rr * Math.Cos(a), y0, rr * Math.Sin(a), rm * Math.Cos(am), 0.5 * len, rm * Math.Sin(am), 0.015, 3);
+            Shapes.Bar(m, f, DrumLeather, rm * Math.Cos(am), 0.5 * len, rm * Math.Sin(am), rr * Math.Cos(b), y1, rr * Math.Sin(b), 0.015, 3);
         }
 
         private static int Kseg(int lod)

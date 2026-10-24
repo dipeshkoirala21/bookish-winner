@@ -28,6 +28,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         public double WinW, WinH;
         public bool Bells, RichStruts;
 
+        /// <summary>Carved deity struts with griffin corners at LOD0 (Jagannath's first roof; <see cref="KdsKit.DeityStruts"/>).</summary>
+        public bool DeityStruts;
+
         /// <summary>The roof underside where it passes over the storey wall (the soffit's wall line).</summary>
         public double SoffitAtWall
         {
@@ -53,20 +56,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             for (int i = 0; i < tiers.Length; i++)
             {
                 KdsTier t = tiers[i];
-                // Raise a tier whose eave would hang into a road corridor's overhead clearance (contract §1), before the
-                // wall under it is sized.
-                double lift = KdsKit.FitEave(x, ref t.EaveHu, ref t.EaveHw, t.WallHu, t.WallHw, t.EaveV - Math.Min(0.24, 0.1 + 0.012 * Math.Max(t.EaveHu, t.EaveHw)));
-                if (lift > 0)
-                {
-                    t.EaveV += lift;
-                    t.TopV = Math.Max(t.TopV, t.EaveV + 0.3);
-                    for (int j = i + 1; j < tiers.Length; j++)
-                    {
-                        if (tiers[j].WallV0 < t.TopV) tiers[j].WallV0 = t.TopV;
-                        if (tiers[j].EaveV < tiers[j - 1].EaveV + 0.6) tiers[j].EaveV = Math.Max(tiers[j].EaveV, tiers[j].WallV0 + 0.6);
-                        if (tiers[j].TopV < tiers[j].EaveV + 0.3) tiers[j].TopV = tiers[j].EaveV + 0.3;
-                    }
-                }
+                // A tier whose eave would hang into a road corridor's clearance has its overhang pulled back by the roof
+                // (KdsKit.FitEave, once: never shorter than 60 % of the measured overhang); the measured eave height stays
+                // (judge round 1: a heritage tier is never raised).
                 double soffit = Math.Max(t.EaveV + 0.05, t.SoffitAtWall);
                 // The storey wall from its foot up into the roof.
                 SacredParts.BandedWall(x.M, x.K, t.WallHu, t.WallHw, t.WallV0, soffit + 0.25, t.Wall, KdsLooks.Timber, x.Lod, false, false);
@@ -75,7 +67,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 RoofSpec r = KdsKit.Roof(x, t.EaveHu, t.EaveHw, t.EaveV, t.TopHu, t.TopHw, t.TopV, t.WallHu, t.WallHw, soffit, t.Tile, t.ValanceH);
                 if (t.StrutsU > 0)
                 {
-                    int n = KdsKit.Struts(x, r, t.StrutFootV > 0 ? t.StrutFootV : t.WallV0 + 0.15, t.StrutsU, t.StrutsW, t.RichStruts, seed + (uint)i * 31u);
+                    double foot = t.StrutFootV > 0 ? t.StrutFootV : t.WallV0 + 0.15;
+                    int n = t.DeityStruts ? KdsKit.DeityStruts(x, r, foot, t.StrutsU, t.StrutsW, seed + (uint)i * 31u)
+                                          : KdsKit.Struts(x, r, foot, t.StrutsU, t.StrutsW, t.RichStruts, seed + (uint)i * 31u);
                     if (x.Stats != null) x.Stats.Struts += n;
                 }
                 if (t.Bells && x.Lod == 0 && i == 0)
@@ -132,7 +126,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 {
                     Affine3 sk = KdsKit.Side(x.K, s);
                     double a = KdsKit.Along(s, su, sw), d = KdsKit.Depth(s, su, sw);
+                    // The front face in full; the others, in the ambulatory's shade, one LOD coarser.
+                    int was = s > 0 ? x.Coarser() : x.Lod;
                     SanctumFace(x, sk, a, d, v0, v1, s < doors || doors >= 4, latticeDoors, keyholes);
+                    x.Restore(was);
                 }
             }
             else

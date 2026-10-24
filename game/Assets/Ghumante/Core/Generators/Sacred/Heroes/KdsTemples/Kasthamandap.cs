@@ -21,6 +21,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
     {
         public const float TopM = 20.3f;
 
+        /// <summary>The first roof's eave over the plinth foot (m; DANAM KAT1970 elevation).</summary>
+        public const double FirstEaveM = 4.5;
+
         private static readonly double[] OuterPosts = { -9.16, -8.07, -5.79, -3.49, -1.19, 1.19, 3.49, 5.79, 8.07, 9.16 };
         private static readonly double[] BayGrid = { -8.07, -5.79, -3.49 };
 
@@ -95,8 +98,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             // First roof: very broad and low; its soffit returns to the beam over the outer posts. No struts: the 2021
             // rebuild carries the first eave on the beam ring straight over the posts (DANAM KAT1970 photos 04, 11). No eave
             // bells either: only the crimson valances hang from the 2021 eaves (KAT1970 04, 13).
+            // The eave stands at the elevation's 4.5 m over the plinth foot (judge round 1: never raised over the paths
+            // round it; the broad first roof sits directly on the post hall at a third of the height).
             const double brick = 5.9;
-            KdsKit.Roof(x, 11.35, 11.35, 4.85, brick + 0.05, brick + 0.05, 7.6, 9.3, 9.3, postTop + 0.3, KdsLooks.TileNew, 0.48);
+            KdsKit.Roof(x, 11.35, 11.35, FirstEaveM, brick + 0.05, brick + 0.05, 7.6, 9.3, 9.3, postTop + 0.3, KdsLooks.TileNew, 0.48);
 
             // The brick band storey with its small carved windows, the continuous balcony gallery.
             double bandTop = 8.9;
@@ -145,8 +150,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             x.F = f;
         }
 
-        /// <summary>One corner bay (quadrant qu, qw): its raised floor, brick walls behind the outer posts and the carved
-        /// mezzanine balcony fronts on its two outer faces.</summary>
+        /// <summary>The corner bays' brick base (dark, weathered: the 2021 photos show only a low base behind the posts).</summary>
+        private static readonly ShapeBrush BayBrick = Looks.Of(MeshColor.FromHex(0x7A3E2E), MaterialChannel.Brick);
+
+        /// <summary>
+        /// One corner bay (quadrant qu, qw): its raised floor, a low dark brick base behind the outer posts with a carved
+        /// timber balustrade on it, the shadowed interior read through the balusters (a dark panel set back inside the bay),
+        /// and the carved mezzanine balcony fronts on its two outer faces (KAT1970 04, 06, 11: from the square the hall reads
+        /// open and dark, posts and dark railings in front of shadowed raised platforms, not red-walled rooms).
+        /// </summary>
         private static void CornerBay(KdsCtx x, int qu, int qw, double pv)
         {
             MeshData m = x.M;
@@ -155,14 +167,14 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             double u0 = qu < 0 ? -a1 : a0, u1 = qu < 0 ? -a0 : a1, w0 = qw < 0 ? -a1 : a0, w1 = qw < 0 ? -a0 : a1;
             SacredDraw.Box(m, x.K, u0, u1, pv, fl, w0, w1, KdsLooks.StonePlinth, BoxFaces.All & ~BoxFaces.Bottom);
             x.Floor(u0, u1, w0, w1, pv, fl, GenColliders.Stone);
-            // Brick walls along the two outer faces, 2.1 m high, set behind the post line.
-            const double wt = 0.32, wh = 2.15;
+            // The low brick base along the two outer faces, set behind the post line, and the balustrade on it.
+            const double wt = 0.32, bh = 0.7, rail = 0.9;
             double ou = qu * 8.75, ow = qw * 8.75;
-            SacredDraw.Box(m, x.K, Math.Min(ou, ou - qu * wt), Math.Max(ou, ou - qu * wt), fl, fl + wh, w0, w1, KdsLooks.Brick, BoxFaces.All & ~BoxFaces.Bottom);
-            SacredDraw.Box(m, x.K, u0, u1, fl, fl + wh, Math.Min(ow, ow - qw * wt), Math.Max(ow, ow - qw * wt), KdsLooks.Brick, BoxFaces.All & ~BoxFaces.Bottom);
-            x.Solid(Math.Min(ou, ou - qu * wt), Math.Max(ou, ou - qu * wt), w0, w1, fl, fl + wh, GenColliders.Brick);
-            x.Solid(u0, u1, Math.Min(ow, ow - qw * wt), Math.Max(ow, ow - qw * wt), fl, fl + wh, GenColliders.Brick);
-            // The carved balcony fronts on both outer faces of the bay.
+            double bu0 = Math.Min(ou, ou - qu * wt), bu1 = Math.Max(ou, ou - qu * wt), bw0 = Math.Min(ow, ow - qw * wt), bw1 = Math.Max(ow, ow - qw * wt);
+            SacredDraw.Box(m, x.K, bu0, bu1, fl, fl + bh, w0, w1, BayBrick, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, x.K, u0, u1, fl, fl + bh, bw0, bw1, BayBrick, BoxFaces.All & ~BoxFaces.Bottom);
+            x.Solid(bu0, bu1, w0, w1, fl, fl + bh + rail, GenColliders.Brick);
+            x.Solid(u0, u1, bw0, bw1, fl, fl + bh + rail, GenColliders.Brick);
             int sideU = qu < 0 ? 1 : 3, sideW = qw < 0 ? 2 : 0;
             for (int pass = 0; pass < 2; pass++)
             {
@@ -170,7 +182,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 // Along the side frame's own u axis: side 1 runs along +w, side 3 along −w, side 0 along +u, side 2 along −u.
                 double c = pass == 0 ? 0.5 * (w0 + w1) : 0.5 * (u0 + u1);
                 if (s == 3 || s == 2) c = -c;
-                Balcony(x, KdsKit.Side(x.K, s), c - 2.95, c + 2.95, 9.3, 2.35, lod);
+                Affine3 sk = KdsKit.Side(x.K, s);
+                Balustrade(m, sk, c - 2.95, c + 2.95, 8.75 - 0.5 * wt, fl + bh, rail, lod);
+                // The shadowed interior behind the balusters: a dark panel set back 1.6 m into the bay, up to the mezzanine.
+                SacredDraw.Panel(m, sk, c - 2.95, fl + bh, c + 2.95, 2.4, 8.75 - 1.6, Looks.Of(MeshColor.FromHex(0x2A1E18), MaterialChannel.Plain));
+                Balcony(x, sk, c - 2.95, c + 2.95, 9.3, 2.35, lod);
+            }
+        }
+
+        /// <summary>A dark carved timber balustrade on side frame sk (plane d) from a0 to a1, on v0, h high: a bottom and a
+        /// top rail with balusters every 0.25 m at LOD0 (front faces: the dark bay behind them is what shows between),
+        /// every 0.75 m at LOD1, a dark band at LOD2.</summary>
+        private static void Balustrade(MeshData m, in Affine3 sk, double a0, double a1, double d, double v0, double h, int lod)
+        {
+            ShapeBrush wood = KdsLooks.Timber;
+            if (lod >= 2)
+            {
+                SacredDraw.Panel(m, sk, a0, v0, a1, v0 + h, d + 0.05, Looks.Ao(wood, 0.8f));
+                return;
+            }
+            SacredDraw.Box(m, sk, a0, a1, v0, v0 + 0.08, d - 0.05, d + 0.07, wood, BoxFaces.Front | BoxFaces.Top);
+            SacredDraw.Box(m, sk, a0, a1, v0 + h - 0.09, v0 + h, d - 0.06, d + 0.08, wood, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
+            double pitch = lod == 0 ? 0.25 : 0.75;
+            int n = Math.Max(2, (int)Math.Round((a1 - a0) / pitch));
+            for (int i = 0; i <= n; i++)
+            {
+                double u = a0 + (a1 - a0) * i / n;
+                SacredDraw.Box(m, sk, u - 0.035, u + 0.035, v0 + 0.08, v0 + h - 0.09, d - 0.02, d + 0.04, wood, BoxFaces.Front);
             }
         }
 

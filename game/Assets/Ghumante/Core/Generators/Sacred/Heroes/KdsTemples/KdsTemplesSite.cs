@@ -39,6 +39,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         BasantapurSquare,
         ShivaNorth,
         ShivaWest,
+        SquarePaving,
+        Kavindrapur,
+        ShivaMandira1,
+        ShivaMandira2,
+        GorakhnathPipal,
+        Kashinath,
+        NilaVarahi,
     }
 
     /// <summary>
@@ -95,6 +102,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             /// <summary>An unmapped structure's radius (m) kept clear of the road corridors: placed by the brief, it is
             /// nudged (up to 3 m) out of a corridor it would stand in (0 = not nudged).</summary>
             public double KeepClearM;
+
+            /// <summary>Radius (m) of the structure's level pad round its brief position (<see cref="KdsGround"/>; 0 = none):
+            /// the outline's half diagonal and what stands beside it (stairs, lions, the Garuda), plus the brief's offset.</summary>
+            public double PadR;
         }
 
         // LOD0 / LOD1 / LOD2 / LOD3 ceilings by class (heritage heroes: about 60 k per major temple at LOD0, LOD1 about
@@ -174,6 +185,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                   StoneShrines.ShivaNorthTopM, 2),
                 E("her.ktm.kds_shiva_west", "Shiva temple (Kasthamandap west)", KdsPart.ShivaWest, HeritageKind.Pagoda, "w196809346", -187.9, -73.6, 108.3f,
                   StoneShrines.ShivaWestTopM, 2),
+
+                // --- judge round 1: the square's flag paving, the missing monuments ---
+                E("her.ktm.kds_square_paving", "Durbar Square paving", KdsPart.SquarePaving, HeritageKind.None, null, -130.0, -40.0, 191.6f, SquarePaving.TopM, 3),
+                // Kavindrapur (KAT2000) on its outline; the modern house north of it (w1416684423) stays (photos 04, 07).
+                E("her.ktm.kds_kavindrapur", "Kavindrapur (Kabindrapur)", KdsPart.Kavindrapur, HeritageKind.HouseTemple, "w906786393", -153.0, -87.6, 281.5f,
+                  Kavindrapur.TopM, 1),
+                // The north-east corner (KAT1550/1551/1552/1560 site plans, offsets from Shiva Mandira 2's outline).
+                E("her.ktm.kds_shiva_mandira_2", "Shiva Mandira 2", KdsPart.ShivaMandira2, HeritageKind.Pagoda, "w907048009", 7.5, 45.1, 284.2f,
+                  NorthShrines.ShivaMandira2TopM, 2),
+                E("her.ktm.kds_shiva_mandira_1", "Shiva Mandira 1", KdsPart.ShivaMandira1, HeritageKind.Pagoda, null, 12.2, 59.0, 284.2f, NorthShrines.ShivaMandira1TopM, 2),
+                E("her.ktm.kds_gorakhnath_pipal", "Gorakhnath shrine, pipal and Pira Pati", KdsPart.GorakhnathPipal, HeritageKind.Relief, null, 13.0, 64.1, 284.2f,
+                  Gorakhnath.TopM, 2),
+                // Behind Mahavishnu (KAT1521, KAT1522): Kashinath on its outline, Nila Varahi against the house north of it.
+                E("her.ktm.kds_kashinath", "Kashinath", KdsPart.Kashinath, HeritageKind.Pagoda, "w907080024", -10.2, 82.6, 194.5f, NorthShrines.KashinathTopM, 2),
+                E("her.ktm.kds_nila_varahi", "Nila Varahi (Varaha)", KdsPart.NilaVarahi, HeritageKind.Pagoda, null, -22.1, 83.1, 191.4f, NorthShrines.NilaVarahiTopM, 2),
             };
             foreach (Entry e in l)
             {
@@ -187,6 +213,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 if (e.Part == KdsPart.PratapMallaColumn) e.Rel = "her.ktm.jagannath";
                 if (e.Part == KdsPart.Kotilingeshwar) e.Rel = "her.ktm.kds_mahavishnu";
                 if (e.Part == KdsPart.BasantapurSquare) e.Rel = "her.ktm.kds_dabali";
+                if (e.Part == KdsPart.ShivaMandira1 || e.Part == KdsPart.GorakhnathPipal) e.Rel = "her.ktm.kds_shiva_mandira_2";
+                if (e.Part == KdsPart.NilaVarahi) e.Rel = "her.ktm.kds_mahavishnu";
                 e.Existing = e.Id == "her.ktm.kasthamandap" || e.Id == "her.ktm.maju_dega" || e.Id == "her.ktm.trailokya_mohan" || e.Id == "her.ktm.jagannath" ||
                              e.Id == "her.ktm.shiva_parvati" || e.Id == "her.ktm.kal_bhairav";
                 switch (e.Part)
@@ -217,12 +245,64 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                     case KdsPart.Indrapur:
                     case KdsPart.LakshmiNarayan:
                     case KdsPart.Mahendreshwar:
+                    case KdsPart.ShivaMandira1:
+                    case KdsPart.ShivaMandira2:
+                    case KdsPart.Kashinath:
                         e.Tiers = 2;
+                        break;
+                    case KdsPart.Kavindrapur:
+                        e.Tiers = 3;
                         break;
                 }
                 e.PlanW = e.PlanD = 8f;
+                e.PadR = PadRadius(e.Part);
             }
             return l.ToArray();
+        }
+
+        /// <summary>The level pad's radius of a structure (m): the half diagonal of its outline (placement of the sample
+        /// tile) with what stands beside it, plus the brief position's offset from the outline (up to 3 m).</summary>
+        private static double PadRadius(KdsPart p)
+        {
+            switch (p)
+            {
+                case KdsPart.Kasthamandap: return 16.0;
+                case KdsPart.MajuDega: return 16.0;
+                case KdsPart.TrailokyaMohan: return 13.0; // the Garuda 10.7 m west of the centre
+                case KdsPart.Jagannath: return 11.0;
+                case KdsPart.ShivaParvati: return 10.0;
+                case KdsPart.KalBhairav: return 5.0;
+                case KdsPart.SilyanSattal: return 9.5;
+                case KdsPart.AshokBinayak: return 6.0;
+                case KdsPart.WhiteShikhara: return 2.5;
+                case KdsPart.NarayanRuin: return 9.5;
+                case KdsPart.Dabali: return 8.5;
+                case KdsPart.LaxmiNarayanSattal: return 8.5;
+                case KdsPart.TalejuBell: return 6.0;
+                case KdsPart.Saraswati: return 4.5;
+                case KdsPart.ChyasinDega: return 9.0;
+                case KdsPart.BigDrums: return 5.0;
+                case KdsPart.LakshmiNarayan: return 4.5;
+                case KdsPart.PratapMallaColumn: return 1.5;
+                case KdsPart.Indrapur: return 6.5;
+                case KdsPart.Gopinath: return 7.5;
+                case KdsPart.Kotilingeshwar: return 6.0;
+                case KdsPart.Kageshwor: return 8.0;
+                case KdsPart.Mahavishnu: return 9.0;
+                case KdsPart.Mahendreshwar: return 9.0;
+                case KdsPart.Bhagwati: return 15.5;
+                case KdsPart.SwetaBhairav: return 0;
+                case KdsPart.BasantapurSquare: return 0;
+                case KdsPart.ShivaNorth: return 6.0;
+                case KdsPart.ShivaWest: return 4.5;
+                case KdsPart.Kavindrapur: return 9.5;
+                case KdsPart.ShivaMandira1: return 3.5;
+                case KdsPart.ShivaMandira2: return 4.5;
+                case KdsPart.GorakhnathPipal: return 9.5; // the shrine, the chautara and Pira Pati 6 m north of it
+                case KdsPart.Kashinath: return 5.0;
+                case KdsPart.NilaVarahi: return 2.5;
+                default: return 0;
+            }
         }
 
         private static Dictionary<string, Entry> Index()
@@ -242,6 +322,12 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
         internal static bool TryEntry(string id, out Entry e)
         {
             return ById.TryGetValue(id ?? "", out e);
+        }
+
+        /// <summary>Every structure's table entry (existing heroes first).</summary>
+        internal static Entry[] Entries
+        {
+            get { return Table; }
         }
 
         /// <summary>The ids of every structure of the site (existing heroes first).</summary>
@@ -312,7 +398,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 if (r.PlanD <= 0) r.PlanD = e.PlanD;
                 // The Basantapur square is open ground (pigeon flocks, stalls and crowds on it), not a monument the animals
                 // keep out of (Generators/Fauna FaunaHeroZones reads the plan).
-                if (e.Part == KdsPart.BasantapurSquare) r.PlanW = r.PlanD = 0f;
+                if (e.Part == KdsPart.BasantapurSquare || e.Part == KdsPart.SquarePaving) r.PlanW = r.PlanD = 0f;
                 r.Measured = true;
                 r.BudgetTris = (int[])Budgets[e.Class].Clone();
                 r.Hide = HideRefs(e.Id);
@@ -353,6 +439,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             return m.TriangleCount - t0;
         }
 
+        /// <summary>Builds a located structure into its context's mesh (the tests read the context afterwards: its eaves,
+        /// the clearance still missing under pulled-back eaves).</summary>
+        internal static double BuildIn(Entry e, KdsCtx x)
+        {
+            return Dispatch(e, x);
+        }
+
         private static double Dispatch(Entry e, KdsCtx x)
         {
             switch (e.Part)
@@ -386,6 +479,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 case KdsPart.NarayanRuin: return Basantapur.NarayanRuin(x);
                 case KdsPart.Dabali: return Basantapur.Dabali(x);
                 case KdsPart.BasantapurSquare: return Basantapur.Square(x);
+                case KdsPart.SquarePaving: return SquarePaving.Build(x);
+                case KdsPart.Kavindrapur: return Kavindrapur.Build(x);
+                case KdsPart.ShivaMandira1: return NorthShrines.ShivaMandira1(x);
+                case KdsPart.ShivaMandira2: return NorthShrines.ShivaMandira2(x);
+                case KdsPart.GorakhnathPipal: return Gorakhnath.Build(x);
+                case KdsPart.Kashinath: return NorthShrines.Kashinath(x);
+                case KdsPart.NilaVarahi: return NorthShrines.NilaVarahi(x);
                 default: return 0;
             }
         }
@@ -443,22 +543,33 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
                 }
                 if (cx < 0 || cz < 0 || cx >= tile.Tile.Size || cz >= tile.Tile.Size) return false;
             }
-            IHeightSampler h = tile.HeightsQ != null ? new TileHeightSampler(tile) : null;
+            // The square's levelled ground (KdsGround): the tile's heights as the streamer prepares them.
+            IHeightSampler h = KdsGround.Sampler(tile);
             if (ring == null && e.KeepClearM > 0 && tile.Roads.Count > 0) Nudge(SacredClearance.For(tile, h), SacredDrawnRoads.For(tile), e.KeepClearM, ref cx, ref cz);
             var g = new RoadSurface(tile, h);
             KitFrame kf = KitFrame.FromYaw(cx, 0, cz, yaw);
             double ground = double.MaxValue;
             if (h != null)
             {
-                if (ring != null)
+                // Every structure stands on its own level pad, the plaza's level at its place (judge round 1: not the lowest
+                // terrain sample under it, which left plinths buried on one side and raised on the other).
+                double pad = e.PadR > 0 ? KdsGround.PadLevel(e.X) : KdsGround.LevelAt(e.X, e.Y);
+                if (!double.IsNaN(pad))
                 {
-                    for (int i = 0; i < ring.Length / 2; i++) ground = Math.Min(ground, g.Height(ring[2 * i] / 100.0, ring[2 * i + 1] / 100.0));
+                    ground = pad;
                 }
-                for (int q = 0; q < 5; q++)
+                else
                 {
-                    double px, py, pz;
-                    kf.ToWorld(q == 4 ? 0 : (q % 2 == 0 ? -hu : hu), 0, q == 4 ? 0 : (q < 2 ? -hw : hw), out px, out py, out pz);
-                    ground = Math.Min(ground, g.Height(px, pz));
+                    if (ring != null)
+                    {
+                        for (int i = 0; i < ring.Length / 2; i++) ground = Math.Min(ground, g.Height(ring[2 * i] / 100.0, ring[2 * i + 1] / 100.0));
+                    }
+                    for (int q = 0; q < 5; q++)
+                    {
+                        double px, py, pz;
+                        kf.ToWorld(q == 4 ? 0 : (q % 2 == 0 ? -hu : hu), 0, q == 4 ? 0 : (q < 2 ? -hw : hw), out px, out py, out pz);
+                        ground = Math.Min(ground, g.Height(px, pz));
+                    }
                 }
             }
             if (ground == double.MaxValue) ground = 0;
@@ -473,6 +584,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.KdsTemples
             {
                 x.Ground = g;
                 x.HasGround = true;
+                x.Heights = h;
             }
             if (ring != null)
             {

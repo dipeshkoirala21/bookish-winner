@@ -21,6 +21,22 @@ namespace Ghumante.Core.Generators.Sacred
             return Build(r, anchorTile, lod, m, c, null);
         }
 
+        /// <summary>
+        /// The ground the bespoke heritage sites (Heroes/&lt;Site&gt;/) need before a decoded tile is meshed: Kathmandu
+        /// Durbar Square's one nearly level plaza with every monument on its own level pad
+        /// (<see cref="Heroes.KdsTemples.KdsGround.Apply"/>; the terrain model is a surface model that varies 2-3.5 m under
+        /// single monuments). The streamer calls it on every decoded tile next to the structure fallback, so the terrain
+        /// mesh, the sampler, the ground query and every placer read one surface. Idempotent; returns the height samples
+        /// changed.
+        /// </summary>
+        public static int PrepareGround(TileData tile)
+        {
+            if (tile == null) return 0;
+            int n = 0;
+            n += Heroes.KdsTemples.KdsGround.Apply(tile);
+            return n;
+        }
+
         /// <summary>Build a hero; returns its triangles, 0 when the anchor is not in this tile.</summary>
         public static int Build(HeritageRecord r, TileData anchorTile, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
