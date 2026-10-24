@@ -641,6 +641,7 @@ namespace Ghumante.Core.Meshing
         {
             TerrainGrid g = s.Grid;
             TileData src = s.SourceTile;
+            TerrainCarve carve = s.Carve;
             int q = g.Quads;
             double cell = g.CellM, ox = g.X0 - t.Tile.X0, oz = g.Z0 - t.Tile.Z0;
             risers = bunds = 0;
@@ -664,6 +665,9 @@ namespace Ghumante.Core.Meshing
                     float keep = terraced ? keepRisers : keepBunds;
                     if (keep <= 0f) continue;
                     if (keep < 1f && BlockHash((long)Math.Floor((t.Tile.X0 + cx) / BlockM), (long)Math.Floor((t.Tile.Z0 + cz) / BlockM)) >= keep) continue;
+                    // Not over the road cut and fill (TerrainCarve): those quads are drawn carved, not as these triangles.
+                    if (carve != null && (carve.IsRefined(l, k) || carve.IsMoved(k, l) || carve.IsMoved(k, l + 1) || carve.IsMoved(k + 1, l) ||
+                                          carve.IsMoved(k + 1, l + 1))) continue;
                     double h00 = g.VertexHeight(src, k, l), h10 = g.VertexHeight(src, k, l + 1), h01 = g.VertexHeight(src, k + 1, l), h11 = g.VertexHeight(src, k + 1, l + 1);
                     // The two triangles of the quad (split along (k, l)-(k+1, l+1), as the terrain draws them).
                     for (int half = 0; half < 2; half++)

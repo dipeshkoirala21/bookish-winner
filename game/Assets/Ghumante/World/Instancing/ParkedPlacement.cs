@@ -360,10 +360,13 @@ namespace Ghumante.World.Instancing
             float oy;
             if (!s.H.TryHeight(x0 + ox, z0 + oz, out oy)) return false;
             if (!float.IsNaN(roadY) && Math.Abs(oy - roadY) > MaxBankM) return false;
+            // Every wheel on the (carved) ground under it (cut/fill package): pitch and roll to the plane through it.
+            float pitch, roll;
+            if (!Pose(s.H, x0, z0, VehicleMesher.Wheels(e), ox, oz, fx, fz, ref oy, out pitch, out roll)) return false;
             var v = new ParkedVehicle
             {
                 X = (float)ox, Y = oy, Z = (float)oz,
-                YawDeg = (float)(Math.Atan2(fx, fz) * 180.0 / Math.PI),
+                YawDeg = (float)(Math.Atan2(fx, fz) * 180.0 / Math.PI), PitchDeg = pitch, RollDeg = roll,
                 Variant = (ushort)variant,
                 Livery = e.PickLivery(WorldHash.Fnv1a(key, PurposeLivery)),
                 CommunityFleet = e.PlayerDrivable,
@@ -409,6 +412,65 @@ namespace Ghumante.World.Instancing
             // Nothing parks later where the player stands to climb in.
             if (hasDoor) s.AddRun(doorX, doorZ, fx, fz, DoorRoomM, 0.25 + DoorRoomM);
             if (exitM > 0.0) s.AddRun(cx + fx * (hl + 0.5 * exitM), cz + fz * (hl + 0.5 * exitM), fx, fz, 0.5 * exitM, hw + ExitMarginM);
+            return true;
+        }
+
+        /// <summary>
+        /// The pose that stands a parked vehicle's wheels on the ground beside its road (cut/fill package, owner playtest at
+        /// Gaurighat: "half of the motorcycle is in the air"): the ground under each wheel (<paramref name="wheels"/>,
+        /// right/forward from the origin at the rear axle; <paramref name="h"/>, the tile's carved terrain) fitted with a
+        /// plane, whose height at the origin becomes <paramref name="y"/> and whose fall along and across the vehicle become
+        /// its pitch (Unity Euler x, positive noses down) and roll (Euler z, positive raises the right side). Two-wheelers
+        /// stand upright on their stand (no roll). False when a wheel has no ground under it within 0.6 m of
+        /// <paramref name="y"/>.
+        /// </summary>
+        internal static bool Pose(IHeightSampler h, double x0, double z0, WheelSocket[] wheels, double ox, double oz, double fx, double fz, ref float y,
+                                  out float pitchDeg, out float rollDeg)
+        {
+            pitchDeg = rollDeg = 0f;
+            if (wheels == null || wheels.Length < 2) return true;
+            double rx = fz, rz = -fx;
+            // Least squares plane h = c + a * forward + b * right through the ground under the wheels.
+            double s1 = 0, sf = 0, sr = 0, sff = 0, sfr = 0, srr = 0, sh = 0, sfh = 0, srh = 0;
+            float minR = float.MaxValue, maxR = float.MinValue;
+            foreach (WheelSocket w in wheels)
+            {
+                float gy;
+                if (!h.TryHeight(x0 + ox + fx * w.Z + rx * w.X, z0 + oz + fz * w.Z + rz * w.X, out gy) || Math.Abs(gy - y) >= 0.6f) return false;
+                double g = gy;
+                s1 += 1;
+                sf += w.Z;
+                sr += w.X;
+                sff += w.Z * w.Z;
+                sfr += w.Z * w.X;
+                srr += w.X * w.X;
+                sh += g;
+                sfh += w.Z * g;
+                srh += w.X * g;
+                minR = Math.Min(minR, w.X);
+                maxR = Math.Max(maxR, w.X);
+            }
+            bool track = maxR - minR > 0.3f; // a car's, a tempo's or a rickshaw's wheels span a track; a bike's do not
+            double c, a, b = 0;
+            if (track)
+            {
+                // Cramer's rule on the 3 x 3 normal equations.
+                double det = s1 * (sff * srr - sfr * sfr) - sf * (sf * srr - sfr * sr) + sr * (sf * sfr - sff * sr);
+                if (Math.Abs(det) < 1e-9) return true;
+                c = (sh * (sff * srr - sfr * sfr) - sf * (sfh * srr - sfr * srh) + sr * (sfh * sfr - sff * srh)) / det;
+                a = (s1 * (sfh * srr - sfr * srh) - sh * (sf * srr - sfr * sr) + sr * (sf * srh - sfh * sr)) / det;
+                b = (s1 * (sff * srh - sfh * sfr) - sf * (sf * srh - sfh * sr) + sh * (sf * sfr - sff * sr)) / det;
+            }
+            else
+            {
+                double det = s1 * sff - sf * sf;
+                if (Math.Abs(det) < 1e-9) return true;
+                a = (s1 * sfh - sf * sh) / det;
+                c = (sh - a * sf) / s1;
+            }
+            y = (float)c;
+            pitchDeg = (float)(-Math.Atan(a) * 180.0 / Math.PI);
+            rollDeg = (float)(Math.Atan(b) * 180.0 / Math.PI);
             return true;
         }
 

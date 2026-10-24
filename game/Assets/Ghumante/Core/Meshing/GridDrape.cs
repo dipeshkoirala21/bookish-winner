@@ -75,6 +75,7 @@ namespace Ghumante.Core.Meshing
                 cz = t;
             }
             Scratch sc = _scratch ?? (_scratch = new Scratch());
+            TerrainCarve carve = s.Carve;
             int q = g.Quads;
             int imin = (int)Math.Floor(Math.Min(ax, Math.Min(bx, cx))), imax = (int)Math.Ceiling(Math.Max(ax, Math.Max(bx, cx))) - 1;
             int jmin = (int)Math.Floor(Math.Min(az, Math.Min(bz, cz))), jmax = (int)Math.Ceiling(Math.Max(az, Math.Max(bz, cz))) - 1;
@@ -94,6 +95,12 @@ namespace Ghumante.Core.Meshing
                     double x0 = i < 0 ? -1e9 : i, x1 = i >= q ? 1e9 : i + 1;
                     int i0 = Clamp(i, q), i1 = Clamp(i + 1, q);
                     bool virt = i < 0 || i >= q || j < 0 || j >= q;
+                    if (!virt && carve != null && carve.IsRefined(i, j))
+                    {
+                        // A cell the road cut and fill refined: drape on its carved sub-quads (TerrainCarve).
+                        SubCell(sc, carve, i, j, ax, az, bx, bz, cx, cz, a, b, c, cell, ox, oz, lift, uvs, m);
+                        continue;
+                    }
                     for (int half = 0; half < (virt ? 1 : 2); half++)
                     {
                         int n = Seed(sc, ax, az, bx, bz, cx, cz);
@@ -126,8 +133,8 @@ namespace Ghumante.Core.Meshing
                         n = Compact(px, pz, p1, p2, n, 1e-4 / cell);
                         if (n < 3 || PolyArea(px, pz, n) < 1e-10) continue;
 
-                        float h00 = g.VertexHeight(src, j0, i0), h10 = g.VertexHeight(src, j0, i1);
-                        float h01 = g.VertexHeight(src, j1, i0), h11 = g.VertexHeight(src, j1, i1);
+                        float h00 = VertexHeight(g, src, carve, j0, i0), h10 = VertexHeight(g, src, carve, j0, i1);
+                        float h01 = VertexHeight(g, src, carve, j1, i0), h11 = VertexHeight(g, src, carve, j1, i1);
                         double dhdu, dhdv;
                         if (half == 0)
                         {
@@ -174,6 +181,7 @@ namespace Ghumante.Core.Meshing
                             double w1 = p1[k], w2 = p2[k], w0 = 1 - w1 - w2;
                             uint col = Blend(a.Rgba, b.Rgba, c.Rgba, w0, w1, w2);
                             float lx = (float)(gx * cell - ox), lz = (float)(gz * cell - oz);
+                            if (!virt && carve != null) OnBench(carve, lx, lz, ox, oz, cell, lift, ref y, ref nx, ref ny, ref nz);
                             if (uvs)
                                 m.AddVertex(lx, y, lz, nx, ny, nz, col, (float)(w0 * a.U + w1 * b.U + w2 * c.U), (float)(w0 * a.V + w1 * b.V + w2 * c.V));
                             else m.AddVertex(lx, y, lz, nx, ny, nz, col);
@@ -185,6 +193,105 @@ namespace Ghumante.Core.Meshing
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// The part of input triangle (a, b, c) (grid coordinates, counter-clockwise) over refined cell (i, j) of
+        /// <paramref name="carve"/>: clipped against each carved sub-quad triangle it overlaps (split along the (a, b)-(a+1,
+        /// b+1) diagonal, as <see cref="TerrainMesher"/> draws them) and placed on its plane plus the lift, with the facet
+        /// normal.
+        /// </summary>
+        private static void SubCell(Scratch sc, TerrainCarve carve, int i, int j, double ax, double az, double bx, double bz, double cx, double cz, Vertex a,
+                                    Vertex b, Vertex c, double cell, double ox, double oz, float lift, bool uvs, MeshData m)
+        {
+            int r = carve.Sub;
+            double inv = 1.0 / r;
+            double tx0 = Math.Min(ax, Math.Min(bx, cx)), tx1 = Math.Max(ax, Math.Max(bx, cx));
+            double tz0 = Math.Min(az, Math.Min(bz, cz)), tz1 = Math.Max(az, Math.Max(bz, cz));
+            int a0 = Math.Max(0, (int)Math.Floor((tx0 - i) * r)), a1 = Math.Min(r - 1, (int)Math.Ceiling((tx1 - i) * r) - 1);
+            int b0 = Math.Max(0, (int)Math.Floor((tz0 - j) * r)), b1 = Math.Min(r - 1, (int)Math.Ceiling((tz1 - j) * r) - 1);
+            double subM = carve.SubM;
+            for (int sb = b0; sb <= b1; sb++)
+            for (int sa = a0; sa <= a1; sa++)
+            {
+                double u0 = i + sa * inv, u1 = i + (sa + 1) * inv, v0 = j + sb * inv, v1 = j + (sb + 1) * inv;
+                float h00 = carve.SubVertex(i, j, sa, sb), h10 = carve.SubVertex(i, j, sa + 1, sb);
+                float h01 = carve.SubVertex(i, j, sa, sb + 1), h11 = carve.SubVertex(i, j, sa + 1, sb + 1);
+                for (int half = 0; half < 2; half++)
+                {
+                    int n = Seed(sc, ax, az, bx, bz, cx, cz);
+                    if (half == 0)
+                    {
+                        n = Clip(sc, n, u0, v0, u1, v0, true);
+                        if (n >= 3) n = Clip(sc, n, u1, v0, u1, v1, false);
+                        if (n >= 3) n = Clip(sc, n, u1, v1, u0, v0, true);
+                    }
+                    else
+                    {
+                        n = Clip(sc, n, u0, v0, u1, v1, true);
+                        if (n >= 3) n = Clip(sc, n, u1, v1, u0, v1, false);
+                        if (n >= 3) n = Clip(sc, n, u0, v1, u0, v0, true);
+                    }
+                    if (n < 3) continue;
+                    double[] px = sc.Bx, pz = sc.Bz, p1 = sc.B1, p2 = sc.B2;
+                    n = Compact(px, pz, p1, p2, n, 1e-4 / cell);
+                    if (n < 3 || PolyArea(px, pz, n) < 1e-12) continue;
+                    double dhu, dhv;
+                    if (half == 0)
+                    {
+                        dhu = h10 - (double)h00;
+                        dhv = h11 - (double)h10;
+                    }
+                    else
+                    {
+                        dhu = h11 - (double)h01;
+                        dhv = h01 - (double)h00;
+                    }
+                    float fnx, fny, fnz;
+                    TileHeightSampler.FacetNormal(dhu / subM, dhv / subM, out fnx, out fny, out fnz);
+                    m.Reserve(n, 3 * (n - 2));
+                    int first = m.VertexCount;
+                    for (int k = 0; k < n; k++)
+                    {
+                        double gx = px[k], gz = pz[k];
+                        double fu = (gx - u0) * r, fv = (gz - v0) * r;
+                        float y = (float)(h00 + fu * dhu + fv * dhv) + lift;
+                        float nx = fnx, ny = fny, nz = fnz;
+                        double w1 = p1[k], w2 = p2[k], w0 = 1 - w1 - w2;
+                        uint col = Blend(a.Rgba, b.Rgba, c.Rgba, w0, w1, w2);
+                        float lx = (float)(gx * cell - ox), lz = (float)(gz * cell - oz);
+                        OnBench(carve, lx, lz, ox, oz, cell, lift, ref y, ref nx, ref ny, ref nz);
+                        if (uvs)
+                            m.AddVertex(lx, y, lz, nx, ny, nz, col, (float)(w0 * a.U + w1 * b.U + w2 * c.U), (float)(w0 * a.V + w1 * b.V + w2 * c.V));
+                        else m.AddVertex(lx, y, lz, nx, ny, nz, col);
+                    }
+                    for (int k = 1; k + 1 < n; k++)
+                        if (UpFloat(m, first, first + k + 1, first + k) > 0) m.AddTriangle(first, first + k + 1, first + k);
+                }
+            }
+        }
+
+        /// <summary>
+        /// On a road's bench (<see cref="TerrainCarve.BenchAt"/>: a drawn extent, or a crossing's seam landing on the tile
+        /// border) the drape lies on the bench plus the lift, not on the terrain the carve drew hidden under the road, so a
+        /// junction cap, a ring or a plaza lies exactly where its ribbons, the ground query and everything standing there
+        /// are (cut/fill package).
+        /// </summary>
+        private static void OnBench(TerrainCarve carve, float lx, float lz, double ox, double oz, double cell, float lift, ref float y, ref float nx, ref float ny,
+                                    ref float nz)
+        {
+            float bench;
+            double gx, gz;
+            // At the vertex as stored (float, tile-local), exactly where a sampler asked there looks.
+            if (!carve.BenchAt((lx + ox) / cell, (lz + oz) / cell, out bench, out gx, out gz)) return;
+            y = bench + lift;
+            TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
+        }
+
+        /// <summary>A coarse vertex height as drawn (lowered under gentle streets when the area is carved).</summary>
+        private static float VertexHeight(TerrainGrid g, TileData src, TerrainCarve carve, int k, int l)
+        {
+            return carve != null ? carve.CoarseVertex(k, l) : g.VertexHeight(src, k, l);
         }
 
         private static void CornerNormal(TerrainGrid g, TileData src, int k, int l, float[] n)

@@ -100,7 +100,20 @@ namespace Ghumante.Core.Driving
             Buildings(t, h, roads, corridors, hidden, b);
             Props(t, h, roads, b);
             if (roads != null) Railings(t, h, roads, roadOptions ?? new RoadOptions(), b);
+            CarveBarriers(h, b);
             return b.Build();
+        }
+
+        /// <summary>The guard rails and parapets along the drops beside hill roads and the breast walls holding their cuts
+        /// (cut/fill package: <see cref="TerrainCarve.CopyBarriers"/>, the barriers every tier draws).</summary>
+        private static void CarveBarriers(TileHeightSampler h, SolidBuilder b)
+        {
+            TerrainCarve c = h.Carve;
+            if (c == null) return;
+            var list = new List<CarveBarrier>();
+            c.CopyBarriers(list);
+            foreach (CarveBarrier w in list)
+                b.AddWall(w.AX, w.AZ, w.BX, w.BZ, w.Wall ? 0.25f : RailingHalfM, w.Bottom, w.Top, w.Wall ? SolidFlags.None : SolidFlags.NoCamera);
         }
 
         // ---------------------------------------------------------------------------------------------------------

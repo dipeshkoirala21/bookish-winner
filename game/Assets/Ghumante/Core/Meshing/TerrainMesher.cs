@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Ghumante.Core.Data;
 
 namespace Ghumante.Core.Meshing
@@ -30,6 +31,14 @@ namespace Ghumante.Core.Meshing
 
         /// <summary>Strength of the micro-relief in the normals (0 none; 1 the default hummocks).</summary>
         public float MicroRelief = 1f;
+
+        /// <summary>Draw the road cut and fill (<see cref="TerrainCarve"/>: the terrain carved to meet level roads, refined
+        /// cells around them) on detail tiles, as <see cref="TileHeightSampler"/> samples it. Off: the natural grid only.</summary>
+        public bool Carve = true;
+
+        /// <summary>With <see cref="Carve"/>: the retaining walls (gabion and dry stone) and the parapets along big drops
+        /// that the carve builds (<see cref="TerrainCarve.AppendWalls"/>), in the terrain mesh.</summary>
+        public bool Walls = true;
 
         /// <summary>Decoded edge neighbours of the source tile: border normals (and slope colours) then match the
         /// neighbouring tiles' exactly. Give the same neighbours to <see cref="TileHeightSampler.ForArea(TileData,
@@ -95,15 +104,20 @@ namespace Ghumante.Core.Meshing
             CropLand crop = o.Detail && bn > 0 && source.Areas.Count > 0 ? CropLand.For(source) : null;
             // Micro-relief: hummocks of about 30 m, full strength on 8-16 m grids, gone by 48 m (it would alias there).
             float relief = o.MicroRelief * 0.9f * (float)Math.Max(0.0, Math.Min(1.0, (48.0 - g.CellM) / 32.0));
+            TerrainCarve carve = o.Carve && !g.SubSample ? TileHeightSampler.ForArea(source, area, o.Step, o.Neighbours).Carve : null;
             for (int k = 0; k <= q; k++)
             {
                 float pz = (float)(k * g.CellM);
                 for (int l = 0; l <= q; l++)
                 {
                     float px = (float)(l * g.CellM);
-                    float h = g.VertexHeight(source, k, l);
+                    float h = carve != null ? carve.CoarseVertex(k, l) : g.VertexHeight(source, k, l);
                     double gx, gz;
-                    g.VertexGradient(source, k, l, out gx, out gz);
+                    // The tile border keeps the neighbour-aware natural normal: the neighbour cannot see this carve, and
+                    // both tiles must light the shared edge alike.
+                    bool edge = k == 0 || l == 0 || k == q || l == q;
+                    if (carve != null && !edge && MovedNear(carve, k, l, q)) CoarseGradient(carve, k, l, q, g.CellM, out gx, out gz);
+                    else g.VertexGradient(source, k, l, out gx, out gz);
                     Biome biome;
                     if (bn == 0) biome = Biome.None;
                     else if (!g.SubSample)
@@ -114,15 +128,31 @@ namespace Ghumante.Core.Meshing
                     float nx, ny, nz;
                     TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
                     uint c = o.SlopeColours ? BiomePalette.Ground(biome, o.Season, ny) : BiomePalette.Rgba(biome, o.Season);
+                    // A coarse vertex carved beside a hill road shows the cut or fill (TerrainCarve.PreCarve).
+                    bool carved = carve != null && carve.IsCarvedVertex(k, l);
+                    float delta = carved ? h - carve.NaturalVertex(k, l) : 0f;
+                    double wx = area.X0 + px, wz = area.Z0 + pz;
                     if (!o.Detail)
                     {
+                        if (carved)
+                        {
+                            MaterialChannel unused;
+                            float uw;
+                            c = CutFill.Blend(c, MaterialChannel.Plain, delta, ny, h, wx, wz, out unused, out uw);
+                        }
                         m.AddVertex(px, h, pz, nx, ny, nz, c);
                         continue;
                     }
-                    double wx = area.X0 + px, wz = area.Z0 + pz;
                     MaterialChannel ch;
                     float ao;
                     c = TerrainLook.Colour(biome, o.Season, c, ny, h, wx, wz, out ch, out ao);
+                    if (carved)
+                    {
+                        MaterialChannel cch;
+                        float w;
+                        c = CutFill.Blend(c, ch, delta, ny, h, wx, wz, out cch, out w);
+                        if (w > 0.5f) ch = cch;
+                    }
                     if (relief > 0f)
                     {
                         float mx, mz;
@@ -133,24 +163,290 @@ namespace Ghumante.Core.Meshing
                 }
             }
 
-            for (int k = 0; k < q; k++)
+            if (carve == null)
             {
-                int row = baseV + k * side;
-                for (int l = 0; l < q; l++)
+                for (int k = 0; k < q; k++)
                 {
-                    int v00 = row + l, v10 = v00 + 1, v01 = v00 + side, v11 = v01 + 1;
+                    int row = baseV + k * side;
+                    for (int l = 0; l < q; l++)
+                    {
+                        int v00 = row + l, v10 = v00 + 1, v01 = v00 + side, v11 = v01 + 1;
+                        m.AddTriangle(v00, v01, v11);
+                        m.AddTriangle(v00, v11, v10);
+                    }
+                }
+                if (skirt > 0f)
+                {
+                    // Each edge walked with the outside on its right: south W->E, east S->N, north E->W, west N->S.
+                    Skirt(m, baseV, side, skirt, 0, 0, 0, 1);
+                    Skirt(m, baseV, side, skirt, 0, q, 1, 0);
+                    Skirt(m, baseV, side, skirt, q, q, 0, -1);
+                    Skirt(m, baseV, side, skirt, q, 0, -1, 0);
+                }
+                return;
+            }
+            CarvedCells(source, area, g, carve, o, crop, bn, n, relief, baseV, skirt, m);
+        }
+
+        /// <summary>True when coarse vertex (k, l) or one of its four neighbours was moved by the carve.</summary>
+        private static bool MovedNear(TerrainCarve carve, int k, int l, int q)
+        {
+            if (carve.IsMoved(k, l)) return true;
+            if (k > 0 && carve.IsMoved(k - 1, l) || k < q && carve.IsMoved(k + 1, l)) return true;
+            return l > 0 && carve.IsMoved(k, l - 1) || l < q && carve.IsMoved(k, l + 1);
+        }
+
+        /// <summary>Central differences of the coarse heights as drawn (one-sided on the border).</summary>
+        private static void CoarseGradient(TerrainCarve carve, int k, int l, int q, double cell, out double gx, out double gz)
+        {
+            int l0 = Math.Max(0, l - 1), l1 = Math.Min(q, l + 1), k0 = Math.Max(0, k - 1), k1 = Math.Min(q, k + 1);
+            gx = (carve.CoarseVertex(k, l1) - carve.CoarseVertex(k, l0)) / ((l1 - l0) * cell);
+            gz = (carve.CoarseVertex(k1, l) - carve.CoarseVertex(k0, l)) / ((k1 - k0) * cell);
+        }
+
+        private sealed class CarveScratch
+        {
+            public int[] Index = new int[0];
+            public int[] Stamp = new int[0];
+            public int Mark;
+            public readonly List<int> Loop = new List<int>(64);
+
+            public void Ensure(int n)
+            {
+                if (Index.Length >= n) return;
+                Index = new int[n];
+                Stamp = new int[n];
+                Mark = 0;
+            }
+        }
+
+        [ThreadStatic] private static CarveScratch _carveScratch;
+
+        /// <summary>
+        /// The cells of a carved area (<see cref="TerrainCarve"/>): refined cells as <c>Sub × Sub</c> sub-quads on the carved
+        /// heights (each split along its (a, b)-(a+1, b+1) diagonal, the rule <see cref="TileHeightSampler"/> interpolates
+        /// with), unrefined cells beside a refined one as a fan from their centre through the refined neighbour's edge
+        /// vertices (exactly the natural plane of their two triangles, so no T-junction and no crack), the rest as the
+        /// natural two triangles; then skirts that follow the refined edges.
+        /// </summary>
+        private static void CarvedCells(TileData source, TileId area, TerrainGrid g, TerrainCarve carve, TerrainOptions o, CropLand crop, int bn, int n,
+                                        float relief, int baseV, float skirt, MeshData m)
+        {
+            int q = g.Quads, side = q + 1, r = carve.Sub, gs = q * r + 1;
+            CarveScratch sc = _carveScratch ?? (_carveScratch = new CarveScratch());
+            sc.Ensure(gs * gs);
+            if (++sc.Mark == int.MaxValue)
+            {
+                Array.Clear(sc.Stamp, 0, sc.Stamp.Length);
+                sc.Mark = 1;
+            }
+            var ctx = new SubContext
+            {
+                Source = source, Area = area, G = g, Carve = carve, O = o, Crop = crop, Bn = bn, N = n, Relief = relief, BaseV = baseV, M = m, Sc = sc,
+                Gs = gs, R = r, Side = side,
+            };
+            for (int j = 0; j < q; j++)
+            for (int i = 0; i < q; i++)
+            {
+                if (carve.IsRefined(i, j))
+                {
+                    for (int b = 0; b < r; b++)
+                    for (int a = 0; a < r; a++)
+                    {
+                        int gi = i * r + a, gj = j * r + b;
+                        int v00 = ctx.V(gi, gj), v10 = ctx.V(gi + 1, gj), v01 = ctx.V(gi, gj + 1), v11 = ctx.V(gi + 1, gj + 1);
+                        m.AddTriangle(v00, v01, v11);
+                        m.AddTriangle(v00, v11, v10);
+                    }
+                    continue;
+                }
+                bool subW = carve.IsRefined(i - 1, j), subN = carve.IsRefined(i, j + 1), subE = carve.IsRefined(i + 1, j), subS = carve.IsRefined(i, j - 1);
+                if (!subW && !subN && !subE && !subS)
+                {
+                    int v00 = baseV + j * side + i, v10 = v00 + 1, v01 = v00 + side, v11 = v01 + 1;
                     m.AddTriangle(v00, v01, v11);
                     m.AddTriangle(v00, v11, v10);
+                    continue;
                 }
+                // Fan from the cell centre (on the diagonal, so every fan triangle lies in one of the two natural triangles).
+                List<int> loop = sc.Loop;
+                loop.Clear();
+                int i0 = i * r, j0 = j * r, i1 = i0 + r, j1 = j0 + r;
+                for (int t = 0; t < (subW ? r : 1); t++) loop.Add(ctx.V(i0, j0 + t));
+                for (int t = 0; t < (subN ? r : 1); t++) loop.Add(ctx.V(i0 + t, j1));
+                for (int t = 0; t < (subE ? r : 1); t++) loop.Add(ctx.V(i1, j1 - t));
+                for (int t = 0; t < (subS ? r : 1); t++) loop.Add(ctx.V(i1 - t, j0));
+                int c00 = baseV + j * side + i, c11 = c00 + side + 1;
+                int centre = m.VertexCount;
+                AverageVertex(m, c00, c11);
+                for (int k = 0; k < loop.Count; k++) m.AddTriangle(centre, loop[k], loop[(k + 1) % loop.Count]);
+            }
+            if (o.Walls) carve.AppendWalls(m);
+            if (skirt <= 0f) return;
+            List<int> top = sc.Loop;
+            // South edge W->E, east S->N, north E->W, west N->S (the outside on the right).
+            top.Clear();
+            for (int l = 0; l < q; l++)
+                for (int t = 0; t < (carve.IsRefined(l, 0) ? r : 1); t++) top.Add(ctx.V(l * r + t * (carve.IsRefined(l, 0) ? 1 : r), 0));
+            top.Add(ctx.V(q * r, 0));
+            SkirtAlong(m, top, skirt);
+            top.Clear();
+            for (int k = 0; k < q; k++)
+                for (int t = 0; t < (carve.IsRefined(q - 1, k) ? r : 1); t++) top.Add(ctx.V(q * r, k * r + t * (carve.IsRefined(q - 1, k) ? 1 : r)));
+            top.Add(ctx.V(q * r, q * r));
+            SkirtAlong(m, top, skirt);
+            top.Clear();
+            for (int l = q - 1; l >= 0; l--)
+                for (int t = 0; t < (carve.IsRefined(l, q - 1) ? r : 1); t++) top.Add(ctx.V((l + 1) * r - t * (carve.IsRefined(l, q - 1) ? 1 : r), q * r));
+            top.Add(ctx.V(0, q * r));
+            SkirtAlong(m, top, skirt);
+            top.Clear();
+            for (int k = q - 1; k >= 0; k--)
+                for (int t = 0; t < (carve.IsRefined(0, k) ? r : 1); t++) top.Add(ctx.V(0, (k + 1) * r - t * (carve.IsRefined(0, k) ? 1 : r)));
+            top.Add(ctx.V(0, 0));
+            SkirtAlong(m, top, skirt);
+        }
+
+        /// <summary>A vertex halfway between vertices a and b (position, normal, colour, UV0).</summary>
+        private static void AverageVertex(MeshData m, int a, int b)
+        {
+            int pa = 3 * a, pb = 3 * b, ca = 4 * a, cb = 4 * b;
+            float x = 0.5f * (m.Positions[pa] + m.Positions[pb]), y = 0.5f * (m.Positions[pa + 1] + m.Positions[pb + 1]), z = 0.5f * (m.Positions[pa + 2] + m.Positions[pb + 2]);
+            float nx = m.Normals[pa] + m.Normals[pb], ny = m.Normals[pa + 1] + m.Normals[pb + 1], nz = m.Normals[pa + 2] + m.Normals[pb + 2];
+            float inv = 1f / (float)Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            uint rgba = (uint)((m.Colors[ca] + m.Colors[cb]) / 2 << 24 | (m.Colors[ca + 1] + m.Colors[cb + 1]) / 2 << 16 |
+                               (m.Colors[ca + 2] + m.Colors[cb + 2]) / 2 << 8 | (m.Colors[ca + 3] + m.Colors[cb + 3]) / 2);
+            if (m.HasUv0)
+                m.AddVertex(x, y, z, nx * inv, ny * inv, nz * inv, rgba, m.Uv0[2 * a], 0.5f * (m.Uv0[2 * a + 1] + m.Uv0[2 * b + 1]));
+            else m.AddVertex(x, y, z, nx * inv, ny * inv, nz * inv, rgba);
+        }
+
+        /// <summary>Hang a skirt below a polyline of top vertices (walked with the outside on its right).</summary>
+        private static void SkirtAlong(MeshData m, List<int> top, float depth)
+        {
+            int first = m.VertexCount;
+            for (int t = 0; t < top.Count; t++)
+            {
+                int v = top[t], p = v * 3, c = v * 4;
+                uint rgba = (uint)(m.Colors[c] << 24 | m.Colors[c + 1] << 16 | m.Colors[c + 2] << 8 | m.Colors[c + 3]);
+                if (m.HasUv0)
+                    m.AddVertex(m.Positions[p], m.Positions[p + 1] - depth, m.Positions[p + 2], m.Normals[p], m.Normals[p + 1], m.Normals[p + 2], rgba,
+                                m.Uv0[2 * v], m.Uv0[2 * v + 1] * 0.6f);
+                else m.AddVertex(m.Positions[p], m.Positions[p + 1] - depth, m.Positions[p + 2], m.Normals[p], m.Normals[p + 1], m.Normals[p + 2], rgba);
+            }
+            for (int t = 0; t + 1 < top.Count; t++)
+            {
+                int topA = top[t], topB = top[t + 1], botA = first + t, botB = first + t + 1;
+                m.AddTriangle(botA, topA, topB);
+                m.AddTriangle(botA, topB, botB);
+            }
+        }
+
+        /// <summary>The vertices of a carved area's global sub-grid, created on demand (a point on the coarse grid at its
+        /// natural height reuses the coarse vertex).</summary>
+        private struct SubContext
+        {
+            public TileData Source;
+            public TileId Area;
+            public TerrainGrid G;
+            public TerrainCarve Carve;
+            public TerrainOptions O;
+            public CropLand Crop;
+            public int Bn, N, BaseV, Gs, R, Side;
+            public float Relief;
+            public MeshData M;
+            public CarveScratch Sc;
+
+            /// <summary>The drawn height at global sub-grid point (gi, gj): a refined cell's stored height, else the natural
+            /// surface.</summary>
+            public float Height(int gi, int gj, out bool carved)
+            {
+                int r = R, q = G.Quads;
+                int ia = gi % r == 0 ? gi / r - 1 : gi / r, ib = gi / r, ja = gj % r == 0 ? gj / r - 1 : gj / r, jb = gj / r;
+                for (int cj = ja; cj <= jb; cj++)
+                for (int ci = ia; ci <= ib; ci++)
+                {
+                    if (ci < 0 || cj < 0 || ci >= q || cj >= q || !Carve.IsRefined(ci, cj)) continue;
+                    carved = true;
+                    return Carve.SubVertex(ci, cj, gi - ci * r, gj - cj * r);
+                }
+                carved = false;
+                double du, dv;
+                return (float)Carve.CoarseSurface(gi / (double)r, gj / (double)r, out du, out dv);
             }
 
-            if (skirt > 0f)
+            public int V(int gi, int gj)
             {
-                // Each edge walked with the outside on its right: south W->E, east S->N, north E->W, west N->S.
-                Skirt(m, baseV, side, skirt, 0, 0, 0, 1);
-                Skirt(m, baseV, side, skirt, 0, q, 1, 0);
-                Skirt(m, baseV, side, skirt, q, q, 0, -1);
-                Skirt(m, baseV, side, skirt, q, 0, -1, 0);
+                int idx = gj * Gs + gi;
+                if (Sc.Stamp[idx] == Sc.Mark) return Sc.Index[idx];
+                int r = R;
+                bool carved;
+                float h = Height(gi, gj, out carved);
+                double du, dv;
+                float nat = (float)Carve.CoarseSurface(gi / (double)r, gj / (double)r, out du, out dv);
+                int v;
+                if (gi % r == 0 && gj % r == 0 && Math.Abs(h - nat) < 1e-4f) v = BaseV + gj / r * Side + gi / r;
+                else v = Emit(gi, gj, h, Carve.NaturalSurface(gi / (double)r, gj / (double)r));
+                Sc.Index[idx] = v;
+                Sc.Stamp[idx] = Sc.Mark;
+                return v;
+            }
+
+            private int Emit(int gi, int gj, float h, float nat)
+            {
+                int r = R, q = G.Quads, last = q * r;
+                double subM = Carve.SubM;
+                float px = (float)(gi * subM), pz = (float)(gj * subM);
+                double wx = Area.X0 + px, wz = Area.Z0 + pz;
+                float delta = h - nat;
+                bool moved = Math.Abs(delta) > 1e-4f;
+                // Natural shading normal (as the coarse vertices around) and, where carved, the carved surface's own.
+                float nnx, nny, nnz;
+                G.SmoothNormal(Source, gi / (double)r, gj / (double)r, out nnx, out nny, out nnz);
+                double gx = -nnx / nny, gz = -nnz / nny;
+                if (moved)
+                {
+                    bool c;
+                    float hl = gi > 0 ? Height(gi - 1, gj, out c) : h, hr = gi < last ? Height(gi + 1, gj, out c) : h;
+                    float hd = gj > 0 ? Height(gi, gj - 1, out c) : h, hu = gj < last ? Height(gi, gj + 1, out c) : h;
+                    int wxn = (gi > 0 ? 1 : 0) + (gi < last ? 1 : 0), wzn = (gj > 0 ? 1 : 0) + (gj < last ? 1 : 0);
+                    gx = wxn > 0 ? (hr - hl) / (wxn * subM) : 0.0;
+                    gz = wzn > 0 ? (hu - hd) / (wzn * subM) : 0.0;
+                }
+                float nx, ny, nz;
+                TileHeightSampler.FacetNormal(gx, gz, out nx, out ny, out nz);
+                Biome biome = Bn == 0 ? Biome.None : BiomeAt(Source, Bn, wx, wz);
+                if (Crop != null && FieldPattern.IsCrop(biome) && Crop.Excluded(wx - Source.Tile.X0, wz - Source.Tile.Z0)) biome = Biome.UrbanGreen;
+                uint c0 = O.SlopeColours ? BiomePalette.Ground(biome, O.Season, ny) : BiomePalette.Rgba(biome, O.Season);
+                if (!O.Detail)
+                {
+                    if (moved)
+                    {
+                        MaterialChannel unused;
+                        float uw;
+                        c0 = CutFill.Blend(c0, MaterialChannel.Plain, delta, ny, h, wx, wz, out unused, out uw);
+                    }
+                    return M.AddVertex(px, h, pz, nx, ny, nz, c0);
+                }
+                MaterialChannel ch;
+                float ao;
+                uint col = TerrainLook.Colour(biome, O.Season, c0, ny, h, wx, wz, out ch, out ao);
+                if (moved)
+                {
+                    MaterialChannel cch;
+                    float w;
+                    col = CutFill.Blend(col, ch, delta, ny, h, wx, wz, out cch, out w);
+                    if (w > 0.5f) ch = cch;
+                    ao *= 1f - 0.12f * w * (1f - ny);
+                }
+                if (Relief > 0f)
+                {
+                    float mx, mz;
+                    TerrainNoise.FbmGradient(wx, wz, 34.0, 2, 0x4D52u, out mx, out mz);
+                    float k = moved ? 0.5f * Relief : Relief;
+                    TileHeightSampler.FacetNormal(gx + mx * k, gz + mz * k, out nx, out ny, out nz);
+                }
+                return M.AddVertex(px, h, pz, nx, ny, nz, col, (float)ch, ao);
             }
         }
 

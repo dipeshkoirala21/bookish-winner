@@ -12,6 +12,11 @@ namespace Ghumante.World.Instancing
     public struct ParkedVehicle
     {
         public float X, Y, Z, YawDeg;
+
+        /// <summary>Pitch (Unity Euler x: positive noses down) and roll (Euler z: positive raises the right side) that
+        /// stand every wheel on the (carved) ground beside a sloping street (cut/fill package, owner playtest: "half of the
+        /// motorcycle is in the air"); the body is drawn with <c>Quaternion.Euler(PitchDeg, YawDeg, RollDeg)</c>.</summary>
+        public float PitchDeg, RollDeg;
         public ushort Variant;
         public byte Livery;
         public bool CommunityFleet;

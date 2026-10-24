@@ -579,7 +579,7 @@ namespace Ghumante.Traffic
                 byte model = ParkedModel(pv);
                 TrafficDraw d = _plan.PlaceParked(level, variant, pv.Livery, model);
                 if (d == TrafficDraw.None) continue; // only for a level below 0: past the cap the box is still drawn
-                Matrix4x4 body = Matrix4x4.TRS(_parkedAt[i], Quaternion.Euler(0f, pv.YawDeg, 0f), Vector3.one);
+                Matrix4x4 body = Matrix4x4.TRS(_parkedAt[i], Quaternion.Euler(pv.PitchDeg, pv.YawDeg, pv.RollDeg), Vector3.one);
                 InstanceBatch b;
                 if (d == TrafficDraw.Lod2)
                 {

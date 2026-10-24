@@ -11,10 +11,10 @@ namespace Ghumante.Core.Tests
     {
         private static readonly TileId Leaf = new TileId(10, 516, 161);
 
-        private static MeshData Terrain(TileData src, TileId area, int step, float skirt = 0f, bool detail = true)
+        private static MeshData Terrain(TileData src, TileId area, int step, float skirt = 0f, bool detail = true, bool carve = true)
         {
             var m = new MeshData();
-            TerrainMesher.Build(src, area, new TerrainOptions { Step = step, SkirtDepthM = skirt, Detail = detail }, m);
+            TerrainMesher.Build(src, area, new TerrainOptions { Step = step, SkirtDepthM = skirt, Detail = detail, Carve = carve }, m);
             return m;
         }
 
@@ -146,10 +146,12 @@ namespace Ghumante.Core.Tests
                 foreach (int step in new[] { 1, 2, 8 })
                 {
                     TileId area = c.Value;
-                    MeshData m = Terrain(src, area, step);
-                    TileHeightSampler s = TileHeightSampler.ForArea(src, area, step);
+                    // The natural grid (two triangles per quad, in order); the road cut and fill's refined cells and the
+                    // benches under roads are matched by TerrainCarveTests.
+                    MeshData m = Terrain(src, area, step, carve: false);
+                    TileHeightSampler s = TileHeightSampler.Natural(src, area, step);
                     TerrainGrid g = s.Grid;
-                    var whole = new TileHeightSampler(src, step);
+                    TileHeightSampler whole = TileHeightSampler.Natural(src, src.Tile, step);
                     string what = c.Key + " -> " + area + " step " + step;
                     for (int k = 0; k < 400; k++)
                     {

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Ghumante.Core.Aviation;
 using Ghumante.Core.Data;
+using Ghumante.Core.Meshing;
 using Ghumante.Core.Traffic;
 
 namespace Ghumante.World.Life
@@ -72,6 +73,9 @@ namespace Ghumante.World.Life
         private readonly TrafficSim _traffic;
         private readonly PedestrianSim _peds;
         private readonly AnimalSim _animals;
+
+        /// <summary>The drawn road surface and carved ground of the committed tiles (street animals stand on it).</summary>
+        private readonly CarvedGround _ground = new CarvedGround();
         private readonly BusRouteRunner _buses;
         private readonly AirTrafficSim _air;
         private readonly AviationConfig _aviation;
@@ -94,6 +98,9 @@ namespace Ghumante.World.Life
             public LaneGraph.PreparedTile Lanes;
             public PedestrianSim.PreparedWalk Walk;
             public bool Aprons;
+
+            /// <summary>The carved ground the street animals stand on (cut/fill package).</summary>
+            public CarvedGround.Entry Ground;
 
             /// <summary>Set by the build job once the tile's area-type cells are in the grid.</summary>
             public volatile bool Areas;
@@ -153,7 +160,7 @@ namespace Ghumante.World.Life
             if (routes != null && routes.Restrictions != null) _graph.SetRestrictions(routes.Restrictions);
             _traffic = new TrafficSim(_graph, _settings.Traffic, regionSeed ^ 0x5452414646494331UL) { Sacred = _zones };
             _peds = new PedestrianSim(_graph, _settings.Pedestrians, regionSeed ^ 0x5045444553545249UL) { Sacred = _zones, Traffic = _traffic };
-            _animals = new AnimalSim(_graph, _settings.Animals, regionSeed ^ 0x414E494D414C5331UL) { Traffic = _traffic };
+            _animals = new AnimalSim(_graph, _settings.Animals, regionSeed ^ 0x414E494D414C5331UL) { Traffic = _traffic, Ground = _ground };
             if (routes != null && routes.Routes.Count > 0) _buses = new BusRouteRunner(routes, _graph, _traffic);
             if (aviation != null)
             {
@@ -614,6 +621,7 @@ namespace Ghumante.World.Life
                     w.Areas = true;
                     w.Lanes = _graph.Prepare(w.Id, w.Data);
                     w.Walk = PedestrianSim.PrepareTile(w.Id, w.Data);
+                    w.Ground = CarvedGround.Prepare(w.Data, 1);
                     w.Aprons = _aviation != null && HasAprons(w.Data);
                 }
                 catch (Exception e)
@@ -638,12 +646,15 @@ namespace Ghumante.World.Life
                 {
                     _graph.RemoveTile(_jobRemove[i]);
                     _peds.RemoveTile(_jobRemove[i]);
+                    _ground.Remove(_jobRemove[i]);
                 }
                 for (int i = 0; i < _jobCommit.Count; i++)
                 {
                     TileWork w = _jobCommit[i];
                     _graph.Commit(w.Lanes);
                     _peds.CommitTile(w.Walk);
+                    _ground.Add(w.Ground);
+                    w.Ground = null;
                     if (w.Aprons)
                     {
                         _one[0] = w.Data;

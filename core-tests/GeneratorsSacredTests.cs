@@ -242,6 +242,25 @@ namespace Ghumante.Core.Tests
             Assert.That(2 * ps.SanctumHalfW, Is.EqualTo(8.5).Within(0.6), "Pashupatinath sanctum depth");
         }
 
+        /// <summary>Parts within this of an outline are on its wall (FrontPropsAreSolidAndKeepOutOfTheRoads).</summary>
+        private const double WallBandM = 0.15;
+
+        /// <summary>Distance from (x, z) to the nearest edge of a ring.</summary>
+        private static double RingDistance(int[] ring, double x, double z)
+        {
+            int n = ring.Length / 2;
+            double best = double.MaxValue;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                double ax = ring[2 * j] / 100.0, az = ring[2 * j + 1] / 100.0, bx = ring[2 * i] / 100.0, bz = ring[2 * i + 1] / 100.0;
+                double ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez;
+                double t = l2 > 1e-12 ? Math.Max(0, Math.Min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0;
+                double dx = ax + ex * t - x, dz = az + ez * t - z;
+                best = Math.Min(best, Math.Sqrt(dx * dx + dz * dz));
+            }
+            return best;
+        }
+
         private static bool InsideRing(int[] ring, double x, double z)
         {
             int n = ring.Length / 2;
@@ -543,13 +562,15 @@ namespace Ghumante.Core.Tests
             int low = 0;
             for (int v = 0; v < km.VertexCount; v++)
             {
-                // Overhangs: whatever is outside the OSM outline (eaves, struts, bells, fringes) and over a corridor.
+                // Overhangs: whatever is outside the OSM outline (eaves, struts, bells, fringes) and over a corridor. Within
+                // a hand's breadth of the outline is the wall itself (the feet of the struts on their ledge): the road
+                // ground beside the wall moved a few centimetres with the cut/fill package's level bench.
                 double px = km.Positions[3 * v], py = km.Positions[3 * v + 1], pz = km.Positions[3 * v + 2];
-                if (clear.Distance(px, pz) >= 0 || InsideRing(ring, px, pz)) continue;
+                if (clear.Distance(px, pz) >= 0 || InsideRing(ring, px, pz) || RingDistance(ring, px, pz) < WallBandM) continue;
                 double g = clear.Ground(px, pz);
                 if (py - g < Ghumante.Core.Meshing.Roads.RoadClearance.MinOverheadClearanceM - 0.01 && py - g > 2.0)
                 {
-                    if (low < 8) TestContext.WriteLine("low at ({0:0.0},{1:0.0}) y-g {2:0.00} d {3:0.00}", px, pz, py - g, clear.Distance(px, pz));
+                    if (low < 8) TestContext.WriteLine("low at ({0:0.0},{1:0.0}) y-g {2:0.00} d {3:0.00} from the outline {4:0.00}", px, pz, py - g, clear.Distance(px, pz), RingDistance(ring, px, pz));
                     low++;
                 }
             }

@@ -253,6 +253,11 @@ namespace Ghumante.Core.Traffic
     {
         public double X, Z;
         public float Y, HeadingRad, SpeedMps;
+
+        /// <summary>Pitch (Unity Euler x: positive noses down) and roll (Euler z: positive raises the right side) that lay the
+        /// body on the ground under it (cut/fill package: a dog lying on a sloping street lies on it, not level in the air);
+        /// drawn with <c>Quaternion.Euler(PitchDeg, heading, RollDeg)</c>. 0 without a stand surface.</summary>
+        public float PitchDeg, RollDeg;
         public AnimalKind Kind;
         public byte Tint, ClipId;
         public float ClipTime;

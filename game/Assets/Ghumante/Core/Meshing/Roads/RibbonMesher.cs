@@ -140,7 +140,7 @@ namespace Ghumante.Core.Meshing
         public const double MaxRowSpacingM = 24.0;
 
         /// <summary>Largest height error of the linear surface between rows on a straight (checked every station).</summary>
-        public const float RowToleranceM = 0.05f;
+        public const float RowToleranceM = 0.04f;
 
         /// <summary>Largest width error of the linear edges between rows on a straight.</summary>
         public const float WidthToleranceM = 0.04f;
@@ -496,6 +496,10 @@ namespace Ghumante.Core.Meshing
             float yle = grade.Y(ge, she + 0.5 * we, sc.X[e] + sc.Ux[e] * (she + 0.5 * we), sc.Z[e] + sc.Uz[e] * (she + 0.5 * we));
             float yce = grade.Y(ge, she, sc.X[e] + sc.Ux[e] * she, sc.Z[e] + sc.Uz[e] * she);
             float yre = grade.Y(ge, she - 0.5 * we, sc.X[e] + sc.Ux[e] * (she - 0.5 * we), sc.Z[e] + sc.Uz[e] * (she - 0.5 * we));
+            // A quad whose cross-fall turns between its two rows is twisted, and its two triangles stand off the surface
+            // by a quarter of the twist at its middle (cut/fill package: the road surface query and the parked vehicles
+            // follow the surface, so a long twisted quad left them 10 cm off what is drawn).
+            if (Math.Abs((yle - yre) - (yli - yri)) > 4f * rowTol) return false;
             RoadCentreline c = layout.Centres[ri];
             for (int q = 1; q < steps; q++)
             {

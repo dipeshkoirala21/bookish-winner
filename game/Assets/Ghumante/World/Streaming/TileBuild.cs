@@ -678,10 +678,11 @@ namespace Ghumante.World.Streaming
 
             if (Wants(only, TileLayers.Terrain))
             {
-                var terrain = new TerrainOptions { Step = step, SkirtDepthM = settings.SkirtDepthM, Season = settings.Season };
+                // The road cut and fill (TerrainCarve) only where roads are drawn: terrain-only tiles keep the natural ground.
+                var terrain = new TerrainOptions { Step = step, SkirtDepthM = settings.SkirtDepthM, Season = settings.Season, Carve = detail };
                 TerrainMesher.Build(src, area, terrain, b.Layers[TileLayers.Terrain]);
             }
-            b.Sampler = TileHeightSampler.ForArea(src, area, step);
+            b.Sampler = TileHeightSampler.ForArea(src, area, step, detail);
             // The paved areas the ground query indexes when an exact area joins it, indexed here rather than on the main
             // thread in the frame the tile shows (perf pass).
             if (ground != null && only == 0 && n.IsExact && b.Sampler.HasHeights) TileGroundQuery.PreparePaving(src);
