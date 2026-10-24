@@ -76,6 +76,17 @@ namespace Ghumante.Core.Meshing.Roads
             return new DrawnRoadSurface(m, 0, m.IndexCount - m.IndexCount % 3, x0, z0);
         }
 
+        /// <summary>As <see cref="FromMesh(MeshData, double, double)"/>, from the triangles of the index range
+        /// [<paramref name="firstIndex"/>, <paramref name="endIndex"/>) only (the streamer's roads layer holds the full kit
+        /// first and the cheap far copy after it; only the full kit is the surface drawn near the player).</summary>
+        public static DrawnRoadSurface FromMesh(MeshData m, int firstIndex, int endIndex, double x0, double z0)
+        {
+            if (m == null) throw new ArgumentNullException(nameof(m));
+            int first = Math.Max(0, Math.Min(firstIndex, m.IndexCount));
+            int end = Math.Max(first, Math.Min(endIndex, m.IndexCount));
+            return new DrawnRoadSurface(m, first, end - (end - first) % 3, x0, z0);
+        }
+
         /// <summary>The drawn surface of tile <paramref name="t"/> meshed here exactly as the streamer meshes it
         /// (<see cref="RoadMesher.Build"/> on the same sampler and options).</summary>
         public static DrawnRoadSurface Build(TileData t, IHeightSampler h, RoadOptions o)

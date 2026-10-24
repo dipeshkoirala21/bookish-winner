@@ -370,11 +370,19 @@ namespace Ghumante.Core.Driving
         /// </summary>
         public RoadSpatialIndex BuildRoadIndex(TileData tile, TileHeightSampler sampler, MeshData roadsLayer)
         {
+            return BuildRoadIndex(tile, sampler, roadsLayer, roadsLayer != null ? roadsLayer.IndexCount : 0);
+        }
+
+        /// <summary>As <see cref="BuildRoadIndex(TileData, TileHeightSampler, MeshData)"/>, with the drawn surface taken from
+        /// the first <paramref name="roadsLayerEnd"/> indices of <paramref name="roadsLayer"/> only (the streamer's roads
+        /// layer holds the full kit there and the cheap far copy after it).</summary>
+        public RoadSpatialIndex BuildRoadIndex(TileData tile, TileHeightSampler sampler, MeshData roadsLayer, int roadsLayerEnd)
+        {
             if (tile == null) throw new ArgumentNullException(nameof(tile));
             var idx = new RoadSpatialIndex(tile, _roadOptions);
             if (idx.SegmentCount > 0 && sampler != null)
             {
-                idx.DrawnSurface = roadsLayer != null ? DrawnRoadSurface.FromMesh(roadsLayer, tile.Tile.X0, tile.Tile.Z0)
+                idx.DrawnSurface = roadsLayer != null ? DrawnRoadSurface.FromMesh(roadsLayer, 0, roadsLayerEnd, tile.Tile.X0, tile.Tile.Z0)
                     : DrawnRoadSurface.Build(tile, sampler, _roadOptions);
                 idx.DrawnSampler = sampler;
             }

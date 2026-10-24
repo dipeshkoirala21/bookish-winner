@@ -694,7 +694,7 @@ namespace Ghumante.World.Streaming
                 }
                 else
                 {
-                    if (settings.DrawRoads) BuildRoads(b, src, settings);
+                    int roadsFullEnd = settings.DrawRoads ? BuildRoads(b, src, settings) : 0;
                     if (settings.DrawRoads && settings.DrawBridges) BuildBridges(b, src, settings);
                     if (settings.DrawBuildings) BuildBuildings(b, src, settings);
                     if (settings.DrawAreas) AreaMesher.Build(src, b.Sampler, settings.Areas, b.Layers[TileLayers.Areas]);
@@ -702,8 +702,11 @@ namespace Ghumante.World.Streaming
                     if (settings.DrawRoads && settings.DrawOrnaments) BuildOrnaments(b, src, settings);
                     if (settings.DrawInstances) BuildInstances(b, src, settings);
                     // The road index with the drawn road surface taken from the roads layer just meshed (before the
-                    // layer's indices are rebased into upload chunks), so feet and wheels stand on what is drawn.
-                    b.Roads = ground != null ? ground.BuildRoadIndex(src, b.Sampler, settings.DrawRoads ? b.Layers[TileLayers.Roads] : null) : null;
+                    // layer's indices are rebased into upload chunks), so feet and wheels stand on what is drawn: the
+                    // full kit only (the layer's first roadsFullEnd indices), never the cheap far copy appended after it.
+                    b.Roads = ground != null
+                        ? ground.BuildRoadIndex(src, b.Sampler, settings.DrawRoads ? b.Layers[TileLayers.Roads] : null, roadsFullEnd)
+                        : null;
                 }
             }
 
@@ -744,9 +747,9 @@ namespace Ghumante.World.Streaming
         /// <see cref="MeshingSettings.Roads"/> as parts = block, the cheap far copy (<see cref="RoadBlocks.FarOptions"/>,
         /// when <see cref="MeshingSettings.FarRoads"/>) as parts = <see cref="RoadBlocks.FarPart"/> + block, and the
         /// markings (<see cref="MeshingSettings.DrawRoadDecals"/>) per block of the decal layer, every triangle clipped at
-        /// the block lines.
+        /// the block lines. Returns the index count of the roads layer once the full kit is in (the far copy follows it).
         /// </summary>
-        private static void BuildRoads(TileBuild b, TileData src, MeshingSettings settings)
+        private static int BuildRoads(TileBuild b, TileData src, MeshingSettings settings)
         {
             double size = src.Tile.Size;
             MeshData roads = b.Layers[TileLayers.Roads];
@@ -754,16 +757,18 @@ namespace Ghumante.World.Streaming
             b._scratch.Clear();
             RoadMesher.Build(src, b.Sampler, settings.Roads, b._scratch);
             RoadBlocks.Append(b._scratch, size, RoadBlocks.BlockM, 0, roads, parts, b._roadScratch);
+            int fullEnd = roads.IndexCount;
             if (settings.FarRoads && b._scratch.IndexCount > 0)
             {
                 b._scratch.Clear();
                 RoadMesher.Build(src, b.Sampler, RoadBlocks.FarOptions(settings.Roads), b._scratch);
                 RoadBlocks.Append(b._scratch, size, RoadBlocks.BlockM, RoadBlocks.FarPart, roads, parts, b._roadScratch);
             }
-            if (!settings.DrawRoadDecals) return;
+            if (!settings.DrawRoadDecals) return fullEnd;
             b._scratch.Clear();
             MarkingMesher.Build(src, b.Sampler, settings.Roads, b._scratch);
             RoadBlocks.Append(b._scratch, size, RoadBlocks.BlockM, 0, b.Layers[TileLayers.RoadDecals], b.Parts[TileLayers.RoadDecals], b._roadScratch);
+            return fullEnd;
         }
 
         /// <summary>
