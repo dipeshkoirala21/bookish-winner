@@ -130,6 +130,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>The kora paving of the quarter and the compound's flagged ground, ray by ray from the stupa axis.</summary>
         private static void Paving(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
         {
+            if (c != null && lod > 0)
+            {
+                // The walkable slabs follow LOD0's rays whatever LOD draws the paving: the streamer takes a hero's colliders
+                // from the first LOD it builds (TileBuild.BuildHeroes: LOD1 on Low, which never draws LOD0).
+                Paving(new MeshData(), c, tile, f, part, 0);
+                c = null;
+            }
             Affine3 k = f.Site;
             SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
             double a0, a1;

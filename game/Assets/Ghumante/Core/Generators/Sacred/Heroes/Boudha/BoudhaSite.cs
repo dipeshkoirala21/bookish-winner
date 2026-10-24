@@ -528,8 +528,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         /// <summary>
         /// Build one part of the site (the hero <paramref name="r"/> names it) at one LOD into <paramref name="m"/>
-        /// (tile-local, absolute Y) with its colliders at LOD0; returns the triangles added, 0 when the anchor is not in
-        /// <paramref name="tile"/>.
+        /// (tile-local, absolute Y) with its colliders; returns the triangles added, 0 when the anchor is not in
+        /// <paramref name="tile"/>. Like the generic generators it makes the colliders at whichever LOD it is handed them:
+        /// the streamer hands them to the first LOD it builds (TileBuild.BuildHeroes), LOD1 on Low, which never draws LOD0
+        /// (BandConfig.HeroLod0AllowedFor). LOD1 makes exactly LOD0's set (the kora's walkable slabs follow LOD0's rays).
         /// </summary>
         public static int Build(HeritageRecord r, TileData tile, int lod, MeshData m, GenColliders c, SacredStats stats)
         {
@@ -543,7 +545,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             int t0 = m.TriangleCount;
             m.HasUv0 = true;
             lod = Math.Max(0, Math.Min(3, lod));
-            GenColliders cc = lod == 0 ? c : null;
+            GenColliders cc = c;
             int niches = 0;
             if (part == BoudhaPart.Stupa)
             {
