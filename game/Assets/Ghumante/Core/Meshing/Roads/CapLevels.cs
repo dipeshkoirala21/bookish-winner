@@ -24,11 +24,13 @@ namespace Ghumante.Core.Meshing
 
         private double[] _ax = new double[8], _az = new double[8], _bx = new double[8], _bz = new double[8];
         private float[] _d = new float[8];
+        private bool[] _follow = new bool[8];
         private int[] _road = new int[8];
         private RoadCut[] _cut = new RoadCut[8];
         private int _n;
 
-        /// <summary>True when some arm of the cap filled last is drawn off the draped cap height.</summary>
+        /// <summary>True when some arm of the cap filled last is drawn off the draped cap height (at its cut's centre or
+        /// ends).</summary>
         public bool Any { get; private set; }
 
         /// <summary>This thread's instance.</summary>
@@ -54,6 +56,7 @@ namespace Ghumante.Core.Meshing
                 _bx = new double[n];
                 _bz = new double[n];
                 _d = new float[n];
+                _follow = new bool[n];
                 _road = new int[n];
                 _cut = new RoadCut[n];
             }
@@ -70,7 +73,11 @@ namespace Ghumante.Core.Meshing
                 _cut[k] = c;
                 float d = grade.Has(ri) ? ArmOffset(grade, ri, c, lift) : 0f;
                 _d[k] = d;
-                if (d != 0f) Any = true;
+                // The cap's cut row follows the ribbon's end row wherever it is drawn off the draped height: at the cut's
+                // centre, or at either end of it (the cut/fill package lays a draped arm's end row on the junction's level
+                // platform, which can stand off the carved terrain at the cut's ends while it meets it at the centre).
+                _follow[k] = d != 0f || grade.Has(ri) && (EndOffset(grade, ri, c, lo, lift) || EndOffset(grade, ri, c, hi, lift));
+                if (_follow[k]) Any = true;
             }
             _n = n;
         }
@@ -96,6 +103,17 @@ namespace Ghumante.Core.Meshing
             return Math.Abs(d) >= MinOffsetM ? d : 0f;
         }
 
+        /// <summary>True when the ribbon of road <paramref name="ri"/> at lateral offset <paramref name="off"/> of its cut
+        /// <paramref name="c"/> stands off the draped cap height (terrain + <paramref name="lift"/>) by
+        /// <see cref="MinOffsetM"/> or more.</summary>
+        private static bool EndOffset(RoadGrade grade, int ri, in RoadCut c, double off, float lift)
+        {
+            RoadGrade.Row row = grade.RowAt(ri, c.S);
+            if (!row.Valid) return false;
+            double x = c.CX + c.UX * off, z = c.CZ + c.UZ * off;
+            return Math.Abs(grade.Y(row, off, x, z) - (grade.Terrain(x, z) + lift)) >= MinOffsetM;
+        }
+
         /// <summary>The cap's offset from its draped height at tile-local (x, z): the arms' offsets blended by inverse
         /// squared distance to their cut sections (0 when every arm is draped).</summary>
         public float At(double x, double z)
@@ -114,7 +132,7 @@ namespace Ghumante.Core.Meshing
         }
 
         /// <summary>The cap's drawn height at tile-local (x, z) on <paramref name="grade"/>'s terrain: exactly the arm's ribbon
-        /// on the cut section of an arm drawn off the draped height (the cap and the ribbon end row share those vertices),
+        /// on the cut section of an arm drawn off the draped height (at its centre or its ends) (the cap and the ribbon end row share those vertices),
         /// else the terrain + <paramref name="lift"/> + <see cref="At"/>.</summary>
         public float Height(RoadGrade grade, double x, double z, float lift)
         {
@@ -122,7 +140,7 @@ namespace Ghumante.Core.Meshing
             {
                 for (int k = 0; k < _n; k++)
                 {
-                    if (_d[k] == 0f || SegmentDistanceSq(x, z, _ax[k], _az[k], _bx[k], _bz[k]) > 1e-6) continue;
+                    if (!_follow[k] || SegmentDistanceSq(x, z, _ax[k], _az[k], _bx[k], _bz[k]) > 1e-6) continue;
                     // The ribbon end row of the arm at this column (its lateral offset along the cut section).
                     RoadCut c = _cut[k];
                     double off = (x - c.CX) * c.UX + (z - c.CZ) * c.UZ;

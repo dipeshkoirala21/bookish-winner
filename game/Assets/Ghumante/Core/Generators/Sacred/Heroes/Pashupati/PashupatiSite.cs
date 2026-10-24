@@ -67,6 +67,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
         /// <summary>The prepared terrain as the streamer draws it (decimated: <see cref="DrawnSteps"/>), or null.</summary>
         public TileHeightSampler[] Drawn;
 
+        /// <summary>The prepared terrain before the road cut and fill (<see cref="TileHeightSampler.Natural"/>), or null.</summary>
+        public TileHeightSampler Natural;
+
         /// <summary>The frame of a build on <paramref name="tile"/>, its terrain the prepared ground.</summary>
         public static PashupatiFrame For(TileData tile, int lod, GenColliders c)
         {
@@ -74,6 +77,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             TileData ground = PashupatiGround.Prepared(tile);
             if (!TerrainGrid.HasHeights(ground)) return f;
             f.Terrain = new TileHeightSampler(ground);
+            f.Natural = TileHeightSampler.Natural(ground, ground.Tile, 1);
             int[] steps = DrawnSteps(ground);
             f.Drawn = new TileHeightSampler[steps.Length];
             for (int i = 0; i < steps.Length; i++) f.Drawn[i] = TileHeightSampler.ForArea(ground, ground.Tile, steps[i]);
@@ -139,6 +143,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
             ToTile(a, b, out x, out z);
             float h;
             return Terrain.TryHeightClamped(Tile.Tile.X0 + x, Tile.Tile.Z0 + z, out h) ? h - Level : fallback;
+        }
+
+        /// <summary>The ground a facade's windows keep above at site (a, b): the higher of the terrain
+        /// (<see cref="GroundAt"/>, cut and filled where roads run) and the prepared terrain before the road carve, so a
+        /// road bench cut beside a building opens no window row the site does not draw on its own ground (on the streamed
+        /// temple tile the cut/fill bench of the riverside way lies 0.5-0.6 m under the prepared ground beside the east
+        /// wing's short river walls).</summary>
+        public double FacadeGroundAt(double a, double b, double fallback)
+        {
+            double g = GroundAt(a, b, fallback);
+            if (Natural == null) return g;
+            double x, z;
+            ToTile(a, b, out x, out z);
+            float h;
+            return Natural.TryHeightClamped(Tile.Tile.X0 + x, Tile.Tile.Z0 + z, out h) ? Math.Max(g, h - Level) : g;
         }
 
         /// <summary>Tile-local (x, z) of site (a, b).</summary>

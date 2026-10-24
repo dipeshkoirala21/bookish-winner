@@ -485,11 +485,13 @@ namespace Ghumante.Core.Tests
 
         private static int TerrainTriangles(TileData src, SelectedNode n, int step)
         {
-            var key = (n.Area.Key, n.Source.Key, step);
+            // As TileBuild meshes it: the road cut and fill (TerrainCarve) only where the node draws its roads.
+            bool carve = n.DrawsDetail && src.HasDetail;
+            var key = (n.Area.Key, n.Source.Key, step + (carve ? 1 << 16 : 0));
             int t;
             if (TerrainTris.TryGetValue(key, out t)) return t;
             var m = new MeshData();
-            TerrainMesher.Build(src, n.Area, new TerrainOptions { Step = step }, m);
+            TerrainMesher.Build(src, n.Area, new TerrainOptions { Step = step, Carve = carve }, m);
             TerrainTris[key] = m.TriangleCount;
             return m.TriangleCount;
         }

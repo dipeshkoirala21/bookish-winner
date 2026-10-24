@@ -124,7 +124,9 @@ namespace Ghumante.Core.Tests
                     Assert.That(b.Error, Is.Null);
                     g.Add(id, b.Sampler, b.Roads);
                     Assert.That(b.Roads.DrawnSurface, Is.Not.Null, "the streamer hands the drawn surface to the ground query");
-                    list.Add((b.Source, new Drawn(StreamingScene.Layer(b, TileLayers.Roads), b.Source.Tile.X0, b.Source.Tile.Z0), b.Sampler));
+                    // The roads layer as drawn near the player: the full kit only (perf-roads appends the cheap far copy, parts
+                    // RoadBlocks.FarPart + block, which the streamer shows only beyond the B1 radius).
+                    list.Add((b.Source, new Drawn(StreamingScene.Layer(b, TileLayers.Roads, p => !RoadBlocks.IsFar(p)), b.Source.Tile.X0, b.Source.Tile.Z0), b.Sampler));
                 }
                 _ground = g;
                 _tiles = list;

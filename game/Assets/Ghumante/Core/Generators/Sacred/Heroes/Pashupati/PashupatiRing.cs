@@ -395,7 +395,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
 
         /// <summary>
         /// A house: walls swept round the outline (plinth course, an optional dado, a band at every floor, the parapet of a
-        /// flat roof), windows on every wall long enough (lattice, arched or plain; skipped below the ground), and the roof:
+        /// flat roof), windows on every wall long enough (lattice, arched or plain; skipped below the ground,
+        /// <see cref="PashupatiFrame.FacadeGroundAt"/>), and the roof:
         /// a terrace slab inside the parapet, or a hipped or gabled corrugated-metal roof with standing seams over the
         /// outline's oriented box. LOD1 draws windows as dark panes, LOD2 walls and roof, LOD3 a box and a pyramid. Walls
         /// along every edge are solid (never walked into).
@@ -458,7 +459,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Pashupati
                     double ea = _pa[j] - _pa[i], eb = _pb[j] - _pb[i], el = Math.Sqrt(ea * ea + eb * eb);
                     if (el < h.MinWall) continue;
                     double na = eb / el, nb = -ea / el, ma = 0.5 * (_pa[i] + _pa[j]), mb = 0.5 * (_pb[i] + _pb[j]);
-                    double ground = f.GroundAt(ma + 1.5 * na, mb + 1.5 * nb, h.Floor);
+                    double ground = f.FacadeGroundAt(ma + 1.5 * na, mb + 1.5 * nb, h.Floor);
                     Affine3 x = f.Facing(ma, 0, mb, na, nb);
                     int k = Math.Max(1, (int)Math.Floor((el - 1.0) / h.WindowPitch));
                     for (int s = 0; s < h.Storeys; s++)
