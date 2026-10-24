@@ -22,10 +22,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         public static readonly uint TerraceFloor = MeshColor.FromHex(0xC39A86);
         public static readonly uint SaffronArc = MeshColor.FromHex(0xDEA640);
         public static readonly uint YellowWash = MeshColor.FromHex(0xF2D27A);
-        public static readonly uint GiltPanel = MeshColor.FromHex(0xC9A050);
-        public static readonly uint GiltLit = MeshColor.FromHex(0xE0BC63);
-        public static readonly uint GiltBright = MeshColor.FromHex(0xE2B54A);
-        public static readonly uint GiltShade = MeshColor.FromHex(0xA87C2E);
+        // The stupa's tower is antique brass, not lemon yellow (r14 telephoto vs n_Boudhanath_spire/ref_01: a desaturated
+        // gold-khaki in sun, brown-bronze in shade, dark joints between the plates).
+        public static readonly uint GiltPanel = MeshColor.FromHex(0xB8975A);
+        public static readonly uint GiltLit = MeshColor.FromHex(0xCDB274);
+        public static readonly uint GiltBright = MeshColor.FromHex(0xD6B868);
+        public static readonly uint GiltShade = MeshColor.FromHex(0x7E6230);
+        public static readonly uint GiltJoint = MeshColor.FromHex(0x5E4724);
         public static readonly uint ClothRed = MeshColor.FromHex(0xC8202A);
         public static readonly uint ClothYellow = MeshColor.FromHex(0xF2C230);
         public static readonly uint ClothBlue = MeshColor.FromHex(0x2E5DA8);
@@ -225,6 +228,112 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return Math.Sqrt(best);
         }
 
+        /// <summary>
+        /// <see cref="SacredDraw.Ring"/> restricted to the outline edges whose midpoints lie in the dressing quadrant
+        /// <paramref name="quadrant"/> (by site bearing from the axis, <see cref="BoudhaSite.QuadrantAt"/>): the same mitred
+        /// faces, so the four quadrant parts of a terrace meet edge to edge (<see cref="BoudhaPart.Stupa"/>: every edge).
+        /// Returns the triangles.
+        /// </summary>
+        public static int RingQuadrant(MeshData m, in Affine3 xf, double[] pu, double[] pw, int n, Mould p, BoudhaPart quadrant)
+        {
+            if (n < 3 || p.Count < 2) return 0;
+            int t0 = m.TriangleCount;
+            if (_nu == null || _nu.Length < n)
+            {
+                _nu = new double[Math.Max(256, n)];
+                _nv = new double[Math.Max(256, n)];
+            }
+            if (_mu == null || _mu.Length < n)
+            {
+                _mu = new double[Math.Max(256, n)];
+                _mv = new double[Math.Max(256, n)];
+            }
+            double sign = Area(pu, pw, n) >= 0 ? 1 : -1;
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                double du = pu[j] - pu[i], dw = pw[j] - pw[i], l = Math.Sqrt(du * du + dw * dw);
+                if (l < 1e-9) l = 1e-9;
+                _nu[i] = sign * dw / l;
+                _nv[i] = -sign * du / l;
+            }
+            for (int i = 0; i < n; i++)
+            {
+                int h = (i + n - 1) % n;
+                double mu = _nu[h] + _nu[i], mw = _nv[h] + _nv[i], l = Math.Sqrt(mu * mu + mw * mw);
+                if (l < 1e-9)
+                {
+                    mu = _nu[i];
+                    mw = _nv[i];
+                    l = 1;
+                }
+                mu /= l;
+                mw /= l;
+                double c = mu * _nu[i] + mw * _nv[i], s = 1.0 / Math.Max(0.35, c);
+                _mu[i] = mu * s;
+                _mv[i] = mw * s;
+            }
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                if (quadrant != BoudhaPart.Stupa && BoudhaSite.QuadrantAt(BoudhaSite.BearingOf(0.5 * (pu[i] + pu[j]), 0.5 * (pw[i] + pw[j]))) != quadrant) continue;
+                double eu = _nu[i], ew = _nv[i];
+                for (int k = 0; k + 1 < p.Count; k++)
+                {
+                    double o0 = p.O[k], h0 = p.H[k], o1 = p.O[k + 1], h1 = p.H[k + 1];
+                    if (Math.Abs(o0 - o1) < 1e-9 && Math.Abs(h0 - h1) < 1e-9) continue;
+                    double nr0, nh0, nr1, nh1;
+                    MouldNormal(p, k, true, out nr0, out nh0);
+                    MouldNormal(p, k + 1, false, out nr1, out nh1);
+                    ShapeBrush b = p.B[k];
+                    int a = SacredDraw.V(m, xf, pu[i] + o0 * _mu[i], h0, pw[i] + o0 * _mv[i], eu * nr0, nh0, ew * nr0, b);
+                    int bb = SacredDraw.V(m, xf, pu[j] + o0 * _mu[j], h0, pw[j] + o0 * _mv[j], eu * nr0, nh0, ew * nr0, b);
+                    int cc = SacredDraw.V(m, xf, pu[j] + o1 * _mu[j], h1, pw[j] + o1 * _mv[j], eu * nr1, nh1, ew * nr1, b);
+                    int d = SacredDraw.V(m, xf, pu[i] + o1 * _mu[i], h1, pw[i] + o1 * _mv[i], eu * nr1, nh1, ew * nr1, b);
+                    SacredDraw.Quad(m, a, bb, cc, d);
+                }
+            }
+            return m.TriangleCount - t0;
+        }
+
+        [ThreadStatic] private static double[] _mu, _mv;
+
+        /// <summary>The profile normal (outward, up) at point k of a moulding for the band starting or ending there (as
+        /// <see cref="SacredDraw.Ring"/> shades it: smooth points blend with the neighbouring band).</summary>
+        private static void MouldNormal(Mould p, int k, bool start, out double nr, out double nh)
+        {
+            double tr = 0, th = 0;
+            int a = start ? k : k - 1, b = start ? k + 1 : k;
+            double dr = p.O[b] - p.O[a], dh = p.H[b] - p.H[a], l = Math.Sqrt(dr * dr + dh * dh);
+            if (l > 1e-12)
+            {
+                tr += dr / l;
+                th += dh / l;
+            }
+            if (!p.Hard[k])
+            {
+                int a2 = start ? k - 1 : k, b2 = start ? k : k + 1;
+                if (a2 >= 0 && b2 < p.Count)
+                {
+                    double dr2 = p.O[b2] - p.O[a2], dh2 = p.H[b2] - p.H[a2], l2 = Math.Sqrt(dr2 * dr2 + dh2 * dh2);
+                    if (l2 > 1e-12)
+                    {
+                        tr += dr2 / l2;
+                        th += dh2 / l2;
+                    }
+                }
+            }
+            double tl = Math.Sqrt(tr * tr + th * th);
+            if (tl < 1e-12)
+            {
+                nr = 1;
+                nh = 0;
+                return;
+            }
+            nr = th / tl;
+            nh = -tr / tl;
+        }
+
         /// <summary>Perimeter of a closed polygon.</summary>
         public static double Perimeter(double[] pu, double[] pv, int n)
         {
@@ -293,6 +402,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double s = h / 6.0; // a 6 m chorten: base 3.6 m wide
             ShapeBrush w = White, sh = WhiteShade;
             double y = 0;
+            if (lod >= 3)
+            {
+                // The far chorten (about 40 triangles): the stepped base as one block, the bell as a five-sided lathe, the
+                // harmika and the spire as a cone.
+                SacredDraw.Box(m, f, -1.8 * s, 1.8 * s, -0.2, 1.4 * s, -1.8 * s, 1.8 * s, w, BoxFaces.All & ~BoxFaces.Bottom);
+                Profile2 fp = Prof;
+                fp.Add(0, 1.4 * s).Add(1.12 * s, 1.4 * s, true).Add(0.95 * s, 2.5 * s).Add(0.5 * s, 3.2 * s).Add(0, 3.3 * s);
+                Shapes.Lathe(m, f, w, fp, 5);
+                Shapes.Cone(m, SacredDraw.At(f, 0, 3.3 * s, 0), giltSpire ? Gilt : w, 0.36 * s, 2.6 * s, 4, 0, 0, false);
+                return;
+            }
             double[] steps = { 1.8, 1.55, 1.32 };
             double[] rises = { 0.55, 0.45, 0.4 };
             for (int i = 0; i < 3; i++)
@@ -370,6 +490,27 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 p.Add(0, 0).Add(r, 0, true).Add(r, 0.17 * h, true).Add(0.95 * r, 0.4 * h).Add(0.62 * r, 0.58 * h).Add(0.12 * r, 0.66 * h, true)
                  .Add(0.05 * r, h, true).Add(0, h);
             Shapes.Lathe(m, f, w, p, 4, default, 45);
+        }
+
+        // ------------------------------------------------------------------------------------------------ arches
+
+        /// <summary>
+        /// A point of a cusped (Tibetan multifoil) arch at <paramref name="t"/> ∈ [0, 1] from the left springing over the
+        /// apex to the right one, in the arch's plane (x across, y up): half width <paramref name="hw"/>, springing at
+        /// <paramref name="spring"/>, a round head whose <paramref name="lobes"/> lobes a side bulge out between cusps
+        /// <paramref name="cusp"/> deep (the cusps point into the opening), the two halves rising to a point
+        /// <paramref name="point"/> above the round head (an ogee tip).
+        /// </summary>
+        public static void CuspedArch(double t, double hw, double spring, double point, int lobes, double cusp, out double x, out double y)
+        {
+            double s = 2 * t - 1, a = Math.Min(1.0, Math.Abs(s));
+            double th = (1 - a) * 0.5 * Math.PI;
+            double ph = (1 - a) * lobes, fr = ph - Math.Floor(ph);
+            if (ph >= lobes - 1e-9) fr = 0;
+            double r = hw - cusp * (1 - Math.Sin(Math.PI * fr));
+            x = Math.Sign(s) * r * Math.Cos(th);
+            double sn = Math.Sin(th);
+            y = spring + r * sn + point * sn * sn * sn * sn * sn * sn;
         }
 
         // ------------------------------------------------------------------------------------------------ cloth
@@ -463,8 +604,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// A straight flight of steps in local frame <paramref name="f"/> (x across, z along the climb): its foot at z = 0
         /// on y = <paramref name="y0"/>, its head at z = <paramref name="run"/> on y = <paramref name="y1"/>,
         /// <paramref name="halfW"/> either side of x = 0, with white cheek walls of <paramref name="cheekW"/> (0 = none)
-        /// and a walkable ramp collider (tile-local, absolute heights through <paramref name="site"/> on
-        /// <paramref name="ground"/>). Returns the steps.
+        /// and a walkable ramp collider (tile-local, absolute heights: the frame carries them); with no mesh only the
+        /// collider. Returns the steps.
         /// </summary>
         public static int Flight(MeshData m, GenColliders c, in Affine3 f, double halfW, double run, double y0, double y1, double cheekW, double cheekH,
                                  in ShapeBrush tread, in ShapeBrush cheek, int lod)
@@ -473,7 +614,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (rise <= 0.01 || run <= 0.01) return 0;
             int steps = Math.Max(1, (int)Math.Ceiling(rise / 0.18));
             double tr = run / steps, sr = rise / steps;
-            if (lod >= 2)
+            if (m == null)
+            {
+                // Colliders only (the curated hero registers the stairs its quadrant parts draw).
+            }
+            else if (lod >= 2)
             {
                 SacredDraw.Quad(m, f, -halfW, y0, 0, halfW, y0, 0, halfW, y1, run, -halfW, y1, run, 0, run, -rise, tread);
             }
@@ -488,7 +633,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     if (cheekW <= 0) SacredDraw.Box(m, f, -halfW, halfW, y0, top, za, zb, tread, BoxFaces.Left | BoxFaces.Right);
                 }
             }
-            if (cheekW > 0)
+            if (cheekW > 0 && m != null)
             {
                 for (int s = -1; s <= 1; s += 2)
                 {

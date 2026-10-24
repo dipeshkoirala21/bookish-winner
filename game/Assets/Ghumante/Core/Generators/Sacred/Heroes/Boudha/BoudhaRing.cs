@@ -110,21 +110,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private const HouseFlags C = HouseFlags.Cafe, P = HouseFlags.Pitched, B = HouseFlags.Balcony, T = HouseFlags.Tanks, M = HouseFlags.Mumty,
                                  F = HouseFlags.FlagPole, St = HouseFlags.Street, Ev = HouseFlags.Eaves;
 
-        private const BoudhaPart N = BoudhaPart.North, E = BoudhaPart.East, S = BoudhaPart.South, W = BoudhaPart.West;
+        private const BoudhaPart Gu = BoudhaPart.NorthGuru, Ng = BoudhaPart.NorthGate, Nne = BoudhaPart.NorthNorthEast, Ne = BoudhaPart.NorthEast, E = BoudhaPart.East, Se = BoudhaPart.SouthEast,
+                                 Sse = BoudhaPart.SouthSouthEast, Sh = BoudhaPart.South, Sp = BoudhaPart.SouthGate, Ssw = BoudhaPart.SouthSouthWest,
+                                 Sw = BoudhaPart.SouthWest, Wsw = BoudhaPart.WestSouthWest, Wg = BoudhaPart.West, Wnw = BoudhaPart.WestNorthWest,
+                                 Nw = BoudhaPart.NorthWest, Nnw = BoudhaPart.NorthNorthWest;
 
-        /// <summary>The front row clockwise from north (boudha.md 3.7, OSM; the quarter by the footprint's centroid).</summary>
+        /// <summary>The front row clockwise from north (boudha.md 3.7, OSM), each with the kora sector that builds it (by
+        /// its footprint's centroid bearing: <see cref="BoudhaSite.Sectors"/>, outer ranges).</summary>
         public static readonly RingHouse[] Houses =
         {
-            new RingHouse(520755992, N, 3, HouseLook.GuruLhakhang, OchreDeep, 0, HouseFlags.None),
-            new RingHouse(520756005, N, 3, HouseLook.Ochre, OchreDeep, 1, P),
-            new RingHouse(517234573, N, 3, HouseLook.Painted, Cream, 2, C | T),
-            new RingHouse(911869006, N, 5, HouseLook.Brick, ExposedBrick, 3, B | T | M),
-            new RingHouse(911869007, N, 3, HouseLook.Painted, Salmon, 0, C),
-            new RingHouse(911869008, N, 3, HouseLook.Painted, PaleGreen, 4, T | F),
-            new RingHouse(209312611, N, 3, HouseLook.Dhabzang, White, 0, HouseFlags.None),
-            new RingHouse(912264293, N, 4, HouseLook.Brick, ExposedBrick, 1, C | M),
-            new RingHouse(912264294, E, 5, HouseLook.Painted, Ochre, 2, T),
-            new RingHouse(912264291, E, 3, HouseLook.Painted, White, 3, F),
+            new RingHouse(520755992, Gu, 3, HouseLook.GuruLhakhang, OchreDeep, 0, HouseFlags.None),
+            new RingHouse(520756005, Nne, 3, HouseLook.Ochre, OchreDeep, 1, P),
+            new RingHouse(517234573, Nne, 3, HouseLook.Painted, Cream, 2, C | T),
+            new RingHouse(911869006, Nne, 5, HouseLook.Brick, ExposedBrick, 3, B | T | M),
+            new RingHouse(911869007, Nne, 3, HouseLook.Painted, Salmon, 0, C),
+            new RingHouse(911869008, Nne, 3, HouseLook.Painted, PaleGreen, 4, T | F),
+            new RingHouse(209312611, Ne, 3, HouseLook.Dhabzang, White, 0, HouseFlags.None),
+            new RingHouse(912264293, Ne, 4, HouseLook.Brick, ExposedBrick, 1, C | M),
+            new RingHouse(912264294, Ne, 5, HouseLook.Painted, Ochre, 2, T),
+            new RingHouse(912264291, Ne, 3, HouseLook.Painted, White, 3, F),
             new RingHouse(912264292, E, 2, HouseLook.Painted, Cream, 0, HouseFlags.None),
             new RingHouse(912264454, E, 4, HouseLook.Painted, BrickRed, 4, B | T),
             new RingHouse(912264453, E, 6, HouseLook.Brick, ExposedBrick, 1, C | M),
@@ -132,42 +136,43 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             new RingHouse(912264590, E, 4, HouseLook.Painted, Salmon, 3, C | T),
             new RingHouse(912264589, E, 6, HouseLook.Painted, Cream, 0, B | M | F),
             new RingHouse(912264741, E, 4, HouseLook.Brick, ExposedBrick, 4, T),
-            new RingHouse(912269948, E, 5, HouseLook.Painted, PaleGreen, 1, C),
-            new RingHouse(912269941, E, 6, HouseLook.Painted, Orange, 2, B | T),
-            new RingHouse(211905448, E, 4, HouseLook.Painted, Cream, 0, C | F),
-            new RingHouse(912269936, E, 3, HouseLook.Brick, ExposedBrick, 4, M),
-            new RingHouse(912270352, E, 5, HouseLook.Painted, Ochre, 1, C | T),
-            new RingHouse(912270787, S, 4, HouseLook.Painted, Pink, 2, B | M),
-            new RingHouse(912276969, S, 4, HouseLook.Painted, BrickRed, 3, P | B),
-            new RingHouse(912276521, S, 4, HouseLook.Painted, Salmon, 0, C | T),
-            new RingHouse(912276520, S, 6, HouseLook.Brick, ExposedBrick, 4, P | St),
+            new RingHouse(912269948, Se, 5, HouseLook.Painted, PaleGreen, 1, C),
+            new RingHouse(912269941, Se, 6, HouseLook.Painted, Orange, 2, B | T),
+            new RingHouse(211905448, Se, 4, HouseLook.Painted, Cream, 0, C | F),
+            new RingHouse(912269936, Sse, 3, HouseLook.Brick, ExposedBrick, 4, M),
+            new RingHouse(912270352, Sse, 5, HouseLook.Painted, Ochre, 1, C | T),
+            new RingHouse(912270787, Sse, 4, HouseLook.Painted, Pink, 2, B | M),
+            new RingHouse(912276969, Sse, 4, HouseLook.Painted, BrickRed, 3, P | B),
+            new RingHouse(912276521, Sh, 4, HouseLook.Painted, Salmon, 0, C | T),
+            new RingHouse(912276520, Sh, 6, HouseLook.Brick, ExposedBrick, 4, P | St),
             // The lane to the main gate (Commons "Boudhanath entrance gate and its premises", 2019-2022): exposed brick
             // with tile pent eaves west of the gate, the red-brick front with white window frames beyond it.
-            new RingHouse(911869018, S, 4, HouseLook.Brick, ExposedBrick, 1, P | St | Ev),
-            new RingHouse(517160028, S, 1, HouseLook.Painted, White, 2, HouseFlags.None),
-            new RingHouse(911869019, S, 5, HouseLook.Painted, BrickRed, 3, P | St | Ev),
-            new RingHouse(912278963, S, 4, HouseLook.Painted, Ochre, 0, C),
-            new RingHouse(912278964, S, 5, HouseLook.Painted, Cream, 4, T | M),
-            new RingHouse(912278965, S, 5, HouseLook.Brick, ExposedBrick, 1, C | F),
-            new RingHouse(912280177, W, 6, HouseLook.Brick, ExposedBrick, 2, B | T | Ev),
-            new RingHouse(912280176, W, 5, HouseLook.Painted, OchreDeep, 3, C),
-            new RingHouse(911869025, W, 5, HouseLook.Brick, ExposedBrick, 0, C | M),
-            new RingHouse(911869026, W, 5, HouseLook.Painted, Ochre, 4, B | T),
-            new RingHouse(911869027, W, 5, HouseLook.Painted, Cream, 1, C | F),
-            new RingHouse(911869028, W, 4, HouseLook.Painted, BrickRed, 2, P | B),
-            new RingHouse(209530023, W, 2, HouseLook.Jamchen, OchreDeep, 0, HouseFlags.None),
-            new RingHouse(911869029, W, 3, HouseLook.Brick, ExposedBrick, 3, T),
-            new RingHouse(912280174, W, 4, HouseLook.Brick, ExposedBrick, 4, C | M | Ev),
-            new RingHouse(912280388, W, 4, HouseLook.Painted, Salmon, 0, B | T),
-            new RingHouse(209312596, W, 3, HouseLook.Painted, Ochre, 1, C),
-            new RingHouse(517236636, W, 3, HouseLook.Brick, ExposedBrick, 2, T | F),
-            new RingHouse(517236635, W, 3, HouseLook.Painted, BrickRed, 3, B | M),
-            new RingHouse(912261800, W, 4, HouseLook.Painted, BrickRed, 4, C),
-            new RingHouse(912261799, N, 5, HouseLook.Painted, Ochre, 0, B | T | M),
-            new RingHouse(912262363, N, 4, HouseLook.Brick, ExposedBrick, 1, C),
-            new RingHouse(912262534, N, 4, HouseLook.Painted, Salmon, 2, B | F),
-            // East of the main gate on Boudha Main Road (the ATM front), built with the gate.
-            new RingHouse(912276519, BoudhaPart.Gate, 5, HouseLook.Brick, ExposedBrick, 2, St | Ev | T),
+            new RingHouse(911869018, Sp, 4, HouseLook.Brick, ExposedBrick, 1, P | St | Ev),
+            new RingHouse(517160028, Sh, 1, HouseLook.Painted, White, 2, HouseFlags.None),
+            new RingHouse(911869019, Ssw, 5, HouseLook.Painted, BrickRed, 3, P | St | Ev),
+            new RingHouse(912278963, Ssw, 4, HouseLook.Painted, Ochre, 0, C),
+            new RingHouse(912278964, Ssw, 5, HouseLook.Painted, Cream, 4, T | M),
+            new RingHouse(912278965, Ssw, 5, HouseLook.Brick, ExposedBrick, 1, C | F),
+            new RingHouse(912280177, Sw, 6, HouseLook.Brick, ExposedBrick, 2, B | T | Ev),
+            new RingHouse(912280176, Sw, 5, HouseLook.Painted, OchreDeep, 3, C),
+            new RingHouse(911869025, Sw, 5, HouseLook.Brick, ExposedBrick, 0, C | M),
+            new RingHouse(911869026, Sw, 5, HouseLook.Painted, Ochre, 4, B | T),
+            new RingHouse(911869027, Wsw, 5, HouseLook.Painted, Cream, 1, C | F),
+            new RingHouse(911869028, Wsw, 4, HouseLook.Painted, BrickRed, 2, P | B),
+            new RingHouse(209530023, Wg, 2, HouseLook.Jamchen, OchreDeep, 0, HouseFlags.None),
+            new RingHouse(911869029, Wg, 3, HouseLook.Brick, ExposedBrick, 3, T),
+            new RingHouse(912280174, Wnw, 4, HouseLook.Brick, ExposedBrick, 4, C | M | Ev),
+            new RingHouse(912280388, Wnw, 4, HouseLook.Painted, Salmon, 0, B | T),
+            new RingHouse(209312596, Wnw, 3, HouseLook.Painted, Ochre, 1, C),
+            new RingHouse(517236636, Nw, 3, HouseLook.Brick, ExposedBrick, 2, T | F),
+            new RingHouse(517236635, Nw, 3, HouseLook.Painted, BrickRed, 3, B | M),
+            new RingHouse(912261800, Nw, 4, HouseLook.Painted, BrickRed, 4, C),
+            new RingHouse(912261799, Nw, 5, HouseLook.Painted, Ochre, 0, B | T | M),
+            new RingHouse(912262363, Nnw, 4, HouseLook.Brick, ExposedBrick, 1, C),
+            new RingHouse(912262534, Ng, 4, HouseLook.Painted, Salmon, 2, B | F),
+            // East of the main gate on Boudha Main Road (the ATM front): with the south sector, whose lane it fronts (the
+            // gate part keeps the arch alone, so the hero slice can hold it in detail from the lane).
+            new RingHouse(912276519, Sh, 5, HouseLook.Brick, ExposedBrick, 2, St | Ev | T),
         };
 
         /// <summary>Awning stripe colours (alternating with white), by <see cref="RingHouse.Awning"/>.</summary>
@@ -201,7 +206,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return b + t;
         }
 
-        /// <summary>The tallest structure of a kora quarter above the kora: its houses, its gompas and the flagpoles on
+        /// <summary>The tallest structure of a kora sector above the kora: its houses, its gompas and the flagpoles on
         /// the compound wall.</summary>
         public static double TopOf(BoudhaPart p)
         {
@@ -397,7 +402,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ build
 
-        /// <summary>Every house of a quarter (not its gompas) at one LOD.</summary>
+        /// <summary>Every house of a kora sector (not its gompas) at one LOD.</summary>
         public static void Build(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
         {
             for (int i = 0; i < Houses.Length; i++)
@@ -560,20 +565,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double bw = 2 * half / bays;
             if (lod >= 2)
             {
-                // Fronts only: a dark band per storey and the coloured awning band over the shops (LOD2 and the far ring).
+                // Fronts only (LOD2 and the far ring): a window per bay on every upper storey, the dark shop openings under
+                // the grey box of the rolled-up shutters, and the coloured awning band over them.
                 if (!front) return;
                 ShapeBrush glass = BoudhaKit.B(MeshColor.FromHex(h.Look == HouseLook.Brick ? 0x2E2420u : 0x3A342Eu), MaterialChannel.Glass, 0.8f);
                 for (int s = 1; s < h.Storeys; s++)
                 {
                     double y = Plinth + ShopH + (s - 1) * FloorH + 0.85;
-                    SacredDraw.Panel(m, e, -half + 0.3, y, half - 0.3, y + 1.4, 0.02, glass);
+                    for (int b = 0; b < bays; b++)
+                    {
+                        double xc = -half + (b + 0.5) * bw, ww = Math.Min(0.75, 0.32 * bw);
+                        SacredDraw.Panel(m, e, xc - ww, y, xc + ww, y + 1.35, 0.02, glass);
+                    }
                 }
-                if (front)
-                {
-                    SacredDraw.Panel(m, e, -half, Plinth, half, Plinth + 2.4, 0.02, BoudhaKit.B(MeshColor.FromHex(0x231E1A), MaterialChannel.Plain, 0.55f));
-                    SacredDraw.Quad(m, e, -half, Plinth + 2.75, 0.02, half, Plinth + 2.75, 0.02, half, Plinth + 2.4, 0.9, -half, Plinth + 2.4, 0.9, 0, 0.93, 0.36,
-                                    BoudhaKit.B(MeshColor.FromHex(AwningColours[h.Awning % AwningColours.Length]), MaterialChannel.Fabric));
-                }
+                SacredDraw.Panel(m, e, -half, Plinth, half, Plinth + 2.15, 0.02, BoudhaKit.B(MeshColor.FromHex(0x231E1A), MaterialChannel.Plain, 0.55f));
+                SacredDraw.Panel(m, e, -half, Plinth + 2.15, half, Plinth + 2.4, 0.022, BoudhaKit.B(MeshColor.FromHex(0x8C9096), MaterialChannel.Metal));
+                SacredDraw.Quad(m, e, -half, Plinth + 2.75, 0.02, half, Plinth + 2.75, 0.02, half, Plinth + 2.4, 0.9, -half, Plinth + 2.4, 0.9, 0, 0.93, 0.36,
+                                BoudhaKit.B(MeshColor.FromHex(AwningColours[h.Awning % AwningColours.Length]), MaterialChannel.Fabric));
                 return;
             }
             for (int b = 0; b < bays; b++)

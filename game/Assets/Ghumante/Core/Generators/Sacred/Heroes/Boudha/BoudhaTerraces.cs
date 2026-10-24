@@ -36,38 +36,43 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return false;
         }
 
-        public static void Build(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
+        /// <summary>The terrace dressing of one quadrant of the stupa (<paramref name="quadrant"/>, a dressing part): the
+        /// bell chortens of its arm, the mini-Boudha at the body corner clockwise after the arm, the elephants and the Dhyani
+        /// Buddhas (north), the elephants and the stone shrine (south).</summary>
+        public static void Build(MeshData m, GenColliders c, in BoudhaFrame f, BoudhaPart quadrant, int lod)
         {
             int v0 = m.VertexCount, i0 = m.IndexCount;
             Affine3 k = f.Site;
             double t1 = BoudhaStupa.T1Top;
-            CompoundStairs(m, c, f, lod);
             // Bell chortens: a pair per arm on the lowest terrace.
             double[] bell = { 18.1, 34.6, -18.1, 34.6, 18.2, -34.2, -18.2, -34.2, 36.0, 10.5, 36.0, -16.5, -36.0, 10.0, -36.0, -16.0 };
             for (int i = 0; i < bell.Length; i += 2)
             {
+                if (BoudhaSite.QuadrantAt(BoudhaSite.BearingOf(bell[i], bell[i + 1])) != quadrant) continue;
                 BoudhaKit.BellChorten(m, SacredDraw.At(k, bell[i], t1, bell[i + 1]), 5.6, lod, false);
                 Solid(c, f, bell[i], bell[i + 1], t1, t1 + 5.6, 1.6);
             }
-            // Mini-Boudha chortens at the four body corners.
-            double[] mini = { 29.6, 26.4, 29.6, -32.6, -29.2, 26.4, -29.2, -32.6 };
+            // Mini-Boudha chortens at the four body corners: NE with the north quadrant, SE east, SW south, NW west.
+            double[] mini = { 29.6, 26.4, 29.6, -32.6, -29.2, -32.6, -29.2, 26.4 };
             for (int i = 0; i < mini.Length; i += 2)
             {
+                if ((BoudhaPart)((int)BoudhaPart.DressNorth + i / 2) != quadrant) continue;
                 double u = mini[i], v = mini[i + 1];
                 MiniBoudha(m, BoudhaKit.Facing(k, u, t1, v, Math.Sign(u), Math.Sign(v)), lod);
                 Solid(c, f, u, v, t1, t1 + MiniH, MiniDomeR + 0.1);
             }
-            if (lod <= 1)
+            if (lod <= 1 && (quadrant == BoudhaPart.DressNorth || quadrant == BoudhaPart.DressSouth))
             {
+                bool north = quadrant == BoudhaPart.DressNorth;
                 // Elephants with riders at the foot of the north and south stairs to the second terrace.
                 for (int s = -1; s <= 1; s += 2)
                 {
-                    Elephant(m, c, f, BoudhaKit.Facing(k, s * 3.6, t1, 37.4, 0, 1), s, lod);
-                    Elephant(m, c, f, BoudhaKit.Facing(k, s * 3.6, t1, -37.6, 0, -1), -s, lod);
+                    if (north) Elephant(m, c, f, BoudhaKit.Facing(k, s * 3.6, t1, 37.4, 0, 1), s, lod);
+                    else Elephant(m, c, f, BoudhaKit.Facing(k, s * 3.6, t1, -37.6, 0, -1), -s, lod);
                     // Dhyani Buddhas at the head of the north stair, on the second terrace.
-                    Buddha(m, c, f, BoudhaKit.Facing(k, -0.5 + s * 3.1, BoudhaStupa.T2Top, 29.6, 0, 1), lod);
+                    if (north) Buddha(m, c, f, BoudhaKit.Facing(k, -0.5 + s * 3.1, BoudhaStupa.T2Top, 29.6, 0, 1), lod);
                 }
-                StoneShrine(m, c, f, BoudhaKit.Facing(k, 3.0, BoudhaStupa.T3Top, -21.8, 0, -1), lod);
+                if (!north) StoneShrine(m, c, f, BoudhaKit.Facing(k, 3.0, BoudhaStupa.T3Top, -21.8, 0, -1), lod);
             }
             SacredDraw.Bake(m, v0, i0, f.Level);
         }
@@ -82,31 +87,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ stairs
 
-        /// <summary>The two stairs from the compound ground to the lowest terrace (north through the west gate pavilion,
-        /// south by the lamp houses), with cheek walls, yellow handrails, clay pots and their ramps.</summary>
-        private static void CompoundStairs(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
+        /// <summary>The stair from the compound ground to the lowest terrace on arm <paramref name="arm"/> (0: north, through
+        /// the west gate pavilion; 2: south, by the lamp houses), with cheek walls, yellow handrails and its ramp; with no
+        /// mesh only the ramp.</summary>
+        public static void CompoundStairs(MeshData m, GenColliders c, in BoudhaFrame f, int arm, int lod)
         {
+            int v0 = m != null ? m.VertexCount : 0, i0 = m != null ? m.IndexCount : 0;
             Affine3 k = f.Site;
             ShapeBrush tread = BoudhaKit.B(MeshColor.FromHex(0xB0A79C), MaterialChannel.Stone), cheek = BoudhaKit.White;
             ShapeBrush rail = BoudhaKit.B(MeshColor.FromHex(0xE8C23A), MaterialChannel.Metal);
             double end, centre, y0 = BoudhaQuarter.CompoundTop, y1 = BoudhaStupa.T1Top;
-            for (int q = 0; q < 2; q++)
+            bool north = arm == 0;
+            BoudhaStupa.ArmEnd(0, north ? 0 : 2, out end, out centre);
+            double u = north ? NorthStairU : SouthStairU, dir = north ? 1 : -1;
+            double wallR = BoudhaWall.RadiusAt(f, north ? 0 : Math.PI);
+            double foot = wallR - (north ? 1.35 : 1.6), run = foot - end;
+            if (run < 3.0) return;
+            // Frame at the foot, +z climbing toward the terrace.
+            Affine3 st = BoudhaKit.Facing(k, u, 0, dir * foot, 0, -dir);
+            BoudhaKit.Flight(m, c, st, StairHalfW, run, y0, y1, 0.32, 0.55, tread, cheek, lod >= 1 ? 2 : 0);
+            if (m == null) return;
+            if (lod == 0)
             {
-                int arm = q == 0 ? 0 : 2;
-                BoudhaStupa.ArmEnd(0, arm, out end, out centre);
-                double u = q == 0 ? NorthStairU : SouthStairU, dir = q == 0 ? 1 : -1;
-                double wallR = BoudhaWall.RadiusAt(f, q == 0 ? 0 : Math.PI);
-                double foot = wallR - (q == 0 ? 1.35 : 1.6), run = foot - end;
-                if (run < 3.0) continue;
-                // Frame at the foot, +z climbing toward the terrace.
-                Affine3 st = BoudhaKit.Facing(k, u, 0, dir * foot, 0, -dir);
-                BoudhaKit.Flight(m, c, st, StairHalfW, run, y0, y1, 0.32, 0.55, tread, cheek, lod >= 1 ? 2 : 0);
-                if (lod <= 1)
-                {
-                    BoudhaKit.Handrail(m, st, -StairHalfW + 0.12, run, y0, y1, 0.9, rail, lod);
-                    BoudhaKit.Handrail(m, st, StairHalfW - 0.12, run, y0, y1, 0.9, rail, lod);
-                }
+                BoudhaKit.Handrail(m, st, -StairHalfW + 0.12, run, y0, y1, 0.9, rail, lod);
+                BoudhaKit.Handrail(m, st, StairHalfW - 0.12, run, y0, y1, 0.9, rail, lod);
             }
+            SacredDraw.Bake(m, v0, i0, f.Level);
         }
 
         // ------------------------------------------------------------------------------------------------ chortens
@@ -123,13 +129,24 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         private static void MiniBoudha(MeshData m, in Affine3 fr, int lod)
         {
             ShapeBrush w = BoudhaKit.White, sh = BoudhaKit.WhiteShade, gilt = BoudhaKit.Gilt, giltS = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt);
+            if (lod >= 3)
+            {
+                // Far: the base block, the dome, the harmika with its eye band and the gilt spike.
+                SacredDraw.Box(m, fr, -MiniBase, MiniBase, -0.2, 1.05, -MiniBase, MiniBase, w, BoxFaces.All & ~BoxFaces.Bottom);
+                Profile2 fp = BoudhaKit.Prof;
+                fp.Add(MiniDomeR, 1.05, true).Add(0.8 * MiniDomeR, 2.6).Add(0, 3.1);
+                Shapes.Lathe(m, fr, w, fp, 6);
+                SacredDraw.Box(m, fr, -0.82, 0.82, 3.0, 4.2, -0.82, 0.82, BoudhaKit.B(BoudhaKit.EyeBlueDark, MaterialChannel.Paint), BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+                Shapes.Cone(m, SacredDraw.At(fr * Affine3.Yaw(45), 0, 4.2, 0), gilt, 0.95, MiniH - 4.2, 4, 0, 0, false);
+                return;
+            }
             // Base: two white steps with copings (spire/06: the dome nearly fills the upper step).
             Mould mo = SacredDraw.M;
             if (lod >= 2) mo.Add(0, -0.2, sh).Add(0, 0.55, w).Add(-0.25, 0.55).Add(-0.25, 1.05);
             else mo.Add(0, -0.2, sh).Add(0, 0.47, w).Add(0.06, 0.49).Add(0.06, 0.55).Add(-0.25, 0.55).Add(-0.25, 0.97).Add(-0.2, 0.99).Add(-0.2, 1.05);
             SacredDraw.RectRing(m, fr, 0, 0, MiniBase, MiniBase, mo, true, w);
             // Dome: a full, slightly raised hemisphere on a round foot band.
-            int seg = lod == 0 ? 18 : lod == 1 ? 12 : 8, arc = lod == 0 ? 8 : lod == 1 ? 5 : 3;
+            int seg = lod == 0 ? 14 : lod == 1 ? 10 : lod == 2 ? 8 : 6, arc = lod == 0 ? 6 : lod == 1 ? 4 : 3;
             Profile2 p = BoudhaKit.Prof;
             double r = MiniDomeR, y = 1.05, rise = 1.85;
             p.Add(0, y).Add(r + 0.08, y, true).Add(r + 0.08, y + 0.18, true).Add(r, y + 0.2, true);
@@ -229,9 +246,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 // Dotted harness: rows of red, blue, yellow and green beads round the body.
                 uint[] dots = { 0xC8282E, 0x2E5DA8, 0xF2C230, 0x2F8F4E };
                 for (int s = -1; s <= 1; s += 2)
-                    for (int q = 0; q < 5; q++)
+                    for (int q = 0; q < 3; q++)
                     {
-                        double t = q / 4.0, z = -0.42 * h + 0.84 * h * t, y = 0.35 + 0.48 * h + 0.06 * Math.Sin(Math.PI * t);
+                        double t = 0.1 + 0.4 * q, z = -0.42 * h + 0.84 * h * t, y = 0.35 + 0.48 * h + 0.06 * Math.Sin(Math.PI * t);
                         Shapes.Sphere(m, SacredDraw.At(ef, s * 0.27 * h, y, z), BoudhaKit.B(MeshColor.FromHex(dots[q % 4]), MaterialChannel.Paint), 0.04, 4);
                     }
             }
@@ -266,7 +283,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (lod >= 2) mo.Add(0.05, -0.05, w).Add(0.05, 1.0);
             else mo.Add(0.05, -0.05, w).Add(0.05, 0.15).Add(0, 0.18).Add(0, 0.85).Add(0.07, 0.88).Add(0.07, 1.0);
             SacredDraw.RectRing(m, bf, 0, 0, 0.42, 0.42, mo, true, w);
-            int seg = lod == 0 ? 12 : lod == 1 ? 7 : 5;
+            int seg = lod == 0 ? 9 : lod == 1 ? 6 : 5;
             Profile2 lotus = BoudhaKit.Prof;
             lotus.Add(0, 1.0).Add(0.42, 1.0, true).Add(0.5, 1.1).Add(0.46, 1.2).Add(0, 1.2);
             Shapes.Lathe(m, bf, gilt, lotus, seg);

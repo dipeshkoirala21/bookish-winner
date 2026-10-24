@@ -89,19 +89,38 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ build
 
+        /// <summary>
+        /// The shell (the curated hero): the base ring with its niches, the dome with the saffron arcade and the north
+        /// stair, the harmika with the eyes, the thirteen steps and the crown. Its LOD0 build also registers the walkable
+        /// terraces, the stairs and the compound stairs that the four quadrant parts draw (<see cref="Quadrant"/>), and the
+        /// solid drum, dome and tower.
+        /// </summary>
         public static void Build(MeshData m, GenColliders c, in BoudhaFrame f, int lod, SacredStats stats)
         {
             int v0 = m.VertexCount, i0 = m.IndexCount;
             Affine3 k = f.Site;
-            Terraces(m, c, f, lod);
-            Stairs(m, c, f, lod);
+            // The three terrace walls all round: the white stepped mandala the stupa stands on, from the kora up (the four
+            // dressing parts draw the floors, the parapet, the stairs and what stands on the terraces).
+            for (int i = 0; i < 3; i++) TerraceWall(m, k, BoudhaKit.U, BoudhaKit.V, Terrace(i, BoudhaKit.U, BoudhaKit.V), i, BoudhaPart.Stupa, lod, 0);
             Ring(m, k, lod);
             Dome(m, k, lod);
+            DomeStair(m, k, lod);
             Harmika(m, k, lod);
             Spire(m, k, lod);
             Crown(m, k, lod);
             if (c != null)
             {
+                double[] pu = BoudhaKit.U, pv = BoudhaKit.V;
+                for (int i = 0; i < 3; i++)
+                {
+                    // Walkable body and arms (a cross is two overlapping boxes per axis plus the body).
+                    int n = Terrace(i, pu, pv);
+                    double y0 = i == 0 ? 0 : TerraceTop(i - 1), y1 = TerraceTop(i);
+                    AddCrossColliders(c, f, pu, pv, y0 - (i == 0 ? 0.6 : 0.05), y1);
+                }
+                for (int q = 0; q < 4; q++) Stairs(null, c, f, q, 0);
+                BoudhaTerraces.CompoundStairs(null, c, f, 0, 0);
+                BoudhaTerraces.CompoundStairs(null, c, f, 2, 0);
                 // The ring, dome and tower: solid, not climbable.
                 double x, y, z;
                 k.Point(0, 0, 0, out x, out y, out z);
@@ -112,52 +131,145 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                          -Math.Sin(BoudhaSite.AxisBearingDeg * Math.PI / 180), GenColliderFlags.NoClimb | GenColliderFlags.SoftMargin, GenColliders.Stone);
             }
             SacredDraw.Bake(m, v0, i0, f.Level);
-            int fv = m.VertexCount, fi = m.IndexCount;
-            int lines = Flags(m, f, lod);
-            if (stats != null) stats.FlagLines = lines;
-            SacredDraw.Bake(m, fv, fi, f.Level);
         }
 
         // ------------------------------------------------------------------------------------------------ terraces
 
-        private static void Terraces(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
+        /// <summary>
+        /// The terraces of one dressing quadrant (<paramref name="quadrant"/>; each outline edge by its midpoint's bearing):
+        /// the white walls with their base course and rounded coping, the rust-brown brick floors streaked white by the
+        /// lime-wash runoff from the dome (c_aerial/c04), T1's parapet with its finials, the three flights on the quadrant's
+        /// arm and, north and south, the compound stair (colliders: <see cref="Build"/>).
+        /// </summary>
+        public static void Quadrant(MeshData m, in BoudhaFrame f, BoudhaPart quadrant, int lod)
         {
+            int v0 = m.VertexCount, i0 = m.IndexCount;
             Affine3 k = f.Site;
-            double[] pu = BoudhaKit.U, pv = BoudhaKit.V;
-            ShapeBrush wall = BoudhaKit.White, foot = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster), cope = BoudhaKit.B(MeshColor.FromHex(0xF6F3EC), MaterialChannel.Plaster);
-            ShapeBrush floor = BoudhaKit.B(BoudhaKit.TerraceFloor, MaterialChannel.Brick);
+            double[] pu = BoudhaKit.U, pv = BoudhaKit.V, iu = BoudhaKit.U2, iv = BoudhaKit.V2;
             for (int i = 0; i < 3; i++)
             {
                 int n = Terrace(i, pu, pv);
-                double y0 = i == 0 ? 0 : TerraceTop(i - 1), y1 = TerraceTop(i);
-                Mould mo = SacredDraw.M;
-                double sink = i == 0 ? 0.6 : 0.05;
-                if (lod >= 2)
-                {
-                    mo.Add(0, y0 - sink, wall).Add(0, y1).Add(0.12, y1, cope);
-                }
-                else
-                {
-                    // Weathered base course, the white wall face, a rounded coping band.
-                    mo.Add(0.07, y0 - sink, foot).Add(0.07, y0 + 0.32).Add(0.0, y0 + 0.36, wall, false).Add(0, y1 - 0.34).Add(0.1, y1 - 0.3, cope)
-                      .Add(0.16, y1 - 0.18, false).Add(0.14, y1 - 0.06, false).Add(0.05, y1).Add(0, y1);
-                }
-                SacredDraw.Ring(m, k, pu, pv, n, mo);
-                SacredDraw.Cap(m, k, pu, pv, n, 0, y1, true, floor);
-                if (i == 0 && lod <= 1) Parapet(m, k, pu, pv, n, y1, lod);
-                if (c != null)
-                {
-                    // Walkable body and arms (a cross is two overlapping boxes per axis plus the body).
-                    AddCrossColliders(c, f, pu, pv, y0 - sink, y1);
-                }
+                double y1 = TerraceTop(i);
+                // The walls belong to the shell (<see cref="Build"/>) but for the far form, which the shell's own far form
+                // (<see cref="Far"/>) leaves to the quadrants: drawn a hand's breadth inside the shell's faces.
+                if (lod >= 3) TerraceWall(m, k, pu, pv, n, i, quadrant, lod, -0.06);
+                // The floor between the terrace above (or the base ring) and this terrace's edge.
+                int ni = i < 2 ? Terrace(i + 1, iu, iv) : 0;
+                Floor(m, k, pu, pv, n, iu, iv, ni, y1, i, quadrant, lod);
+                if (i == 0 && lod <= 1) Parapet(m, k, pu, pv, n, y1, quadrant, lod);
             }
+            if (lod <= 2)
+            {
+                Stairs(m, null, f, (int)(quadrant - BoudhaPart.DressNorth), lod);
+                if (quadrant == BoudhaPart.DressNorth) BoudhaTerraces.CompoundStairs(m, null, f, 0, lod);
+                if (quadrant == BoudhaPart.DressSouth) BoudhaTerraces.CompoundStairs(m, null, f, 2, lod);
+            }
+            SacredDraw.Bake(m, v0, i0, f.Level);
+        }
+
+        /// <summary>
+        /// The wall of terrace <paramref name="i"/> along the edges of <paramref name="quadrant"/> (<see cref="BoudhaPart.Stupa"/>:
+        /// all round): a weathered base course, the white face and a rounded coping band (LOD2: face and lip; LOD3: the face
+        /// alone, <paramref name="off"/> out from the outline).
+        /// </summary>
+        private static void TerraceWall(MeshData m, in Affine3 k, double[] pu, double[] pv, int n, int i, BoudhaPart quadrant, int lod, double off)
+        {
+            ShapeBrush wall = BoudhaKit.White, foot = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster), cope = BoudhaKit.B(MeshColor.FromHex(0xF6F3EC), MaterialChannel.Plaster);
+            double y0 = i == 0 ? 0 : TerraceTop(i - 1), y1 = TerraceTop(i);
+            Mould mo = SacredDraw.M;
+            double sink = i == 0 ? 0.6 : 0.05;
+            if (lod >= 3)
+            {
+                mo.Add(off, y0 - sink, wall).Add(off, y1);
+            }
+            else if (lod >= 2)
+            {
+                mo.Add(0, y0 - sink, wall).Add(0, y1).Add(0.12, y1, cope);
+            }
+            else
+            {
+                mo.Add(0.07, y0 - sink, foot).Add(0.07, y0 + 0.32).Add(0.0, y0 + 0.36, wall, false).Add(0, y1 - 0.34).Add(0.1, y1 - 0.3, cope)
+                  .Add(0.16, y1 - 0.18, false).Add(0.14, y1 - 0.06, false).Add(0.05, y1).Add(0, y1);
+            }
+            BoudhaKit.RingQuadrant(m, k, pu, pv, n, mo, quadrant);
+        }
+
+        /// <summary>The terrace floor colour (rust-brown brick, c_aerial/c04) and the lime-wash white of its streaks.</summary>
+        private static readonly uint FloorBrick = MeshColor.FromHex(0x9A6A52), LimeStreak = MeshColor.FromHex(0xE8E2D6);
+
+        /// <summary>
+        /// One terrace floor in a quadrant: a grid between this terrace's outline (vertices 0..n) and the inner boundary (the
+        /// outline of the terrace above, same vertex order, or the base ring's circle for T3), each outline edge cut along
+        /// its length and across into rows, its vertex colours the rust-brown brick with a little variation and the white
+        /// streaks of the lime-wash running off the dome, strongest at the inner edge and fading out within about 18 m of
+        /// the dome (no extra triangles: the streaks are vertex colours). LOD2 and beyond draw the edge's fan triangle in the
+        /// streaked brick tone.
+        /// </summary>
+        private static void Floor(MeshData m, in Affine3 k, double[] pu, double[] pv, int n, double[] iu, double[] iv, int ni, double y, int terrace, BoudhaPart quadrant,
+                                  int lod)
+        {
+            int rows = lod == 0 ? 3 : 1;
+            double seg = lod == 0 ? 1.6 : lod == 1 ? 4.0 : 1e9;
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                if (BoudhaSite.QuadrantAt(BoudhaSite.BearingOf(0.5 * (pu[i] + pu[j]), 0.5 * (pv[i] + pv[j]))) != quadrant) continue;
+                double el = Math.Sqrt((pu[j] - pu[i]) * (pu[j] - pu[i]) + (pv[j] - pv[i]) * (pv[j] - pv[i]));
+                int cols = Math.Max(1, (int)Math.Ceiling(el / seg));
+                int first = m.VertexCount;
+                for (int r = 0; r <= rows; r++)
+                {
+                    double t = (double)r / rows;
+                    for (int q = 0; q <= cols; q++)
+                    {
+                        double s = (double)q / cols;
+                        double ou = pu[i] + (pu[j] - pu[i]) * s, ov = pv[i] + (pv[j] - pv[i]) * s, au, av;
+                        Inner(pu, pv, iu, iv, ni, i, j, s, ou, ov, out au, out av);
+                        double u = au + (ou - au) * t, v = av + (ov - av) * t;
+                        SacredDraw.V(m, k, u, y + 0.005, v, 0, 1, 0, BoudhaKit.B(FloorTone(u, v, terrace, rows == 1), MaterialChannel.Brick));
+                    }
+                }
+                SacredDraw.Grid(m, first, rows + 1, cols + 1, false, null);
+            }
+        }
+
+        /// <summary>The inner boundary point matching outline point (ou, ov) on edge i → j at fraction s: the same point of
+        /// the terrace above (same vertex order), or for T3 the base ring's circle along the same bearing.</summary>
+        private static void Inner(double[] pu, double[] pv, double[] iu, double[] iv, int ni, int i, int j, double s, double ou, double ov, out double au, out double av)
+        {
+            if (ni == 0)
+            {
+                double r = Math.Sqrt(ou * ou + ov * ov);
+                au = ou / Math.Max(1e-6, r) * (RingR0 - 0.05);
+                av = ov / Math.Max(1e-6, r) * (RingR0 - 0.05);
+                return;
+            }
+            au = iu[i] + (iu[j] - iu[i]) * s;
+            av = iv[i] + (iv[j] - iv[i]) * s;
+        }
+
+        /// <summary>The floor colour at site (u, v) of terrace <paramref name="terrace"/>: rust-brown brick with a soft
+        /// variation and the white lime-wash streaks radiating from the dome (wider and paler near it; on T1 only near its
+        /// inner edge). <paramref name="far"/> gives the averaged tone.</summary>
+        private static uint FloorTone(double u, double v, int terrace, bool far)
+        {
+            double r = Math.Sqrt(u * u + v * v), a = Math.Atan2(u, v);
+            float jitter = (float)(0.06 * ShapeNoise.Value3(u * 0.35, 0, v * 0.35, 7101));
+            uint brick = MeshColor.Scale(FloorBrick, 1f + jitter);
+            // Streaks: a comb of radial runs (about every 2.2 m round the ring), uneven in width and length, fading with the
+            // distance from the dome's foot.
+            double fade = 1.0 - Math.Max(0, Math.Min(1, (r - RingR0) / 18.0));
+            if (far) return MeshColor.Lerp(brick, LimeStreak, (float)(0.22 * fade));
+            double comb = 0.5 + 0.5 * Math.Cos(a * 54.0 + 2.5 * ShapeNoise.Value3(Math.Cos(a) * 3, 0, Math.Sin(a) * 3, 7102));
+            double streak = Math.Pow(comb, 6.0) * fade * (0.75 + 0.25 * ShapeNoise.Value3(u * 0.2, 1, v * 0.2, 7103));
+            return MeshColor.Lerp(brick, LimeStreak, (float)Math.Max(0, Math.Min(0.85, 1.2 * streak + 0.12 * fade)));
         }
 
         /// <summary>
         /// T1's low parapet along its outer edge with the small chorten finials on it (corner/02, pair_3), edge by edge, left
         /// open where the compound stairs arrive on the north and south arm ends (<see cref="BoudhaTerraces.ParapetGap"/>).
         /// </summary>
-        private static void Parapet(MeshData m, in Affine3 k, double[] pu, double[] pv, int n, double y1, int lod)
+        private static void Parapet(MeshData m, in Affine3 k, double[] pu, double[] pv, int n, double y1, BoudhaPart quadrant, int lod)
         {
             ShapeBrush wall = BoudhaKit.White, cope = BoudhaKit.B(MeshColor.FromHex(0xF6F3EC), MaterialChannel.Plaster);
             const double ph = 0.5, th = 0.36, step = 0.25;
@@ -166,6 +278,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 int j = (i + 1) % n;
                 double du = pu[j] - pu[i], dv = pv[j] - pv[i], l = Math.Sqrt(du * du + dv * dv);
                 if (l < 0.05) continue;
+                if (BoudhaSite.QuadrantAt(BoudhaSite.BearingOf(0.5 * (pu[i] + pu[j]), 0.5 * (pv[i] + pv[j]))) != quadrant) continue;
                 // The arm-end edges: north (points 7 → 8) and south (17 → 18) of the cross outline.
                 int arm = i == 7 ? 0 : i == 17 ? 2 : -1;
                 // Frame on the edge: x along it, +z inward (the parapet stands just inside the outer face).
@@ -186,7 +299,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                             SacredDraw.Box(m, e, a - 0.04, x + 0.04, ph, ph + 0.06, -0.02, th + 0.04, cope, BoxFaces.All & ~BoxFaces.Bottom);
                             if (lod == 0)
                             {
-                                int count = (int)((x - a) / 4.0);
+                                int count = (int)((x - a) / 5.0);
                                 for (int f = 0; f < count; f++)
                                 {
                                     double fx = a + (f + 0.5) * (x - a) / count;
@@ -236,39 +349,38 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ stairs
 
-        private static void Stairs(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
+        /// <summary>The three flights on arm <paramref name="q"/> (0 N, 1 E, 2 S, 3 W): T1 → T2, T2 → T3 and T3 → the base
+        /// ring, the north ones wider with yellow handrails and clay pots; with no mesh only their walkable ramps.</summary>
+        private static void Stairs(MeshData m, GenColliders c, in BoudhaFrame f, int q, int lod)
         {
             Affine3 k = f.Site;
             ShapeBrush tread = BoudhaKit.B(MeshColor.FromHex(0xE4DCD3), MaterialChannel.Stone), cheek = BoudhaKit.White;
             ShapeBrush rail = BoudhaKit.B(MeshColor.FromHex(0xE8C23A), MaterialChannel.Metal);
-            for (int q = 0; q < 4; q++)
+            for (int i = 0; i < 3; i++)
             {
-                // T1 → T2 on every arm; T2 → T3; T3 → the base ring.
-                for (int i = 0; i < 3; i++)
+                double endUpper, cUpper, endLower, cLower;
+                ArmEnd(i == 0 ? 1 : 2, q, out endUpper, out cUpper);
+                double yLow = TerraceTop(i), yHigh = i == 0 ? T2Top : i == 1 ? T3Top : RingTop;
+                if (i == 2)
                 {
-                    double endUpper, cUpper, endLower, cLower;
-                    ArmEnd(i == 0 ? 1 : 2, q, out endUpper, out cUpper);
-                    double yLow = TerraceTop(i), yHigh = i == 0 ? T2Top : i == 1 ? T3Top : RingTop;
-                    if (i == 2)
-                    {
-                        endUpper = RingR0 - 0.05;
-                        cUpper = 0;
-                    }
-                    ArmEnd(i, q, out endLower, out cLower);
-                    double rise = yHigh - yLow, run = Math.Min(rise / Math.Tan(37 * Math.PI / 180), endLower - endUpper - 0.9);
-                    double halfW = q == 0 ? 1.95 : 1.5;
-                    double across = q == 0 ? -0.5 : (i == 2 ? 0 : cUpper);
-                    // Frame at the foot, +z running inward (up the flight).
-                    Affine3 outward = Dir(k, q, endUpper + run, 0, q == 1 || q == 2 ? -across : across);
-                    Affine3 inward = outward * Affine3.Yaw(180);
-                    BoudhaKit.Flight(m, c, inward, halfW, run, yLow, yHigh, 0.35, 0.55, tread, cheek, lod >= 1 ? 2 : 0);
-                    if (q == 0 && lod <= 1)
-                    {
-                        BoudhaKit.Handrail(m, inward, -halfW + 0.15, run, yLow, yHigh, 0.9, rail, lod);
-                        BoudhaKit.Handrail(m, inward, halfW - 0.15, run, yLow, yHigh, 0.9, rail, lod);
-                    }
-                    if (q == 0 && lod == 0) Pots(m, inward, halfW + 0.35, run, yLow, yHigh);
+                    endUpper = RingR0 - 0.05;
+                    cUpper = 0;
                 }
+                ArmEnd(i, q, out endLower, out cLower);
+                double rise = yHigh - yLow, run = Math.Min(rise / Math.Tan(37 * Math.PI / 180), endLower - endUpper - 0.9);
+                double halfW = q == 0 ? 1.95 : 1.5;
+                double across = q == 0 ? -0.5 : (i == 2 ? 0 : cUpper);
+                // Frame at the foot, +z running inward (up the flight).
+                Affine3 outward = Dir(k, q, endUpper + run, 0, q == 1 || q == 2 ? -across : across);
+                Affine3 inward = outward * Affine3.Yaw(180);
+                BoudhaKit.Flight(m, c, inward, halfW, run, yLow, yHigh, 0.35, 0.55, tread, cheek, lod >= 1 ? 2 : 0);
+                if (m == null) continue;
+                if (q == 0 && lod == 0)
+                {
+                    BoudhaKit.Handrail(m, inward, -halfW + 0.15, run, yLow, yHigh, 0.9, rail, lod);
+                    BoudhaKit.Handrail(m, inward, halfW - 0.15, run, yLow, yHigh, 0.9, rail, lod);
+                }
+                if (q == 0 && lod == 0) Pots(m, inward, halfW + 0.35, run, yLow, yHigh);
             }
         }
 
@@ -293,7 +405,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static void Ring(MeshData m, in Affine3 k, int lod)
         {
-            int seg = lod == 0 ? 72 : lod == 1 ? 32 : 24;
+            int seg = lod == 0 ? 60 : lod == 1 ? 32 : 24;
             ShapeBrush w = BoudhaKit.White, sh = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster);
             Profile2 p = BoudhaKit.Prof;
             p.Add(0, T3Top - 0.05).Add(RingR0, T3Top - 0.05, true).Add(RingR0, RingStep - 0.08, true).Add(RingR0 + 0.06, RingStep - 0.04, false)
@@ -304,7 +416,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             // a tiny gilt Amitabha, a slightly greyer white frame, and between them small cloth pennants in the five colours.
             ShapeBrush frame = BoudhaKit.WhiteShade, dark = BoudhaKit.B(BoudhaKit.NicheDark, MaterialChannel.Plain, 0.55f);
             ShapeBrush fig = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt, 0.8f);
-            int count = lod == 0 ? Niches : Niches / 2;
+            int count = lod == 0 ? Niches : Niches / 3;
             double nh = 0.5, nw = 0.42, yb = RingStep + 0.14;
             for (int j = 0; j < count; j++)
             {
@@ -317,11 +429,11 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     // The seated Amitabha in the niche: a lap and body and the head, as flat gilt reliefs.
                     SacredDraw.Quad(m, nf, -0.13, yb + 0.04, 0.05, 0.13, yb + 0.04, 0.05, 0.07, yb + 0.26, 0.05, -0.07, yb + 0.26, 0.05, 0, 0, 1, fig);
                     SacredDraw.Quad(m, nf, -0.045, yb + 0.27, 0.052, 0.045, yb + 0.27, 0.052, 0.045, yb + 0.36, 0.052, -0.045, yb + 0.36, 0.052, 0, 0, 1, fig);
-                    // A pennant hanging from the dome foot over the pier after this niche (both faces).
+                    // A pennant hanging from the dome foot over the pier after this niche (its outer face: it hangs against
+                    // the band).
                     Affine3 pf = SacredDraw.At(k * Affine3.Yaw(360.0 * (j + 1.0) / count), 0, 0, RingR1 + 0.06);
                     ShapeBrush cl = BoudhaKit.B(SacredPalette.Flags[j % 5], MaterialChannel.Fabric);
-                    for (int s = -1; s <= 1; s += 2)
-                        SacredDraw.Tri(m, pf, -0.13, RingTop - 0.02, 0.0, 0.13, RingTop - 0.02, 0.0, 0.0, RingTop - 0.42, 0.04, 0, 0, s, cl);
+                    SacredDraw.Tri(m, pf, -0.13, RingTop - 0.02, 0.0, 0.13, RingTop - 0.02, 0.0, 0.0, RingTop - 0.42, 0.04, 0, 0, 1, cl);
                 }
             }
         }
@@ -369,15 +481,16 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         private static readonly double[] RowsLod1 = { 0, 0.12, 0.24, 0.32, 0.4, 0.48, 0.6, 0.68, 0.78, 1.0 };
 
-        private static readonly double[] RowsLod2 = { 0, 0.15, 0.3, 0.45, 0.66, 0.8, 1.0 };
+        private static readonly double[] RowsLod2 = { 0, 0.15, 0.3, 0.45, 0.62, 0.7, 0.8, 1.0 };
 
         private static readonly uint PaleWash = MeshColor.FromHex(0xF0D894), CapWash = MeshColor.FromHex(0xEDC862);
 
         private static void Dome(MeshData m, in Affine3 k, int lod)
         {
-            int seg = lod == 0 ? 72 : lod == 1 ? 32 : 24;
+            int seg = lod == 0 ? 60 : lod == 1 ? 32 : 24;
             double[] rows = lod == 0 ? RowsLod0 : lod == 1 ? RowsLod1 : RowsLod2;
-            // The dome as a grid so the washes can follow the arcade vertex by vertex.
+            // The dome as a grid so the washes can follow the arcade vertex by vertex: lime white up to the arcade, the pale
+            // yellow wash above it, the cap wash above the cap's scalloped edge (far off: white with the cap wash only).
             int first = m.VertexCount;
             for (int r = 0; r < rows.Length; r++)
             {
@@ -390,23 +503,23 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double t = (a * Arcs / (2 * Math.PI)) % 1.0, tc = (t + 0.5) % 1.0;
                     uint col = BoudhaKit.DomeWhite;
                     if (e > CapLine(tc) - 0.005) col = CapWash;
-                    else if (e > ArcLine(t) + 0.005) col = lod >= 2 ? CapWash : PaleWash;
+                    else if (lod <= 1 && e > ArcLine(t) + 0.005) col = PaleWash;
                     else col = MeshColor.Lerp(MeshColor.FromHex(0xE8E2D4), col, (float)Math.Min(1, e * 4));
                     SacredDraw.V(m, k, u, y, v, nu, ny, nv, BoudhaKit.B(col, MaterialChannel.Plaster));
                 }
             }
             SacredDraw.Grid(m, first, rows.Length, seg + 1, false, null);
-            if (lod >= 2) return;
             ShapeBrush sb = BoudhaKit.B(BoudhaKit.SaffronArc, MaterialChannel.Paint);
             ShapeBrush soft = BoudhaKit.B(MeshColor.FromHex(0xEACB86), MaterialChannel.Paint);
-            int segs = lod == 0 ? 16 : 8;
+            int segs = lod == 0 ? 16 : lod == 1 ? 8 : 4;
             for (int j = 0; j < Arcs; j++)
             {
                 double a0 = 2 * Math.PI * j / Arcs, a1 = 2 * Math.PI * (j + 1) / Arcs;
-                // The arch over lobe j (a ribbon of constant width along the arcade line, lifted off the surface).
-                DomeRibbon(m, k, a0, a1, segs, 0.45, 0.03, false, sb);
+                // The arch over lobe j (a ribbon of constant width along the arcade line, lifted off the surface; far off a
+                // little wider so it still reads).
+                DomeRibbon(m, k, a0, a1, segs, lod >= 2 ? 0.6 : 0.45, lod >= 2 ? 0.06 : 0.03, false, sb);
                 // The leg at a0 down the dome from the springing to the niche band, wider where the two arches meet.
-                Leg(m, k, a0, ArcSpring + 0.02, LegFoot, 0.62, 0.4, lod == 0 ? 6 : 2, 0.03, sb);
+                Leg(m, k, a0, ArcSpring + 0.02, LegFoot, 0.62, lod >= 2 ? 0.5 : 0.4, lod == 0 ? 6 : lod == 1 ? 2 : 1, lod >= 2 ? 0.06 : 0.03, sb);
                 if (lod == 0)
                 {
                     // The softer saffron line of the cap's scallops, and two pale drips down each lobe from its crown.
@@ -461,13 +574,63 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             SacredDraw.Grid(m, f0, segs + 1, 2, false, null);
         }
 
+        // ------------------------------------------------------------------------------------------------ dome stair
+
+        /// <summary>The lowest elevation fraction of the dome stair and its half width (m): it climbs the north face from
+        /// the arcade's crown to the harmika's foot (motp/12-13, kora/07).</summary>
+        private const double StairFoot = 0.42, DomeStairHalf = 0.65;
+
+        /// <summary>The dome's radius at height y above the kora (its flattened half ellipse).</summary>
+        private static double DomeRadiusAt(double y)
+        {
+            double sn = Math.Max(0, Math.Min(1, (y - RingTop) / (DomeApex - RingTop)));
+            return DomeR * Math.Sqrt(1 - sn * sn);
+        }
+
+        /// <summary>
+        /// The narrow stair up the dome's north face (site bearing 0; motp/12-13: the eyes look down it): white treads and
+        /// greyer risers 1.3 m wide stepping up the curve from the arcade's crown to the foot of the harmika between two
+        /// low white cheeks. Far off it is a stepped strip of a few treads.
+        /// </summary>
+        private static void DomeStair(MeshData m, in Affine3 k, int lod)
+        {
+            if (lod >= 3) return;
+            Affine3 f = BoudhaKit.Facing(k, 0, 0, 0, 0, 1);
+            double rh = (HarmikaHalf + 0.1) / DomeR;
+            double y0 = RingTop + (DomeApex - RingTop) * Math.Sin(0.5 * Math.PI * StairFoot), y1 = RingTop + (DomeApex - RingTop) * Math.Sqrt(1 - rh * rh);
+            int steps = lod == 0 ? 22 : lod == 1 ? 9 : 4;
+            double rise = (y1 - y0) / steps;
+            // Grey stone treads and darker risers in white cheeks (motp/13): the stair reads as a grey ribbed band on the dome.
+            ShapeBrush tread = BoudhaKit.B(MeshColor.FromHex(0xC9C1B3), MaterialChannel.Stone), riser = BoudhaKit.B(MeshColor.FromHex(0x8E877C), MaterialChannel.Stone, 0.75f);
+            ShapeBrush cheek = BoudhaKit.B(BoudhaKit.LimeWhite, MaterialChannel.Plaster);
+            for (int i = 0; i < steps; i++)
+            {
+                double yb = y0 + i * rise, yt = yb + rise;
+                double rOut = DomeRadiusAt(yb) + 0.05, rIn = Math.Max(HarmikaHalf - 0.2, DomeRadiusAt(yt) - 0.3);
+                SacredDraw.Box(m, f, -DomeStairHalf, DomeStairHalf, yb - 0.25, yt, rIn, rOut, riser, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                SacredDraw.Box(m, f, -DomeStairHalf, DomeStairHalf, yb - 0.25, yt, rIn, rOut, tread, BoxFaces.Top);
+                if (lod == 0)
+                {
+                    // The cheeks: a low white kerb either side, 0.12 m above the treads.
+                    for (int s = -1; s <= 1; s += 2)
+                        SacredDraw.Box(m, f, s * DomeStairHalf - (s > 0 ? 0 : 0.14), s * DomeStairHalf + (s > 0 ? 0.14 : 0), yb - 0.2, yt + 0.12, rIn, rOut, cheek,
+                                       BoxFaces.Front | BoxFaces.Top | (s > 0 ? BoxFaces.Right : BoxFaces.Left));
+                }
+            }
+        }
+
         // ------------------------------------------------------------------------------------------------ harmika
+
+        /// <summary>The eyes' centre line as a fraction of the harmika's eye block (photos: the brows meet the drape's green
+        /// frill and the "१" nose hangs between the eyes toward the dome), the drape's hem above the kora and the drape's
+        /// depth below its stripes.</summary>
+        public const double EyeLine = 0.68, DrapeH = 1.1;
 
         private static void Harmika(MeshData m, in Affine3 k, int lod)
         {
             double hb = HarmikaBase - 0.6, hw = HarmikaHalf;
             ShapeBrush g = BoudhaKit.B(BoudhaKit.GiltPanel, MaterialChannel.Gilt), gl = BoudhaKit.B(BoudhaKit.GiltLit, MaterialChannel.Gilt);
-            ShapeBrush line = BoudhaKit.GiltDark;
+            ShapeBrush line = BoudhaKit.B(BoudhaKit.GiltJoint, MaterialChannel.Gilt, 0.8f);
             // The eye block, its gilt cornice (projecting 0.35 m) and the frieze above it that carries the cloth.
             Mould mo = SacredDraw.M;
             if (lod >= 2)
@@ -481,63 +644,88 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                   .Add(CorniceHalf - hw + 0.12, CorniceTop);
             }
             SacredDraw.RectRing(m, k, 0, 0, hw, hw, mo, true, gl);
-            if (lod >= 2)
-            {
-                for (int s = 0; s < 4; s++)
-                {
-                    Affine3 face = k * Affine3.Yaw(90 * s);
-                    SacredDraw.Panel(m, face, -0.72 * hw, 24.35, -0.12 * hw, 24.85, hw + 0.02, BoudhaKit.B(0xFFFFFFFFu, MaterialChannel.Paint));
-                    SacredDraw.Panel(m, face, 0.12 * hw, 24.35, 0.72 * hw, 24.85, hw + 0.02, BoudhaKit.B(0xFFFFFFFFu, MaterialChannel.Paint));
-                    SacredDraw.Panel(m, face, -hw - 0.4, CorniceTop - 1.4, hw + 0.4, CorniceTop - 0.4, hw + 0.42, BoudhaKit.B(BoudhaKit.ClothRed, MaterialChannel.Fabric));
-                }
-                return;
-            }
+            double zc = CorniceHalf + 0.02, x0 = -CorniceHalf - 0.02, x1 = CorniceHalf + 0.02;
             for (int s = 0; s < 4; s++)
             {
                 Affine3 face = k * Affine3.Yaw(90 * s);
                 // Square gilt plates (about 0.45 m): the joints as darker lines.
                 if (lod == 0) BoudhaKit.GridLines(m, face, -hw, hw, HarmikaBase, HarmikaTop - 0.05, hw + 0.004, 0.45, 0.45, 0.035, line);
                 Eyes(m, face, hw + 0.01, lod);
-                // The cloth on the frieze: thin stripes (blue, yellow, green over white) and the red pleated drape with its
-                // green frill hanging over the top of the eye block (eyes/00, general3/00).
-                double zc = CorniceHalf + 0.02, x0 = -CorniceHalf - 0.02, x1 = CorniceHalf + 0.02;
+                if (lod >= 2)
+                {
+                    // Far: the red drape over the eye block's top and its green frill as bands.
+                    SacredDraw.Panel(m, face, x0, HemY + 0.16, x1, CorniceTop - 0.1, zc + 0.04, BoudhaKit.B(BoudhaKit.ClothRed, MaterialChannel.Fabric));
+                    SacredDraw.Panel(m, face, x0, HemY - 0.06, x1, HemY + 0.16, zc + 0.06, BoudhaKit.B(BoudhaKit.ClothGreen, MaterialChannel.Fabric));
+                    continue;
+                }
+                // The cloth on the frieze: thin stripes (blue, yellow, red, green) and the red pleated drape hanging low over
+                // the top of the eye block, its green ruffled frill just over the brows (eyes/00, general3/00, motp/13).
                 uint[] stripes = { BoudhaKit.ClothBlue, BoudhaKit.ClothYellow, BoudhaKit.ClothRed, BoudhaKit.ClothGreen };
-                double hem = BoudhaKit.Valance(m, face, x0, x1, zc, CorniceTop - 0.12, stripes, 0.11, BoudhaKit.ClothRed, 0.85, 0.45, lod);
-                // Green ruffled frill at the hem.
+                double hem = BoudhaKit.Valance(m, face, x0, x1, zc, CorniceTop - 0.12, stripes, 0.11, BoudhaKit.ClothRed, DrapeH, 0.45, lod);
                 BoudhaKit.Valance(m, face, x0, x1, zc + 0.06, hem + 0.08, new uint[0], 0, BoudhaKit.ClothGreen, 0.22, 0.25, lod);
             }
         }
 
-        /// <summary>The eyes on one harmika face (the frame's +z face at z = <paramref name="z"/>; boudha.md 3.1.5).</summary>
+        /// <summary>The drape's hem above the kora (the frill hangs 0.14 m below it).</summary>
+        private const double HemY = CorniceTop - 0.12 - 4 * 0.11 - DrapeH;
+
+        /// <summary>
+        /// The eyes on one harmika face (the frame's +z face at z = <paramref name="z"/>; boudha.md 3.1.5, motp/13,
+        /// eyes/00): each eye 1.9 m wide (0.27 of the face) and about 0.44 as tall, its centre at
+        /// <see cref="EyeLine"/> of the block, a red-orange contour round the white almond and a red shade on the arched upper
+        /// lid, the large iris (0.38 m) in a dark blue and a light blue ring round the black pupil, cut by the lids, a black
+        /// lid line and the heavy dark brow just under the drape's frill; the white "१" nose (0.55 m) with its red
+        /// three-turn spiral between and below the eyes and the third eye between the brows. LOD2 keeps all of it as small
+        /// fans (about 90 triangles a face).
+        /// </summary>
         private static void Eyes(MeshData m, in Affine3 f, double z, int lod)
         {
-            int seg = lod == 0 ? 12 : 6;
-            // Big, wide-open eyes filling the face between the dome and the valance (spire/06, eyes/00): each about 0.27
-            // of the face wide, the brows close under the drape's frill.
-            double ye = HarmikaBase + 0.57 * (HarmikaTop - HarmikaBase), ew = 0.95, eh = 0.36;
+            int seg = lod == 0 ? 12 : lod == 1 ? 6 : 3, disc = lod == 0 ? 16 : lod == 1 ? 8 : 6;
+            double ye = HarmikaBase + EyeLine * (HarmikaTop - HarmikaBase), ew = 0.95, eh = 0.42, ed = 0.85 * eh;
             ShapeBrush white = BoudhaKit.B(0xFFFFFFFFu, MaterialChannel.Paint), red = BoudhaKit.B(BoudhaKit.EyeRed, MaterialChannel.Paint);
+            ShapeBrush contour = BoudhaKit.B(MeshColor.FromHex(0xA8302A), MaterialChannel.Paint), lid = BoudhaKit.B(MeshColor.FromHex(0xC8402A), MaterialChannel.Paint);
             ShapeBrush blueD = BoudhaKit.B(BoudhaKit.EyeBlueDark, MaterialChannel.Paint), blueL = BoudhaKit.B(BoudhaKit.EyeBlueLight, MaterialChannel.Paint);
             ShapeBrush ink = BoudhaKit.B(BoudhaKit.Ink, MaterialChannel.Paint), brow = BoudhaKit.B(BoudhaKit.Brow, MaterialChannel.Paint);
             for (int s = -1; s <= 1; s += 2)
             {
                 double xc = s * 1.35;
-                // Red-orange contour round the almond (wider, pointed at the outer corner), then the white almond.
-                Almond(m, f, xc + s * 0.06, ye - 0.02, z, ew + 0.16, eh + 0.12, 0.85 * eh + 0.16, s, seg, red);
-                Almond(m, f, xc, ye, z + 0.004, ew, eh, eh * 0.85, s, seg, white);
-                // Iris: dark blue ring, light blue, black pupil; looking slightly down.
-                Disc(m, f, xc, ye - 0.05, z + 0.008, 0.3, seg, blueD);
-                Disc(m, f, xc, ye - 0.05, z + 0.011, 0.22, seg, blueL);
-                Disc(m, f, xc, ye - 0.05, z + 0.014, 0.12, Math.Max(6, seg - 4), ink);
-                // Black upper lid line and the thick dark brow sweeping up and out, meeting the other over the nose.
-                Arc(m, f, xc, ye + 0.02, z + 0.016, ew + 0.04, eh + 0.04, 0.08, s, seg, ink);
-                Arc(m, f, xc + s * 0.1, ye + 0.5, z + 0.006, ew + 0.36, 0.3, 0.18, s, seg, brow);
+                // Red-orange contour round the almond (wider, pointed at the outer corner), the red lid shade over the upper lid,
+                // then the white almond.
+                Almond(m, f, xc + s * 0.05, ye - 0.01, z, ew + 0.11, eh + 0.08, ed + 0.09, s, seg, contour);
+                if (lod <= 1) Arc(m, f, xc, ye + 0.06, z + 0.002, ew + 0.08, eh, 0.16, s, seg, lid);
+                Almond(m, f, xc, ye, z + 0.004, ew, eh, ed, s, seg, white);
+                // The iris, cut by the lids: a dark blue ring, light blue, the black pupil; looking slightly down.
+                Iris(m, f, xc, ye, z + 0.008, ew, eh, ed, xc, ye - 0.04, 0.38, disc, blueD);
+                Iris(m, f, xc, ye, z + 0.011, ew, eh, ed, xc, ye - 0.04, 0.27, disc, blueL);
+                Disc(m, f, xc, ye - 0.04, z + 0.014, 0.13, Math.Max(6, disc - 4), ink);
+                // Black upper lid line, and the thick dark brow sweeping up and out, its crest under the frill.
+                if (lod <= 1) Arc(m, f, xc, ye + 0.02, z + 0.016, ew + 0.04, eh + 0.02, 0.07, s, seg, ink);
+                Arc(m, f, xc + s * 0.06, ye + eh - 0.02, z + 0.006, ew + 0.3, 0.16, 0.24, s, lod >= 2 ? 3 : seg, brow);
             }
-            // The nose "१": a white teardrop with a red spiral; the urna dot between the brows.
-            double ny = ye - 0.8;
-            Disc(m, f, 0, ny, z + 0.004, 0.34, seg, white);
-            Spiral(m, f, 0, ny, z + 0.008, 0.27, lod == 0 ? 28 : 14, 0.055, red);
-            Disc(m, f, 0, ye + 0.6, z + 0.006, 0.1, seg, blueD);
-            Disc(m, f, 0, ye + 0.6, z + 0.009, 0.055, seg, red);
+            // The nose "१": a white disc with a red three-turn spiral between the eyes, its top at their lower lids; the urna
+            // between the brows.
+            double ny = ye - 0.78;
+            Disc(m, f, 0, ny, z + 0.004, 0.275, disc, white);
+            Spiral(m, f, 0, ny, z + 0.008, 0.23, lod == 0 ? 40 : lod == 1 ? 18 : 4, 0.05, red);
+            Disc(m, f, 0, ye + 0.62, z + 0.006, 0.1, lod >= 2 ? 6 : disc, blueD);
+            if (lod <= 1) Disc(m, f, 0, ye + 0.62, z + 0.009, 0.055, disc, red);
+        }
+
+        /// <summary>A disc of radius <paramref name="rad"/> at (cx, cy) cut by the lids of the almond at (xc, yc) (half width
+        /// hw, upper lid <paramref name="up"/>, lower lid <paramref name="down"/>), as the painted iris shows.</summary>
+        private static void Iris(MeshData m, in Affine3 f, double xc, double yc, double z, double hw, double up, double down, double cx, double cy, double rad, int seg,
+                                 in ShapeBrush b)
+        {
+            int c = SacredDraw.V(m, f, cx, cy, z, 0, 0, 1, b), first = m.VertexCount;
+            for (int i = 0; i < seg; i++)
+            {
+                double a = 2 * Math.PI * i / seg, x = cx + rad * Math.Cos(a), y = cy + rad * Math.Sin(a);
+                double t = Math.Max(0, Math.Min(1, (x - (xc - hw)) / (2 * hw)));
+                double hi = yc + up * Math.Pow(Math.Sin(Math.PI * t), 0.85) - 0.03, lo = yc - down * Math.Pow(Math.Sin(Math.PI * t), 1.1) + 0.03;
+                y = Math.Max(lo, Math.Min(hi, y));
+                SacredDraw.V(m, f, x, y, z, 0, 0, 1, b);
+            }
+            for (int i = 0; i < seg; i++) SacredDraw.Tri(m, c, first + i, first + (i + 1) % seg);
         }
 
         /// <summary>An almond on plane z: half width hw, the upper lid up by <paramref name="up"/>, the lower lid down
@@ -593,13 +781,13 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             SacredDraw.Grid(m, first, seg + 1, 2, false, null);
         }
 
-        /// <summary>A flat spiral stroke (the red spiral in the nose).</summary>
+        /// <summary>A flat spiral stroke of three turns (the red spiral in the nose).</summary>
         internal static void Spiral(MeshData m, in Affine3 f, double xc, double yc, double z, double r, int n, double w, in ShapeBrush b)
         {
             int first = m.VertexCount;
             for (int i = 0; i < n; i++)
             {
-                double t = (double)i / (n - 1), a = 2.6 * Math.PI * t, rr = r * (0.12 + 0.88 * t);
+                double t = (double)i / (n - 1), a = 6.0 * Math.PI * t, rr = r * (0.12 + 0.88 * t);
                 double x = xc + rr * Math.Cos(a), y = yc + rr * Math.Sin(a);
                 double ox = Math.Cos(a) * 0.5 * w, oy = Math.Sin(a) * 0.5 * w;
                 SacredDraw.V(m, f, x - ox, y - oy, z, 0, 0, 1, b);
@@ -610,30 +798,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ spire
 
+        /// <summary>
+        /// The thirteen square gilt steps (9.1 m, 6.6 → 2.4 m): each riser of antique brass with a dark band (#5E4724) at its
+        /// top where the step's shadow falls (the spire's ribbed look from afar), a ledge, and at LOD0 two rows of square plates
+        /// with dark joints. LOD2 keeps the thirteen steps and their dark bands.
+        /// </summary>
         private static void Spire(MeshData m, in Affine3 k, int lod)
         {
             double step = (SpireTop - CorniceTop) / Steps;
             ShapeBrush g = BoudhaKit.B(BoudhaKit.GiltBright, MaterialChannel.Gilt), gs = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt);
-            ShapeBrush line = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt, 0.85f);
-            if (lod >= 2)
-            {
-                Shapes.Frustum(m, SacredDraw.At(k * Affine3.Yaw(45), 0, CorniceTop, 0), g, SpireHalf0 * Math.Sqrt(2), SpireHalf1 * Math.Sqrt(2), SpireTop - CorniceTop, 4, 0,
-                               0, false, true);
-                return;
-            }
+            ShapeBrush band = BoudhaKit.B(BoudhaKit.GiltJoint, MaterialChannel.Gilt, 0.75f), line = BoudhaKit.B(BoudhaKit.GiltJoint, MaterialChannel.Gilt, 0.85f);
+            double set = (SpireHalf0 - SpireHalf1) / Steps;
             for (int q = 0; q < Steps; q++)
             {
-                double half = SpireHalf0 + (SpireHalf1 - SpireHalf0) * q / Steps, y = CorniceTop + q * step, set = (SpireHalf0 - SpireHalf1) / Steps;
+                double half = SpireHalf0 + (SpireHalf1 - SpireHalf0) * q / Steps, y = CorniceTop + q * step;
                 Mould mo = SacredDraw.M;
-                mo.Add(0, y, g).Add(0, y + step - 0.08).Add(-0.03, y + step - 0.04, gs).Add(-set, y + step - 0.02, g).Add(-set, y + step);
+                if (lod >= 2) mo.Add(0, y, g).Add(0, y + step - 0.12).Add(0, y + step - 0.12, band).Add(0, y + step).Add(-set, y + step);
+                else mo.Add(0, y, g).Add(0, y + step - 0.14).Add(0, y + step - 0.14, band).Add(0, y + step - 0.04).Add(-0.03, y + step - 0.02, gs).Add(-set, y + step - 0.01, g)
+                       .Add(-set, y + step);
                 SacredDraw.RectRing(m, k, 0, 0, half, half, mo, q == Steps - 1, g);
                 if (lod == 0)
                 {
-                    // Two rows of square plates on every riser.
+                    // Two rows of square plates on every riser, their joints dark.
                     for (int s = 0; s < 4; s++)
                     {
                         Affine3 face = k * Affine3.Yaw(90 * s);
-                        BoudhaKit.GridLines(m, face, -half, half, y + 0.02, y + step - 0.1, half + 0.004, 0.36, 0.5 * (step - 0.12), 0.03, line);
+                        BoudhaKit.GridLines(m, face, -half, half, y + 0.02, y + step - 0.16, half + 0.004, 0.36, 0.5 * (step - 0.16), 0.03, line);
                     }
                 }
             }
@@ -650,7 +840,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// </summary>
         private static void Crown(MeshData m, in Affine3 k, int lod)
         {
-            int seg = lod == 0 ? 32 : lod == 1 ? 12 : 8;
+            int seg = lod == 0 ? 24 : lod == 1 ? 12 : 8;
             ShapeBrush g = BoudhaKit.B(BoudhaKit.GiltBright, MaterialChannel.Gilt), gl = BoudhaKit.B(BoudhaKit.GiltLit, MaterialChannel.Gilt);
             ShapeBrush gs = BoudhaKit.B(BoudhaKit.GiltShade, MaterialChannel.Gilt, 0.85f);
             // Neck on the top step.
@@ -680,35 +870,36 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     }
                 }
             }
-            // The cloth: a striped band low round the drum (white, blue, white, red) over the saffron skirt that hangs down
-            // over the neck and the top step.
+            // The cloth (motp/04, n_Boudhanath_spire/ref_04, the telephoto): the yellow cloth hangs straight round the canopy's
+            // posts as a near cylinder the drum's width, from the top step up to thin white, blue, white and red bands; above
+            // them the gilt drum (cloth about 35 %, bands 18 %, drum 47 % of the crown's height).
             uint[] bands = { BoudhaKit.ClothWhite, BoudhaKit.ClothBlue, BoudhaKit.ClothWhite, BoudhaKit.ClothRed };
-            double y = NeckTop + 1.2, bandH = 0.13;
+            double crown0 = SpireTop + 0.05, crownH = DrumTop + 0.42 - crown0, bandH = 0.18 * crownH / bands.Length;
+            double skirtBot = crown0, skirtTop = crown0 + 0.35 * crownH, y = skirtTop + bandH * bands.Length;
             for (int i = 0; i < bands.Length; i++)
             {
-                // Far off the stripes merge into one blue band.
-                if (lod >= 2 && i != 1) continue;
+                // Far off the white bands merge into the blue and the red.
+                if (lod >= 2 && i == 0) continue;
                 Profile2 bp = BoudhaKit.Prof;
-                double r = 2.3 + 0.012 * i;
-                if (lod >= 2) bp.Add(r, y - bandH * bands.Length).Add(r, y);
-                else bp.Add(r, y - bandH * (i + 1)).Add(r, y - bandH * i);
+                double r = 2.32 + 0.012 * i, ya = y - bandH * (i + 1), yb = y - bandH * i;
+                if (lod >= 2 && i == 1) yb = y;
+                bp.Add(r, ya).Add(r, yb);
                 Shapes.Lathe(m, k, BoudhaKit.B(bands[i], MaterialChannel.Fabric), bp, seg);
             }
-            double skirtTop = y - bandH * bands.Length, skirtBot = SpireTop - 0.35;
+            ShapeBrush cloth = BoudhaKit.B(BoudhaKit.ClothYellow, MaterialChannel.Fabric);
             if (lod == 0)
             {
-                // Folds: a ring grid whose radius waves round the circumference, the hem scalloped.
-                int folds = 24, cols = folds * 2, rowsN = 4, first = m.VertexCount;
-                ShapeBrush sf = BoudhaKit.B(BoudhaKit.ClothSaffron, MaterialChannel.Fabric);
+                // Vertical pleats: a ring grid whose radius waves round the circumference, a straight hem a little gathered.
+                int folds = 24, cols = folds * 2, rowsN = 3, first = m.VertexCount;
                 for (int r = 0; r <= rowsN; r++)
                 {
-                    double t = (double)r / rowsN, yy = skirtTop + (skirtBot - skirtTop) * t, rr = 2.33 + 0.3 * t;
+                    double t = (double)r / rowsN, yy = skirtTop + (skirtBot - skirtTop) * t, rr = 2.30 - 0.05 * t;
                     for (int j = 0; j <= cols; j++)
                     {
-                        double a = 2 * Math.PI * j / cols, wob = (j % 2 == 0 ? 1 : -1) * 0.07 * t;
-                        double hem = r == rowsN && j % 2 == 1 ? 0.12 : 0;
+                        double a = 2 * Math.PI * j / cols, wob = (j % 2 == 0 ? 1 : -1) * 0.05;
                         double nu = Math.Sin(a), nv = Math.Cos(a);
-                        SacredDraw.V(m, k, (rr + wob) * nu, yy + hem, (rr + wob) * nv, nu, 0.25, nv, sf);
+                        uint col = j % 2 == 0 ? BoudhaKit.ClothYellow : MeshColor.Scale(BoudhaKit.ClothYellow, 0.9f);
+                        SacredDraw.V(m, k, (rr + wob) * nu, yy, (rr + wob) * nv, nu, 0, nv, BoudhaKit.B(col, MaterialChannel.Fabric));
                     }
                 }
                 SacredDraw.Grid(m, first, rowsN + 1, cols + 1, false, null);
@@ -716,8 +907,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             else
             {
                 Profile2 sk = BoudhaKit.Prof;
-                sk.Add(2.63, skirtBot).Add(2.33, skirtTop + 0.02);
-                Shapes.Lathe(m, k, BoudhaKit.B(BoudhaKit.ClothSaffron, MaterialChannel.Fabric), sk, seg);
+                sk.Add(2.25, skirtBot).Add(2.3, skirtTop);
+                Shapes.Lathe(m, k, cloth, sk, seg);
             }
             // The finial bulb on the drum top: a lotus foot, the bell, two rings and the pinnacle.
             Profile2 fn = BoudhaKit.Prof;
@@ -727,7 +918,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                   .Add(0.4, yf + 1.2, true).Add(0.26, yf + 1.3).Add(0.3, yf + 1.4, true).Add(0.18, yf + 1.5).Add(0.2, yf + 1.75).Add(0.1, yf + 2.0).Add(0.07, yf + 2.6)
                   .Add(0, yf + 2.9);
             if (lod == 0) fn.Smooth(1);
-            Shapes.Lathe(m, k, g, fn, lod == 0 ? 16 : lod == 1 ? 8 : 6);
+            Shapes.Lathe(m, k, g, fn, lod == 0 ? 12 : lod == 1 ? 6 : 6);
             // The lantern frame: four legs from the drum's rim to the apex, a crossbar ring near the top, the parasol and
             // the spike.
             double legR = 1.7, foot = DrumTop + 0.12;
@@ -755,23 +946,31 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ flags
 
+        /// <summary>The flag bundles, the lines a bundle at LOD0, all the site's lines at LOD0, and the top of the flag
+        /// fans (under the canopy) above the kora.</summary>
+        public const int Bundles = 16, FlagLinesPerBundle = 4, FlagLinesLod0 = Bundles * FlagLinesPerBundle;
+
+        public const double FlagTop = NeckTop + 0.1;
+
         /// <summary>
-        /// The prayer-flag lines: sixteen bundles fanning from under the canopy to the four arm ends and the four body
-        /// corners of T1 and to eight darchor poles on the compound wall (boudha.md 3.1.6). LOD0 four lines a bundle on
-        /// their cords, small flags (0.5 × 0.42 m) every metre swung alternately in the breeze; LOD1 two lines a bundle as
-        /// continuous ribbons of colour; LOD2 one coarser ribbon a bundle. Returns the lines.
+        /// The prayer-flag lines of one dressing quadrant (<paramref name="quadrant"/>: the bundles whose feet lie in it) of
+        /// the sixteen bundles fanning from under the canopy to the four arm ends and the four body corners of T1 and to
+        /// eight darchor poles on the compound wall (boudha.md 3.1.6). LOD0 four lines a bundle on their cords, small flags
+        /// (0.5 × 0.42 m) every metre swung alternately in the breeze; LOD1 two lines a bundle as continuous ribbons of
+        /// colour; LOD2 one ribbon of 3 m blocks a bundle, LOD3 one of 5 m blocks. Returns the lines.
         /// </summary>
-        private static int Flags(MeshData m, in BoudhaFrame f, int lod)
+        internal static int Flags(MeshData m, in BoudhaFrame f, BoudhaPart quadrant, int lod)
         {
             Affine3 k = f.Site;
-            int per = lod == 0 ? 4 : lod == 1 ? 2 : 1, lines = 0;
+            int per = lod == 0 ? FlagLinesPerBundle : lod == 1 ? 2 : 1, lines = 0;
             double y0 = NeckTop - 0.15, r0 = 1.5;
             double[] pu = BoudhaKit.U2, pv = BoudhaKit.V2;
             int n = Terrace(0, pu, pv);
-            for (int b = 0; b < 16; b++)
+            for (int b = 0; b < Bundles; b++)
             {
                 double eu, ev, ey;
                 BundleEnd(f, b, pu, pv, out eu, out ev, out ey);
+                if (BundleQuadrant(b) != quadrant) continue;
                 double dir = Math.Atan2(eu, ev);
                 for (int j = 0; j < per; j++)
                 {
@@ -779,18 +978,37 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double spread = per > 1 ? (j - 0.5 * (per - 1)) / (per - 1) : 0;
                     double a0 = dir + 0.18 * spread, su = r0 * Math.Sin(a0), sv = r0 * Math.Cos(a0);
                     double side = 1.8 * spread, tu = Math.Cos(dir), tv = -Math.Sin(dir);
+                    if (b < 4)
+                    {
+                        // The axis bundles part either side of the nose (motp/13: the face stays clear): every line 0.9 m or
+                        // more off the axis, at the canopy and at its foot.
+                        double lo = (spread >= 0 ? 1 : -1) * (0.9 + 0.6 * Math.Abs(spread));
+                        su = r0 * Math.Sin(dir) + lo * tu;
+                        sv = r0 * Math.Cos(dir) + lo * tv;
+                        side = lo;
+                    }
                     double fu = eu + side * tu, fv = ev + side * tv, fy = ey + 0.25 * Math.Abs(spread);
                     double span = Math.Sqrt((fu - su) * (fu - su) + (fv - sv) * (fv - sv)), sag = (0.05 + 0.012 * j) * span;
                     if (lod == 0)
-                        BoudhaKit.FlagRun(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, sag, 0.5, 0.42, 1.0, 25, true, 0.08, b + j);
+                        BoudhaKit.FlagRun(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, sag, 0.62, 0.42, 1.35, 25, true, 0.08, b + j);
                     else if (lod == 1)
-                        BoudhaKit.FlagRun(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, sag, 1.45, 0.4, 1.45, 18, false, 0.08, b + j);
-                    else
+                        BoudhaKit.FlagRun(m, k, su, y0 - 0.25 * j, sv, fu, fy, fv, sag, 1.9, 0.42, 1.9, 18, false, 0.08, b + j);
+                    else if (lod == 2)
                         BoudhaKit.FlagRun(m, k, su, y0, sv, fu, fy, fv, 0.06 * span, 3.0, 0.5, 3.0, 0, false, 0.05, b);
+                    else
+                        BoudhaKit.FlagRun(m, k, su, y0, sv, fu, fy, fv, 0.06 * span, 5.0, 0.6, 5.0, 0, false, 0.05, b);
                     lines++;
                 }
             }
             return lines;
+        }
+
+        /// <summary>The dressing quadrant that draws bundle b: its arm end, the body corner clockwise after the arm (the NE
+        /// corner with the north arm, and so on) and its two poles, so each quadrant holds four bundles.</summary>
+        internal static BoudhaPart BundleQuadrant(int b)
+        {
+            if (b < 8) return (BoudhaPart)((int)BoudhaPart.DressNorth + (b & 3));
+            return BoudhaSite.QuadrantAt(22.5 + 45 * (b - 8));
         }
 
         /// <summary>Where bundle b ends (site u, v and height): 0-3 the T1 arm ends, 4-7 the body corners, 8-15 the poles on
@@ -824,27 +1042,51 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ LOD3
 
-        /// <summary>The far shape (≤ 200 triangles): the three terraces as boxes, the dome, the gilt tower with its red
-        /// valance band and the crown.</summary>
+        /// <summary>
+        /// The shell's far shape (≤ 240 triangles; the air, the rim hills, more than about a kilometre off; the terraces are
+        /// the quadrant parts' far shapes): the base ring with its step and the white dome as a twelve-sided lathe with three
+        /// latitude rings, the gilt harmika with a dark blue brow and eye strip on each face under the red valance band, the
+        /// spire stepped in three square tiers, the saffron cloth band and the gilt drum and finial.
+        /// </summary>
         public static void Far(MeshData m, in BoudhaFrame f)
         {
             Affine3 k = f.Site;
-            ShapeBrush w = BoudhaKit.White, g = BoudhaKit.Gilt;
-            double[] tw = { 40.0, 31.0, 24.0 };
-            for (int i = 0; i < 3; i++)
+            ShapeBrush w = BoudhaKit.B(BoudhaKit.DomeWhite, MaterialChannel.Plaster), g = BoudhaKit.B(BoudhaKit.GiltLit, MaterialChannel.Gilt);
+            // Ring (its step as one sloped band) and the dome.
+            Profile2 p = BoudhaKit.Prof;
+            p.Add(RingR0, T3Top - 0.1, true).Add(RingR0, RingStep, true).Add(RingR1, RingTop, true);
+            double[] lat = { 0.38, 0.72, 0.93 };
+            for (int i = 0; i < lat.Length; i++)
             {
-                double y0 = i == 0 ? -0.3 : TerraceTop(i - 1);
-                SacredDraw.Box(m, k, -tw[i], tw[i], y0, TerraceTop(i), -tw[i], tw[i], w, BoxFaces.All & ~BoxFaces.Bottom);
+                double u, y, v, nu, ny, nv;
+                DomePoint(0, lat[i], 0, out u, out y, out v, out nu, out ny, out nv);
+                p.Add(v, y, i == 0);
             }
-            Shapes.Dome(m, SacredDraw.At(k, 0, RingTop - 1.5, 0), BoudhaKit.B(BoudhaKit.DomeWhite, MaterialChannel.Plaster), DomeR + 1, DomeApex - RingTop + 1.5, 8);
-            SacredDraw.Box(m, k, -HarmikaHalf, HarmikaHalf, HarmikaBase, HarmikaTop, -HarmikaHalf, HarmikaHalf, BoudhaKit.GiltAged, BoxFaces.All & ~BoxFaces.Bottom);
+            p.Add(0, DomeApex);
+            Shapes.Lathe(m, k, w, p, 12);
+            // The harmika, its eye strips and the red valance band with the cornice.
+            SacredDraw.Box(m, k, -HarmikaHalf, HarmikaHalf, HarmikaBase, HarmikaTop, -HarmikaHalf, HarmikaHalf, BoudhaKit.B(BoudhaKit.GiltPanel, MaterialChannel.Gilt),
+                           BoxFaces.Front | BoxFaces.Back | BoxFaces.Left | BoxFaces.Right);
+            ShapeBrush eye = BoudhaKit.B(BoudhaKit.EyeBlueDark, MaterialChannel.Paint);
+            double ey = HarmikaBase + EyeLine * (HarmikaTop - HarmikaBase);
+            for (int s = 0; s < 4; s++)
+            {
+                Affine3 face = k * Affine3.Yaw(90 * s);
+                SacredDraw.Panel(m, face, -0.86 * HarmikaHalf, ey - 0.28, 0.86 * HarmikaHalf, ey + 0.5, HarmikaHalf + 0.03, eye);
+            }
             SacredDraw.Box(m, k, -CorniceHalf, CorniceHalf, HarmikaTop, CorniceTop, -CorniceHalf, CorniceHalf, BoudhaKit.B(BoudhaKit.ClothRed, MaterialChannel.Fabric),
                            BoxFaces.All & ~BoxFaces.Bottom);
-            Shapes.Frustum(m, SacredDraw.At(k * Affine3.Yaw(45), 0, CorniceTop, 0), g, SpireHalf0 * 1.41, SpireHalf1 * 1.41, SpireTop - CorniceTop, 4, 0, 0, false, false);
-            Shapes.Frustum(m, SacredDraw.At(k, 0, SpireTop - 0.3, 0), BoudhaKit.B(BoudhaKit.ClothSaffron, MaterialChannel.Fabric), 2.6, 2.3, NeckTop + 0.7 - SpireTop + 0.3, 6, 0, 0,
+            // The spire in three square tiers (the thirteen steps' silhouette), the saffron cloth, the gilt drum and finial.
+            double h3 = (SpireTop - CorniceTop) / 3;
+            for (int t = 0; t < 3; t++)
+            {
+                double a0 = SpireHalf0 + (SpireHalf1 - SpireHalf0) * t / 3.0, a1 = SpireHalf0 + (SpireHalf1 - SpireHalf0) * (t + 0.85) / 3.0;
+                Shapes.Frustum(m, SacredDraw.At(k * Affine3.Yaw(45), 0, CorniceTop + t * h3, 0), g, a0 * 1.414, a1 * 1.414, h3, 4, 0, 0, false, true);
+            }
+            Shapes.Frustum(m, SacredDraw.At(k, 0, SpireTop - 0.05, 0), BoudhaKit.B(BoudhaKit.ClothYellow, MaterialChannel.Fabric), 2.3, 2.3, NeckTop + 1.25 - SpireTop, 6, 0, 0,
                            false, false);
-            Shapes.Frustum(m, SacredDraw.At(k, 0, NeckTop + 0.7, 0), g, 2.3, 2.15, DrumTop - NeckTop - 0.7, 6, 0, 0, false, true);
-            Shapes.Cone(m, SacredDraw.At(k, 0, DrumTop, 0), g, 1.2, Tip - DrumTop, 4, 0, 0, false);
+            Shapes.Frustum(m, SacredDraw.At(k, 0, NeckTop + 1.2, 0), g, 2.3, 2.1, DrumTop + 0.4 - NeckTop - 1.2, 6, 0, 0, false, true);
+            Shapes.Cone(m, SacredDraw.At(k, 0, DrumTop + 0.4, 0), g, 0.8, Tip - DrumTop - 0.4, 4, 0, 0, false);
         }
     }
 }

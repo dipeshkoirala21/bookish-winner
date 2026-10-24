@@ -6,17 +6,18 @@ using Ghumante.Core.Meshing.Shapes;
 namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 {
     /// <summary>
-    /// One quarter of the Boudhanath kora (a <see cref="BoudhaPart"/> North, East, South or West: 45° either side of a
-    /// site axis), built as a hero of its own: its stretch of the compound wall (<see cref="BoudhaWall"/>), the ring of
-    /// houses (<see cref="BoudhaRing"/>) and the gompas (<see cref="BoudhaGompas"/>), the north entrance
-    /// (<see cref="BoudhaNorth"/>), and here the paved ground and the compound's furniture (boudha.md 2.3, 3.2, 4):
+    /// One sector of the Boudhanath kora (a kora <see cref="BoudhaPart"/>, <see cref="BoudhaSite.Sectors"/>), built as a
+    /// hero of its own: on its inner ring the stretch of the compound wall (<see cref="BoudhaWall"/>), the north entrance
+    /// (<see cref="BoudhaNorth"/>) or the south pavilion, and here the paved ground and the compound's furniture; on its
+    /// outer ring the houses (<see cref="BoudhaRing"/>) and the gompas (<see cref="BoudhaGompas"/>) round the kora
+    /// (boudha.md 2.3, 3.2, 4):
     /// <list type="bullet">
     /// <item>the kora plaza: the grey stone-flag inner path 3.6 m wide along the wall, a darker stone kerb line, then red
     /// brick out to the house fronts and into the lanes, a raised slab (its top at <see cref="PaveTop"/>, over the
     /// kora's pedestrian ways) with walkable colliders;</item>
     /// <item>the compound ground between the wall and the lowest terrace, flagged in grey stone;</item>
-    /// <item>the lamp houses with their ochre-yellow sloping roofs over tables of brass butter lamps, the trees and the
-    /// potted garden inside the compound, the white juniper kilns, the benches on the brick zone facing the stupa.</item>
+    /// <item>the lamp houses with their ochre-yellow sloping roofs over tables of brass butter lamps, the potted shrub
+    /// beds of the compound corners, the white juniper kilns, the benches on the brick zone facing the stupa.</item>
     /// </list>
     /// </summary>
     internal static class BoudhaQuarter
@@ -37,54 +38,49 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>How far the paving runs into a lane mouth past the neighbouring house fronts (m).</summary>
         public const double LaneMouthM = 4.0;
 
-        // Paving scratch (one quarter's rays at 1.5° at most, and the median window), one set per building thread.
+        // Paving scratch (one sector's rays at 1.5° at most, and the median window), one set per building thread.
         [ThreadStatic] private static double[] _front, _clamped, _window;
 
-        /// <summary>One quarter of the kora at one LOD; returns the prayer-wheel niches its stretch of the wall draws.</summary>
+        /// <summary>One kora sector at one LOD; returns the prayer-wheel niches its stretch of the wall draws.</summary>
         public static int Build(MeshData m, GenColliders c, TileData tile, in BoudhaFrame f, BoudhaPart part, int lod)
         {
-            if (lod >= 3)
+            BoudhaSector sec = BoudhaSite.SectorOf(part);
+            int niches = 0;
+            if (sec.HasInner)
             {
-                // The far quarter (rooftop and aerial views: the hero slice steps the smaller parts down to this): the
-                // wall's faces with the niche band, the paving in wide sectors, the house bodies with their front bands and
-                // hip roofs, the gompas' blocks and gilt roofs.
-                BoudhaWall.Build(m, null, f, part, 3);
-                int v3 = m.VertexCount, i3 = m.IndexCount;
-                Paving(m, null, tile, f, part, 3);
-                SacredDraw.Bake(m, v3, i3, f.Level + PaveTop);
-                v3 = m.VertexCount;
-                i3 = m.IndexCount;
-                BoudhaRing.Build(m, null, tile, f, part, 3);
-                BoudhaGompas.Build(m, null, tile, f, part, 3);
-                SacredDraw.Bake(m, v3, i3, f.Level);
-                return 0;
+                // The wall (its own bake), then the paving baked from its top, then the compound.
+                niches = BoudhaWall.Build(m, lod >= 3 ? null : c, f, part, lod);
+                int v0 = m.VertexCount, i0 = m.IndexCount;
+                Paving(m, lod >= 3 ? null : c, tile, f, part, lod);
+                SacredDraw.Bake(m, v0, i0, f.Level + PaveTop);
+                v0 = m.VertexCount;
+                i0 = m.IndexCount;
+                if (part == BoudhaPart.NorthGate) BoudhaNorth.Build(m, lod >= 3 ? null : c, f, lod);
+                if (lod <= 2) Compound(m, c, f, part, lod);
+                SacredDraw.Bake(m, v0, i0, f.Level);
             }
-            int niches = BoudhaWall.Build(m, c, f, part, lod);
-            int v0 = m.VertexCount, i0 = m.IndexCount;
-            Paving(m, c, tile, f, part, lod);
-            SacredDraw.Bake(m, v0, i0, f.Level + PaveTop);
-            v0 = m.VertexCount;
-            i0 = m.IndexCount;
-            BoudhaRing.Build(m, c, tile, f, part, lod);
-            BoudhaGompas.Build(m, c, tile, f, part, lod);
-            if (part == BoudhaPart.North) BoudhaNorth.Build(m, c, f, lod);
-            Compound(m, c, f, part, lod);
-            SacredDraw.Bake(m, v0, i0, f.Level);
-            return niches;
+            if (sec.HasOuter)
+            {
+                int v0 = m.VertexCount, i0 = m.IndexCount;
+                BoudhaRing.Build(m, lod >= 3 ? null : c, tile, f, part, lod);
+                BoudhaGompas.Build(m, lod >= 3 ? null : c, tile, f, part, lod);
+                SacredDraw.Bake(m, v0, i0, f.Level);
+            }
+            return lod >= 3 ? 0 : niches;
         }
 
         // ------------------------------------------------------------------------------------------------ paving
 
-        /// <summary>The quarter's bearing range (degrees from the site's north axis, start &lt; end, may run past 360).</summary>
-        private static void Range(BoudhaPart part, out double a0, out double a1)
+        /// <summary>The sector's inner bearing range (degrees from the site's north axis, start &lt; end, may run past
+        /// 360); false when it has no inner ring.</summary>
+        private static bool Range(BoudhaPart part, out double a0, out double a1)
         {
-            switch (part)
-            {
-                case BoudhaPart.North: a0 = -45; a1 = 45; return;
-                case BoudhaPart.East: a0 = 45; a1 = 135; return;
-                case BoudhaPart.South: a0 = 135; a1 = 225; return;
-                default: a0 = 225; a1 = 315; return;
-            }
+            BoudhaSector sec = BoudhaSite.SectorOf(part);
+            a0 = sec.In0;
+            a1 = sec.In1;
+            if (!sec.HasInner) return false;
+            if (a1 <= a0) a1 += 360.0;
+            return true;
         }
 
         /// <summary>Distance from the stupa axis along bearing <paramref name="ang"/> (radians) to the first building
@@ -137,9 +133,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             Affine3 k = f.Site;
             SacredDrawnRoads roads = SacredDrawnRoads.For(tile);
             double a0, a1;
-            Range(part, out a0, out a1);
+            if (!Range(part, out a0, out a1)) return;
             double stepDeg = lod == 0 ? 1.5 : lod == 1 ? 3.0 : lod == 2 ? 7.5 : 15.0;
-            int steps = (int)Math.Round((a1 - a0) / stepDeg);
+            int steps = Math.Max(1, (int)Math.Round((a1 - a0) / stepDeg));
             double y = PaveTop;
             ShapeBrush flag = BoudhaKit.B(BoudhaKit.StoneFlag, MaterialChannel.Flagstone), kerb = BoudhaKit.B(BoudhaKit.StoneKerb, MaterialChannel.Stone);
             ShapeBrush ground = BoudhaKit.B(MeshColor.FromHex(0x9A968E), MaterialChannel.Flagstone);
@@ -282,45 +278,56 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
 
         // ------------------------------------------------------------------------------------------------ compound
 
-        /// <summary>Lamp houses, trees, kilns, the potted garden and the benches of a quarter.</summary>
+        /// <summary>True when the site-local point stands on the sector's inner ring.</summary>
+        private static bool Mine(BoudhaPart part, double u, double v)
+        {
+            return BoudhaSite.InnerAt(u, v) == part;
+        }
+
+        /// <summary>The compound's shrub beds: site (u, v) of the middle, the length along the wall and the depth across it
+        /// (c_aerial/c04).</summary>
+        private static readonly double[] Beds =
+        {
+            -24.5, 33.0, 8.5, 3.0, -34.0, 24.5, 8.0, 3.0, // NW corner
+            22.5, 35.0, 7.0, 3.0, 35.5, 19.0, 7.0, 2.8, // NE corner (the lamp houses between)
+            23.0, -36.0, 8.0, 3.0, 34.5, -27.0, 7.5, 3.0, // SE corner
+            -23.0, -36.0, 8.0, 3.0, -34.5, -27.0, 7.5, 3.0, // SW corner
+            -42.5, 9.0, 8.0, 1.8, 42.5, 4.0, 8.0, 1.8, // the strips along the west and east walls
+        };
+
+        /// <summary>Lamp houses, kilns, the shrub beds and the benches of a sector (each by where it stands).</summary>
         private static void Compound(MeshData m, GenColliders c, in BoudhaFrame f, BoudhaPart part, int lod)
         {
             Affine3 k = f.Site;
-            switch (part)
+            // NE: two lamp houses along the wall (around/03 left).
+            if (Mine(part, 33.5, 25.0)) LampHouse(m, c, f, 33.5, 25.0, -40, 4.2, 3.0, lod);
+            if (Mine(part, 28.0, 31.5)) LampHouse(m, c, f, 28.0, 31.5, -40, 3.6, 2.6, lod);
+            // The planted beds of the compound corners (c_aerial/c04: dense green beds of potted shrubs in the NW, NE, SE
+            // and SW corners between the lowest terrace and the wall, and narrow strips along the east and west walls).
+            for (int i = 0; i < Beds.Length; i += 4)
+                if (Mine(part, Beds[i], Beds[i + 1])) ShrubBed(m, f, Beds[i], Beds[i + 1], Beds[i + 2], Beds[i + 3], lod, i);
+            if (Mine(part, 44.0, -14.0))
             {
-                case BoudhaPart.North:
-                    // NE: two lamp houses along the wall (around/03 left); NW: the potted garden with its trees (around/03 right).
-                    LampHouse(m, c, f, 33.5, 25.0, -40, 4.2, 3.0, lod);
-                    LampHouse(m, c, f, 28.0, 31.5, -40, 3.6, 2.6, lod);
-                    Tree(m, c, f, -27.0, 37.0, 5.5, lod, 1);
-                    Tree(m, c, f, -33.5, 30.5, 6.5, lod, 2);
-                    Garden(m, f, -24.0, 33.5, 9.0, 4.0, 40, lod);
-                    break;
-                case BoudhaPart.East:
-                    Tree(m, c, f, 42.0, 14.0, 6.0, lod, 3);
-                    Tree(m, c, f, 39.0, -25.5, 5.0, lod, 4);
-                    BoudhaWall.Kiln(m, BoudhaKit.Facing(k, 44.0, CompoundTop, -14.0, 1, 0), 1.3, 2.0, lod);
-                    if (c != null) Cylinder(c, f, 44.0, -14.0, 2.0, 0.7);
-                    break;
-                case BoudhaPart.South:
-                    // By the south stair to T1 (corner/04): two lamp houses.
-                    LampHouse(m, c, f, 8.5, -43.5, 180, 4.4, 3.0, lod);
-                    LampHouse(m, c, f, 13.5, -42.5, 180, 3.4, 2.4, lod);
-                    Tree(m, c, f, -30.0, -38.0, 5.5, lod, 5);
-                    break;
-                default:
-                    Tree(m, c, f, -44.0, -10.0, 6.0, lod, 6);
-                    Tree(m, c, f, -42.5, 16.0, 5.0, lod, 7);
-                    BoudhaWall.Kiln(m, BoudhaKit.Facing(k, -44.5, CompoundTop, 3.0, -1, 0), 1.3, 2.0, lod);
-                    if (c != null) Cylinder(c, f, -44.5, 3.0, 2.0, 0.7);
-                    // Benches on the brick zone facing the stupa (OSM n5162080318-20, r 55).
-                    for (int i = 0; i < 3; i++)
-                    {
-                        double ang = (262 + 8 * i) * Math.PI / 180.0, r = BoudhaWall.RadiusAt(f, ang) + BoudhaWall.HalfThick + InnerPathM + 2.0;
-                        Bench(m, c, f, r * Math.Sin(ang), r * Math.Cos(ang), ang, lod);
-                    }
-                    break;
+                BoudhaWall.Kiln(m, BoudhaKit.Facing(k, 44.0, CompoundTop, -14.0, 1, 0), 1.3, 2.0, lod);
+                if (c != null) Cylinder(c, f, 44.0, -14.0, 2.0, 0.7);
             }
+            // By the south stair to T1 (corner/04): two lamp houses.
+            if (Mine(part, 8.5, -43.5)) LampHouse(m, c, f, 8.5, -43.5, 180, 4.4, 3.0, lod);
+            if (Mine(part, 13.5, -42.5)) LampHouse(m, c, f, 13.5, -42.5, 180, 3.4, 2.4, lod);
+            if (Mine(part, -44.5, 3.0))
+            {
+                BoudhaWall.Kiln(m, BoudhaKit.Facing(k, -44.5, CompoundTop, 3.0, -1, 0), 1.3, 2.0, lod);
+                if (c != null) Cylinder(c, f, -44.5, 3.0, 2.0, 0.7);
+            }
+            // Benches on the brick zone facing the stupa (OSM n5162080318-20, r 55).
+            for (int i = 0; i < 3; i++)
+            {
+                double ang = (262 + 8 * i) * Math.PI / 180.0, r = BoudhaWall.RadiusAt(f, ang) + BoudhaWall.HalfThick + InnerPathM + 2.0;
+                double u = r * Math.Sin(ang), v = r * Math.Cos(ang);
+                if (Mine(part, u, v)) Bench(m, c, f, u, v, ang, lod);
+            }
+            // The NE compound house east of the north gate.
+            if (Mine(part, BoudhaNorth.NeHouseU, BoudhaNorth.NeHouseV)) BoudhaNorth.NeHouse(m, c, f, lod);
         }
 
         private static void Cylinder(GenColliders c, in BoudhaFrame f, double u, double v, double h, double r)
@@ -393,57 +400,39 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
         }
 
-        /// <summary>A rounded cartoon tree (a trunk and a cluster of foliage blobs; cut back trees of the compound,
-        /// commons_late/c03, around/03), <paramref name="h"/> tall.</summary>
-        internal static void Tree(MeshData m, GenColliders c, in BoudhaFrame f, double u, double v, double h, int lod, int seed)
+        /// <summary>
+        /// A planted bed of the compound (c_aerial/c04, around/03): a low red-brick kerb round dark soil packed with clay
+        /// pots of dark green shrubs 0.6-0.9 m tall (#2F5A2A), in two rows, its long side <paramref name="w"/> along the
+        /// wall (turned to face out from the stupa) and <paramref name="d"/> across it.
+        /// </summary>
+        private static void ShrubBed(MeshData m, in BoudhaFrame f, double u, double v, double w, double d, int lod, int seed)
         {
             Affine3 k = f.Site;
-            ShapeBrush bark = BoudhaKit.B(MeshColor.FromHex(0x6A5040), MaterialChannel.Bark);
-            int seg = lod == 0 ? 8 : 5;
-            Shapes.Frustum(m, SacredDraw.At(k, u, CompoundTop - 0.1, v), bark, 0.22, 0.14, 0.55 * h, seg, 0, 0, false, false);
-            int blobs = lod == 0 ? 4 : lod == 1 ? 2 : 1;
-            for (int b = 0; b < blobs; b++)
+            double r = Math.Max(1e-6, Math.Sqrt(u * u + v * v));
+            Affine3 g = BoudhaKit.Facing(k, u, CompoundTop, v, u / r, v / r);
+            ShapeBrush brick = BoudhaKit.B(MeshColor.FromHex(0x9E4A32), MaterialChannel.Brick), soil = BoudhaKit.B(MeshColor.FromHex(0x4A3A2C), MaterialChannel.Dirt);
+            ShapeBrush shrub = BoudhaKit.B(MeshColor.FromHex(0x2F5A2A), MaterialChannel.Foliage), shrubLit = BoudhaKit.B(MeshColor.FromHex(0x3E6E34), MaterialChannel.Foliage);
+            SacredDraw.Box(m, g, -0.5 * w, 0.5 * w, 0, 0.3, -0.5 * d, 0.5 * d, brick, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Panel(m, SacredDraw.Basis(g, 0, 0.31, 0, 1, 0, 0, 0, 0, -1), -0.5 * w + 0.12, -0.5 * d + 0.12, 0.5 * w - 0.12, 0.5 * d - 0.12, 0, soil);
+            if (lod >= 2)
             {
-                double a = (seed * 1.7 + b * 2.4), rr = b == 0 ? 0 : 0.35 * h * (0.6 + 0.4 * ((b * 37 + seed) % 5) / 4.0);
-                double bu = u + rr * Math.Sin(a), bv = v + rr * Math.Cos(a), by = 0.62 * h + (b == 0 ? 0.12 * h : -0.05 * h * (b % 2));
-                double rad = (b == 0 ? 0.36 : 0.27) * h;
-                uint col = b % 2 == 0 ? BoudhaKit.Leaf : BoudhaKit.LeafLight;
-                Shapes.Ellipsoid(m, SacredDraw.At(k, bu, CompoundTop + by, bv), BoudhaKit.B(col, MaterialChannel.Foliage), rad * (b == 0 && blobs == 1 ? 1.25 : 1),
-                                 0.8 * rad, rad * (b == 0 && blobs == 1 ? 1.25 : 1), lod == 0 ? 8 : lod == 1 ? 6 : 5, false);
+                // Far: the mass of foliage as one low green slab over the soil.
+                SacredDraw.Box(m, g, -0.5 * w + 0.15, 0.5 * w - 0.15, 0.31, 0.95, -0.5 * d + 0.15, 0.5 * d - 0.15, shrub, BoxFaces.All & ~BoxFaces.Bottom);
+                return;
             }
-            if (c != null)
-            {
-                double x, z;
-                f.ToTile(u, v, out x, out z);
-                c.AddCylinder(x, z, f.Level, f.Level + 0.55 * h, 0.25, true);
-            }
-        }
-
-        /// <summary>The potted garden of the north-west compound (around/03): low brick beds edged in red brick with rows
-        /// of clay pots of plants, <paramref name="w"/> × <paramref name="d"/> turned to <paramref name="yawDeg"/>.</summary>
-        private static void Garden(MeshData m, in BoudhaFrame f, double u, double v, double w, double d, double yawDeg, int lod)
-        {
-            Affine3 k = f.Site;
-            double a = yawDeg * Math.PI / 180.0;
-            Affine3 g = BoudhaKit.Facing(k, u, CompoundTop, v, Math.Sin(a), Math.Cos(a));
-            ShapeBrush brick = BoudhaKit.B(MeshColor.FromHex(0x9E4A32), MaterialChannel.Brick), soil = BoudhaKit.B(MeshColor.FromHex(0x5A4636), MaterialChannel.Dirt);
-            SacredDraw.Box(m, g, -0.5 * w, 0.5 * w, 0, 0.45, -0.5 * d, 0.5 * d, brick, BoxFaces.All & ~BoxFaces.Bottom);
-            SacredDraw.Panel(m, SacredDraw.Basis(g, 0, 0.46, 0, 1, 0, 0, 0, 0, -1), -0.5 * w + 0.15, -0.5 * d + 0.15, 0.5 * w - 0.15, 0.5 * d - 0.15, 0, soil);
-            if (lod >= 2) return;
-            ShapeBrush clay = BoudhaKit.B(BoudhaKit.Terracotta, MaterialChannel.Dirt), leaf = BoudhaKit.B(BoudhaKit.Leaf, MaterialChannel.Foliage);
-            ShapeBrush flower = BoudhaKit.B(MeshColor.FromHex(0xE8752A), MaterialChannel.Foliage);
-            // Pots about a metre apart (two metres beyond), each a clay frustum under a round clump of leaves or flowers.
-            int cols = (int)(w / (lod == 0 ? 1.0 : 2.0)), rows = (int)(d / (lod == 0 ? 1.0 : 2.0));
+            ShapeBrush clay = BoudhaKit.B(BoudhaKit.Terracotta, MaterialChannel.Dirt);
+            double pitch = lod == 0 ? 0.85 : 1.7;
+            int cols = Math.Max(1, (int)((w - 0.3) / pitch)), rows = d >= 2.0 ? 2 : 1;
             for (int i = 0; i < cols; i++)
-            {
                 for (int j = 0; j < rows; j++)
                 {
-                    double x = -0.5 * w + (i + 0.5) * w / cols, z = -0.5 * d + (j + 0.5) * d / rows;
-                    Affine3 p = SacredDraw.At(g, x, 0.45, z);
-                    Shapes.Frustum(m, p, clay, 0.16, 0.22, 0.3, 5, 0, 0, false, false);
-                    Shapes.Ellipsoid(m, SacredDraw.At(p, 0, 0.42, 0), (i + j) % 3 == 0 ? flower : leaf, 0.3, 0.26, 0.3, lod == 0 ? 5 : 4, false);
+                    int h = (seed * 31 + i * 7 + j * 13) % 5;
+                    double x = -0.5 * w + 0.15 + (i + 0.5) * (w - 0.3) / cols + (j == 1 ? 0.25 * pitch : 0), z = rows == 1 ? 0 : (j == 0 ? -0.25 : 0.25) * d;
+                    double tall = 0.3 + 0.1 * h, rad = 0.3 + 0.03 * h;
+                    Affine3 p = SacredDraw.At(g, x, 0.3, z);
+                    if (lod == 0) Shapes.Frustum(m, p, clay, 0.16, 0.21, 0.28, 4, 0, 0, false, false);
+                    Shapes.Ellipsoid(m, SacredDraw.At(p, 0, 0.28 + 0.5 * tall, 0), h % 2 == 0 ? shrub : shrubLit, rad, 0.5 * tall + 0.08, rad, lod == 0 ? 5 : 4, false);
                 }
-            }
         }
 
         /// <summary>A kora bench (wooden slats on iron legs, a backrest) facing the stupa at site (u, v).</summary>

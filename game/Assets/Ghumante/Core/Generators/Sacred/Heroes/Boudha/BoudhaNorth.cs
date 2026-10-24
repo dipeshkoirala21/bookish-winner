@@ -29,12 +29,32 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>The gate pavilions' centres either side of the axis (m) and width.</summary>
         public const double PavilionU = 5.5, PavilionW = 4.2;
 
+        /// <summary>The NE compound house's centre (site u, v; its sector builds it, <see cref="NeHouse"/>).</summary>
+        public const double NeHouseU = 13.1, NeHouseV = 41.3;
+
+        /// <summary>The north entrance (the Ajima shrine, its two gate pavilions and the short walls between, the notice
+        /// board) at one LOD; LOD3 is its far shape (the shrine's brick block under its brass roof, the white pavilions).</summary>
         public static void Build(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
         {
             Affine3 k = f.Site;
             double vw = BoudhaWall.RadiusAt(f, 0);
             // A frame on the wall line at the axis, +z out to the kora (north), +x along the wall toward the east.
             Affine3 a = BoudhaKit.Facing(k, 0, BoudhaQuarter.CompoundTop, vw, 0, 1);
+            if (lod >= 3)
+            {
+                double zc = 0.5 * (Front - Back), hd = 0.5 * (Front + Back);
+                SacredDraw.Box(m, a, -HalfW, HalfW, -0.3, EaveY, zc - hd, zc + hd, BoudhaKit.B(MeshColor.FromHex(0xA64B32), MaterialChannel.Brick), BoxFaces.All & ~BoxFaces.Bottom);
+                Shapes.Frustum(m, SacredDraw.At(a, 0, EaveY, zc) * Affine3.Yaw(45), BoudhaKit.B(MeshColor.FromHex(0xC29944), MaterialChannel.Gilt), 1.41 * (HalfW + 0.65),
+                               0.4, RoofTop - EaveY, 4, 0, 0, false, true);
+                Shapes.Cone(m, SacredDraw.At(a, 0, RoofTop, zc), BoudhaKit.Gilt, 0.25, Tip - RoofTop, 4, 0, 0, false);
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    Affine3 p = BoudhaKit.Facing(k, s * PavilionU, 0, vw, 0, 1);
+                    SacredDraw.Box(m, p, -0.5 * PavilionW, 0.5 * PavilionW, -0.3, 3.85, -1.3, 1.3, BoudhaKit.White, BoxFaces.All & ~BoxFaces.Bottom);
+                    SacredDraw.Panel(m, p, -0.85, 0, 0.85, 3.0, 1.31, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
+                }
+                return;
+            }
             Ajima(m, c, f, a, lod);
             for (int s = -1; s <= 1; s += 2)
             {
@@ -45,8 +65,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 SacredDraw.Box(m, a, x0, x1, -0.4, BoudhaWall.Height, -BoudhaWall.HalfThick, BoudhaWall.HalfThick, BoudhaKit.B(BoudhaKit.LimeWhite, MaterialChannel.Plaster),
                                BoxFaces.Front | BoxFaces.Back | BoxFaces.Top);
             }
-            if (lod <= 1) NoticeBoard(m, a, -(PavilionU + 0.5 * PavilionW) + 0.2, lod);
-            NeHouse(m, c, f, lod);
+            if (lod == 0) NoticeBoard(m, a, -(PavilionU + 0.5 * PavilionW) + 0.2, lod);
         }
 
         // ------------------------------------------------------------------------------------------------ Ajima
@@ -97,7 +116,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 SacredDraw.Box(m, a, -0.9, -0.75, by0, by0 + 2.15, bz1 - 0.05, bz1 + 0.08, gilt, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
                 SacredDraw.Box(m, a, 0.75, 0.9, by0, by0 + 2.15, bz1 - 0.05, bz1 + 0.08, gilt, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
                 SacredDraw.Box(m, a, -0.9, 0.9, by0 + 2.0, by0 + 2.15, bz1 - 0.05, bz1 + 0.08, gilt, BoxFaces.Front | BoxFaces.Top | BoxFaces.Bottom);
-                SacredParts.Torana(m, a, 0, by0 + 2.17, bz1 + 0.02, 1.5, giltLit, lod);
+                if (lod == 0) SacredParts.Torana(m, a, 0, by0 + 2.17, bz1 + 0.02, 1.5, giltLit, lod);
                 // Corner posts.
                 for (int sx = -1; sx <= 1; sx += 2)
                     for (int sz = 0; sz < 2; sz++)
@@ -163,7 +182,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             if (lod <= 1)
             {
                 // Two brass prayer wheels in lantern housings flanking the steps, and the butter-lamp table.
-                for (int s = -1; s <= 1; s += 2) WheelLantern(m, a, s * 2.15, Front + 0.6, lod);
+                if (lod == 0)
+                    for (int s = -1; s <= 1; s += 2) WheelLantern(m, a, s * 2.15, Front + 0.6, lod);
                 ShapeBrush table = BoudhaKit.B(MeshColor.FromHex(0x2A2622), MaterialChannel.Metal);
                 SacredDraw.Box(m, a, -1.1, 1.1, BoudhaQuarter.PaveTop - BoudhaQuarter.CompoundTop, BoudhaQuarter.PaveTop - BoudhaQuarter.CompoundTop + 0.75, Front + 1.6,
                                Front + 2.1, table, BoxFaces.All & ~BoxFaces.Bottom);
@@ -234,7 +254,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>The NE compound house (around/03 zoom): white, a maroon frieze with white dentils under a flat roof, small
         /// windows, a door toward the stupa, a little red pagoda-roofed shrine on the roof; in the compound east of the
         /// gate between the lowest terrace's north arm and the wall.</summary>
-        private static void NeHouse(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
+        internal static void NeHouse(MeshData m, GenColliders c, in BoudhaFrame f, int lod)
         {
             Affine3 k = f.Site;
             double u0 = 8.6, u1 = 17.6, v0 = 39.4, v1 = 43.2, h = 4.6, fh = 0.75;

@@ -32,6 +32,15 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>The north entrance gap (site u, either side of the axis) and the south pavilion gap.</summary>
         public const double NorthGapHalf = 7.6, SouthGapHalf = 2.1;
 
+        /// <summary>The south pavilion stands where the axis of the lane from the main gate (OSM w4847306, site u −5 to −8
+        /// on its way in; the map board n5162055056 at u −5.5) meets the wall, so it closes the vista through the gate arch
+        /// (Commons Boudhanath_entrance_gate, motp/03): its centre at site u <see cref="PavilionU"/> on the wall line, site
+        /// bearing <see cref="PavilionBearingDeg"/>.</summary>
+        public const double PavilionU = -5.3, PavilionBearingDeg = 186.14;
+
+        /// <summary>The south pavilion's site bearing in radians.</summary>
+        public const double PavilionAngle = PavilionBearingDeg * Math.PI / 180.0;
+
         [ThreadStatic] private static double[] _pu, _pv;
         [ThreadStatic] private static int _n;
 
@@ -169,7 +178,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         {
             // Arc lengths of the gap centres: where the line crosses the north and south axes.
             double per = BoudhaKit.Perimeter(pu, pv, n);
-            double sN = CrossingLength(pu, pv, n, 0), sS = CrossingLength(pu, pv, n, Math.PI);
+            double sN = CrossingLength(pu, pv, n, 0), sS = CrossingLength(pu, pv, n, PavilionAngle);
             int k = 0;
             double a0 = sN + NorthGapHalf, a1 = sS - SouthGapHalf;
             if (a1 < a0) a1 += per;
@@ -201,16 +210,25 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return 0;
         }
 
-        /// <summary>Arc lengths along the wall line where it crosses the four quarter boundaries (bearings 45°, 135°,
-        /// 225° and 315° from the site's north axis), in that order.</summary>
-        private static void QuarterCuts(double[] pu, double[] pv, int n, double[] cuts)
+        /// <summary>Arc lengths along the wall line where it crosses the kora sectors' inner boundaries (their start
+        /// bearings from the site's north axis), in sector order; returns the count.</summary>
+        private static int SectorCuts(double[] pu, double[] pv, int n, double[] cuts)
         {
-            for (int i = 0; i < 4; i++) cuts[i] = CrossingLength(pu, pv, n, (45 + 90 * i) * Math.PI / 180.0);
+            int k = 0;
+            for (int i = 0; i < BoudhaSite.Sectors.Length; i++)
+                if (BoudhaSite.Sectors[i].HasInner) cuts[k++] = CrossingLength(pu, pv, n, BoudhaSite.Sectors[i].In0 * Math.PI / 180.0);
+            return k;
         }
 
-        /// <summary>The wall pieces of one quarter of the kora (<paramref name="part"/> North, East, South or West): the wall
-        /// body, its niches, the finials over the piers, the two darchor poles of the quarter and, in the south, the gate
-        /// pavilion with its juniper kiln. Returns the niches drawn (the quarter's share of the 147).</summary>
+        /// <summary>True when the wall-line point (u, v) belongs to the kora sector <paramref name="part"/>.</summary>
+        private static bool Mine(BoudhaPart part, double u, double v)
+        {
+            return BoudhaSite.InnerAt(u, v) == part;
+        }
+
+        /// <summary>The wall pieces of one kora sector (<paramref name="part"/>, by its inner bearings): the wall body, its
+        /// niches, the finials over the piers, the darchor poles that stand in it and, where it holds the south axis, the
+        /// south pavilion with its forecourt. Returns the niches drawn (the sector's share of the 147).</summary>
         public static int Build(MeshData m, GenColliders c, in BoudhaFrame f, BoudhaPart part, int lod)
         {
             int v0 = m.VertexCount, i0 = m.IndexCount;
@@ -218,9 +236,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             double[] pu, pv;
             int n = Line(f, out pu, out pv);
             double per = BoudhaKit.Perimeter(pu, pv, n);
-            double[] s0 = new double[2], s1 = new double[2], cuts = new double[4];
+            double[] s0 = new double[2], s1 = new double[2], cuts = new double[BoudhaSite.Sectors.Length];
             int runs = Runs(pu, pv, n, s0, s1);
-            QuarterCuts(pu, pv, n, cuts);
+            int ncuts = SectorCuts(pu, pv, n, cuts);
             double total = 0;
             for (int r = 0; r < runs; r++) total += s1[r] - s0[r];
             ShapeBrush w = BoudhaKit.B(BoudhaKit.LimeWhite, MaterialChannel.Plaster), foot = BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster);
@@ -228,7 +246,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 // The far wall (the hero slice steps a quarter down to this from the rooftops and the air): the white faces,
                 // the coping and the band of dark niches under their yellow valances, no solids.
-                for (int r = 0; r < runs; r++) WallRun(m, null, f, k, pu, pv, n, per, s0[r], s1[r], 0, cuts, part, w, foot, 3);
+                for (int r = 0; r < runs; r++) WallRun(m, null, f, k, pu, pv, n, per, s0[r], s1[r], 0, cuts, ncuts, part, w, foot, 3);
+                if (Mine(part, Math.Sin(PavilionAngle), Math.Cos(PavilionAngle))) SouthPavilion(m, null, f, k, 3);
                 SacredDraw.Bake(m, v0, i0, f.Level);
                 return 0;
             }
@@ -238,21 +257,21 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                 // Walk the run edge by edge: straight wall pieces along the polygon, cut at the run ends and the quarter cuts.
                 int count = (int)Math.Round((s1[r] - s0[r]) / (total / NicheCount));
                 if (r == runs - 1) count = NicheCount - niche;
-                WallRun(m, c, f, k, pu, pv, n, per, s0[r], s1[r], count, cuts, part, w, foot, lod);
+                WallRun(m, c, f, k, pu, pv, n, per, s0[r], s1[r], count, cuts, ncuts, part, w, foot, lod);
                 for (int q = 0; q < count && niche < NicheCount; q++, niche++)
                 {
                     double s = s0[r] + (q + 0.5) * (s1[r] - s0[r]) / count;
                     double u, v, tu, tv;
                     BoudhaKit.AtLength(pu, pv, n, s, out u, out v, out tu, out tv);
-                    if (BoudhaSite.QuarterOf(u, v) != part) continue;
+                    if (!Mine(part, u, v)) continue;
                     // Outward of the counter-clockwise line: the edge turned clockwise.
                     double ou = tv, ov = -tu;
                     Affine3 nf = BoudhaKit.Facing(k, u + HalfThick * ou, 0, v + HalfThick * ov, ou, ov);
                     Niche(m, nf, lod, q);
                     drawn++;
-                    if (lod <= 1 && (lod == 0 || q % 4 == 0) && q < count - 1)
+                    if (lod <= 1 && q % (lod == 0 ? 4 : 8) == 3 && q < count - 1)
                     {
-                        // A finial over the pier after this niche.
+                        // A small white chorten on the coping over every fourth pier (spire/ref_00-01, prayer_wheels_wall/07).
                         double sp = s0[r] + (q + 1.0) * (s1[r] - s0[r]) / count;
                         double pu2, pv2, t2u, t2v;
                         BoudhaKit.AtLength(pu, pv, n, sp, out pu2, out pv2, out t2u, out t2v);
@@ -264,9 +283,9 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             for (int b = 0; b < 8; b++)
             {
                 double ang = (22.5 + 45 * b) * Math.PI / 180, rad = RadiusAt(f, ang), u = (rad - 0.75) * Math.Sin(ang), v = (rad - 0.75) * Math.Cos(ang);
-                if (BoudhaSite.QuarterOf(u, v) == part) Pole(m, c, f, k, u, v, lod);
+                if (Mine(part, u, v)) Pole(m, c, f, k, u, v, lod);
             }
-            if (part == BoudhaPart.South) SouthPavilion(m, c, f, k, lod);
+            if (Mine(part, Math.Sin(PavilionAngle), Math.Cos(PavilionAngle))) SouthPavilion(m, c, f, k, lod);
             SacredDraw.Bake(m, v0, i0, f.Level);
             return drawn;
         }
@@ -275,7 +294,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// course, the white faces (the outer one opened by the <paramref name="count"/> evenly spaced niches of the run)
         /// and the rounded coping, end caps at the openings, and thin wall colliders.</summary>
         private static void WallRun(MeshData m, GenColliders c, in BoudhaFrame f, in Affine3 k, double[] pu, double[] pv, int n, double per, double a, double b,
-                                    int count, double[] cuts, BoudhaPart part, in ShapeBrush w, in ShapeBrush foot, int lod)
+                                    int count, double[] cuts, int ncuts, BoudhaPart part, in ShapeBrush w, in ShapeBrush foot, int lod)
         {
             // Collect the points of the run (start, every vertex inside it, end) with their arc lengths.
             double[] ru = BoudhaKit.U, rv = BoudhaKit.V, ra = BoudhaKit.U2;
@@ -301,8 +320,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     }
                 }
             }
-            // The quarter cuts inside the run (at their arc length, also one perimeter on for a run that wraps past vertex 0).
-            for (int q = 0; q < 4; q++)
+            // The sector cuts inside the run (at their arc length, also one perimeter on for a run that wraps past vertex 0).
+            for (int q = 0; q < ncuts; q++)
             {
                 for (int pass = 0; pass < 2; pass++)
                 {
@@ -341,7 +360,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             {
                 double ax = ru[i], az = rv[i], bx = ru[i + 1], bz = rv[i + 1], dx = bx - ax, dz = bz - az, l = Math.Sqrt(dx * dx + dz * dz);
                 if (l < 0.05) continue;
-                if (BoudhaSite.QuarterOf(0.5 * (ax + bx), 0.5 * (az + bz)) != part) continue;
+                if (!Mine(part, 0.5 * (ax + bx), 0.5 * (az + bz))) continue;
                 // A local frame on the centre line: x along the edge, z toward the stupa (the kora face is z < 0).
                 Affine3 e = SacredDraw.Basis(k, ax, 0, az, dx / l, 0, dz / l, 0, 1, 0);
                 double x0 = i == 0 ? 0 : -0.12, x1 = i + 2 == cnt ? l : l + 0.12;
@@ -356,9 +375,17 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double zb = -HalfThick - 0.015, xa = x0 + 0.3, xb = x1 - 0.3;
                     if (xb > xa)
                     {
-                        SacredDraw.Quad(m, e, xa, sill, zb, xb, sill, zb, xb, sill + nh, zb, xa, sill + nh, zb, 0, 0, -1, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
-                        SacredDraw.Quad(m, e, xa, sill + nh, zb, xb, sill + nh, zb, xb, sill + nh + 0.24, zb, xa, sill + nh + 0.24, zb, 0, 0, -1,
-                                        BoudhaKit.B(BoudhaKit.NicheValance, MaterialChannel.Fabric));
+                        // The niche band: the dark openings with the copper wheels' glint, the orange-yellow cloth over them.
+                        double vb = sill + 0.6 * nh;
+                        SacredDraw.Quad(m, e, xa, sill - 0.08, zb, xb, sill - 0.08, zb, xb, vb, zb, xa, vb, zb, 0, 0, -1, BoudhaKit.B(MeshColor.FromHex(0x4A3424), MaterialChannel.Metal, 0.7f));
+                        SacredDraw.Quad(m, e, xa, vb, zb, xb, vb, zb, xb, sill + nh + 0.08, zb, xa, sill + nh + 0.08, zb, 0, 0, -1, BoudhaKit.B(ValanceCloth, MaterialChannel.Fabric));
+                    }
+                    // The small chortens on the coping as a row of white teeth (one every four piers).
+                    int teeth = (int)((x1 - x0) / 8.4);
+                    for (int t = 0; t < teeth; t++)
+                    {
+                        double tx = x0 + (t + 0.5) * (x1 - x0) / teeth;
+                        SacredDraw.Tri(m, e, tx - 0.28, h + 0.1, 0, tx + 0.28, h + 0.1, 0, tx, h + 0.85, 0, 0, 0, -1, w);
                     }
                     continue;
                 }
@@ -390,12 +417,10 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     double z = s * HalfThick, zz = z + s * 0.06, zc = z + s * 0.09;
                     SacredDraw.Quad(m, e, x0, y0, zz, x1, y0, zz, x1, 0.3, zz, x0, 0.3, zz, 0, 0, s, foot);
                     SacredDraw.Quad(m, e, x0, 0.3, zz, x1, 0.3, zz, x1, 0.34, z, x0, 0.34, z, 0, 1, s, foot);
-                    SacredDraw.Quad(m, e, x0, h - 0.2, z, x1, h - 0.2, z, x1, h - 0.12, zc, x0, h - 0.12, zc, 0, -0.5, s, cope);
-                    SacredDraw.Quad(m, e, x0, h - 0.12, zc, x1, h - 0.12, zc, x1, h + 0.02, zc, x0, h + 0.02, zc, 0, 0, s, cope);
-                    SacredDraw.Quad(m, e, x0, h + 0.02, zc, x1, h + 0.02, zc, x1, h + 0.1, z + s * 0.04, x0, h + 0.1, z + s * 0.04, 0, 0.7, s, cope);
                 }
-                SacredDraw.Quad(m, e, x0, h + 0.1, -HalfThick - 0.04, x1, h + 0.1, -HalfThick - 0.04, x1, h + 0.1, HalfThick + 0.04, x0, h + 0.1, HalfThick + 0.04, 0, 1, 0,
-                                cope);
+                // The thick rounded white coping (spire/ref_00-01): a chamfer out from each face, then a cap rounded at its
+                // two edges (0.12 m radius) over the flat top.
+                CopeProfile(m, e, x0, x1, h, cope);
                 // Outer face: full below the sills and above the niches, piers between the niche openings.
                 Face(m, e, x0, x1, -HalfThick, -1, 0.34, sill, w);
                 Face(m, e, x0, x1, -HalfThick, -1, sill + nh, h - 0.2, w);
@@ -426,7 +451,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             for (int end = 0; end < 2; end++)
             {
                 int i = end == 0 ? 0 : cnt - 1, j = end == 0 ? 1 : cnt - 2;
-                if (BoudhaSite.QuarterOf(ru[i], rv[i]) != part) continue;
+                if (!Mine(part, ru[i], rv[i])) continue;
                 double dx = ru[j] - ru[i], dz = rv[j] - rv[i], l = Math.Sqrt(dx * dx + dz * dz);
                 if (l < 1e-6) continue;
                 Affine3 e = BoudhaKit.Facing(k, ru[i], 0, rv[i], -dx / l, -dz / l);
@@ -441,56 +466,108 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             SacredDraw.Quad(m, e, x0, ya, z, x1, ya, z, x1, yb, z, x0, yb, z, 0, 0, s, b);
         }
 
-        /// <summary>One prayer-wheel niche in frame nf (origin on the wall's outer face at the niche centre, +z outward).</summary>
+        /// <summary>The rounded coping in a wall piece's frame e (x along the wall from x0 to x1, z across with the faces at
+        /// ±<see cref="HalfThick"/>): a chamfer from each face out to the cap's overhang, the cap's sides, its two edges rounded
+        /// with a 0.12 m radius and the flat top, the faces shading round the profile.</summary>
+        private static void CopeProfile(MeshData m, in Affine3 e, double x0, double x1, double h, in ShapeBrush cope)
+        {
+            const double over = 0.09, r = 0.12;
+            double hz = HalfThick + over, yb = h - 0.12, yt = h + 0.14;
+            // Profile points (z, y) from the outer face round to the inner face, with outward normals (nz, ny).
+            double[] pz = new double[12], py = new double[12], nz = new double[12], ny = new double[12];
+            int n = 0;
+            pz[n] = -HalfThick; py[n] = h - 0.2; nz[n] = -0.7; ny[n] = -0.7; n++;
+            pz[n] = -hz; py[n] = yb; nz[n] = -1; ny[n] = 0; n++;
+            pz[n] = -hz; py[n] = yt - r; nz[n] = -1; ny[n] = 0; n++;
+            for (int i = 1; i <= 3; i++)
+            {
+                double a = 0.5 * Math.PI * i / 3;
+                pz[n] = -hz + r - r * Math.Cos(a); py[n] = yt - r + r * Math.Sin(a); nz[n] = -Math.Cos(a); ny[n] = Math.Sin(a); n++;
+            }
+            for (int i = 0; i <= 3; i++)
+            {
+                double a = 0.5 * Math.PI * i / 3;
+                pz[n] = hz - r + r * Math.Sin(a); py[n] = yt - r + r * Math.Cos(a); nz[n] = Math.Sin(a); ny[n] = Math.Cos(a); n++;
+            }
+            pz[n] = hz; py[n] = yb; nz[n] = 1; ny[n] = 0; n++;
+            pz[n] = HalfThick; py[n] = h - 0.2; nz[n] = 0.7; ny[n] = -0.7; n++;
+            for (int i = 0; i + 1 < n; i++)
+            {
+                int a = SacredDraw.V(m, e, x0, py[i], pz[i], 0, ny[i], nz[i], cope), b = SacredDraw.V(m, e, x1, py[i], pz[i], 0, ny[i], nz[i], cope);
+                int c = SacredDraw.V(m, e, x1, py[i + 1], pz[i + 1], 0, ny[i + 1], nz[i + 1], cope), d = SacredDraw.V(m, e, x0, py[i + 1], pz[i + 1], 0, ny[i + 1], nz[i + 1], cope);
+                SacredDraw.Quad(m, a, b, c, d);
+            }
+        }
+
+        /// <summary>Niche frame (dark wood), valance cloth and its hem (spire/ref_00-01, shankar s. 2020).</summary>
+        private static readonly uint NicheFrame = MeshColor.FromHex(0x3A2A1E), ValanceCloth = MeshColor.FromHex(0xE8A830), ValanceHem = MeshColor.FromHex(0x9E2A20);
+
+        /// <summary>
+        /// One prayer-wheel niche in frame nf (origin on the wall's outer face at the niche centre, +z outward; spire/ref_00-01):
+        /// the dark recess with its copper wheels and the dark rail at their feet, a dark wooden frame 0.08 m wide round the
+        /// opening, the orange-yellow pleated cloth hanging inside the top 40 % of the opening with a dark red hem, half
+        /// covering the wheels, and the small dark lamp slots in the pier after it at mid-height and near the foot.
+        /// </summary>
         private static void Niche(MeshData m, in Affine3 nf, int lod, int q)
         {
-            double nw = NicheW, nh = NicheH, sill = NicheSill, depth = 0.22;
-            ShapeBrush dark = BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.5f), frame = BoudhaKit.B(MeshColor.FromHex(0xE9E4DA), MaterialChannel.Plaster);
-            ShapeBrush grille = BoudhaKit.B(MeshColor.FromHex(0x1C1814), MaterialChannel.Metal);
+            double nw = NicheW, nh = NicheH, sill = NicheSill, depth = 0.22, vb = sill + 0.6 * nh;
+            ShapeBrush dark = BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.5f), frame = BoudhaKit.B(NicheFrame, MaterialChannel.Wood);
+            ShapeBrush cloth = BoudhaKit.B(ValanceCloth, MaterialChannel.Fabric), hem = BoudhaKit.B(ValanceHem, MaterialChannel.Fabric);
+            ShapeBrush cu = BoudhaKit.B(q % 3 == 0 ? BoudhaKit.Brass : BoudhaKit.Copper, MaterialChannel.Metal, 0.5f);
             if (lod >= 2)
             {
-                SacredDraw.Panel(m, nf, -0.5 * nw, sill, 0.5 * nw, sill + nh + 0.2, 0.01, dark);
+                // Far: the dark opening with the cloth band over its top.
+                SacredDraw.Panel(m, nf, -0.5 * nw - 0.08, sill - 0.08, 0.5 * nw + 0.08, sill + nh + 0.08, 0.01, frame);
+                SacredDraw.Panel(m, nf, -0.5 * nw, sill, 0.5 * nw, vb, 0.015, dark);
+                SacredDraw.Panel(m, nf, -0.5 * nw, vb, 0.5 * nw, sill + nh, 0.015, cloth);
                 return;
             }
+            // The frame: four dark bars round the opening.
+            SacredDraw.Panel(m, nf, -0.5 * nw - 0.08, sill - 0.08, 0.5 * nw + 0.08, sill, 0.012, frame);
+            SacredDraw.Panel(m, nf, -0.5 * nw - 0.08, sill + nh, 0.5 * nw + 0.08, sill + nh + 0.08, 0.012, frame);
+            SacredDraw.Panel(m, nf, -0.5 * nw - 0.08, sill, -0.5 * nw, sill + nh, 0.012, frame);
+            SacredDraw.Panel(m, nf, 0.5 * nw, sill, 0.5 * nw + 0.08, sill + nh, 0.012, frame);
             if (lod == 1)
             {
-                // Flat: the dark opening, the copper band of wheels and the yellow valance, all just proud of the face.
-                SacredDraw.Panel(m, nf, -0.5 * nw, sill, 0.5 * nw, sill + nh, 0.01, dark);
-                SacredDraw.Panel(m, nf, -0.5 * nw + 0.05, sill + 0.06, 0.5 * nw - 0.05, sill + 0.48, 0.015,
-                                 BoudhaKit.B(q % 3 == 0 ? BoudhaKit.Brass : BoudhaKit.Copper, MaterialChannel.Metal, 0.5f));
-                SacredDraw.Panel(m, nf, -0.5 * nw - 0.1, sill + nh - 0.02, 0.5 * nw + 0.1, sill + nh + 0.24, 0.02, BoudhaKit.B(BoudhaKit.NicheValance, MaterialChannel.Fabric));
+                // Flat: the dark opening, the copper band of wheels under the cloth, the cloth and its hem.
+                SacredDraw.Panel(m, nf, -0.5 * nw, sill, 0.5 * nw, vb, 0.01, dark);
+                SacredDraw.Panel(m, nf, -0.5 * nw + 0.05, sill + 0.06, 0.5 * nw - 0.05, vb, 0.012, cu);
+                SacredDraw.Panel(m, nf, -0.5 * nw, vb + 0.05, 0.5 * nw, sill + nh, 0.014, cloth);
+                SacredDraw.Panel(m, nf, -0.5 * nw, vb, 0.5 * nw, vb + 0.05, 0.014, hem);
                 return;
             }
-            // The recess: back, sides, top and sill (seen into), a raised frame round it.
+            // The recess: back, sides, top and sill (seen into).
             SacredDraw.Panel(m, nf, -0.5 * nw, sill, 0.5 * nw, sill + nh, -depth, dark);
             SacredDraw.Quad(m, nf, -0.5 * nw, sill, -depth, 0.5 * nw, sill, -depth, 0.5 * nw, sill, 0.0, -0.5 * nw, sill, 0.0, 0, 1, 0, BoudhaKit.B(BoudhaKit.Weathered, MaterialChannel.Plaster, 0.7f));
             SacredDraw.Quad(m, nf, -0.5 * nw, sill + nh, -depth, 0.5 * nw, sill + nh, -depth, 0.5 * nw, sill + nh, 0.0, -0.5 * nw, sill + nh, 0.0, 0, -1, 0, dark);
             SacredDraw.Quad(m, nf, -0.5 * nw, sill, -depth, -0.5 * nw, sill, 0, -0.5 * nw, sill + nh, 0, -0.5 * nw, sill + nh, -depth, 1, 0, 0, dark);
             SacredDraw.Quad(m, nf, 0.5 * nw, sill, -depth, 0.5 * nw, sill, 0, 0.5 * nw, sill + nh, 0, 0.5 * nw, sill + nh, -depth, -1, 0, 0, dark);
-            // Copper wheels on their spindles (four), and the black lattice band across the lower half.
-            int wheels = 4;
-            // The wheels sit in the shade of the niche: they read dark from the kora (commons_late/c03).
-            ShapeBrush cu = BoudhaKit.B(q % 3 == 0 ? BoudhaKit.Brass : BoudhaKit.Copper, MaterialChannel.Metal, 0.5f);
-            for (int i = 0; i < wheels; i++)
+            // Four copper wheels on their spindles in the shade of the niche (they read dark from the kora) and the dark rail.
+            for (int i = 0; i < 4; i++)
             {
-                double x = -0.5 * nw + nw * (i + 0.5) / wheels;
+                double x = -0.5 * nw + nw * (i + 0.5) / 4;
                 Shapes.Cylinder(m, SacredDraw.At(nf, x, sill + 0.06, -0.11), cu, 0.13, 0.42, 5, 0, 0, false, false);
             }
-            if (lod == 0)
+            SacredDraw.Box(m, nf, -0.5 * nw, 0.5 * nw, sill, sill + 0.05, -0.02, 0.02, BoudhaKit.B(MeshColor.FromHex(0x1C1814), MaterialChannel.Metal), BoxFaces.Front | BoxFaces.Top);
+            // The pleated cloth inside the opening: eight soft pleats from the opening's top to 0.4 of its height, its dark red
+            // hem.
+            int pleats = 8, first = m.VertexCount;
+            for (int r = 0; r <= 1; r++)
             {
-                SacredDraw.Box(m, nf, -0.5 * nw, 0.5 * nw, sill, sill + 0.05, -0.02, 0.02, grille, BoxFaces.Front | BoxFaces.Top);
-                for (int i = 0; i <= wheels; i++)
+                double yy = r == 0 ? sill + nh : vb + 0.04;
+                for (int c = 0; c <= 2 * pleats; c++)
                 {
-                    double x = -0.5 * nw + nw * i / wheels;
-                    SacredDraw.Box(m, nf, x - 0.025, x + 0.025, sill, sill + nh, -0.02, 0.02, grille, BoxFaces.Front);
+                    double x = -0.5 * nw + nw * c / (2 * pleats), zz = -0.03 + (c % 2 == 0 ? 0.0 : 0.025) * (r == 0 ? 0.4 : 1.0);
+                    SacredDraw.V(m, nf, x, yy, zz, 0, 0, 1, cloth);
                 }
             }
-            // The cloth valance over the niche: yellow with thin white and red stripes (commons_late/c03).
-            uint[] stripes = { BoudhaKit.ClothRed, BoudhaKit.ClothWhite };
-            BoudhaKit.Valance(m, nf, -0.5 * nw - 0.12, 0.5 * nw + 0.12, 0.04, sill + nh + 0.26, stripes, 0.04, BoudhaKit.NicheValance, 0.2, 0.2, lod == 0 ? 1 : 2);
-            // A sooty lamp niche at the foot of every other pier.
-            if (lod == 0 && q % 2 == 0)
-                SacredDraw.Panel(m, nf, 0.5 * nw + 0.12, 0.12, 0.5 * nw + 0.36, 0.42, 0.006, BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.6f));
+            SacredDraw.Grid(m, first, 2, 2 * pleats + 1, false, null);
+            SacredDraw.Quad(m, nf, -0.5 * nw, vb, -0.02, 0.5 * nw, vb, -0.02, 0.5 * nw, vb + 0.045, -0.02, -0.5 * nw, vb + 0.045, -0.02, 0, 0, 1, hem);
+            // The lamp slots in the pier after this niche (0.08 × 0.18 m) at mid-height and near the foot.
+            ShapeBrush slot = BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.55f);
+            double sx = 0.5 * nw + 0.38;
+            SacredDraw.Panel(m, nf, sx - 0.04, 1.21, sx + 0.04, 1.39, 0.006, slot);
+            SacredDraw.Panel(m, nf, sx - 0.04, 0.11, sx + 0.04, 0.29, 0.006, slot);
         }
 
         /// <summary>
@@ -561,29 +638,244 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
         }
 
-        /// <summary>The south gate pavilion in the wall line on the south axis (corner/02, seen through the main gate): a
-        /// white plastered block with an arched passage, a timber door under a gilt torana, small brass wheels and lamp
-        /// niches either side, a moulded cornice with chorten finials; the juniper kiln stands in front on the kora.</summary>
+        /// <summary>
+        /// The south pavilion set into the wall where the lane from the main gate meets it (motp/03-04, Commons
+        /// Boudhanath_entrance_gate, corner/02), facing down the lane: a white block 4.4 m wide whose closed, carved timber
+        /// door stands in a cusped arch between carved pilasters, small sooty lamp niches either side, a moulded cornice
+        /// and over it a scrolled stucco crest with three small chorten finials; and its forecourt on the kora (motp/04,
+        /// 07-1): the black stone Dhyani-Buddha chaitya on its three-step plinth on the door axis, the white juniper kiln
+        /// to its west, a brass prayer wheel on a post to the east and a glazed lamp case on legs beyond the kiln. The
+        /// forecourt pieces standing on the drawn kora walk are drawn but walk-through.
+        /// </summary>
         private static void SouthPavilion(MeshData m, GenColliders c, in BoudhaFrame f, in Affine3 k, int lod)
         {
-            double rad = RadiusAt(f, Math.PI);
-            // Frame facing out (south) at the wall line.
-            // The pavilion stands back into the compound so its front is flush with the wall's kora face (the kora walk the
-            // road mesher draws runs along the wall).
-            const double d = 2.4;
-            Affine3 p = BoudhaKit.Facing(k, 0, 0, -(rad - 0.5 * d + HalfThick + 0.05), 0, -1);
-            Pavilion(m, c, f, p, 4.0, d, 3.3, false, lod);
-            // The juniper kiln on the kora just in front of the door, a little to the west (corner/02); solid only where
-            // it keeps off the drawn kora walk.
-            double ku = -0.8, kv = -rad - HalfThick - 0.1 - 0.85;
-            Affine3 kf = BoudhaKit.Facing(k, ku, BoudhaQuarter.PaveTop, kv, 0, -1);
-            Kiln(m, kf, 1.6, 2.3, lod);
-            if (c != null && BoudhaQuarter.Clear(f.Tile, f, ku, kv, 0.85))
+            double ang = PavilionAngle, rad = RadiusAt(f, ang);
+            double cu = rad * Math.Sin(ang), cv = rad * Math.Cos(ang);
+            // The wall's direction there and its outward normal (away from the stupa).
+            double ra = RadiusAt(f, ang - 0.04), rb = RadiusAt(f, ang + 0.04);
+            double tu = rb * Math.Sin(ang + 0.04) - ra * Math.Sin(ang - 0.04), tv = rb * Math.Cos(ang + 0.04) - ra * Math.Cos(ang - 0.04);
+            double tl = Math.Max(1e-6, Math.Sqrt(tu * tu + tv * tv));
+            double nu = tv / tl, nv = -tu / tl;
+            if (nu * cu + nv * cv < 0)
             {
-                double x, z;
-                f.ToTile(ku, kv, out x, out z);
-                c.AddCylinder(x, z, f.Level - 0.2, f.Level + BoudhaQuarter.PaveTop + 2.3, 0.85);
+                nu = -nu;
+                nv = -nv;
             }
+            // Set back into the compound so its front is flush with the wall's kora face.
+            const double d = 2.4, w = 4.4, h = 3.3;
+            double back = 0.5 * d - HalfThick - 0.05;
+            Affine3 p = BoudhaKit.Facing(k, cu - nu * back, 0, cv - nv * back, nu, nv);
+            double hw = 0.5 * w, hd = 0.5 * d;
+            ShapeBrush wh = BoudhaKit.White, sh = BoudhaKit.WhiteShade, cope = BoudhaKit.B(MeshColor.FromHex(0xF7F4EE), MaterialChannel.Plaster);
+            if (lod >= 3)
+            {
+                SacredDraw.Box(m, p, -hw, hw, -0.3, h + 0.36, -hd, hd, wh, BoxFaces.All & ~BoxFaces.Bottom);
+                SacredDraw.Panel(m, p, -0.75, 0.3, 0.75, 2.35, hd + 0.01, BoudhaKit.B(MeshColor.FromHex(0x4A3020), MaterialChannel.WoodCarved));
+                Shapes.Cone(m, SacredDraw.At(p, 0, h + 0.36, hd - 0.4), wh, 0.45, 0.9, 4, 0, 0, false);
+                return;
+            }
+            // The door opening: a cusped arch (three lobes a side rising to a small point) on the door jambs.
+            double aw = 0.8, spring = 2.05, point = 0.18, cusp = lod == 0 ? 0.09 : 0.06;
+            int lobes = 3;
+            // Piers either side and the wall over the arch with the cusped head cut out of it.
+            for (int s = -1; s <= 1; s += 2)
+            {
+                double xi = s * aw, xo = s * hw;
+                SacredDraw.Box(m, p, Math.Min(xi, xo), Math.Max(xi, xo), -0.3, h, -hd, hd, wh, BoxFaces.All & ~BoxFaces.Bottom);
+                if (c != null)
+                {
+                    double x0, y0, z0, x1, y1, z1;
+                    p.Point(s * 0.5 * (aw + hw), 0, -hd, out x0, out y0, out z0);
+                    p.Point(s * 0.5 * (aw + hw), 0, hd, out x1, out y1, out z1);
+                    c.AddWall(x0, z0, x1, z1, f.Level - 0.3, f.Level + h, 0.5 * (hw - aw));
+                }
+            }
+            double[] x = BoudhaKit.U2, z = BoudhaKit.V2;
+            int seg = lod == 0 ? 24 : lod == 1 ? 12 : 6, n = 0;
+            x[n] = -aw;
+            z[n++] = -h;
+            for (int i = 0; i <= seg; i++)
+            {
+                double ax, ay;
+                BoudhaKit.CuspedArch((double)i / seg, aw, spring, point, lod >= 2 ? 1 : lobes, lod >= 2 ? 0 : cusp, out ax, out ay);
+                x[n] = ax;
+                z[n++] = -ay;
+            }
+            x[n] = aw;
+            z[n++] = -h;
+            Array.Reverse(x, 0, n);
+            Array.Reverse(z, 0, n);
+            Shapes.BevelExtrude(m, SacredDraw.Basis(p, 0, 0, -hd, 1, 0, 0, 0, 0, 1), wh, x, z, n, d, 0.03, 1, BevelStyle.Chamfer, true, true);
+            // The closed, carved timber door in the arch (its leaf in panels, a lintel and the carved tympanum over it), set
+            // back in the reveal; the door is solid.
+            ShapeBrush door = BoudhaKit.B(MeshColor.FromHex(0x4A3020), MaterialChannel.WoodCarved), doorFrame = BoudhaKit.B(MeshColor.FromHex(0x2E1C10), MaterialChannel.Wood);
+            double dz = hd - 0.25;
+            SacredDraw.Panel(m, p, -aw, 0, aw, spring + 0.6, dz, door);
+            if (lod == 0) BoudhaKit.GridLines(m, p, -aw, aw, 0.1, spring - 0.05, dz + 0.005, 0.4, 0.36, 0.05, doorFrame);
+            if (lod <= 1) SacredDraw.Box(m, p, -aw, aw, spring - 0.08, spring + 0.02, dz, dz + 0.1, doorFrame, BoxFaces.Front | BoxFaces.Bottom);
+            if (c != null)
+            {
+                double x0, y0, z0, x1, y1, z1;
+                p.Point(-aw, 0, dz, out x0, out y0, out z0);
+                p.Point(aw, 0, dz, out x1, out y1, out z1);
+                c.AddWall(x0, z0, x1, z1, f.Level - 0.3, f.Level + h, 0.15);
+            }
+            if (lod <= 1)
+            {
+                // The gilt-edged cusped arch roll (a raised white roll round the opening).
+                int rs = lod == 0 ? 18 : 8;
+                double px = -aw, py = spring;
+                for (int i = 1; i <= rs; i++)
+                {
+                    double qx, qy;
+                    BoudhaKit.CuspedArch((double)i / rs, aw + 0.05, spring, point, lobes, cusp, out qx, out qy);
+                    Shapes.Bar(m, p, sh, px, py, hd + 0.03, qx, qy, hd + 0.03, 0.05, 4);
+                    px = qx;
+                    py = qy;
+                }
+                // Carved pilasters either side of the door: a base block, the fluted shaft and a capital.
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    double xc = s * (aw + 0.28);
+                    SacredDraw.Box(m, p, xc - 0.2, xc + 0.2, 0, 0.35, hd, hd + 0.14, sh, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top);
+                    SacredDraw.Box(m, p, xc - 0.14, xc + 0.14, 0.35, spring + 0.1, hd, hd + 0.1, wh, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right);
+                    SacredDraw.Box(m, p, xc - 0.22, xc + 0.22, spring + 0.1, spring + 0.38, hd, hd + 0.16, sh, BoxFaces.Front | BoxFaces.Left | BoxFaces.Right | BoxFaces.Top | BoxFaces.Bottom);
+                    if (lod == 0)
+                    {
+                        for (int q = -1; q <= 1; q++) SacredDraw.Panel(m, p, xc + q * 0.08 - 0.015, 0.45, xc + q * 0.08 + 0.015, spring, hd + 0.105, BoudhaKit.WhiteShade);
+                        // A carved boss on the capital.
+                        Shapes.Sphere(m, SacredDraw.At(p, xc, spring + 0.24, hd + 0.17), wh, 0.09, 6);
+                    }
+                    // Small round-headed lamp niches either side, blackened by the lamps (corner/02), and a brass wheel in the
+                    // east one (motp/04).
+                    double nx = s * (aw + 0.5 * (hw - aw) + 0.2);
+                    ShapeBrush sootN = BoudhaKit.B(BoudhaKit.Recess, MaterialChannel.Plain, 0.55f);
+                    SacredDraw.Panel(m, p, nx - 0.17, 1.15, nx + 0.17, 1.55, hd + 0.005, sootN);
+                    Shapes.Dome(m, SacredDraw.Basis(p, nx, 1.55, hd + 0.006, 1, 0, 0, 0, 0, 1), sootN, 0.17, 0.15, lod == 0 ? 6 : 4);
+                    if (s > 0) Shapes.Cylinder(m, SacredDraw.At(p, nx, 1.18, hd + 0.02), BoudhaKit.B(BoudhaKit.Brass, MaterialChannel.Metal, 0.8f), 0.12, 0.32, lod == 0 ? 8 : 5, 0, 0, true, true);
+                }
+            }
+            // Cornice and the flat roof.
+            Mould mo = SacredDraw.M;
+            if (lod >= 2) mo.Add(0, h, cope).Add(0.16, h + 0.08).Add(0.16, h + 0.36);
+            else mo.Add(0, h, cope).Add(0.08, h + 0.08).Add(0.16, h + 0.2).Add(0.16, h + 0.32).Add(0.0, h + 0.36);
+            SacredDraw.RectRing(m, p, 0, 0, hw, hd, mo, true, cope);
+            // The scrolled stucco crest over the front (0.8 m): a stepped central panel between two S-scrolls, with three
+            // small chorten finials (the middle one larger) and the corner finials.
+            double cy = h + 0.36, cz = hd - 0.25;
+            SacredDraw.Box(m, p, -0.75, 0.75, cy, cy + 0.42, cz - 0.12, cz + 0.12, wh, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, p, -0.4, 0.4, cy + 0.42, cy + 0.62, cz - 0.1, cz + 0.1, wh, BoxFaces.All & ~BoxFaces.Bottom);
+            if (lod <= 1)
+            {
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    // The S-scroll: an upper curl rising from the panel's foot outward, a lower curl at the outer end.
+                    Affine3 sf = SacredDraw.Basis(p, s * 1.05, cy + 0.28, cz, 1, 0, 0, 0, 0, 1);
+                    Shapes.Torus(m, sf, wh, 0.24, 0.06, lod == 0 ? 12 : 6, lod == 0 ? 5 : 3, default, s > 0 ? 120 : 330, 270, false);
+                    Shapes.Torus(m, SacredDraw.Basis(p, s * 1.5, cy + 0.16, cz, 1, 0, 0, 0, 0, 1), wh, 0.13, 0.05, lod == 0 ? 10 : 5, 3, default, s > 0 ? 300 : 150, 270, false);
+                    BoudhaKit.FinialChorten(m, SacredDraw.At(p, s * 0.6, cy + 0.42, cz), 0.4, lod);
+                }
+                BoudhaKit.FinialChorten(m, SacredDraw.At(p, 0, cy + 0.62, cz), 0.55, lod);
+                for (int q = 0; q < 4; q++)
+                {
+                    double fx = (q % 2 == 0 ? -1 : 1) * (hw - 0.25), fz = (q < 2 ? -1 : 1) * (hd - 0.25);
+                    BoudhaKit.FinialChorten(m, SacredDraw.At(p, fx, cy, fz), 0.7, lod);
+                }
+            }
+            Forecourt(m, c, f, p, hd, lod);
+        }
+
+        /// <summary>The south pavilion's forecourt on the kora (motp/04, 07-1) in the pavilion's frame (front at z = hd).</summary>
+        private static void Forecourt(MeshData m, GenColliders c, in BoudhaFrame f, in Affine3 p, double hd, int lod)
+        {
+            double y = BoudhaQuarter.PaveTop;
+            // The black stone chaitya on the door axis, 1.4 m out.
+            StoneChaitya(m, c, f, SacredDraw.At(p, 0, y, hd + 1.4), lod);
+            // The white juniper kiln to the west, on the left as one faces the door (2.2 m off the axis, 1.6 m out; the
+            // pavilion's frame faces south, so its +x runs west); solid only off the drawn kora walk.
+            Affine3 kf = SacredDraw.At(p, 2.2, y, hd + 1.6);
+            Kiln(m, kf, 1.5, 2.2, lod);
+            Solid(c, f, kf, 0.8, 2.2);
+            if (lod >= 2) return;
+            // The brass prayer wheel on its post to the east (the right).
+            Affine3 wf = SacredDraw.At(p, -1.8, y, hd + 0.7);
+            ShapeBrush brass = BoudhaKit.B(BoudhaKit.Brass, MaterialChannel.Metal), post = BoudhaKit.B(MeshColor.FromHex(0x3A2A1E), MaterialChannel.Wood);
+            Shapes.Cylinder(m, wf, post, 0.05, 1.1, lod == 0 ? 8 : 5, 0, 0, false, false);
+            Shapes.Cylinder(m, SacredDraw.At(wf, 0, 1.1, 0), brass, 0.175, 0.42, lod == 0 ? 12 : 6, 0.02, 1, true, true);
+            if (lod == 0)
+            {
+                Shapes.Torus(m, SacredDraw.At(wf, 0, 1.16, 0), BoudhaKit.B(BoudhaKit.ClothRed, MaterialChannel.Paint), 0.178, 0.015, 12, 3);
+                Shapes.Torus(m, SacredDraw.At(wf, 0, 1.46, 0), BoudhaKit.B(BoudhaKit.ClothRed, MaterialChannel.Paint), 0.178, 0.015, 12, 3);
+                Shapes.Cone(m, SacredDraw.At(wf, 0, 1.52, 0), brass, 0.06, 0.14, 6, 0, 0, false);
+            }
+            // The glazed lamp case on its legs beyond the kiln (0.5 × 0.4 × 0.6 on 0.8 m legs).
+            Affine3 lf = SacredDraw.At(p, 3.4, y, hd + 1.2);
+            ShapeBrush wood = BoudhaKit.B(MeshColor.FromHex(0x5A3A22), MaterialChannel.Wood), glass = BoudhaKit.B(MeshColor.FromHex(0xC9DCE0), MaterialChannel.Glass, 0.9f);
+            for (int q = 0; q < 4; q++)
+            {
+                double lx = (q % 2 == 0 ? -1 : 1) * 0.22, lz = (q < 2 ? -1 : 1) * 0.17;
+                Shapes.Bar(m, lf, wood, lx, 0, lz, lx, 0.8, lz, 0.025, 4);
+            }
+            SacredDraw.Box(m, lf, -0.26, 0.26, 0.8, 0.84, -0.21, 0.21, wood, BoxFaces.All);
+            SacredDraw.Box(m, lf, -0.25, 0.25, 0.84, 1.42, -0.2, 0.2, glass, BoxFaces.All & ~BoxFaces.Bottom);
+            SacredDraw.Box(m, lf, -0.27, 0.27, 1.42, 1.47, -0.22, 0.22, wood, BoxFaces.All);
+            if (lod == 0)
+                for (int q = -1; q <= 1; q++) Shapes.Frustum(m, SacredDraw.At(lf, q * 0.13, 0.84, 0), brass, 0.04, 0.06, 0.07, 5, 0, 0, false, true);
+        }
+
+        /// <summary>A cylinder collider of radius r at the origin of frame <paramref name="a"/> when it keeps off the
+        /// drawn roads (forecourt pieces on the kora walk stay walk-through).</summary>
+        private static void Solid(GenColliders c, in BoudhaFrame f, in Affine3 a, double r, double h)
+        {
+            if (c == null) return;
+            double x, y, z;
+            a.Point(0, 0, 0, out x, out y, out z);
+            if (f.Tile != null && SacredDrawnRoads.For(f.Tile).SignedDistance(x, z) < r + 0.1) return;
+            c.AddCylinder(x, z, y - 0.3, y + h, r);
+        }
+
+        /// <summary>
+        /// The black stone chaitya before the south pavilion's door (motp/07-1, about 1.6 m): a three-step plinth 1.1 m
+        /// square, the shaft with four seated Dhyani Buddhas facing out, a round cap and a small finial, smeared with
+        /// vermilion and hung with marigolds. Standing on y = 0 of <paramref name="a"/>.
+        /// </summary>
+        private static void StoneChaitya(MeshData m, GenColliders c, in BoudhaFrame f, in Affine3 a, int lod)
+        {
+            ShapeBrush stone = BoudhaKit.B(MeshColor.FromHex(0x2E2A28), MaterialChannel.Stone), red = BoudhaKit.B(MeshColor.FromHex(0xC8202A), MaterialChannel.Paint);
+            ShapeBrush marigold = BoudhaKit.B(MeshColor.FromHex(0xF2A01E), MaterialChannel.Foliage);
+            for (int i = 0; i < 3; i++)
+            {
+                double hw = 0.55 - 0.1 * i, y0 = 0.22 * i;
+                if (lod == 0) Shapes.RoundedBox(m, SacredDraw.At(a, 0, y0 + 0.11, 0), stone, 2 * hw, 0.22, 2 * hw, 0.02, 1);
+                else SacredDraw.Box(m, a, -hw, hw, y0 - (i == 0 ? 0.2 : 0), y0 + 0.22, -hw, hw, stone, BoxFaces.All & ~BoxFaces.Bottom);
+            }
+            double sy = 0.66, sw = 0.24;
+            SacredDraw.Box(m, a, -sw, sw, sy, sy + 0.55, -sw, sw, stone, BoxFaces.All & ~BoxFaces.Bottom);
+            if (lod <= 1)
+            {
+                for (int q = 0; q < 4; q++)
+                {
+                    Affine3 bf = a * Affine3.Yaw(90 * q);
+                    // A seated Buddha on the face: crossed legs, body, head with its ushnisha.
+                    Shapes.Ellipsoid(m, SacredDraw.At(bf, 0, sy + 0.08, sw + 0.04), stone, 0.2, 0.07, 0.1, lod == 0 ? 6 : 4, false);
+                    Shapes.Ellipsoid(m, SacredDraw.At(bf, 0, sy + 0.25, sw + 0.02), stone, 0.12, 0.15, 0.07, lod == 0 ? 6 : 4, false);
+                    Shapes.Sphere(m, SacredDraw.At(bf, 0, sy + 0.45, sw + 0.02), stone, 0.07, lod == 0 ? 6 : 4);
+                    if (lod == 0)
+                    {
+                        // Vermilion on the face and a marigold garland across the lap.
+                        SacredDraw.Panel(m, bf, -0.04, sy + 0.42, 0.04, sy + 0.48, sw + 0.09, red);
+                        for (int g = -2; g <= 2; g++)
+                            Shapes.Sphere(m, SacredDraw.At(bf, g * 0.07, sy + 0.17 - 0.02 * Math.Abs(g), sw + 0.13), marigold, 0.035, 4);
+                    }
+                }
+            }
+            Profile2 cap = BoudhaKit.Prof;
+            double cy = sy + 0.55;
+            cap.Add(0, cy).Add(0.32, cy, true).Add(0.3, cy + 0.08).Add(0.22, cy + 0.2).Add(0.08, cy + 0.27, true).Add(0.06, cy + 0.36).Add(0.1, cy + 0.42, true)
+               .Add(0.03, cy + 0.6).Add(0, cy + 0.62);
+            Shapes.Lathe(m, a, stone, cap, lod == 0 ? 10 : lod == 1 ? 6 : 4);
+            if (lod == 0) Shapes.Torus(m, SacredDraw.At(a, 0, cy + 0.02, 0), marigold, 0.3, 0.035, 12, 3);
+            Solid(c, f, a, 0.6, 1.6);
         }
 
         /// <summary>

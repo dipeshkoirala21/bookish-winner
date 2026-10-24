@@ -89,7 +89,19 @@ namespace Ghumante.Core.Tests
             // each within its ceilings, LOD1 about 30 % and LOD2 about 8 % of LOD0, the whole within the site's budget.
             TileBuild b = High;
             int total = 0, budget = 0;
-            foreach (BoudhaPart part in new[] { BoudhaPart.Stupa, BoudhaPart.North, BoudhaPart.East, BoudhaPart.South, BoudhaPart.West, BoudhaPart.Gate })
+            var fails = new List<string>();
+            foreach (HeroPiece h in b.Heroes)
+                if (BoudhaSite.Handles(h.Id)) TestContext.WriteLine("GEOM " + h.Id + " " + h.CX + " " + h.CZ + " " + h.GroundY + " " + h.TopY + " " + h.Tris0 + " " + h.Tris1 + " " + h.Tris2 + " " + h.Tris3);
+            {
+                BoudhaFrame gf;
+                Assert.That(BoudhaSite.TryFrame(Record(), b.Source, out gf), Is.True);
+                double x0, z0, x1, z1, x2, z2;
+                gf.ToTile(0, 0, out x0, out z0);
+                gf.ToTile(1, 0, out x1, out z1);
+                gf.ToTile(0, 1, out x2, out z2);
+                TestContext.WriteLine("FRAME " + x0 + " " + z0 + " " + x1 + " " + z1 + " " + x2 + " " + z2 + " " + gf.Level);
+            }
+            foreach (BoudhaPart part in BoudhaSite.AllParts)
             {
                 string id = BoudhaSite.IdOf(part);
                 HeroPiece p = default(HeroPiece);
@@ -104,19 +116,111 @@ namespace Ghumante.Core.Tests
                 int[] cap = BoudhaSite.BudgetOf(part);
                 TestContext.WriteLine(id + " tris LOD0..3: " + p.Tris0 + " " + p.Tris1 + " " + p.Tris2 + " " + p.Tris3 + " of " + string.Join(" ", cap) + ", top " +
                                       (p.TopY - p.GroundY));
-                Assert.That(p.Tris0, Is.LessThanOrEqualTo(cap[0]), id);
-                Assert.That(p.Tris1, Is.LessThanOrEqualTo(cap[1]), id);
-                Assert.That(p.Tris2, Is.LessThanOrEqualTo(cap[2]), id);
-                Assert.That(p.Tris3, Is.LessThanOrEqualTo(cap[3]), id);
-                Assert.That(p.Tris0, Is.GreaterThan(part == BoudhaPart.Stupa ? 40000 : part == BoudhaPart.Gate ? 4000 : 12000), id + " LOD0 is bespoke, not a template");
-                Assert.That(p.Tris1, Is.LessThanOrEqualTo(0.35 * p.Tris0), id);
-                Assert.That(p.Tris2, Is.LessThanOrEqualTo(0.1 * p.Tris0), id);
-                Assert.That(p.Tris3, Is.GreaterThan(0), id);
+                int[] tris = { p.Tris0, p.Tris1, p.Tris2, p.Tris3 };
+                for (int l = 0; l < 4; l++)
+                    if (tris[l] > cap[l]) fails.Add(id + " LOD" + l + " " + tris[l] + " over its ceiling " + cap[l]);
+                int floor = part == BoudhaPart.Stupa ? 12000 : part == BoudhaPart.Gate ? 4000 : BoudhaSite.IsFlags(part) ? 1500 : 2000;
+                if (p.Tris0 <= floor) fails.Add(id + " LOD0 " + p.Tris0 + " is not bespoke (at most " + floor + ")");
+                if (p.Tris1 > 0.35 * p.Tris0) fails.Add(id + " LOD1 " + p.Tris1 + " over 35 % of LOD0 " + p.Tris0);
+                // LOD2 keeps the identity (the eyes and arcs on the stupa, the house fronts round the kora): within 15 %.
+                if (p.Tris2 > 0.15 * p.Tris0) fails.Add(id + " LOD2 " + p.Tris2 + " over 15 % of LOD0 " + p.Tris0);
+                if (p.Tris3 <= 0) fails.Add(id + " has no LOD3");
                 total += p.Tris0;
                 budget += cap[0];
             }
+            Assert.That(fails, Is.Empty, string.Join("\n", fails));
             Assert.That(budget, Is.LessThanOrEqualTo(BoudhaSite.SiteBudgetLod0), "the parts' ceilings add up to the site's");
             Assert.That(total, Is.LessThanOrEqualTo(BoudhaSite.SiteBudgetLod0));
+        }
+
+        /// <summary>The hero LODs the streamer picks with the camera at <paramref name="eye"/> (tile-local x, absolute y, z):
+        /// the screen heights as WorldStreamer.UpdateHeroes computes them (fov 60°), allocated by the tier's hero slice
+        /// (World/Sacred/HeroLodBudget) frame after frame until it settles.</summary>
+        private static float[] LastScreens;
+
+        private static int[] Allocate(TileBuild b, double ex, double ey, double ez, int budget, bool lod0)
+        {
+            int n = b.Heroes.Count;
+            var entries = new HeroLodBudget.Entry[n];
+            double tanHalf = Math.Tan(30.0 * Math.PI / 180.0);
+            for (int i = 0; i < n; i++)
+            {
+                HeroPiece p = b.Heroes[i];
+                double dx = p.CX - ex, dz = p.CZ - ez, dy = 0.5 * (p.GroundY + p.TopY) - ey;
+                double d = Math.Max(1.0, Math.Sqrt(dx * dx + dy * dy + dz * dz));
+                entries[i] = new HeroLodBudget.Entry
+                {
+                    ScreenHeight = (float)((p.TopY - p.GroundY) / (2.0 * d * tanHalf)), Tris0 = p.Tris0, Tris1 = p.Tris1, Tris2 = p.Tris2, Tris3 = p.Tris3,
+                    CurrentLod = -1,
+                };
+            }
+            var alloc = new HeroLodBudget(budget, lod0);
+            int tris = 0;
+            for (int frame = 0; frame < 40; frame++) tris = alloc.Allocate(entries, n, frame * 1.0f);
+            Assert.That(tris, Is.LessThanOrEqualTo(budget), "the hero slice holds");
+            var lods = new int[n];
+            for (int i = 0; i < n; i++) lods[i] = entries[i].Lod;
+            LastScreens = new float[n];
+            for (int i = 0; i < n; i++) LastScreens[i] = entries[i].ScreenHeight;
+            return lods;
+        }
+
+        [Test]
+        public void TheKoraKeepsWhatStandsBesideThePlayerInDetailOnEveryTier()
+        {
+            // Walking the kora at chase-camera height (r 58 m from the stupa axis, 3.5 m up, fov 60°) every 10°, up the lane
+            // from the main gate and on the road before it, with the tiers' hero slices (High 60,000, Mid 40,000, Low 20,000
+            // without LOD0): the stupa's shell keeps LOD0 or LOD1 on High and Mid and at least LOD2 (with the eyes) on Low,
+            // the kora sector the player stands in keeps LOD1 or better, and on High and Mid every part whose centre is within
+            // 25 m of the eye on the kora keeps LOD1 or better, as does the main gate seen from the road.
+            TileBuild b = High;
+            TileData src = b.Source;
+            HeritageRecord r = Record();
+            BoudhaFrame f;
+            Assert.That(BoudhaSite.TryFrame(r, src, out f), Is.True);
+            var spots = new List<(string, double, double)>();
+            for (int brg = 0; brg < 360; brg += 10)
+            {
+                double a = brg * Math.PI / 180.0;
+                spots.Add(("kora " + brg, 58 * Math.Sin(a), 58 * Math.Cos(a)));
+            }
+            spots.Add(("gate lane", -6.5, -66.0));
+            spots.Add(("lane mouth", -6.0, -56.0));
+            spots.Add(("main gate", -9.0, -93.0));
+            int shell = -1;
+            for (int i = 0; i < b.Heroes.Count; i++)
+                if (b.Heroes[i].Id == BoudhaSite.HeroId) shell = i;
+            Assert.That(shell, Is.GreaterThanOrEqualTo(0));
+            var fails = new List<string>();
+            foreach (var (tier, budget, lod0) in new[] { ("High", 60000, true), ("Mid", 40000, true), ("Low", 20000, false) })
+            {
+                foreach (var (name, u, v) in spots)
+                {
+                    double ex, ez;
+                    f.ToTile(u, v, out ex, out ez);
+                    double ey = f.Level + 3.5;
+                    int[] lods = Allocate(b, ex, ey, ez, budget, lod0);
+                    var line = new StringBuilder(tier + " " + name + ":");
+                    BoudhaPart inner = BoudhaSite.InnerAt(u, v), outer = BoudhaSite.Sectors[0].Part;
+                    foreach (BoudhaSector sec in BoudhaSite.Sectors)
+                        if (BoudhaSector.In(BoudhaSite.BearingOf(u, v), sec.Out0, sec.Out1)) outer = sec.Part;
+                    for (int i = 0; i < b.Heroes.Count; i++)
+                    {
+                        HeroPiece p = b.Heroes[i];
+                        BoudhaPart part;
+                        if (!BoudhaSite.TryPart(p.Id, out part)) continue;
+                        line.Append(' ').Append(p.Id.Substring(BoudhaSite.HeroId.Length)).Append('=').Append(lods[i]).Append('(').Append(LastScreens[i].ToString("0.00")).Append(')');
+                        double dist = Math.Sqrt((p.CX - ex) * (p.CX - ex) + (p.CZ - ez) * (p.CZ - ez));
+                        if (i == shell && lods[i] > (lod0 ? 1 : 2)) fails.Add(tier + " " + name + ": the stupa at LOD" + lods[i]);
+                        if (name.StartsWith("kora", StringComparison.Ordinal) && (part == inner || part == outer) && lods[i] > 1)
+                            fails.Add(tier + " " + name + ": " + p.Id + " under the camera at LOD" + lods[i]);
+                        if (lod0 && (name.StartsWith("kora", StringComparison.Ordinal) || name == "main gate") && dist < 25 && lods[i] > 1)
+                            fails.Add(tier + " " + name + ": " + p.Id + " " + dist.ToString("0") + " m off at LOD" + lods[i]);
+                    }
+                    TestContext.WriteLine(line.ToString());
+                }
+            }
+            Assert.That(fails, Is.Empty, string.Join("\n", fails));
         }
 
         [Test]
@@ -199,6 +303,80 @@ namespace Ghumante.Core.Tests
         }
 
         [Test]
+        public void TheFarStupaKeepsItsEyesAndItsWhiteDome()
+        {
+            // LOD2 (the Low tier's view from the kora) and LOD3 (the far shape) keep Boudha's identity: the dark-blue eyes on
+            // all four faces of the harmika, and at LOD2 a white dome (at least 60 % of the dome surface white, the arcade
+            // and the cap washes the rest).
+            TileData t = Source();
+            HeritageRecord r = Record();
+            BoudhaFrame f;
+            Assert.That(BoudhaSite.TryFrame(r, t, out f), Is.True);
+            uint blue = BoudhaKit.EyeBlueDark;
+            double h = BoudhaStupa.DomeApex - BoudhaStupa.RingTop;
+            for (int lod = 2; lod <= 3; lod++)
+            {
+                var m = new MeshData();
+                Assert.That(HeroBuilder.Build(r, t, lod, m, new GenColliders(), new SacredStats()), Is.GreaterThan(0));
+                int[] eyes = new int[4];
+                int dome = 0, white = 0;
+                for (int i = 0; i < m.VertexCount; i++)
+                {
+                    double u, v, y = m.Positions[3 * i + 1] - f.Level;
+                    f.ToSite(m.Positions[3 * i], m.Positions[3 * i + 2], out u, out v);
+                    int cr = m.Colors[4 * i], cg = m.Colors[4 * i + 1], cb = m.Colors[4 * i + 2];
+                    if (cr == MeshColor.R(blue) && cg == MeshColor.G(blue) && cb == MeshColor.B(blue) && y > BoudhaStupa.HarmikaBase && y < BoudhaStupa.HarmikaTop + 0.6)
+                    {
+                        // The face it sits on: the side of the harmika its offset points to.
+                        if (Math.Abs(v) > Math.Abs(u)) eyes[v > 0 ? 0 : 2]++;
+                        else eyes[u > 0 ? 1 : 3]++;
+                    }
+                    double rho = Math.Sqrt(u * u + v * v), q = (rho / BoudhaStupa.DomeR) * (rho / BoudhaStupa.DomeR) + (y - BoudhaStupa.RingTop) / h * ((y - BoudhaStupa.RingTop) / h);
+                    if (y > BoudhaStupa.RingTop + 0.3 && rho > BoudhaStupa.HarmikaHalf + 0.5 && Math.Abs(q - 1) < 0.004)
+                    {
+                        dome++;
+                        int lo = Math.Min(cr, Math.Min(cg, cb)), hi = Math.Max(cr, Math.Max(cg, cb));
+                        if (lo > 200 && hi - lo < 30) white++;
+                    }
+                }
+                for (int face = 0; face < 4; face++) Assert.That(eyes[face], Is.GreaterThanOrEqualTo(4), "LOD" + lod + ": the eyes on face " + face);
+                if (lod == 2)
+                {
+                    Assert.That(dome, Is.GreaterThan(50), "LOD2 dome surface found");
+                    Assert.That(white, Is.GreaterThanOrEqualTo(0.6 * dome), "LOD2: the dome is white (" + white + " of " + dome + ")");
+                }
+            }
+        }
+
+        [Test]
+        public void EveryHouseStandsInItsSectorsOuterRing()
+        {
+            // The kora sectors are cut by bearing: each rebuilt house's footprint centroid lies in the outer range of the
+            // sector that builds it (so a sector's bounds, and its screen height in the hero allocator, are where its
+            // houses are).
+            TileData t = Source();
+            BoudhaFrame f;
+            Assert.That(BoudhaSite.TryFrame(Record(), t, out f), Is.True);
+            var wrong = new List<string>();
+            foreach (RingHouse house in BoudhaRing.Houses)
+            {
+                double[] pu, pv;
+                int n = BoudhaRing.Footprint(t, f, house.Way, out pu, out pv);
+                if (n < 3) continue;
+                double cu = 0, cv = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    cu += pu[i];
+                    cv += pv[i];
+                }
+                double brg = BoudhaSite.BearingOf(cu / n, cv / n);
+                BoudhaSector sec = BoudhaSite.SectorOf(house.Part);
+                if (!BoudhaSector.In(brg, sec.Out0, sec.Out1)) wrong.Add("w" + house.Way + " at " + brg.ToString("0.0", CultureInfo.InvariantCulture) + " is not in " + house.Part);
+            }
+            Assert.That(wrong, Is.Empty, string.Join("\n", wrong));
+        }
+
+        [Test]
         public void TheFrontRowHousesTheSiteRebuildsAreHidden()
         {
             HeroSet set = HeroSet.From(Curated());
@@ -234,10 +412,10 @@ namespace Ghumante.Core.Tests
                 if (Math.Abs(Math.Min(q.Y0, q.Y1) - level - BoudhaQuarter.CompoundTop) < 0.05 && Math.Abs(Math.Max(q.Y0, q.Y1) - level - BoudhaStupa.T1Top) < 0.05)
                     up = true;
             Assert.That(up, Is.True, "a stair from the compound ground to the lowest terrace");
-            // The quarters: the compound wall's runs are solid and the kora slab is walkable at its paving height.
+            // The kora sectors: the compound wall's runs are solid and the kora slab is walkable at its paving height.
             var kora = new GenColliders();
-            foreach (BoudhaPart part in new[] { BoudhaPart.North, BoudhaPart.East, BoudhaPart.South, BoudhaPart.West })
-                HeroBuilder.Build(PartRecord(part), t, 0, new MeshData(), kora);
+            foreach (BoudhaPart part in BoudhaSite.AllParts)
+                if (BoudhaSite.IsSector(part)) HeroBuilder.Build(PartRecord(part), t, 0, new MeshData(), kora);
             Assert.That(kora.Walls.Count, Is.GreaterThan(18), "the compound wall's runs are solid");
             int slab = 0;
             foreach (GenBox b in kora.Boxes)

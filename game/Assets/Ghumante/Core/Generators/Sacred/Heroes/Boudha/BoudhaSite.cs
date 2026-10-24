@@ -65,31 +65,125 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
     }
 
     /// <summary>The structure groups of the bespoke Boudhanath site, each built as a hero of its own (its own LODs in the
-    /// hero allocator, picked by its own screen height): the Great Stupa on its terraces, the four quarters of the kora
-    /// (compound wall, gates and houses, ring of houses and gompas, plaza) and the main gate on Boudha Main Road.</summary>
+    /// hero allocator, picked by its own screen height): the Great Stupa's shell (the three terrace walls, the ring with
+    /// its niches, the dome with its north stair, the harmika with the eyes, the spire and the crown), its dressing in four
+    /// quadrants (the terrace floors, parapet and stairs with the terrace chortens and statues of that side), its prayer
+    /// flags in four quadrants, sixteen sectors of the kora (the compound wall with its niches, the paving and the
+    /// compound's furniture as the inner ring; the houses and gompas round the kora as the outer ring; see
+    /// <see cref="BoudhaSite.Sectors"/>) and the main gate on Boudha Main Road.</summary>
     public enum BoudhaPart : byte
     {
+        /// <summary>The Great Stupa's shell (the curated hero).</summary>
         Stupa = 0,
-        North = 1,
-        East = 2,
-        South = 3,
-        West = 4,
-        Gate = 5,
+
+        /// <summary>The main gate on Boudha Main Road.</summary>
+        Gate = 1,
+
+        /// <summary>The stupa's dressing of the north quadrant (site bearings 315-45°): the terrace floors, the parapet and
+        /// the stairs, the terrace chortens, the north elephants and the Dhyani Buddhas.</summary>
+        DressNorth = 2,
+
+        DressEast = 3,
+        DressSouth = 4,
+        DressWest = 5,
+
+        /// <summary>Kora sector: the north entrance (the Ajima shrine and the gate pavilions in the wall) with its stretch of
+        /// the wall and the house across the kora west of the Guru Lhakhang.</summary>
+        NorthGate = 6,
+
+        NorthNorthEast = 7,
+        NorthEast = 8,
+        East = 9,
+        SouthEast = 10,
+        SouthSouthEast = 11,
+
+        /// <summary>Kora sector: the south kora with the lamp houses by the south stair and the houses beside the lane.</summary>
+        South = 12,
+
+        /// <summary>Kora sector: the south pavilion where the lane from the main gate meets the wall, with its forecourt and
+        /// the brick house at the lane's west corner.</summary>
+        SouthGate = 13,
+
+        SouthSouthWest = 14,
+        SouthWest = 15,
+        WestSouthWest = 16,
+
+        /// <summary>Kora sector: the Jamchen Lhakhang and the west kiln and benches.</summary>
+        West = 17,
+
+        WestNorthWest = 18,
+        NorthWest = 19,
+        NorthNorthWest = 20,
+
+        /// <summary>The prayer-flag bundles of the north quadrant (its arm end, the body corner clockwise after it and its
+        /// two poles, <see cref="BoudhaStupa.BundleQuadrant"/>): tall lines from the crown to the lowest terrace, a part of
+        /// their own so they hold their detail while the terrace dressing beneath them steps down.</summary>
+        FlagsNorth = 21,
+
+        FlagsEast = 22,
+        FlagsSouth = 23,
+        FlagsWest = 24,
+
+        /// <summary>Kora sector (outer ring only): the Guru Lhakhang with the Big Bell, across the kora from the north
+        /// entrance.</summary>
+        NorthGuru = 25,
+    }
+
+    /// <summary>One kora sector: the site bearings (degrees clockwise from the site's north axis, start ≤ bearing &lt; end,
+    /// wrapping through 0) of its inner ring (wall, paving, compound) and of its outer ring (the houses and gompas, listed in
+    /// <see cref="BoudhaRing.Houses"/>); NaN when it holds none of that ring.</summary>
+    internal struct BoudhaSector
+    {
+        public BoudhaPart Part;
+        public double In0, In1, Out0, Out1;
+        public string Name;
+
+        public BoudhaSector(BoudhaPart part, double in0, double in1, double out0, double out1, string name)
+        {
+            Part = part;
+            In0 = in0;
+            In1 = in1;
+            Out0 = out0;
+            Out1 = out1;
+            Name = name;
+        }
+
+        public bool HasInner
+        {
+            get { return !double.IsNaN(In0); }
+        }
+
+        public bool HasOuter
+        {
+            get { return !double.IsNaN(Out0); }
+        }
+
+        /// <summary>True when a site bearing lies in [a0, a1) (wrapping through 0).</summary>
+        public static bool In(double deg, double a0, double a1)
+        {
+            if (double.IsNaN(a0)) return false;
+            deg %= 360.0;
+            if (deg < 0) deg += 360.0;
+            return a0 <= a1 ? deg >= a0 && deg < a1 : deg >= a0 || deg < a1;
+        }
     }
 
     /// <summary>
     /// The bespoke Boudhanath heritage site (W2 monuments round; docs/research/heritage/boudha.md): every structure
     /// modelled to its measured plan, section and colours instead of the parametric stupa template. The curated hero
-    /// (<c>her.ktm.boudhanath</c>) builds the Great Stupa (S1: terraces, chortens, statues, stairs, ring, dome, harmika,
-    /// spire, crown and the prayer flags); five parts (<see cref="BoudhaPart"/>, <see cref="HeroRecipe.SiteOf"/>) build
-    /// the rest by quarter of the kora (45° either side of the four site axes): the compound wall with the 147
+    /// (<c>her.ktm.boudhanath</c>) builds the Great Stupa's shell (S1: terraces, stairs, ring with its niches, dome with its
+    /// north stair, harmika with the eyes, spire and crown); the other parts (<see cref="BoudhaPart"/>,
+    /// <see cref="HeroRecipe.SiteOf"/>) build the rest: the stupa's dressing in four quadrants (the prayer-flag bundles, the
+    /// terrace chortens and statues), sixteen kora sectors (<see cref="Sectors"/>: the compound wall with the 147
     /// prayer-wheel niches (S2), the north entrance with the Ajima shrine, its gate pavilions and the NE compound house
     /// (S3, S4), the Guru Lhakhang and the Big Bell (S5), the ring of houses round the kora (S7), the Jamchen Lhakhang
-    /// (S8), Old Dhabzang (S9), the compound's lamp houses, kilns, flagpoles and trees and the paved plaza; and the main
-    /// gate on Boudha Main Road with the paved lane (S6). The front-row houses a quarter rebuilds are hidden from the house
-    /// bands (<see cref="HideRefs"/> through <see cref="HeroRecipe.Hide"/>). Four LODs per part: LOD0 the full detail,
-    /// LOD1 about 30 %, LOD2 about 8 % (both keep the silhouette), LOD3 the far shape. The whole site stays within about
-    /// 150,000 triangles at LOD0.
+    /// (S8), Old Dhabzang (S9), the south pavilion with its forecourt, the compound's lamp houses, kilns, flagpoles and
+    /// garden beds and the paved plaza) and the main gate on Boudha Main Road with the paved lane (S6). Small parts let
+    /// the hero allocator (World/Sacred/HeroLodBudget, which steps the smallest on screen first) keep what stands beside
+    /// the player at LOD0 or LOD1 while the far side of the kora steps down. The front-row houses the site rebuilds are
+    /// hidden from the house bands (<see cref="HideRefs"/> through <see cref="HeroRecipe.Hide"/>). Four LODs per part:
+    /// LOD0 the full detail, LOD1 about 30 %, LOD2 about 8 % (both keep the silhouette), LOD3 the far shape. The whole
+    /// site stays within 150,000 triangles at LOD0.
     /// </summary>
     public static class BoudhaSite
     {
@@ -117,35 +211,94 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
         /// <summary>Total height of the stupa above the kora (finial tip; boudha.md 3.1.1, photo-measured).</summary>
         public const float HeightM = 44.8f;
 
-        /// <summary>LOD triangle ceilings of the Great Stupa (the curated hero). LOD0 stays under the High tier's
-        /// 60,000-triangle hero slice with the nearer quarters stepped down beside it, so aerial and rooftop views keep the
-        /// whole site; LOD0 carries the 64 prayer-flag lines, LOD1 (seen from the rooftops beside a LOD0 quarter) their 32
-        /// continuous ribbons of colour.</summary>
-        public const int BudgetLod0 = 51000, BudgetLod1 = 17000, BudgetLod2 = 4000, BudgetLod3 = 240;
+        /// <summary>LOD triangle ceilings of the Great Stupa's shell (the curated hero): the three terrace walls, the ring with
+        /// its niches, the dome with its north stair, the harmika with the eyes, the spire and the crown. Its dressing (the
+        /// terrace floors, parapet and stairs with the chortens and statues) and its prayer flags are four parts each, so the
+        /// shell keeps LOD0 or LOD1 from the kora while the far side's dressing steps down; LOD2 keeps the eyes, the white
+        /// dome with its saffron arcade, the stepped spire and the banded crown (the Low tier's view from the kora).</summary>
+        public const int BudgetLod0 = 16000, BudgetLod1 = 5500, BudgetLod2 = 2400, BudgetLod3 = 240;
 
         /// <summary>The whole site's LOD0 ceiling on the High tier: the parts' LOD0 budgets stay within it.</summary>
         public const int SiteBudgetLod0 = 150000;
 
-        // LOD0..3 ceilings of the other parts: LOD1 is 30 % and LOD2 8 % of LOD0. The north quarter carries the Ajima
-        // entrance and the Guru Lhakhang, the west the Jamchen and the Dhabzang, so they get the larger shares. LOD3 is the
-        // far quarter the hero slice steps the smaller parts down to from the rooftops and the air (the wall with its niche
-        // band, the paving, the house bodies with their front bands and roofs), so it keeps up to 800.
-        private static readonly int[][] PartBudget =
+        /// <summary>
+        /// LOD0..3 ceilings of every part, by <see cref="BoudhaPart"/> (their LOD0 ceilings add up to
+        /// <see cref="SiteBudgetLod0"/> at most). The main gate and every kora sector stay within 7,000 at LOD0 and 2,400 at
+        /// LOD1 (most within 2,200) so the sectors beside the player keep LOD0 or LOD1 in the Mid tier's 40,000-triangle
+        /// hero slice; a sector's LOD3 (the far side of the kora from the kora and the rooftops) keeps the wall's niche band,
+        /// the house fronts with their shutters, awnings and windows, and the roofs.
+        /// </summary>
+        private static readonly int[][] PartBudgets =
         {
-            null,
-            new[] { 24500, 7350, 1960, 800 },
-            new[] { 16500, 4950, 1460, 800 },
-            new[] { 19000, 5700, 1520, 800 },
-            new[] { 24500, 7350, 1960, 800 },
-            new[] { 12500, 3750, 1000, 240 },
+            new[] { BudgetLod0, BudgetLod1, BudgetLod2, BudgetLod3 }, // the shell
+            new[] { 7000, 2400, 900, 260 }, // the main gate
+            new[] { 8400, 2900, 600, 300 }, new[] { 4400, 1500, 600, 300 }, new[] { 7000, 2450, 600, 300 }, new[] { 4400, 1500, 600, 300 }, // dressing N E S W
+            new[] { 5700, 2000, 750, 420 }, // north entrance
+            new[] { 5400, 1900, 750, 420 }, // NNE
+            new[] { 6000, 2000, 750, 420 }, // NE
+            new[] { 7000, 2300, 750, 420 }, // E
+            new[] { 5100, 1800, 750, 420 }, // SE
+            new[] { 6300, 2000, 750, 420 }, // SSE
+            new[] { 7000, 2200, 750, 420 }, // S
+            new[] { 6500, 2200, 750, 420 }, // south pavilion
+            new[] { 6300, 2100, 750, 420 }, // SSW
+            new[] { 6200, 2100, 750, 420 }, // SW
+            new[] { 4900, 1700, 750, 420 }, // WSW
+            new[] { 6400, 2200, 750, 420 }, // W (Jamchen)
+            new[] { 6200, 2100, 750, 420 }, // WNW
+            new[] { 4600, 1800, 750, 420 }, // NW
+            new[] { 2600, 1000, 750, 420 }, // NNW
+            new[] { 2800, 900, 380, 200 }, new[] { 2800, 900, 380, 200 }, new[] { 2800, 900, 380, 200 }, new[] { 2800, 900, 380, 200 }, // flags N E S W
+            new[] { 5400, 1900, 750, 420 }, // Guru Lhakhang
         };
 
-        private static readonly string[] Suffix = { "", ".north", ".east", ".south", ".west", ".gate" };
-
-        private static readonly string[] Names =
+        /// <summary>
+        /// The sixteen kora sectors (site bearings in degrees clockwise from the site's north axis), each a wedge from the
+        /// compound wall out to the house fronts so its bounds stand as tall as its houses and its centre stays within about
+        /// 20 m of anyone on its stretch of the kora (the allocator sizes a part by its bounds): the inner ring (the wall with
+        /// its niches, the paving and the compound's furniture, by where each stands) and the outer ring (the houses and
+        /// gompas, each listed with its sector in <see cref="BoudhaRing.Houses"/>; the outer ranges document where their
+        /// centroids lie) are cut so that each sector holds about 4,000-8,000 triangles at LOD0.
+        /// </summary>
+        internal static readonly BoudhaSector[] Sectors =
         {
-            "Boudhanath", "Boudhanath north kora (Ajima, Guru Lhakhang)", "Boudhanath east kora", "Boudhanath south kora",
-            "Boudhanath west kora (Jamchen Lhakhang)", "Boudha Gate",
+            new BoudhaSector(BoudhaPart.NorthGate, 350, 10, 336, 350, "Boudhanath north entrance"),
+            new BoudhaSector(BoudhaPart.NorthGuru, double.NaN, double.NaN, 350, 6, "Boudhanath Guru Lhakhang and the Big Bell"),
+            new BoudhaSector(BoudhaPart.NorthNorthEast, 10, 30, 6, 30, "Boudhanath kora, north-north-east (Dhabzang)"),
+            new BoudhaSector(BoudhaPart.NorthEast, 30, 58, 30, 58, "Boudhanath kora, north-east"),
+            new BoudhaSector(BoudhaPart.East, 58, 95, 58, 95, "Boudhanath kora, east"),
+            new BoudhaSector(BoudhaPart.SouthEast, 95, 128, 95, 128, "Boudhanath kora, south-east"),
+            new BoudhaSector(BoudhaPart.SouthSouthEast, 128, 162, 128, 162, "Boudhanath kora, south-south-east"),
+            new BoudhaSector(BoudhaPart.South, 162, 183, 162, 186, "Boudhanath kora, south"),
+            new BoudhaSector(BoudhaPart.SouthGate, 183, 198, 186, 198, "Boudhanath south pavilion"),
+            new BoudhaSector(BoudhaPart.SouthSouthWest, 198, 224, 198, 224, "Boudhanath kora, south-south-west"),
+            new BoudhaSector(BoudhaPart.SouthWest, 224, 246, 224, 245.5, "Boudhanath kora, south-west"),
+            new BoudhaSector(BoudhaPart.WestSouthWest, 246, 258, 245.5, 258, "Boudhanath kora, west-south-west"),
+            new BoudhaSector(BoudhaPart.West, 258, 276, 258, 276, "Boudhanath Jamchen Lhakhang"),
+            new BoudhaSector(BoudhaPart.WestNorthWest, 276, 300, 276, 300, "Boudhanath kora, west-north-west"),
+            new BoudhaSector(BoudhaPart.NorthWest, 300, 325, 300, 325, "Boudhanath kora, north-west"),
+            new BoudhaSector(BoudhaPart.NorthNorthWest, 325, 350, 325, 336, "Boudhanath kora, north-north-west"),
+        };
+
+        /// <summary>The number of parts (the shell, the gate, four dressing quadrants, the kora sectors and four flag
+        /// quadrants).</summary>
+        public const int PartCount = 26;
+
+        private static readonly string[] Suffix =
+        {
+            "", ".gate", ".dress.n", ".dress.e", ".dress.s", ".dress.w", ".kora.n", ".kora.nne", ".kora.ne", ".kora.e", ".kora.se", ".kora.sse", ".kora.s",
+            ".kora.spav", ".kora.ssw", ".kora.sw", ".kora.wsw", ".kora.w", ".kora.wnw", ".kora.nw", ".kora.nnw", ".flags.n", ".flags.e", ".flags.s", ".flags.w", ".kora.gl",
+        };
+
+        private static readonly string[] DressNames =
+        {
+            "Boudhanath terraces and chortens, north", "Boudhanath terraces and chortens, east", "Boudhanath terraces and chortens, south",
+            "Boudhanath terraces and chortens, west",
+        };
+
+        private static readonly string[] FlagNames =
+        {
+            "Boudhanath prayer flags, north", "Boudhanath prayer flags, east", "Boudhanath prayer flags, south", "Boudhanath prayer flags, west",
         };
 
         /// <summary>The hero id of a part.</summary>
@@ -176,26 +329,102 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return TryPart(id, out p);
         }
 
+        /// <summary>True for a kora sector.</summary>
+        public static bool IsSector(BoudhaPart p)
+        {
+            return (p >= BoudhaPart.NorthGate && p <= BoudhaPart.NorthNorthWest) || p == BoudhaPart.NorthGuru;
+        }
+
+        /// <summary>True for a quadrant of the stupa's prayer flags.</summary>
+        public static bool IsFlags(BoudhaPart p)
+        {
+            return p >= BoudhaPart.FlagsNorth && p <= BoudhaPart.FlagsWest;
+        }
+
+        /// <summary>The dressing quadrant a flag quadrant hangs over (and the dressing quadrant itself for one).</summary>
+        public static BoudhaPart QuadrantOf(BoudhaPart p)
+        {
+            return IsFlags(p) ? (BoudhaPart)((int)BoudhaPart.DressNorth + (p - BoudhaPart.FlagsNorth)) : p;
+        }
+
+        /// <summary>True for a dressing quadrant of the stupa.</summary>
+        public static bool IsDressing(BoudhaPart p)
+        {
+            return p >= BoudhaPart.DressNorth && p <= BoudhaPart.DressWest;
+        }
+
+        /// <summary>Every part, the shell first.</summary>
+        public static IEnumerable<BoudhaPart> AllParts
+        {
+            get
+            {
+                for (int i = 0; i < PartCount; i++) yield return (BoudhaPart)i;
+            }
+        }
+
+        /// <summary>The sector record of a kora sector.</summary>
+        internal static BoudhaSector SectorOf(BoudhaPart p)
+        {
+            for (int i = 0; i < Sectors.Length; i++)
+                if (Sectors[i].Part == p) return Sectors[i];
+            return new BoudhaSector(p, double.NaN, double.NaN, double.NaN, double.NaN, null);
+        }
+
+        /// <summary>The kora sector whose inner ring holds site bearing <paramref name="deg"/>.</summary>
+        public static BoudhaPart InnerAt(double deg)
+        {
+            for (int i = 0; i < Sectors.Length; i++)
+                if (BoudhaSector.In(deg, Sectors[i].In0, Sectors[i].In1)) return Sectors[i].Part;
+            return BoudhaPart.NorthGate;
+        }
+
+        /// <summary>The kora sector whose inner ring holds the site-local point (u, v).</summary>
+        public static BoudhaPart InnerAt(double u, double v)
+        {
+            return InnerAt(BearingOf(u, v));
+        }
+
+        /// <summary>The site bearing of a site-local point (degrees clockwise from the site's north axis, 0..360).</summary>
+        public static double BearingOf(double u, double v)
+        {
+            double a = Math.Atan2(u, v) * 180.0 / Math.PI;
+            return a < 0 ? a + 360.0 : a;
+        }
+
+        /// <summary>The dressing quadrant of a site bearing (45° either side of the four site axes).</summary>
+        public static BoudhaPart QuadrantAt(double deg)
+        {
+            deg %= 360.0;
+            if (deg < 0) deg += 360.0;
+            if (deg >= 315 || deg < 45) return BoudhaPart.DressNorth;
+            if (deg < 135) return BoudhaPart.DressEast;
+            if (deg < 225) return BoudhaPart.DressSouth;
+            return BoudhaPart.DressWest;
+        }
+
         /// <summary>Per-LOD triangle ceilings of a part (LOD0..3).</summary>
         public static int[] BudgetOf(BoudhaPart p)
         {
-            if (p == BoudhaPart.Stupa) return new[] { BudgetLod0, BudgetLod1, BudgetLod2, BudgetLod3 };
-            return (int[])PartBudget[(int)p].Clone();
+            return (int[])PartBudgets[(int)p].Clone();
         }
 
-        /// <summary>The height of a part's tallest structure above the kora (m): the stupa's finial; a quarter's tallest
-        /// house, gompa roof ornament or flagpole; the main gate's crest finial.</summary>
+        /// <summary>The height of a part's tallest structure above the kora (m): the stupa's finial; a dressing quadrant's
+        /// flag lines under the canopy; a sector's tallest house, gompa roof ornament or flagpole; the main gate's crest
+        /// finial.</summary>
         public static float TopOf(BoudhaPart p)
         {
             switch (p)
             {
                 case BoudhaPart.Stupa: return HeightM;
-                case BoudhaPart.Gate: return (float)Math.Max(BoudhaGate.Top, BoudhaRing.TopOf(BoudhaPart.Gate));
-                default: return (float)BoudhaRing.TopOf(p);
+                case BoudhaPart.Gate: return (float)BoudhaGate.Top;
+                default:
+                    if (IsFlags(p)) return (float)BoudhaStupa.FlagTop;
+                    if (IsDressing(p)) return (float)(BoudhaStupa.T1Top + BoudhaTerraces.MiniH);
+                    return (float)BoudhaRing.TopOf(p);
             }
         }
 
-        /// <summary>The front-row buildings round the kora a quarter rebuilds (OSM refs "w123"; boudha.md 3.7), with the
+        /// <summary>The front-row buildings round the kora a part rebuilds (OSM refs "w123"; boudha.md 3.7), with the
         /// gompas it models (Guru Lhakhang w520755992, Old Dhabzang w209312611, Jamchen w209530023).</summary>
         public static string[] HideRefs(BoudhaPart p)
         {
@@ -205,7 +434,7 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             return l.ToArray();
         }
 
-        /// <summary>Every OSM way the site rebuilds (all quarters).</summary>
+        /// <summary>Every OSM way the site rebuilds (all sectors).</summary>
         public static IEnumerable<ulong> HiddenWays
         {
             get
@@ -214,32 +443,30 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             }
         }
 
-        /// <summary>The catalogue recipes of the five parts after the curated hero (added to the region's heroes with it by
+        /// <summary>The display name of a part.</summary>
+        public static string NameOf(BoudhaPart p)
+        {
+            if (p == BoudhaPart.Stupa) return "Boudhanath";
+            if (p == BoudhaPart.Gate) return "Boudha Gate";
+            if (IsDressing(p)) return DressNames[p - BoudhaPart.DressNorth];
+            if (IsFlags(p)) return FlagNames[p - BoudhaPart.FlagsNorth];
+            return SectorOf(p).Name;
+        }
+
+        /// <summary>The catalogue recipes of the parts after the curated hero (added to the region's heroes with it by
         /// World/Sacred/HeroSet).</summary>
         public static IEnumerable<HeroRecipe> Parts()
         {
-            for (int i = 1; i < Suffix.Length; i++)
+            for (int i = 1; i < PartCount; i++)
             {
                 var p = (BoudhaPart)i;
+                HeritageKind kind = p == BoudhaPart.Gate ? HeritageKind.Gate : IsDressing(p) || IsFlags(p) ? HeritageKind.Stupa : HeritageKind.Gompa;
                 yield return new HeroRecipe
                 {
-                    Id = IdOf(p), Name = Names[i], Osm = "w" + T1Way, Form = HeroForm.Bespoke, Kind = p == BoudhaPart.Gate ? HeritageKind.Gate : HeritageKind.Gompa,
-                    SiteOf = HeroId, Lat = Lat, Lon = Lon, HeightM = TopOf(p), PlanW = 30f, PlanD = 30f, Measured = true, BudgetTris = BudgetOf(p),
-                    Hide = HideRefs(p),
+                    Id = IdOf(p), Name = NameOf(p), Osm = "w" + T1Way, Form = HeroForm.Bespoke, Kind = kind, SiteOf = HeroId, Lat = Lat, Lon = Lon, HeightM = TopOf(p),
+                    PlanW = 30f, PlanD = 30f, Measured = true, BudgetTris = BudgetOf(p), Hide = HideRefs(p),
                 };
             }
-        }
-
-        /// <summary>The quarter of the kora a site-local point lies in (by its bearing from the stupa axis, 45° either side
-        /// of the four site axes).</summary>
-        public static BoudhaPart QuarterOf(double u, double v)
-        {
-            double a = Math.Atan2(u, v) * 180.0 / Math.PI;
-            if (a < 0) a += 360;
-            if (a >= 315 || a < 45) return BoudhaPart.North;
-            if (a < 135) return BoudhaPart.East;
-            if (a < 225) return BoudhaPart.South;
-            return BoudhaPart.West;
         }
 
         /// <summary>Locate the site in a tile (false when its anchor is not in it).</summary>
@@ -318,38 +545,44 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
             lod = Math.Max(0, Math.Min(3, lod));
             GenColliders cc = lod == 0 ? c : null;
             int niches = 0;
-            switch (part)
+            if (part == BoudhaPart.Stupa)
             {
-                case BoudhaPart.Stupa:
-                    if (lod >= 3)
-                    {
-                        int v0 = m.VertexCount, i0 = m.IndexCount;
-                        BoudhaStupa.Far(m, f);
-                        SacredDraw.Bake(m, v0, i0, f.Level);
-                    }
-                    else
-                    {
-                        BoudhaStupa.Build(m, cc, f, lod, stats);
-                        BoudhaTerraces.Build(m, cc, f, lod);
-                    }
-                    break;
-                case BoudhaPart.Gate:
-                    BoudhaGate.Build(m, cc, tile, f, lod);
-                    {
-                        // The brick house east of the gate on the road frontage (the gate's own street front).
-                        int gv = m.VertexCount, gi = m.IndexCount;
-                        BoudhaRing.Build(m, cc, tile, f, BoudhaPart.Gate, lod);
-                        SacredDraw.Bake(m, gv, gi, f.Level);
-                    }
-                    break;
-                default:
-                    niches = BoudhaQuarter.Build(m, cc, tile, f, part, lod);
-                    break;
+                if (lod >= 3)
+                {
+                    int v0 = m.VertexCount, i0 = m.IndexCount;
+                    BoudhaStupa.Far(m, f);
+                    SacredDraw.Bake(m, v0, i0, f.Level);
+                }
+                else
+                {
+                    BoudhaStupa.Build(m, cc, f, lod, stats);
+                }
+            }
+            else if (IsDressing(part))
+            {
+                // The quadrant's terrace floors, parapet and stairs, its chortens and statues.
+                BoudhaStupa.Quadrant(m, f, part, lod);
+                BoudhaTerraces.Build(m, cc, f, part, lod);
+            }
+            else if (IsFlags(part))
+            {
+                // The quadrant's four flag bundles.
+                int v0 = m.VertexCount, i0 = m.IndexCount;
+                BoudhaStupa.Flags(m, f, QuadrantOf(part), lod);
+                SacredDraw.Bake(m, v0, i0, f.Level);
+            }
+            else if (part == BoudhaPart.Gate)
+            {
+                BoudhaGate.Build(m, cc, tile, f, lod);
+            }
+            else
+            {
+                niches = BoudhaQuarter.Build(m, cc, tile, f, part, lod);
             }
             if (stats != null)
             {
                 stats.TopM = TopOf(part);
-                // The prayer-wheel niches as drawn: each quarter part its stretch of the compound wall's 147.
+                // The prayer-wheel niches as drawn: each sector its stretch of the compound wall's 147.
                 stats.Niches = niches;
                 if (part == BoudhaPart.Stupa)
                 {
@@ -357,6 +590,8 @@ namespace Ghumante.Core.Generators.Sacred.Heroes.Boudha
                     stats.Terraces = 3;
                     stats.Rings = 13;
                     stats.DoorYawDeg = (float)(AxisBearingDeg + 180.0);
+                    // The site's prayer-flag lines (the four flag quadrants draw them, four a bundle at LOD0).
+                    stats.FlagLines = BoudhaStupa.FlagLinesLod0;
                 }
             }
             return m.TriangleCount - t0;
